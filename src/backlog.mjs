@@ -103,12 +103,45 @@ export function parseBacklog(fileText, { prefix = '', names = [] } = {}) {
 
 const open = activity => activity.steps.filter(step => !step.isDone)
 
+/**
+ * The indented lines under a step, in sections, for the details of a step. A line "Requirements: ..." starts the
+ * section of that name, a line "- ..." is a point of the section it is in, and any other line is a line of it.
+ * What comes before the first name is a section without one.
+ */
+export function noteSections(notes) {
+  const sections = []
+  let section = null
+  const start = title => {
+    section = { title, lines: [], points: [] }
+    sections.push(section)
+  }
+  for (const note of notes) {
+    const line = note.trim()
+    const named = line.match(/^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/)
+    if (named !== null) {
+      start(named[1])
+      if (named[2] !== '') section.lines.push(named[2])
+      continue
+    }
+    if (section === null) start(null)
+    const point = line.match(/^[-*]\s+(.*)$/)
+    if (point !== null) section.points.push(point[1])
+    else section.lines.push(line)
+  }
+  return sections
+}
+
+/** All the words of a step: its own line and the lines under it. A folder of pictures may be named in either. */
+export function allWords(step) {
+  return [step.text, ...step.notes.flatMap(part => [...part.lines, ...part.points])].join('\n')
+}
+
 /** The steps waiting to be handed out: the open ones under "Next to hand out". */
 export function queue(backlog) {
   return backlog.activities
     .filter(activity => activity.name.toLowerCase().startsWith(QUEUE_HEADING))
     .flatMap(open)
-    .map(({ id, text, title, worker, branch, after, minutes }) => ({ id, text, title, worker, branch, after, minutes }))
+    .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(notes) }))
 }
 
 /**
@@ -117,7 +150,8 @@ export function queue(backlog) {
  */
 export function forYou(backlog) {
   return backlog.activities.flatMap(activity =>
-    open(activity).filter(step => step.isYou).map(({ id, text, title, asks, worker }) => ({ id, text, title, asks, worker, activity: activity.name })))
+    open(activity).filter(step => step.isYou).map(({ id, text, title, asks, worker, branch, notes }) =>
+      ({ id, text, title, asks, worker, branch, notes: noteSections(notes), activity: activity.name })))
 }
 
 /** The open steps of the person's main focus that a chat can do. */

@@ -13,8 +13,9 @@ const DEFAULTS = {
   quietMinutes: 10,
   /** An estimate older than this is shown as old. */
   estimateOldMinutes: 15,
-  /** The hour the Today timeline starts at. */
-  dayStartHour: 6,
+  /** How far the timeline looks back from now, and at least how far ahead: the person plans with what comes. */
+  hoursBack: 2,
+  hoursAhead: 6,
   /** The longest message the chat box accepts. */
   maxMessageChars: 2000,
   /** A typed message that was not delivered within this time is never delivered. */
@@ -26,7 +27,7 @@ const DEFAULTS = {
 }
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
-const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'dayStartHour', 'maxMessageChars', 'messageKeepMinutes']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes']
 
 /** Fills `%NAME%` from the environment. Windows names have no fixed case, so the look-up ignores it. */
 export function expandEnv(text, env) {

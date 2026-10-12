@@ -3,13 +3,14 @@
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { forYou, parseBacklog, queue } from './backlog.mjs'
-import { dayStart, taskFacts, today } from './history.mjs'
+import { allWords, forYou, parseBacklog, queue } from './backlog.mjs'
+import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { conversation, doingNow, lastFinish, parseTail, taskStart, turnStart, turnState } from './transcript.mjs'
 
 const MIN = 60_000
+const HOUR = 60 * MIN
 const ASKED = 'Asked you a question in its chat.'
 
 /**
@@ -230,13 +231,19 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     .map(step => [step.branch, step.worker]))
   const folders = Array.isArray(raw.folders) ? raw.folders : null
 
+  // The pictures in the folders a step's words point to.
+  const pictureLists = raw.pictureLists !== null && typeof raw.pictureLists === 'object' ? raw.pictureLists : {}
+  const picturesOf = words => mentionedPaths(words, config.pictureRoots)
+    .flatMap(path => (Array.isArray(pictureLists[path]) ? pictureLists[path] : []))
+    .slice(0, 6)
+
   // Without such a step, a folder named after a worker ("features" for Features) is that worker's.
   const firstWord = name => name.toLowerCase().split(/[^a-z0-9]+/)[0]
   const owner = folder => (folder.branch === 'main' ? null : ownerOf.get(folder.branch) ?? names.find(name => firstWord(name) === folder.name.toLowerCase()) ?? null)
 
   const lanes = cards.map(lane => {
     const mine = lane.isLeftover ? [] : queued.filter(step => step.worker === lane.name)
-    const withQueue = { ...lane, queue: mine.map(({ id, title, text, minutes, after, branch }) => ({ id, title, text, minutes, after, branch })) }
+    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, pictures: picturesOf(allWords(step)) })) }
     return {
       ...withQueue,
       folders: lane.isLeftover ? [] : (folders ?? []).filter(folder => owner(folder) === lane.name),
@@ -246,9 +253,9 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
   const live = lanes.filter(lane => !lane.isLeftover)
 
   const asks = (Array.isArray(raw.askTexts) ? raw.askTexts : []).map(text => parseAsk(textOr(text, ''))).filter(ask => ask !== null)
-  const pictureLists = raw.pictureLists !== null && typeof raw.pictureLists === 'object' ? raw.pictureLists : {}
   const titles = new Map(apps.filter(chat => chat.sessionId !== null).map(chat => [chat.sessionId, chat.title]))
-  const from = dayStart(now, config.dayStartHour)
+  // The timeline: a little of what was, and what is ahead as far as it is planned (a day at most).
+  const from = hourStart(now - config.hoursBack * HOUR)
 
   let advisor = null
   if (advisorChat !== undefined) {
@@ -265,6 +272,8 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
       pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null),
     }
   }
+
+  const until = Math.max(now, ...live.flatMap(lane => lane.ahead.map(span => span.to)))
 
   return {
     readAt: now,
@@ -294,9 +303,11 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
         at: null,
         activity: step.activity,
         options: [],
-        pictures: mentionedPaths(step.text, config.pictureRoots)
-          .flatMap(path => (Array.isArray(pictureLists[path]) ? pictureLists[path] : []))
-          .slice(0, 6),
+        pictures: picturesOf(allWords(step)),
+        // For the details of the step: its own words, its notes and the branch it names.
+        words: step.text,
+        notes: step.notes,
+        branch: step.branch,
         run: null,
         checks: [],
         tried: [],
@@ -307,7 +318,7 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     // Folders no worker is named for, and whether git answered at all.
     otherFolders: (folders ?? []).filter(folder => folder.branch !== 'main' && owner(folder) === null),
     hasFolders: folders !== null,
-    day: { from, to: now, until: Math.max(now, ...live.flatMap(lane => lane.ahead.map(span => span.to))) },
+    day: { from, to: now, until, end: hourEnd(Math.min(Math.max(until, now + config.hoursAhead * HOUR), now + 24 * HOUR)) },
     today: today(lines, { from, to: now, names }).map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
     advisor,
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,

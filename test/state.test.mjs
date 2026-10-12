@@ -4,6 +4,7 @@ import test from 'node:test'
 import { demoSources } from '../fixtures/demo.mjs'
 import { answer, assistant, fromChat, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
+import { hourEnd, hourStart } from '../src/history.mjs'
 import { buildState, chatState } from '../src/state.mjs'
 
 const MIN = 60_000
@@ -166,6 +167,7 @@ test('a working chat with an estimate has a time it expects to be done, and its 
   const units = chatNamed(state, 'Units')
   assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false })
   assert.deepEqual(units.queue.map(step => [step.id, step.title, step.minutes]), [[null, 'Knight rows', 30], [null, 'Polish', null], [null, 'Banner', 10]])
+  assert.deepEqual(units.queue[0], { id: null, title: 'Knight rows', text: 'Knight rows (for Units; about 30 min)', minutes: 30, after: null, branch: null, notes: [], pictures: [] })
   // The plan stops at the first step without a time: what follows it cannot be placed.
   assert.deepEqual(units.ahead, [
     { from: NOW, to: NOW + 22 * MIN, title: 'Archer', isQueued: false },
@@ -177,7 +179,28 @@ test('a working chat with an estimate has a time it expects to be done, and its 
   assert.deepEqual([chatNamed(state, 'Main').eta, chatNamed(state, 'Main').queue], [null, []])
   assert.deepEqual(state.unassigned.map(step => step.title), ['Name the game'])
   assert.equal(state.day.until, NOW + 52 * MIN)
+  // The timeline runs from the full hour two hours back to the full hour six hours ahead.
+  assert.deepEqual([state.day.from, state.day.to, state.day.end], [hourStart(NOW - 120 * MIN), NOW, hourEnd(NOW + 360 * MIN)])
   assert.deepEqual(state.today.map(lane => [lane.chat, lane.ahead.length]), [['Main', 0], ['Units', 2], ['Levels', 0]])
+})
+
+test('the timeline reaches as far ahead as what is planned, and shows only the last hours of what was', () => {
+  const state = build({
+    apps: [app('Units')],
+    tails: { Units: tail(running) },
+    plans: { Units: planLine({ text: 'Archer', left: 300 * MIN }) },
+    backlog: '## Next to hand out (Game - Main)\n- [ ] Knight (for Units; about 4 h)\n- [ ] Bat (for Units; about 3 h)\n',
+    lines: [
+      { at: NOW - 400 * MIN, chat: 'Units', state: 'free', task: null },
+      { at: NOW - 30 * MIN, chat: 'Units', state: 'working', task: 'Archer' },
+    ],
+  })
+  // Planned: the task until about five hours from now, then four hours of queue. A step that would start more
+  // than eight hours from now is not planned.
+  assert.equal(state.day.end, hourEnd(state.day.until))
+  assert.deepEqual(state.today[0].ahead.map(span => span.title), ['Archer', 'Knight'])
+  assert.ok(state.day.end > NOW + 8 * 60 * MIN)
+  assert.deepEqual(state.today[0].spans.map(span => [span.from, span.state]), [[hourStart(NOW - 120 * MIN), 'free'], [NOW - 30 * MIN, 'working']])
 })
 
 test('a folder is shown with the worker an open step names for its branch; the others are listed apart', () => {
@@ -202,6 +225,31 @@ test('a step for you in the backlog shows the pictures of the folder it points t
     pictureLists: { 'art-inbox/red-mage': ['art-inbox/red-mage/a.png', 'art-inbox/red-mage/b.png'], 'art-inbox/other': ['art-inbox/other/c.png'] },
   })
   assert.deepEqual(state.backlogForYou.map(step => step.pictures), [['art-inbox/red-mage/a.png', 'art-inbox/red-mage/b.png'], []])
+})
+
+test('a step carries what its details show: its words, its notes in sections, its branch, and a queued step its pictures', () => {
+  const state = build({
+    apps: [app('Main'), app('Units')],
+    backlog: [
+      '## Art',
+      '- [ ] B14 Verify: the walk is smooth (branch fix/archer-walk; pictures in art-inbox/archer) @you',
+      '  Requirements:',
+      '  - No sliding feet',
+      '## Next to hand out (Game - Main)',
+      '- [ ] B59 Redraw the portrait, see art-inbox/beast (for Units; about 20 min)',
+      '  Context: keep the glowing eyes. The icons are in art-inbox/hud.',
+    ].join('\n'),
+    pictureLists: { 'art-inbox/archer': ['art-inbox/archer/walk.png'], 'art-inbox/beast': ['art-inbox/beast/old.png'], 'art-inbox/hud': ['art-inbox/hud/icons.png'] },
+  })
+  const [step] = state.backlogForYou
+  assert.deepEqual([step.words, step.branch, step.notes], [
+    'Verify: the walk is smooth (branch fix/archer-walk; pictures in art-inbox/archer)',
+    'fix/archer-walk',
+    [{ title: 'Requirements', lines: [], points: ['No sliding feet'] }],
+  ])
+  const [queued] = chatNamed(state, 'Units').queue
+  // Pictures are found in the step's own line and in the lines under it.
+  assert.deepEqual([queued.id, queued.pictures, queued.notes], ['B59', ['art-inbox/beast/old.png', 'art-inbox/hud/icons.png'], [{ title: 'Context', lines: ['keep the glowing eyes. The icons are in art-inbox/hud.'], points: [] }]])
 })
 
 test('a step for you in the backlog is a card of its kind, answered to the worker it names or to the main chat', () => {

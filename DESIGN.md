@@ -37,6 +37,19 @@ writes in front of each what it asks of the person, and the board follows that: 
 `Decide:` and `Provide:` need words, `Do:` gets a Done button. A step shows the pictures of the folder it points
 to. Its answer goes to the worker the step names, else to the main chat, which keeps the backlog.
 
+**Details on a click.** The head of a card, and a step in a lane's queue, open a window with everything known
+about it (`design/2026-10-12-codex-design-3-details.webp`): what it is and whose, a description, the pictures it
+points to, where it stands in the queue, its branch and folder, and for a request the answer form of its kind. A
+step of the backlog is one line, so what describes it further are the indented lines under it: a line
+"Requirements:" (or any other name with a colon) starts a part of that name, a line "- ..." is a point of it,
+"Context:" goes to the side, and a folder of pictures named in any of these lines is shown.
+
+**The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
+more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
+expected and queued is what they plan with.
+
+**The right side is as wide as it is dragged**, on both tabs, and the lanes follow the room that is left.
+
 **Where an answer goes.** The person talks with the advisor on the second tab, and the board answers the workers:
 an answer is addressed to the chat that asked and to no other. The server checks each answer against the request
 it is for (`src/say.mjs`) and keeps it in `data/outbox.jsonl`. Delivery is the bridge in the mod, as described

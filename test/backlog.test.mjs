@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { forYou, openWork, parseBacklog, queue } from '../src/backlog.mjs'
+import { forYou, noteSections, openWork, parseBacklog, queue } from '../src/backlog.mjs'
 
 const TEXT = `# Backlog
 
@@ -55,10 +55,10 @@ test('parseBacklog adds an indented line to the step above it', () => {
 
 test('queue: the open steps to hand out, with the worker, the condition and the time picked out', () => {
   assert.deepEqual(queue(backlog), [
-    { id: null, text: 'Main menu (for Features; after the battle page merges; about 40 min)', title: 'Main menu', worker: 'Features', branch: null, after: 'the battle page merges', minutes: 40 },
-    { id: null, text: 'Level streaming (for Levels / Environment; about 2 h)', title: 'Level streaming', worker: 'Levels / Environment', branch: null, after: null, minutes: 120 },
-    { id: null, text: 'When the beast merges: tell Game - Units the portrait is old', title: 'When the beast merges: tell Game - Units the portrait is old', worker: 'Units', branch: null, after: null, minutes: null },
-    { id: null, text: 'Tidy the art inbox', title: 'Tidy the art inbox', worker: null, branch: null, after: null, minutes: null },
+    { id: null, text: 'Main menu (for Features; after the battle page merges; about 40 min)', title: 'Main menu', worker: 'Features', branch: null, after: 'the battle page merges', minutes: 40, notes: [] },
+    { id: null, text: 'Level streaming (for Levels / Environment; about 2 h)', title: 'Level streaming', worker: 'Levels / Environment', branch: null, after: null, minutes: 120, notes: [] },
+    { id: null, text: 'When the beast merges: tell Game - Units the portrait is old', title: 'When the beast merges: tell Game - Units the portrait is old', worker: 'Units', branch: null, after: null, minutes: null, notes: [] },
+    { id: null, text: 'Tidy the art inbox', title: 'Tidy the art inbox', worker: null, branch: null, after: null, minutes: null, notes: [] },
   ])
 })
 
@@ -75,6 +75,29 @@ test('an open step starts with its id, before its kind; the id is not part of it
   assert.deepEqual(queue(backlog).map(step => [step.id, step.title, step.worker, step.minutes]), [['B59', 'Redraw the portrait', 'Features', 20]])
 })
 
+test('the indented lines under a step are its details, in sections', () => {
+  const text = [
+    '## Next to hand out (Game - Main)',
+    '- [ ] B59 Redraw the beast\'s portrait (for Features; branch feature/hud-portrait; about 20 min)',
+    '  The portrait on the HUD uses the old concept.',
+    '  Redraw it in the current style.',
+    '  Requirements:',
+    '  - Same style as the other icons',
+    '  * Readable at 32 by 32',
+    '  Context: Focus on the face. See art-inbox/shadow-beast.',
+    '  (handed over on 2026-10-12: no)',
+    '- [ ] B60 Tidy',
+  ].join('\n')
+  const [portrait, tidy] = queue(parseBacklog(text, RULES))
+  assert.deepEqual(portrait.notes, [
+    { title: null, lines: ['The portrait on the HUD uses the old concept.', 'Redraw it in the current style.'], points: [] },
+    { title: 'Requirements', lines: [], points: ['Same style as the other icons', 'Readable at 32 by 32'] },
+    { title: 'Context', lines: ['Focus on the face. See art-inbox/shadow-beast.', '(handed over on 2026-10-12: no)'], points: [] },
+  ])
+  assert.deepEqual([portrait.branch, tidy.notes], ['feature/hud-portrait', []])
+  assert.deepEqual(noteSections(['- only a point', 'http://example.com: not a name']), [{ title: null, lines: ['http://example.com: not a name'], points: ['only a point'] }])
+})
+
 test('queue: a condition with brackets of its own, and a time in hours and minutes', () => {
   const text = '## Next to hand out (Game - Main)\n- [ ] Knight rows (for Units; after the archer (branch fix/archer-walk) merges; about 1 h 30 min)\n- [ ] Tidy (for Units; about 1.5 hours)\n'
   assert.deepEqual(queue(parseBacklog(text, RULES)).map(step => [step.title, step.worker, step.after, step.minutes]), [
@@ -85,8 +108,8 @@ test('queue: a condition with brackets of its own, and a time in hours and minut
 
 test('forYou: every open step that ends in @you, with its activity', () => {
   assert.deepEqual(forYou(backlog), [
-    { id: null, text: 'Say whether the run does what you intended', title: 'Say whether the run does what you intended', asks: null, worker: null, activity: 'Architecture' },
-    { id: null, text: 'Say which plan the music came from', title: 'Say which plan the music came from', asks: null, worker: null, activity: 'Sound' },
+    { id: null, text: 'Say whether the run does what you intended', title: 'Say whether the run does what you intended', asks: null, worker: null, branch: null, notes: [], activity: 'Architecture' },
+    { id: null, text: 'Say which plan the music came from', title: 'Say which plan the music came from', asks: null, worker: null, branch: null, notes: [], activity: 'Sound' },
   ])
 })
 

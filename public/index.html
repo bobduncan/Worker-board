@@ -25,7 +25,7 @@
       </header>
       <section class="lanes" id="lanes" aria-label="Workers"></section>
       <section class="panel" id="today" aria-labelledby="today-title">
-        <h2 id="today-title">Today <small id="today-range"></small></h2>
+        <h2 id="today-title">Timeline <small id="today-range"></small></h2>
         <div class="today">
           <div class="timeline" id="timeline"></div>
           <ul class="legend" id="legend"></ul>
@@ -68,11 +68,13 @@
     </aside>
   </div>
 
-  <div class="lightbox" id="lightbox" hidden>
+  <dialog class="details" id="details" aria-label="Details"></dialog>
+
+  <dialog class="lightbox" id="lightbox" aria-label="Picture">
     <figure>
       <img id="lightbox-picture" alt="">
       <figcaption id="lightbox-caption"></figcaption>
     </figure>
-  </div>
+  </dialog>
 </body>
 </html>

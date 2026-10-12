@@ -197,13 +197,18 @@ function drawMore(lane, state) {
   if (lane.queue.length === 0) queue.append(el('p', 'muted', 'Nothing is queued for this worker.'))
   else {
     const list = el('ol')
-    for (const step of lane.queue) {
+    lane.queue.forEach((step, place) => {
       const item = el('li')
-      item.append(el('b', '', step.title))
+      const title = el('button', 'link', step.title)
+      title.type = 'button'
+      title.dataset.lane = lane.name
+      title.dataset.step = String(place)
+      title.title = 'Show the details'
+      item.append(title)
       const notes = [step.id, about(step.minutes), step.after === null ? null : `after ${step.after}`].filter(Boolean)
       if (notes.length > 0) item.append(el('small', '', `  ${notes.join(' · ')}`))
       list.append(item)
-    }
+    })
     queue.append(list)
   }
 
@@ -284,8 +289,11 @@ function drawLane(lane, state) {
   queue.append(head)
   if (lane.queue.length > 0) {
     const first = el('div', 'queue-first')
-    const item = el('div', 'queue-item')
-    item.title = lane.queue[0].text
+    const item = el('button', 'queue-item')
+    item.type = 'button'
+    item.dataset.lane = lane.name
+    item.dataset.step = '0'
+    item.title = `${lane.queue[0].text}\nShow the details`
     item.append(el('b', '', lane.queue[0].title), el('small', '', [lane.queue[0].id, about(lane.queue[0].minutes) ?? 'no time given'].filter(Boolean).join(' · ')))
     first.append(item)
     if (lane.queue.length > 1) first.append(el('div', 'queue-more', `+${lane.queue.length - 1}`))
@@ -327,11 +335,7 @@ function drawStrips(state) {
 // Today
 
 function drawToday(state) {
-  const { from, to } = state.day
-  // The scale runs from the start of the day to the first full hour after now, and on to the end of what is
-  // planned, but not further than six hours ahead.
-  const until = Math.min(Math.max(to, state.day.until), to + 6 * HOUR)
-  const end = from + Math.max(1, Math.ceil((until - from + 10 * MIN) / HOUR)) * HOUR
+  const { from, to, end } = state.day
   const at = time => `${Math.max(0, Math.min(100, ((time - from) / (end - from)) * 100))}%`
   const place = (node, time) => {
     node.style.left = at(time)
@@ -344,7 +348,7 @@ function drawToday(state) {
     return node
   }
 
-  $('today-range').textContent = `${clock(from)} – now`
+  $('today-range').textContent = `${clock(from)} to ${clock(end)}`
   const hours = el('div', 'row hours')
   const scale = el('div', 'track')
   const everyHours = (end - from) / HOUR > 9 ? 2 : 1
@@ -396,7 +400,7 @@ function drawToday(state) {
 
 // For you
 
-function sentLine(answer, now) {
+function sentLine(answer) {
   const line = el('div', 'sent')
   const what = { approve: 'You approved', reject: 'You rejected', done: 'You marked it done' }[answer.verdict] ?? 'You answered'
   line.append(el('b', '', what), ` at ${clock(answer.at)} · `, answer.state === 'delivered' ? 'delivered' : 'not delivered yet')
@@ -404,81 +408,24 @@ function sentLine(answer, now) {
   return line
 }
 
-function drawNeed(need, state) {
-  const kind = KINDS[need.kind]
-  // A step from the backlog has no chat that asked: it is headed by its activity and says where the answer goes.
-  const isStep = need.activity !== undefined
-  const card = el('article', `need is-${need.kind}${isStep ? ' is-step' : ''}`)
-  card.dataset.id = need.id
-  const top = el('header', 'need-top')
-  if (isStep) top.append(el('span', 'kind', kind.sign), need.step === null ? '' : el('b', '', need.step), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
-  else top.append(el('span', 'kind', kind.sign), el('b', '', need.from), el('span', 'tag', kind.tag), since(need.at, state.readAt))
-  card.append(top, el('h4', '', need.title))
-  if (need.text !== '') card.append(el('p', '', need.text))
+/** A step from the backlog has no chat that asked: it is headed by its activity and says where the answer goes. */
+const isStep = need => need.activity !== undefined
 
-  // An option is chosen with the button under its picture; the picture itself opens large.
-  const choice = option => {
-    const button = el('button', `choice${chosen.get(need.id) === option.label ? ' is-chosen' : ''}`, `${option.label}${option.isRecommended ? ' (recommended)' : ''}`)
-    button.type = 'button'
-    button.dataset.choose = option.label
-    return button
-  }
-  const withPicture = need.options.filter(option => option.picture !== null)
-  if (withPicture.length > 0 || need.pictures.length > 0) {
-    const grid = el('div', 'pictures')
-    for (const option of withPicture) {
-      const box = el('div', 'option')
-      box.append(picture(option.picture, option.label), choice(option))
-      grid.append(box)
-    }
-    for (const path of need.pictures) grid.append(picture(path))
-    card.append(grid)
-  }
-  const plain = need.options.filter(option => option.picture === null)
-  if (plain.length > 0) {
-    const choices = el('div', 'choices')
-    for (const option of plain) choices.append(choice(option))
-    card.append(choices)
-  }
-
-  if (need.run !== null) {
-    if (need.run.url !== null) {
-      const link = el('a', 'run')
-      link.href = need.run.url
-      link.target = '_blank'
-      link.rel = 'noreferrer noopener'
-      link.append(icon('open'), 'Open branch in local build')
-      card.append(link)
-    }
-    const where = [need.run.branch === null ? null : `branch ${need.run.branch}`, need.run.entry === null ? null : `if it does not open, start "${need.run.entry}" first`].filter(Boolean)
-    if (where.length > 0) card.append(el('small', 'run-note', where.join(' · ')))
-  }
-  for (const [title, lines] of [['Key points to check', need.checks], ['Already tried', need.tried]]) {
-    if (lines.length === 0) continue
-    const box = el('div', 'box')
-    const list = el('ul')
-    for (const line of lines) list.append(el('li', '', line))
-    box.append(el('b', '', title), list)
-    card.append(box)
-  }
-
+/**
+ * The part of a request that takes the answer: what was sent, or the form its kind needs. `isFolded` keeps the
+ * form of a backlog step behind a button until it is opened, so the many steps stay short.
+ */
+function answerPart(need, state, isFolded) {
+  const parts = []
   const answer = need.answer
-  if (answer !== null && answer.state !== 'expired') {
-    card.append(sentLine(answer, state.readAt))
-    return card
-  }
-  if (answer !== null) card.append(el('p', 'problem', `Your answer of ${clock(answer.at)} was not delivered in time. Send it again when the chat can take it.`))
-  if (!need.canAnswer) {
-    card.append(el('p', 'muted', isStep ? 'No main chat is open to take the answer.' : 'Answer in its chat.'))
-    return card
-  }
-  // The many steps of the backlog stay short until one is opened to answer it.
-  if (isStep && !openForms.has(need.id)) {
+  if (answer !== null && answer.state !== 'expired') return [sentLine(answer)]
+  if (answer !== null) parts.push(el('p', 'problem', `Your answer of ${clock(answer.at)} was not delivered in time. Send it again when the chat can take it.`))
+  if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
+  if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
     open.type = 'button'
     open.dataset.open = need.id
-    card.append(open)
-    return card
+    return [...parts, open]
   }
 
   const text = el('textarea')
@@ -498,9 +445,82 @@ function drawNeed(need, state) {
   if (need.kind === 'verify') buttons.append(button('✓  Approve', 'is-approve', 'approve'), button('✕  Reject', 'is-reject', 'reject'))
   else if (need.kind === 'do') buttons.append(button('✓  Done', 'is-approve', 'done'))
   else buttons.append(button('Send', '', ''))
-  if (need.kind === 'verify') card.append(buttons, text)
-  else card.append(text, buttons)
-  if (problems.has(need.id)) card.append(el('p', 'problem', problems.get(need.id)))
+  if (need.kind === 'verify') parts.push(buttons, text)
+  else parts.push(text, buttons)
+  if (problems.has(need.id)) parts.push(el('p', 'problem', problems.get(need.id)))
+  return parts
+}
+
+/** The options of a request: a button under its picture for each that has one, plain buttons for the others. */
+function optionParts(need) {
+  const parts = []
+  const choice = option => {
+    const button = el('button', `choice${chosen.get(need.id) === option.label ? ' is-chosen' : ''}`, `${option.label}${option.isRecommended ? ' (recommended)' : ''}`)
+    button.type = 'button'
+    button.dataset.choose = option.label
+    return button
+  }
+  const withPicture = need.options.filter(option => option.picture !== null)
+  if (withPicture.length > 0 || need.pictures.length > 0) {
+    const grid = el('div', 'pictures')
+    for (const option of withPicture) {
+      const box = el('div', 'option')
+      box.append(picture(option.picture, option.label), choice(option))
+      grid.append(box)
+    }
+    for (const path of need.pictures) grid.append(picture(path))
+    parts.push(grid)
+  }
+  const plain = need.options.filter(option => option.picture === null)
+  if (plain.length > 0) {
+    const choices = el('div', 'choices')
+    for (const option of plain) choices.append(choice(option))
+    parts.push(choices)
+  }
+  return parts
+}
+
+function runLink(run) {
+  const link = el('a', 'run')
+  link.href = run.url
+  link.target = '_blank'
+  link.rel = 'noreferrer noopener'
+  link.append(icon('open'), 'Open branch in local build')
+  return link
+}
+
+function listBox(title, lines) {
+  const box = el('div', 'box')
+  const list = el('ul')
+  for (const line of lines) list.append(el('li', '', line))
+  box.append(el('b', '', title), list)
+  return box
+}
+
+function drawNeed(need, state) {
+  const kind = KINDS[need.kind]
+  const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}`)
+  card.dataset.id = need.id
+  // The head of a card opens its details.
+  const head = el('div', 'need-head')
+  head.dataset.details = need.id
+  head.title = 'Show the details'
+  const top = el('header', 'need-top')
+  if (isStep(need)) top.append(el('span', 'kind', kind.sign), need.step === null ? '' : el('b', '', need.step), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
+  else top.append(el('span', 'kind', kind.sign), el('b', '', need.from), el('span', 'tag', kind.tag), since(need.at, state.readAt))
+  head.append(top, el('h4', '', need.title))
+  card.append(head)
+  if (need.text !== '') card.append(el('p', '', need.text))
+  card.append(...optionParts(need))
+
+  if (need.run !== null) {
+    if (need.run.url !== null) card.append(runLink(need.run))
+    const where = [need.run.branch === null ? null : `branch ${need.run.branch}`, need.run.entry === null ? null : `if it does not open, start "${need.run.entry}" first`].filter(Boolean)
+    if (where.length > 0) card.append(el('small', 'run-note', where.join(' · ')))
+  }
+  if (need.checks.length > 0) card.append(listBox('Key points to check', need.checks))
+  if (need.tried.length > 0) card.append(listBox('Already tried', need.tried))
+  card.append(...answerPart(need, state, isStep(need)))
   return card
 }
 
@@ -525,91 +545,354 @@ function drawLegacy(state) {
   return box
 }
 
+/** Puts the cursor back into the answer it was in, after a redraw of `box`. The words are kept in `drafts`. */
+function refocus(box, id) {
+  if (id === null) return
+  const again = [...box.querySelectorAll('.need')].find(card => card.dataset.id === id)?.querySelector('textarea')
+  if (!again) return
+  again.focus()
+  again.setSelectionRange(again.value.length, again.value.length)
+}
+
+const focusedNeed = box => (box.contains(document.activeElement) ? document.activeElement.closest('.need')?.dataset.id ?? null : null)
+
 function drawNeeds(state) {
   const box = $('needs')
-  const focused = document.activeElement?.closest?.('.need')?.dataset.id ?? null
+  const focused = focusedNeed(box)
   const top = box.scrollTop
   $('needs-count').textContent = state.forYou.length === 0 ? '' : String(state.forYou.length)
   const cards = ordered(state.forYou).map(need => drawNeed(need, state))
   fill(box, [cards.length === 0 ? el('p', 'empty', 'Nothing waits for you.') : null, ...cards, drawLegacy(state)])
   box.scrollTop = top
-  // A redraw while the person types: the words are kept in `drafts`, and the cursor goes back where it was.
-  if (focused !== null) {
-    const again = [...box.querySelectorAll('.need')].find(card => card.dataset.id === focused)?.querySelector('textarea')
-    if (again) {
-      again.focus()
-      again.setSelectionRange(again.value.length, again.value.length)
-    }
-  }
+  refocus(box, focused)
 }
 
 const needsData = state => [state.forYou, state.backlogForYou, $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms]]
 
-$('needs').addEventListener('input', event => {
-  const card = event.target.closest('.need')
-  if (card !== null && event.target.matches('textarea')) drafts.set(card.dataset.id, event.target.value)
-})
+/** Draws again what shows requests: the inbox, and the details when they are open. */
+function redrawNeeds() {
+  if (board === null) return
+  once('needs', needsData(board), () => drawNeeds(board))
+  drawDetails(board)
+}
 
-$('needs').addEventListener('click', event => {
-  const card = event.target.closest('.need')
-  if (card === null || board === null) return
-  const id = card.dataset.id
-  const need = [...board.forYou, ...board.backlogForYou].find(one => one.id === id)
-  if (event.target.closest('[data-open]') !== null) {
-    openForms.add(id)
-    once('needs', needsData(board), () => drawNeeds(board))
-    card.ownerDocument.querySelector(`.need[data-id="${CSS.escape(id)}"] textarea`)?.focus()
-    return
-  }
-  const choice = event.target.closest('[data-choose]')
-  if (choice !== null) {
-    // Choosing an option writes it into the answer, where it can be added to before it is sent.
-    const before = chosen.get(id)
-    const draft = drafts.get(id) ?? ''
-    if (draft.trim() === '' || draft === before) drafts.set(id, choice.dataset.choose)
-    chosen.set(id, choice.dataset.choose)
-    drawn.needs = null
-    once('needs', needsData(board), () => drawNeeds(board))
-    return
-  }
-  const button = event.target.closest('[data-send]')
-  if (button === null || need === undefined) return
-  const verdict = button.dataset.send === '' ? null : button.dataset.send
-  const text = (drafts.get(id) ?? '').trim()
-  if (verdict === 'reject' && text === '') return fail(id, 'Say why you reject it: the worker needs to know what to change.')
-  if (verdict === null && text === '') return fail(id, 'This needs your words.')
-  openForms.delete(id)
-  send({ to: need.from, ask: id, verdict, text }, id)
-})
+const findNeed = id => (board === null ? undefined : [...board.forYou, ...board.backlogForYou].find(one => one.id === id))
+
+/** The answer forms work the same in the inbox and in the details: both hold `.need` elements named by their id. */
+function takeAnswers(box) {
+  box.addEventListener('input', event => {
+    const card = event.target.closest('.need')
+    if (card !== null && event.target.matches('textarea')) drafts.set(card.dataset.id, event.target.value)
+  })
+
+  box.addEventListener('click', event => {
+    const card = event.target.closest('.need')
+    if (card === null || board === null) return
+    const id = card.dataset.id
+    const need = findNeed(id)
+    if (event.target.closest('[data-open]') !== null) {
+      openForms.add(id)
+      redrawNeeds()
+      refocus(box, id)
+      return
+    }
+    const choice = event.target.closest('[data-choose]')
+    if (choice !== null) {
+      // Choosing an option writes it into the answer, where it can be added to before it is sent.
+      const before = chosen.get(id)
+      const draft = drafts.get(id) ?? ''
+      if (draft.trim() === '' || draft === before) drafts.set(id, choice.dataset.choose)
+      chosen.set(id, choice.dataset.choose)
+      drawn.needs = null
+      redrawNeeds()
+      return
+    }
+    const button = event.target.closest('[data-send]')
+    if (button === null || need === undefined) return
+    const verdict = button.dataset.send === '' ? null : button.dataset.send
+    const text = (drafts.get(id) ?? '').trim()
+    if (verdict === 'reject' && text === '') return fail(id, 'Say why you reject it: the worker needs to know what to change.')
+    if (verdict === null && text === '') return fail(id, 'This needs your words.')
+    openForms.delete(id)
+    send({ to: need.from, ask: id, verdict, text }, id)
+  })
+}
 
 function fail(id, why) {
   problems.set(id, why)
-  if (board !== null) once('needs', needsData(board), () => drawNeeds(board))
+  redrawNeeds()
 }
 
-$('needs-order').addEventListener('change', () => {
-  if (board !== null) once('needs', needsData(board), () => drawNeeds(board))
+takeAnswers($('needs'))
+takeAnswers($('details'))
+$('needs-order').addEventListener('change', redrawNeeds)
+
+// The details of a request or of a queued step, in a window over the board
+
+/** What the details are about: a request by its id, or a queued step by its lane and place. */
+let detailsOf = null
+let detailsShown = null
+
+function subjectOf(state) {
+  if (detailsOf === null) return null
+  if (detailsOf.need !== undefined) {
+    const need = [...state.forYou, ...state.backlogForYou].find(one => one.id === detailsOf.need)
+    return need === undefined ? null : { need, lane: null, place: -1 }
+  }
+  const lane = state.chats.find(one => one.name === detailsOf.lane)
+  // A queued step is followed by its id when it has one, so the details stay on it when the queue moves.
+  const place = lane === undefined ? -1 : detailsOf.id === null ? detailsOf.place : lane.queue.findIndex(step => step.id === detailsOf.id)
+  return lane === undefined || lane.queue[place] === undefined ? null : { need: null, lane, place }
+}
+
+function copyRow(sign, text) {
+  const row = el('div', 'copy-row')
+  const button = el('button', 'copy', 'Copy')
+  button.type = 'button'
+  button.dataset.copy = text
+  button.title = 'Copy to the clipboard'
+  row.append(el('span', 'muted', sign), el('span', 'copy-text', text), button)
+  return row
+}
+
+function section(title, children) {
+  const box = el('section', 'details-part')
+  box.append(el('h3', '', title), ...children)
+  return box
+}
+
+/** The notes under a step: its own words first, then the named sections. "Context" goes to the side column. */
+function noteParts(notes) {
+  const isContext = part => part.title !== null && /context/i.test(part.title)
+  const draw = part => {
+    const nodes = part.lines.map(line => el('p', '', line))
+    if (part.points.length > 0) {
+      const list = el('ul')
+      for (const point of part.points) list.append(el('li', '', point))
+      nodes.push(list)
+    }
+    return nodes
+  }
+  return {
+    lead: notes.filter(part => part.title === null).flatMap(draw),
+    named: notes.filter(part => part.title !== null && !isContext(part)).map(part => section(part.title, draw(part))),
+    context: notes.filter(isContext).flatMap(draw),
+  }
+}
+
+function drawDetails(state) {
+  const box = $('details')
+  const subject = subjectOf(state)
+  if (subject === null) {
+    // What it was about is gone: answered, closed, or handed out.
+    if (box.open) box.close()
+    detailsOf = null
+    return
+  }
+  const { need, lane, place } = subject
+  const step = need === null ? lane.queue[place] : null
+  const now = state.readAt
+  // Drawn again only when what it shows has changed, so reading and typing in it are left alone.
+  const showing = JSON.stringify([detailsOf, need ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending]])
+  if (box.open && detailsShown === showing) return
+  detailsShown = showing
+  const focused = focusedNeed(box)
+  const scroll = box.querySelector('.details-body')?.scrollTop ?? 0
+
+  // The head: what it is, whose it is, where it stands
+  const code = need === null ? step.id : need.step ?? null
+  const title = need === null ? step.title : need.title
+  const meta = need === null
+    ? [`Worker: ${lane.name}`, `In queue (${place + 1} of ${lane.queue.length})`, about(step.minutes), step.after === null ? null : `after ${step.after}`]
+    : [
+        isStep(need) ? (ASKS[need.asks] ?? 'Not sorted') : KINDS[need.kind].tag,
+        isStep(need) ? need.activity : `From: ${need.from}`,
+        isStep(need) && need.from !== null ? `Answer goes to: ${need.from}` : null,
+        need.at === null ? null : `Asked ${ago(need.at, now)}`,
+      ]
+  const head = el('header', 'details-head')
+  const names = el('div', 'details-names')
+  const heading = el('h2')
+  if (code !== null) heading.append(el('span', 'details-code', code))
+  heading.append(title)
+  names.append(heading, el('p', 'muted', meta.filter(Boolean).join('  |  ')))
+  const close = el('button', 'icon-button', '✕')
+  close.type = 'button'
+  close.dataset.close = ''
+  close.title = 'Close'
+  close.setAttribute('aria-label', 'Close')
+  head.append(el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), names, close)
+
+  // The left column: what it is about and what to look at
+  const notes = noteParts(need === null ? step.notes : need.notes ?? [])
+  // A request a chat filed has its own text. A step of the backlog is one line, which is the title above; what
+  // describes it further are the lines written under it.
+  const words = need !== null && !isStep(need) && need.text !== '' ? [el('p', '', need.text)] : []
+  const described = [...words, ...notes.lead]
+  const left = el('div', 'details-main')
+  left.append(section('Description', described.length > 0 ? described : [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]), ...notes.named)
+  if (need !== null && need.checks.length > 0) left.append(section('Key points to check', [listOf(need.checks)]))
+  if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
+  const shown = need === null ? step.pictures.map(path => ({ path, caption: '' })) : [
+    ...need.options.filter(option => option.picture !== null).map(option => ({ path: option.picture, caption: `${option.label}${option.isRecommended ? ' (recommended)' : ''}` })),
+    ...need.pictures.map(path => ({ path, caption: '' })),
+  ]
+  if (shown.length > 0) {
+    const grid = el('div', 'references')
+    for (const { path, caption } of shown) {
+      const figure = el('figure')
+      figure.append(picture(path, caption), el('figcaption', '', caption === '' ? path.split('/').pop() : caption))
+      grid.append(figure)
+    }
+    // The folders the pictures lie in, to open by hand.
+    const folders = [...new Set(shown.map(({ path }) => path.split('/').slice(0, -1).join('/')))]
+    left.append(section('References', [grid, ...folders.map(folder => copyRow('Folder', folder))]))
+  }
+
+  // The right column: where it stands, what else there is to know, where its work lies
+  const right = el('div', 'details-side')
+  if (need === null) {
+    const list = el('ol', 'queue-list')
+    lane.queue.forEach((other, index) => {
+      const item = el('li', index === place ? 'is-here' : '')
+      item.append(el('span', 'place', String(index + 1)), el('span', 'queue-title', other.title), el('small', '', about(other.minutes) ?? ''))
+      list.append(item)
+    })
+    const part = section('Status in queue', [list])
+    part.querySelector('h3').append(el('small', 'muted', `${place + 1} of ${lane.queue.length}`))
+    right.append(part)
+  }
+  if (notes.context.length > 0) {
+    const context = el('div', 'box')
+    context.append(...notes.context)
+    right.append(section('Additional context', [context]))
+  }
+
+  const branch = need === null ? step.branch : need.branch ?? need.run?.branch ?? null
+  const folder = branch === null ? null : [...state.chats.flatMap(one => one.folders), ...state.otherFolders].find(one => one.branch === branch) ?? null
+  const files = []
+  if (folder !== null) files.push(copyRow('Folder', folder.path))
+  if (branch !== null) files.push(copyRow('Branch', branch))
+  if (folder !== null) files.push(el('p', 'muted', folderLine(folder, now)))
+  if (need !== null && need.run !== null && need.run.url !== null) files.push(runLink(need.run))
+  if (need !== null && need.run !== null && need.run.entry !== null) files.push(el('small', 'run-note', `If it does not open, start "${need.run.entry}" first.`))
+  if (files.length > 0) right.append(section('Files / Branch', files))
+
+  if (need !== null) {
+    // The answer, with the form of its kind. It is the same answer as on the card: what is typed in one shows in the other.
+    const form = el('div', `need is-${need.kind} details-answer`)
+    form.dataset.id = need.id
+    form.append(...optionChoices(need), ...answerPart(need, state, false))
+    right.append(section('Your answer', [form]))
+  }
+  if (right.children.length === 0) right.append(el('p', 'muted', 'Nothing more is known about this step.'))
+
+  // The foot: what a worker estimated, where it stands, and the way out
+  const foot = el('footer', 'details-foot')
+  if (need === null) {
+    const fact = (label, value) => {
+      const one = el('div', 'fact')
+      one.append(el('small', 'muted', label), el('b', '', value))
+      return one
+    }
+    foot.append(fact('Estimated', about(step.minutes) ?? 'no time given'), fact('Position in queue', `${place + 1} of ${lane.queue.length}`))
+  }
+  const done = el('button', 'button', 'Close')
+  done.type = 'button'
+  done.dataset.close = ''
+  foot.append(el('span', 'grow'), done)
+
+  const body = el('div', 'details-body')
+  body.append(left, right)
+  fill(box, [head, body, foot])
+  body.scrollTop = scroll
+  refocus(box, focused)
+}
+
+function listOf(lines) {
+  const list = el('ul')
+  for (const line of lines) list.append(el('li', '', line))
+  return list
+}
+
+/** In the details the pictures are shown large on the left, so the answer only needs the options as buttons. */
+function optionChoices(need) {
+  if (need.options.length === 0) return []
+  const choices = el('div', 'choices')
+  for (const option of need.options) {
+    const button = el('button', `choice${chosen.get(need.id) === option.label ? ' is-chosen' : ''}`, `${option.label}${option.isRecommended ? ' (recommended)' : ''}`)
+    button.type = 'button'
+    button.dataset.choose = option.label
+    choices.append(button)
+  }
+  return [choices]
+}
+
+function openDetails(what) {
+  detailsOf = what
+  if (board === null) return
+  drawDetails(board)
+  if (detailsOf !== null && !$('details').open) $('details').showModal()
+}
+
+function closeDetails() {
+  detailsOf = null
+  detailsShown = null
+  if ($('details').open) $('details').close()
+  if (location.hash.startsWith('#details=')) history.replaceState(null, '', location.pathname)
+}
+
+$('details').addEventListener('click', event => {
+  // A click beside the window, on the dimmed board, closes it; so does its cross and its Close button.
+  if (event.target === $('details') || event.target.closest('[data-close]') !== null) return closeDetails()
+  const copy = event.target.closest('[data-copy]')
+  if (copy === null) return
+  navigator.clipboard.writeText(copy.dataset.copy).then(() => { copy.textContent = 'Copied' }, () => { copy.textContent = 'Not copied' })
+})
+$('details').addEventListener('close', () => {
+  detailsOf = null
+  detailsShown = null
 })
 
-// Pictures, large
+// The head of a card in the inbox, and a step in a lane's queue, open the details.
+$('needs').addEventListener('click', event => {
+  const head = event.target.closest('[data-details]')
+  if (head !== null) openDetails({ need: head.dataset.details })
+})
+$('lanes').addEventListener('click', event => {
+  const step = event.target.closest('[data-step]')
+  if (step === null) return
+  const lane = board?.chats.find(one => one.name === step.dataset.lane)
+  const place = Number(step.dataset.step)
+  if (lane?.queue[place] !== undefined) openDetails({ lane: lane.name, place, id: lane.queue[place].id })
+})
+
+/** `#details=B14` in the address opens the details of that step: a link to it, and what a picture of it is taken with. */
+function openFromAddress(state) {
+  if (!location.hash.startsWith('#details=') || detailsOf !== null) return
+  const code = decodeURIComponent(location.hash.slice('#details='.length))
+  const need = [...state.forYou, ...state.backlogForYou].find(one => one.step === code || one.id === code)
+  if (need !== undefined) return openDetails({ need: need.id })
+  for (const lane of state.chats) {
+    const place = lane.queue.findIndex(step => step.id === code)
+    if (place >= 0) return openDetails({ lane: lane.name, place, id: code })
+  }
+}
+
+// Pictures, large: a window of its own, so it also opens over the details
 
 document.addEventListener('click', event => {
   const frame = event.target.closest('[data-zoom]')
-  if (frame !== null) {
-    pictureUrl(frame.dataset.zoom).then(url => {
-      if (url === null) return
-      $('lightbox-picture').src = url
-      $('lightbox-caption').textContent = frame.dataset.caption || frame.dataset.zoom
-      $('lightbox').hidden = false
-    })
-  } else if (event.target.closest('#lightbox') !== null) {
-    $('lightbox').hidden = true
-  }
+  if (frame === null) return
+  pictureUrl(frame.dataset.zoom).then(url => {
+    if (url === null) return
+    $('lightbox-picture').src = url
+    $('lightbox-caption').textContent = frame.dataset.caption || frame.dataset.zoom
+    if (!$('lightbox').open) $('lightbox').showModal()
+  })
 })
 
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') $('lightbox').hidden = true
-})
+$('lightbox').addEventListener('click', () => $('lightbox').close())
 
 // Advice: headings, lists and paragraphs of a plain markdown text
 
@@ -791,8 +1074,8 @@ function show(tab) {
   for (const button of document.querySelectorAll('.tab')) button.classList.toggle('is-active', button.dataset.tab === tab)
   $('view-overview').hidden = tab !== 'overview'
   $('view-advice').hidden = tab !== 'advice'
-  // The address says which tab is open, so a reload stays on it.
-  history.replaceState(null, '', tab === 'advice' ? '#advice' : location.pathname)
+  // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
+  if (!location.hash.startsWith('#details=')) history.replaceState(null, '', tab === 'advice' ? '#advice' : location.pathname)
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
 }
 
@@ -807,6 +1090,8 @@ function draw(state) {
   drawStrips(state)
   drawToday(state)
   once('needs', needsData(state), () => drawNeeds(state))
+  drawDetails(state)
+  openFromAddress(state)
   once('advice', state.advice, () => drawAdvice(state))
   once('talk', state.advisor, () => drawTalk(state))
 }
@@ -840,7 +1125,7 @@ async function send(message, id) {
   sending.add(key)
   problems.delete(key)
   if (id === null) $('say-send').disabled = true
-  else if (board !== null) once('needs', needsData(board), () => drawNeeds(board))
+  else redrawNeeds()
   let problem = null
   try {
     const answer = await fetch('/api/say', {

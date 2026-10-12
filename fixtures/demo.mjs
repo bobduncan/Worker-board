@@ -39,7 +39,13 @@ const BACKLOG = `# Backlog
 
 ## Next to hand out (Game - Main)
 - [x] Add save / load system (for Features)
-- [ ] B11 Animation blending (for Main; about 40 min)
+- [ ] B11 Animation blending (for Main; branch feature/animation-blending; about 40 min)
+  Blend between the walk, run and jump animations, so a change of speed does not snap.
+  Requirements:
+  - No visible pop when the speed changes
+  - Works for the player and for enemies
+  - The jump keeps its own timing
+  Context: the jump arc is in art-inbox/jump. Keep the blend under a tenth of a second.
 - [ ] Review the merge order (for Main; about 15 min)
 - [ ] Plan the next milestone (for Main; about 30 min)
 - [ ] Enemy abilities (for Units; after the pathfinding choice; about 30 min)

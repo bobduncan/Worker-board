@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mjs'
 import { readAsks } from './asks.mjs'
-import { forYou, parseBacklog } from './backlog.mjs'
+import { allWords, forYou, parseBacklog, queue } from './backlog.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
 import { readMarked, readTail } from './transcript.mjs'
@@ -41,10 +41,11 @@ export function oneAtATime(read, ttlMs) {
 const earlier = oneAtATime(readMarked, EARLIER_MS)
 const picturesIn = new Map()
 
-/** The pictures in the folders the backlog's steps for the person point to, per mentioned path. */
+/** The pictures in the folders the backlog's steps for the person and its queued steps point to, per mentioned path. */
 async function pictureLists(config, backlogText, now) {
   const backlog = parseBacklog(backlogText ?? '')
-  const paths = [...new Set(forYou(backlog).flatMap(step => mentionedPaths(step.text, config.pictureRoots)))].slice(0, MOST_FOLDERS)
+  const steps = [...forYou(backlog), ...queue(backlog)]
+  const paths = [...new Set(steps.flatMap(step => mentionedPaths(allWords(step), config.pictureRoots)))].slice(0, MOST_FOLDERS)
   const lists = {}
   await Promise.all(paths.map(async path => {
     const key = `${config.project}|${path}`

@@ -22,6 +22,7 @@ test('parseConfig expands the paths and fills what is missing with the defaults'
   assert.equal(config.refreshSeconds, 30)
   assert.equal(config.quietMinutes, 10)
   assert.equal(config.estimateOldMinutes, 15)
+  assert.deepEqual([config.hoursBack, config.hoursAhead], [2, 6])
 })
 
 test('parseConfig answers the defaults for text that is not JSON', () => {
