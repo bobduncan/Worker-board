@@ -444,6 +444,13 @@ async function read() {
   clearTimeout(timer)
   try {
     const answer = await fetch('/api/state', { headers: { 'X-Board-Token': TOKEN }, cache: 'no-store' })
+    // The server was started again and has a new token: a fresh page has it. At most once a minute, so a real
+    // refusal cannot make the page load itself over and over.
+    if (answer.status === 403 && Date.now() - Number(sessionStorage.getItem('reloaded-at') ?? 0) > MIN) {
+      sessionStorage.setItem('reloaded-at', String(Date.now()))
+      location.reload()
+      return
+    }
     if (!answer.ok) throw new Error(String(answer.status))
     draw(await answer.json())
   } catch {

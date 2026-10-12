@@ -22,13 +22,17 @@ async function readText(file) {
 /** The longer look back is a large read, so its answer is kept for a while per transcript. */
 const EARLIER_MS = 5 * 60_000
 const kept = new Map()
+/** One large read at a time, so the chats' look-backs never sit in memory together. */
+let turn = Promise.resolve()
 
-async function earlier(file, now) {
+function earlier(file, now) {
   const before = kept.get(file)
   if (before !== undefined && now - before.at < EARLIER_MS) return before.text
-  const text = await readMarked(file)
-  kept.set(file, { at: now, text })
-  return text
+  const read = turn.then(() => readMarked(file))
+  turn = read.catch(() => {})
+  // Kept as a promise at once, so two reads of the board at the same moment share the one look back.
+  kept.set(file, { at: now, text: read })
+  return read
 }
 
 export async function readSources(config, readFolders, now = Date.now()) {
@@ -51,8 +55,8 @@ export async function readSources(config, readFolders, now = Date.now()) {
   await Promise.all(chats.map(async ({ cliSessionId, isMain }) => {
     const file = join(config.transcripts, `${cliSessionId}.jsonl`)
     const tail = await readTail(file)
-    // A worker's task may have been handed over further back than the tail reaches.
-    if (tail !== null && !isMain) tail.earlier = await earlier(file, now)
+    // A task may have started further back than the tail reaches.
+    if (tail !== null) tail.earlier = await earlier(file, now)
     tails[cliSessionId] = tail
     planLineTexts[cliSessionId] = await readText(join(claude, 'chats', `${cliSessionId}.json`))
   }))

@@ -28,8 +28,8 @@ const textOr = (value, fallback) => (typeof value === 'string' ? value : fallbac
  * The task a chat is on. Its own plan line first; else the task another chat handed to it; else, for a chat that
  * works without having named a task, what started its turn (`source: 'prompt'`, with who asked in `by`).
  */
-function taskOf({ chat, plan, entries, scan, state, before, lines, mainTitle, prefix, now }) {
-  // `scan` holds the entries that can start or end a handed-over task: the tail, after a longer look back.
+function taskOf({ chat, plan, scan, state, before, lines, mainTitle, prefix, now }) {
+  // `scan` holds the entries that can start or end a task: the tail, after a longer look back when there is one.
   const handOver = chat.isMain || scan === null ? null : taskStart(scan, { mainTitle })
   const bare = { step: null, steps: null, leftMs: null, estimateAt: null, source: 'handover', by: null }
   // A handed-over task stands while the chat works on it or waits for the person; a free chat has finished it.
@@ -47,9 +47,9 @@ function taskOf({ chat, plan, entries, scan, state, before, lines, mainTitle, pr
     if (reportedAt === null || reportedAt <= (before.startedAt ?? before.at)) task = { text: before.task, ...bare }
   }
   if (task === null && state === 'working') {
-    const opened = turnStart(entries, { prefix })
+    const opened = turnStart(scan, { prefix })
     // A turn that has reported to the main chat since it started is wrapping up a finished task.
-    const reportedAt = lastReport(entries, { mainTitle })
+    const reportedAt = lastReport(scan, { mainTitle })
     const opening = opened !== null && reportedAt !== null && reportedAt >= opened.at ? null : opened
     // An opening the tail cannot be sure of gives way to the one the history recorded while the chat kept working.
     const remembered = before?.source === 'prompt' && before.state === 'working' && typeof before.task === 'string' ? before : null
@@ -104,7 +104,7 @@ function card(chat, raw, { now, config, last, lines, mainTitle, prefix }) {
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state === 'waiting' ? entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null : null,
     task: taskOf({
-      chat, plan, entries, state, before: last.get(chat.name), lines, mainTitle, prefix, now,
+      chat, plan, state, before: last.get(chat.name), lines, mainTitle, prefix, now,
       // The longer look back is a few minutes old, so the tail follows it: the newest hand-over or report wins.
       scan: typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries,
     }),

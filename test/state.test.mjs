@@ -182,7 +182,7 @@ test('a task handed over further back than the tail is found by the longer look 
   // Reported since: that task is finished, and the chat is on what was typed to it afterwards.
   const after = chatNamed(build({
     apps: [app('Units')],
-    tails: { Units: { ...tail(running), earlier: [handOver, report(190)].join('\n') } },
+    tails: { Units: { ...tail(running), earlier: [handOver, report(190), answer(NOW - 189 * MIN, 'Reported.')].join('\n') } },
   }), 'Units')
   assert.deepEqual([after.task.text, after.task.source], ['Go', 'prompt'])
 })

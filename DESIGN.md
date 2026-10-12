@@ -52,9 +52,9 @@ picks out the worker and the time; a step without them is shown as it is.
    runs it as a turn once the chat is idle.
 4. The dock shows the chat's transcript, so the answer appears there like any other.
 
-Not tested yet: that call exists in this build's mod API, and whether a mod may reach `127.0.0.1` over HTTP is
-unknown. If it may not, the mod reads the waiting messages from a file in `data/` instead. Step 1 of the build
-settles both.
+Step 1 of the build tested both on 2026-10-12: the mod can submit a line as the person's own words (the chat's
+record marks it as coming from the mod), and it can reach the board's server on `127.0.0.1` over HTTP. So the mod
+asks the server for waiting messages; no shared file is needed.
 
 Safety, because what arrives is typed into a chat that can change files:
 
@@ -93,6 +93,24 @@ what was typed so it can be pasted into the app.
   tail, the plan line, the worktree list, the state table one test per row.
 - The sending endpoint: refused without the token, refused from another origin, accepted with both.
 - The mod's part with `claude plugin test`: a waiting message is submitted once; a delivered one never again.
+
+## The person's feedback on the first board (2026-10-12, during step 2)
+
+Their words, kept as given. Not built yet: they asked to first work out what they are trying to accomplish and how
+to structure it, "instead of taking my feedback literally".
+
+> I want clearer: 'for you'.
+>
+> I want to clearly have visual what each items wants from me. If they want input/design of verifying.
+>
+> For verifying i need either clear pictures or a link to the branch to start it. with enough details. I also need
+> a button yes or no with input why. Input questions always require text input.
+>
+> I still feel there is too much information on the board. I want 1 tab to just get an overview of what is
+> currently happening for the works, in the queue. how many for you items. the today planning timeline. The
+> working folders maybe too much details?
+>
+> But i need a 2nd tab for the advice. i need to be able to chat with it.
 
 ## Settled with the person on 2026-10-12
 

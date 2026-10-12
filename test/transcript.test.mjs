@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { answer, assistant, fromChat, line, slashCommand, step, text, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
-import { doingNow, mainChat, markedLines, parseTail, taskStart, turnStart, turnState } from '../src/transcript.mjs'
+import { doingNow, mainChat, markedIn, parseTail, taskStart, turnStart, turnState } from '../src/transcript.mjs'
 
 const T = Date.UTC(2026, 9, 12, 8, 0)
 const min = n => T + n * 60_000
@@ -30,13 +30,21 @@ test('parseTail skips a line that does not parse, and reads Windows line ends', 
   assert.equal(parsed.length, 2)
 })
 
-test('markedLines keeps only the lines that can start or end a task, and drops a cut first line', () => {
-  const handOver = fromChat(min(1), 'Game - Main', 'Build the archer')
+test('markedIn keeps only the lines that can start or end a task, in order, and drops a cut first line', () => {
+  const handOver = fromChat(min(1), 'Game - Main', 'Build the archer: “4x”, with é and 日本')
   const report = assistant(min(9), 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Done.' })])
-  const piece = [typed(min(0), 'Go'), handOver, step(min(2), 'Run the tests'), toolResult(min(3)), report].join('\n')
-  assert.equal(markedLines(piece, false), `${handOver}\n${report}`)
-  assert.equal(markedLines(`${handOver}\n${report}`, true), report)
-  assert.equal(markedLines('', false), '')
+  const asked = typed(min(11), 'One more thing')
+  const end = answer(min(10), 'Reported.')
+  const piece = [handOver, step(min(2), 'Run the tests'), toolResult(min(3)), report, toolResult(min(9)), end, asked, ...slashCommand(min(12), '/git')]
+  const marked = lines => markedIn(Buffer.from(lines.join('\n')), false)
+  assert.equal(marked(piece), [handOver, report, end, asked].join('\n'))
+  assert.equal(markedIn(Buffer.from(piece.join('\r\n')), false).replace(/\r/g, ''), [handOver, report, end, asked].join('\n'))
+  assert.equal(markedIn(Buffer.from(`${handOver}\n${report}`), true), report)
+  assert.equal(markedIn(Buffer.from(handOver), true), '')
+  assert.equal(markedIn(Buffer.from(''), false), '')
+  // A line that holds two marks is kept once.
+  const both = fromChat(min(1), 'Game - Main', 'Use "SendMessage" when done')
+  assert.equal(marked([both, both]), `${both}\n${both}`)
 })
 
 test('turnState: a turn that ended', () => {

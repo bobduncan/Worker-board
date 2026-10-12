@@ -8,8 +8,8 @@ const TAIL_BYTES = 1024 * 1024
 const ASKING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
 const TITLE_CHARS = 120
 
-/** The last piece of a file: its text, whether its first line is cut, and when the file last changed. */
-export async function readTail(path, maxBytes = TAIL_BYTES) {
+/** The last bytes of a file, whether its first line is cut, and when the file last changed. */
+async function readPiece(path, maxBytes) {
   let file
   try {
     file = await open(path, 'r')
@@ -17,7 +17,7 @@ export async function readTail(path, maxBytes = TAIL_BYTES) {
     const length = Math.min(size, maxBytes)
     const buffer = Buffer.alloc(length)
     await file.read(buffer, 0, length, size - length)
-    return { text: buffer.toString('utf8'), isCut: size > length, modifiedAt: mtimeMs }
+    return { buffer, isCut: size > length, modifiedAt: mtimeMs }
   } catch {
     return null
   } finally {
@@ -25,24 +25,49 @@ export async function readTail(path, maxBytes = TAIL_BYTES) {
   }
 }
 
-/** What a line must hold to matter for a task: a message from another chat, or a message sent to one. */
-const TASK_MARKS = ['cross-session-message', '"SendMessage"']
-const DEEP_BYTES = 24 * 1024 * 1024
-
-/** The lines of a piece of transcript that hold one of the marks. */
-export function markedLines(text, isCut, marks = TASK_MARKS) {
-  const lines = text.split('\n')
-  if (isCut) lines.shift()
-  return lines.filter(line => marks.some(mark => line.includes(mark))).join('\n')
+/** The last piece of a file: its text, whether its first line is cut, and when the file last changed. */
+export async function readTail(path, maxBytes = TAIL_BYTES) {
+  const piece = await readPiece(path, maxBytes)
+  return piece === null ? null : { text: piece.buffer.toString('utf8'), isCut: piece.isCut, modifiedAt: piece.modifiedAt }
 }
 
 /**
- * A longer look back than the tail, for a task handed over long ago: only the lines that can say when a task
+ * What a line must hold to matter for a task: a message from another chat, a message sent to one, something the
+ * person typed, or the end of a turn.
+ */
+const TASK_MARKS = ['cross-session-message', '"SendMessage"', '"kind":"human"', '"kind":"plugin"', '"stop_reason":"end_turn"']
+const DEEP_BYTES = 24 * 1024 * 1024
+const NEWLINE = 10
+
+/**
+ * The lines of a large piece of transcript that hold one of the marks, in the file's order. The marks are looked
+ * for in the bytes, so only the few lines found are ever turned into text.
+ */
+export function markedIn(buffer, isCut, marks = TASK_MARKS) {
+  const from = isCut ? buffer.indexOf(NEWLINE) + 1 : 0
+  if (isCut && from === 0) return ''
+  const starts = new Set()
+  for (const mark of marks) {
+    let at = buffer.indexOf(mark, from)
+    while (at !== -1) {
+      starts.add(buffer.lastIndexOf(NEWLINE, at) + 1)
+      const end = buffer.indexOf(NEWLINE, at)
+      at = end === -1 ? -1 : buffer.indexOf(mark, end + 1)
+    }
+  }
+  return [...starts].sort((a, b) => a - b).map(start => {
+    const end = buffer.indexOf(NEWLINE, start)
+    return buffer.toString('utf8', start, end === -1 ? buffer.length : end)
+  }).join('\n')
+}
+
+/**
+ * A longer look back than the tail, for a task that started long ago: only the lines that can say when a task
  * started or was reported, so the rest of a large file is never parsed.
  */
 export async function readMarked(path, maxBytes = DEEP_BYTES) {
-  const piece = await readTail(path, maxBytes)
-  return piece === null ? null : markedLines(piece.text, piece.isCut)
+  const piece = await readPiece(path, maxBytes)
+  return piece === null ? null : markedIn(piece.buffer, piece.isCut)
 }
 
 function blocksOf(content) {
