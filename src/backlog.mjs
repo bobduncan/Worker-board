@@ -1,6 +1,6 @@
 // Source 4: the backlog, `<project>\.claude\backlog.md`. A `## ` heading is an activity ("#focus" marks the
 // person's main focus), a `- [ ]` line is a step, `@you` at its end marks a step only the person can do, and an
-// indented line under a step belongs to that step.
+// indented line under a step belongs to that step. An open step starts with its id, "B14".
 
 const QUEUE_HEADING = 'next to hand out'
 
@@ -33,7 +33,9 @@ function minutesOf(part) {
 
 function parseStep(isDone, rest, { prefix, names }) {
   const isYou = /(^|\s)@you\s*$/.test(rest)
-  const text = rest.replace(/(^|\s)@you\s*$/, '').trim()
+  // An open step starts with its id ("B14"): the person names a step by it, and it never changes.
+  const lead = rest.match(/^(B\d+)\s+/)
+  const text = rest.slice(lead === null ? 0 : lead[0].length).replace(/(^|\s)@you\s*$/, '').trim()
 
   // The note the main chat writes on a queued step: "(for Units; after <condition>; about 40 min)". The condition
   // may hold brackets of its own, as in "after the archer (branch x) merges".
@@ -49,10 +51,11 @@ function parseStep(isDone, rest, { prefix, names }) {
     }
   }
 
-  // A step for the person starts with what it asks of them: "Verify:", "Decide:", "Provide:" or "Do:".
+  // After its id, a step for the person says what it asks of them: "Verify:", "Decide:", "Provide:" or "Do:".
   const asks = text.match(/^(Verify|Decide|Provide|Do):\s*/i)
 
   return {
+    id: lead === null ? null : lead[1],
     text,
     title: (spec === null ? text : text.slice(0, spec.index)).slice(asks === null ? 0 : asks[0].length).trim(),
     asks: asks === null ? null : asks[1].toLowerCase(),
@@ -105,7 +108,7 @@ export function queue(backlog) {
   return backlog.activities
     .filter(activity => activity.name.toLowerCase().startsWith(QUEUE_HEADING))
     .flatMap(open)
-    .map(({ text, title, worker, branch, after, minutes }) => ({ text, title, worker, branch, after, minutes }))
+    .map(({ id, text, title, worker, branch, after, minutes }) => ({ id, text, title, worker, branch, after, minutes }))
 }
 
 /**
@@ -114,7 +117,7 @@ export function queue(backlog) {
  */
 export function forYou(backlog) {
   return backlog.activities.flatMap(activity =>
-    open(activity).filter(step => step.isYou).map(({ text, title, asks, worker }) => ({ text, title, asks, worker, activity: activity.name })))
+    open(activity).filter(step => step.isYou).map(({ id, text, title, asks, worker }) => ({ id, text, title, asks, worker, activity: activity.name })))
 }
 
 /** The open steps of the person's main focus that a chat can do. */

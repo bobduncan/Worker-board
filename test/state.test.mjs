@@ -165,7 +165,7 @@ test('a working chat with an estimate has a time it expects to be done, and its 
   })
   const units = chatNamed(state, 'Units')
   assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false })
-  assert.deepEqual(units.queue.map(step => [step.title, step.minutes]), [['Knight rows', 30], ['Polish', null], ['Banner', 10]])
+  assert.deepEqual(units.queue.map(step => [step.id, step.title, step.minutes]), [[null, 'Knight rows', 30], [null, 'Polish', null], [null, 'Banner', 10]])
   // The plan stops at the first step without a time: what follows it cannot be placed.
   assert.deepEqual(units.ahead, [
     { from: NOW, to: NOW + 22 * MIN, title: 'Archer', isQueued: false },
@@ -216,6 +216,10 @@ test('a step for you in the backlog is a card of its kind, answered to the worke
   ])
   assert.match(state.backlogForYou[0].id, /^backlog:[0-9a-f]+$/)
   assert.equal(new Set(state.backlogForYou.map(step => step.id)).size, 5)
+  // A step with an id is known by it, also when its words are changed.
+  const withIds = text => build({ apps: [app('Main')], backlog: `## Art\n- [ ] B14 Verify: ${text} @you\n` }).backlogForYou[0]
+  assert.deepEqual([withIds('the walk is smooth').id, withIds('the walk is smooth').step, withIds('the walk is smooth').title], ['backlog:B14', 'B14', 'the walk is smooth'])
+  assert.equal(withIds('the walk is smooth now').id, 'backlog:B14')
   // The answer that was sent for a step is shown with it; without a main chat nobody can be told.
   const answered = build({ apps: [app('Main')], backlog, outbox: [{ id: 'm1', at: NOW, to: 'Main', ask: state.backlogForYou[3].id, verdict: 'done', text: '', state: 'waiting' }] })
   assert.deepEqual(answered.backlogForYou[3].answer, { at: NOW, verdict: 'done', text: '', state: 'waiting' })

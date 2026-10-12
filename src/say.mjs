@@ -21,7 +21,7 @@ export function checkSay(body, state, maxChars) {
   if (body.ask === undefined || body.ask === null) {
     if (body.verdict !== undefined && body.verdict !== null) return refuse(400, 'A verdict needs the request it is about.')
     if (text === '') return refuse(400, 'No text.')
-    return { ok: true, message: { to: body.to, ask: null, title: null, verdict: null, text } }
+    return { ok: true, message: { to: body.to, ask: null, step: null, title: null, verdict: null, text } }
   }
 
   const item = [...(state.forYou ?? []), ...(state.backlogForYou ?? [])].find(need => need.id === body.ask && need.from === body.to)
@@ -29,14 +29,14 @@ export function checkSay(body, state, maxChars) {
   if (item.kind === 'do') {
     // Something only the person can do: all there is to say is that it is done.
     if (body.verdict !== 'done') return refuse(400, 'Say that it is done.')
-    return { ok: true, message: { to: body.to, ask: item.id, title: item.title, verdict: 'done', text } }
+    return { ok: true, message: { to: body.to, ask: item.id, step: item.step ?? null, title: item.title, verdict: 'done', text } }
   }
   if (item.kind === 'verify') {
     if (body.verdict !== 'approve' && body.verdict !== 'reject') return refuse(400, 'Approve or reject.')
     if (body.verdict === 'reject' && text === '') return refuse(400, 'Say why you reject it.')
-    return { ok: true, message: { to: body.to, ask: item.id, title: item.title, verdict: body.verdict, text } }
+    return { ok: true, message: { to: body.to, ask: item.id, step: item.step ?? null, title: item.title, verdict: body.verdict, text } }
   }
   if (body.verdict !== undefined && body.verdict !== null) return refuse(400, 'Only work to verify is approved or rejected.')
   if (text === '') return refuse(400, 'This needs your words.')
-  return { ok: true, message: { to: body.to, ask: item.id, title: item.title, verdict: null, text } }
+  return { ok: true, message: { to: body.to, ask: item.id, step: item.step ?? null, title: item.title, verdict: null, text } }
 }

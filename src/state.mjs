@@ -236,7 +236,7 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
 
   const lanes = cards.map(lane => {
     const mine = lane.isLeftover ? [] : queued.filter(step => step.worker === lane.name)
-    const withQueue = { ...lane, queue: mine.map(({ title, text, minutes, after, branch }) => ({ title, text, minutes, after, branch })) }
+    const withQueue = { ...lane, queue: mine.map(({ id, title, text, minutes, after, branch }) => ({ id, title, text, minutes, after, branch })) }
     return {
       ...withQueue,
       folders: lane.isLeftover ? [] : (folders ?? []).filter(folder => owner(folder) === lane.name),
@@ -281,9 +281,11 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     // chat, which keeps the backlog.
     backlogForYou: forYou(backlog).map(step => {
       const to = step.worker !== null && names.includes(step.worker) ? step.worker : main?.name ?? null
-      const id = stepId(`${step.activity}\n${step.text}`)
+      // Kept under the step's own id; a step from before the ids is kept under its words.
+      const id = step.id === null ? stepId(`${step.activity}\n${step.text}`) : `backlog:${step.id}`
       return {
         id,
+        step: step.id,
         from: to,
         kind: step.asks === 'verify' || step.asks === 'do' ? step.asks : 'input',
         asks: step.asks,

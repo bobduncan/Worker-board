@@ -200,7 +200,7 @@ function drawMore(lane, state) {
     for (const step of lane.queue) {
       const item = el('li')
       item.append(el('b', '', step.title))
-      const notes = [about(step.minutes), step.after === null ? null : `after ${step.after}`].filter(Boolean)
+      const notes = [step.id, about(step.minutes), step.after === null ? null : `after ${step.after}`].filter(Boolean)
       if (notes.length > 0) item.append(el('small', '', `  ${notes.join(' · ')}`))
       list.append(item)
     }
@@ -286,7 +286,7 @@ function drawLane(lane, state) {
     const first = el('div', 'queue-first')
     const item = el('div', 'queue-item')
     item.title = lane.queue[0].text
-    item.append(el('b', '', lane.queue[0].title), el('small', '', about(lane.queue[0].minutes) ?? 'no time given'))
+    item.append(el('b', '', lane.queue[0].title), el('small', '', [lane.queue[0].id, about(lane.queue[0].minutes) ?? 'no time given'].filter(Boolean).join(' · ')))
     first.append(item)
     if (lane.queue.length > 1) first.append(el('div', 'queue-more', `+${lane.queue.length - 1}`))
     queue.append(first)
@@ -310,7 +310,7 @@ function drawStrips(state) {
   const strips = []
   if (state.unassigned.length > 0) {
     const strip = el('div', 'strip')
-    strip.append(el('b', '', `Queued for nobody (${state.unassigned.length}): `), state.unassigned.map(step => step.title).join(' · '))
+    strip.append(el('b', '', `Queued for nobody (${state.unassigned.length}): `), state.unassigned.map(step => [step.id, step.title].filter(Boolean).join(' ')).join(' · '))
     strips.push(strip)
   }
   if (state.otherFolders.length > 0) {
@@ -411,7 +411,7 @@ function drawNeed(need, state) {
   const card = el('article', `need is-${need.kind}${isStep ? ' is-step' : ''}`)
   card.dataset.id = need.id
   const top = el('header', 'need-top')
-  if (isStep) top.append(el('span', 'kind', kind.sign), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
+  if (isStep) top.append(el('span', 'kind', kind.sign), need.step === null ? '' : el('b', '', need.step), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
   else top.append(el('span', 'kind', kind.sign), el('b', '', need.from), el('span', 'tag', kind.tag), since(need.at, state.readAt))
   card.append(top, el('h4', '', need.title))
   if (need.text !== '') card.append(el('p', '', need.text))

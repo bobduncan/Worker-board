@@ -12,7 +12,7 @@ const state = {
     { id: 'quiet:Units', from: 'Units', kind: 'intervene', title: 'Quiet', canAnswer: false },
   ],
   backlogForYou: [
-    { id: 'backlog:1', from: 'Main', kind: 'do', title: 'Quit the app once', canAnswer: true },
+    { id: 'backlog:1', step: 'B51', from: 'Main', kind: 'do', title: 'Quit the app once', canAnswer: true },
     { id: 'backlog:2', from: 'Units', kind: 'verify', title: 'The walk is smooth', canAnswer: true },
     { id: 'backlog:3', from: 'Main', kind: 'input', title: 'The Suno plan', canAnswer: true },
     { id: 'backlog:4', from: null, kind: 'input', title: 'Nobody to tell', canAnswer: false },
@@ -21,7 +21,7 @@ const state = {
 const check = body => checkSay(body, state, 50)
 
 test('a message to the advisor or to a chat on the board is kept as typed', () => {
-  assert.deepEqual(check({ to: 'Advisor', text: '  What next?  ' }), { ok: true, message: { to: 'Advisor', ask: null, title: null, verdict: null, text: 'What next?' } })
+  assert.deepEqual(check({ to: 'Advisor', text: '  What next?  ' }), { ok: true, message: { to: 'Advisor', ask: null, step: null, title: null, verdict: null, text: 'What next?' } })
   assert.equal(check({ to: 'Units', text: 'Hello' }).ok, true)
 })
 
@@ -39,13 +39,13 @@ test('a message needs words, and not too many', () => {
 })
 
 test('an answer to a question needs words and takes no verdict', () => {
-  assert.deepEqual(check({ to: 'Units', ask: 'units-path', text: 'Take A.' }).message, { to: 'Units', ask: 'units-path', title: 'Choose pathfinding approach', verdict: null, text: 'Take A.' })
+  assert.deepEqual(check({ to: 'Units', ask: 'units-path', text: 'Take A.' }).message, { to: 'Units', ask: 'units-path', step: null, title: 'Choose pathfinding approach', verdict: null, text: 'Take A.' })
   assert.equal(check({ to: 'Units', ask: 'units-path', text: '' }).status, 400)
   assert.equal(check({ to: 'Units', ask: 'units-path', text: 'A', verdict: 'approve' }).status, 400)
 })
 
 test('work to verify is approved, with or without words, or rejected with the reason', () => {
-  assert.deepEqual(check({ to: 'Main', ask: 'main-move', verdict: 'approve' }).message, { to: 'Main', ask: 'main-move', title: 'Test player movement', verdict: 'approve', text: '' })
+  assert.deepEqual(check({ to: 'Main', ask: 'main-move', verdict: 'approve' }).message, { to: 'Main', ask: 'main-move', step: null, title: 'Test player movement', verdict: 'approve', text: '' })
   assert.equal(check({ to: 'Main', ask: 'main-move', verdict: 'approve', text: 'Nice.' }).message.text, 'Nice.')
   assert.equal(check({ to: 'Main', ask: 'main-move', verdict: 'reject', text: 'It jitters on slopes.' }).ok, true)
   assert.equal(check({ to: 'Main', ask: 'main-move', verdict: 'reject' }).status, 400)
@@ -54,7 +54,7 @@ test('work to verify is approved, with or without words, or rejected with the re
 })
 
 test('a step from the backlog is answered by its kind: done, a verdict, or words', () => {
-  assert.deepEqual(check({ to: 'Main', ask: 'backlog:1', verdict: 'done' }).message, { to: 'Main', ask: 'backlog:1', title: 'Quit the app once', verdict: 'done', text: '' })
+  assert.deepEqual(check({ to: 'Main', ask: 'backlog:1', verdict: 'done' }).message, { to: 'Main', ask: 'backlog:1', step: 'B51', title: 'Quit the app once', verdict: 'done', text: '' })
   assert.equal(check({ to: 'Main', ask: 'backlog:1', verdict: 'done', text: 'Reopened at ten.' }).message.text, 'Reopened at ten.')
   assert.equal(check({ to: 'Main', ask: 'backlog:1', text: 'ok' }).status, 400)
   assert.equal(check({ to: 'Units', ask: 'backlog:2', verdict: 'approve' }).ok, true)

@@ -55,11 +55,24 @@ test('parseBacklog adds an indented line to the step above it', () => {
 
 test('queue: the open steps to hand out, with the worker, the condition and the time picked out', () => {
   assert.deepEqual(queue(backlog), [
-    { text: 'Main menu (for Features; after the battle page merges; about 40 min)', title: 'Main menu', worker: 'Features', branch: null, after: 'the battle page merges', minutes: 40 },
-    { text: 'Level streaming (for Levels / Environment; about 2 h)', title: 'Level streaming', worker: 'Levels / Environment', branch: null, after: null, minutes: 120 },
-    { text: 'When the beast merges: tell Game - Units the portrait is old', title: 'When the beast merges: tell Game - Units the portrait is old', worker: 'Units', branch: null, after: null, minutes: null },
-    { text: 'Tidy the art inbox', title: 'Tidy the art inbox', worker: null, branch: null, after: null, minutes: null },
+    { id: null, text: 'Main menu (for Features; after the battle page merges; about 40 min)', title: 'Main menu', worker: 'Features', branch: null, after: 'the battle page merges', minutes: 40 },
+    { id: null, text: 'Level streaming (for Levels / Environment; about 2 h)', title: 'Level streaming', worker: 'Levels / Environment', branch: null, after: null, minutes: 120 },
+    { id: null, text: 'When the beast merges: tell Game - Units the portrait is old', title: 'When the beast merges: tell Game - Units the portrait is old', worker: 'Units', branch: null, after: null, minutes: null },
+    { id: null, text: 'Tidy the art inbox', title: 'Tidy the art inbox', worker: null, branch: null, after: null, minutes: null },
   ])
+})
+
+test('an open step starts with its id, before its kind; the id is not part of its words', () => {
+  const text = '## Art\n- [ ] B14 Verify: the walk is smooth (pictures in art-inbox/archer; Game - Units) @you\n- [ ] B7 Draw the bat\n- [x] B03 Do: quit the app @you\n- [ ] Build B12 later\n\n## Next to hand out (Game - Main)\n- [ ] B59 Redraw the portrait (for Features; after the camera; about 20 min)\n'
+  const backlog = parseBacklog(text, RULES)
+  assert.deepEqual(backlog.activities[0].steps.map(step => [step.id, step.asks, step.title]), [
+    ['B14', 'verify', 'the walk is smooth (pictures in art-inbox/archer; Game - Units)'],
+    ['B7', null, 'Draw the bat'],
+    ['B03', 'do', 'quit the app'],
+    [null, null, 'Build B12 later'],
+  ])
+  assert.deepEqual(forYou(backlog).map(step => [step.id, step.asks, step.worker]), [['B14', 'verify', 'Units']])
+  assert.deepEqual(queue(backlog).map(step => [step.id, step.title, step.worker, step.minutes]), [['B59', 'Redraw the portrait', 'Features', 20]])
 })
 
 test('queue: a condition with brackets of its own, and a time in hours and minutes', () => {
@@ -72,8 +85,8 @@ test('queue: a condition with brackets of its own, and a time in hours and minut
 
 test('forYou: every open step that ends in @you, with its activity', () => {
   assert.deepEqual(forYou(backlog), [
-    { text: 'Say whether the run does what you intended', title: 'Say whether the run does what you intended', asks: null, worker: null, activity: 'Architecture' },
-    { text: 'Say which plan the music came from', title: 'Say which plan the music came from', asks: null, worker: null, activity: 'Sound' },
+    { id: null, text: 'Say whether the run does what you intended', title: 'Say whether the run does what you intended', asks: null, worker: null, activity: 'Architecture' },
+    { id: null, text: 'Say which plan the music came from', title: 'Say which plan the music came from', asks: null, worker: null, activity: 'Sound' },
   ])
 })
 

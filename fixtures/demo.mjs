@@ -29,8 +29,8 @@ const BACKLOG = `# Backlog
 ## Movement #focus
 - [x] Player input
 - [ ] Integrate player movement (Game - Main; branch feature/player-movement)
-- [ ] Verify: the jump feels right (picture in art-inbox/jump) @you
-- [ ] Do: quit and reopen the app once @you
+- [ ] B03 Verify: the jump feels right (picture in art-inbox/jump) @you
+- [ ] B04 Do: quit and reopen the app once @you
 
 ## Enemies #focus
 - [ ] Enemy pathfinding (Game - Units; branch feature/enemy-ai)
@@ -39,7 +39,7 @@ const BACKLOG = `# Backlog
 
 ## Next to hand out (Game - Main)
 - [x] Add save / load system (for Features)
-- [ ] Animation blending (for Main; about 40 min)
+- [ ] B11 Animation blending (for Main; about 40 min)
 - [ ] Review the merge order (for Main; about 15 min)
 - [ ] Plan the next milestone (for Main; about 30 min)
 - [ ] Enemy abilities (for Units; after the pathfinding choice; about 30 min)
