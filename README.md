@@ -24,7 +24,9 @@ once in a new folder, writes that folder's launch entry with its port into the p
 
 ## What it writes
 Only `data/` in this folder, which git ignores: `history.jsonl` (when a chat's state or task changed),
-`outbox.jsonl` (your answers and what you typed to the advisor) and `alive.json` (when the board last ran).
+`outbox.jsonl` (your answers and what you typed to the advisor), `alive.json` (when the board last ran) and
+`ideas.json` (the ideas of the Design tab). And one folder outside it: the pictures Codex makes for those ideas go
+to `art-inboxideas` in the project, with the words each was made with beside it.
 The Workers mod (`folder-branches`) takes what you send and types it into the chat it is for.
 
 ## Safety
