@@ -682,6 +682,19 @@ const isClosed = (need, now = closedNow()) => need.isClosed === true
 // closed:end
 const showsClosed = () => $('needs-closed').checked
 
+// approve:start
+/**
+ * B110: what the answer box of work to verify says before anything is typed: where an approval goes. A backlog
+ * step whose work is merged is ticked by the board itself and nobody is woken (`approval: 'tick'`); one whose
+ * branch is still open goes to its worker, who merges. A rejection always goes back to the worker.
+ */
+function approveHint(need) {
+  if (need.approval === 'tick') return 'A note, kept under the step (optional). Approve ticks it on the backlog; nobody is woken.'
+  if (need.approval === 'worker') return `Feedback (optional when you approve)… Approve goes to ${need.from}${need.branch ? `: its branch ${need.branch} is still open` : ''}.`
+  return 'Feedback (optional when you approve)…'
+}
+// approve:end
+
 /**
  * The part of a request that takes the answer: what was sent, or the form its kind needs. `isFolded` keeps the
  * form of a backlog step behind a button until it is opened, so the many steps stay short.
@@ -709,7 +722,7 @@ function answerPart(need, state, isFolded) {
   const text = el('textarea')
   text.rows = 2
   text.maxLength = state.maxMessageChars
-  text.placeholder = need.kind === 'verify' ? 'Feedback (optional when you approve)…' : need.kind === 'do' ? 'A note (optional)…' : 'Your decision or feedback…'
+  text.placeholder = need.kind === 'verify' ? approveHint(need) : need.kind === 'do' ? 'A note (optional)…' : 'Your decision or feedback…'
   text.value = drafts.get(need.id) ?? ''
   text.setAttribute('aria-label', `Answer to ${need.from}`)
   const buttons = el('div', `buttons${need.kind === 'verify' ? ' is-split' : ''}`)
@@ -720,7 +733,11 @@ function answerPart(need, state, isFolded) {
     node.disabled = sending.has(need.id)
     return node
   }
-  if (need.kind === 'verify') buttons.append(button('✓  Approve', 'is-approve', 'approve'), button('✕  Reject', 'is-reject', 'reject'))
+  if (need.kind === 'verify') {
+    buttons.append(button('✓  Approve', 'is-approve', 'approve'), button('✕  Reject', 'is-reject', 'reject'))
+    buttons.firstChild.title = approveHint(need)
+    buttons.lastChild.title = `Goes back to ${need.from} with your words.`
+  }
   else if (need.kind === 'do') buttons.append(button('✓  Done', 'is-approve', 'done'))
   else buttons.append(button('Send', '', ''))
   if (need.kind === 'verify') parts.push(buttons, text)

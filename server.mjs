@@ -33,11 +33,13 @@ import { IDEAS_FOLDER, REFERENCES_FOLDER, REFERENCE_BYTES, checkDesign, designSt
 import { ideasFile, ideasOver } from './src/ideas.mjs'
 import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
 import { readHead } from './src/files.mjs'
-import { cached, gitRunner, readFolders } from './src/folders.mjs'
+import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay, wakeFor } from './src/say.mjs'
+import { approvalLine, approvalRoute, nextWords, waitingOn, writeTick } from './src/tick.mjs'
+import { parseBacklog } from './src/backlog.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -297,6 +299,34 @@ async function main(args) {
     now: clock,
   })
   let folders = async () => null
+  let branches = async () => null
+  // B110: the repositories whose branches say whether a step's work is merged: the game's, and the board's own.
+  const branchesNow = () => readBranches([config.gameRepo, HERE], gitRunner())
+
+  /**
+   * B110: the person approved a backlog step whose work is merged. The board ticks it in the backlog and writes
+   * the approval under it; no chat is woken. Only the board that delivers does this: a copy and the demo never
+   * write. Answers what `say` answers, or null when this approval is not the board's to tick or could not be
+   * written: it then goes to its worker as before, never lost.
+   */
+  async function tickApproved(message, state) {
+    if (isDemo || isShowOnly || message.verdict !== 'approve' || typeof message.step !== 'string') return null
+    const item = (state.backlogForYou ?? []).find(need => need.id === message.ask)
+    if (item === undefined || item.kind !== 'verify' || item.approval !== 'tick') return null
+    // Asked of git anew at the click: a branch made a moment ago counts.
+    if (approvalRoute(item.branch, await branchesNow().catch(() => null)) !== 'tick') return null
+    const file = join(config.project, '.claude', 'backlog.md')
+    const done = await writeTick(file, message.step, approvalLine(clock(), message.text))
+    if (!done.ok) return done.why === 'write' ? null : { ok: false, status: 409, why: 'That step is ticked already, or no longer on the backlog.' }
+    // Steps that waited for this one: the main chat gets one line of the board's own, so it can hand them out.
+    const waiting = waitingOn(parseBacklog(await readFile(file, 'utf8').catch(() => '')), message.step)
+    const main = state.restart?.main ?? null
+    if (waiting.length > 0 && main !== null) {
+      await store.say({ id: randomBytes(8).toString('hex'), at: clock(), to: main, ask: null, step: message.step, title: null, version: null, verdict: null, command: 'next', text: nextWords(message.step, waiting), state: 'waiting' })
+    }
+    readState.reset()
+    return { ok: true, message: { ...message, to: null, state: 'ticked' } }
+  }
 
   let store
   let readRaw
@@ -307,7 +337,8 @@ async function main(args) {
     readRaw = () => demoSources(clock())
   } else {
     folders = cached(() => readFolders(config.gameRepo, gitRunner()), FOLDERS_MS)
-    readRaw = () => readSources(config, folders)
+    branches = cached(() => branchesNow(), FOLDERS_MS)
+    readRaw = () => readSources(config, folders, undefined, branches)
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
     } else {
@@ -318,7 +349,7 @@ async function main(args) {
       readLines = () => lines.now
       readRaw = async () => {
         lines.now = await shared()
-        return readSources(config, folders)
+        return readSources(config, folders, undefined, branches)
       }
     }
   }
@@ -500,6 +531,9 @@ async function main(args) {
       const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: 'waiting' }
+      // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
+      const ticked = await tickApproved(message, state)
+      if (ticked !== null) return ticked
       await store.say(message)
       // Sent to a chat that is not running: the main chat is asked to start it, so nothing waits without a word.
       const wake = wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)

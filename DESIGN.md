@@ -63,9 +63,24 @@ the person's own, "Make a picture". 2 The picture: the version looked at, large;
 should change?" with "Make it again"; "I agree", which can be taken back. 3 Add what you want, open once a picture
 is agreed: title, description, requirements, the worker or the main chat's choice, an optional time; "Put on the
 backlog" or "Put in a queue". The page reads `state.design` and writes only through `POST /api/design` and
-`/api/design/reference` (the board's side, B101); it writes nothing into the backlog, the main chat does. What is
+`/api/design/reference` (the board's side, B101); it writes nothing into the backlog, the main chat does (the one
+thing the board itself writes there is the tick of an approved step, B110, below). What is
 typed stays in the page while it is open and is never drawn over by a new reading of the state. A board whose
 server has no `design` says so on the tab.
+
+**Your approval ticks a step (B110).** The one thing the board writes outside its own data folder. When you
+approve a Verify step of the backlog whose work is merged, the board ticks the step itself ("- [ ]" becomes
+"- [x]") and writes one line under it: "Approved by you on the worker board on 2026-10-12 at 22:40", with your
+note when you gave one. No chat is woken, and the note is sent to nobody. Merged means: the step names no branch,
+or one that is in neither the game's repository nor the board's any more; the board asks git anew at the click.
+A step whose branch is still there goes to its worker, who merges; so does every approval when git does not
+answer or the file cannot be written, so none is lost. A rejection, with your words, always goes back to the
+worker, and an answer to a Decide or Provide step goes where it went before. When open steps waited for the
+approved one ("after B55"), the main chat gets one line of the board's own that names them. Only the board that
+delivers writes (the one in the repository's main folder); a copy and the demo never do. The file is read anew
+right before, only the step's line and the new line change and every other byte stays, the new text is written
+beside the file and put in its place in one move, and when somebody else wrote the backlog in between, theirs
+stands and the board starts again from it. A step that is ticked already, gone, or there twice is left alone.
 
 **The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
 more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
@@ -174,7 +189,8 @@ the backlog or in the queue"). The page is `public/`; this is the board's side (
   the agreed picture), `Worker:` (a worker, or "Game - Main decides") and `Time:` when given. The first line and
   the labels are the board's; every field is the person's own words, kept to one line. The main chat writes the
   step with its id and keeps the folder in its words, by which the board finds the step and shows its id on the
-  idea. The board writes nothing into the backlog.
+  idea. The board writes no step into the backlog; the one thing it writes there is the tick of a step the person
+  approved (B110, "Your approval ticks a step").
 - *Safety, because here the board starts a program that makes something.* Codex runs only on a call from the
   board's own page (the token, the page's origin, JSON), one picture at a time, with a time limit (`seconds` in
   `design.json`, 240), in a folder of its own under the system's temporary folder, which is removed afterwards. It

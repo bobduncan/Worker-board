@@ -7,6 +7,7 @@ import { allWords, closedForYou, forYou, inProgress, overview, parseBacklog, que
 import { pathKey } from './games.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { mentionedPaths } from './pictures.mjs'
+import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
 
@@ -491,6 +492,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // What to verify is in the branch the step names, else in main. A step with an address of its own is
       // about something else than the game.
       game: step.asks === 'verify' && !/https?:\/\//.test(step.text) ? gameOf(step.branch ?? 'main') : null,
+      // B110: where an approval goes: the board ticks a step whose work is merged (`tick`); one whose branch is
+      // still there, or of which the board cannot tell, goes to its worker (`worker`). Null for what is not approved.
+      approval: step.asks === 'verify' && !isClosed ? approvalRoute(step.branch, Array.isArray(raw.branches) ? raw.branches : null) : null,
       checks: [],
       tried: [],
       // A closed step takes no answer.
