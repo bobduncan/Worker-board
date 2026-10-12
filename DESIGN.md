@@ -48,6 +48,14 @@ step of the backlog is one line, so what describes it further are the indented l
 "Requirements:" (or any other name with a colon) starts a part of that name, a line "- ..." is a point of it,
 "Context:" goes to the side, and a folder of pictures named in any of these lines is shown.
 
+**A worker that waits for you opens on a click (B100).** A click on its lane opens the same window for what it
+waits for: its task in a few lines, as its own card names it (the topic, the step, since when), then what it wants
+from you in its own words: the answer that ended its turn, the questions it asked with the app's question form and
+their options, or the plan it asks to have approved. What you or another chat typed to it is never shown. You
+answer in the window, with the form and the sending the cards have; a question of the app's own form takes its
+answer only in its chat, and the window says so. Once answered, the card stays while the answer is on its way and
+for a little after it was typed in, although the chat no longer waits, so you see that it arrived.
+
 **The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
 more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
 expected and queued is what they plan with.

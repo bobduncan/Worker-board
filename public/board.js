@@ -400,6 +400,7 @@ function folderLine(folder, now) {
 function drawLane(lane, state) {
   const isOpen = openLanes.has(lane.name)
   const card = el('article', `lane is-${lane.state}${lane.isLeftover ? ' is-leftover' : ''}${isOpen ? ' is-open' : ''}`)
+  card.dataset.lane = lane.name
   const row = el('div', 'lane-row')
 
   const who = el('div', 'who')
@@ -439,7 +440,14 @@ function drawLane(lane, state) {
   }
   what.append(...betweenTurns(lane))
   if (lane.state === 'interrupted') what.append(el('p', 'alert', 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
-  if (lane.state === 'waiting') what.append(el('p', 'needs-you', 'Needs your decision'))
+  if (lane.state === 'waiting') {
+    // B100: the lane opens what it waits for; the line is a button, so the keyboard reaches it too.
+    const open = el('button', 'needs-you', 'Needs your decision')
+    open.type = 'button'
+    open.title = 'See what it waits for, and answer it here'
+    open.append(el('small', '', 'see and answer ›'))
+    what.append(open)
+  }
   const alerts = alertsOf(lane, state)
   if (alerts.length > 0) what.append(el('p', 'alert', alerts.join(' · ')))
 
@@ -473,6 +481,15 @@ $('lanes').addEventListener('click', event => {
   if (head === null) return
   if (!openLanes.delete(head.dataset.lane)) openLanes.add(head.dataset.lane)
   if (board !== null) fill($('lanes'), board.chats.map(lane => drawLane(lane, board)))
+})
+
+// B100: a click on a lane that waits for the person opens what it waits for, with the form to answer it. The
+// queue and the unfolded details keep their own clicks.
+$('lanes').addEventListener('click', event => {
+  const card = event.target.closest('.lane.is-waiting')
+  if (card === null || board === null || event.target.closest('.queue, .more') !== null) return
+  const id = needOfLane(board.forYou, card.dataset.lane)
+  if (id !== null) openDetails({ need: id })
 })
 
 /** What has no lane: queued steps that name no worker, and folders no worker is named for. */
@@ -1042,6 +1059,75 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
 }
 // window:end
 
+// waiting:start
+/**
+ * B100: the request to open for a lane that waits for the person: what its chat itself waits for, else a request
+ * it filed that is not answered yet, else the one that was answered last. Null when the lane has none.
+ */
+function needOfLane(needs, name) {
+  const mine = needs.filter(need => need.from === name && need.kind !== 'intervene' && need.activity === undefined && need.isClosed !== true)
+  const isOpen = need => (need.answer ?? null) === null
+  return (mine.find(need => need.id.startsWith(`chat:${name}:`) && isOpen(need)) ?? mine.find(isOpen) ?? mine[0] ?? null)?.id ?? null
+}
+
+/**
+ * B100: what the window of a worker that waits shows above the answer: its task in a few lines, as its own card
+ * names it (`task`), and what it wants from the person, in its own words: the questions it asked with the app's
+ * question form, the plan it asks to have approved, or what it last said (`words`); `summary` is the app's line of
+ * what it needs. `where` says where the answer goes: `here`, in its `chat` only (the app's own question form), or
+ * nowhere any more (`answered`). Null for a request that is not a waiting worker's.
+ */
+function waitingOf(need, now) {
+  if (need === null || need.waits === undefined) return null
+  const task = need.task ?? null
+  const lines = []
+  if (task === null || task.text === '') lines.push('It recorded no task.')
+  else {
+    lines.push(task.text)
+    if (task.step !== null && task.steps !== null) lines.push(`Step ${task.step} of ${task.steps}${task.name === null ? '' : `: ${task.name}`}`)
+  }
+  if (task !== null && task.stepId !== null) lines.push(`Backlog step ${task.stepId}`)
+  if (task !== null && Number.isFinite(task.startedAt)) lines.push(`Since ${clock(task.startedAt)} (${span(now - task.startedAt)})`)
+  const waits = need.waits ?? null
+  const where = (need.answer ?? null) !== null ? 'answered' : need.canAnswer ? 'here' : 'chat'
+  return {
+    task: lines,
+    hasTask: task !== null && task.text !== '',
+    // For a question of the app's form the need's own line only says where to answer: the window says that below.
+    summary: where === 'chat' ? '' : need.text ?? '',
+    questions: waits?.questions ?? [],
+    plan: waits?.plan ?? null,
+    words: waits?.words ?? '',
+    saidAt: waits?.at ?? null,
+    where,
+  }
+}
+// waiting:end
+
+/** B100: the two parts of a waiting worker's window: its task, and what it wants from the person. */
+function waitingParts(waiting) {
+  const task = waiting.task.map((line, index) => el('p', index === 0 ? `waiting-topic${waiting.hasTask ? '' : ' muted'}` : 'muted', line))
+  const wants = []
+  if (waiting.summary !== '') wants.push(el('p', 'waiting-summary', waiting.summary))
+  for (const one of waiting.questions) {
+    wants.push(el('p', 'waiting-question', one.question))
+    if (one.options.length > 0) wants.push(listOf(one.options))
+  }
+  if (waiting.plan !== null) {
+    const plan = el('div', 'said')
+    plan.append(el('small', 'muted', 'The plan it asks you to approve'), rich(el('div', 'said-words'), waiting.plan))
+    wants.push(plan)
+  }
+  if (waiting.words !== '') {
+    const said = el('div', 'said')
+    said.append(el('small', 'muted', `Its last words${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`), rich(el('div', 'said-words'), waiting.words))
+    wants.push(said)
+  }
+  if (wants.length === 0) wants.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
+  if (waiting.where === 'chat') wants.push(el('p', 'muted', 'It asked with the app\'s own question form: that one takes its answer only in its chat.'))
+  return [section('Its task', task), section('What it wants from you', wants)]
+}
+
 /** B65: the ticks the person set in a window's checklist, kept while the page is open (they are the person's own notes, sent nowhere). */
 const ticked = new Map()
 
@@ -1185,9 +1271,12 @@ function drawDetails(state) {
   const full = need !== null && isStep(need) && typeof need.words === 'string' && need.words !== need.title ? [el('p', '', need.words)] : []
   const described = [...words, ...full, ...notes.lead]
   const left = el('div', 'details-main')
+  // B100: a worker that waits: its task in a few lines, then what it wants, in place of a description.
+  const waiting = waitingOf(need, now)
+  if (waiting !== null) left.append(...waitingParts(waiting))
   // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
   // has them on the right.
-  if (described.length > 0) left.append(section('Description', described))
+  if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section('Description', described))
   else if (!view.hasNotes) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
   left.append(...notes.named)
   if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
