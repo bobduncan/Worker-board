@@ -8,7 +8,7 @@ import { pathKey } from './games.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { parsePlanLine } from './planLines.mjs'
-import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, taskStart, turnStart, turnState } from './transcript.mjs'
+import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -158,7 +158,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -202,6 +202,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state === 'waiting' ? entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null : null,
+    // B100: what it last said, for the window of what it waits for: its own words, never what was typed to it.
+    waitsFor: state === 'waiting' ? waitingFor(entries) : null,
     task,
     // When a chat that was cut off last wrote.
     cutOffAt: wasCutOff ? lastWriteAt : null,
@@ -212,6 +214,14 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
   }
 }
+
+/** How long the card of a chat's question stays after its answer was typed in. The page hides it sooner. */
+const ANSWER_KEPT_MS = 10 * MIN
+
+/** B100: a chat's task as its card names it, for the window of what it waits for: the topic, the step, since when. */
+const cardOf = task => (task === null ? null : {
+  text: task.text, step: task.step, steps: task.steps, name: task.names?.[(task.step ?? 0) - 1] ?? null, startedAt: task.startedAt, stepId: task.stepId ?? null,
+})
 
 const asAnswer = message => (message === undefined ? null : {
   at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state,
@@ -235,8 +245,11 @@ function answerOf(outbox, id, version = null) {
 /**
  * What waits for the person, newest first: the asks the chats filed, a chat that waits without having filed one,
  * and a chat whose turn runs but shows no sign of life. `canAnswer` says the board's own form can answer it.
+ * A chat that waits brings what its window shows (B100): its task as its card names it (`task`) and what it
+ * last said (`waits`). Once answered on the board, its card stays while the answer is on its way and a little
+ * after it was typed in, although the chat no longer waits: the person sees that it arrived.
  */
-function needsOf(asks, lanes, outbox, gameOf) {
+function needsOf(asks, lanes, outbox, gameOf, now) {
   const live = lanes.filter(lane => !lane.isLeftover)
   const names = new Set(live.map(lane => lane.name))
   // Work to verify is looked at in the game: on the branch the ask names, else on main.
@@ -262,6 +275,8 @@ function needsOf(asks, lanes, outbox, gameOf) {
         ...blank,
         version: null,
         canAnswer: !lane.isAsking,
+        task: cardOf(lane.task),
+        waits: lane.waitsFor,
       })
     }
     if (lane.isQuiet) {
@@ -277,6 +292,26 @@ function needsOf(asks, lanes, outbox, gameOf) {
         canAnswer: false,
       })
     }
+  }
+  // Answered here, and the chat has moved on or will: the card of that question, with nothing left to answer.
+  const isKept = sent => sent.state === 'waiting' || sent.state === 'taken'
+    || (sent.state === 'delivered' && now - (sent.deliveredAt ?? sent.at) < ANSWER_KEPT_MS)
+  for (const lane of live) {
+    const sent = outbox.findLast(one => one.to === lane.name && typeof one.ask === 'string' && one.ask.startsWith(`chat:${lane.name}:`))
+    if (sent === undefined || !isKept(sent) || items.some(item => item.id === sent.ask)) continue
+    items.push({
+      id: sent.ask,
+      from: lane.name,
+      kind: 'input',
+      title: 'Waited for you',
+      text: '',
+      at: Number(sent.ask.slice(`chat:${lane.name}:`.length)) || sent.at,
+      ...blank,
+      version: null,
+      canAnswer: false,
+      task: cardOf(lane.task),
+      waits: null,
+    })
   }
   return items
     .map(item => ({ ...item, ...answerOf(outbox, item.id, item.version) }))
@@ -501,7 +536,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     chats: lanes.map(lane => ({ ...lane, isRunning: lane.isLeftover ? null : runningOf(lane.name) })),
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)),
-    forYou: needsOf(asks, lanes, sent, gameOf),
+    forYou: needsOf(asks, lanes, sent, gameOf, now),
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
     backlog: overview(backlog, { underWay: onNow }).map(activity => ({
       ...activity,
