@@ -25,6 +25,26 @@ export async function readTail(path, maxBytes = TAIL_BYTES) {
   }
 }
 
+/** What a line must hold to matter for a task: a message from another chat, or a message sent to one. */
+const TASK_MARKS = ['cross-session-message', '"SendMessage"']
+const DEEP_BYTES = 24 * 1024 * 1024
+
+/** The lines of a piece of transcript that hold one of the marks. */
+export function markedLines(text, isCut, marks = TASK_MARKS) {
+  const lines = text.split('\n')
+  if (isCut) lines.shift()
+  return lines.filter(line => marks.some(mark => line.includes(mark))).join('\n')
+}
+
+/**
+ * A longer look back than the tail, for a task handed over long ago: only the lines that can say when a task
+ * started or was reported, so the rest of a large file is never parsed.
+ */
+export async function readMarked(path, maxBytes = DEEP_BYTES) {
+  const piece = await readTail(path, maxBytes)
+  return piece === null ? null : markedLines(piece.text, piece.isCut)
+}
+
 function blocksOf(content) {
   if (typeof content === 'string') return [{ type: 'text', text: content }]
   if (!Array.isArray(content)) return []
@@ -164,6 +184,40 @@ export function taskStart(entries, { mainTitle }) {
 /** When the chat last reported to the main chat, or null. */
 export function lastReport(entries, { mainTitle }) {
   return entries.findLast(entry => isReportTo(entry, mainTitle))?.at ?? null
+}
+
+/**
+ * What started the turn that is running, for a chat that named no task: the first thing typed by the person or
+ * sent by another chat since the last turn ended. `isSure` is false when the tail does not reach back to the end
+ * of the turn before, so the entry may be something said in the middle of a longer turn.
+ */
+export function turnStart(entries, { prefix = '' } = {}) {
+  let opening = null
+  let hasEnd = false
+  for (const entry of entries) {
+    if (entry.isSidechain) continue
+    if (entry.type === 'assistant') {
+      if (entry.stopReason !== null && entry.stopReason !== 'tool_use') {
+        opening = null
+        hasEnd = true
+      }
+      continue
+    }
+    if (opening !== null || hasToolResult(entry)) continue
+    const peer = peerMessage(entry)
+    if (peer !== null) {
+      const from = typeof peer.from === 'string' && !peer.from.startsWith('local_') ? peer.from : 'Another chat'
+      opening = { at: entry.at, by: from.startsWith(prefix) ? from.slice(prefix.length) : from, title: titleOf(peer.body), isSure: hasEnd }
+      continue
+    }
+    const origin = entry.origin
+    const isTyped = origin === null
+      ? !entry.isMeta && !entry.isCompactSummary && !isCommandText(textOf(entry))
+      : origin.kind === 'human' || (origin.kind === 'plugin' && origin.asUser === true)
+    const value = isTyped ? typedText(entry) : ''
+    if (value !== '') opening = { at: entry.at, by: 'you', title: titleOf(value), isSure: hasEnd }
+  }
+  return opening
 }
 
 function typedText(entry) {

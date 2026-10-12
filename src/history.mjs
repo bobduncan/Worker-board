@@ -1,5 +1,5 @@
 // Own data: what changed per chat over time. A line is written when a chat's state, task or step changes:
-//   { at, chat, state, task, step, steps, leftMs, startedAt, source }
+//   { at, chat, state, task, step, steps, leftMs, startedAt, source, by }
 // and a gap line, { at, gap: true }, marks the moment from which the board was not running, so the time it was
 // off is drawn as unknown and not as the state it last saw.
 
@@ -44,6 +44,7 @@ export function changes(last, chats, now) {
       leftMs: task?.leftMs ?? null,
       startedAt: task?.startedAt ?? null,
       source: task?.source ?? null,
+      by: task?.by ?? null,
     }
     const before = last.get(name)
     const isSame = before !== undefined

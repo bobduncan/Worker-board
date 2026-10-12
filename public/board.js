@@ -75,16 +75,19 @@ function icon(name) {
   return svg
 }
 
-/** Text with **bold** and `code` as the only marks. */
-function marked(tag, className, text) {
-  const node = el(tag, className)
-  for (const piece of text.split(/(\*\*[^*]+\*\*|`[^`]+`)/)) {
-    if (piece.startsWith('**') && piece.endsWith('**') && piece.length > 4) node.append(el('strong', '', piece.slice(2, -2)))
-    else if (piece.startsWith('`') && piece.endsWith('`') && piece.length > 2) node.append(el('code', '', piece.slice(1, -1)))
-    else if (piece !== '') node.append(piece)
+/** Puts text into a node, with **bold** and `code` as the only marks. */
+function mark(node, text) {
+  const pieces = []
+  for (const piece of text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/)) {
+    if (piece.startsWith('**') && piece.endsWith('**') && piece.length > 4) pieces.push(el('strong', '', piece.slice(2, -2)))
+    else if (piece.startsWith('`') && piece.endsWith('`') && piece.length > 2) pieces.push(el('code', '', piece.slice(1, -1)))
+    else if (piece !== '') pieces.push(piece)
   }
+  node.replaceChildren(...pieces)
   return node
 }
+
+const marked = (tag, className, text) => mark(el(tag, className), text)
 
 // The top bar
 
@@ -145,7 +148,16 @@ function drawCard(chat, state) {
   card.append(top)
 
   const task = chat.task
-  card.append(el('p', `task${task === null ? ' is-none' : ''}`, task === null ? 'No active task' : task.text))
+  if (task === null) {
+    card.append(el('p', 'task is-none', chat.state === 'working' ? 'Task not named' : 'No active task'))
+  } else {
+    const line = el('p', 'task clip')
+    line.title = task.text
+    // A chat that named no task shows what started its turn, and who asked.
+    if (task.source === 'prompt') line.append(el('span', 'muted', task.by === 'you' || task.by === null ? 'You asked: ' : `${task.by} sent: `))
+    line.append(task.text)
+    card.append(line)
+  }
 
   if (task !== null && task.step !== null && task.steps !== null && task.steps > 0) {
     const progress = el('div', 'progress')
@@ -227,14 +239,15 @@ function drawFolders(state) {
     const symbol = el('span', 'icon')
     symbol.append(icon('folder'))
     const ahead = folder.ahead === null ? '?' : folder.ahead === 0 ? '–' : `↑ ${folder.ahead}`
-    const name = el('span', 'name', folder.name)
-    name.title = folder.path
-    const branch = el('span', 'branch', folder.branch ?? 'no branch')
-    if (folder.uncommitted !== null && folder.uncommitted > 0) branch.append(el('small', '', ` · ${folder.uncommitted} changed`))
-    branch.title = folder.branch ?? ''
+    const names = el('div', 'names')
+    names.title = `${folder.path}\n${folder.branch ?? 'no branch'}`
+    names.append(el('span', 'name', folder.name), el('span', 'branch', folder.branch ?? 'no branch'))
+    const changed = folder.uncommitted === null ? '?' : folder.uncommitted === 0 ? '' : `${folder.uncommitted} changed`
+    const changedCell = el('span', 'changed', changed)
+    changedCell.title = 'files changed and not committed'
     const aheadCell = el('span', `ahead${folder.ahead ? '' : ' is-none'}`, ahead)
     aheadCell.title = folder.ahead === null ? 'unknown' : `${folder.ahead} commits ahead of main`
-    row.append(symbol, name, branch, aheadCell, el('span', 'when', folder.lastCommitAt === null ? 'unknown' : ago(folder.lastCommitAt, state.readAt)))
+    row.append(symbol, names, changedCell, aheadCell, el('span', 'when', folder.lastCommitAt === null ? 'unknown' : ago(folder.lastCommitAt, state.readAt)))
     return row
   })
   refill($('folders-list'), rows.length === 0 ? [el('p', 'empty', 'No working folders.')] : rows)
@@ -365,7 +378,8 @@ function drawMessage({ key, kind, time, who, text, note = null, isReport = false
   }
   const isOpen = opened.has(key)
   if (isOpen) bubble.classList.add('is-open')
-  bubble.textContent = isReport && !isOpen ? bubble.dataset.short : text
+  if (isReport && !isOpen) bubble.textContent = bubble.dataset.short
+  else mark(bubble, text)
   if (note !== null) bubble.append(el('small', '', note))
   row.append(el('time', '', time), el('span', 'who', who), bubble)
   return row
@@ -405,7 +419,9 @@ $('messages').addEventListener('click', event => {
   const isOpen = bubble.classList.toggle('is-open')
   if (isOpen) opened.add(bubble.dataset.key)
   else opened.delete(bubble.dataset.key)
-  if (bubble.classList.contains('is-report')) bubble.textContent = isOpen ? bubble.dataset.full : bubble.dataset.short
+  if (!bubble.classList.contains('is-report')) return
+  if (isOpen) mark(bubble, bubble.dataset.full)
+  else bubble.textContent = bubble.dataset.short
 })
 
 // Reading and sending
@@ -413,6 +429,8 @@ $('messages').addEventListener('click', event => {
 function draw(state) {
   board = state
   drawTop(state)
+  const count = state.chats.length
+  $('cards').style.setProperty('--columns', String(count <= 5 ? Math.max(1, count) : Math.ceil(count / 2)))
   fill($('cards'), state.chats.map(chat => drawCard(chat, state)))
   drawForYou(state)
   drawQueue(state)

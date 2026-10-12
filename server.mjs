@@ -147,6 +147,9 @@ export function createBoard({ token, getState, say, maxMessageChars = 2000, publ
 async function main(args) {
   const isDemo = args.includes('--demo')
   const config = await loadConfig(join(HERE, 'config.json'))
+  // `--port 4311` lets the demo run next to the real board.
+  const port = Number(args[args.indexOf('--port') + 1])
+  if (args.includes('--port') && Number.isInteger(port) && port >= 1024 && port <= 65535) config.port = port
   const clock = Date.now
 
   let store

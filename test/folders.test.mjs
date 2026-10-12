@@ -46,8 +46,8 @@ test('readFolders asks git about each folder and counts what it answers', async 
   })
   assert.deepEqual(await readFolders('C:/Web/game/lava', run), [
     { path: 'C:/Web/game/lava', name: 'lava', branch: 'main', ahead: 0, uncommitted: 0, lastCommitAt: 1791790000000 },
-    { path: 'C:/Web/game/lava-beast', name: 'lava-beast', branch: 'feature/shadow-beast', ahead: 5, uncommitted: 2, lastCommitAt: 1791795000000 },
-    { path: 'C:/Web/game/lava-probe', name: 'lava-probe', branch: null, ahead: null, uncommitted: null, lastCommitAt: null },
+    { path: 'C:/Web/game/lava-beast', name: 'beast', branch: 'feature/shadow-beast', ahead: 5, uncommitted: 2, lastCommitAt: 1791795000000 },
+    { path: 'C:/Web/game/lava-probe', name: 'probe', branch: null, ahead: null, uncommitted: null, lastCommitAt: null },
   ])
 })
 

@@ -25,7 +25,7 @@ test('lastByChat: the last line of each chat, and nothing from before a gap', ()
 
 test('changes: a chat seen for the first time is recorded', () => {
   assert.deepEqual(changes(new Map(), [seen('Units', 'working', plan('Archer', { step: 1, steps: 4, leftMs: 9 }))], 5 * MIN), [
-    { at: 5 * MIN, chat: 'Units', state: 'working', task: 'Archer', step: 1, steps: 4, leftMs: 9, startedAt: null, source: 'plan' },
+    { at: 5 * MIN, chat: 'Units', state: 'working', task: 'Archer', step: 1, steps: 4, leftMs: 9, startedAt: null, source: 'plan', by: null },
   ])
 })
 

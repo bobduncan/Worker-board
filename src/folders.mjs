@@ -39,7 +39,11 @@ function numberIn(text) {
 export async function readFolders(gameRepo, run) {
   const list = await run(['-C', gameRepo, 'worktree', 'list', '--porcelain'])
   if (list === null) return null
-  return Promise.all(parseWorktrees(list).map(async ({ path, branch }) => {
+  const folders = parseWorktrees(list)
+  // The first folder is the repository itself. The others are usually named after it ("game-units"): the part
+  // after its name says which one it is.
+  const prefix = folders.length === 0 ? '' : `${baseName(folders[0].path)}-`
+  return Promise.all(folders.map(async ({ path, branch }) => {
     const [status, ahead, last] = await Promise.all([
       run(['-C', path, 'status', '--porcelain']),
       branch === null ? null : branch === 'main' ? '0' : run(['-C', gameRepo, 'rev-list', '--count', `main..${branch}`]),
@@ -48,7 +52,7 @@ export async function readFolders(gameRepo, run) {
     const seconds = numberIn(last)
     return {
       path,
-      name: baseName(path),
+      name: baseName(path).startsWith(prefix) ? baseName(path).slice(prefix.length) : baseName(path),
       branch,
       ahead: numberIn(ahead),
       uncommitted: count(status),

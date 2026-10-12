@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { answer, assistant, fromChat, line, slashCommand, step, text, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
-import { doingNow, mainChat, parseTail, taskStart, turnState } from '../src/transcript.mjs'
+import { doingNow, mainChat, markedLines, parseTail, taskStart, turnStart, turnState } from '../src/transcript.mjs'
 
 const T = Date.UTC(2026, 9, 12, 8, 0)
 const min = n => T + n * 60_000
@@ -28,6 +28,15 @@ test('parseTail drops the first line of a cut piece', () => {
 test('parseTail skips a line that does not parse, and reads Windows line ends', () => {
   const parsed = parseTail([typed(min(0), 'Start'), '{ broken', answer(min(1), 'Done')].join('\r\n'), false)
   assert.equal(parsed.length, 2)
+})
+
+test('markedLines keeps only the lines that can start or end a task, and drops a cut first line', () => {
+  const handOver = fromChat(min(1), 'Game - Main', 'Build the archer')
+  const report = assistant(min(9), 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Done.' })])
+  const piece = [typed(min(0), 'Go'), handOver, step(min(2), 'Run the tests'), toolResult(min(3)), report].join('\n')
+  assert.equal(markedLines(piece, false), `${handOver}\n${report}`)
+  assert.equal(markedLines(`${handOver}\n${report}`, true), report)
+  assert.equal(markedLines('', false), '')
 })
 
 test('turnState: a turn that ended', () => {
@@ -104,6 +113,25 @@ test('taskStart: a report to the main chat after the hand-over ends the task', (
 
 test('taskStart: no hand-over in the tail is null', () => {
   assert.equal(taskStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), { mainTitle: 'Game - Main' }), null)
+})
+
+test('turnStart: the first thing typed since the last turn ended, not a remark made later in the turn', () => {
+  const start = turnStart(entries([
+    answer(min(0), 'Done'),
+    ...slashCommand(min(1), '/reload-plugins'),
+    typed(min(5), 'Make the lava glow more. It looks flat.'),
+    step(min(6), 'Read the shader'),
+    toolResult(min(7)),
+    typed(min(9), 'How far are you?'),
+  ]), { prefix: 'Game - ' })
+  assert.deepEqual(start, { at: min(5), by: 'you', title: 'Make the lava glow more', isSure: true })
+})
+
+test('turnStart: a turn another chat started names that chat, and a tail without the turn before is not sure', () => {
+  const start = turnStart(entries([toolResult(min(0)), fromChat(min(4), 'Game - Units', 'The archer is merged.\nDetails.')]), { prefix: 'Game - ' })
+  assert.deepEqual(start, { at: min(4), by: 'Units', title: 'The archer is merged', isSure: false })
+  assert.equal(turnStart(entries([step(min(0), 'Run the tests'), toolResult(min(1))]), { prefix: 'Game - ' }), null)
+  assert.equal(turnStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), { prefix: 'Game - ' }), null)
 })
 
 test('mainChat: what was typed, the answers, and reports; tool calls and commands are left out', () => {

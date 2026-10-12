@@ -5,7 +5,7 @@ import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { forYou, openWork, parseBacklog, queue } from './backlog.mjs'
 import { dayStart, taskFacts, today } from './history.mjs'
 import { parsePlanLine } from './planLines.mjs'
-import { doingNow, lastReport, mainChat, parseTail, taskStart, turnState } from './transcript.mjs'
+import { doingNow, lastReport, mainChat, parseTail, taskStart, turnStart, turnState } from './transcript.mjs'
 
 const MIN = 60_000
 const ASKED = 'Asked you a question in its chat.'
@@ -24,28 +24,48 @@ export function chatState({ turn, category, needsAction }) {
 const textOr = (value, fallback) => (typeof value === 'string' ? value : fallback)
 
 /** The task a chat is on: its own plan line first, else the task another chat handed to it. */
-function taskOf({ chat, plan, entries, state, before, lines, mainTitle, now }) {
-  const handOver = chat.isMain || entries === null ? null : taskStart(entries, { mainTitle })
-  const bare = { step: null, steps: null, leftMs: null, estimateAt: null, source: 'handover' }
+/**
+ * The task a chat is on. Its own plan line first; else the task another chat handed to it; else, for a chat that
+ * works without having named a task, what started its turn (`source: 'prompt'`, with who asked in `by`).
+ */
+function taskOf({ chat, plan, entries, scan, state, before, lines, mainTitle, prefix, now }) {
+  // `scan` holds the entries that can start or end a handed-over task: the tail, after a longer look back.
+  const handOver = chat.isMain || scan === null ? null : taskStart(scan, { mainTitle })
+  const bare = { step: null, steps: null, leftMs: null, estimateAt: null, source: 'handover', by: null }
   // A handed-over task stands while the chat works on it or waits for the person; a free chat has finished it.
   const isBusy = state === 'working' || state === 'waiting'
+  let start = handOver
   let task = null
   if (plan?.task != null && !plan.task.isReported) {
     const { text, step, steps, leftMs } = plan.task
-    task = { text, step, steps, leftMs, estimateAt: leftMs === null ? null : plan.at, source: 'plan' }
+    task = { text, step, steps, leftMs, estimateAt: leftMs === null ? null : plan.at, source: 'plan', by: null }
   } else if (handOver !== null && isBusy) {
     task = { text: handOver.title, ...bare }
   } else if (handOver === null && isBusy && !chat.isMain && before?.source === 'handover' && typeof before.task === 'string') {
-    // The hand-over has scrolled out of the tail: the history remembers it, until the chat reports.
-    const reportedAt = entries === null ? null : lastReport(entries, { mainTitle })
+    // The hand-over is further back than the board looks: the history remembers it, until the chat reports.
+    const reportedAt = scan === null ? null : lastReport(scan, { mainTitle })
     if (reportedAt === null || reportedAt <= (before.startedAt ?? before.at)) task = { text: before.task, ...bare }
+  }
+  if (task === null && state === 'working') {
+    const opened = turnStart(entries, { prefix })
+    // A turn that has reported to the main chat since it started is wrapping up a finished task.
+    const reportedAt = lastReport(entries, { mainTitle })
+    const opening = opened !== null && reportedAt !== null && reportedAt >= opened.at ? null : opened
+    // An opening the tail cannot be sure of gives way to the one the history recorded while the chat kept working.
+    const remembered = before?.source === 'prompt' && before.state === 'working' && typeof before.task === 'string' ? before : null
+    if (opening !== null && opening.title !== '' && (opening.isSure || remembered === null)) {
+      start = opening
+      task = { text: opening.title, ...bare, source: 'prompt', by: opening.by }
+    } else if (remembered !== null) {
+      task = { text: remembered.task, ...bare, source: 'prompt', by: remembered.by ?? null }
+    }
   }
   if (task === null) return null
 
   const facts = taskFacts(lines, chat.name, task.text, now)
   const firstSeenAt = facts?.firstSeenAt ?? now
-  // A message from another chat that came after the task was first seen is a note on it, not its start.
-  const handedAt = handOver !== null && handOver.at !== null && handOver.at <= firstSeenAt ? handOver.at : Infinity
+  // A message that came after the task was first seen is a note on it, not its start.
+  const handedAt = start !== null && start.at !== null && start.at <= firstSeenAt ? start.at : Infinity
   const startedAt = Math.min(firstSeenAt, handedAt, facts?.startedAt ?? Infinity)
   const first = facts?.firstEstimate ?? (task.leftMs === null ? null : { at: task.estimateAt ?? now, leftMs: task.leftMs })
   return {
@@ -57,7 +77,7 @@ function taskOf({ chat, plan, entries, state, before, lines, mainTitle, now }) {
   }
 }
 
-function card(chat, raw, { now, config, last, lines, mainTitle }) {
+function card(chat, raw, { now, config, last, lines, mainTitle, prefix }) {
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover }
   if (chat.isLeftover) {
     return { ...base, state: 'unknown', quietMs: null, isQuiet: false, doingNow: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, lastActivityAt: chat.lastActivityAt }
@@ -83,7 +103,11 @@ function card(chat, raw, { now, config, last, lines, mainTitle }) {
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state === 'waiting' ? entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null : null,
-    task: taskOf({ chat, plan, entries, state, before: last.get(chat.name), lines, mainTitle, now }),
+    task: taskOf({
+      chat, plan, entries, state, before: last.get(chat.name), lines, mainTitle, prefix, now,
+      // The longer look back is a few minutes old, so the tail follows it: the newest hand-over or report wins.
+      scan: typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries,
+    }),
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
   }
 }
@@ -101,7 +125,7 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
   const mainTitle = `${list.prefix}${list.main}`
   // What the history last said about each chat, also from before the board was last off.
   const last = new Map(lines.filter(line => line.gap !== true).map(line => [line.chat, line]))
-  const context = { now, config, last, lines, mainTitle }
+  const context = { now, config, last, lines, mainTitle, prefix: list.prefix }
   const chats = found.map(chat => card(chat, raw, context))
   const live = chats.filter(chat => !chat.isLeftover)
 
