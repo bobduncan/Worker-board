@@ -493,7 +493,7 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .coordinate-group h2 small { font-size: 13px; font-weight: 400; color: var(--muted); }
 .coordinate-group h2 .chip { padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #cfe0ff; background: #16294a; }
 .step-row {
-  width: 100%; display: grid; grid-template-columns: 46px 70px minmax(0, 1fr) minmax(0, 170px) minmax(0, 210px) 96px 120px;
+  width: 100%; display: grid; grid-template-columns: 46px 62px minmax(0, 1fr) minmax(0, 150px) minmax(0, 190px) 92px 64px;
   gap: 10px; align-items: center; padding: 7px 10px; text-align: left; font: inherit; color: var(--text);
   background: none; border: 0; border-top: 1px solid var(--line); cursor: pointer;
 }

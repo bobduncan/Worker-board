@@ -1463,7 +1463,8 @@ function drawCoordinate(state) {
       const row = el('button', `step-row is-${step.status}`)
       row.type = 'button'
       row.dataset.openStep = step.key
-      row.title = 'Show the details'
+      row.title = `${step.title}
+Show the details`
       row.append(
         el('span', 'step-id', step.id ?? ''),
         el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),
