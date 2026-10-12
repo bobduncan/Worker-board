@@ -722,6 +722,69 @@ $('messages').addEventListener('click', event => {
   else openBubbles.delete(bubble.dataset.key)
 })
 
+// The right side of a tab is as wide as the person drags it
+
+/**
+ * Makes `handle` set the width of the right side of `view`: by dragging, by the arrow keys, and back to the usual
+ * width with a double-click. The width is kept in this browser under `name`.
+ */
+function resizable(handle, view, name, usual) {
+  const least = 300
+  const fit = width => Math.round(Math.max(least, Math.min(width, window.innerWidth * 0.7)))
+  let width = usual
+  try {
+    width = Number(localStorage.getItem(name)) || usual
+  } catch {
+    // Without storage the width is the usual one after each reload.
+  }
+  const set = (next, isKept = true) => {
+    width = fit(next)
+    view.style.setProperty('--side', `${width}px`)
+    handle.setAttribute('aria-valuenow', String(width))
+    if (!isKept) return
+    try {
+      localStorage.setItem(name, String(width))
+    } catch {
+      // Not kept; it still applies until the page is closed.
+    }
+  }
+  set(width, false)
+
+  handle.addEventListener('pointerdown', event => {
+    event.preventDefault()
+    try {
+      // So the drag goes on when the pointer leaves the thin handle.
+      handle.setPointerCapture(event.pointerId)
+    } catch {
+      // A pointer that cannot be captured still drags while it stays on the handle.
+    }
+    document.body.classList.add('is-resizing')
+    // The side reaches from the pointer to the right edge of the view.
+    const move = moved => set(view.getBoundingClientRect().right - moved.clientX, false)
+    const stop = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', stop)
+      handle.removeEventListener('pointercancel', stop)
+      document.body.classList.remove('is-resizing')
+      set(width)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', stop)
+    handle.addEventListener('pointercancel', stop)
+  })
+  handle.addEventListener('keydown', event => {
+    if (event.key === 'ArrowLeft') set(width + 24)
+    else if (event.key === 'ArrowRight') set(width - 24)
+    else return
+    event.preventDefault()
+  })
+  handle.addEventListener('dblclick', () => set(usual))
+  window.addEventListener('resize', () => set(width, false))
+}
+
+resizable($('inbox-resizer'), $('view-overview'), 'for-you-width', 390)
+resizable($('talk-resizer'), $('view-advice'), 'chat-width', 500)
+
 // Tabs
 
 function show(tab) {
