@@ -531,12 +531,14 @@ const chatNamed = name => (board === null ? null : [...board.chats, board.adviso
  */
 function startParts(name) {
   const main = board?.restart?.main ?? null
-  if (chatNamed(name)?.isRunning !== false || main === null) return []
+  if (chatNamed(name)?.isRunning !== false) return []
+  // Without a main chat that runs there is nobody to ask: the chat has to be opened by hand.
+  if (main === null || name === main) return [el('div', 'alert', `${name} is not running: open its chat, and what is sent to it is typed into it.`)]
+  if (chatNamed(main)?.isRunning === false) return [el('div', 'alert', `${name} is not running, and neither is ${main}, which could start it: open one of the two chats.`)]
   const key = `start:${name}`
   const asked = (board.restart.starting ?? []).find(one => one.chat === name) ?? null
   const parts = []
-  if (name === main) parts.push(el('div', 'alert', `${name} is not running: open its chat, and this is typed into it.`))
-  else if (asked !== null && asked.state !== 'expired' && asked.state !== 'failed') {
+  if (asked !== null && asked.state !== 'expired' && asked.state !== 'failed') {
     parts.push(el('div', 'alert', `${name} is not running. ${main} was asked at ${clock(asked.at)} to start it; this is typed into it as soon as it runs.`))
   } else {
     const ask = el('button', 'choice', `Ask ${main} to start ${name}`)

@@ -33,7 +33,7 @@ export function checkSay(body, state, maxChars) {
       const target = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].find(chat => chat.name === body.chat)
       if (target === undefined || target.name === body.to || target.isRunning !== false) return refuse(409, 'That chat runs, or is not on the board.')
       const id = typeof target.appSession === 'string' && /^[\w-]{1,80}$/.test(target.appSession) ? ` Its session id: ${target.appSession}.` : ''
-      const words = `start ${plain([target.name])[0]}\nIts chat is not running, and what the user answered or typed on the worker board waits for it. Start it by its session id, with one line that says the board holds something for it.${id}`
+      const words = `start "${plain([target.name])[0].replace(/["\u201c\u201d]/g, '')}"\nIts chat is not running, and what the user answered or typed on the worker board waits for it. Start it by its session id, with one line that says the board holds something for it.${id}`
       return { ok: true, message: { ...blank, command: 'start', about: target.name, text: words } }
     }
     const cut = plain(state.restart?.interrupted)
@@ -74,6 +74,7 @@ export function checkSay(body, state, maxChars) {
 
 /** The main chat is asked to start a chat at most this often. */
 const WAKE_AGAIN_MS = 2 * 60_000
+const WAKE_PENDING_MS = 10 * 60_000
 
 /**
  * What the board adds when something was sent to a chat that is not running: the word to the main chat to start
@@ -84,7 +85,9 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   const main = state.restart?.main ?? null
   if (main === null || message.to === main || (message.command ?? null) !== null) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
-  if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && now - sent.at < WAKE_AGAIN_MS)) return null
+  // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
+  const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS
+  if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && (now - sent.at < WAKE_AGAIN_MS || isOnItsWay(sent)))) return null
   const checked = checkSay({ to: main, command: 'start', chat: message.to }, state, maxChars)
   return checked.ok ? checked.message : null
 }
