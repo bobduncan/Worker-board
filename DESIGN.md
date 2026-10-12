@@ -91,6 +91,30 @@ asks again and shows the earlier answer: that is how a rejected step comes back 
 **From advice to work** (the person, 2026-10-12): what the person agrees with the advisor, the advisor passes on
 to the main chat, which hands out as before. The advisor still hands out nothing itself.
 
+**A restart of the app** (the person, 2026-10-12: "I want to be able to restart claude, the worker board to
+restart and reload. and then let the workers continue with what they were doing before the restart"; their
+choices: the mod starts the board, the workers carry on on their click, no compaction on the way).
+
+- *The board comes back by itself.* The boards run as children of the app and end with it. The project's list
+  of chats names the launch entries to keep running (`.claude\chats\list.json`, "boards"); every chat in the list
+  looks every 15 seconds whether each answers and starts the one that does not, as a child of its own process
+  (the Workers mod, `keepBoards`). So the first game chat that opens after a restart brings the boards back, and
+  a chat that closes hands its board on to the next one within seconds. Nothing is set up in Windows.
+- *The page keeps asking.* While the board is away the page asks every 5 seconds and says since when; a board
+  that is back has a new token, and the page loads itself anew. The board says for an hour that it was off, and
+  from when to when.
+- *Interrupted.* A chat whose transcript shows an open turn while its own file says otherwise was cut off
+  (`isCutOff` in `src/state.mjs`): the file says waiting since after the turn began and the transcript has not
+  moved on, or it says working and is no longer renewed. A chat whose process keeps no such file is never called
+  interrupted. It is a state of its own, with the task the chat was on.
+- *Two words, and the main chat does the work.* "Prepare restart" and "Resume all" type `prepare restart` and
+  `resume` into the main chat, in the board's own wording; `resume` names the chats the board read as cut off.
+  The main chat asks every working chat to stop at a safe point and writes who was on what into
+  `<project>\.claude\restart.md`, and after the restart it brings them back from that file, then removes it. The
+  board says how the preparing stands: who still works, and "Ready" when every chat is at rest and the file is
+  written. A message from the main chat reaches a chat in the middle of its turn; what the board types waits
+  until a chat is idle, which is why the main chat does the messaging.
+
 **Pictures.** Pictures come only from the folders named in `config.json` (`pictureRoots`, the project's
 `art-inbox`), and the path is checked on the real file.
 

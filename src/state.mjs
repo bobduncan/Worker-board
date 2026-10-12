@@ -25,7 +25,9 @@ const CUT_OFF_MS = 150_000
 export function isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now }) {
   if (turn !== 'running' && turn !== 'asking') return false
   if (plan === null || plan.at === null || plan.state === null) return false
-  if (plan.state === 'waiting') return plan.at > (turnStartedAt ?? lastWriteAt ?? Infinity)
+  // Waiting, said after the turn began. A transcript that moved on well after that is a turn that lives: one
+  // opened by a slash command or a background notice has no opening of its own to measure from.
+  if (plan.state === 'waiting') return plan.at > (turnStartedAt ?? lastWriteAt ?? Infinity) && (lastWriteAt === null || lastWriteAt <= plan.at + MIN)
   return Number.isFinite(lastWriteAt) && plan.at >= lastWriteAt - MIN && now - plan.at > CUT_OFF_MS
 }
 

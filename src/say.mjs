@@ -24,7 +24,8 @@ export function checkSay(body, state, maxChars) {
     if (body.command !== 'prepare restart' && body.command !== 'resume') return refuse(400, 'No such command.')
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares and resumes.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
-    const cut = state.restart?.interrupted ?? []
+    // A name comes from a chat's title: it is kept to one short plain line.
+    const cut = (state.restart?.interrupted ?? []).map(name => String(name).replace(/\s+/g, ' ').trim().slice(0, 80))
     const words = body.command === 'resume' && cut.length > 0
       ? `resume\nCut off in the middle of a turn, as the worker board reads it: ${cut.join(', ')}.`
       : body.command

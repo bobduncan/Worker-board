@@ -657,3 +657,11 @@ test('the restart: who was cut off, what was prepared, and how long the board wa
   // Without a main chat there is nobody to do the resuming.
   assert.equal(build({ apps: [app('Units')] }).restart.main, null)
 })
+
+test('a turn that kept writing after its chat\'s file said waiting is alive, not interrupted', () => {
+  // The file says waiting since 8 minutes ago (the turn before ended then); the open turn wrote a minute ago.
+  // A turn opened by a slash command or a background notice has no opening of its own, so the file looks newer
+  // than the turn: what tells them apart is that the transcript moved on.
+  const state = build({ apps: [app('Units')], tails: { Units: tail(running, 1) }, plans: { Units: ownFile('waiting', NOW - 8 * MIN, beast) } })
+  assert.equal(chatNamed(state, 'Units').state, 'working')
+})
