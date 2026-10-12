@@ -63,9 +63,26 @@ the person's own, "Make a picture". 2 The picture: the version looked at, large;
 should change?" with "Make it again"; "I agree", which can be taken back. 3 Add what you want, open once a picture
 is agreed: title, description, requirements, the worker or the main chat's choice, an optional time; "Put on the
 backlog" or "Put in a queue". The page reads `state.design` and writes only through `POST /api/design` and
-`/api/design/reference` (the board's side, B101); it writes nothing into the backlog, the main chat does. What is
+`/api/design/reference` (the board's side, B101); it writes nothing into the backlog, the main chat does (the one
+thing the board itself writes there is the tick of an approved step, B110, below). What is
 typed stays in the page while it is open and is never drawn over by a new reading of the state. A board whose
 server has no `design` says so on the tab.
+
+**Your approval ticks a step (B110).** The one thing the board writes outside its own data folder. When you
+approve a Verify step of the backlog whose work is merged, the board ticks the step itself ("- [ ]" becomes
+"- [x]") and writes one line under it: "Approved by you on the worker board on 2026-10-12 at 22:40", with your
+note when you gave one. No chat is woken, and the note is sent to nobody. Merged means: the step names no branch,
+or one that is in neither the game's repository nor the board's any more; the board asks git anew at the click.
+A step whose branch is still there goes to its worker, who merges; so does every approval when git does not
+answer or the file cannot be written, so none is lost. A rejection, with your words, always goes back to the
+worker, and an answer to a Decide or Provide step goes where it went before. "Done" on a Do step, what only
+you could do, is settled the same way: ticked by the board with "Done by you on the worker board on ..." under
+it, unless the step names a branch that is still there. When open steps waited for the
+approved one ("after B55"), the main chat gets one line of the board's own that names them. Only the board that
+delivers writes (the one in the repository's main folder); a copy and the demo never do. The file is read anew
+right before, only the step's line and the new line change and every other byte stays, the new text is written
+beside the file and put in its place in one move, and when somebody else wrote the backlog in between, theirs
+stands and the board starts again from it. A step that is ticked already, gone, or there twice is left alone.
 
 **The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
 more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
@@ -132,10 +149,10 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   (`isCutOff` in `src/state.mjs`): the file says waiting since after the turn began and the transcript has not
   moved on, or it says working and is no longer renewed. A chat whose process keeps no such file is never called
   interrupted. It is a state of its own, with the task the chat was on.
-- *Switched off for now.* On 2026-10-12 at 19:42 the person had every board stopped ("stop all worker boards. i
-  will start 1 manually from main myself"), and the list under "boards" is empty since. As long as it is, no chat
-  starts a board: the person starts the one on main themselves, from the Run pane. Putting "worker-board" back
-  into that list switches the automatic start on again; that is theirs to say.
+- *Off for one evening, on again.* On 2026-10-12 at 19:42 the person had every board stopped ("stop all worker boards. i
+  will start 1 manually from main myself"), and the list under "boards" was empty while they checked the new board.
+  Since 2026-10-13 it names "worker-board" again, on their yes of 2026-10-12: the board on 4310 comes back by itself
+  after a restart of the app. An empty list switches the automatic start off; that is theirs to say.
 - *Not running.* The two restarts of 2026-10-12 showed that after a restart no worker's chat runs until something
   starts it, and that a message addressed by a chat's name does not reach a chat that is not running. A running
   chat's mod asks the board every few seconds what waits for it, so the board knows who runs: a chat it has not
@@ -174,7 +191,8 @@ the backlog or in the queue"). The page is `public/`; this is the board's side (
   the agreed picture), `Worker:` (a worker, or "Game - Main decides") and `Time:` when given. The first line and
   the labels are the board's; every field is the person's own words, kept to one line. The main chat writes the
   step with its id and keeps the folder in its words, by which the board finds the step and shows its id on the
-  idea. The board writes nothing into the backlog.
+  idea. The board writes no step into the backlog; the one thing it writes there is the tick of a step the person
+  approved (B110, "Your approval ticks a step").
 - *Safety, because here the board starts a program that makes something.* Codex runs only on a call from the
   board's own page (the token, the page's origin, JSON), one picture at a time, with a time limit (`seconds` in
   `design.json`, 240), in a folder of its own under the system's temporary folder, which is removed afterwards. It

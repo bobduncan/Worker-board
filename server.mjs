@@ -33,11 +33,12 @@ import { IDEAS_FOLDER, REFERENCES_FOLDER, REFERENCE_BYTES, checkDesign, designSt
 import { ideasFile, ideasOver } from './src/ideas.mjs'
 import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
 import { readHead } from './src/files.mjs'
-import { cached, gitRunner, readFolders } from './src/folders.mjs'
+import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay, wakeFor } from './src/say.mjs'
+import { settleByBoard } from './src/tick.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -297,6 +298,19 @@ async function main(args) {
     now: clock,
   })
   let folders = async () => null
+  let branches = async () => null
+  // B110: the repositories whose branches say whether a step's work is merged: the game's, and the board's own.
+  const branchesNow = () => readBranches([config.gameRepo, HERE], gitRunner())
+
+  // B110: an approval of merged work, and "Done" on what only the person could do, the board settles itself.
+  const settle = (message, state) => settleByBoard(message, state, {
+    canWrite: !isDemo && !isShowOnly,
+    file: join(config.project, '.claude', 'backlog.md'),
+    branchesNow,
+    now: clock(),
+    say: sent => store.say(sent),
+    newId: () => randomBytes(8).toString('hex'),
+  })
 
   let store
   let readRaw
@@ -307,7 +321,8 @@ async function main(args) {
     readRaw = () => demoSources(clock())
   } else {
     folders = cached(() => readFolders(config.gameRepo, gitRunner()), FOLDERS_MS)
-    readRaw = () => readSources(config, folders)
+    branches = cached(() => branchesNow(), FOLDERS_MS)
+    readRaw = () => readSources(config, folders, undefined, branches)
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
     } else {
@@ -318,7 +333,7 @@ async function main(args) {
       readLines = () => lines.now
       readRaw = async () => {
         lines.now = await shared()
-        return readSources(config, folders)
+        return readSources(config, folders, undefined, branches)
       }
     }
   }
@@ -500,6 +515,12 @@ async function main(args) {
       const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: 'waiting' }
+      // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
+      const ticked = await settle(message, state)
+      if (ticked !== null) {
+        readState.reset()
+        return ticked
+      }
       await store.say(message)
       // Sent to a chat that is not running: the main chat is asked to start it, so nothing waits without a word.
       const wake = wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)

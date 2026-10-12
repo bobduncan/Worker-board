@@ -63,6 +63,16 @@ export async function readFolders(gameRepo, run) {
   }))
 }
 
+/**
+ * B110: the local branches of the repositories the board knows (the game's, the board's own), as one list. Null
+ * when git did not answer for one of them: the board then cannot tell whether a branch is still there.
+ */
+export async function readBranches(repos, run) {
+  const lists = await Promise.all(repos.map(repo => run(['-C', repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads'])))
+  if (lists.some(list => typeof list !== 'string')) return null
+  return [...new Set(lists.flatMap(list => list.split('\n').map(line => line.trim()).filter(line => line !== '')))]
+}
+
 /** Runs git without a shell. `--no-optional-locks` keeps `status` from taking the index lock a chat may need. */
 export function gitRunner() {
   return args => new Promise(resolve => {

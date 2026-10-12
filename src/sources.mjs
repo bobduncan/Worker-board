@@ -62,7 +62,7 @@ async function pictureLists(config, backlogText, now) {
 }
 
 /** `readFolders()` answers the working folders (see folders.mjs). */
-export async function readSources(config, readFolders, now = Date.now()) {
+export async function readSources(config, readFolders, now = Date.now(), readBranches = async () => null) {
   const claude = join(config.project, '.claude')
   const [listText, appChatTexts, backlogText, adviceText, folders, askTexts] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
@@ -100,6 +100,8 @@ export async function readSources(config, readFolders, now = Date.now()) {
     usageText: (await readTail(config.usageHistory, USAGE_BYTES))?.text ?? null,
     // The main chat's note of who was on what before a restart: only whether it is there, and since when.
     restartNote: await stat(join(claude, 'restart.md')).then(file => ({ at: file.mtimeMs }), () => null),
+    // B110: the branches that are still there, to tell merged work from work whose branch is open.
+    branches: await readBranches().catch(() => null),
     // When the advisor last wrote its advice.
     adviceAt: await stat(join(claude, 'advice.md')).then(file => file.mtimeMs, () => null),
   }
