@@ -152,7 +152,7 @@ export function queue(backlog) {
   return backlog.activities
     .flatMap(activity => {
       const isQueue = activity.name.toLowerCase().startsWith(QUEUE_HEADING)
-      return open(activity).filter(step => step.ownBranch === null && !/\(not queued/i.test(step.text) && (isQueue || (step.isFor && !step.isYou)))
+      return open(activity).filter(step => step.ownBranch === null && !/\(not queued/i.test(step.text) && (isQueue || (step.isFor && !step.isYou)))
     })
     .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(notes) }))
 }
