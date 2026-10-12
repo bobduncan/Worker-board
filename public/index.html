@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="board-token" content="{{token}}">
+  <title>Worker board</title>
+  <link rel="stylesheet" href="/board.css">
+  <script src="/board.js" defer></script>
+</head>
+<body>
+  <div class="layout">
+    <main class="board">
+      <header class="top">
+        <h1>Lava Tactics – Worker Board</h1>
+        <p class="updated" id="updated">Reading…</p>
+        <button class="icon-button" id="refresh" type="button" title="Read again" aria-label="Read again"></button>
+        <div class="counts" id="counts"></div>
+      </header>
+
+      <section class="cards" id="cards" aria-label="Workers"></section>
+
+      <div class="three">
+        <section class="panel" id="for-you" aria-labelledby="for-you-title">
+          <h2 id="for-you-title">For you <span class="count" id="for-you-count"></span></h2>
+          <div class="list" id="for-you-list"></div>
+        </section>
+        <section class="panel" id="queue" aria-labelledby="queue-title">
+          <h2 id="queue-title">Queue <span class="count" id="queue-count"></span></h2>
+          <div class="list" id="queue-list"></div>
+        </section>
+        <section class="panel" id="folders" aria-labelledby="folders-title">
+          <h2 id="folders-title">Working folders</h2>
+          <div class="list" id="folders-list"></div>
+        </section>
+      </div>
+
+      <section class="panel" id="today" aria-labelledby="today-title">
+        <h2 id="today-title">Today</h2>
+        <div class="today">
+          <div class="timeline" id="timeline"></div>
+          <ul class="legend" id="legend"></ul>
+        </div>
+      </section>
+
+      <section class="panel" id="advice" aria-labelledby="advice-title">
+        <h2 id="advice-title">Advice</h2>
+        <div class="advice" id="advice-text"></div>
+      </section>
+    </main>
+
+    <aside class="dock" aria-labelledby="dock-title">
+      <header class="dock-top">
+        <h2 id="dock-title">Main chat</h2>
+        <span class="muted" id="dock-note">Last 30 messages</span>
+      </header>
+      <div class="messages" id="messages"></div>
+      <form class="say" id="say">
+        <textarea id="say-text" rows="2" placeholder="Type a message…" maxlength="2000" aria-label="Message to the main chat"></textarea>
+        <button type="submit" id="say-send">Send</button>
+      </form>
+      <p class="muted say-note" id="say-note">Messages are kept and shown here. Delivery to the chat is not connected in this version.</p>
+    </aside>
+  </div>
+</body>
+</html>
