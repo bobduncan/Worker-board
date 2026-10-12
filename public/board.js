@@ -890,6 +890,80 @@ $('needs-closed').addEventListener('change', () => {
 
 // The details of a request or of a queued step, in a window over the board
 
+// B65 (the window of a backlog step): what it shows, worked out without the page. Kept between these two marks so a
+// test can run it.
+// window:start
+/** A section of a step's notes that lists what to check: it becomes the window's checklist. */
+const isChecklist = part => part.title !== null && /^(requirements?|checklist|checks?|key points to check)$/i.test(part.title.trim())
+
+/**
+ * What the window of a request (`need`) or of a queued step (`step`, for the worker `lane`) shows in its head and
+ * its checklist. The window is about the step itself: nothing about a queue is in it, no place, no other steps and
+ * no waiting or working time. `names` gives the words for a kind (`ask`, `kind`); `isStep` and `isClosed` say what
+ * the page knows about the request.
+ */
+function windowOf({ need = null, step = null, lane = null, isStep = false, isClosed = false }, names) {
+  const notes = (need === null ? step?.notes : need.notes) ?? []
+  const checklist = [...(need?.checks ?? []), ...notes.filter(isChecklist).flatMap(part => [...part.lines, ...part.points])]
+  const rest = notes.filter(part => !isChecklist(part))
+  if (need === null) {
+    return {
+      code: step.id ?? null,
+      title: step.title,
+      chips: [{ text: 'Step', tone: 'kind' }, ...(lane === null ? [] : [{ text: `For: ${lane}`, tone: 'to' }])],
+      at: null,
+      checklist,
+      notes: rest,
+    }
+  }
+  const chips = []
+  if (isClosed) chips.push({ text: 'Closed', tone: 'plain' })
+  chips.push({ text: isStep ? names.ask(need.asks) : names.kind(need.kind), tone: 'kind' })
+  if (isStep && need.activity) chips.push({ text: need.activity, tone: 'plain' })
+  if (!isStep && need.from) chips.push({ text: `From: ${need.from}`, tone: 'to' })
+  if (isStep && need.from !== null && need.from !== undefined && need.isClosed !== true) chips.push({ text: `Answer goes to: ${need.from}`, tone: 'to' })
+  return { code: need.step ?? null, title: need.title, chips, at: need.at ?? null, checklist, notes: rest }
+}
+// window:end
+
+/** B65: the ticks the person set in a window's checklist, kept while the page is open (they are the person's own notes, sent nowhere). */
+const ticked = new Map()
+
+/** B65: the checklist of a window: what the step lists under "Requirements", each with a box to tick while checking. */
+function drawChecklist(id, points) {
+  const list = el('ul', 'checklist')
+  const mine = ticked.get(id) ?? new Set()
+  points.forEach((point, index) => {
+    const item = el('li')
+    const label = el('label')
+    const box = el('input')
+    box.type = 'checkbox'
+    box.checked = mine.has(index)
+    box.dataset.tick = String(index)
+    box.dataset.of = id
+    label.append(box, el('span', '', point))
+    item.append(label)
+    list.append(item)
+  })
+  return list
+}
+
+/** B65: the pictures of a window: the first two large and side by side, the others in a row under them; a click enlarges each. */
+function drawReferences(shown) {
+  const figureOf = ({ path, caption }) => {
+    const figure = el('figure')
+    figure.append(picture(path, caption), el('figcaption', '', caption === '' ? path.split('/').pop() : caption))
+    return figure
+  }
+  const large = el('div', `references${shown.length === 1 ? ' is-one' : ''}`)
+  for (const one of shown.slice(0, 2)) large.append(figureOf(one))
+  if (shown.length <= 2) return [large]
+  const strip = el('div', 'references-more')
+  for (const one of shown.slice(2)) strip.append(figureOf(one))
+  return [large, strip]
+}
+
+
 /** What the details are about: a request by its id, or a queued step by its lane and place. */
 let detailsOf = null
 let detailsShown = null
@@ -960,24 +1034,20 @@ function drawDetails(state) {
   const focused = focusedNeed(box)
   const scroll = box.querySelector('.details-body')?.scrollTop ?? 0
 
-  // The head: what it is, whose it is, where it stands
-  const code = need === null ? step.id : need.step ?? null
-  const title = need === null ? step.title : need.title
-  const meta = need === null
-    ? [`Worker: ${lane.name}`, `In queue (${place + 1} of ${lane.queue.length})`, about(step.minutes), step.after === null ? null : `after ${step.after}`]
-    : [
-        isClosed(need) ? 'Closed' : null,
-        isStep(need) ? (ASKS[need.asks] ?? 'Not sorted') : KINDS[need.kind].tag,
-        isStep(need) ? need.activity : `From: ${need.from}`,
-        isStep(need) && need.from !== null && need.isClosed !== true ? `Answer goes to: ${need.from}` : null,
-        need.at === null ? null : `Asked ${ago(need.at, now)}`,
-      ]
+  // The head: what it is and whose it is. Nothing about a queue: the window is about the step itself.
+  const view = windowOf(
+    { need, step, lane: lane?.name ?? null, isStep: need !== null && isStep(need), isClosed: need !== null && isClosed(need) },
+    { ask: asks => ASKS[asks] ?? 'Not sorted', kind: kind => KINDS[kind].tag },
+  )
   const head = el('header', 'details-head')
   const names = el('div', 'details-names')
   const heading = el('h2')
-  if (code !== null) heading.append(el('span', 'details-code', code))
-  heading.append(title)
-  names.append(heading, el('p', 'muted', meta.filter(Boolean).join('  |  ')))
+  if (view.code !== null) heading.append(el('span', 'details-code', view.code))
+  heading.append(view.title)
+  const chips = el('p', 'details-chips')
+  for (const chip of view.chips) chips.append(el('span', `chip is-${chip.tone}`, chip.text))
+  if (view.at !== null) chips.append(el('span', 'chip is-time', `Asked ${ago(view.at, now)}`))
+  names.append(heading, chips)
   const close = el('button', 'icon-button', '✕')
   close.type = 'button'
   close.dataset.close = ''
@@ -985,43 +1055,38 @@ function drawDetails(state) {
   close.setAttribute('aria-label', 'Close')
   head.append(el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), names, close)
 
-  // The left column: what it is about and what to look at
-  const notes = noteParts(need === null ? step.notes : need.notes ?? [])
+  // The left column, the wider one: what it is about and what to look at
+  const notes = noteParts(view.notes)
   // A request a chat filed has its own text. A step of the backlog is one line, which is the title above; what
   // describes it further are the lines written under it.
   const words = need !== null && !isStep(need) && need.text !== '' ? [el('p', '', need.text)] : []
-  const described = [...words, ...notes.lead]
+  // The step's own line in full: the title above is the short of it.
+  const full = need !== null && isStep(need) && typeof need.words === 'string' && need.words !== need.title ? [el('p', '', need.words)] : []
+  const described = [...words, ...full, ...notes.lead]
   const left = el('div', 'details-main')
   left.append(section('Description', described.length > 0 ? described : [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]), ...notes.named)
-  if (need !== null && need.checks.length > 0) left.append(section('Key points to check', [listOf(need.checks)]))
   if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
   const shown = need === null ? step.pictures.map(path => ({ path, caption: '' })) : [
     ...need.options.filter(option => option.picture !== null).map(option => ({ path: option.picture, caption: `${option.label}${option.isRecommended ? ' (recommended)' : ''}` })),
     ...need.pictures.map(path => ({ path, caption: '' })),
   ]
-  if (shown.length > 0) {
-    const grid = el('div', 'references')
-    for (const { path, caption } of shown) {
-      const figure = el('figure')
-      figure.append(picture(path, caption), el('figcaption', '', caption === '' ? path.split('/').pop() : caption))
-      grid.append(figure)
-    }
-    // The folders the pictures lie in, to open by hand.
-    const folders = [...new Set(shown.map(({ path }) => path.split('/').slice(0, -1).join('/')))]
-    left.append(section('References', [grid, ...folders.map(folder => copyRow('Folder', folder))]))
-  }
+  if (shown.length > 0) left.append(section('References', drawReferences(shown)))
 
-  // The right column: where it stands, what else there is to know, where its work lies
+  // The right column: where its files lie, and what to check. Only what the step really has.
   const right = el('div', 'details-side')
-  if (need === null) {
-    const list = el('ol', 'queue-list')
-    lane.queue.forEach((other, index) => {
-      const item = el('li', index === place ? 'is-here' : '')
-      item.append(el('span', 'place', String(index + 1)), el('span', 'queue-title', other.title), el('small', '', about(other.minutes) ?? ''))
-      list.append(item)
-    })
-    const part = section('Status in queue', [list])
-    part.querySelector('h3').append(el('small', 'muted', `${place + 1} of ${lane.queue.length}`))
+  const branch = need === null ? step.branch : need.branch ?? need.run?.branch ?? null
+  const folder = branch === null ? null : [...state.chats.flatMap(one => one.folders), ...state.otherFolders].find(one => one.branch === branch) ?? null
+  const files = []
+  // The folders the pictures lie in, to open by hand.
+  for (const path of new Set(shown.map(one => one.path.split('/').slice(0, -1).join('/')))) files.push(copyRow('Folder', path))
+  if (folder !== null) files.push(copyRow('Folder', folder.path))
+  if (branch !== null) files.push(copyRow('Branch', branch))
+  if (folder !== null) files.push(el('p', 'muted', folderLine(folder, now)))
+  if (need !== null) files.push(...gameParts(need))
+  if (files.length > 0) right.append(section('Files / Branch', files))
+  if (view.checklist.length > 0) {
+    const part = section('Checklist', [drawChecklist(need === null ? `step:${view.code ?? view.title}` : need.id, view.checklist)])
+    part.querySelector('h3').append(el('small', 'muted', 'optional'))
     right.append(part)
   }
   if (notes.context.length > 0) {
@@ -1030,42 +1095,19 @@ function drawDetails(state) {
     right.append(section('Additional context', [context]))
   }
 
-  const branch = need === null ? step.branch : need.branch ?? need.run?.branch ?? null
-  const folder = branch === null ? null : [...state.chats.flatMap(one => one.folders), ...state.otherFolders].find(one => one.branch === branch) ?? null
-  const files = []
-  if (folder !== null) files.push(copyRow('Folder', folder.path))
-  if (branch !== null) files.push(copyRow('Branch', branch))
-  if (folder !== null) files.push(el('p', 'muted', folderLine(folder, now)))
-  if (need !== null) files.push(...gameParts(need))
-  if (files.length > 0) right.append(section('Files / Branch', files))
-
+  // The foot: the answer, with the form of its kind. The feedback on the left, the buttons on the right. It is the
+  // same answer as on the card: what is typed in one shows in the other. A queued step takes no answer.
+  const foot = el('footer', 'details-foot')
   if (need !== null) {
-    // The answer, with the form of its kind. It is the same answer as on the card: what is typed in one shows in the other.
     const form = el('div', `need is-${need.kind} details-answer`)
     form.dataset.id = need.id
     form.append(...optionChoices(need), ...answerPart(need, state, false))
-    right.append(section('Your answer', [form]))
+    foot.append(form)
   }
-  if (right.children.length === 0) right.append(el('p', 'muted', 'Nothing more is known about this step.'))
 
-  // The foot: what a worker estimated, where it stands, and the way out
-  const foot = el('footer', 'details-foot')
-  if (need === null) {
-    const fact = (label, value) => {
-      const one = el('div', 'fact')
-      one.append(el('small', 'muted', label), el('b', '', value))
-      return one
-    }
-    foot.append(fact('Estimated', about(step.minutes) ?? 'no time given'), fact('Position in queue', `${place + 1} of ${lane.queue.length}`))
-  }
-  const done = el('button', 'button', 'Close')
-  done.type = 'button'
-  done.dataset.close = ''
-  foot.append(el('span', 'grow'), done)
-
-  const body = el('div', 'details-body')
-  body.append(left, right)
-  fill(box, [head, body, foot])
+  const body = el('div', `details-body${right.children.length === 0 ? ' is-single' : ''}`)
+  body.append(left, ...(right.children.length === 0 ? [] : [right]))
+  fill(box, need === null ? [head, body] : [head, body, foot])
   body.scrollTop = scroll
   refocus(box, focused)
 }
@@ -1106,6 +1148,15 @@ function closeDetails() {
 $('details').addEventListener('click', event => {
   // A click beside the window, on the dimmed board, closes it; so does its cross and its Close button.
   if (event.target === $('details') || event.target.closest('[data-close]') !== null) return closeDetails()
+  // A tick in the checklist is the person's own note: kept while the page is open.
+  const tick = event.target.closest('[data-tick]')
+  if (tick !== null) {
+    const mine = ticked.get(tick.dataset.of) ?? new Set()
+    if (tick.checked) mine.add(Number(tick.dataset.tick))
+    else mine.delete(Number(tick.dataset.tick))
+    ticked.set(tick.dataset.of, mine)
+    return
+  }
   const copy = event.target.closest('[data-copy]')
   if (copy === null) return
   navigator.clipboard.writeText(copy.dataset.copy).then(() => { copy.textContent = 'Copied' }, () => { copy.textContent = 'Not copied' })
