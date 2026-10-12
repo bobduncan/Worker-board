@@ -75,7 +75,7 @@ test('a working chat shows the task of its plan line and what it does now', () =
   assert.deepEqual(units.task, {
     text: 'Shadow Beast', step: 2, steps: 6, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, source: 'plan', by: null,
     // First seen now, in a turn the person opened 20 minutes ago, with an estimate given 3 minutes ago.
-    startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN,
+    startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null,
   })
 })
 
@@ -165,7 +165,7 @@ test('a working chat with an estimate has a time it expects to be done, and its 
     backlog: '## Next to hand out (Game - Main)\n- [ ] Knight rows (for Units; about 30 min)\n- [ ] Polish (for Units)\n- [ ] Banner (for Units; about 10 min)\n- [ ] Lava biome (for Levels; about 1 h)\n- [ ] Name the game\n',
   })
   const units = chatNamed(state, 'Units')
-  assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false })
+  assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOwn: true })
   assert.deepEqual(units.queue.map(step => [step.id, step.title, step.minutes]), [[null, 'Knight rows', 30], [null, 'Polish', null], [null, 'Banner', 10]])
   assert.deepEqual(units.queue[0], { id: null, title: 'Knight rows', text: 'Knight rows (for Units; about 30 min)', minutes: 30, after: null, branch: null, notes: [], pictures: [] })
   // The plan stops at the first step without a time: what follows it cannot be placed.
@@ -312,7 +312,7 @@ test('a worker without a task in its plan line takes the task handed over to it;
   })
   assert.deepEqual(chatNamed(state, 'Units').task, {
     text: 'Build the archer', step: null, steps: null, leftMs: null, estimateAt: null, source: 'handover', by: null,
-    startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN,
+    startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null,
   })
   // A report is no task for the main chat; its card shows what started the turn it is in.
   assert.deepEqual([chatNamed(state, 'Main').task.source, chatNamed(state, 'Main').task.by], ['prompt', 'Units'])
@@ -323,7 +323,7 @@ test('a working chat that named no task shows what started its turn, and who ask
   const units = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(asked) } }), 'Units')
   assert.deepEqual(units.task, {
     text: 'Make the lava glow more', step: null, steps: null, leftMs: null, estimateAt: null, source: 'prompt', by: 'you',
-    startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN,
+    startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null,
   })
   const main = chatNamed(build({
     apps: [app('Main')],

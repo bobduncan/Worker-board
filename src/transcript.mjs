@@ -145,6 +145,31 @@ export function turnState(entries) {
   return 'unknown'
 }
 
+/** The words of a tool's result, whether it came as text or as blocks. */
+const resultText = block => (typeof block.content === 'string'
+  ? block.content
+  : blocksOf(block.content).map(part => (typeof part.text === 'string' ? part.text : '')).join('\n'))
+
+/** What the app answers when work is sent to the background: a subagent, or a command. */
+const SENT_TO_BACKGROUND = /^(Async agent launched|Command running in background)/
+
+/**
+ * How many pieces of background work these entries show as started and not yet reported back: a chat ends its
+ * turn while a subagent or a command runs, and the app starts it again when that reports. Counted from what the
+ * app itself writes; nothing of the chat's own words is read.
+ */
+export function backgroundRunning(entries) {
+  let running = 0
+  for (const entry of entries) {
+    if (entry.isSidechain || entry.type !== 'user') continue
+    for (const block of entry.blocks) {
+      if (block.type === 'tool_result' && SENT_TO_BACKGROUND.test(resultText(block).trimStart())) running += 1
+      else if (block.type === 'text' && typeof block.text === 'string' && block.text.includes('<task-notification>')) running = Math.max(0, running - 1)
+    }
+  }
+  return running
+}
+
 const baseName = path => String(path).split(/[\\/]/).filter(part => part !== '').pop() ?? ''
 
 /** What the chat is doing right now: what its last tool call says it is for, else the tool's name. */

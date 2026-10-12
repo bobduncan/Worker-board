@@ -3,12 +3,12 @@
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { allWords, closedForYou, forYou, parseBacklog, queue } from './backlog.mjs'
+import { allWords, closedForYou, forYou, inProgress, parseBacklog, queue } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { parsePlanLine } from './planLines.mjs'
-import { conversation, doingNow, lastFinish, parseTail, taskStart, turnStart, turnState } from './transcript.mjs'
+import { backgroundRunning, conversation, doingNow, lastFinish, parseTail, taskStart, turnStart, turnState } from './transcript.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -28,10 +28,25 @@ export function chatState({ turn, category, needsAction }) {
 const textOr = (value, fallback) => (typeof value === 'string' ? value : fallback)
 
 /**
- * The task a chat is on. Its own plan line first; else the task the main chat handed to it; else, for a chat that
- * works without having named a task, what started its turn (`source: 'prompt'`, with who asked in `by`).
+ * Why a chat whose turn has ended is not free, or null when it is: its task is not reported yet, background work
+ * it started still runs, or the backlog step it works on still names its branch. The board then shows it as
+ * working, between two turns.
  */
-function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now }) {
+export function heldBy({ plan, handOver, background, step }) {
+  if (plan?.task != null && !plan.task.isReported) return { why: 'task', text: 'Its turn has ended; its task is not reported yet.' }
+  if (handOver !== null) return { why: 'task', text: 'Its turn has ended; the task handed to it is not reported yet.' }
+  if (background > 0) return { why: 'background', text: 'Its turn has ended; background work it started is still running.' }
+  if (step !== null) return { why: 'branch', text: `Its turn has ended; its branch ${step.branch} is still open.` }
+  return null
+}
+
+/**
+ * The task a chat is on. Its own plan line first; else the task the main chat handed to it; else, for a chat that
+ * works without having named a task, what started its turn (`source: 'prompt'`, with who asked in `by`); else the
+ * backlog step that names its branch (`source: 'step'`). `step` is that step, when there is one: it gives the
+ * task its id and, for a chat with no estimate of its own, its time.
+ */
+function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, step = null }) {
   // `scan` holds the entries that can start or end a task: the tail, after a longer look back when there is one.
   const handOver = chat.isMain || scan === null ? null : taskStart(scan, main)
   const opening = scan === null ? null : turnStart(scan, { prefix })
@@ -56,6 +71,8 @@ function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now }) {
     if (current !== null && (current.isSure || remembered === null)) task = { text: current.title, ...bare, source: 'prompt', by: current.by }
     else if (remembered !== null) task = { text: remembered.task, ...bare, source: 'prompt', by: remembered.by ?? null }
   }
+  // A chat that is busy without a name for its task: the backlog step that names its branch says what it is.
+  if (task === null && isBusy && step !== null) task = { text: [step.id, step.title].filter(Boolean).join(' '), ...bare, source: 'step' }
   if (task === null) return null
 
   const facts = taskFacts(lines, chat.name, task.text, now)
@@ -78,39 +95,55 @@ function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now }) {
     firstEstimateMs: first === null ? null : Math.max(0, first.at - startedAt) + first.leftMs,
     waitedMs: facts?.waitedMs ?? 0,
     workedMs,
+    // The backlog step the chat works on, and the time the step's note gives it ("about 1 h"), when it has one.
+    stepId: step?.id ?? null,
+    stepMinutes: step?.minutes ?? null,
   }
 }
 
 
-/** When a working chat expects to be done: when it gave its estimate, plus what it said was left. */
+/**
+ * When a working chat expects to be done: when it gave its estimate, plus what it said was left (`isOwn`). A chat
+ * that gave none gets the time of its backlog step ("about 1 h"), counted from the task's start: an estimate that
+ * is not its own.
+ */
 function etaOf(task, state, now) {
-  if (state !== 'working' || task === null || task.leftMs === null || task.estimateAt === null) return null
-  const at = task.estimateAt + task.leftMs
-  return { at, leftMs: Math.max(0, at - now), isOverdue: at < now }
+  if (state !== 'working' || task === null) return null
+  const isOwn = task.leftMs !== null && task.estimateAt !== null
+  if (!isOwn && (task.stepMinutes === null || !Number.isFinite(task.startedAt))) return null
+  const at = isOwn ? task.estimateAt + task.leftMs : task.startedAt + task.stepMinutes * MIN
+  return { at, leftMs: Math.max(0, at - now), isOverdue: at < now, isOwn }
 }
 
-function card(chat, raw, { now, config, last, lines, main, prefix }) {
+function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, eta: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, eta: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
   const entries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
   const turn = entries === null ? null : turnState(entries)
   const summary = chat.summary?.isCurrent === true ? chat.summary : null
-  const state = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
   const plan = parsePlanLine(textOr(raw.planLineTexts?.[chat.cliSessionId], ''))
-  const quietMs = state === 'working' && Number.isFinite(tail?.modifiedAt) ? Math.max(0, now - tail.modifiedAt) : null
+  // The longer look back is a few minutes old, so the tail follows it: the newest hand-over or report wins.
+  const scan = typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries
+  const step = stepOf(chat.name)
+  // An ended turn is not a free chat while something of its work is open: it is between two turns.
+  const ended = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
+  const held = ended !== 'free' ? null : heldBy({
+    plan, step,
+    handOver: chat.isMain || scan === null ? null : taskStart(scan, main),
+    background: entries === null ? 0 : backgroundRunning(entries),
+  })
+  const state = held === null ? ended : 'working'
+  // No sign of life is about a turn that runs: between two turns a chat writes nothing.
+  const quietMs = state === 'working' && held === null && Number.isFinite(tail?.modifiedAt) ? Math.max(0, now - tail.modifiedAt) : null
 
   let needsYou = null
   if (state === 'waiting') needsYou = turn === 'asking' ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
 
-  const task = taskOf({
-    chat, plan, state, before: last.get(chat.name), lines, main, prefix, now,
-    // The longer look back is a few minutes old, so the tail follows it: the newest hand-over or report wins.
-    scan: typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries,
-  })
+  const task = taskOf({ chat, plan, state, before: last.get(chat.name), lines, main, prefix, now, scan, step })
   return {
     ...base,
     state,
@@ -118,7 +151,9 @@ function card(chat, raw, { now, config, last, lines, main, prefix }) {
     isQuiet: quietMs !== null && quietMs > config.quietMinutes * MIN,
     // It asked with the app's own question form: that can only be answered in its chat.
     isAsking: turn === 'asking',
-    doingNow: state === 'working' ? doingNow(entries) : null,
+    doingNow: state === 'working' && held === null ? doingNow(entries) : null,
+    // Why it counts as working although its turn has ended, in words; null for a turn that runs.
+    between: held === null ? null : held.text,
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
@@ -240,19 +275,27 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], now, confi
   // The advisor is talked with on its own tab. Every other chat is a lane, however many there are.
   const isAdvisor = chat => !chat.isLeftover && !chat.isMain && chat.name === config.advisor
   const advisorChat = found.find(isAdvisor)
-  const cards = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, context))
-  const names = cards.filter(lane => !lane.isLeftover).map(lane => lane.name)
+  const names = found.filter(chat => !isAdvisor(chat) && !chat.isLeftover).map(chat => chat.name)
+
+  const backlog = parseBacklog(textOr(raw.backlogText, ''), { prefix: list.prefix, names })
+  const folders = Array.isArray(raw.folders) ? raw.folders : null
+  // The step a worker is on: the open one that names its own branch and this worker; of several, the one whose
+  // branch a working folder holds.
+  const underWay = inProgress(backlog)
+  const stepOf = name => {
+    const mine = underWay.filter(step => step.worker === name)
+    return mine.find(step => (folders ?? []).some(folder => folder.branch === step.branch)) ?? mine[0] ?? null
+  }
+  const cards = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf }))
 
   const counts = { working: 0, waiting: 0, free: 0, unknown: 0 }
   for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
 
-  const backlog = parseBacklog(textOr(raw.backlogText, ''), { prefix: list.prefix, names })
   const queued = queue(backlog)
   // A folder belongs to the worker an open step names together with the folder's branch.
   const ownerOf = new Map(backlog.activities.flatMap(activity => activity.steps)
     .filter(step => !step.isDone && step.branch !== null && step.worker !== null)
     .map(step => [step.branch, step.worker]))
-  const folders = Array.isArray(raw.folders) ? raw.folders : null
 
   /**
    * The game to look at for a branch: the working folder that holds the branch, and the address when the board

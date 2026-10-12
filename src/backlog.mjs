@@ -37,9 +37,12 @@ function parseStep(isDone, rest, { prefix, names }) {
   const lead = rest.match(/^(B\d+)\s+/)
   const text = rest.slice(lead === null ? 0 : lead[0].length).replace(/(^|\s)@you\s*$/, '').trim()
 
+  // A step in progress names its branch at its very end, after the note of who it is for: "(branch feature/x)".
+  const own = text.match(/\s*\(branch\s+([\w./-]+)\)\s*$/)
+  const body = own === null ? text : text.slice(0, own.index)
   // The note the main chat writes on a queued step: "(for Units; after <condition>; about 40 min)". The condition
   // may hold brackets of its own, as in "after the archer (branch x) merges".
-  const spec = text.match(/\s*\((for (?:[^()]|\([^()]*\))*)\)\s*$/)
+  const spec = body.match(/\s*\((for (?:[^()]|\([^()]*\))*)\)\s*$/)
   let forWhom = null
   let after = null
   let minutes = null
@@ -57,13 +60,17 @@ function parseStep(isDone, rest, { prefix, names }) {
   return {
     id: lead === null ? null : lead[1],
     text,
-    title: (spec === null ? text : text.slice(0, spec.index)).slice(asks === null ? 0 : asks[0].length).trim(),
+    title: (spec === null ? body : body.slice(0, spec.index)).slice(asks === null ? 0 : asks[0].length).trim(),
     asks: asks === null ? null : asks[1].toLowerCase(),
     isDone,
     isYou,
     notes: [],
     worker: workerOf(text, forWhom, prefix, names),
-    branch: text.match(/\bbranch\s+([\w./-]+)/)?.[1] ?? null,
+    // The main chat's note names who it is for.
+    isFor: forWhom !== null,
+    // The branch the step itself is worked on: it is in progress. `branch` is that, else any branch its words name.
+    ownBranch: own === null ? null : own[1],
+    branch: own?.[1] ?? text.match(/\bbranch\s+([\w./-]+)/)?.[1] ?? null,
     after,
     minutes,
   }
@@ -136,12 +143,25 @@ export function allWords(step) {
   return [step.text, ...step.notes.flatMap(part => [...part.lines, ...part.points])].join('\n')
 }
 
-/** The steps waiting to be handed out: the open ones under "Next to hand out". */
+/**
+ * The steps waiting to be started, in the backlog's order: the open ones under "Next to hand out", and anywhere
+ * on the backlog the open ones whose note names a worker ("(for Units; ...)") and that are not the person's. A
+ * step that names its own branch is in progress, not queued.
+ */
 export function queue(backlog) {
   return backlog.activities
-    .filter(activity => activity.name.toLowerCase().startsWith(QUEUE_HEADING))
-    .flatMap(open)
+    .flatMap(activity => {
+      const isQueue = activity.name.toLowerCase().startsWith(QUEUE_HEADING)
+      return open(activity).filter(step => step.ownBranch === null && (isQueue || (step.isFor && !step.isYou)))
+    })
     .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(notes) }))
+}
+
+/** The steps being worked on: the open ones that name their own branch, with the worker and the time their note gives. */
+export function inProgress(backlog) {
+  return backlog.activities.flatMap(activity =>
+    open(activity).filter(step => step.ownBranch !== null && !step.isYou)
+      .map(({ id, text, title, worker, ownBranch, minutes }) => ({ id, text, title, worker, branch: ownBranch, minutes, activity: activity.name })))
 }
 
 /**
