@@ -522,23 +522,65 @@ function drawToday(state) {
 
 // For you
 
-function sentLine(answer) {
+/** The chat of that name on the board: a lane, or the advisor. */
+const chatNamed = name => (board === null ? null : [...board.chats, board.advisor].find(chat => chat !== null && chat.name === name) ?? null)
+
+/**
+ * What is said where something waits for a chat that is not running: that the main chat was asked to start it,
+ * or a button that asks it to. Nothing for a chat that runs.
+ */
+function startParts(name) {
+  const main = board?.restart?.main ?? null
+  if (chatNamed(name)?.isRunning !== false || main === null) return []
+  const key = `start:${name}`
+  const asked = (board.restart.starting ?? []).find(one => one.chat === name) ?? null
+  const parts = []
+  if (name === main) parts.push(el('div', 'alert', `${name} is not running: open its chat, and this is typed into it.`))
+  else if (asked !== null && asked.state !== 'expired' && asked.state !== 'failed') {
+    parts.push(el('div', 'alert', `${name} is not running. ${main} was asked at ${clock(asked.at)} to start it; this is typed into it as soon as it runs.`))
+  } else {
+    const ask = el('button', 'choice', `Ask ${main} to start ${name}`)
+    ask.type = 'button'
+    ask.dataset.start = name
+    ask.disabled = sending.has(key)
+    parts.push(el('div', 'alert', `${name} is not running, so this waits.`), ask)
+  }
+  if (problems.has(key)) parts.push(el('p', 'problem', problems.get(key)))
+  return parts
+}
+
+/** Where an answer is: it waits for its chat, was handed to it, or was typed into it. `to` is the chat it is for. */
+function sentLine(answer, to = null) {
   const line = el('div', 'sent')
   const what = { approve: 'You approved', reject: 'You rejected', done: 'You marked it done' }[answer.verdict] ?? 'You answered'
-  line.append(el('b', '', what), ` at ${clock(answer.at)} · `, { delivered: 'typed into its chat', taken: 'handed to its chat, which runs it when it is idle' }[answer.state] ?? 'waits for its chat to take it')
+  const where = {
+    delivered: `typed into its chat${answer.deliveredAt ? ` at ${clock(answer.deliveredAt)}` : ''}`,
+    taken: 'handed to its chat, which runs it when it is idle',
+  }[answer.state] ?? 'waits for its chat to take it'
+  line.append(el('b', '', what), ` at ${clock(answer.at)} · `, where)
   if (answer.text !== '') line.append(el('div', '', answer.text))
+  if (answer.state === 'waiting' && to !== null) line.append(...startParts(to))
   return line
 }
 
 /** A step from the backlog has no chat that asked: it is headed by its activity and says where the answer goes. */
 const isStep = need => need.activity !== undefined
 
-/**
- * Closed for the person: ticked in the backlog, or answered here. An answer that did not arrive in time opens it
- * again. Closed ones are hidden unless "Show closed" is ticked.
- */
+// closed:start
+/** An answered card stays in sight this long after its answer was typed into its chat. */
+const SHOWN_AFTER_TYPED_MS = 2 * 60_000
+const closedNow = () => (typeof board === 'object' && board !== null ? board.readAt : Date.now())
 const isLost = answer => answer.state === 'expired' || answer.state === 'failed'
-const isClosed = need => need.isClosed === true || (need.answer !== null && !isLost(need.answer))
+/** Answered here, and the answer is on its way or has arrived: the card no longer waits for the person. */
+const isAnswered = need => need.answer !== null && !isLost(need.answer)
+/**
+ * Closed for the person: ticked in the backlog, or answered here and typed into its chat a little while ago. Until
+ * then an answered card stays in sight and says where its answer is: it waits for its chat, was handed to it, was
+ * typed. An answer that did not arrive opens the card again. Closed ones are hidden unless "Show closed" is ticked.
+ */
+const isClosed = (need, now = closedNow()) => need.isClosed === true
+  || (isAnswered(need) && need.answer.state === 'delivered' && now - (need.answer.deliveredAt ?? need.answer.at) > SHOWN_AFTER_TYPED_MS)
+// closed:end
 const showsClosed = () => $('needs-closed').checked
 
 /**
@@ -548,7 +590,7 @@ const showsClosed = () => $('needs-closed').checked
 function answerPart(need, state, isFolded) {
   const parts = []
   const answer = need.answer
-  if (answer !== null && !isLost(answer)) return [sentLine(answer)]
+  if (answer !== null && !isLost(answer)) return [sentLine(answer, need.from)]
   if (need.isClosed === true) return [el('p', 'muted', 'Closed: ticked in the backlog.')]
   if (answer !== null) parts.push(el('p', 'problem', `Your answer of ${clock(answer.at)} did not reach the chat. Send it again when the chat can take it.`))
   // The step changed since it was answered: it asks again, and says what was answered before.
@@ -721,7 +763,7 @@ function listBox(title, lines) {
 
 function drawNeed(need, state) {
   const kind = KINDS[need.kind]
-  const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${isClosed(need) ? ' is-closed' : ''}`)
+  const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${isClosed(need) ? ' is-closed' : isAnswered(need) ? ' is-answered' : ''}`)
   card.dataset.id = need.id
   // The head of a card opens its details.
   const head = el('div', 'need-head')
@@ -769,8 +811,10 @@ function drawLegacy(state) {
   if (open.length === 0 && closed.length === 0) return null
   const box = el('details', 'legacy')
   box.open = isLegacyOpen
-  const counts = Object.keys(ASKS).map(asks => [ASKS[asks], open.filter(step => step.asks === asks).length]).filter(([, count]) => count > 0)
-  const summary = el('summary', '', `From the backlog (${open.length})`)
+  // What still waits for the person: an answered step stays in sight until its answer has arrived, but is not counted.
+  const waiting = open.filter(step => !isAnswered(step))
+  const counts = Object.keys(ASKS).map(asks => [ASKS[asks], waiting.filter(step => step.asks === asks).length]).filter(([, count]) => count > 0)
+  const summary = el('summary', '', `From the backlog (${waiting.length})`)
   const notes = counts.map(([name, count]) => `${count} ${name.toLowerCase()}`)
   if (closed.length > 0) notes.push(`${closed.length} closed ${showsClosed() ? 'shown' : 'hidden'}`)
   summary.append(el('small', '', notes.join(' · ')))
@@ -798,7 +842,8 @@ function drawNeeds(state) {
   const top = box.scrollTop
   const open = state.forYou.filter(need => !isClosed(need))
   const answered = state.forYou.length - open.length
-  $('needs-count').textContent = open.length === 0 ? '' : String(open.length)
+  const unanswered = open.filter(need => !isAnswered(need)).length
+  $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   const cards = ordered(showsClosed() ? state.forYou : open).map(need => drawNeed(need, state))
   const none = open.length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   fill(box, [none, ...cards, drawLegacy(state)])
@@ -879,6 +924,12 @@ $('restart').addEventListener('click', event => {
   isAskingRestart = false
   if (button.dataset.restart === 'cancel') return redrawNeeds()
   send({ to: board.restart.main, command: button.dataset.restart }, 'restart')
+})
+// "Ask the main chat to start it", wherever it stands: on a card, in the details, on the advisor's tab.
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-start]')
+  if (button === null || board === null || (board.restart?.main ?? null) === null) return
+  send({ to: board.restart.main, command: 'start', chat: button.dataset.start }, `start:${button.dataset.start}`)
 })
 $('main-game').addEventListener('click', event => {
   const button = event.target.closest('[data-game]')
@@ -1308,7 +1359,8 @@ function drawTalk(state) {
   fill($('talk-state'), [
     advisor === null ? null : el('span', `pill is-${advisor.state}`, STATES[advisor.state]),
     // A chat that does not run takes nothing: what is typed here waits until its chat is opened.
-    advisor !== null && advisor.isRunning === false ? el('small', 'not-running', 'not running: open its chat, or what you type here does not arrive') : null,
+    // A chat that does not run takes nothing: the main chat is asked to start it when something is typed here.
+    ...(advisor === null ? [] : startParts(advisor.name)),
   ])
   $('say-send').disabled = advisor === null
   $('say-text').maxLength = state.maxMessageChars
@@ -1323,7 +1375,7 @@ function drawTalk(state) {
     note: message.via === 'board' ? 'typed on the board' : null,
   }))
   for (const typed of advisor?.pending ?? []) {
-    const note = typed.state === 'expired' ? 'not delivered, and too old to deliver now' : 'not delivered yet'
+    const note = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle' }[typed.state] ?? 'waits for its chat to take it'
     rows.push(drawMessage({ key: `out:${typed.id}`, kind: 'is-you is-pending', time: clock(typed.at), who: 'You', text: typed.text, note }))
   }
   if (advisor !== null && advisor.state === 'working') {
