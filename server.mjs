@@ -229,7 +229,9 @@ async function main(args) {
   // The demo has no chats to type into, so it has no bridge.
   // Neither has a board that only shows another one's history: the board that records is the one that delivers,
   // so of two boards on one project it is always the same one.
-  const isShowOnly = historyFrom !== undefined
+  // The same holds for a copy in another folder than the repository's main one: a branch that is being built
+  // must never take the chats away from the person's board, also not while that board is stopped.
+  const isShowOnly = historyFrom !== undefined || chosen.isMain === false
   const bridgeKey = isDemo || isShowOnly ? null : randomBytes(32).toString('hex')
 
   // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
