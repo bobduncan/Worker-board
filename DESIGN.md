@@ -107,6 +107,16 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   (`isCutOff` in `src/state.mjs`): the file says waiting since after the turn began and the transcript has not
   moved on, or it says working and is no longer renewed. A chat whose process keeps no such file is never called
   interrupted. It is a state of its own, with the task the chat was on.
+- *Not running.* The two restarts of 2026-10-12 showed that after a restart no worker's chat runs until something
+  starts it, and that a message addressed by a chat's name does not reach a chat that is not running. A running
+  chat's mod asks the board every few seconds what waits for it, so the board knows who runs: a chat it has not
+  heard from for half a minute is "not running" (`runningOf` in `src/state.mjs`). The lane says so, the advisor's
+  tab says so, and `resume` names these chats for the main chat, which starts them through the app by their
+  session's id. Nothing is said in the board's first half minute, or about a chat that asks from another session
+  than the one the board shows.
+- *One board delivers.* Of two boards on one project the one that records is the one that delivers; a board
+  started with `--history-from` only shows, refuses an answer and says where to give it. A board that starts
+  takes the delivery over when the file names a board that no longer takes its key.
 - *Two words, and the main chat does the work.* "Prepare restart" and "Resume all" type `prepare restart` and
   `resume` into the main chat, in the board's own wording; `resume` names the chats the board read as cut off.
   The main chat asks every working chat to stop at a safe point and writes who was on what into
