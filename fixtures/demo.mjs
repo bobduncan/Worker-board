@@ -73,7 +73,7 @@ const ASKS = now => [
     id: 'main-player-movement', from: 'Main', kind: 'verify', at: now - 28 * MIN,
     title: 'Test player movement',
     text: 'The movement system is implemented and tests are passing. Please verify the behaviour.',
-    run: { url: 'http://localhost:5173/', branch: 'feature/player-movement', entry: 'lava-dev' },
+    run: { branch: 'main' },
     checks: ['Movement in all 4 directions', 'Collision with walls and obstacles', 'Smooth animation blending', 'No jitter on slopes'],
   },
   { id: 'old-question', from: 'Features', kind: 'input', title: 'An answered question', state: 'answered' },

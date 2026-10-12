@@ -23,7 +23,7 @@ const planLine = task => JSON.stringify({ name: 'x', role: 'worker', state: 'wor
 const running = [typed(NOW - 20 * MIN, 'Go'), step(NOW - 2 * MIN, 'Run the tests'), toolResult(NOW - MIN)]
 const ended = [typed(NOW - 20 * MIN, 'Go'), answer(NOW - 9 * MIN, 'Done')]
 
-function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {} }) {
+function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {}, runs = [] }) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: apps,
@@ -35,7 +35,7 @@ function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox 
     askTexts: asks.map(ask => JSON.stringify(ask)),
     pictureLists,
   }
-  return buildState(raw, { lines, outbox, now: NOW, config })
+  return buildState(raw, { lines, outbox, runs, now: NOW, config })
 }
 const chatNamed = (state, name) => state.chats.find(chat => chat.name === name)
 
@@ -93,7 +93,7 @@ test('a chat whose turn ended blocked waits for you, and its need leads the For 
   assert.equal(units.doingNow, null)
   assert.deepEqual(state.forYou, [{
     id: `chat:Units:${NOW - 9 * MIN}`, from: 'Units', kind: 'input', title: 'Needs your decision', text: 'Pick sheet A or B', at: NOW - 9 * MIN,
-    options: [], pictures: [], run: null, checks: [], tried: [], canAnswer: true, answer: null,
+    options: [], pictures: [], run: null, game: null, checks: [], tried: [], canAnswer: true, answer: null,
   }])
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.kind, step.from, step.canAnswer]), [['Say whether the mage is right', 'Art', 'input', 'Main', true]])
 })
@@ -524,4 +524,37 @@ test('the demo shows the second design: five lanes with their queues, two reques
   assert.ok(state.today.every(lane => lane.spans.length > 0))
   assert.equal(state.today.filter(lane => lane.ahead.length > 0).length, 3)
   assert.match(state.advice, /pathfinding/)
+})
+
+test('work to verify names the game to look at: its branch, else main, with the folder that holds it', () => {
+  const folder = (name, branch) => ({ path: `C:/game-${name}`, name, branch, ahead: 2, uncommitted: 0, lastCommitAt: NOW })
+  const state = build({
+    apps: [app('Main'), app('Units')],
+    tails: { Units: tail(running) },
+    asks: [
+      { id: 'walk', from: 'Units', kind: 'verify', title: 'Check the walk', at: NOW - 3 * MIN, run: { branch: 'fix/walk' } },
+      { id: 'sheet', from: 'Units', kind: 'verify', title: 'Check the sheet', at: NOW - 4 * MIN },
+      { id: 'lost', from: 'Units', kind: 'verify', title: 'Check the jump', at: NOW - 5 * MIN, run: { branch: 'fix/jump' } },
+      { id: 'name', from: 'Units', kind: 'input', title: 'Pick a name', at: NOW - 6 * MIN },
+    ],
+    backlog: '## Art\n- [ ] B14 Verify: the mage is right @you\n- [ ] B15 Verify: the walk (branch fix/walk) @you\n- [ ] B16 Decide: a name @you\n- [ ] B17 Verify: the board on http://127.0.0.1:4311/ @you\n- [x] B02 Verify: the torch @you\n',
+    folders: [folder('main', 'main'), folder('units', 'fix/walk')],
+    runs: [{ path: 'c:\\game-units', url: 'http://127.0.0.1:5301/', startedAt: NOW - MIN }],
+  })
+  const games = Object.fromEntries([...state.forYou, ...state.backlogForYou, ...state.backlogClosed].map(need => [need.id, need.game]))
+  assert.deepEqual(games.walk, { branch: 'fix/walk', folder: 'units', path: 'C:/game-units', url: 'http://127.0.0.1:5301/', since: NOW - MIN })
+  assert.deepEqual(games.sheet, { branch: 'main', folder: 'main', path: 'C:/game-main', url: null, since: null })
+  assert.deepEqual(games.lost, { branch: 'fix/jump', folder: null, path: null, url: null, since: null })
+  assert.equal(games.name, null)
+  assert.equal(games['backlog:B14'].branch, 'main')
+  assert.equal(games['backlog:B15'].url, 'http://127.0.0.1:5301/')
+  assert.equal(games['backlog:B16'], null)
+  // A step that gives an address of its own is not about the game.
+  assert.equal(games['backlog:B17'], null)
+  assert.equal(games['backlog:B02'].branch, 'main')
+})
+
+test('without an answer from git, no game is offered', () => {
+  const state = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the mage is right @you\n' })
+  assert.equal(state.backlogForYou[0].game, null)
 })

@@ -4,6 +4,7 @@
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { allWords, closedForYou, forYou, parseBacklog, queue } from './backlog.mjs'
+import { pathKey } from './games.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { parsePlanLine } from './planLines.mjs'
@@ -137,12 +138,13 @@ function answerOf(outbox, id) {
  * What waits for the person, newest first: the asks the chats filed, a chat that waits without having filed one,
  * and a chat whose turn runs but shows no sign of life. `canAnswer` says the board's own form can answer it.
  */
-function needsOf(asks, lanes, outbox) {
+function needsOf(asks, lanes, outbox, gameOf) {
   const live = lanes.filter(lane => !lane.isLeftover)
   const names = new Set(live.map(lane => lane.name))
-  const items = asks.map(ask => ({ ...ask, canAnswer: names.has(ask.from) }))
+  // Work to verify is looked at in the game: on the branch the ask names, else on main.
+  const items = asks.map(ask => ({ ...ask, game: gameOf(ask.run?.branch ?? (ask.kind === 'verify' ? 'main' : null)), canAnswer: names.has(ask.from) }))
   const asked = new Set(asks.map(ask => ask.from))
-  const blank = { options: [], pictures: [], run: null, checks: [], tried: [] }
+  const blank = { options: [], pictures: [], run: null, game: null, checks: [], tried: [] }
   for (const lane of live) {
     if (lane.state === 'waiting' && !asked.has(lane.name)) {
       items.push({
@@ -197,10 +199,12 @@ function aheadOf(lane, now) {
 
 /**
  * The `/api/state` object. `raw` holds the texts as they were read (see sources.mjs), `lines` the history, and
- * `outbox` what was sent from the page and is not delivered yet (see store.mjs, `outboxNow`).
+ * `outbox` what was sent from the page and is not delivered yet (see store.mjs, `outboxNow`), and `runs` the
+ * games the board started and that still run (see games.mjs).
  */
-export function buildState(raw, { lines = [], outbox = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], now, config }) {
   const sent = Array.isArray(outbox) ? outbox : []
+  const started = Array.isArray(runs) ? runs : []
   const list = parseList(textOr(raw.listText, ''))
   const apps = (Array.isArray(raw.appChatTexts) ? raw.appChatTexts : [])
     .map(text => parseAppChat(textOr(text, '')))
@@ -230,6 +234,17 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     .filter(step => !step.isDone && step.branch !== null && step.worker !== null)
     .map(step => [step.branch, step.worker]))
   const folders = Array.isArray(raw.folders) ? raw.folders : null
+
+  /**
+   * The game to look at for a branch: the working folder that holds the branch, and the address when the board
+   * has started it. Null without a branch, or when git did not answer.
+   */
+  function gameOf(branch) {
+    if (branch === null || folders === null) return null
+    const folder = folders.find(one => one.branch === branch) ?? null
+    const run = folder === null ? null : started.find(one => pathKey(one.path) === pathKey(folder.path)) ?? null
+    return { branch, folder: folder?.name ?? null, path: folder?.path ?? null, url: run?.url ?? null, since: run?.startedAt ?? null }
+  }
 
   // The pictures in the folders a step's words point to.
   const pictureLists = raw.pictureLists !== null && typeof raw.pictureLists === 'object' ? raw.pictureLists : {}
@@ -300,6 +315,9 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
       notes: step.notes,
       branch: step.branch,
       run: null,
+      // What to verify is in the branch the step names, else in main. A step with an address of its own is
+      // about something else than the game.
+      game: step.asks === 'verify' && !/https?:\/\//.test(step.text) ? gameOf(step.branch ?? 'main') : null,
       checks: [],
       tried: [],
       // A closed step takes no answer.
@@ -319,7 +337,7 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     chats: lanes,
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)),
-    forYou: needsOf(asks, lanes, sent),
+    forYou: needsOf(asks, lanes, sent, gameOf),
     // The open steps in the backlog that end in @you.
     backlogForYou: forYou(backlog).map(step => stepCard(step, false)),
     // The ticked ones: closed. The page shows them only when the person asks for them.

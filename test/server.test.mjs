@@ -9,6 +9,7 @@ const TOKEN = 'a'.repeat(64)
 /** A board on a free port, with a made-up state and a list of what was sent to it. */
 async function board(t) {
   const said = []
+  const asked = []
   const server = createBoard({
     token: TOKEN,
     getState: async () => ({ readAt: 1, chats: [] }),
@@ -22,6 +23,11 @@ async function board(t) {
       return { ok: true, message }
     },
     picture: async path => (path === 'art-inbox/a b.png' ? { type: 'image/png', body: Buffer.from('made-up picture') } : null),
+    // The real check is tested in games.test.mjs.
+    game: async body => {
+      asked.push(body)
+      return body?.item === 'walk' ? { ok: true, result: { url: 'http://127.0.0.1:5301/' } } : { ok: false, status: 409, why: 'That request names no branch to run.' }
+    },
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
@@ -39,7 +45,7 @@ async function board(t) {
   })
   const say = (headers, body = JSON.stringify({ text: 'Hello' })) => ask({ method: 'POST', path: '/api/say', headers, body })
   const good = { 'X-Board-Token': TOKEN, Origin: origin, 'Content-Type': 'application/json' }
-  return { server, port, origin, ask, say, good, said }
+  return { server, port, origin, ask, say, good, said, asked }
 }
 
 test('the board listens on this machine only', async t => {
@@ -184,4 +190,27 @@ test('a state that cannot be built answers an error without details', async t =>
   const answer = await fetch(`http://127.0.0.1:${server.address().port}/api/state`, { headers: { 'X-Board-Token': TOKEN } })
   assert.equal(answer.status, 500)
   assert.ok(!(await answer.text()).includes('secret'))
+})
+
+test('a game is started only by the board\'s own page: the token, its origin and JSON, as for sending', async t => {
+  const { ask, good, asked, origin } = await board(t)
+  const game = (headers, body = JSON.stringify({ item: 'walk', action: 'start' })) => ask({ method: 'POST', path: '/api/game', headers, body })
+  assert.equal((await game({ ...good, 'X-Board-Token': 'b'.repeat(64) })).status, 403)
+  assert.equal((await game({ 'X-Board-Token': TOKEN, 'Content-Type': 'application/json' })).status, 403)
+  assert.equal((await game({ ...good, Origin: 'http://evil.example' })).status, 403)
+  assert.equal((await game({ ...good, 'Content-Type': 'text/plain' })).status, 415)
+  assert.equal((await ask({ path: '/api/game', headers: good })).status, 405)
+  assert.equal(asked.length, 0)
+
+  const started = await game(good)
+  assert.equal(started.status, 200)
+  assert.deepEqual(JSON.parse(started.text), { url: 'http://127.0.0.1:5301/' })
+  assert.deepEqual(asked, [{ item: 'walk', action: 'start' }])
+  // No other website is told it may read the answer.
+  assert.equal(started.headers['access-control-allow-origin'], undefined)
+  assert.equal(origin.startsWith('http://127.0.0.1:'), true)
+
+  const refused = await game(good, JSON.stringify({ item: 'other', action: 'start' }))
+  assert.equal(refused.status, 409)
+  assert.match(refused.text, /names no branch/)
 })

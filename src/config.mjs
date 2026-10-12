@@ -24,10 +24,15 @@ const DEFAULTS = {
   advisor: 'Advisor',
   /** The folders of the project whose pictures the board may show. */
   pictureRoots: ['art-inbox'],
+  /** A game the board starts for a branch takes this port, plus the place of its folder in git's list. */
+  gamePort: 5300,
+  /** Such a game ends this long after its last tab was closed, or when nobody opened it in time. */
+  gameIdleSeconds: 30,
+  gameOpenSeconds: 120,
 }
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
-const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds']
 
 /** Fills `%NAME%` from the environment. Windows names have no fixed case, so the look-up ignores it. */
 export function expandEnv(text, env) {

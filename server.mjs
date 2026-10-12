@@ -1,5 +1,5 @@
-// The worker board's server: one page, `GET /api/state`, `GET /api/picture` and `POST /api/say`, on this machine
-// only.
+// The worker board's server: one page, `GET /api/state`, `GET /api/picture`, `POST /api/say` and
+// `POST /api/game`, on this machine only.
 //
 //   node server.mjs                       real data
 //   node server.mjs --demo --port 4311    made-up data from fixtures/, to judge the page without the real files
@@ -8,7 +8,8 @@
 //                                         and records none of its own
 //
 // It never prints or logs what a chat said. What is sent from the page will be typed into a chat that can change
-// files, so sending is refused unless it comes from the board's own page (see `mayUse` and `maySend`).
+// files, and `/api/game` starts a branch's game, so both are refused unless they come from the board's own page
+// (see `mayUse` and `maySend`).
 
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
@@ -19,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { loadConfig } from './src/config.mjs'
 import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readFolders } from './src/folders.mjs'
+import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay } from './src/say.mjs'
@@ -87,8 +89,9 @@ function readBody(req) {
  *   `getState()`       the `/api/state` object
  *   `say(body)`        checks and keeps what the page sent: `{ ok: true, message }` or `{ ok: false, status, why }`
  *   `picture(path)`    a picture the board may show: `{ type, body }`, or null
+ *   `game(body)`       starts or stops a branch's game: `{ ok: true, result }` or `{ ok: false, status, why }`
  */
-export function createBoard({ token, getState, say, picture = async () => null, publicDir = join(HERE, 'public') }) {
+export function createBoard({ token, getState, say, picture = async () => null, game = async () => ({ ok: false, status: 404, why: 'Not here.' }), publicDir = join(HERE, 'public') }) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
     const { pathname, searchParams } = new URL(req.url, `http://${self}`)
@@ -105,7 +108,7 @@ export function createBoard({ token, getState, say, picture = async () => null, 
 
     const mayUse = sameText(req.headers['x-board-token'] ?? '', token)
 
-    if (pathname === '/api/say') {
+    if (pathname === '/api/say' || pathname === '/api/game') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -121,6 +124,10 @@ export function createBoard({ token, getState, say, picture = async () => null, 
         parsed = JSON.parse(body)
       } catch {
         return refuse(res, 400, 'Not JSON.')
+      }
+      if (pathname === '/api/game') {
+        const started = await game(parsed)
+        return started.ok ? json(res, started.result) : refuse(res, started.status, started.why)
       }
       const answer = await say(parsed)
       return answer.ok ? json(res, answer.message) : refuse(res, answer.status, answer.why)
@@ -170,6 +177,18 @@ async function main(args) {
   const historyFrom = argAfter(args, '--history-from')
   const clock = Date.now
 
+  // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
+  const games = createGames({
+    launch: gameLauncher({
+      runner: join(HERE, 'run-game.mjs'),
+      cacheDir: join(HERE, 'data', 'game-cache'),
+      idleSeconds: config.gameIdleSeconds,
+      graceSeconds: config.gameOpenSeconds,
+    }),
+    now: clock,
+  })
+  let folders = async () => null
+
   let store
   let readRaw
   let readLines = raw => raw.historyLines ?? store.lines()
@@ -178,7 +197,7 @@ async function main(args) {
     store = memoryStore()
     readRaw = () => demoSources(clock())
   } else {
-    const folders = cached(() => readFolders(config.gameRepo, gitRunner()), FOLDERS_MS)
+    folders = cached(() => readFolders(config.gameRepo, gitRunner()), FOLDERS_MS)
     readRaw = () => readSources(config, folders)
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
@@ -201,6 +220,7 @@ async function main(args) {
     const state = buildState(raw, {
       lines: readLines(raw),
       outbox: outboxNow(store.outbox(), clock(), config.messageKeepMinutes * 60_000),
+      runs: games.list(),
       now: clock(),
       config: { ...config, project },
     })
@@ -227,7 +247,30 @@ async function main(args) {
       const found = await findPicture(project, config.pictureRoots, path)
       return found === null ? null : { type: found.type, body: await readFile(found.file) }
     },
+    game: async body => {
+      const checked = checkGame(body, await readState())
+      if (!checked.ok) return checked
+      if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it starts no game.' }
+      if (checked.action === 'stop') {
+        games.stop(checked.path)
+        readState.reset()
+        return { ok: true, result: { url: null } }
+      }
+      try {
+        // A folder keeps its port from one start to the next, so the game finds what it saved in the browser.
+        const place = ((await folders()) ?? []).findIndex(folder => pathKey(folder.path) === pathKey(checked.path))
+        const url = await games.start({ path: checked.path, port: config.gamePort + Math.max(0, place) })
+        readState.reset()
+        return { ok: true, result: { url } }
+      } catch (error) {
+        // The reason is the board's own, or the last line of the game's own tools: never words from a chat.
+        return { ok: false, status: 502, why: error instanceof Error ? error.message : 'The game did not start.' }
+      }
+    },
   })
+
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(0))
+  process.on('exit', () => games.stopAll())
 
   server.on('error', error => {
     console.error(error.code === 'EADDRINUSE'

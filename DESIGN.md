@@ -26,7 +26,7 @@ is opening a chat titled "Game - <name>".
 | Kind | The card shows | The answer |
 |---|---|---|
 | `input` | the question, options with pictures, pictures | words, required |
-| `verify` | what was done, pictures, a link to where the branch runs on this PC, what to check | Approve, with words if wanted, or Reject with the reason |
+| `verify` | what was done, pictures, a button that opens the branch's game, what to check | Approve, with words if wanted, or Reject with the reason |
 | `intervene` | what blocks, what was tried | words, required |
 
 A chat that waits without having filed an ask shows as an `input` card with the app's own summary of what it
@@ -63,9 +63,21 @@ picks up what is addressed to it, where the first design let only the main chat 
 **From advice to work** (the person, 2026-10-12): what the person agrees with the advisor, the advisor passes on
 to the main chat, which hands out as before. The advisor still hands out nothing itself.
 
-**Pictures and links.** Pictures come only from the folders named in `config.json` (`pictureRoots`, the project's
-`art-inbox`), and the path is checked on the real file. A link to a running branch is made only to a page on this
-machine (`localhost` or `127.0.0.1`).
+**Pictures.** Pictures come only from the folders named in `config.json` (`pictureRoots`, the project's
+`art-inbox`), and the path is checked on the real file.
+
+**The game of a branch** (the person, 2026-10-12: "i want the link to open a game with the branch that contains
+the code ... spin up a new game with new port ... find a way so it doesnt run indefinately if i close the tab").
+Work to verify has one button, "Open the game on <branch>": the branch an ask names in `run.branch` or a step
+names in its words, else `main`. The board starts the game from the working folder that holds that branch
+(`run-game.mjs`, one process per folder, the folder's own vite and configuration) on a port of its own, from
+`gamePort` (5300) plus the folder's place in git's list, and opens it in a new tab. The game ends by itself
+`gameIdleSeconds` (30) after its last tab was closed, or when nobody opened it within `gameOpenSeconds` (120); the
+board also ends its games when it is closed, and the card has a Stop button. The page names the request only: the
+branch and the folder come from the board's own state, and starting needs what sending needs (the token, the
+board's own origin, JSON). The board switches no folder to another branch: a branch that is in no working folder
+cannot be started, and the card says so. Vite's cache for these games is kept in the board's `data/game-cache`,
+so nothing is written into a folder's `node_modules` while a worker runs the game from it too.
 
 **Still to build in the branch:** the mod's part (a tool for a chat to file and close an ask; delivery of answers
 and of the conversation with the advisor; the plan line names the chat's branch and when its task was named), and

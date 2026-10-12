@@ -43,3 +43,10 @@ test('parseConfig refuses a port or a number that makes no sense', () => {
   assert.equal(config.port, 4310)
   assert.equal(config.refreshSeconds, 30)
 })
+
+test('the games the board starts take their ports from 5300 and end half a minute after their tab is closed, unless set otherwise', () => {
+  const usual = parseConfig('{}', env)
+  assert.deepEqual([usual.gamePort, usual.gameIdleSeconds, usual.gameOpenSeconds], [5300, 30, 120])
+  const set = parseConfig(JSON.stringify({ gamePort: 6100, gameIdleSeconds: 5 }), env)
+  assert.deepEqual([set.gamePort, set.gameIdleSeconds], [6100, 5])
+})

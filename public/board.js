@@ -30,6 +30,8 @@ const chosen = new Map()
 const problems = new Map()
 const sending = new Set()
 const openForms = new Set()
+/** The requests whose game is being started. */
+const starting = new Set()
 const pictures = new Map()
 const drawn = {}
 let isLegacyOpen = false
@@ -488,6 +490,54 @@ function optionParts(need) {
   return parts
 }
 
+/**
+ * The game to look at for a request: one button that starts the branch's game when it is not running and opens
+ * it in a new tab. A game the board started ends by itself after its tab is closed.
+ */
+function gameParts(need) {
+  const game = need.game ?? null
+  if (game === null) {
+    // An ask from before the board could start a game gives the address itself.
+    if (need.run === null || need.run.url === null) return []
+    const note = need.run.entry === null ? [] : [el('small', 'run-note', `If it does not open, start "${need.run.entry}" first.`)]
+    return [runLink(need.run), ...note]
+  }
+  if (game.path === null) return [el('small', 'run-note', `The branch ${game.branch} is in no working folder now, so the board cannot start its game.`)]
+
+  const row = el('div', 'game')
+  row.dataset.gameOf = need.id
+  const isStarting = starting.has(need.id)
+  const open = el('button', 'run')
+  open.type = 'button'
+  open.dataset.game = 'start'
+  open.disabled = isStarting
+  open.append(icon('open'), isStarting ? 'Starting the game…' : `Open the game on ${game.branch}`)
+  row.append(open)
+  if (game.url !== null) {
+    const stop = el('button', 'choice', 'Stop')
+    stop.type = 'button'
+    stop.dataset.game = 'stop'
+    stop.title = 'Stop this game now'
+    row.append(stop)
+  }
+  const parts = [row]
+  if (game.url === null) {
+    parts.push(el('small', 'run-note', `Starts the game from the folder ${game.folder} on a port of its own. It stops by itself after you close its tab.`))
+  } else {
+    // The address as a plain link too, for when the browser did not let the tab open.
+    const note = el('small', 'run-note', `Running since ${clock(game.since)} at `)
+    const link = el('a', '', game.url.replace(/^http:\/\//, '').replace(/\/$/, ''))
+    link.href = game.url
+    link.target = '_blank'
+    link.rel = 'noreferrer noopener'
+    note.append(link, '. It stops by itself after you close its tab.')
+    parts.push(note)
+  }
+  const problem = problems.get(`game:${need.id}`)
+  if (problem !== undefined) parts.push(el('p', 'problem', problem))
+  return parts
+}
+
 function runLink(run) {
   const link = el('a', 'run')
   link.href = run.url
@@ -521,11 +571,7 @@ function drawNeed(need, state) {
   if (need.text !== '') card.append(el('p', '', need.text))
   card.append(...optionParts(need))
 
-  if (need.run !== null) {
-    if (need.run.url !== null) card.append(runLink(need.run))
-    const where = [need.run.branch === null ? null : `branch ${need.run.branch}`, need.run.entry === null ? null : `if it does not open, start "${need.run.entry}" first`].filter(Boolean)
-    if (where.length > 0) card.append(el('small', 'run-note', where.join(' · ')))
-  }
+  card.append(...gameParts(need))
   if (need.checks.length > 0) card.append(listBox('Key points to check', need.checks))
   if (need.tried.length > 0) card.append(listBox('Already tried', need.tried))
   card.append(...answerPart(need, state, isStep(need)))
@@ -583,7 +629,7 @@ function drawNeeds(state) {
   refocus(box, focused)
 }
 
-const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms]]
+const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting]]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
@@ -603,6 +649,8 @@ function takeAnswers(box) {
   })
 
   box.addEventListener('click', event => {
+    const gameButton = event.target.closest('[data-game]')
+    if (gameButton !== null && board !== null) return game(gameButton.closest('[data-game-of]').dataset.gameOf, gameButton.dataset.game)
     const card = event.target.closest('.need')
     if (card === null || board === null) return
     const id = card.dataset.id
@@ -725,7 +773,7 @@ function drawDetails(state) {
   const step = need === null ? lane.queue[place] : null
   const now = state.readAt
   // Drawn again only when what it shows has changed, so reading and typing in it are left alone.
-  const showing = JSON.stringify([detailsOf, need ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending]])
+  const showing = JSON.stringify([detailsOf, need ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting]])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
@@ -807,8 +855,7 @@ function drawDetails(state) {
   if (folder !== null) files.push(copyRow('Folder', folder.path))
   if (branch !== null) files.push(copyRow('Branch', branch))
   if (folder !== null) files.push(el('p', 'muted', folderLine(folder, now)))
-  if (need !== null && need.run !== null && need.run.url !== null) files.push(runLink(need.run))
-  if (need !== null && need.run !== null && need.run.entry !== null) files.push(el('small', 'run-note', `If it does not open, start "${need.run.entry}" first.`))
+  if (need !== null) files.push(...gameParts(need))
   if (files.length > 0) right.append(section('Files / Branch', files))
 
   if (need !== null) {
@@ -1187,6 +1234,46 @@ async function send(message, id) {
   if (id === null) $('messages').scrollTop = $('messages').scrollHeight
 }
 
+/**
+ * Starts the game of a request's branch and shows it in a new tab, or stops it. The tab is opened with the click
+ * itself: one opened after the server answered would be stopped by the browser as a pop-up.
+ */
+async function game(id, action) {
+  const key = `game:${id}`
+  let tab = null
+  if (action === 'start') {
+    try {
+      tab = window.open('about:blank', '_blank')
+    } catch {
+      // No tab: the card shows the address once the game runs.
+    }
+  }
+  starting.add(id)
+  problems.delete(key)
+  redrawNeeds()
+  let problem = null
+  try {
+    const answer = await fetch('/api/game', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
+      body: JSON.stringify({ item: id, action }),
+    })
+    if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
+    else if (tab !== null) {
+      const { url } = await answer.json()
+      // The game's page gets no hold on the board's page.
+      tab.opener = null
+      tab.location.replace(url)
+    }
+  } catch {
+    problem = 'the board\'s server does not answer'
+  }
+  if (problem !== null && tab !== null) tab.close()
+  starting.delete(id)
+  if (problem !== null) problems.set(key, `Not ${action === 'start' ? 'started' : 'stopped'}: ${problem}`)
+  await read()
+}
+
 $('say').addEventListener('submit', event => {
   event.preventDefault()
   const text = $('say-text').value.trim()
@@ -1200,8 +1287,10 @@ $('say-text').addEventListener('keydown', event => {
   }
 })
 
-$('refresh').append(icon('refresh'))
-$('refresh').addEventListener('click', read)
+for (const id of ['refresh', 'refresh-title']) {
+  $(id).append(icon('refresh'))
+  $(id).addEventListener('click', read)
+}
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) read()
 })

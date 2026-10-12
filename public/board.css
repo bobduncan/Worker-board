@@ -74,7 +74,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 /* The lanes follow the room they have, which changes when For you is dragged wider (see the end of this file). */
 .overview { min-width: 0; overflow-y: auto; padding: 0 18px 24px; container-type: inline-size; }
 .head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 16px 2px 14px; }
-.head h1 { font-size: 30px; font-weight: 700; flex: 1; }
+.head h1 { font-size: 30px; font-weight: 700; flex: 1; display: flex; align-items: center; gap: 10px; }
 .counts { display: flex; flex-wrap: wrap; gap: 10px; }
 .count-pill { display: flex; align-items: center; gap: 9px; padding: 7px 16px 7px 12px; border: 1px solid var(--line); border-radius: 8px; font-weight: 600; }
 .count-pill b { font-weight: 700; }
@@ -239,6 +239,11 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 
 .run { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border: 1px solid #1f3f7a; border-radius: 7px; color: #7fb0ff; font-weight: 600; font-size: 14px; text-decoration: none; }
 .run:hover { background: #12203a; }
+button.run { background: transparent; cursor: pointer; font-family: inherit; flex: 1; text-align: left; }
+button.run:disabled { opacity: 0.6; cursor: default; }
+.run svg { width: 18px; height: 18px; flex: none; }
+.game { display: flex; gap: 8px; align-items: stretch; }
+.run-note a { color: #7fb0ff; }
 .run-note { color: var(--muted); font-size: 13px; }
 .box { border: 1px solid var(--line); border-radius: 7px; padding: 9px 12px; font-size: 13.5px; }
 .box b { display: block; margin-bottom: 4px; font-weight: 600; }
