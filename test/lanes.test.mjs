@@ -226,7 +226,7 @@ test('a working lane shows the time left as the main figure and the clock time s
   assert.equal(timeOf({ ...working, eta: { at: NOW + 105 * MIN, leftMs: 105 * MIN, isOverdue: false, isOwn: true, from: 'own' } }).main, '1 h 45 left')
   // A time that has run out says by how much, not a clock time.
   const late = timeOf({ ...working, eta: { at: NOW - 12 * MIN, leftMs: 0, isOverdue: true, isOwn: true, from: 'own' } })
-  assert.deepEqual([late.main, late.tone, late.small], ['12 min over', 'bad', [`was ${page.clock(NOW - 12 * MIN)}`]])
+  assert.deepEqual([late.label, late.main, late.tone, late.small], ['Overdue', '12 min over', 'bad', [`was ${page.clock(NOW - 12 * MIN)}`]])
 })
 
 test('a time that is not the worker\'s own says where it is from', () => {

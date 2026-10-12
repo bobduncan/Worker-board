@@ -274,7 +274,8 @@ function timeOf(lane, now) {
     text: eta.from === 'handover' ? 'from its hand-over' : `from ${lane.task?.stepId ?? 'its step'}`,
     title: `The worker gave no estimate of its own: this is the time its ${eta.from === 'handover' ? 'hand-over' : 'backlog step'} names, counted from when the task started.`,
   }
-  if (eta.isOverdue) return { label: 'ETA', main: `${span(now - eta.at)} over`, tone: 'bad', small: [`was ${clock(eta.at)}`], from }
+  // Overdue stays overdue, with how far over as its figure.
+  if (eta.isOverdue) return { label: 'Overdue', main: `${span(now - eta.at)} over`, tone: 'bad', small: [`was ${clock(eta.at)}`], from }
   return { label: 'ETA', main: `${span(eta.leftMs)} left`, tone: 'time', small: [`until ${clock(eta.at)}`], from }
 }
 // lanetime:end
