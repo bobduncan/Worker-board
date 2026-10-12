@@ -1807,8 +1807,8 @@ $('coordinate-list').addEventListener('click', event => {
 // main chat) is B101. The page writes nothing into the backlog itself.
 
 // design:start
-/** What the server holds to, for a board that does not name its own in `design.limits`. */
-const DESIGN_LIMITS = { text: 1500, change: 600, title: 160, description: 1200, requirements: 12, requirement: 200, referenceBytes: 8 * 1024 * 1024 }
+/** What the server holds to, as `design.limits` names it; these stand in for a board that does not say. */
+const DESIGN_LIMITS = { idea: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3, referenceBytes: 8 * 1024 * 1024 }
 const limitsOf = design => ({ ...DESIGN_LIMITS, ...(design?.limits ?? {}) })
 
 /** "shop-screen", the folder's short name, as a name to read: "Shop screen". */
@@ -1888,9 +1888,19 @@ function makeBody(draft, design) {
   const limits = limitsOf(design)
   const text = draft.text.trim()
   if (text === '') return { problem: 'Type the idea first.' }
-  if (text.length > limits.text) return { problem: `The idea is too long: ${limits.text} characters at most, it has ${text.length}.` }
+  if (text.length > limits.idea) return { problem: `The idea is too long: ${limits.idea} characters at most, it has ${text.length}.` }
   if (!(design?.kinds ?? []).some(kind => kind.id === draft.kind)) return { problem: 'Choose what it is about.' }
+  if (draft.references.length > limits.references) return { problem: `At most ${limits.references} reference pictures.` }
   return { body: { action: 'make', kind: draft.kind, text, references: [...draft.references] } }
+}
+
+/**
+ * What "Try again" sends for a picture that was not made: the same change again, said of the newest picture there
+ * is; with no picture yet there is nothing to change, and the idea is simply tried again.
+ */
+function retryBody(idea, version) {
+  const change = (version.change ?? '').trim()
+  return { body: change === '' ? { action: 'again', idea: idea.id } : { action: 'again', idea: idea.id, change } }
 }
 
 /** What "Make it again" sends for the version the person looks at, or why not. */
@@ -1924,6 +1934,12 @@ function firstForm(idea) {
   const first = words.split('\n')[0]
   const title = first.length > 80 ? `${first.slice(0, 79).trimEnd()}…` : first
   return { title: title.charAt(0).toUpperCase() + title.slice(1), description: words, requirements: [''], worker: '', time: '' }
+}
+
+/** What to say when the board's own reference pictures for a kind of idea are not there: the picture may fit the game less. */
+function missingOf(design, kind) {
+  const missing = (design?.kinds ?? []).find(one => one.id === kind)?.missing ?? []
+  return missing.length === 0 ? '' : ` The board misses ${missing.length === 1 ? 'a reference picture' : `${missing.length} reference pictures`} for this kind, so the picture may fit the game less.`
 }
 
 /** Where the asking for the step is, in words. `main` is the main chat's name. */
@@ -1997,11 +2013,13 @@ function drawDesignNew(design, view) {
       return button
     }))
   })
-  once('design-references', [...designDraft.references], () => {
+  const mostReferences = limitsOf(design).references
+  once('design-references', [[...designDraft.references], mostReferences], () => {
     const add = el('button', 'design-add-reference', 'Add a reference picture (optional)')
     add.type = 'button'
     add.dataset.addReference = ''
-    fill($('design-references'), [add, ...designDraft.references.map((path, place) => {
+    // No more than the board takes: the box to add one goes when they are there.
+    fill($('design-references'), [...(designDraft.references.length < mostReferences ? [add] : []), ...designDraft.references.map((path, place) => {
       const frame = el('div', 'design-reference')
       const remove = el('button', 'icon-button', '✕')
       remove.type = 'button'
@@ -2012,13 +2030,13 @@ function drawDesignNew(design, view) {
       return frame
     })])
   })
-  $('design-text').maxLength = limitsOf(design).text
+  $('design-text').maxLength = limitsOf(design).idea
   $('design-text').disabled = design === null
   $('design-make').disabled = !view.canMake || isDesignSending
   $('design-hint').textContent = design === null ? ''
     : design.canMake !== true ? design.why ?? 'This board cannot make pictures.'
       : view.making !== null ? `Codex is making a picture: ${view.making.line}. One at a time.`
-        : 'Codex makes it. It takes about a minute.'
+        : `Codex makes it. It takes about a minute.${missingOf(design, designDraft.kind)}`
   $('design-make-problem').hidden = designProblems.make === null
   $('design-make-problem').textContent = designProblems.make ?? ''
 }
@@ -2129,7 +2147,7 @@ function drawDesignForm(design, view, main) {
   $('design-agreed').hidden = idea === null || idea.agreed === null
   $('design-form-note').textContent = view.form === 'locked'
     ? (idea === null ? 'Agree with a picture first. Then you say here what you want and where it goes.' : 'Agree with a picture of this idea first: "I agree" under it.')
-    : view.form === 'open' && cannotSend ? 'This board does not deliver: put it on the backlog from the board started from main.'
+    : view.form === 'open' && cannotSend ? design.whyNot ?? 'This board cannot ask the main chat for the step.'
       : view.form === 'open' && view.isLost ? 'Your asking did not arrive. Send it again.' : ''
   $('design-form-note').hidden = $('design-form-note').textContent === ''
   const sent = $('design-sent')
@@ -2210,6 +2228,7 @@ $('design-file').addEventListener('change', async () => {
   const limits = limitsOf(designNow())
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) designProblems.make = 'A reference is a PNG, JPEG or WebP picture.'
   else if (file.size > limits.referenceBytes) designProblems.make = `That picture is too large: ${Math.floor(limits.referenceBytes / (1024 * 1024))} MB at most.`
+  else if (designDraft.references.length >= limits.references) designProblems.make = `At most ${limits.references} reference pictures.`
   else {
     designProblems.make = null
     try {
@@ -2250,9 +2269,7 @@ $('design-again').addEventListener('click', async () => {
   const view = designLook()
   if (view.idea === null || view.version === null) return
   // A picture that failed is asked for again as it was; any other is changed by what the person typed.
-  const again = view.canRetry
-    ? { body: { action: 'again', idea: view.idea.id, change: view.version.change ?? '' } }
-    : againBody(view.idea, view.version, $('design-change').value, designNow())
+  const again = view.canRetry ? retryBody(view.idea, view.version) : againBody(view.idea, view.version, $('design-change').value, designNow())
   if (again.problem !== undefined) {
     designProblems.picture = again.problem
     return drawDesign()
