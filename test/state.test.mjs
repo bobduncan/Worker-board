@@ -23,7 +23,7 @@ const planLine = task => JSON.stringify({ name: 'x', role: 'worker', state: 'wor
 const running = [typed(NOW - 20 * MIN, 'Go'), step(NOW - 2 * MIN, 'Run the tests'), toolResult(NOW - MIN)]
 const ended = [typed(NOW - 20 * MIN, 'Go'), answer(NOW - 9 * MIN, 'Done')]
 
-function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {}, runs = [] }) {
+function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {}, runs = [], restartNote = null, board = null }) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: apps,
@@ -34,8 +34,9 @@ function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox 
     folders,
     askTexts: asks.map(ask => JSON.stringify(ask)),
     pictureLists,
+    restartNote,
   }
-  return buildState(raw, { lines, outbox, runs, now: NOW, config })
+  return buildState(raw, { lines, outbox, runs, board, now: NOW, config })
 }
 const chatNamed = (state, name) => state.chats.find(chat => chat.name === name)
 
@@ -106,7 +107,7 @@ test('a chat whose turn ended with nothing open is free, and one without a trans
   assert.equal(chatNamed(state, 'Units').state, 'free')
   assert.equal(chatNamed(state, 'Levels').state, 'unknown')
   assert.equal(chatNamed(state, 'Main').state, 'unknown')
-  assert.deepEqual(state.counts, { working: 0, waiting: 0, free: 1, unknown: 2 })
+  assert.deepEqual(state.counts, { working: 0, waiting: 0, free: 1, unknown: 2, interrupted: 0 })
 })
 
 test('a chat that asked a question in its own chat waits for you', () => {
@@ -455,7 +456,7 @@ test('a leftover chat is greyed and not counted, and the advisor has no lane', (
     backlog: '## Next to hand out (Game - Main)\n- [ ] Main menu (for Units; about 40 min)\n- [ ] Advice round (for Advisor)\n',
   })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.isLeftover]), [['Main', false], ['Units', false], ['Main (fork)', true]])
-  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0 })
+  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0, interrupted: 0 })
   assert.deepEqual(chatNamed(state, 'Units').queue.map(step => step.title), ['Main menu'])
   assert.deepEqual(state.unassigned.map(step => step.title), ['Advice round'])
   assert.deepEqual(state.today.map(lane => lane.chat), ['Main', 'Units'])
@@ -500,7 +501,7 @@ test('the demo shows the second design: five lanes with their queues, two reques
     ['Cleanup', 'free', 1],
     ['Levels / Environment', 'working', 2],
   ])
-  assert.deepEqual(state.counts, { working: 3, waiting: 1, free: 1, unknown: 0 })
+  assert.deepEqual(state.counts, { working: 3, waiting: 1, free: 1, unknown: 0, interrupted: 0 })
   assert.deepEqual(state.chats.map(chat => (chat.eta === null ? null : Math.round(chat.eta.leftMs / MIN))), [22, null, 105, null, 34])
   assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], ['cleanup'], ['levels']])
   assert.deepEqual(state.otherFolders.map(folder => folder.name), [])
@@ -590,4 +591,69 @@ test('each chat carries the id of its session, for the bridge to know which chat
   assert.equal(state.advisor.session, 'cli-Advisor')
   assert.deepEqual(state.mainGame, { branch: 'main', folder: 'main', path: 'C:/game-main', url: null, since: null, lastCommitAt: NOW - 90 * MIN, commit: { hash: 'b0c4559', subject: 'Merge the camera' } })
   assert.equal(build({ apps: [app('Main')] }).mainGame, null)
+})
+
+// The chat's own file, as its process keeps it: what it says the chat does, and when it last wrote.
+const ownFile = (state, at, task = null) => JSON.stringify({ name: 'x', role: 'worker', state, task, at })
+const beast = { text: 'Shadow Beast', step: 2, steps: 6, left: 40 * MIN, isReported: false }
+
+test('a chat cut off in the middle of its turn is interrupted: its own file was set to waiting after the turn began', () => {
+  // The transcript still shows the turn as open (it began 20 minutes ago); the process that ran it is gone.
+  const state = build({
+    apps: [app('Main'), app('Units')],
+    tails: { Units: tail(running, 6) },
+    plans: { Units: ownFile('waiting', NOW - 2 * MIN, beast) },
+  })
+  const units = chatNamed(state, 'Units')
+  assert.equal(units.state, 'interrupted')
+  // What it was on is kept; it expects nothing and is not reported as quiet on top.
+  assert.equal(units.task.text, 'Shadow Beast')
+  assert.deepEqual([units.eta, units.isQuiet, units.doingNow], [null, false, null])
+  assert.equal(units.cutOffAt, NOW - 6 * MIN)
+  assert.equal(state.counts.interrupted, 1)
+  assert.deepEqual(state.restart.interrupted, ['Units'])
+  assert.equal(state.forYou.some(need => need.id === 'quiet:Units'), false)
+})
+
+test('a chat whose file still says working but is no longer renewed is interrupted too', () => {
+  const stale = build({ apps: [app('Units')], tails: { Units: tail(running, 4) }, plans: { Units: ownFile('working', NOW - 4 * MIN, beast) } })
+  assert.equal(chatNamed(stale, 'Units').state, 'interrupted')
+  // Renewed within the last minutes: the turn is alive, however long its tool runs.
+  const alive = build({ apps: [app('Units')], tails: { Units: tail(running, 4) }, plans: { Units: ownFile('working', NOW - MIN, beast) } })
+  assert.equal(chatNamed(alive, 'Units').state, 'working')
+})
+
+test('a chat that keeps no file of its own in this turn is never called interrupted', () => {
+  // A file from yesterday: this chat's process does not write one, so it says nothing about the turn.
+  for (const said of ['working', 'waiting']) {
+    const state = build({ apps: [app('Units')], tails: { Units: tail(running, 1) }, plans: { Units: ownFile(said, NOW - 20 * 60 * MIN, beast) } })
+    assert.equal(chatNamed(state, 'Units').state, 'working')
+  }
+  assert.equal(chatNamed(build({ apps: [app('Units')], tails: { Units: tail(running, 1) } }), 'Units').state, 'working')
+  // A turn that ended is free, whatever the file says.
+  assert.equal(chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: tail(ended) }, plans: { Units: ownFile('waiting', NOW - MIN) } }), 'Units').state, 'free')
+})
+
+test('the restart: who was cut off, what was prepared, and how long the board was off', () => {
+  const quiet = build({ apps: [app('Main'), app('Units', summary('completed'))], tails: { Units: tail(ended) } })
+  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], prepared: null, preparing: null, resuming: null, off: null })
+
+  const prepare = { id: 'p1', at: NOW - 10 * MIN, to: 'Main', ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
+  const preparing = build({
+    apps: [app('Main'), app('Units'), app('Features', summary('completed'))],
+    tails: { Units: tail(running), Features: tail(ended) },
+    outbox: [prepare],
+    restartNote: { at: NOW - 3 * MIN },
+    board: { startedAt: NOW - 20 * MIN, offSince: NOW - 28 * MIN },
+  })
+  assert.deepEqual(preparing.restart.preparing, { at: NOW - 10 * MIN, state: 'delivered', working: ['Units'] })
+  assert.deepEqual(preparing.restart.prepared, { at: NOW - 3 * MIN })
+  assert.deepEqual(preparing.restart.off, { from: NOW - 28 * MIN, to: NOW - 20 * MIN })
+
+  // "resume" ends the preparing; a board that has run for long says no more about having been off.
+  const resume = { id: 'r1', at: NOW - MIN, to: 'Main', ask: null, command: 'resume', text: 'resume', state: 'waiting' }
+  const resumed = build({ apps: [app('Main')], outbox: [prepare, resume], board: { startedAt: NOW - 3 * 60 * MIN, offSince: NOW - 4 * 60 * MIN } })
+  assert.deepEqual([resumed.restart.preparing, resumed.restart.resuming, resumed.restart.off], [null, { at: NOW - MIN, state: 'waiting' }, null])
+  // Without a main chat there is nobody to do the resuming.
+  assert.equal(build({ apps: [app('Units')] }).restart.main, null)
 })

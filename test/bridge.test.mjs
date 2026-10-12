@@ -132,3 +132,9 @@ test('outboxNow: an answer waits long for its chat, and a taken or typed answer 
     [['line', 'expired'], ['answer', 'waiting'], ['done', 'delivered'], ['held', 'taken'], ['queued', 'taken'], ['lost', 'failed']])
   assert.deepEqual(outboxNow(messages, 49 * HOUR, keep).map(message => [message.id, message.state]), [['done', 'delivered'], ['held', 'taken']])
 })
+
+test('outboxNow: a word for the restart stays known for two hours, so the board can say how the preparing stands', () => {
+  const command = { id: 'p', at: 0, ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
+  assert.deepEqual(outboxNow([command], 90 * MIN, keep).map(message => message.id), ['p'])
+  assert.deepEqual(outboxNow([command], 121 * MIN, keep), [])
+})

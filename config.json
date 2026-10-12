@@ -4,5 +4,5 @@
   "appSessions": "%APPDATA%\\Claude\\claude-code-sessions",
   "transcripts": "%USERPROFILE%\\.claude\\projects\\C--Web-lava-tactics-project",
   "port": 4310,
-  "refreshSeconds": 30
+  "refreshSeconds": 10
 }

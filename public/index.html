@@ -13,6 +13,7 @@
     <button class="tab is-active" type="button" data-tab="overview">Overview</button>
     <button class="tab" type="button" data-tab="advice">Advice &amp; Chat</button>
     <span class="grow"></span>
+    <button class="quiet-button" id="prepare-restart" type="button" title="Before you quit Claude: Game - Main asks every working chat to stop at a safe point and writes down who was on what" hidden>Prepare restart</button>
     <p class="updated" id="updated">Reading…</p>
     <button class="icon-button" id="refresh" type="button" title="Read again" aria-label="Read again"></button>
   </nav>
@@ -24,6 +25,7 @@
         <div class="main-game" id="main-game"></div>
         <div class="counts" id="counts"></div>
       </header>
+      <section class="restart" id="restart" aria-label="Restart" hidden></section>
       <section class="lanes" id="lanes" aria-label="Workers"></section>
       <section class="panel" id="today" aria-labelledby="today-title">
         <h2 id="today-title">Timeline <small id="today-range"></small></h2>

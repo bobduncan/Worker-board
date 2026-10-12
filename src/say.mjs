@@ -18,6 +18,19 @@ export function checkSay(body, state, maxChars) {
   if (state.advisor?.name) names.push(state.advisor.name)
   if (typeof body.to !== 'string' || !names.includes(body.to)) return refuse(400, 'No such chat on the board.')
 
+  if (body.command !== undefined && body.command !== null) {
+    // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
+    // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
+    if (body.command !== 'prepare restart' && body.command !== 'resume') return refuse(400, 'No such command.')
+    if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares and resumes.')
+    if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+    const cut = state.restart?.interrupted ?? []
+    const words = body.command === 'resume' && cut.length > 0
+      ? `resume\nCut off in the middle of a turn, as the worker board reads it: ${cut.join(', ')}.`
+      : body.command
+    return { ok: true, message: { to: body.to, ask: null, step: null, title: null, version: null, verdict: null, command: body.command, text: words } }
+  }
+
   if (body.ask === undefined || body.ask === null) {
     if (body.verdict !== undefined && body.verdict !== null) return refuse(400, 'A verdict needs the request it is about.')
     if (text === '') return refuse(400, 'No text.')

@@ -248,6 +248,19 @@ async function main(args) {
     }
   }
 
+  // When this board started, and since when it had been off: after a restart of the app both boards and every
+  // chat were gone for that long.
+  const startedAt = clock()
+  let lastAlive = store.aliveAt?.() ?? null
+  if (historyFrom !== undefined) {
+    try {
+      lastAlive = JSON.parse((await readHead(join(resolve(historyFrom), 'alive.json'), 1024))?.text ?? '').at
+    } catch {
+      lastAlive = null
+    }
+  }
+  const offSince = Number.isFinite(lastAlive) && startedAt - lastAlive > 3 * 60_000 ? lastAlive : null
+
   const readState = cached(async () => {
     const raw = await readRaw()
     const project = raw.project ?? config.project
@@ -255,6 +268,7 @@ async function main(args) {
       lines: readLines(raw),
       outbox: outboxNow(store.outbox(), clock(), keep),
       runs: games.list(),
+      board: { startedAt, offSince },
       now: clock(),
       config: { ...config, project },
     })
