@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { answer, fromChat, step, typed } from '../fixtures/lines.mjs'
+import { answer, fromChat, step, typed, usageResult } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { readHead } from '../src/files.mjs'
 import { findPicture, listPictures, mentionedPaths } from '../src/pictures.mjs'
@@ -86,7 +86,7 @@ test('readSources never follows a transcript name out of the transcripts folder'
 test('readSources gives empty sources for folders that do not exist, and survives a folders reader that fails', async () => {
   const config = { ...parseConfig('{}', {}), project: join(DATA, 'no-such-project'), appSessions: join(DATA, 'no-such-app'), transcripts: join(DATA, 'none') }
   const raw = await readSources(config, async () => { throw new Error('git is not installed') }, NOW)
-  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, tails: {}, backlogText: null, adviceText: null, folders: null, askTexts: [], pictureLists: {}, restartNote: null, adviceAt: null })
+  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, tails: {}, backlogText: null, adviceText: null, folders: null, askTexts: [], pictureLists: {}, usageText: null, restartNote: null, adviceAt: null })
 })
 
 test('a picture is found only inside a folder the board may show, also when a path tries to leave it', async t => {
@@ -133,4 +133,24 @@ test('oneAtATime never runs two reads together, and goes on after one that faile
   const answers = await Promise.allSettled([read('a', 0), read('bad', 0), read('c', 0)])
   assert.deepEqual(answers.map(answer => answer.status), ['fulfilled', 'rejected', 'fulfilled'])
   assert.equal(most, 1)
+})
+
+// B113: the limits
+
+test('readSources reads the app\'s usage file, and what a chat looked up further back than its tail', async t => {
+  const { root, config, put } = await project(t)
+  const reading = usageResult(NOW - 200 * MIN, { fiveHour: { used: 6, resetsAt: NOW + 60 * MIN } })
+  await put('transcripts/main-id.jsonl', [step(NOW - 201 * MIN, 'Look the limits up'), reading, answer(NOW - 199 * MIN, 'Done.')].join('\n'))
+  await put('app/plan-usage-history.json', `{"version":2,"samples":[{"t":${NOW - 3 * MIN},"org":"o","u":{"fh":86,"sd":64}}]}`)
+  const raw = await readSources({ ...config, usageHistory: join(root, 'app', 'plan-usage-history.json') }, async () => [], NOW)
+  assert.ok(raw.usageText.includes('"fh":86'))
+  // The look back keeps the reading apart from the lines that can start or end a task.
+  assert.equal(raw.tails['main-id'].usage, reading)
+  assert.ok(!raw.tails['main-id'].earlier.includes('windows'))
+  assert.equal(raw.tails['units-id'].usage, '')
+  const { limits } = buildState(raw, { now: NOW, config })
+  assert.deepEqual([limits.fiveHour.used, limits.fiveHour.resetsAt, limits.week.used], [86, NOW + 60 * MIN, 64])
+  // No such file: nothing is known of the limits, and nothing fails.
+  const none = await readSources({ ...config, usageHistory: join(root, 'app', 'none.json') }, async () => [], NOW)
+  assert.equal(none.usageText, null)
 })

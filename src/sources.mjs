@@ -9,7 +9,7 @@ import { readAsks } from './asks.mjs'
 import { allWords, forYou, parseBacklog, queue } from './backlog.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
-import { readMarked, readTail } from './transcript.mjs'
+import { readDeep, readTail } from './transcript.mjs'
 
 /** A transcript's name comes from a file another program wrote; only a plain id may become part of a path. */
 const SAFE_ID = /^[A-Za-z0-9_-]+$/
@@ -18,6 +18,8 @@ const TEXT_BYTES = 512 * 1024
 const EARLIER_MS = 5 * 60_000
 const PICTURES_MS = 60_000
 const MOST_FOLDERS = 40
+/** B113: the app adds a sample to the end of its usage file; the end of a file that grew large is enough. */
+const USAGE_BYTES = 64 * 1024
 
 const readText = async file => (await readHead(file, TEXT_BYTES))?.text ?? null
 
@@ -39,7 +41,7 @@ export function oneAtATime(read, ttlMs) {
   }
 }
 
-const earlier = oneAtATime(readMarked, EARLIER_MS)
+const earlier = oneAtATime(readDeep, EARLIER_MS)
 const picturesIn = new Map()
 
 /** The pictures in the folders the backlog's steps for the person and its queued steps point to, per mentioned path. */
@@ -81,8 +83,12 @@ export async function readSources(config, readFolders, now = Date.now()) {
   await Promise.all(chats.map(async ({ cliSessionId }) => {
     const file = join(config.transcripts, `${cliSessionId}.jsonl`)
     const tail = await readTail(file)
-    // A task may have started further back than the tail reaches.
-    if (tail !== null) tail.earlier = await earlier(file, now).catch(() => null)
+    // A task may have started further back than the tail reaches, and so may a chat's look at the limits (B113).
+    if (tail !== null) {
+      const deep = await earlier(file, now).catch(() => null)
+      tail.earlier = deep?.tasks ?? null
+      tail.usage = deep?.usage ?? null
+    }
     tails[cliSessionId] = tail
     planLineTexts[cliSessionId] = await readText(join(claude, 'chats', `${cliSessionId}.json`))
   }))
@@ -90,6 +96,8 @@ export async function readSources(config, readFolders, now = Date.now()) {
   return {
     listText, appChatTexts, planLineTexts, tails, backlogText, adviceText, folders, askTexts,
     pictureLists: await pictureLists(config, backlogText, now),
+    // B113: the file the app keeps for its own usage card. The board only reads it.
+    usageText: (await readTail(config.usageHistory, USAGE_BYTES))?.text ?? null,
     // The main chat's note of who was on what before a restart: only whether it is there, and since when.
     restartNote: await stat(join(claude, 'restart.md')).then(file => ({ at: file.mtimeMs }), () => null),
     // When the advisor last wrote its advice.

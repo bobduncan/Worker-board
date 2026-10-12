@@ -75,6 +75,21 @@ export async function readMarked(path, maxBytes = DEEP_BYTES) {
   return piece === null ? null : markedIn(piece.buffer, piece.isCut)
 }
 
+/**
+ * B113: what a line holds where a chat looked the plan's limits up: the app's tool answers with the plan's
+ * windows, and a transcript keeps that answer as text inside a line, its quotes escaped.
+ */
+const USAGE_MARKS = ['\\"windows\\": [', '\\"windows\\":[']
+
+/**
+ * Both longer looks back in one read of the file: the lines for a task (`tasks`, as `readMarked` gives them) and
+ * the lines where the chat looked its limits up (`usage`). Null when the file cannot be read.
+ */
+export async function readDeep(path, maxBytes = DEEP_BYTES) {
+  const piece = await readPiece(path, maxBytes)
+  return piece === null ? null : { tasks: markedIn(piece.buffer, piece.isCut), usage: markedIn(piece.buffer, piece.isCut, USAGE_MARKS) }
+}
+
 function blocksOf(content) {
   if (typeof content === 'string') return [{ type: 'text', text: content }]
   if (!Array.isArray(content)) return []
