@@ -6,7 +6,7 @@
 'use strict'
 
 const TOKEN = document.querySelector('meta[name="board-token"]').content
-const STATES = { working: 'Working', waiting: 'Waiting for you', free: 'Free', unknown: 'Unknown', interrupted: 'Interrupted' }
+const STATES = { working: 'Working', waiting: 'Waiting for you', free: 'Free', unknown: 'Unknown', interrupted: 'Interrupted', suspended: 'Suspended' }
 /** How often the page asks again while the board does not answer. */
 const AWAY_MS = 5000
 const KINDS = {
@@ -83,9 +83,9 @@ function span(ms) {
   if (hours >= 48) return `${Math.round(hours / 24)} days`
   return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${pad(minutes % 60)}`
 }
-// times:end
 
-const ago =(ms, now) => (now - ms < MIN ? 'just now' : `${span(now - ms)} ago`)
+const ago = (ms, now) => (now - ms < MIN ? 'just now' : `${span(now - ms)} ago`)
+// times:end
 
 /** A time that keeps counting between redraws: `data-at` is read again at every look. */
 function since(at, now) {
@@ -165,14 +165,122 @@ function drawTop(state) {
   const updated = $('updated')
   updated.textContent = `Last updated ${clock(state.readAt)}${state.isDemo ? ' · demo data' : ''}`
   updated.classList.remove('is-stale')
-  fill($('counts'), ['working', 'waiting', 'free', 'interrupted', 'unknown']
-    .filter(name => (name !== 'unknown' && name !== 'interrupted') || (state.counts[name] ?? 0) > 0)
+  fill($('counts'), ['working', 'waiting', 'free', 'suspended', 'interrupted', 'unknown']
+    .filter(name => (name !== 'unknown' && name !== 'interrupted' && name !== 'suspended') || (state.counts[name] ?? 0) > 0)
     .map(name => {
       const pill = el('div', `count-pill is-${name}`)
       pill.append(el('span', 'dot'), el('b', '', String(state.counts[name])), STATES[name].toLowerCase())
       return pill
     }))
   for (const node of document.querySelectorAll('time[data-at]')) node.textContent = ago(Number(node.dataset.at), state.readAt)
+}
+
+// limits:start
+// B113: the plan's limits in the head, a worker held by the limit, and why a queued step is not started.
+
+/** A figure the app has not renewed for this long is old: it samples about every quarter of an hour while it is open. */
+const LIMIT_OLD_MS = 20 * MIN
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** A moment as its clock time, with the weekday in front when it is not today. */
+function dayClock(at, now) {
+  const [then, today] = [new Date(at), new Date(now)]
+  const isToday = then.getFullYear() === today.getFullYear() && then.getMonth() === today.getMonth() && then.getDate() === today.getDate()
+  return isToday ? clock(at) : `${WEEKDAYS[then.getDay()]} ${clock(at)}`
+}
+
+/**
+ * What the head shows of the limits: `five` and `week` as `{ name, value, width, tone, under }` (null for a limit
+ * nothing is known of) and `age`, how old the figure is. Null when neither is known. `tone` is the limit's level:
+ * `ok`, `warn` from about 80%, `full` when it is reached.
+ */
+function limitsView(limits, now) {
+  const [five, week] = [limits?.fiveHour ?? null, limits?.week ?? null]
+  if (five === null && week === null) return null
+  const width = limit => (limit.level === 'full' ? 100 : Math.max(0, Math.min(100, Math.round(limit.used))))
+  const fiveUnder = () => {
+    if (five.resetAt !== null) return `reset at ${clock(five.resetAt)}`
+    if (five.resetsAt === null) return 'reset time not known yet'
+    return `${five.level === 'full' ? 'work goes on at' : 'resets'} ${clock(five.resetsAt)} · in ${span(five.resetsAt - now)}`
+  }
+  // The age is that of a figure something gave: an empty bar after a reset is the board's own conclusion.
+  const read = [five, week].filter(limit => limit !== null && limit.resetAt === null).map(limit => limit.at)
+  const newest = read.length === 0 ? null : Math.max(...read)
+  return {
+    five: five === null ? null : { name: '5-hour limit', value: five.level === 'full' ? 'Limit reached' : `${Math.round(five.used)}% used`, width: width(five), tone: five.level, under: fiveUnder() },
+    week: week === null ? null : {
+      name: 'Week',
+      value: week.level === 'full' ? 'Reached' : `${Math.round(week.used)}%`,
+      width: width(week),
+      tone: week.level,
+      under: week.resetsAt === null ? 'reset not known' : `${week.level === 'full' ? 'until' : 'resets'} ${dayClock(week.resetsAt, now)}`,
+    },
+    age: newest === null ? { text: 'no figure since the reset', isOld: false } : { text: `read ${ago(newest, now)}`, isOld: now - newest > LIMIT_OLD_MS },
+  }
+}
+
+const LIMIT_NAMES = { fiveHour: 'session', week: 'weekly' }
+
+/** Why a queued step is not started, as one line, and whether the limit is the reason (`tone`). Null without a reason. */
+function whyText(why) {
+  if (why === null || why === undefined) return null
+  const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
+  switch (why.reason) {
+    case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
+    case 'suspended': return said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is suspended${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    case 'after': {
+      if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
+      const [last, ...first] = [...why.steps].reverse()
+      return said('wait', `waits for ${first.length === 0 ? last : `${first.reverse().join(', ')} and ${last}`}`)
+    }
+    case 'busy': return said('wait', `${why.worker} is busy${why.leftMs === null ? '' : `, about ${span(why.leftMs)} left`}`)
+    case 'you': return said('wait', `${why.worker} waits for you`)
+    case 'cut': return said('wait', `${why.worker} was cut off`)
+    case 'handout': return said('plain', why.isOwn ? `${why.main} has not started it` : `waits for ${why.main} to hand it out`)
+    case 'nobody': return said('plain', 'no worker is named for it')
+    default: return said('plain', `the state of ${why.worker ?? 'its worker'} is not known`)
+  }
+}
+
+/** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
+function heldText(held) {
+  const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
+  if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
+  return `${who} · ${held.until === null ? 'no time known yet' : `goes on at ${clock(held.until)}`}`
+}
+// limits:end
+
+/** One limit as a bar: its name and figure above, what is known of its reset under it. */
+function drawLimit(shown, isSmall) {
+  const box = el('div', `limit is-${shown.tone}${isSmall ? ' is-small' : ''}`)
+  const top = el('div', 'limit-top')
+  top.append(el('span', '', shown.name), el('b', '', shown.value))
+  const bar = el('div', 'limit-bar')
+  bar.setAttribute('role', 'progressbar')
+  bar.setAttribute('aria-label', shown.name)
+  bar.setAttribute('aria-valuemin', '0')
+  bar.setAttribute('aria-valuemax', '100')
+  bar.setAttribute('aria-valuenow', String(shown.width))
+  const fill = el('i')
+  fill.style.width = `${shown.width}%`
+  bar.append(fill)
+  box.append(top, bar, el('small', '', shown.under))
+  return box
+}
+
+/** B113: the limits in the head, in one place. A board whose server does not give them shows nothing there. */
+function drawLimits(state) {
+  const box = $('limits')
+  const shown = state.limits === undefined ? null : limitsView(state.limits, state.readAt)
+  box.hidden = state.limits === undefined
+  if (state.limits === undefined) return
+  box.title = 'From the Claude app\'s own usage file on this PC, which it renews about every 15 minutes while it is open. The reset time comes from the last time a chat looked the limits up. Reading it asks no chat and costs nothing.'
+  if (shown === null) return fill(box, [el('small', 'limit-age', 'Limits not known: the app\'s usage file was not found')])
+  fill(box, [
+    shown.five === null ? null : drawLimit(shown.five, false),
+    shown.week === null ? null : drawLimit(shown.week, true),
+    el('small', `limit-age${shown.age.isOld ? ' is-old' : ''}`, shown.age.text),
+  ].filter(part => part !== null))
 }
 
 // A restart of the app
@@ -259,6 +367,12 @@ function timeOf(lane, now) {
   const plain = (main, tone = 'muted', label = '') => ({ label, main, tone, small: [], from: null })
   if (lane.isLeftover) return plain('Leftover')
   if (lane.state === 'interrupted') return plain(lane.cutOffAt === null ? 'by a restart' : `at ${clock(lane.cutOffAt)}`, 'bad', 'Cut off')
+  if (lane.state === 'suspended') {
+    // B113: held by the limit. The figure is when it goes on; once that has passed it needs a hand.
+    const held = lane.suspended
+    if (held.isBack) return plain(held.until === null ? 'Not gone on' : `since ${clock(held.until)}`, 'bad', 'Limit is back')
+    return held.until === null ? plain('Suspended') : { label: 'Goes on', main: clock(held.until), tone: 'time', small: [`in ${span(held.until - now)}`], from: null }
+  }
   if (lane.state === 'waiting') return plain('Blocked', 'bad', 'ETA')
   if (lane.state === 'free') return plain('Available')
   if (lane.state !== 'working') return plain('Unknown')
@@ -391,6 +505,8 @@ function drawMore(lane, state) {
       item.append(title)
       const notes = [step.id, about(step.minutes), step.after === null ? null : `after ${step.after}`].filter(Boolean)
       if (notes.length > 0) item.append(el('small', '', `  ${notes.join(' · ')}`))
+      const why = whyText(step.why)
+      if (why !== null) item.append(el('small', `why is-${why.tone}`, why.text))
       list.append(item)
     })
     queue.append(list)
@@ -473,6 +589,7 @@ function drawLane(lane, state) {
   }
   what.append(...betweenTurns(lane))
   if (lane.state === 'interrupted') what.append(el('p', 'alert', 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
+  if (lane.state === 'suspended') what.append(el('p', `held${lane.suspended.isBack ? ' is-back' : ''}`, heldText(lane.suspended)))
   if (lane.state === 'waiting') {
     // B100: the lane opens what it waits for; the line is a button, so the keyboard reaches it too.
     const open = el('button', 'needs-you', 'Needs your decision')
@@ -498,6 +615,13 @@ function drawLane(lane, state) {
     item.dataset.step = '0'
     item.title = `${lane.queue[0].text}\nShow the details`
     item.append(el('b', '', lane.queue[0].title), el('small', '', [lane.queue[0].id, about(lane.queue[0].minutes) ?? 'no time given'].filter(Boolean).join(' · ')))
+    // B113: why it is not started.
+    const why = whyText(lane.queue[0].why)
+    if (why !== null) {
+      const line = el('small', `why is-${why.tone}`, why.text)
+      line.title = why.text
+      item.append(line)
+    }
     first.append(item)
     if (lane.queue.length > 1) first.append(el('div', 'queue-more', `+${lane.queue.length - 1}`))
     queue.append(first)
@@ -609,6 +733,7 @@ function drawToday(state) {
     entry(el('span', 'dot is-working'), 'Working'),
     entry(el('span', 'dot is-waiting'), 'Waiting for you'),
     entry(el('span', 'dot is-free'), 'Free'),
+    entry(el('span', 'dot is-suspended'), 'Suspended'),
     entry(el('span', 'dot'), 'Not seen'),
     entry(el('span', 'swatch is-ahead'), 'Expected'),
     entry(el('span', 'swatch is-queued'), 'Queued'),
@@ -2433,6 +2558,7 @@ function draw(state) {
   board = state
   drawTop(state)
   drawMainGame(state)
+  drawLimits(state)
   drawRestart(state)
   drawLanes(state)
   drawStrips(state)
