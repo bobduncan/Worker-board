@@ -405,7 +405,7 @@ function drawToday(state) {
 function sentLine(answer) {
   const line = el('div', 'sent')
   const what = { approve: 'You approved', reject: 'You rejected', done: 'You marked it done' }[answer.verdict] ?? 'You answered'
-  line.append(el('b', '', what), ` at ${clock(answer.at)} · `, answer.state === 'delivered' ? 'delivered to its chat' : 'waits for its chat to take it')
+  line.append(el('b', '', what), ` at ${clock(answer.at)} · `, { delivered: 'typed into its chat', taken: 'handed to its chat, which runs it when it is idle' }[answer.state] ?? 'waits for its chat to take it')
   if (answer.text !== '') line.append(el('div', '', answer.text))
   return line
 }
@@ -417,7 +417,8 @@ const isStep = need => need.activity !== undefined
  * Closed for the person: ticked in the backlog, or answered here. An answer that did not arrive in time opens it
  * again. Closed ones are hidden unless "Show closed" is ticked.
  */
-const isClosed = need => need.isClosed === true || (need.answer !== null && need.answer.state !== 'expired')
+const isLost = answer => answer.state === 'expired' || answer.state === 'failed'
+const isClosed = need => need.isClosed === true || (need.answer !== null && !isLost(need.answer))
 const showsClosed = () => $('needs-closed').checked
 
 /**
@@ -427,9 +428,9 @@ const showsClosed = () => $('needs-closed').checked
 function answerPart(need, state, isFolded) {
   const parts = []
   const answer = need.answer
-  if (answer !== null && answer.state !== 'expired') return [sentLine(answer)]
+  if (answer !== null && !isLost(answer)) return [sentLine(answer)]
   if (need.isClosed === true) return [el('p', 'muted', 'Closed: ticked in the backlog.')]
-  if (answer !== null) parts.push(el('p', 'problem', `Your answer of ${clock(answer.at)} was not delivered in time. Send it again when the chat can take it.`))
+  if (answer !== null) parts.push(el('p', 'problem', `Your answer of ${clock(answer.at)} did not reach the chat. Send it again when the chat can take it.`))
   // The step changed since it was answered: it asks again, and says what was answered before.
   const earlier = need.earlier ?? null
   if (earlier !== null) {
@@ -494,6 +495,43 @@ function optionParts(need) {
     parts.push(choices)
   }
   return parts
+}
+
+/**
+ * The game as it is on main, always there on the Overview: what the workers merged is in it. The line under the
+ * button says which commit main is on and since when, so it shows whether a result is in it yet.
+ */
+function drawMainGame(state) {
+  const game = state.mainGame ?? null
+  if (game === null) return fill($('main-game'), [])
+  const row = el('div', 'game')
+  row.dataset.gameOf = 'main'
+  const isStarting = starting.has('main')
+  const run = el('button', 'run')
+  run.type = 'button'
+  run.dataset.game = 'start'
+  run.disabled = isStarting
+  run.title = 'Starts the game as it is on main, on a port of its own, and opens it. It stops by itself after you close its tab.'
+  run.append(icon('open'), isStarting ? 'Starting the game…' : 'Run game')
+  row.append(run)
+  if (game.url !== null) {
+    const stop = el('button', 'choice', 'Stop')
+    stop.type = 'button'
+    stop.dataset.game = 'stop'
+    row.append(stop)
+  }
+  const facts = ['main', game.commit?.hash ?? null, game.lastCommitAt === null ? null : `last change ${ago(game.lastCommitAt, state.readAt)}`].filter(Boolean)
+  const note = el('small', 'run-note', facts.join(' · '))
+  if (game.commit?.subject) note.title = game.commit.subject
+  if (game.url !== null) {
+    const link = el('a', '', game.url.replace(/^http:\/\//, '').replace(/\/$/, ''))
+    link.href = game.url
+    link.target = '_blank'
+    link.rel = 'noreferrer noopener'
+    note.append(' · running at ', link)
+  }
+  const problem = problems.get('game:main')
+  fill($('main-game'), [row, note, problem === undefined ? null : el('p', 'problem', problem)])
 }
 
 /**
@@ -640,6 +678,7 @@ const needsData = state => [state.forYou, state.backlogForYou, state.backlogClos
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
   if (board === null) return
+  drawMainGame(board)
   once('needs', needsData(board), () => drawNeeds(board))
   drawDetails(board)
 }
@@ -696,6 +735,10 @@ function fail(id, why) {
 
 takeAnswers($('needs'))
 takeAnswers($('details'))
+$('main-game').addEventListener('click', event => {
+  const button = event.target.closest('[data-game]')
+  if (button !== null && board !== null) game('main', button.dataset.game)
+})
 $('needs-order').addEventListener('change', redrawNeeds)
 
 // "Show closed" is off unless the person ticked it; the choice is kept in this browser.
@@ -1172,6 +1215,7 @@ for (const button of document.querySelectorAll('.tab')) button.addEventListener(
 function draw(state) {
   board = state
   drawTop(state)
+  drawMainGame(state)
   fill($('lanes'), state.chats.map(lane => drawLane(lane, state)))
   drawStrips(state)
   drawToday(state)

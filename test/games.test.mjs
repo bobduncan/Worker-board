@@ -16,11 +16,17 @@ const state = {
   forYou: [need('walk', { branch: 'fix/walk', folder: 'units', path: 'C:\\game-units', url: null, since: null }), need('chat:Units:1', null)],
   backlogForYou: [need('backlog:B14', { branch: 'main', folder: 'game', path: 'C:\\game', url: null, since: null })],
   backlogClosed: [need('backlog:B02', { branch: 'gone', folder: null, path: null, url: null, since: null })],
+  mainGame: { branch: 'main', folder: 'game', path: 'C:\\game', url: null, since: null },
 }
 
 test('checkGame: a request with a branch that is in a working folder may be started and stopped', () => {
   assert.deepEqual(checkGame({ item: 'walk', action: 'start' }, state), { ok: true, action: 'start', branch: 'fix/walk', path: 'C:\\game-units' })
   assert.deepEqual(checkGame({ item: 'backlog:B14', action: 'stop' }, state), { ok: true, action: 'stop', branch: 'main', path: 'C:\\game' })
+})
+
+test('checkGame: the game of main is always there to start, when git knows the folder of main', () => {
+  assert.deepEqual(checkGame({ item: 'main', action: 'start' }, state), { ok: true, action: 'start', branch: 'main', path: 'C:\\game' })
+  assert.equal(checkGame({ item: 'main', action: 'start' }, { ...state, mainGame: null }).status, 409)
 })
 
 test('checkGame: the page names a request, never a folder or a command', () => {
@@ -40,12 +46,17 @@ test('checkGame: a request without a branch, or whose branch is in no folder, st
 })
 
 /** A launcher that starts nothing: it counts the starts and lets the test end a game. */
-function fakeLauncher() {
+function fakeLauncher(hold = false) {
   const started = []
   const launch = ({ path, port, onExit }) => {
     const game = { path, port, onExit, isStopped: false }
     started.push(game)
-    return Promise.resolve({ url: `http://127.0.0.1:${port}/`, stop: () => { game.isStopped = true } })
+    // `hold` keeps a game starting until the test lets it serve.
+    const ready = new Promise(resolve => {
+      game.serve = () => resolve(`http://127.0.0.1:${port}/`)
+      if (!hold) game.serve()
+    })
+    return { ready, stop: () => { game.isStopped = true } }
   }
   return { started, launch }
 }
@@ -85,8 +96,19 @@ test('stopping ends the game of that folder only; stopping all ends every one', 
   assert.deepEqual(games.list(), [])
 })
 
+test('a game that is still starting is stopped too: by its Stop, and when the board ends', async () => {
+  const { started, launch } = fakeLauncher(true)
+  const games = createGames({ launch })
+  games.start({ path: 'C:\\game', port: 5300 }).catch(() => {})
+  games.start({ path: 'C:\\game-units', port: 5301 }).catch(() => {})
+  assert.equal(games.stop('C:\\game'), true)
+  assert.deepEqual([started[0].isStopped, started[1].isStopped], [true, false])
+  games.stopAll()
+  assert.equal(started[1].isStopped, true)
+})
+
 test('a game that does not start leaves nothing behind and says why', async () => {
-  const games = createGames({ launch: () => Promise.reject(new Error('The game did not start.')) })
+  const games = createGames({ launch: () => ({ ready: Promise.reject(new Error('The game did not start.')), stop: () => {} }) })
   await assert.rejects(games.start({ path: 'C:\\game', port: 5300 }), /did not start/)
   assert.deepEqual(games.list(), [])
 })
@@ -95,7 +117,7 @@ test('a game that ended before it was listed is not listed', async () => {
   const games = createGames({
     launch: ({ onExit }) => {
       onExit()
-      return Promise.resolve({ url: 'http://127.0.0.1:5300/', stop: () => {} })
+      return { ready: Promise.resolve('http://127.0.0.1:5300/'), stop: () => {} }
     },
   })
   await assert.rejects(games.start({ path: 'C:\\game', port: 5300 }), /stopped/)
@@ -140,7 +162,7 @@ async function madeUpGame(t) {
   await writeFile(join(vite, 'index.js'), `
 import { createServer as http } from 'node:http'
 export async function createServer(config) {
-  const httpServer = http((req, res) => res.end(JSON.stringify({ root: config.root, cacheDir: config.cacheDir })))
+  const httpServer = http((req, res) => res.end(JSON.stringify({ root: config.root, cacheDir: config.cacheDir, host: config.server.host })))
   return {
     httpServer,
     listen: () => new Promise(done => httpServer.listen(config.server.port, config.server.host, done)),
@@ -153,7 +175,7 @@ export async function createServer(config) {
 
 const exited = child => new Promise(done => child.once('exit', code => done(code)))
 
-test('the runner serves the folder on this machine only and stops by itself when nothing was opened', async t => {
+test('the runner stops by itself when nothing was opened', async t => {
   const folder = await madeUpGame(t)
   const child = spawn(process.execPath, [RUNNER, '--folder', folder, '--port', '0', '--idle', '1', '--grace', '1', '--cache', join(folder, 'cache')], { stdio: ['ignore', 'pipe', 'pipe'] })
   t.after(() => child.kill())
@@ -165,17 +187,21 @@ test('the runner serves the folder on this machine only and stops by itself when
   assert.ok(Date.now() - started < 15_000)
 })
 
-test('the launcher gives the game\'s address, the game stays while a tab is open and ends after it is closed', async t => {
+test('the launcher serves the folder on this machine only; the game stays while a tab is open and ends after it is closed', async t => {
   const folder = await madeUpGame(t)
   let hasExited = false
   const launch = gameLauncher({ runner: RUNNER, cacheDir: join(folder, 'cache'), idleSeconds: 1, graceSeconds: 20 })
-  const game = await launch({ path: folder, port: 0, onExit: () => { hasExited = true } })
+  const game = launch({ path: folder, port: 0, onExit: () => { hasExited = true } })
   t.after(() => game.stop())
-  assert.match(game.url, /^http:\/\/127\.0\.0\.1:\d+\/$/)
+  const url = await game.ready
+  assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/$/)
 
-  const port = Number(new URL(game.url).port)
+  const port = Number(new URL(url).port)
   const tab = connect(port, '127.0.0.1')
   await new Promise(done => tab.once('connect', done))
+  // What the folder's vite was asked to serve, and where it was told to listen.
+  const asked = await (await fetch(url)).json()
+  assert.deepEqual([asked.root, asked.host, asked.cacheDir], [folder, '127.0.0.1', join(folder, 'cache', folder.replace(/\\/g, '/').split('/').pop().toLowerCase())])
   await new Promise(done => setTimeout(done, 2_500))
   assert.equal(hasExited, false, 'it stays while a tab is open')
 
@@ -190,6 +216,6 @@ test('the launcher says so when a folder has no game to start', async t => {
   t.after(() => rm(folder, { recursive: true, force: true }))
   let hasExited = false
   const launch = gameLauncher({ runner: RUNNER, cacheDir: join(folder, 'cache'), idleSeconds: 1, graceSeconds: 1 })
-  await assert.rejects(launch({ path: folder, port: 0, onExit: () => { hasExited = true } }), /did not start/)
+  await assert.rejects(launch({ path: folder, port: 0, onExit: () => { hasExited = true } }).ready, /did not start/)
   assert.equal(hasExited, true)
 })

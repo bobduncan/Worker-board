@@ -18,7 +18,7 @@ import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { bridgeNote, checkTake, messageText } from './src/bridge.mjs'
+import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { loadConfig } from './src/config.mjs'
 import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readFolders } from './src/folders.mjs'
@@ -93,11 +93,12 @@ function readBody(req) {
  *   `picture(path)`    a picture the board may show: `{ type, body }`, or null
  *   `game(body)`       starts or stops a branch's game: `{ ok: true, result }` or `{ ok: false, status, why }`
  *   `take(body)`       hands the mod what waits for its chat, the same shape; only with `bridgeKey`
+ *   `typed(body)`      takes the mod's word on what it typed, the same shape; only with `bridgeKey`
  */
 export function createBoard({
   token, getState, say, picture = async () => null, publicDir = join(HERE, 'public'),
   game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
-  bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
 }) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
@@ -115,7 +116,7 @@ export function createBoard({
 
     const mayUse = sameText(req.headers['x-board-token'] ?? '', token)
 
-    if (pathname === '/api/bridge/take') {
+    if (pathname === '/api/bridge/take' || pathname === '/api/bridge/typed') {
       // The mod is no page: it knows the key from the file the board wrote for it, and it can only take.
       const mayTake = bridgeKey !== null && sameText(req.headers['x-board-key'] ?? '', bridgeKey)
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -132,7 +133,7 @@ export function createBoard({
       } catch {
         return refuse(res, 400, 'Not JSON.')
       }
-      const taken = await take(parsed)
+      const taken = await (pathname === '/api/bridge/take' ? take : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
@@ -282,12 +283,18 @@ async function main(args) {
     },
     bridgeKey,
     take: async body => {
-      const checked = checkTake(body)
+      const checked = checkTake(body, await readState())
       if (!checked.ok) return checked
       const taken = await store.take(checked.chat, clock(), keep)
-      // What was taken shows as delivered at once.
+      // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
       return { ok: true, result: { messages: taken.map(message => ({ id: message.id, text: messageText(message, timeOf) })) } }
+    },
+    typed: async body => {
+      const checked = checkTyped(body, await readState())
+      if (!checked.ok) return checked
+      if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
+      return { ok: true, result: {} }
     },
     game: async body => {
       const checked = checkGame(body, await readState())
@@ -329,11 +336,26 @@ async function main(args) {
       // Not there, or another board's by now.
     }
   })
-  server.listen(config.port, HOST, () => {
+  /** True when the file names another board that still answers: the chats are that board's, and stay so. */
+  async function isTaken() {
+    try {
+      const other = new URL(JSON.parse(await readFile(noteFile, 'utf8')).url)
+      if (other.hostname !== HOST || Number(other.port) === config.port) return false
+      await fetch(other.href, { signal: AbortSignal.timeout(1500) })
+      return true
+    } catch {
+      return false
+    }
+  }
+  server.listen(config.port, HOST, async () => {
     if (bridgeKey !== null && config.project !== '') {
-      mkdir(join(config.project, '.claude'), { recursive: true })
-        .then(() => writeFile(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
-        .catch(() => console.error('The board could not write .claude/board.json: answers will not reach the chats.'))
+      if (await isTaken()) {
+        console.error('Another worker board already delivers to the chats (.claude/board.json): answers given on this one will not arrive.')
+      } else {
+        await mkdir(join(config.project, '.claude'), { recursive: true })
+          .then(() => writeFile(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
+          .catch(() => console.error('The board could not write .claude/board.json: answers will not reach the chats.'))
+      }
     }
     console.log(`Worker board: http://${HOST}:${config.port}/${isDemo ? '  (demo data)' : historyFrom === undefined ? '' : '  (shows another board\'s history, records none)'}`)
   })

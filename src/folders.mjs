@@ -1,5 +1,5 @@
 // Source 5: the game's working folders, from git. Only commands that read: `worktree list`, `status`,
-// `rev-list --count` and `log -1`. Nothing here commits, switches, merges, fetches or pushes.
+// `rev-list --count` and `log -1` (when the last commit was made, its short name and its first line). Nothing here commits, switches, merges, fetches or pushes.
 
 import { execFile } from 'node:child_process'
 
@@ -47,9 +47,10 @@ export async function readFolders(gameRepo, run) {
     const [status, ahead, last] = await Promise.all([
       run(['-C', path, 'status', '--porcelain']),
       branch === null ? null : branch === 'main' ? '0' : run(['-C', gameRepo, 'rev-list', '--count', `main..${branch}`]),
-      run(['-C', path, 'log', '-1', '--format=%ct']),
+      run(['-C', path, 'log', '-1', '--format=%ct %h %s']),
     ])
-    const seconds = numberIn(last)
+    const [when = '', hash = '', ...subject] = (last ?? '').trim().split(' ')
+    const seconds = numberIn(last === null ? null : when)
     return {
       path,
       name: baseName(path).startsWith(prefix) ? baseName(path).slice(prefix.length) : baseName(path),
@@ -57,6 +58,7 @@ export async function readFolders(gameRepo, run) {
       ahead: numberIn(ahead),
       uncommitted: count(status),
       lastCommitAt: seconds === null ? null : seconds * 1000,
+      lastCommit: seconds === null || hash === '' ? null : { hash, subject: subject.join(' ').slice(0, 120) },
     }
   }))
 }

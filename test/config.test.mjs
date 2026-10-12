@@ -55,3 +55,7 @@ test('an answer waits two days for its chat unless set otherwise', () => {
   assert.equal(parseConfig('{}', env).answerKeepHours, 48)
   assert.equal(parseConfig('{"answerKeepHours":2}', env).answerKeepHours, 2)
 })
+
+test('an answer is never longer than the mod will type', () => {
+  assert.equal(parseConfig('{"maxMessageChars":9000}', env).maxMessageChars, 2500)
+})

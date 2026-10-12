@@ -243,6 +243,9 @@ button.run { background: transparent; cursor: pointer; font-family: inherit; fle
 button.run:disabled { opacity: 0.6; cursor: default; }
 .run svg { width: 18px; height: 18px; flex: none; }
 .game { display: flex; gap: 8px; align-items: stretch; }
+.main-game { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.main-game .run { flex: none; padding: 7px 14px; }
+.main-game .problem { max-width: 320px; }
 .run-note a { color: #7fb0ff; }
 .run-note { color: var(--muted); font-size: 13px; }
 .box { border: 1px solid var(--line); border-radius: 7px; padding: 9px 12px; font-size: 13.5px; }

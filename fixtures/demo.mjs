@@ -106,7 +106,7 @@ function gitAnswers(now) {
     const path = folder.name === 'game' ? REPO : `${REPO}-${folder.name.slice('game-'.length)}`
     blocks.push(`worktree ${path}\nHEAD ${'0'.repeat(40)}\nbranch refs/heads/${folder.branch}\n`)
     answers[`-C ${path} status --porcelain`] = ' M src/file.ts\n'.repeat(folder.changed)
-    answers[`-C ${path} log -1 --format=%ct`] = `${Math.round((now - folder.minutesAgo * MIN) / 1000)}\n`
+    answers[`-C ${path} log -1 --format=%ct %h %s`] = `${Math.round((now - folder.minutesAgo * MIN) / 1000)} 4f2a91c Merge player movement\n`
     answers[`-C ${REPO} rev-list --count main..${folder.branch}`] = `${folder.ahead}\n`
   }
   answers[`-C ${REPO} worktree list --porcelain`] = blocks.join('\n')

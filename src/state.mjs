@@ -90,7 +90,8 @@ function etaOf(task, state, now) {
 }
 
 function card(chat, raw, { now, config, last, lines, main, prefix }) {
-  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover }
+  // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
+  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null }
   const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, eta: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
@@ -151,7 +152,13 @@ function needsOf(asks, lanes, outbox, gameOf) {
   const live = lanes.filter(lane => !lane.isLeftover)
   const names = new Set(live.map(lane => lane.name))
   // Work to verify is looked at in the game: on the branch the ask names, else on main.
-  const items = asks.map(ask => ({ ...ask, game: gameOf(ask.run?.branch ?? (ask.kind === 'verify' ? 'main' : null)), canAnswer: names.has(ask.from) }))
+  // An answer is about the ask as it was filed: one filed anew, also under the same name, asks again.
+  const items = asks.map(ask => ({
+    ...ask,
+    version: hashOf(`${ask.title}\n${ask.text}\n${ask.at}`),
+    game: gameOf(ask.run?.branch ?? (ask.kind === 'verify' ? 'main' : null)),
+    canAnswer: names.has(ask.from),
+  }))
   const asked = new Set(asks.map(ask => ask.from))
   const blank = { options: [], pictures: [], run: null, game: null, checks: [], tried: [] }
   for (const lane of live) {
@@ -165,6 +172,7 @@ function needsOf(asks, lanes, outbox, gameOf) {
         text: lane.isAsking ? 'It used the app\'s question form, which can only be answered there.' : lane.needsYou ?? 'It waits for you.',
         at: lane.waitingSince,
         ...blank,
+        version: null,
         canAnswer: !lane.isAsking,
       })
     }
@@ -177,12 +185,13 @@ function needsOf(asks, lanes, outbox, gameOf) {
         text: 'Its turn is running, but it has written nothing. It may be a long build, or the app was closed in the middle of the turn. Look at its chat.',
         at: lane.lastActivityAt,
         ...blank,
+        version: null,
         canAnswer: false,
       })
     }
   }
   return items
-    .map(item => ({ ...item, version: null, ...answerOf(outbox, item.id) }))
+    .map(item => ({ ...item, ...answerOf(outbox, item.id, item.version) }))
     .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
 }
 
@@ -284,10 +293,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], now, confi
 
   let advisor = null
   if (advisorChat !== undefined) {
-    const { state, doingNow: doing } = card(advisorChat, raw, context)
+    const { state, doingNow: doing, session } = card(advisorChat, raw, context)
     const tail = raw.tails?.[advisorChat.cliSessionId] ?? null
     advisor = {
       name: advisorChat.name,
+      session,
       state,
       doingNow: doing,
       messages: tail === null || typeof tail.text !== 'string'
@@ -357,6 +367,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], now, confi
     backlogForYou: forYou(backlog).map(step => stepCard(step, false)),
     // The ticked ones: closed. The page shows them only when the person asks for them.
     backlogClosed: closedForYou(backlog).map(step => stepCard(step, true)),
+    // The game as it is on main, which the person can always open; with when main last changed.
+    mainGame: (() => {
+      const game = gameOf('main')
+      const folder = game === null || game.path === null ? null : folders.find(one => one.branch === 'main')
+      return folder === null ? null : { ...game, lastCommitAt: folder.lastCommitAt ?? null, commit: folder.lastCommit ?? null }
+    })(),
     // Folders no worker is named for, and whether git answered at all.
     otherFolders: (folders ?? []).filter(folder => folder.branch !== 'main' && owner(folder) === null),
     hasFolders: folders !== null,

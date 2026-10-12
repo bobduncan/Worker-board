@@ -57,6 +57,8 @@ export function parseConfig(text, env) {
   for (const key of NUMBERS) {
     if (Number.isFinite(raw[key]) && raw[key] > 0) config[key] = raw[key]
   }
+  // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
+  config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()
   // A shown folder is one plain folder name in the project: never a path that could lead out of it.
   if (Array.isArray(raw.pictureRoots)) config.pictureRoots = raw.pictureRoots.filter(root => typeof root === 'string' && /^[\w-][\w.-]*$/.test(root))

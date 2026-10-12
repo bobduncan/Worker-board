@@ -30,6 +30,10 @@ async function board(t) {
       taken.push(body)
       return { ok: true, result: { messages: [{ id: 'm1', text: 'Hello\n(typed on the worker board, 16:02)' }] } }
     },
+    typed: async body => {
+      taken.push({ typed: body })
+      return { ok: true, result: {} }
+    },
     // The real check is tested in games.test.mjs.
     game: async body => {
       asked.push(body)
@@ -239,6 +243,12 @@ test('the mod takes what waits for its chat with the bridge\'s key; the page\'s 
   assert.deepEqual(JSON.parse(answer.text), { messages: [{ id: 'm1', text: 'Hello\n(typed on the worker board, 16:02)' }] })
   assert.deepEqual(taken, [{ chat: 'Units' }])
   assert.equal(answer.headers['access-control-allow-origin'], undefined)
+
+  // What was typed is reported the same way, and by the same key only.
+  const report = headers => ask({ method: 'POST', path: '/api/bridge/typed', headers, body: JSON.stringify({ chat: 'Units', typed: ['m1'] }) })
+  assert.equal((await report(good)).status, 403)
+  assert.equal((await report({ ...json, 'X-Board-Key': KEY })).status, 200)
+  assert.deepEqual(taken.at(-1), { typed: { chat: 'Units', typed: ['m1'] } })
 
   // The key is for taking only.
   assert.equal((await say({ 'X-Board-Key': KEY, 'Content-Type': 'application/json' })).status, 403)

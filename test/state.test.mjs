@@ -571,3 +571,23 @@ test('an answer stands for the step as it was: a step that changed since asks ag
   assert.equal(reworked.answer, null)
   assert.deepEqual([reworked.earlier.verdict, reworked.earlier.text], ['reject', 'The feet slide'])
 })
+
+test('a request a chat filed asks again when it was filed anew, also under the same name', () => {
+  const ask = at => ({ id: 'walk', from: 'Units', kind: 'verify', title: 'Check the walk', at })
+  const first = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(running) }, asks: [ask(NOW - 30 * MIN)] }).forYou[0]
+  assert.match(first.version, /^[0-9a-f]+$/)
+  const answer = { id: 'm1', at: NOW - 20 * MIN, to: 'Units', ask: 'walk', version: first.version, verdict: 'reject', text: 'Feet slide', state: 'delivered' }
+  const same = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(running) }, asks: [ask(NOW - 30 * MIN)], outbox: [answer] }).forYou[0]
+  assert.equal(same.answer.verdict, 'reject')
+  const again = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(running) }, asks: [ask(NOW - 5 * MIN)], outbox: [answer] }).forYou[0]
+  assert.deepEqual([again.answer, again.earlier.text], [null, 'Feet slide'])
+})
+
+test('each chat carries the id of its session, for the bridge to know which chat asks, and main\'s game is always offered', () => {
+  const folder = (name, branch) => ({ path: `C:/game-${name}`, name, branch, ahead: 0, uncommitted: 0, lastCommitAt: NOW - 90 * MIN, lastCommit: { hash: 'b0c4559', subject: 'Merge the camera' } })
+  const state = build({ apps: [app('Main'), app('Units'), app('Advisor')], folders: [folder('main', 'main'), folder('units', 'fix/walk')] })
+  assert.deepEqual(state.chats.map(chat => [chat.name, chat.session]), [['Main', 'cli-Main'], ['Units', 'cli-Units']])
+  assert.equal(state.advisor.session, 'cli-Advisor')
+  assert.deepEqual(state.mainGame, { branch: 'main', folder: 'main', path: 'C:/game-main', url: null, since: null, lastCommitAt: NOW - 90 * MIN, commit: { hash: 'b0c4559', subject: 'Merge the camera' } })
+  assert.equal(build({ apps: [app('Main')] }).mainGame, null)
+})
