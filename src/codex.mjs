@@ -44,7 +44,7 @@ const lastLine = text => text.split('\n').map(line => line.trim()).filter(line =
  * Makes one picture. `command` starts Codex (its path, and for the tests a stand-in), `prompt` is what it is told,
  * `images` the pictures attached in order, `to` where the picture is copied (a prompt file goes beside it), and
  * `seconds` how long it may take. Answers `{ ok: true, seconds }` or `{ ok: false, why, seconds }`; it never
- * throws. `onChild` is handed the way to stop it.
+ * throws. `onChild` is handed the way to stop it, and its folder.
  */
 export async function makePicture({ command, prompt, images, to, seconds, now = Date.now, onChild = () => {} }) {
   const began = now()
@@ -52,6 +52,7 @@ export async function makePicture({ command, prompt, images, to, seconds, now = 
   let dir = null
   try {
     dir = await mkdtemp(join(tmpdir(), 'worker-board-design-'))
+    const own = dir
     const reply = join(dir, 'reply.txt')
     const args = [...command.slice(1), 'exec', '-C', dir, '-s', 'workspace-write', '--skip-git-repo-check', '--color', 'never', ...images.flatMap(image => ['-i', image.replace(/\\/g, '/')]), '-o', reply, '-']
     const ended = await new Promise(resolve => {
@@ -62,7 +63,8 @@ export async function makePicture({ command, prompt, images, to, seconds, now = 
         isLate = true
         child.kill()
       }, seconds * 1000)
-      onChild(() => child.kill())
+      // How to stop it, and its folder: the board ends both when it is closed in the middle of a picture.
+      onChild(() => child.kill(), own)
       child.stderr.on('data', chunk => {
         said = (said + chunk).slice(-2000)
       })

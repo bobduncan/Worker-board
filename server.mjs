@@ -21,7 +21,7 @@
 
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { loadConfig } from './src/config.mjs'
-import { REFERENCES_FOLDER, checkDesign, designState, parseDesignSettings, promptFor } from './src/design.mjs'
+import { IDEAS_FOLDER, REFERENCES_FOLDER, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver } from './src/ideas.mjs'
 import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
 import { readHead } from './src/files.mjs'
@@ -363,9 +363,18 @@ async function main(args) {
     const took = ideas.all().flatMap(idea => idea.versions).filter(version => version.state === 'done' && Number.isFinite(version.seconds)).map(version => version.seconds).sort((a, b) => a - b)
     return took.length === 0 ? 60 : took[Math.floor(took.length / 2)]
   }
+  /** Everything that was sent, with what waited too long marked so. */
+  const sentNow = () => {
+    const now = clock()
+    return store.outbox().map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+  }
+  /** The Design tab's calls, one after the other. */
+  const designTurn = inTurn()
   /** What the checks of the Design tab's calls go by. */
   const designNow = state => ({
-    ideas: ideas.all(),
+    // An idea that was handed to the main chat carries how that word fared: one that did not arrive can be sent again.
+    ideas: ideas.all().map(idea => (idea.sent === null ? idea : { ...idea, sent: { ...idea.sent, state: sentNow().find(message => message.id === idea.sent.message)?.state ?? 'delivered' } })),
+    maxChars: config.maxMessageChars,
     kinds: settings.kinds,
     canMake,
     why: whyNoPicture,
@@ -380,7 +389,7 @@ async function main(args) {
   /** Has Codex make one version of an idea; the answer to the page does not wait for it. */
   function startPicture(idea, version) {
     const kind = settings.kinds.find(one => one.id === idea.kind)
-    making = { idea: idea.id, version: version.n, since: clock(), stop: () => {} }
+    making = { idea: idea.id, version: version.n, since: clock(), stop: () => {}, dir: null }
     const mine = making
     const work = async () => {
       const missing = await missingReferences()
@@ -403,7 +412,7 @@ async function main(args) {
         images: [...(before === null ? [] : [before]), ...looks].map(path => inProject(config.project, path)),
         to: inProject(config.project, picture),
         seconds: settings.seconds,
-        onChild: stop => { mine.stop = stop },
+        onChild: (stop, dir) => Object.assign(mine, { stop, dir }),
       })
       await ideas.finish(idea.id, version.n, made.ok ? { picture, seconds: made.seconds } : { why: made.why, seconds: made.seconds })
     }
@@ -431,28 +440,28 @@ async function main(args) {
     token: randomBytes(32).toString('hex'),
     getState: async () => {
       const { project, ...state } = await readState()
-      const now = clock()
       const design = designState({
         ideas: ideas.all(),
         settings,
         canMake,
         why: whyNoPicture,
         busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
-        // Everything that was sent, with what waited too long marked so.
-        outbox: store.outbox().map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message)),
+        outbox: sentNow(),
         backlog: state.backlog,
         missing: isDemo ? [] : await missingReferences(),
         typical: typicalSeconds(),
       })
       return { ...state, design }
     },
-    design: async body => {
+    design: body => designTurn(async () => {
       const state = await readState()
       const checked = checkDesign(body, designNow(state))
       if (!checked.ok) return checked
       const now = clock()
       if (checked.action === 'make') {
-        const idea = await ideas.add({ id: `i${randomBytes(6).toString('hex')}`, kind: checked.kind, text: checked.text, references: checked.references, now })
+        // The folders that are there already, also a copy's: a new idea gets one of its own.
+        const taken = await readdir(inProject(config.project, IDEAS_FOLDER)).catch(() => [])
+        const idea = await ideas.add({ id: `i${randomBytes(6).toString('hex')}`, kind: checked.kind, text: checked.text, references: checked.references, now, taken })
         startPicture(idea, idea.versions[0])
         return { ok: true, result: { idea: idea.id } }
       }
@@ -471,7 +480,7 @@ async function main(args) {
         readState.reset()
       }
       return { ok: true, result: {} }
-    },
+    }),
     reference: async bytes => {
       if (!canMake) return { ok: false, status: 409, why: whyNoPicture }
       const kind = pictureKind(bytes)
@@ -545,8 +554,9 @@ async function main(args) {
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(0))
   process.on('exit', () => {
     games.stopAll()
-    // A picture that is being made ends with the board.
+    // A picture that is being made ends with the board, and its folder under the temporary folder goes with it.
     making?.stop()
+    if (typeof making?.dir === 'string' && making.dir.includes('worker-board-design-')) rmSync(making.dir, { recursive: true, force: true })
   })
 
   server.on('error', error => {

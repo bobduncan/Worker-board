@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { LIMITS, checkDesign, designState, parseDesignSettings, promptFor, shortName, stepWord } from '../src/design.mjs'
+import { LIMITS, checkDesign, designState, inTurn, parseDesignSettings, promptFor, shortName, stepWord } from '../src/design.mjs'
 import { ideasFile, ideasOver, parseIdeas } from '../src/ideas.mjs'
 import { pictureKind } from '../server.mjs'
 
@@ -239,4 +239,77 @@ test('ideasOver keeps ideas without a file, as the demo does', async () => {
   const ideas = ideasOver([idea()])
   await ideas.agree('i1', 1)
   assert.equal(ideas.all()[0].agreed, 1)
+})
+
+test('a word to the main chat that did not arrive leaves the idea free: it can be changed, agreed to and sent again', () => {
+  const lost = state => design([idea({ agreed: 1, sent: { at: NOW, where: 'queue', worker: null, title: 'Shop', message: 'm1', state } })])
+  const send = { action: 'send', idea: 'i1', where: 'backlog', title: 'Shop' }
+  for (const state of ['expired', 'failed']) {
+    assert.equal(checkDesign(send, lost(state)).ok, true, state)
+    assert.equal(checkDesign({ action: 'again', idea: 'i1', change: 'x' }, lost(state)).ok, true, state)
+    assert.equal(checkDesign({ action: 'agree', idea: 'i1', version: 1 }, lost(state)).ok, true, state)
+  }
+  for (const state of ['waiting', 'taken', 'delivered']) {
+    assert.equal(checkDesign(send, lost(state)).status, 409, state)
+    assert.equal(checkDesign({ action: 'again', idea: 'i1', change: 'x' }, lost(state)).status, 409, state)
+  }
+})
+
+test('the step asked of the main chat is never longer than a chat is typed: the fields together have a limit', () => {
+  const agreed = design([idea({ agreed: 1 })], { maxChars: 2500 })
+  const long = { action: 'send', idea: 'i1', where: 'backlog', title: 'x'.repeat(160), description: 'y'.repeat(1200), requirements: Array.from({ length: 12 }, () => 'z'.repeat(200)) }
+  const refused = checkDesign(long, agreed)
+  assert.equal(refused.status, 413)
+  assert.match(refused.why, /2500/)
+  assert.equal(checkDesign({ ...long, requirements: ['short'] }, agreed).ok, true)
+})
+
+test('a worker\'s name is one plain line in the step', () => {
+  assert.ok(stepWord({ where: 'queue', title: 'x', kind: 'level', description: '', requirements: [], folder: 'f', picture: null, worker: 'Levels /\n Environment', minutes: null }).endsWith('\nWorker: Levels / Environment'))
+})
+
+test('the Design tab\'s calls are worked off one after the other, so two clicks never start two pictures', async () => {
+  const turn = inTurn()
+  const order = []
+  const work = (name, ms) => turn(async () => {
+    order.push(`${name} starts`)
+    await new Promise(done => setTimeout(done, ms))
+    order.push(`${name} ends`)
+    return name
+  })
+  const results = await Promise.all([work('first', 30), work('second', 1), turn(async () => { throw new Error('third fails') }).catch(error => error.message), work('fourth', 1)])
+  assert.deepEqual(order, ['first starts', 'first ends', 'second starts', 'second ends', 'fourth starts', 'fourth ends'])
+  assert.deepEqual(results, ['first', 'second', 'third fails', 'fourth'])
+})
+
+test('an ideas file that was changed by hand cannot name a folder or a picture outside the ideas folder', () => {
+  const text = JSON.stringify({ ideas: [
+    { id: 'ok', name: 'shop', kind: 'screen', text: 'A shop', createdAt: 1, folder: 'art-inbox/ideas/shop', references: ['art-inbox/ideas/_references/0123456789abcdef.png', '../../secret.png'], versions: [
+      { n: 1, at: 1, state: 'done', picture: 'art-inbox/ideas/shop/v1.png' },
+      { n: 2, at: 2, state: 'done', picture: '../../windows/system.png' },
+      { n: 'x', at: 3, state: 'done', picture: 'art-inbox/ideas/shop/v3.png' },
+    ] },
+    { id: 'out', name: 'out', kind: 'screen', text: 'x', createdAt: 1, folder: '../../elsewhere', versions: [] },
+    { id: 'none', name: 'none', kind: 'screen', text: 'x', createdAt: 1, versions: [] },
+  ] })
+  const ideas = parseIdeas(text)
+  assert.deepEqual(ideas.map(one => one.id), ['ok'])
+  assert.deepEqual(ideas[0].references, ['art-inbox/ideas/_references/0123456789abcdef.png'])
+  // A version whose picture is not its own file in the idea's folder counts as failed; one without a number is gone.
+  assert.deepEqual(ideas[0].versions.map(one => [one.n, one.state, one.picture]), [[1, 'done', 'art-inbox/ideas/shop/v1.png'], [2, 'failed', null]])
+  // And the page's state is built from it without a throw.
+  assert.equal(designState({ ideas, settings: { kinds, seconds: 240, codex: '' }, canMake: true, why: null, busy: null }).ideas.length, 1)
+})
+
+test('an idea that cannot be kept is not left "being made", and its folder is one no other board uses', async () => {
+  let fails = true
+  const ideas = ideasOver([], async () => {
+    if (fails) throw new Error('disk full')
+  })
+  await assert.rejects(ideas.add({ id: 'i1', kind: 'screen', text: 'A shop screen', references: [], now: NOW }))
+  assert.deepEqual(ideas.all().map(one => one.versions[0].state), ['failed'])
+  fails = false
+  // Folders that are there already, from this board or a copy of it, are not written into.
+  const second = await ideas.add({ id: 'i2', kind: 'screen', text: 'A shop screen', references: [], now: NOW, taken: ['a-shop-screen-2', 'unrelated'] })
+  assert.equal(second.name, 'a-shop-screen-3')
 })

@@ -4,7 +4,10 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { IDEAS_FOLDER, shortName } from './design.mjs'
+import { IDEAS_FOLDER, REFERENCES_FOLDER, shortName } from './design.mjs'
+
+const REFERENCE = new RegExp(`^${REFERENCES_FOLDER}/[a-f0-9]{16}\\.(png|jpg|webp)$`)
+const FOLDER = new RegExp(`^${IDEAS_FOLDER}/[a-z0-9][a-z0-9-]{0,40}$`)
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -17,15 +20,23 @@ export function parseIdeas(text, why = 'The board was started anew while this pi
     return []
   }
   if (!isRecord(raw) || !Array.isArray(raw.ideas)) return []
+  // The file is the board's own, but what it names reaches paths: an idea's folder is one folder under the ideas
+  // folder, a version's picture is its own file in it, and a reference is one the upload named.
   return raw.ideas
-    .filter(idea => isRecord(idea) && typeof idea.id === 'string' && typeof idea.name === 'string' && typeof idea.text === 'string' && Array.isArray(idea.versions))
+    .filter(idea => isRecord(idea) && typeof idea.id === 'string' && typeof idea.name === 'string' && typeof idea.text === 'string'
+      && typeof idea.kind === 'string' && typeof idea.folder === 'string' && FOLDER.test(idea.folder) && Array.isArray(idea.versions))
     .map(idea => ({
       ...idea,
-      references: Array.isArray(idea.references) ? idea.references : [],
+      createdAt: Number.isFinite(idea.createdAt) ? idea.createdAt : 0,
+      references: (Array.isArray(idea.references) ? idea.references : []).filter(path => typeof path === 'string' && REFERENCE.test(path)),
       agreed: Number.isInteger(idea.agreed) ? idea.agreed : null,
       sent: isRecord(idea.sent) ? idea.sent : null,
       droppedAt: Number.isFinite(idea.droppedAt) ? idea.droppedAt : null,
-      versions: idea.versions.filter(isRecord).map(version => (version.state === 'making' ? { ...version, state: 'failed', why } : version)),
+      versions: idea.versions.filter(version => isRecord(version) && Number.isInteger(version.n) && version.n >= 1).map(version => {
+        if (version.state === 'making') return { ...version, state: 'failed', picture: null, why }
+        const isOwn = version.picture === `${idea.folder}/v${version.n}.png`
+        return version.state === 'done' && isOwn ? version : { ...version, state: 'failed', picture: null, why: version.why ?? 'Its picture is not there.' }
+      }),
     }))
 }
 
@@ -41,19 +52,28 @@ export function ideasOver(ideas, write = async () => {}) {
     return saving
   }
   const find = id => ideas.find(idea => idea.id === id)
+  /** Saves a version that is about to be made. One that cannot be kept is not left "being made" for ever. */
+  const keep = async version => {
+    try {
+      await save()
+    } catch (error) {
+      Object.assign(version, { state: 'failed', why: 'The idea could not be kept on this PC.' })
+      throw error
+    }
+  }
 
   return {
     all: () => ideas,
-    /** A new idea with its first version being made. */
-    async add({ id, kind, text, references, now }) {
-      const name = shortName(text, ideas.map(idea => idea.name))
+    /** A new idea with its first version being made. `taken` are folders that are there already, whoever made them. */
+    async add({ id, kind, text, references, now, taken = [] }) {
+      const name = shortName(text, [...ideas.map(idea => idea.name), ...taken])
       const idea = {
         id, name, kind, text, createdAt: now, folder: `${IDEAS_FOLDER}/${name}`, references,
         versions: [{ n: 1, at: now, change: null, from: null, state: 'making', picture: null, why: null, seconds: null }],
         agreed: null, sent: null, droppedAt: null,
       }
       ideas.push(idea)
-      await save()
+      await keep(idea.versions[0])
       return idea
     },
     /** One more version of an idea, being made: a change to the version `from`, or the idea tried again. */
@@ -63,7 +83,7 @@ export function ideasOver(ideas, write = async () => {}) {
       idea.versions.push(version)
       // A new version is looked at anew.
       idea.agreed = null
-      await save()
+      await keep(version)
       return version
     },
     /** How the making of a version ended: with a picture, or with the reason it failed. */

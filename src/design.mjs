@@ -106,13 +106,28 @@ export function stepWord({ where, title, kind, description, requirements, folder
     requirements.length === 0 ? null : 'Requirements:',
     ...requirements.map(line => `- ${line}`),
     `Pictures: ${folder}${file}`,
-    `Worker: ${worker ?? 'Game - Main decides'}`,
+    `Worker: ${worker === null ? 'Game - Main decides' : oneLine(worker, 80)}`,
     minutes === null ? null : `Time: about ${about(minutes)}`,
   ].filter(line => line !== null).join('\n')
 }
 
 const lastDone = idea => idea.versions.findLast(version => version.state === 'done') ?? null
 const isMaking = idea => idea.versions.at(-1)?.state === 'making'
+/** Handed to the main chat, and the word is on its way or has arrived. One that did not arrive leaves the idea free. */
+const isHanded = idea => idea.sent !== null && idea.sent.state !== 'expired' && idea.sent.state !== 'failed'
+
+/**
+ * Works calls off one after the other: the next one starts when the one before has ended, well or not. So what a
+ * call checks ("no picture is being made") still holds when it acts on it.
+ */
+export function inTurn() {
+  let last = Promise.resolve()
+  return work => {
+    const run = last.then(work, work)
+    last = run.catch(() => {})
+    return run
+  }
+}
 
 /**
  * Checks what the page sends for the Design tab. `design` holds the ideas, the kinds, whether a picture can be
@@ -141,7 +156,7 @@ export function checkDesign(body, design) {
   if (idea === null) return refuse(409, 'That idea is not there any more.')
 
   if (body.action === 'again') {
-    if (idea.sent !== null) return refuse(409, 'This idea was handed to the main chat: start a new idea to change it.')
+    if (isHanded(idea)) return refuse(409, 'This idea was handed to the main chat: start a new idea to change it.')
     const done = idea.versions.filter(version => version.state === 'done')
     const from = body.from === undefined || body.from === null ? done.at(-1) ?? null : done.find(version => version.n === body.from) ?? undefined
     if (from === undefined) return refuse(400, 'That version has no picture to change.')
@@ -152,7 +167,7 @@ export function checkDesign(body, design) {
     return mayMake() ?? { ok: true, action: 'again', idea: idea.id, from: from?.n ?? null, change: from === null ? null : change }
   }
   if (body.action === 'agree') {
-    if (idea.sent !== null) return refuse(409, 'This idea was handed to the main chat already.')
+    if (isHanded(idea)) return refuse(409, 'This idea was handed to the main chat already.')
     if (body.version === null) return { ok: true, action: 'agree', idea: idea.id, version: null }
     const version = idea.versions.find(one => one.n === body.version && one.state === 'done')
     return version === undefined ? refuse(400, 'That version has no picture.') : { ok: true, action: 'agree', idea: idea.id, version: version.n }
@@ -163,7 +178,7 @@ export function checkDesign(body, design) {
   if (body.action === 'send') {
     if (design.canSend !== true || (design.main ?? null) === null) return refuse(409, design.whyNot ?? 'This board cannot ask the main chat.')
     if (idea.agreed === null) return refuse(409, 'Agree to a picture first.')
-    if (idea.sent !== null && idea.sent.state !== 'expired' && idea.sent.state !== 'failed') return refuse(409, 'This idea was handed to the main chat already.')
+    if (isHanded(idea)) return refuse(409, 'This idea was handed to the main chat already.')
     if (body.where !== 'backlog' && body.where !== 'queue') return refuse(400, 'On the backlog, or in a queue.')
     const title = oneLine(body.title, LIMITS.title + 1)
     if (title === '') return refuse(400, 'Give it a title.')
@@ -181,7 +196,11 @@ export function checkDesign(body, design) {
     const picture = idea.versions.find(version => version.n === idea.agreed)?.picture ?? null
     const send = { where: body.where, title, description, requirements, worker, minutes }
     const kind = (kinds.find(one => one.id === idea.kind)?.name ?? idea.kind).toLowerCase()
-    return { ok: true, action: 'send', idea: idea.id, ...send, text: stepWord({ ...send, kind, folder: idea.folder, picture }) }
+    const text = stepWord({ ...send, kind, folder: idea.folder, picture })
+    // It is typed into a chat, and a chat is typed at most so much at once: nothing is cut off silently.
+    const most = design.maxChars ?? 2500
+    if (text.length > most) return refuse(413, `Together that is ${text.length} characters; a step is asked in at most ${most}. Shorten the description or the requirements.`)
+    return { ok: true, action: 'send', idea: idea.id, ...send, text }
   }
   return refuse(400, 'No such action.')
 }
