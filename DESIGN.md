@@ -60,6 +60,9 @@ it is for (`src/say.mjs`) and keeps it in `data/outbox.jsonl`. Delivery is the b
 below, with one change the person asked for and has still to confirm in so many words: every chat of the project
 picks up what is addressed to it, where the first design let only the main chat receive.
 
+**From advice to work** (the person, 2026-10-12): what the person agrees with the advisor, the advisor passes on
+to the main chat, which hands out as before. The advisor still hands out nothing itself.
+
 **Pictures and links.** Pictures come only from the folders named in `config.json` (`pictureRoots`, the project's
 `art-inbox`), and the path is checked on the real file. A link to a running branch is made only to a page on this
 machine (`localhost` or `127.0.0.1`).
