@@ -1802,6 +1802,559 @@ $('coordinate-list').addEventListener('click', event => {
   openDetails(step.needId !== null && everyNeed(board).some(need => need.id === step.needId) ? { need: step.needId } : { step: step.key })
 })
 
+// Design (B99): from an idea to a picture by Codex to a step on the backlog. The page reads `state.design` and
+// writes through POST /api/design; the board's side (the job that runs Codex, what is kept, the request to the
+// main chat) is B101. The page writes nothing into the backlog itself.
+
+// design:start
+/** What the server holds to, for a board that does not name its own in `design.limits`. */
+const DESIGN_LIMITS = { text: 1500, change: 600, title: 160, description: 1200, requirements: 12, requirement: 200, referenceBytes: 8 * 1024 * 1024 }
+const limitsOf = design => ({ ...DESIGN_LIMITS, ...(design?.limits ?? {}) })
+
+/** "shop-screen", the folder's short name, as a name to read: "Shop screen". */
+const ideaName = idea => {
+  const words = String(idea.name ?? '').replace(/[-_]+/g, ' ').trim()
+  return words === '' ? 'An idea' : words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** The newest version of an idea that has a picture, or null. */
+const newestDone = idea => idea.versions.findLast(version => version.state === 'done' && version.picture !== null) ?? null
+
+/** What "Ideas so far" says of an idea, and in which tone. `main` is the main chat's name. */
+function ideaBadge(idea, main = null) {
+  const step = idea.sent?.step ?? null
+  const worker = step?.worker ?? idea.sent?.worker ?? null
+  if (step?.isDone === true) return { text: `Done · ${step.id}`, tone: 'good' }
+  switch (idea.status) {
+    case 'making': return { text: 'Picture being made', tone: 'busy' }
+    case 'failed': return { text: 'Picture failed', tone: 'bad' }
+    case 'look': return { text: 'Waiting for your look', tone: 'you' }
+    case 'agreed': return { text: 'Agreed', tone: 'good' }
+    case 'asked': return { text: `Asked of ${main ?? 'the main chat'}`, tone: 'plain' }
+    case 'backlog': return { text: `On the backlog${step === null ? '' : ` · ${step.id}`}`, tone: 'plain' }
+    case 'queued': return { text: `Queued${worker === null ? '' : ` for ${worker}`}${step === null ? '' : ` · ${step.id}`}`, tone: 'plain' }
+    default: return { text: 'Unknown', tone: 'plain' }
+  }
+}
+
+/** A length of time as a clock counts it: "0:32", "1:05". */
+const counted = ms => `${Math.floor(Math.max(0, ms) / 60_000)}:${String(Math.floor((Math.max(0, ms) % 60_000) / 1000)).padStart(2, '0')}`
+
+/**
+ * What the three parts show for what the person chose: `chosen.idea` (null for a new idea) and `chosen.version`
+ * (the version they look at; without one: the agreed one, else the newest with a picture, else the newest).
+ * `form` says what part 3 is: `locked` until a picture is agreed, `open` to fill in, `sent` once the step was
+ * asked for (an asking that did not arrive opens it again).
+ */
+function designView(design, chosen, now) {
+  const busy = design?.busy ?? null
+  const making = busy === null ? null : { idea: busy.idea, version: busy.version, line: `${counted(now - busy.since)} of about ${counted((design.seconds ?? 60) * 1000)}` }
+  const canMake = design?.canMake === true && busy === null
+  const idea = (design?.ideas ?? []).find(one => one.id === chosen.idea) ?? null
+  if (idea === null) return { idea: null, version: null, making, canMake, canAgain: false, canAgree: false, canTakeBack: false, canRetry: false, form: 'locked' }
+  const version = idea.versions.find(one => one.n === chosen.version)
+    ?? idea.versions.find(one => one.n === idea.agreed) ?? newestDone(idea) ?? idea.versions.at(-1) ?? null
+  const isLost = idea.sent !== null && (idea.sent.state === 'expired' || idea.sent.state === 'failed')
+  const isSent = idea.sent !== null && !isLost
+  const isDone = version !== null && version.state === 'done'
+  return {
+    idea,
+    version,
+    making,
+    canMake,
+    // Another version, while nothing is being made and the step was not asked for.
+    canAgain: canMake && !isSent && isDone,
+    // A picture that failed is tried again as it was asked.
+    canRetry: canMake && !isSent && version !== null && version.state === 'failed',
+    canAgree: !isSent && isDone && idea.agreed !== version.n,
+    canTakeBack: !isSent && isDone && idea.agreed === version.n,
+    form: isSent ? 'sent' : idea.agreed !== null ? 'open' : 'locked',
+    isLost,
+  }
+}
+
+/** "about 1 h", "45 min", "1 h 30", "90" as minutes: null for nothing typed, NaN for what is no time. */
+function timeTyped(text) {
+  const plain = String(text ?? '').trim().toLowerCase().replace(/^(about|around|~)\s*/, '')
+  if (plain === '') return null
+  const found = plain.match(/^(?:(\d+(?:[.,]\d+)?)\s*h(?:ours?|rs?)?)?\s*(?:(\d+)\s*(?:m|mins?|minutes?)?)?$/)
+  if (found === null || (found[1] === undefined && found[2] === undefined)) return NaN
+  const minutes = Math.round(Number((found[1] ?? '0').replace(',', '.')) * 60 + Number(found[2] ?? 0))
+  return minutes > 0 && minutes <= 24 * 60 ? minutes : NaN
+}
+
+/** What "Make a picture" sends (`body`), or why it cannot be sent (`problem`). */
+function makeBody(draft, design) {
+  const limits = limitsOf(design)
+  const text = draft.text.trim()
+  if (text === '') return { problem: 'Type the idea first.' }
+  if (text.length > limits.text) return { problem: `The idea is too long: ${limits.text} characters at most, it has ${text.length}.` }
+  if (!(design?.kinds ?? []).some(kind => kind.id === draft.kind)) return { problem: 'Choose what it is about.' }
+  return { body: { action: 'make', kind: draft.kind, text, references: [...draft.references] } }
+}
+
+/** What "Make it again" sends for the version the person looks at, or why not. */
+function againBody(idea, version, change, design) {
+  const limits = limitsOf(design)
+  const words = change.trim()
+  if (words === '') return { problem: 'Say what should change.' }
+  if (words.length > limits.change) return { problem: `That is too long: ${limits.change} characters at most.` }
+  return { body: { action: 'again', idea: idea.id, change: words, from: version.n } }
+}
+
+/** What "Put on the backlog" (`where: 'backlog'`) and "Put in a queue" (`'queue'`) send, or why not. */
+function sendBody(idea, form, where, design) {
+  const limits = limitsOf(design)
+  const title = form.title.trim()
+  const description = form.description.trim()
+  const requirements = form.requirements.map(line => line.trim()).filter(line => line !== '')
+  const minutes = timeTyped(form.time)
+  if (title === '') return { problem: 'Give it a title.' }
+  if (title.length > limits.title) return { problem: `The title is too long: ${limits.title} characters at most.` }
+  if (description.length > limits.description) return { problem: `The description is too long: ${limits.description} characters at most.` }
+  if (requirements.length > limits.requirements) return { problem: `At most ${limits.requirements} requirements.` }
+  if (requirements.some(line => line.length > limits.requirement)) return { problem: `A requirement is too long: ${limits.requirement} characters at most.` }
+  if (Number.isNaN(minutes)) return { problem: 'I cannot read that time. Write it like "45 min" or "1 h 30".' }
+  return { body: { action: 'send', idea: idea.id, where, title, description, requirements, worker: form.worker === '' ? null : form.worker, minutes } }
+}
+
+/** The form an agreed idea starts with: a title from the idea's first line, the idea as the description. */
+function firstForm(idea) {
+  const words = String(idea.text ?? '').trim()
+  const first = words.split('\n')[0]
+  const title = first.length > 80 ? `${first.slice(0, 79).trimEnd()}…` : first
+  return { title: title.charAt(0).toUpperCase() + title.slice(1), description: words, requirements: [''], worker: '', time: '' }
+}
+
+/** Where the asking for the step is, in words. `main` is the main chat's name. */
+function sentWords(sent, main = null) {
+  const who = main ?? 'the main chat'
+  const what = sent.where === 'queue' ? `put in ${sent.worker === null ? 'a queue' : `the queue of ${sent.worker}`}` : 'put on the backlog'
+  const where = {
+    waiting: `waits for ${who} to take it`,
+    taken: `handed to ${who}, which writes the step when it is idle`,
+    delivered: `typed into ${who}'s chat`,
+    expired: `did not reach ${who}`,
+    failed: `did not reach ${who}`,
+  }[sent.state] ?? `waits for ${who} to take it`
+  const step = sent.step ?? null
+  const lines = [`You asked ${who} to have "${sent.title}" ${what}: ${where}.`]
+  if (step !== null) lines.push(`It is step ${step.id} on the backlog${step.worker === null ? '' : `, for ${step.worker}`}${step.isDone ? ', and it is done' : ''}.`)
+  return lines
+}
+// design:end
+
+/** What the person chose and typed on the Design tab; a redraw must not undo it. */
+const designChosen = { idea: null, version: null }
+const designDraft = { text: '', kind: null, references: [] }
+const designForms = new Map()
+const designChanges = new Map()
+const designProblems = { make: null, picture: null, form: null }
+let isDesignSending = false
+let designFormOf = null
+let isDropAsked = false
+
+const designNow = () => (board === null ? null : board.design ?? null)
+const designLook = () => designView(designNow(), designChosen, Date.now())
+
+/** One writing call to the board's Design side. Answers what the server said, or sets the part's problem. */
+async function designCall(body, part) {
+  isDesignSending = true
+  designProblems[part] = null
+  drawDesign()
+  let answer = null
+  try {
+    const got = await fetch('/api/design', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
+      body: JSON.stringify(body),
+    })
+    if (got.ok) answer = await got.json().catch(() => ({}))
+    else designProblems[part] = `Not done: ${(await got.text()).trim() || `refused (${got.status})`}`
+  } catch {
+    designProblems[part] = 'Not done: the board\'s server does not answer'
+  }
+  isDesignSending = false
+  await read()
+  return answer
+}
+
+/** A picture in a box that is no button of its own: a version to choose, an idea in the strip. */
+function designThumb(path) {
+  const image = el('img')
+  image.alt = ''
+  if (path !== null) pictureUrl(path).then(url => { if (url !== null) image.src = url })
+  return image
+}
+
+function drawDesignNew(design, view) {
+  once('design-kinds', [design?.kinds ?? [], designDraft.kind], () => {
+    fill($('design-kinds'), (design?.kinds ?? []).map(kind => {
+      const button = el('button', `choice${designDraft.kind === kind.id ? ' is-chosen' : ''}`, kind.name)
+      button.type = 'button'
+      button.dataset.kind = kind.id
+      button.setAttribute('aria-pressed', String(designDraft.kind === kind.id))
+      return button
+    }))
+  })
+  once('design-references', [...designDraft.references], () => {
+    const add = el('button', 'design-add-reference', 'Add a reference picture (optional)')
+    add.type = 'button'
+    add.dataset.addReference = ''
+    fill($('design-references'), [add, ...designDraft.references.map((path, place) => {
+      const frame = el('div', 'design-reference')
+      const remove = el('button', 'icon-button', '✕')
+      remove.type = 'button'
+      remove.dataset.removeReference = String(place)
+      remove.title = 'Leave this picture out'
+      remove.setAttribute('aria-label', 'Leave this picture out')
+      frame.append(picture(path, 'Reference'), remove)
+      return frame
+    })])
+  })
+  $('design-text').maxLength = limitsOf(design).text
+  $('design-text').disabled = design === null
+  $('design-make').disabled = !view.canMake || isDesignSending
+  $('design-hint').textContent = design === null ? ''
+    : design.canMake !== true ? design.why ?? 'This board cannot make pictures.'
+      : view.making !== null ? `Codex is making a picture: ${view.making.line}. One at a time.`
+        : 'Codex makes it. It takes about a minute.'
+  $('design-make-problem').hidden = designProblems.make === null
+  $('design-make-problem').textContent = designProblems.make ?? ''
+}
+
+function drawDesignPicture(design, view, main) {
+  const { idea, version } = view
+  // The counting time redraws the stage only of the idea whose picture is being made.
+  const counting = view.making !== null && view.making.idea === idea?.id ? view.making.line : null
+  once('design-stage', [idea?.id ?? null, version, counting, idea?.text ?? null], () => {
+    const stage = $('design-stage')
+    if (idea === null) return fill(stage, [el('p', 'muted design-empty', 'Your picture shows here. Type an idea on the left, or pick one of your ideas below.')])
+    const parts = [el('p', 'design-idea', idea.text)]
+    if (version === null || version.state === 'making') {
+      const wait = el('div', 'design-making')
+      wait.append(el('span', 'design-spinner'), el('p', '', `Codex is making picture ${version?.n ?? 1}`), el('p', 'muted', counting ?? 'It takes about a minute.'))
+      parts.push(wait)
+    } else if (version.state === 'failed') {
+      const failed = el('div', 'design-making is-failed')
+      failed.append(el('p', '', `Picture ${version.n} was not made.`), el('p', 'muted', version.why ?? 'The board gave no reason.'))
+      parts.push(failed)
+    } else {
+      const caption = [`Version ${version.n}`, clock(version.at), version.change === null ? null : `changed: ${version.change}`].filter(Boolean).join(' · ')
+      const figure = el('figure', 'design-figure')
+      figure.append(picture(version.picture, `${ideaName(idea)}, version ${version.n}`), el('figcaption', 'muted', caption))
+      parts.push(figure)
+    }
+    fill(stage, parts)
+  })
+  once('design-versions', [idea?.id ?? null, idea?.versions ?? [], version?.n ?? null, idea?.agreed ?? null], () => {
+    fill($('design-versions'), (idea?.versions ?? []).map(one => {
+      const button = el('button', `design-version${one.n === version?.n ? ' is-chosen' : ''}${one.state === 'failed' ? ' is-failed' : ''}`)
+      button.type = 'button'
+      button.dataset.version = String(one.n)
+      button.title = `Version ${one.n}${one.change === null ? '' : `: ${one.change}`}${one.n === idea.agreed ? ' (the one you agreed to)' : ''}`
+      button.append(el('span', 'design-version-number', `${one.n}${one.n === idea.agreed ? ' ✓' : ''}`), one.state === 'done' ? designThumb(one.picture) : el('small', 'muted', one.state === 'failed' ? 'failed' : 'being made'))
+      return button
+    }))
+  })
+  const change = $('design-change')
+  change.maxLength = limitsOf(design).change
+  change.disabled = !view.canAgain
+  $('design-again').disabled = !(view.canAgain || view.canRetry) || isDesignSending
+  $('design-again').textContent = view.canRetry ? 'Try again' : 'Make it again'
+  $('design-agree').disabled = !(view.canAgree || view.canTakeBack) || isDesignSending
+  $('design-agree').textContent = view.canTakeBack ? 'Agreed · take it back' : 'I agree'
+  $('design-agree').classList.toggle('is-quiet', view.canTakeBack)
+  $('design-agree').classList.toggle('is-approve', !view.canTakeBack)
+  $('design-drop').hidden = idea === null
+  $('design-drop').textContent = isDropAsked ? 'Really drop it? Click again' : 'Drop this idea'
+  $('design-picture-problem').hidden = designProblems.picture === null
+  $('design-picture-problem').textContent = designProblems.picture ?? ''
+}
+
+/** The lines of the requirements, each an input with a cross. Drawn anew only when lines come or go. */
+function drawRequirements(form, isLocked) {
+  fill($('design-requirements'), form.requirements.map((line, place) => {
+    const row = el('div', 'design-requirement')
+    const input = el('input')
+    input.type = 'text'
+    input.value = line
+    input.dataset.requirement = String(place)
+    input.maxLength = limitsOf(designNow()).requirement
+    input.disabled = isLocked
+    input.setAttribute('aria-label', `Requirement ${place + 1}`)
+    const remove = el('button', 'icon-button', '✕')
+    remove.type = 'button'
+    remove.dataset.removeRequirement = String(place)
+    remove.title = 'Take this line out'
+    remove.setAttribute('aria-label', `Take requirement ${place + 1} out`)
+    remove.disabled = isLocked
+    row.append(input, remove)
+    return row
+  }))
+}
+
+function drawDesignForm(design, view, main) {
+  const { idea } = view
+  const isOpen = view.form === 'open'
+  // The fields show the form of the idea that is chosen: its own draft, kept while the page is open.
+  const form = idea === null ? null : designForms.get(idea.id) ?? firstForm(idea)
+  if (idea !== null && isOpen && !designForms.has(idea.id)) designForms.set(idea.id, form)
+  const shown = `${idea?.id ?? ''}:${view.form}`
+  if (designFormOf !== shown) {
+    designFormOf = shown
+    $('design-title').value = form === null || view.form === 'locked' ? '' : idea.sent?.title ?? form.title
+    $('design-description').value = form === null || view.form === 'locked' ? '' : form.description
+    $('design-time').value = form === null || view.form === 'locked' ? '' : form.time
+    drawRequirements(form === null || view.form === 'locked' ? { requirements: [''] } : form, !isOpen)
+  }
+  once('design-workers', [(board?.chats ?? []).map(lane => [lane.name, lane.isMain, lane.isLeftover]), main], () => {
+    const first = el('option', '', `Let ${main ?? 'the main chat'} decide`)
+    first.value = ''
+    fill($('design-worker'), [first, ...(board?.chats ?? []).filter(lane => !lane.isMain && !lane.isLeftover).map(lane => {
+      const option = el('option', '', lane.name)
+      option.value = lane.name
+      return option
+    })])
+  })
+  $('design-worker').value = form === null || view.form === 'locked' ? '' : idea.sent?.worker ?? form.worker
+  $('design-fields').disabled = !isOpen
+  // Once the step was asked for, what was asked stands in its place.
+  $('design-fields').hidden = view.form === 'sent'
+  $('design-title').maxLength = limitsOf(design).title
+  $('design-description').maxLength = limitsOf(design).description
+  $('design-add-line').disabled = !isOpen || (form !== null && form.requirements.length >= limitsOf(design).requirements)
+  const cannotSend = design?.canSend === false
+  for (const id of ['design-backlog', 'design-queue']) $(id).disabled = !isOpen || isDesignSending || cannotSend
+  $('design-agreed').hidden = idea === null || idea.agreed === null
+  $('design-form-note').textContent = view.form === 'locked'
+    ? (idea === null ? 'Agree with a picture first. Then you say here what you want and where it goes.' : 'Agree with a picture of this idea first: "I agree" under it.')
+    : view.form === 'open' && cannotSend ? 'This board does not deliver: put it on the backlog from the board started from main.'
+      : view.form === 'open' && view.isLost ? 'Your asking did not arrive. Send it again.' : ''
+  $('design-form-note').hidden = $('design-form-note').textContent === ''
+  const sent = $('design-sent')
+  sent.hidden = view.form !== 'sent'
+  once('design-sent', view.form === 'sent' ? [idea.sent, main] : null, () => {
+    fill(sent, view.form === 'sent' ? [el('b', '', `Asked at ${clock(idea.sent.at)}`), ...sentWords(idea.sent, main).map(line => el('p', '', line))] : [])
+  })
+  $('design-form-problem').hidden = designProblems.form === null
+  $('design-form-problem').textContent = designProblems.form ?? ''
+}
+
+function drawDesignStrip(design, view, main) {
+  once('design-strip', [design?.ideas ?? null, designChosen.idea, main], () => {
+    const fresh = el('button', `design-card is-new${designChosen.idea === null ? ' is-chosen' : ''}`)
+    fresh.type = 'button'
+    fresh.dataset.idea = ''
+    fresh.append(el('span', 'design-plus', '+'), el('b', '', 'New idea'))
+    const cards = (design?.ideas ?? []).map(idea => {
+      const card = el('button', `design-card${idea.id === designChosen.idea ? ' is-chosen' : ''}`)
+      card.type = 'button'
+      card.dataset.idea = idea.id
+      card.title = idea.text
+      const badge = ideaBadge(idea, main)
+      const words = el('span', 'design-card-words')
+      words.append(el('b', '', ideaName(idea)), el('span', `design-badge is-${badge.tone}`, badge.text))
+      card.append(designThumb(newestDone(idea)?.picture ?? null), words)
+      return card
+    })
+    fill($('design-strip'), [fresh, ...cards])
+  })
+}
+
+/** The Design tab, from the board's state and what the person chose. Typed text is never drawn over. */
+function drawDesign() {
+  const design = designNow()
+  const main = board?.restart?.main ?? null
+  // An idea that is gone (dropped, or the board started anew without it) is no longer chosen.
+  if (designChosen.idea !== null && !(design?.ideas ?? []).some(idea => idea.id === designChosen.idea)) Object.assign(designChosen, { idea: null, version: null })
+  const view = designLook()
+  const note = $('design-note')
+  note.hidden = design !== null
+  note.textContent = design === null ? 'This board\'s server has no Design part yet. Once that part is in, start the board anew and this tab works.' : ''
+  drawDesignNew(design, view)
+  drawDesignPicture(design, view, main)
+  drawDesignForm(design, view, main)
+  drawDesignStrip(design, view, main)
+}
+
+// While a picture is being made its time counts on, also between two readings of the state.
+setInterval(() => {
+  if (!$('view-design').hidden && (designNow()?.busy ?? null) !== null) drawDesign()
+}, 1000)
+
+$('design-text').addEventListener('input', () => { designDraft.text = $('design-text').value })
+$('design-change').addEventListener('input', () => { if (designChosen.idea !== null) designChanges.set(designChosen.idea, $('design-change').value) })
+
+$('design-kinds').addEventListener('click', event => {
+  const button = event.target.closest('[data-kind]')
+  if (button === null) return
+  designDraft.kind = button.dataset.kind
+  designProblems.make = null
+  drawDesign()
+})
+
+$('design-references').addEventListener('click', event => {
+  if (event.target.closest('[data-add-reference]') !== null) return $('design-file').click()
+  const remove = event.target.closest('[data-remove-reference]')
+  if (remove === null) return
+  designDraft.references.splice(Number(remove.dataset.removeReference), 1)
+  drawDesign()
+})
+
+// A reference picture of the person's own goes to the board, which answers where it keeps it.
+$('design-file').addEventListener('change', async () => {
+  const file = $('design-file').files[0]
+  $('design-file').value = ''
+  if (file === undefined) return
+  const limits = limitsOf(designNow())
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) designProblems.make = 'A reference is a PNG, JPEG or WebP picture.'
+  else if (file.size > limits.referenceBytes) designProblems.make = `That picture is too large: ${Math.floor(limits.referenceBytes / (1024 * 1024))} MB at most.`
+  else {
+    designProblems.make = null
+    try {
+      const got = await fetch('/api/design/reference', { method: 'POST', headers: { 'Content-Type': file.type, 'X-Board-Token': TOKEN }, body: file })
+      if (got.ok) designDraft.references.push((await got.json()).path)
+      else designProblems.make = `The picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}`
+    } catch {
+      designProblems.make = 'The picture was not taken: the board\'s server does not answer'
+    }
+  }
+  drawDesign()
+})
+
+$('design-make').addEventListener('click', async () => {
+  const made = makeBody(designDraft, designNow())
+  if (made.problem !== undefined) {
+    designProblems.make = made.problem
+    return drawDesign()
+  }
+  const answer = await designCall(made.body, 'make')
+  if (answer === null) return
+  // The new idea is the one to look at; the box is free for the next.
+  const id = typeof answer.idea === 'string' ? answer.idea : answer.idea?.id ?? null
+  Object.assign(designChosen, { idea: id, version: null })
+  Object.assign(designDraft, { text: '', references: [] })
+  $('design-text').value = ''
+  drawDesign()
+})
+
+$('design-versions').addEventListener('click', event => {
+  const button = event.target.closest('[data-version]')
+  if (button === null) return
+  designChosen.version = Number(button.dataset.version)
+  drawDesign()
+})
+
+$('design-again').addEventListener('click', async () => {
+  const view = designLook()
+  if (view.idea === null || view.version === null) return
+  // A picture that failed is asked for again as it was; any other is changed by what the person typed.
+  const again = view.canRetry
+    ? { body: { action: 'again', idea: view.idea.id, change: view.version.change ?? '' } }
+    : againBody(view.idea, view.version, $('design-change').value, designNow())
+  if (again.problem !== undefined) {
+    designProblems.picture = again.problem
+    return drawDesign()
+  }
+  const id = view.idea.id
+  const answer = await designCall(again.body, 'picture')
+  if (answer === null) return
+  designChanges.delete(id)
+  $('design-change').value = ''
+  designChosen.version = typeof answer.version === 'number' ? answer.version : answer.version?.n ?? null
+  drawDesign()
+})
+
+$('design-change').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.isComposing) $('design-again').click()
+})
+
+$('design-agree').addEventListener('click', () => {
+  const view = designLook()
+  if (view.idea === null || view.version === null) return
+  designCall({ action: 'agree', idea: view.idea.id, version: view.canTakeBack ? null : view.version.n }, 'picture')
+})
+
+// Dropping takes two clicks: the first asks.
+$('design-drop').addEventListener('click', async () => {
+  if (designChosen.idea === null) return
+  if (!isDropAsked) {
+    isDropAsked = true
+    return drawDesign()
+  }
+  isDropAsked = false
+  const id = designChosen.idea
+  if (await designCall({ action: 'drop', idea: id }, 'picture') === null) return
+  designForms.delete(id)
+  designChanges.delete(id)
+})
+$('design-drop').addEventListener('blur', () => {
+  isDropAsked = false
+  drawDesign()
+})
+
+$('design-strip').addEventListener('click', event => {
+  const card = event.target.closest('[data-idea]')
+  if (card === null) return
+  Object.assign(designChosen, { idea: card.dataset.idea === '' ? null : card.dataset.idea, version: null })
+  for (const part of Object.keys(designProblems)) designProblems[part] = null
+  isDropAsked = false
+  $('design-change').value = designChanges.get(designChosen.idea) ?? ''
+  drawDesign()
+  if (designChosen.idea === null) $('design-text').focus()
+})
+
+/** The form of the chosen idea, as the fields hold it now. */
+function designForm() {
+  const form = designForms.get(designChosen.idea)
+  if (form === undefined) return null
+  Object.assign(form, { title: $('design-title').value, description: $('design-description').value, worker: $('design-worker').value, time: $('design-time').value })
+  for (const input of $('design-requirements').querySelectorAll('[data-requirement]')) form.requirements[Number(input.dataset.requirement)] = input.value
+  return form
+}
+
+$('design-fields').addEventListener('input', designForm)
+$('design-fields').addEventListener('change', designForm)
+
+$('design-add-line').addEventListener('click', () => {
+  const form = designForm()
+  if (form === null) return
+  form.requirements.push('')
+  drawRequirements(form, false)
+  $('design-requirements').querySelector(`[data-requirement="${form.requirements.length - 1}"]`).focus()
+  drawDesign()
+})
+
+$('design-requirements').addEventListener('click', event => {
+  const remove = event.target.closest('[data-remove-requirement]')
+  const form = remove === null ? null : designForm()
+  if (form === null) return
+  form.requirements.splice(Number(remove.dataset.removeRequirement), 1)
+  if (form.requirements.length === 0) form.requirements.push('')
+  drawRequirements(form, false)
+  drawDesign()
+})
+
+// Enter in a requirement goes on to a new line, as in a list.
+$('design-requirements').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.isComposing && event.target.matches('[data-requirement]') && !$('design-add-line').disabled) $('design-add-line').click()
+})
+
+for (const [id, where] of [['design-backlog', 'backlog'], ['design-queue', 'queue']]) {
+  $(id).addEventListener('click', () => {
+    const view = designLook()
+    const form = designForm()
+    if (view.idea === null || form === null || view.form !== 'open') return
+    const sent = sendBody(view.idea, form, where, designNow())
+    if (sent.problem !== undefined) {
+      designProblems.form = sent.problem
+      return drawDesign()
+    }
+    designCall(sent.body, 'form')
+  })
+}
+
 // Tabs
 
 function show(tab) {
@@ -1809,6 +2362,7 @@ function show(tab) {
   $('view-overview').hidden = tab !== 'overview'
   $('view-advice').hidden = tab !== 'advice'
   $('view-coordinate').hidden = tab !== 'coordinate'
+  $('view-design').hidden = tab !== 'design'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   if (!location.hash.startsWith('#details=')) history.replaceState(null, '', tab === 'overview' ? location.pathname : `#${tab}`)
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
@@ -1838,6 +2392,7 @@ function draw(state) {
     $('advice-age').textContent = age === null ? '' : age.text
   })
   once('talk', [state.advisor, runningData(state), [...problems], [...sending]], () => drawTalk(state))
+  drawDesign()
 }
 
 async function read() {
@@ -1962,5 +2517,5 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) read()
 })
 
-show(location.hash === '#advice' ? 'advice' : location.hash === '#coordinate' ? 'coordinate' : 'overview')
+show(location.hash === '#advice' ? 'advice' : location.hash === '#coordinate' ? 'coordinate' : location.hash === '#design' ? 'design' : 'overview')
 read()

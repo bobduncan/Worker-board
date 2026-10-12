@@ -13,6 +13,7 @@
     <button class="tab is-active" type="button" data-tab="overview">Overview</button>
     <button class="tab" type="button" data-tab="advice">Advice &amp; Chat</button>
     <button class="tab" type="button" data-tab="coordinate">Coordinate</button>
+    <button class="tab" type="button" data-tab="design">Design</button>
     <span class="grow"></span>
     <button class="quiet-button" id="prepare-restart" type="button" title="Before you quit Claude: Game - Main asks every working chat to stop at a safe point and writes down who was on what" hidden>Prepare restart</button>
     <p class="updated" id="updated">Reading…</p>
@@ -88,6 +89,76 @@
         </label>
       </header>
       <div class="coordinate-list" id="coordinate-list"></div>
+    </main>
+  </div>
+
+  <div class="view is-single" id="view-design" hidden>
+    <main class="design">
+      <header class="design-top">
+        <h1>Design <small>From an idea to a picture to a step on the backlog</small></h1>
+        <p class="design-note" id="design-note" hidden></p>
+      </header>
+      <div class="design-parts">
+        <section class="panel design-part" aria-labelledby="design-new-title">
+          <h2 id="design-new-title"><span class="part-number">1</span> New idea</h2>
+          <textarea id="design-text" rows="5" placeholder="A shop screen where I spend gold on one of three items between fights" aria-label="The idea"></textarea>
+          <p class="design-label" id="design-kind-label">What is it about?</p>
+          <div class="design-kinds" id="design-kinds" role="group" aria-labelledby="design-kind-label"></div>
+          <div class="design-references" id="design-references"></div>
+          <input type="file" id="design-file" accept="image/png,image/jpeg,image/webp" hidden>
+          <button class="button design-wide" id="design-make" type="button">Make a picture</button>
+          <p class="muted design-hint" id="design-hint"></p>
+          <p class="problem" id="design-make-problem" hidden></p>
+        </section>
+
+        <section class="panel design-part" aria-labelledby="design-picture-title">
+          <h2 id="design-picture-title"><span class="part-number">2</span> The picture <span class="grow"></span><button class="quiet-button" id="design-drop" type="button" hidden>Drop this idea</button></h2>
+          <div class="design-stage" id="design-stage"></div>
+          <div class="design-versions" id="design-versions"></div>
+          <div class="design-again">
+            <input type="text" id="design-change" placeholder="What should change?" aria-label="What should change in the picture">
+            <button class="button is-quiet" id="design-again" type="button">Make it again</button>
+          </div>
+          <button class="button is-approve design-wide" id="design-agree" type="button">I agree</button>
+          <p class="problem" id="design-picture-problem" hidden></p>
+        </section>
+
+        <section class="panel design-part" aria-labelledby="design-form-title">
+          <h2 id="design-form-title"><span class="part-number">3</span> Add what you want <span class="grow"></span><span class="design-agreed" id="design-agreed" hidden>Agreed</span></h2>
+          <p class="muted" id="design-form-note"></p>
+          <fieldset class="design-fields" id="design-fields">
+            <label class="design-label" for="design-title">Title</label>
+            <input type="text" id="design-title">
+            <label class="design-label" for="design-description">Description</label>
+            <textarea id="design-description" rows="3"></textarea>
+            <p class="design-label" id="design-requirements-label">Requirements</p>
+            <div class="design-requirements" id="design-requirements" role="group" aria-labelledby="design-requirements-label"></div>
+            <button class="link" id="design-add-line" type="button">+ Add a line</button>
+            <div class="design-pair">
+              <div>
+                <label class="design-label" for="design-worker">Worker</label>
+                <select id="design-worker"></select>
+              </div>
+              <div>
+                <label class="design-label" for="design-time">Time (optional)</label>
+                <input type="text" id="design-time" placeholder="about 1 h">
+              </div>
+            </div>
+            <div class="design-ways">
+              <button class="button is-quiet" id="design-backlog" type="button">Put on the backlog</button>
+              <button class="button" id="design-queue" type="button">Put in a queue</button>
+            </div>
+            <p class="muted design-also">A queue also puts it on the backlog.</p>
+          </fieldset>
+          <div class="design-sent" id="design-sent" hidden></div>
+          <p class="problem" id="design-form-problem" hidden></p>
+        </section>
+      </div>
+
+      <section class="panel design-ideas" aria-labelledby="design-ideas-title">
+        <h2 id="design-ideas-title">Ideas so far</h2>
+        <div class="design-strip" id="design-strip"></div>
+      </section>
     </main>
   </div>
 
