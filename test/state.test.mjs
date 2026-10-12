@@ -74,7 +74,7 @@ test('a working chat shows the task of its plan line and what it does now', () =
   assert.equal(units.doingNow, 'Run the tests')
   assert.equal(units.isQuiet, false)
   assert.deepEqual(units.task, {
-    text: 'Shadow Beast', step: 2, steps: 6, names: null, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, source: 'plan', by: null,
+    text: 'Shadow Beast', step: 2, steps: 6, names: null, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, stepLeftMs: null, stepEstimateAt: null, source: 'plan', by: null,
     // First seen now, in a turn the person opened 20 minutes ago, with an estimate given 3 minutes ago.
     startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
   })
@@ -314,7 +314,7 @@ test('a worker that recorded nothing has a task without words, from when it was 
     plans: { Units: planLine(null) },
   })
   assert.deepEqual(chatNamed(state, 'Units').task, {
-    text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null,
+    text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null,
     startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
   })
   // A report is no task for the main chat; it works, on something it has not recorded.
@@ -327,7 +327,7 @@ test('a working chat that recorded no task has one without words, from when its 
   const state = build({ apps: [app('Units')], tails: { Units: tail(asked) } })
   const units = chatNamed(state, 'Units')
   assert.deepEqual(units.task, {
-    text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null,
+    text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null,
     startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
   })
   assert.ok(!JSON.stringify(state).includes('lava'))

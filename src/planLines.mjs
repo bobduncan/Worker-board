@@ -1,7 +1,7 @@
 // Source 2: the line a chat writes about its own plan, `<project>\.claude\chats\<cliSessionId>.json`. It gives the
 // task's name (a topic of a few words), its steps and estimate when it is there. It never decides whether a chat
 // is busy: the transcript does.
-//   task: { text, step, steps, names, left, since, isReported }
+//   task: { text, step, steps, names, left, stepLeft, since, isReported }
 // `step` is the number of the step the chat is on, from 1; `steps` how many there are; `names` what they are
 // called, one short string per step in order (B81; older lines have none).
 
@@ -40,6 +40,9 @@ export function parsePlanLine(fileText) {
           steps: number(task.steps),
           names: namesOf(task.names),
           leftMs: number(task.left),
+          // B108: the working time the chat still expects for the step it is on, true when the line was written.
+          // Absent when it gave none (B107 has the chats give it).
+          stepLeftMs: number(task.stepLeft),
           // When the chat named the task. Older plan lines do not have it.
           since: number(task.since),
           isReported: task.isReported === true,

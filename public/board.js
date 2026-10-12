@@ -288,17 +288,50 @@ function taskTitle(task) {
   return title
 }
 
-/** B82: the steps of a task by name, the one the chat is on marked. Null when the chat recorded no names: the page then shows "2 of 5". */
-function stepNames(task) {
-  if (!Array.isArray(task.names) || task.names.length === 0) return null
-  const at = task.step === null ? -1 : task.step - 1
-  const list = el('ol', 'steps')
-  task.names.forEach((name, index) => {
-    const item = el('li', index < at ? 'is-done' : index === at ? 'is-now' : 'is-next', name)
-    item.title = index < at ? 'Done' : index === at ? `Step ${index + 1} of ${task.names.length}: it is on this one` : `Step ${index + 1} of ${task.names.length}`
+// stepline:start
+/**
+ * B108: the steps of a task as one line: which step of how many ("2/5"), the name of the step the chat is on, and
+ * the time left for that step ("12 min left"; a step without a time says so). `steps` is every step by name with
+ * where it stands, for the list that opens on hover and on the keyboard's focus. Null when the chat named no
+ * steps: the page then shows its bar and "2 of 5". The step's time counts down from when the chat gave it while
+ * the chat works; a chat that waits or was cut off keeps what it said.
+ */
+function stepLine(lane, now) {
+  const task = lane.task ?? null
+  if (task === null || !Array.isArray(task.names) || task.names.length === 0) return null
+  const total = Math.max(task.steps ?? 0, task.names.length)
+  const at = Number.isInteger(task.step) && task.step >= 1 ? task.step : null
+  const name = at === null ? 'No step yet' : task.names[at - 1] ?? `Step ${at}`
+  const given = Number.isFinite(task.stepLeftMs) && Number.isFinite(task.stepEstimateAt)
+  const leftMs = !given ? null : lane.state === 'working' ? task.stepEstimateAt + task.stepLeftMs - now : task.stepLeftMs
+  const time = leftMs === null ? 'no time for this step' : leftMs < 0 ? `${span(-leftMs)} over` : `${span(leftMs)} left`
+  return {
+    count: `${at ?? '–'}/${total}`,
+    name,
+    time,
+    tone: leftMs === null ? 'none' : leftMs < 0 ? 'bad' : 'time',
+    steps: task.names.map((one, index) => ({ name: one, state: at === null || index > at - 1 ? 'next' : index === at - 1 ? 'now' : 'done' })),
+    label: `${at === null ? `No step of ${total} yet` : `Step ${at} of ${total}: ${name}`}, ${time}`,
+  }
+}
+// stepline:end
+
+/** B108: the line of a task's steps, and the list of all of them that opens on hover and on the keyboard's focus. */
+function drawStepLine(lane, line) {
+  const box = el('div', 'step-line')
+  const now = el('button', 'step-now')
+  now.type = 'button'
+  now.dataset.stepsOf = lane.name
+  now.setAttribute('aria-label', `${line.label}. All steps: ${line.steps.map((step, index) => `${index + 1}. ${step.name}${step.state === 'now' ? ' (now)' : step.state === 'done' ? ' (done)' : ''}`).join('; ')}`)
+  now.append(el('span', 'step-count', line.count), el('span', 'step-name', line.name), el('span', `step-time is-${line.tone}`, line.time))
+  const list = el('ol', 'step-list')
+  for (const step of line.steps) {
+    const item = el('li', `is-${step.state}`, step.name)
+    if (step.state === 'now') item.append(el('small', '', 'now'))
     list.append(item)
-  })
-  return list
+  }
+  box.append(now, list)
+  return box
 }
 
 /** B64: why a worker counts as working although its turn has ended (its task is not reported, a review runs, its branch is open). */
@@ -421,8 +454,8 @@ function drawLane(lane, state) {
     if (lane.state === 'free') what.append(el('p', 'note', 'Ready for a new task'))
   } else {
     what.append(taskTitle(task))
-    const steps = stepNames(task)
-    if (steps !== null) what.append(steps)
+    const steps = stepLine(lane, state.readAt)
+    if (steps !== null) what.append(drawStepLine(lane, steps))
     else if (task.step !== null && task.steps !== null && task.steps > 0) {
       const progress = el('div', 'progress')
       const bar = el('div', 'bar')
@@ -480,8 +513,15 @@ $('lanes').addEventListener('click', event => {
   const head = event.target.closest('.queue-head')
   if (head === null) return
   if (!openLanes.delete(head.dataset.lane)) openLanes.add(head.dataset.lane)
-  if (board !== null) fill($('lanes'), board.chats.map(lane => drawLane(lane, board)))
+  if (board !== null) drawLanes(board)
 })
+
+/** The lanes, drawn anew. A step line that held the keyboard's focus holds it again, so its list of steps stays open. */
+function drawLanes(state) {
+  const focused = document.activeElement?.dataset?.stepsOf ?? null
+  fill($('lanes'), state.chats.map(lane => drawLane(lane, state)))
+  if (focused !== null) [...$('lanes').querySelectorAll('[data-steps-of]')].find(node => node.dataset.stepsOf === focused)?.focus()
+}
 
 // B100: a click on a lane that waits for the person opens what it waits for, with the form to answer it. The
 // queue and the unfolded details keep their own clicks.
@@ -2377,7 +2417,7 @@ function draw(state) {
   drawTop(state)
   drawMainGame(state)
   drawRestart(state)
-  fill($('lanes'), state.chats.map(lane => drawLane(lane, state)))
+  drawLanes(state)
   drawStrips(state)
   drawToday(state)
   once('needs', needsData(state), () => drawNeeds(state))
