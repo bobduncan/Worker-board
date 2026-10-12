@@ -48,6 +48,17 @@ step of the backlog is one line, so what describes it further are the indented l
 "Requirements:" (or any other name with a colon) starts a part of that name, a line "- ..." is a point of it,
 "Context:" goes to the side, and a folder of pictures named in any of these lines is shown.
 
+**The Design tab's page (B99).** A fourth tab, after the person's layout A
+(`art-inbox/worker-board/design-tab/2026-10-12-design-tab-a-side-by-side.png`): three parts side by side and "Ideas
+so far" along the bottom. 1 New idea: the idea, what it is about (the kinds the board names), reference pictures of
+the person's own, "Make a picture". 2 The picture: the version looked at, large; every version to choose from; "What
+should change?" with "Make it again"; "I agree", which can be taken back. 3 Add what you want, open once a picture
+is agreed: title, description, requirements, the worker or the main chat's choice, an optional time; "Put on the
+backlog" or "Put in a queue". The page reads `state.design` and writes only through `POST /api/design` and
+`/api/design/reference` (the board's side, B101); it writes nothing into the backlog, the main chat does. What is
+typed stays in the page while it is open and is never drawn over by a new reading of the state. A board whose
+server has no `design` says so on the tab.
+
 **The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
 more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
 expected and queued is what they plan with.

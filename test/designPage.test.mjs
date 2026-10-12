@@ -150,7 +150,7 @@ test('the form of an agreed idea starts from the idea: its first line as the tit
 
 test('once asked for, part 3 says where the asking is and which step it became', () => {
   const sent = more => ({ at: NOW, where: 'queue', worker: 'Units', title: 'Shop screen', state: 'waiting', step: null, ...more })
-  assert.deepEqual(plain(page.sentWords(sent(), 'Main')), ['You asked Main to have "Shop screen" put in Units\'s queue: waits for Main to take it.'])
+  assert.deepEqual(plain(page.sentWords(sent(), 'Main')), ['You asked Main to have "Shop screen" put in the queue of Units: waits for Main to take it.'])
   assert.match(page.sentWords(sent({ where: 'backlog', worker: null, state: 'taken' }), 'Main')[0], /put on the backlog: handed to Main/)
   assert.match(page.sentWords(sent({ worker: null, state: 'delivered' }), 'Main')[0], /put in a queue: typed into Main's chat\.$/)
   assert.deepEqual(plain(page.sentWords(sent({ state: 'delivered', step: { id: 'B103', worker: 'Units', isDone: false } }), 'Main')).at(-1), 'It is step B103 on the backlog, for Units.')

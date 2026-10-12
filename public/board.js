@@ -1840,7 +1840,7 @@ function firstForm(idea) {
 /** Where the asking for the step is, in words. `main` is the main chat's name. */
 function sentWords(sent, main = null) {
   const who = main ?? 'the main chat'
-  const what = sent.where === 'queue' ? `put in ${sent.worker === null ? 'a queue' : `${sent.worker}'s queue`}` : 'put on the backlog'
+  const what = sent.where === 'queue' ? `put in ${sent.worker === null ? 'a queue' : `the queue of ${sent.worker}`}` : 'put on the backlog'
   const where = {
     waiting: `waits for ${who} to take it`,
     taken: `handed to ${who}, which writes the step when it is idle`,
@@ -2082,7 +2082,7 @@ function drawDesign() {
   const view = designLook()
   const note = $('design-note')
   note.hidden = design !== null
-  note.textContent = design === null ? 'This board\'s server has no Design part yet: it comes with the board\'s next start from main.' : ''
+  note.textContent = design === null ? 'This board\'s server has no Design part yet. Once that part is in, start the board anew and this tab works.' : ''
   drawDesignNew(design, view)
   drawDesignPicture(design, view, main)
   drawDesignForm(design, view, main)
