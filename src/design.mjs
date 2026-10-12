@@ -12,6 +12,8 @@ export const REFERENCES_FOLDER = `${IDEAS_FOLDER}/_references`
 const REFERENCE = /^art-inbox\/ideas\/_references\/[a-f0-9]{16}\.(png|jpg|webp)$/
 
 export const LIMITS = { idea: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3 }
+/** A reference picture the person adds to an idea is at most this large. */
+export const REFERENCE_BYTES = 8 * 1024 * 1024
 const PICTURE = /\.(png|jpe?g|webp)$/i
 
 const oneLine = (value, most) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, most)
@@ -223,13 +225,17 @@ function stepFor(backlog, folder) {
  * found in it by its id), `backlog` the board's overview of the backlog, `missing` the reference pictures of the
  * settings that are not there.
  */
-export function designState({ ideas, settings, canMake, why, busy, outbox = [], backlog = [], missing = [], typical = 60 }) {
+export function designState({ ideas, settings, canMake, why, busy, canSend = false, whyNot = null, outbox = [], backlog = [], missing = [], typical = 60 }) {
   return {
     canMake,
     why: canMake ? null : why,
+    // Whether this board can ask the main chat for the step: a copy and the demo cannot, and the page says so.
+    canSend,
+    whyNot: canSend ? null : whyNot,
     busy,
     seconds: typical,
-    limits: LIMITS,
+    // Every limit the checks hold, for the page to show. `text` is the idea's, under the name the page asks for.
+    limits: { ...LIMITS, text: LIMITS.idea, referenceBytes: REFERENCE_BYTES },
     kinds: settings.kinds.map(({ id, name, references }) => ({ id, name, missing: references.filter(path => missing.includes(path)) })),
     ideas: ideas.filter(idea => idea.droppedAt === null).sort((a, b) => b.createdAt - a.createdAt).map(idea => {
       const word = idea.sent === null ? null : outbox.find(message => message.id === idea.sent.message) ?? null

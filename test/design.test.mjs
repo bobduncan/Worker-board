@@ -313,3 +313,12 @@ test('an idea that cannot be kept is not left "being made", and its folder is on
   const second = await ideas.add({ id: 'i2', kind: 'screen', text: 'A shop screen', references: [], now: NOW, taken: ['a-shop-screen-2', 'unrelated'] })
   assert.equal(second.name, 'a-shop-screen-3')
 })
+
+test('the page is told before a click whether this board can ask the main chat, and reads every limit from the state', () => {
+  const settings = { kinds, seconds: 240, codex: '' }
+  const here = designState({ ideas: [], settings, canMake: true, why: null, busy: null, canSend: true, whyNot: 'x' })
+  assert.deepEqual([here.canSend, here.whyNot], [true, null])
+  const copy = designState({ ideas: [], settings, canMake: true, why: null, busy: null, canSend: false, whyNot: 'This board only shows.' })
+  assert.deepEqual([copy.canSend, copy.whyNot], [false, 'This board only shows.'])
+  assert.deepEqual(here.limits, { idea: 1500, text: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3, referenceBytes: 8 * 1024 * 1024 })
+})
