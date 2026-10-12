@@ -25,6 +25,8 @@ export function parsePlanLine(fileText) {
           step: number(task.step),
           steps: number(task.steps),
           leftMs: number(task.left),
+          // When the chat named the task. Older plan lines do not have it.
+          since: number(task.since),
           isReported: task.isReported === true,
         }
       : null,

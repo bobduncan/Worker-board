@@ -1,5 +1,5 @@
 // Own data: what changed per chat over time. A line is written when a chat's state, task or step changes:
-//   { at, chat, state, task, step, steps, leftMs, startedAt, source, by }
+//   { at, chat, state, task, step, steps, leftMs, estimateAt, startedAt, source, by }
 // and a gap line, { at, gap: true }, marks the moment from which the board was not running, so the time it was
 // off is drawn as unknown and not as the state it last saw.
 
@@ -42,6 +42,7 @@ export function changes(last, chats, now) {
       step: task?.step ?? null,
       steps: task?.steps ?? null,
       leftMs: task?.leftMs ?? null,
+      estimateAt: task?.estimateAt ?? null,
       startedAt: task?.startedAt ?? null,
       source: task?.source ?? null,
       by: task?.by ?? null,
@@ -90,8 +91,9 @@ export function today(lines, { from, to, names }) {
 }
 
 /**
- * What the history knows about a chat's current task: when the board first saw it, the hand-over time it recorded,
- * the first estimate, and how long the chat waited for the person. Null when the task was never recorded.
+ * What the history knows about a chat's current task: when the board first saw it, the start it recorded then,
+ * the first estimate, and how long the chat worked on it and waited for the person since. Time the board was off
+ * counts as neither. Null when the task was never recorded.
  */
 export function taskFacts(lines, chat, taskText, now) {
   // The current run: the chat's lines back from the end for as long as they name this task.
@@ -106,17 +108,24 @@ export function taskFacts(lines, chat, taskText, now) {
   if (!run.some(line => line.gap !== true)) return null
 
   let waitedMs = 0
+  let workedMs = 0
   let startedAt = null
   let firstEstimate = null
   for (let i = 0; i < run.length; i += 1) {
     const line = run[i]
     if (line.gap === true) continue
-    if (Number.isFinite(line.startedAt)) startedAt = Math.min(startedAt ?? Infinity, line.startedAt)
-    if (firstEstimate === null && Number.isFinite(line.leftMs)) firstEstimate = { at: line.at, leftMs: line.leftMs }
+    // The start the board worked out when it first saw the task stands: later looks see less of the past.
+    if (startedAt === null && Number.isFinite(line.startedAt)) startedAt = line.startedAt
+    if (firstEstimate === null && Number.isFinite(line.leftMs)) {
+      // Dated by when the chat gave it, which can be well before the board recorded it.
+      firstEstimate = { at: Number.isFinite(line.estimateAt) ? line.estimateAt : line.at, leftMs: line.leftMs }
+    }
     // A span ends at the next line, which may be the gap where the board stopped watching.
-    if (line.state === 'waiting') waitedMs += Math.max(0, (run[i + 1]?.at ?? now) - line.at)
+    const lasted = Math.max(0, (run[i + 1]?.at ?? now) - line.at)
+    if (line.state === 'waiting') waitedMs += lasted
+    if (line.state === 'working') workedMs += lasted
   }
-  return { firstSeenAt: run.find(line => line.gap !== true).at, startedAt, firstEstimate, waitedMs }
+  return { firstSeenAt: run.find(line => line.gap !== true).at, startedAt, firstEstimate, waitedMs, workedMs }
 }
 
 /** The start of the day the timeline shows: the last `hour` o'clock, local time, at or before `now`. */

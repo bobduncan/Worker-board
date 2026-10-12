@@ -24,18 +24,20 @@ function workerOf(text, forWhom, prefix, names) {
   return found
 }
 
+/** "about 40 min", "about 2 h", "about 1 h 30 min", "about 1.5 hours" as minutes. */
 function minutesOf(part) {
-  const found = part.match(/^about\s+(\d+(?:\.\d+)?)\s*(min|minutes?|h|hours?)\b/i)
-  if (found === null) return null
-  return Math.round(Number(found[1]) * (found[2].toLowerCase().startsWith('h') ? 60 : 1))
+  const found = part.match(/^about\s+(?:(\d+(?:\.\d+)?)\s*h(?:ours?|rs?)?\b)?\s*(?:(\d+)\s*min(?:utes?|s)?\b)?/i)
+  if (found === null || (found[1] === undefined && found[2] === undefined)) return null
+  return Math.round(Number(found[1] ?? 0) * 60 + Number(found[2] ?? 0))
 }
 
 function parseStep(isDone, rest, { prefix, names }) {
   const isYou = /(^|\s)@you\s*$/.test(rest)
   const text = rest.replace(/(^|\s)@you\s*$/, '').trim()
 
-  // The note the main chat writes on a queued step: "(for Units; after <condition>; about 40 min)".
-  const spec = text.match(/\s*\((for [^()]*)\)\s*$/)
+  // The note the main chat writes on a queued step: "(for Units; after <condition>; about 40 min)". The condition
+  // may hold brackets of its own, as in "after the archer (branch x) merges".
+  const spec = text.match(/\s*\((for (?:[^()]|\([^()]*\))*)\)\s*$/)
   let forWhom = null
   let after = null
   let minutes = null

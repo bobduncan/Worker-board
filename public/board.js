@@ -115,7 +115,8 @@ function timeLines(chat, state) {
   if (task === null) return lines
 
   const soFar = now - task.startedAt
-  const worked = soFar - task.waitedMs
+  // Compared with the estimate: only the time the chat worked, not the time it waited or the board was off.
+  const worked = task.workedMs
   const first = el('p', 'times')
   first.append(`started ${clock(task.startedAt)} · `, el('b', '', span(soFar)), ' so far')
   if (task.waitedMs >= MIN) first.append(` (${span(task.waitedMs)} of it waiting for you)`)
@@ -397,8 +398,9 @@ function drawDock(state) {
     note: message.via === 'board' ? 'typed on the board' : null,
     isReport: message.from === 'report',
   }))
-  for (const waiting of state.outbox) {
-    rows.push(drawMessage({ key: `out:${waiting.id}`, kind: 'is-you is-pending', time: clock(waiting.at), who: 'You', text: waiting.text, note: 'not delivered yet' }))
+  for (const typed of state.outbox) {
+    const note = typed.state === 'expired' ? 'not delivered, and too old to deliver now' : 'not delivered yet'
+    rows.push(drawMessage({ key: `out:${typed.id}`, kind: 'is-you is-pending', time: clock(typed.at), who: 'You', text: typed.text, note }))
   }
   const main = state.chats.find(chat => chat.isMain)
   if (main !== undefined && main.state === 'working') {

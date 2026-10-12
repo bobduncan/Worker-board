@@ -17,6 +17,8 @@ const DEFAULTS = {
   dayStartHour: 6,
   /** The longest message the chat box accepts. */
   maxMessageChars: 2000,
+  /** A typed message that was not delivered within this time is never delivered. */
+  messageKeepMinutes: 10,
 }
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']

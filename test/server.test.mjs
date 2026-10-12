@@ -51,7 +51,12 @@ test('the page carries the token and forbids scripts and styles from anywhere el
   assert.ok(page.text.includes(`<meta name="board-token" content="${TOKEN}">`))
   assert.match(page.headers['content-security-policy'], /default-src 'none'/)
   assert.match(page.headers['content-security-policy'], /script-src 'self'/)
+  // No other page may hold the board in a frame, and no form on it may post anywhere.
+  assert.match(page.headers['content-security-policy'], /frame-ancestors 'none'/)
+  assert.match(page.headers['content-security-policy'], /form-action 'none'/)
+  assert.equal(page.headers['x-frame-options'], 'DENY')
   assert.equal(page.headers['x-content-type-options'], 'nosniff')
+  assert.equal(page.headers['cache-control'], 'no-store')
 })
 
 test('the script and the style sheet are served, and nothing else from the folder', async t => {

@@ -1,8 +1,13 @@
 // Source 1: the desktop app's list of chats, one JSON file per chat. The files are the app's own and can change
 // shape, so every field is checked and a file that does not fit is left out.
 
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
+
+import { readHead } from './files.mjs'
+
+/** The app's chat files are about 200 KB. One far larger is not read. */
+const CHAT_FILE_BYTES = 4 * 1024 * 1024
 
 const text = value => (typeof value === 'string' ? value : null)
 const number = value => (Number.isFinite(value) ? value : null)
@@ -124,11 +129,9 @@ export async function readAppChats(dir) {
       const folder = join(dir, outer.name, inner.name)
       for (const file of await list(folder)) {
         if (!file.isFile() || !/^local_.*\.json$/.test(file.name)) continue
-        try {
-          texts.push(await readFile(join(folder, file.name), 'utf8'))
-        } catch {
-          // The app is rewriting it; the next read has it.
-        }
+        // A file that cannot be read is being rewritten by the app; the next read has it. One cut short is no JSON.
+        const head = await readHead(join(folder, file.name), CHAT_FILE_BYTES)
+        if (head !== null && head.isWhole) texts.push(head.text)
       }
     }
   }

@@ -27,6 +27,17 @@ export function foldOutbox(text) {
   return [...byId.values()].filter(message => typeof message.text === 'string' && Number.isFinite(message.at))
 }
 
+/**
+ * What was typed, as the dock and the bridge see it now. A message that waited longer than `keepMs` is `expired`:
+ * it is never delivered, so nothing typed long ago turns up in a chat when delivery starts working. Expired
+ * messages stay listed for `shownMs` so the person sees what did not arrive.
+ */
+export function outboxNow(messages, now, keepMs, shownMs = 12 * 60 * 60_000) {
+  return messages
+    .map(message => (message.state === 'waiting' && now - message.at > keepMs ? { ...message, state: 'expired' } : message))
+    .filter(message => message.state === 'waiting' || (message.state === 'expired' && now - message.at < shownMs))
+}
+
 /** The gap line to add when the board starts after having been off, or null. */
 export function startGap(lines, aliveAt, now) {
   const last = lines.at(-1)
@@ -98,7 +109,11 @@ export async function fileStore(dir, now) {
 /** One look at the board: records what changed since the last one. `state` is the `/api/state` object. */
 export async function tick(store, state, now) {
   const aliveAt = store.aliveAt()
-  if (aliveAt !== null && now - aliveAt > GAP_MS) await store.record([{ at: Math.max(aliveAt, store.lines().at(-1)?.at ?? aliveAt), gap: true }])
+  const last = store.lines().at(-1)
+  // After a start the gap is written already (`startGap`); a sleep in the middle of a run is written here.
+  if (aliveAt !== null && now - aliveAt > GAP_MS && last !== undefined && last.gap !== true) {
+    await store.record([{ at: Math.max(aliveAt, last.at), gap: true }])
+  }
   const chats = state.chats.filter(chat => !chat.isLeftover)
   await store.record(changes(lastByChat(store.lines()), chats, now))
   await store.alive(now)

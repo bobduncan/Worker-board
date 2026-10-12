@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { answer, assistant, fromChat, line, slashCommand, step, text, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
-import { doingNow, mainChat, markedIn, parseTail, taskStart, turnStart, turnState } from '../src/transcript.mjs'
+import { doingNow, lastFinish, mainChat, markedIn, parseTail, taskStart, turnStart, turnState } from '../src/transcript.mjs'
 
 const T = Date.UTC(2026, 9, 12, 8, 0)
 const min = n => T + n * 60_000
@@ -87,21 +87,36 @@ test('doingNow: the description of the last tool call, else its name', () => {
   assert.equal(doingNow(entries([typed(min(0), 'Go')])), null)
 })
 
-test('taskStart: a task handed over by another chat gives the start, the sender and a title', () => {
+const MAIN = { mainTitle: 'Game - Main', mainSession: 'local_main' }
+const handed = (minute, task) => fromChat(min(minute), 'Game - Main', `Task from Game - Main: ${task}`)
+const reported = minute => assistant(min(minute), 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Finished.' })])
+
+test('taskStart: a task handed over by the main chat gives the start, the sender and a title', () => {
   const start = taskStart(entries([
     answer(min(0), 'Done'),
     fromChat(min(4), 'Game - Main', 'Task from Game - Main: build the archer at 4x. Time box: 45 minutes.\n\nBackground: ...'),
     step(min(5), 'Read the brief'),
-  ]), { mainTitle: 'Game - Main' })
+  ]), MAIN)
   assert.deepEqual(start, { at: min(4), from: 'Game - Main', title: 'Build the archer at 4x' })
+  for (const opening of ['Next task from the main chat: build the archer at 4x.', 'Two tasks from the main chat: build the archer at 4x. Then the knight.']) {
+    assert.equal(taskStart(entries([fromChat(min(4), 'Game - Main', opening)]), MAIN).title, 'Build the archer at 4x')
+  }
 })
 
-test('taskStart: reads the tag when the entry carries no plain text of the message', () => {
-  const tagged = user(min(2), 'Another session sent a message:\n<cross-session-message from="local_abc">\nFix the bridge level\nMore words.\n</cross-session-message>', {
+test('taskStart: reads the tag when the entry carries no plain text of the message, and knows the main chat by its id', () => {
+  const tagged = from => user(min(2), `Another session sent a message:\n<cross-session-message from="${from}">\nTask from the main chat: fix the bridge level\nMore words.\n</cross-session-message>`, {
     isMeta: true,
-    origin: { kind: 'peer', from: 'local_abc', hostInjected: true },
+    origin: { kind: 'peer', from, hostInjected: true },
   })
-  assert.deepEqual(taskStart(entries([tagged]), { mainTitle: 'Game - Main' }), { at: min(2), from: 'local_abc', title: 'Fix the bridge level' })
+  assert.deepEqual(taskStart(entries([tagged('local_main')]), MAIN), { at: min(2), from: 'local_main', title: 'Fix the bridge level' })
+  assert.equal(taskStart(entries([tagged('local_units')]), MAIN), null)
+})
+
+test('taskStart: a note from the main chat, or a message from another worker, starts no task and ends none', () => {
+  const thanks = fromChat(min(20), 'Game - Main', 'From the main chat, for your information: main moved to e1e61d9.')
+  const worker = fromChat(min(21), 'Game - Units', 'Task idea: could you look at the archer?')
+  assert.equal(taskStart(entries([thanks, worker]), MAIN), null)
+  assert.equal(taskStart(entries([handed(4, 'build the archer.'), step(min(5), 'Read'), thanks, worker]), MAIN).title, 'Build the archer')
 })
 
 test('taskStart: the report of a helper the chat started itself is not a task', () => {
@@ -109,18 +124,28 @@ test('taskStart: the report of a helper the chat started itself is not a task', 
     isMeta: true,
     origin: { kind: 'peer', from: 'a1b2', senderTaskId: 'a1b2', name: 'general-purpose', body: 'report', handback: true },
   })
-  assert.equal(taskStart(entries([handBack]), { mainTitle: 'Game - Main' }), null)
+  assert.equal(taskStart(entries([handBack]), MAIN), null)
 })
 
-test('taskStart: a report to the main chat after the hand-over ends the task', () => {
-  const report = assistant(min(9), 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Finished.' })])
-  const handOver = fromChat(min(4), 'Game - Main', 'Build the archer')
-  assert.equal(taskStart(entries([handOver, report, toolResult(min(10)), answer(min(11), 'Reported.')]), { mainTitle: 'Game - Main' }), null)
-  assert.equal(taskStart(entries([report, handOver]), { mainTitle: 'Game - Main' }).title, 'Build the archer')
+test('taskStart: a report to the main chat ends the task once the turn has ended after it', () => {
+  const done = [handed(4, 'build the archer'), reported(9), toolResult(min(10)), answer(min(11), 'Reported.')]
+  assert.equal(taskStart(entries(done), MAIN), null)
+  assert.equal(lastFinish(entries(done), MAIN), min(9))
+  assert.equal(taskStart(entries([reported(2), answer(min(3), 'Reported.'), handed(4, 'build the archer')]), MAIN).title, 'Build the archer')
+})
+
+test('taskStart: a question sent to the main chat in the middle of the work does not end the task', () => {
+  const asking = [handed(4, 'build the archer'), reported(9), toolResult(min(10)), step(min(11), 'Go on with the sheet')]
+  assert.equal(taskStart(entries(asking), MAIN).title, 'Build the archer')
+  assert.equal(lastFinish(entries(asking), MAIN), null)
+  // Stopped by the person after the message: the turn has ended, so that counts as the report.
+  const stopped = user(min(12), [{ type: 'text', text: '[Request interrupted by user]' }])
+  assert.equal(taskStart(entries([...asking, stopped]), MAIN), null)
 })
 
 test('taskStart: no hand-over in the tail is null', () => {
-  assert.equal(taskStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), { mainTitle: 'Game - Main' }), null)
+  assert.equal(taskStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), MAIN), null)
+  assert.equal(lastFinish(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), MAIN), null)
 })
 
 test('turnStart: the first thing typed since the last turn ended, not a remark made later in the turn', () => {
@@ -132,14 +157,39 @@ test('turnStart: the first thing typed since the last turn ended, not a remark m
     toolResult(min(7)),
     typed(min(9), 'How far are you?'),
   ]), { prefix: 'Game - ' })
-  assert.deepEqual(start, { at: min(5), by: 'you', title: 'Make the lava glow more', isSure: true })
+  assert.deepEqual(start, { at: min(5), by: 'you', title: 'Make the lava glow more', isSure: true, isOpen: true })
 })
 
 test('turnStart: a turn another chat started names that chat, and a tail without the turn before is not sure', () => {
   const start = turnStart(entries([toolResult(min(0)), fromChat(min(4), 'Game - Units', 'The archer is merged.\nDetails.')]), { prefix: 'Game - ' })
-  assert.deepEqual(start, { at: min(4), by: 'Units', title: 'The archer is merged', isSure: false })
+  assert.deepEqual(start, { at: min(4), by: 'Units', title: 'The archer is merged', isSure: false, isOpen: true })
   assert.equal(turnStart(entries([step(min(0), 'Run the tests'), toolResult(min(1))]), { prefix: 'Game - ' }), null)
-  assert.equal(turnStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), { prefix: 'Game - ' }), null)
+})
+
+test('turnStart: after the turn ended, the opening is still known but no longer open', () => {
+  assert.deepEqual(turnStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), { prefix: 'Game - ' }),
+    { at: min(0), by: 'you', title: 'Go', isSure: false, isOpen: false })
+})
+
+test('turnStart: what was typed after the person stopped a turn opens a new one', () => {
+  const stopped = user(min(3), [{ type: 'text', text: '[Request interrupted by user]' }])
+  const start = turnStart(entries([answer(min(0), 'Done'), typed(min(1), 'Do A.'), step(min(2), 'Start on A'), stopped, typed(min(4), 'Do B instead.'), step(min(5), 'Start on B')]), { prefix: 'Game - ' })
+  assert.deepEqual([start.title, start.at, start.isOpen], ['Do B instead', min(4), true])
+})
+
+test('turnStart: a turn the chat\'s own work started goes on with what the turn before was about', () => {
+  const notice = user(min(5), '<task-notification>a background task finished</task-notification>', { origin: { kind: 'task-notification' } })
+  const handBack = user(min(5), 'A message:\n<agent-message from="a1">\nThe review found two things.\n</agent-message>', {
+    isMeta: true,
+    origin: { kind: 'peer', from: 'a1', senderTaskId: 'a1', name: 'general-purpose', body: 'report', handback: true },
+  })
+  for (const wake of [notice, handBack]) {
+    const start = turnStart(entries([answer(min(0), 'Done'), typed(min(1), 'Build the board.'), answer(min(2), 'A helper reviews it.'), wake, step(min(6), 'Read the result')]), { prefix: 'Game - ' })
+    assert.deepEqual(start, { at: min(1), by: 'you', title: 'Build the board', isSure: true, isOpen: true })
+  }
+  // Slash commands and the app's notes do not open anything.
+  const idle = turnStart(entries([typed(min(1), 'Build the board.'), answer(min(2), 'Done'), ...slashCommand(min(3), '/git')]), { prefix: 'Game - ' })
+  assert.equal(idle.isOpen, false)
 })
 
 test('mainChat: what was typed, the answers, and reports; tool calls and commands are left out', () => {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { foldOutbox, memoryStore, startGap, tick } from '../src/store.mjs'
+import { foldOutbox, memoryStore, outboxNow, startGap, tick } from '../src/store.mjs'
 
 const MIN = 60_000
 const chats = (state, task = null) => [{ name: 'Units', isLeftover: false, state, task }, { name: 'Main (fork)', isLeftover: true, state: 'unknown', task: null }]
@@ -47,6 +47,28 @@ test('tick: after a sleep, the time asleep is a gap and every chat is recorded a
     [1 * MIN, true, undefined],
     [30 * MIN, false, 'working'],
   ])
+})
+
+test('tick: the gap a start has written is not written again by the first look after it', async () => {
+  const before = [{ at: 1 * MIN, chat: 'Units', state: 'working', task: null }]
+  const store = memoryStore([...before, startGap(before, 1 * MIN, 60 * MIN)])
+  await store.alive(1 * MIN)
+  await tick(store, { chats: chats('working') }, 60 * MIN)
+  assert.deepEqual(store.lines().map(line => [line.at, line.gap === true]), [[1 * MIN, false], [1 * MIN, true], [60 * MIN, false]])
+})
+
+test('outboxNow: a message that waited too long is expired, shown for a while, and then gone', () => {
+  const typed = [
+    { id: 'a', at: 0, text: 'Old', state: 'waiting' },
+    { id: 'b', at: 55 * MIN, text: 'Fresh', state: 'waiting' },
+    { id: 'c', at: 50 * MIN, text: 'Arrived', state: 'delivered' },
+  ]
+  assert.deepEqual(outboxNow(typed, 60 * MIN, 10 * MIN), [
+    { id: 'a', at: 0, text: 'Old', state: 'expired' },
+    { id: 'b', at: 55 * MIN, text: 'Fresh', state: 'waiting' },
+  ])
+  assert.deepEqual(outboxNow(typed, 13 * 60 * MIN, 10 * MIN).map(message => message.id), [])
+  assert.equal(typed[0].state, 'waiting')
 })
 
 test('memoryStore keeps what was typed, newest last', async () => {

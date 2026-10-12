@@ -62,6 +62,14 @@ test('queue: the open steps to hand out, with the worker, the condition and the 
   ])
 })
 
+test('queue: a condition with brackets of its own, and a time in hours and minutes', () => {
+  const text = '## Next to hand out (Game - Main)\n- [ ] Knight rows (for Units; after the archer (branch fix/archer-walk) merges; about 1 h 30 min)\n- [ ] Tidy (for Units; about 1.5 hours)\n'
+  assert.deepEqual(queue(parseBacklog(text, RULES)).map(step => [step.title, step.worker, step.after, step.minutes]), [
+    ['Knight rows', 'Units', 'the archer (branch fix/archer-walk) merges', 90],
+    ['Tidy', 'Units', null, 90],
+  ])
+})
+
 test('forYou: every open step that ends in @you, with its activity', () => {
   assert.deepEqual(forYou(backlog), [
     { text: 'Say whether the run does what you intended', activity: 'Architecture' },

@@ -25,7 +25,7 @@ test('lastByChat: the last line of each chat, and nothing from before a gap', ()
 
 test('changes: a chat seen for the first time is recorded', () => {
   assert.deepEqual(changes(new Map(), [seen('Units', 'working', plan('Archer', { step: 1, steps: 4, leftMs: 9 }))], 5 * MIN), [
-    { at: 5 * MIN, chat: 'Units', state: 'working', task: 'Archer', step: 1, steps: 4, leftMs: 9, startedAt: null, source: 'plan', by: null },
+    { at: 5 * MIN, chat: 'Units', state: 'working', task: 'Archer', step: 1, steps: 4, leftMs: 9, estimateAt: null, startedAt: null, source: 'plan', by: null },
   ])
 })
 
@@ -84,7 +84,30 @@ test('taskFacts: when the task was first seen, its first estimate, and the time 
     startedAt: null,
     firstEstimate: { at: 12 * MIN, leftMs: 90 * MIN },
     waitedMs: 15 * MIN,
+    workedMs: 35 * MIN,
   })
+})
+
+test('taskFacts: the first estimate is dated by when the chat gave it, and the first recorded start stands', () => {
+  const lines = [
+    row(20, 'Units', 'working', 'Archer', { leftMs: 40 * MIN, estimateAt: 5 * MIN, startedAt: 2 * MIN }),
+    row(30, 'Units', 'working', 'Archer', { step: 2, leftMs: 30 * MIN, estimateAt: 29 * MIN, startedAt: 1 * MIN }),
+  ]
+  const facts = taskFacts(lines, 'Units', 'Archer', 60 * MIN)
+  assert.deepEqual(facts.firstEstimate, { at: 5 * MIN, leftMs: 40 * MIN })
+  assert.equal(facts.startedAt, 2 * MIN)
+})
+
+test('taskFacts: only time seen as working is worked: not waiting, not free, not while the board was off', () => {
+  const lines = [
+    row(0, 'Units', 'working', 'Archer'),
+    row(10, 'Units', 'waiting', 'Archer'),
+    row(20, 'Units', 'free', 'Archer'),
+    row(30, 'Units', 'working', 'Archer'),
+    gap(35),
+    row(900, 'Units', 'working', 'Archer'),
+  ]
+  assert.equal(taskFacts(lines, 'Units', 'Archer', 905 * MIN).workedMs, 20 * MIN)
 })
 
 test('taskFacts: an earlier task of the same name is another task, and a recorded hand-over is kept', () => {

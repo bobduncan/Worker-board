@@ -35,7 +35,10 @@ export async function readTail(path, maxBytes = TAIL_BYTES) {
  * What a line must hold to matter for a task: a message from another chat, a message sent to one, something the
  * person typed, or the end of a turn.
  */
-const TASK_MARKS = ['cross-session-message', '"SendMessage"', '"kind":"human"', '"kind":"plugin"', '"stop_reason":"end_turn"']
+const TASK_MARKS = [
+  'cross-session-message', '"SendMessage"', '"kind":"human"', '"kind":"plugin"', '"stop_reason":"end_turn"',
+  '[Request interrupted',
+]
 const DEEP_BYTES = 24 * 1024 * 1024
 const NEWLINE = 10
 
@@ -180,9 +183,16 @@ function peerMessage(entry) {
   }
 }
 
-function titleOf(body) {
+/**
+ * How the main chat opens a message that hands over a task: "Task from ...", "Next task from ...", "Two tasks
+ * from ...". Its other messages ("From the main chat, ...") are notes on a task and start none.
+ */
+const HANDS_OVER = /^\s*(?:\w+\s+){0,2}tasks?\b/i
+
+/** A short title from the first line of a message: its first sentence, without the main chat's opening words. */
+function titleOf(body, isHandOver = false) {
   const first = body.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
-  const plain = first.replace(/^Task from [^:]{1,60}:\s*/i, '')
+  const plain = isHandOver ? first.replace(/^(?:\w+\s+){0,2}tasks?\b[^:]{0,60}:\s*/i, '') : first
   const sentence = plain.match(/^(.+?)[.!?](\s|$)/)?.[1] ?? plain
   const short = sentence.length > TITLE_CHARS ? `${sentence.slice(0, TITLE_CHARS - 1).trimEnd()}…` : sentence
   return short.charAt(0).toUpperCase() + short.slice(1)
@@ -192,47 +202,81 @@ const isReportTo = (entry, title) =>
   entry.type === 'assistant'
   && entry.blocks.some(block => block.type === 'tool_use' && block.name === 'SendMessage' && block.input?.to === title)
 
+/** An entry after which no turn is running: the answer that ends it, or the app's mark that the person stopped it. */
+const endsTurn = entry =>
+  entry.type === 'assistant'
+    ? entry.stopReason !== null && entry.stopReason !== 'tool_use'
+    : !hasToolResult(entry) && textOf(entry).startsWith('[Request interrupted')
+
 /**
- * When the current task started: the newest message from another chat, unless the chat has reported to the main
- * chat since (then that task is finished). Its first line gives a title when the chat's plan line has none.
+ * Walks the entries and keeps the task the main chat handed over. A task is finished when the chat has sent a
+ * message to the main chat and its turn has ended after it: a question sent to the main chat in the middle of the
+ * work does not end the task, because the turn goes on.
  */
-export function taskStart(entries, { mainTitle }) {
+function handOvers(entries, { mainTitle, mainSession = null }) {
   let start = null
+  let reportedAt = null
+  let finishedAt = null
   for (const entry of entries) {
+    if (entry.isSidechain) continue
+    if (endsTurn(entry)) {
+      if (reportedAt !== null) {
+        start = null
+        finishedAt = reportedAt
+      }
+      reportedAt = null
+      continue
+    }
     const message = peerMessage(entry)
-    if (message !== null) start = { at: entry.at, from: message.from, title: titleOf(message.body) }
-    else if (start !== null && isReportTo(entry, mainTitle)) start = null
+    if (message !== null) {
+      const isFromMain = message.from !== null && (message.from === mainTitle || message.from === mainSession)
+      if (isFromMain && HANDS_OVER.test(message.body)) {
+        start = { at: entry.at, from: message.from, title: titleOf(message.body, true) }
+        reportedAt = null
+      }
+    } else if (isReportTo(entry, mainTitle)) {
+      reportedAt = entry.at
+    }
   }
-  return start
-}
-
-/** When the chat last reported to the main chat, or null. */
-export function lastReport(entries, { mainTitle }) {
-  return entries.findLast(entry => isReportTo(entry, mainTitle))?.at ?? null
+  return { start, finishedAt }
 }
 
 /**
- * What started the turn that is running, for a chat that named no task: the first thing typed by the person or
- * sent by another chat since the last turn ended. `isSure` is false when the tail does not reach back to the end
- * of the turn before, so the entry may be something said in the middle of a longer turn.
+ * The task the main chat handed to this chat and that is not finished: when it was handed over, and a title from
+ * its first line for a chat whose plan line has none. Null when there is none in these entries.
+ */
+export function taskStart(entries, main) {
+  return handOvers(entries, main).start
+}
+
+/** When the chat last finished a task: its last report to the main chat that its turn ended after. Or null. */
+export function lastFinish(entries, main) {
+  return handOvers(entries, main).finishedAt
+}
+
+/**
+ * The last thing that opened a turn: the first thing typed by the person, or sent by another chat, since the turn
+ * before ended. `isOpen` says no turn has ended since, so it is what the running turn is about. `isSure` is false
+ * when the entries do not reach back to the end of the turn before: the entry may then be a remark made in the
+ * middle of a longer turn.
  */
 export function turnStart(entries, { prefix = '' } = {}) {
   let opening = null
+  let isOpen = false
   let hasEnd = false
   for (const entry of entries) {
     if (entry.isSidechain) continue
-    if (entry.type === 'assistant') {
-      if (entry.stopReason !== null && entry.stopReason !== 'tool_use') {
-        opening = null
-        hasEnd = true
-      }
+    if (endsTurn(entry)) {
+      isOpen = false
+      hasEnd = true
       continue
     }
-    if (opening !== null || hasToolResult(entry)) continue
+    if (entry.type === 'assistant' || isOpen || hasToolResult(entry)) continue
     const peer = peerMessage(entry)
     if (peer !== null) {
       const from = typeof peer.from === 'string' && !peer.from.startsWith('local_') ? peer.from : 'Another chat'
-      opening = { at: entry.at, by: from.startsWith(prefix) ? from.slice(prefix.length) : from, title: titleOf(peer.body), isSure: hasEnd }
+      opening = { at: entry.at, by: from.startsWith(prefix) ? from.slice(prefix.length) : from, title: titleOf(peer.body, true), isSure: hasEnd }
+      isOpen = true
       continue
     }
     const origin = entry.origin
@@ -240,9 +284,16 @@ export function turnStart(entries, { prefix = '' } = {}) {
       ? !entry.isMeta && !entry.isCompactSummary && !isCommandText(textOf(entry))
       : origin.kind === 'human' || (origin.kind === 'plugin' && origin.asUser === true)
     const value = isTyped ? typedText(entry) : ''
-    if (value !== '') opening = { at: entry.at, by: 'you', title: titleOf(value), isSure: hasEnd }
+    if (value === '') {
+      // A turn the chat's own work started (a helper reporting back, a background task that finished) goes on
+      // with what the turn before was about.
+      if (origin !== null && origin.kind !== 'human' && opening !== null) isOpen = true
+      continue
+    }
+    opening = { at: entry.at, by: 'you', title: titleOf(value), isSure: hasEnd }
+    isOpen = true
   }
-  return opening
+  return opening === null ? null : { ...opening, isOpen }
 }
 
 function typedText(entry) {

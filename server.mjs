@@ -16,7 +16,7 @@ import { loadConfig } from './src/config.mjs'
 import { cached, gitRunner, readFolders } from './src/folders.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
-import { fileStore, memoryStore, tick } from './src/store.mjs'
+import { fileStore, memoryStore, outboxNow, tick } from './src/store.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -178,7 +178,7 @@ async function main(args) {
     token: randomBytes(32).toString('hex'),
     maxMessageChars: config.maxMessageChars,
     // What was typed shows at once, so the outbox is not part of the cached state.
-    getState: async () => ({ ...await readState(), outbox: store.outbox().filter(message => message.state === 'waiting') }),
+    getState: async () => ({ ...await readState(), outbox: outboxNow(store.outbox(), clock(), config.messageKeepMinutes * 60_000) }),
     say: async text => {
       const message = { id: randomBytes(8).toString('hex'), at: clock(), text, state: 'waiting' }
       await store.say(message)
