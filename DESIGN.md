@@ -63,10 +63,15 @@ the first design let only the main chat receive.
 
 **The bridge as built** (`src/bridge.mjs`, and `hooks/board.ts` in the Workers mod, version 0.4.0). While it runs,
 the board keeps `<project>\.claude\board.json` with its address and a key. Every chat in the Workers list asks
-`POST /api/bridge/take` with that key and its own name every few seconds; the board marks what waits for that
-chat delivered, then hands it out, and the mod types it into its chat as the person's own words. The engine runs
-it once the chat is idle, so a busy chat gets it after what it is doing. The key only takes: sending still needs
-the board's own page. What is typed:
+`POST /api/bridge/take` with that key, its own name and its session's id every few seconds. The board serves only
+the session it shows under that name, marks what waits for that chat taken, writes that down, then hands it out;
+the mod types it into its chat as the person's own words and tells the board what was typed and what was not
+(`POST /api/bridge/typed`), so the card says "handed to its chat", then "typed into its chat", or that it did not
+arrive. The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
+takes: sending still needs the board's own page. A second board that starts while another one's file is there
+and that board answers leaves the file alone. What remains, as with sending: a chat that wrote a `board.json` of
+its own could have its own text typed into the other chats; that takes a deliberate act, and the mod's note
+forbids touching the file. What is typed:
 
 | The person | Typed into the chat |
 |---|---|
@@ -100,7 +105,9 @@ board also ends its games when it is closed, and the card has a Stop button. The
 branch and the folder come from the board's own state, and starting needs what sending needs (the token, the
 board's own origin, JSON). The board switches no folder to another branch: a branch that is in no working folder
 cannot be started, and the card says so. Vite's cache for these games is kept in the board's `data/game-cache`,
-so nothing is written into a folder's `node_modules` while a worker runs the game from it too.
+so nothing is written into a folder's `node_modules` while a worker runs the game from it too. The Overview has
+a "Run game" button that is always there (the person, 2026-10-12: "lets add the run game button in the worker
+board"): it opens the game as it is on main the same way, and says which commit main is on and since when.
 
 **Still to build in the branch:** a tool in the mod for a chat to file and close an ask; the plan line names the
 chat's branch and when its task was named; and the line in the working agreement that tells every chat to file an
