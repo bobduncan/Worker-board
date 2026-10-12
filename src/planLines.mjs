@@ -43,6 +43,8 @@ export function parsePlanLine(fileText) {
           // When the chat named the task. Older plan lines do not have it.
           since: number(task.since),
           isReported: task.isReported === true,
+          // The chat sent another chat a note or a question in the middle of its task, and waits for the answer.
+          asked: task.asked === true,
         }
       : null,
   }

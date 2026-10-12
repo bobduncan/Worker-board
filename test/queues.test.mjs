@@ -235,3 +235,17 @@ test('backgroundRunning counts what was sent to the background and has not repor
   // An ordinary result, also one that only mentions the words, starts nothing.
   assert.equal(count([toolResult(1), user(2, [{ type: 'tool_result', tool_use_id: 't', content: 'It said: Async agent launched' }])]), 0)
 })
+
+test('a card the chat forgot to clear does not keep it "working" once the app itself calls its turn completed', () => {
+  const nothing = { plan: null, handOver: null, background: 0, step: null }
+  const card = { task: { isReported: false } }
+  // The app's own summary of the ended turn says the work is complete: the chat is free, whatever its card says.
+  assert.equal(heldBy({ ...nothing, plan: card, isCompleted: true }), null)
+  assert.equal(heldBy({ ...nothing, plan: card, isCompleted: false }).why, 'task')
+  assert.equal(heldBy({ ...nothing, plan: card }).why, 'task')
+  // A chat that asked another chat in the middle of its task waits for the answer: its card still holds it.
+  assert.equal(heldBy({ ...nothing, plan: { task: { isReported: false, asked: true } }, isCompleted: true }).why, 'task')
+  // What the board sees for itself still counts: background work, an open branch, a hand-over without a report.
+  assert.equal(heldBy({ ...nothing, plan: card, isCompleted: true, background: 1 }).why, 'background')
+  assert.equal(heldBy({ ...nothing, handOver: { at: 1, title: 'x' }, isCompleted: true }).why, 'task')
+})
