@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { forYou, noteSections, openWork, parseBacklog, queue } from '../src/backlog.mjs'
+import { closedForYou, forYou, noteSections, openWork, parseBacklog, queue } from '../src/backlog.mjs'
 
 const TEXT = `# Backlog
 
@@ -96,6 +96,16 @@ test('the indented lines under a step are its details, in sections', () => {
   ])
   assert.deepEqual([portrait.branch, tidy.notes], ['feature/hud-portrait', []])
   assert.deepEqual(noteSections(['- only a point', 'http://example.com: not a name']), [{ title: null, lines: ['http://example.com: not a name'], points: ['only a point'] }])
+})
+
+test('closedForYou: the steps for the person that are ticked, with their id and kind', () => {
+  const text = '## Art\n- [x] B03 Verify: the mage is right @you\n- [x] Say whether the knight is right @you\n- [ ] B14 Decide: the bridge @you\n- [x] B20 Draw the bat\n'
+  const backlog = parseBacklog(text, RULES)
+  assert.deepEqual(closedForYou(backlog).map(step => [step.id, step.asks, step.title, step.activity]), [
+    ['B03', 'verify', 'the mage is right', 'Art'],
+    [null, null, 'Say whether the knight is right', 'Art'],
+  ])
+  assert.deepEqual(forYou(backlog).map(step => step.id), ['B14'])
 })
 
 test('queue: a condition with brackets of its own, and a time in hours and minutes', () => {

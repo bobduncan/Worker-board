@@ -3,7 +3,7 @@
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { allWords, forYou, parseBacklog, queue } from './backlog.mjs'
+import { allWords, closedForYou, forYou, parseBacklog, queue } from './backlog.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { parsePlanLine } from './planLines.mjs'
@@ -273,6 +273,41 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     }
   }
 
+  /**
+   * A step for the person as a card like the requests of the chats. A step says what it asks of the person
+   * ("Verify:", "Decide:", "Provide:", "Do:"); the answer goes to the worker it names, else to the main chat,
+   * which keeps the backlog.
+   */
+  function stepCard(step, isClosed) {
+    const to = step.worker !== null && names.includes(step.worker) ? step.worker : main?.name ?? null
+    // Kept under the step's own id; a step from before the ids is kept under its words.
+    const id = step.id === null ? stepId(`${step.activity}\n${step.text}`) : `backlog:${step.id}`
+    return {
+      id,
+      isClosed,
+      step: step.id,
+      from: to,
+      kind: step.asks === 'verify' || step.asks === 'do' ? step.asks : 'input',
+      asks: step.asks,
+      title: step.title,
+      text: '',
+      at: null,
+      activity: step.activity,
+      options: [],
+      pictures: picturesOf(allWords(step)),
+      // For the details of the step: its own words, its notes and the branch it names.
+      words: step.text,
+      notes: step.notes,
+      branch: step.branch,
+      run: null,
+      checks: [],
+      tried: [],
+      // A closed step takes no answer.
+      canAnswer: to !== null && !isClosed,
+      answer: isClosed ? null : answerOf(sent, id),
+    }
+  }
+
   const until = Math.max(now, ...live.flatMap(lane => lane.ahead.map(span => span.to)))
 
   return {
@@ -285,36 +320,10 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)),
     forYou: needsOf(asks, lanes, sent),
-    // The steps in the backlog that end in @you, as cards like the ones above. A step says what it asks of the
-    // person ("Verify:", "Decide:", "Provide:", "Do:"); the answer goes to the worker it names, else to the main
-    // chat, which keeps the backlog.
-    backlogForYou: forYou(backlog).map(step => {
-      const to = step.worker !== null && names.includes(step.worker) ? step.worker : main?.name ?? null
-      // Kept under the step's own id; a step from before the ids is kept under its words.
-      const id = step.id === null ? stepId(`${step.activity}\n${step.text}`) : `backlog:${step.id}`
-      return {
-        id,
-        step: step.id,
-        from: to,
-        kind: step.asks === 'verify' || step.asks === 'do' ? step.asks : 'input',
-        asks: step.asks,
-        title: step.title,
-        text: '',
-        at: null,
-        activity: step.activity,
-        options: [],
-        pictures: picturesOf(allWords(step)),
-        // For the details of the step: its own words, its notes and the branch it names.
-        words: step.text,
-        notes: step.notes,
-        branch: step.branch,
-        run: null,
-        checks: [],
-        tried: [],
-        canAnswer: to !== null,
-        answer: answerOf(sent, id),
-      }
-    }),
+    // The open steps in the backlog that end in @you.
+    backlogForYou: forYou(backlog).map(step => stepCard(step, false)),
+    // The ticked ones: closed. The page shows them only when the person asks for them.
+    backlogClosed: closedForYou(backlog).map(step => stepCard(step, true)),
     // Folders no worker is named for, and whether git answered at all.
     otherFolders: (folders ?? []).filter(folder => folder.branch !== 'main' && owner(folder) === null),
     hasFolders: folders !== null,

@@ -33,7 +33,7 @@ function minutesOf(part) {
 
 function parseStep(isDone, rest, { prefix, names }) {
   const isYou = /(^|\s)@you\s*$/.test(rest)
-  // An open step starts with its id ("B14"): the person names a step by it, and it never changes.
+  // A step starts with its id ("B14"): the person names a step by it, and it never changes.
   const lead = rest.match(/^(B\d+)\s+/)
   const text = rest.slice(lead === null ? 0 : lead[0].length).replace(/(^|\s)@you\s*$/, '').trim()
 
@@ -149,8 +149,17 @@ export function queue(backlog) {
  * the step does not say), and the worker it names, if any.
  */
 export function forYou(backlog) {
+  return stepsForYou(backlog, false)
+}
+
+/** The steps for the person that are ticked: closed, and shown only when the person asks for them. */
+export function closedForYou(backlog) {
+  return stepsForYou(backlog, true)
+}
+
+function stepsForYou(backlog, isDone) {
   return backlog.activities.flatMap(activity =>
-    open(activity).filter(step => step.isYou).map(({ id, text, title, asks, worker, branch, notes }) =>
+    activity.steps.filter(step => step.isYou && step.isDone === isDone).map(({ id, text, title, asks, worker, branch, notes }) =>
       ({ id, text, title, asks, worker, branch, notes: noteSections(notes), activity: activity.name })))
 }
 

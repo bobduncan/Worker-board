@@ -227,6 +227,20 @@ test('a step for you in the backlog shows the pictures of the folder it points t
   assert.deepEqual(state.backlogForYou.map(step => step.pictures), [['art-inbox/red-mage/a.png', 'art-inbox/red-mage/b.png'], []])
 })
 
+test('the ticked steps for you are kept apart as closed, and take no answer', () => {
+  const state = build({
+    apps: [app('Main')],
+    backlog: '## Art\n- [x] B03 Verify: the mage is right (pictures in art-inbox/red-mage) @you\n- [ ] B14 Decide: the bridge @you\n',
+    pictureLists: { 'art-inbox/red-mage': ['art-inbox/red-mage/a.png'] },
+    outbox: [{ id: 'm1', at: NOW, to: 'Main', ask: 'backlog:B03', verdict: 'approve', text: '', state: 'waiting' }],
+  })
+  assert.deepEqual(state.backlogForYou.map(step => [step.step, step.isClosed, step.canAnswer]), [['B14', false, true]])
+  assert.deepEqual(state.backlogClosed.map(step => [step.step, step.isClosed, step.canAnswer, step.answer, step.kind, step.pictures]), [
+    ['B03', true, false, null, 'verify', ['art-inbox/red-mage/a.png']],
+  ])
+  assert.deepEqual(buildState({}, { now: NOW, config }).backlogClosed, [])
+})
+
 test('a step carries what its details show: its words, its notes in sections, its branch, and a queued step its pictures', () => {
   const state = build({
     apps: [app('Main'), app('Units')],

@@ -37,6 +37,10 @@ writes in front of each what it asks of the person, and the board follows that: 
 `Decide:` and `Provide:` need words, `Do:` gets a Done button. A step shows the pictures of the folder it points
 to. Its answer goes to the worker the step names, else to the main chat, which keeps the backlog.
 
+**Closed is hidden.** What the person answered on the board, and the steps for them that are ticked in the
+backlog, are closed and not shown, unless they tick "Show closed" above the inbox. An answer that did not arrive in
+time opens its request again.
+
 **Details on a click.** The head of a card, and a step in a lane's queue, open a window with everything known
 about it (`design/2026-10-12-codex-design-3-details.webp`): what it is and whose, a description, the pictures it
 points to, where it stands in the queue, its branch and folder, and for a request the answer form of its kind. A

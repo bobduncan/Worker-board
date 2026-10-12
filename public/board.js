@@ -412,6 +412,13 @@ function sentLine(answer) {
 const isStep = need => need.activity !== undefined
 
 /**
+ * Closed for the person: ticked in the backlog, or answered here. An answer that did not arrive in time opens it
+ * again. Closed ones are hidden unless "Show closed" is ticked.
+ */
+const isClosed = need => need.isClosed === true || (need.answer !== null && need.answer.state !== 'expired')
+const showsClosed = () => $('needs-closed').checked
+
+/**
  * The part of a request that takes the answer: what was sent, or the form its kind needs. `isFolded` keeps the
  * form of a backlog step behind a button until it is opened, so the many steps stay short.
  */
@@ -419,6 +426,7 @@ function answerPart(need, state, isFolded) {
   const parts = []
   const answer = need.answer
   if (answer !== null && answer.state !== 'expired') return [sentLine(answer)]
+  if (need.isClosed === true) return [el('p', 'muted', 'Closed: ticked in the backlog.')]
   if (answer !== null) parts.push(el('p', 'problem', `Your answer of ${clock(answer.at)} was not delivered in time. Send it again when the chat can take it.`))
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
@@ -499,7 +507,7 @@ function listBox(title, lines) {
 
 function drawNeed(need, state) {
   const kind = KINDS[need.kind]
-  const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}`)
+  const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${isClosed(need) ? ' is-closed' : ''}`)
   card.dataset.id = need.id
   // The head of a card opens its details.
   const head = el('div', 'need-head')
@@ -533,14 +541,19 @@ function ordered(needs) {
 }
 
 function drawLegacy(state) {
-  if (state.backlogForYou.length === 0) return null
+  const open = state.backlogForYou.filter(step => !isClosed(step))
+  const closed = [...state.backlogForYou.filter(isClosed), ...state.backlogClosed]
+  if (open.length === 0 && closed.length === 0) return null
   const box = el('details', 'legacy')
   box.open = isLegacyOpen
-  const counts = Object.keys(ASKS).map(asks => [ASKS[asks], state.backlogForYou.filter(step => step.asks === asks).length]).filter(([, count]) => count > 0)
-  const summary = el('summary', '', `From the backlog (${state.backlogForYou.length})`)
-  summary.append(el('small', '', counts.map(([name, count]) => `${count} ${name.toLowerCase()}`).join(' · ')))
+  const counts = Object.keys(ASKS).map(asks => [ASKS[asks], open.filter(step => step.asks === asks).length]).filter(([, count]) => count > 0)
+  const summary = el('summary', '', `From the backlog (${open.length})`)
+  const notes = counts.map(([name, count]) => `${count} ${name.toLowerCase()}`)
+  if (closed.length > 0) notes.push(`${closed.length} closed ${showsClosed() ? 'shown' : 'hidden'}`)
+  summary.append(el('small', '', notes.join(' · ')))
   box.append(summary)
-  for (const step of state.backlogForYou) box.append(drawNeed(step, state))
+  for (const step of open) box.append(drawNeed(step, state))
+  if (showsClosed()) for (const step of closed) box.append(drawNeed(step, state))
   box.addEventListener('toggle', () => { isLegacyOpen = box.open })
   return box
 }
@@ -560,14 +573,17 @@ function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
   const top = box.scrollTop
-  $('needs-count').textContent = state.forYou.length === 0 ? '' : String(state.forYou.length)
-  const cards = ordered(state.forYou).map(need => drawNeed(need, state))
-  fill(box, [cards.length === 0 ? el('p', 'empty', 'Nothing waits for you.') : null, ...cards, drawLegacy(state)])
+  const open = state.forYou.filter(need => !isClosed(need))
+  const answered = state.forYou.length - open.length
+  $('needs-count').textContent = open.length === 0 ? '' : String(open.length)
+  const cards = ordered(showsClosed() ? state.forYou : open).map(need => drawNeed(need, state))
+  const none = open.length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  fill(box, [none, ...cards, drawLegacy(state)])
   box.scrollTop = top
   refocus(box, focused)
 }
 
-const needsData = state => [state.forYou, state.backlogForYou, $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms]]
+const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms]]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
@@ -576,7 +592,8 @@ function redrawNeeds() {
   drawDetails(board)
 }
 
-const findNeed = id => (board === null ? undefined : [...board.forYou, ...board.backlogForYou].find(one => one.id === id))
+const everyNeed = state => [...state.forYou, ...state.backlogForYou, ...state.backlogClosed]
+const findNeed = id => (board === null ? undefined : everyNeed(board).find(one => one.id === id))
 
 /** The answer forms work the same in the inbox and in the details: both hold `.need` elements named by their id. */
 function takeAnswers(box) {
@@ -627,6 +644,21 @@ takeAnswers($('needs'))
 takeAnswers($('details'))
 $('needs-order').addEventListener('change', redrawNeeds)
 
+// "Show closed" is off unless the person ticked it; the choice is kept in this browser.
+try {
+  $('needs-closed').checked = localStorage.getItem('show-closed') === 'yes'
+} catch {
+  // Without storage it is off after each reload.
+}
+$('needs-closed').addEventListener('change', () => {
+  try {
+    localStorage.setItem('show-closed', showsClosed() ? 'yes' : 'no')
+  } catch {
+    // Not kept; it still applies until the page is closed.
+  }
+  redrawNeeds()
+})
+
 // The details of a request or of a queued step, in a window over the board
 
 /** What the details are about: a request by its id, or a queued step by its lane and place. */
@@ -636,7 +668,7 @@ let detailsShown = null
 function subjectOf(state) {
   if (detailsOf === null) return null
   if (detailsOf.need !== undefined) {
-    const need = [...state.forYou, ...state.backlogForYou].find(one => one.id === detailsOf.need)
+    const need = everyNeed(state).find(one => one.id === detailsOf.need)
     return need === undefined ? null : { need, lane: null, place: -1 }
   }
   const lane = state.chats.find(one => one.name === detailsOf.lane)
@@ -705,9 +737,10 @@ function drawDetails(state) {
   const meta = need === null
     ? [`Worker: ${lane.name}`, `In queue (${place + 1} of ${lane.queue.length})`, about(step.minutes), step.after === null ? null : `after ${step.after}`]
     : [
+        isClosed(need) ? 'Closed' : null,
         isStep(need) ? (ASKS[need.asks] ?? 'Not sorted') : KINDS[need.kind].tag,
         isStep(need) ? need.activity : `From: ${need.from}`,
-        isStep(need) && need.from !== null ? `Answer goes to: ${need.from}` : null,
+        isStep(need) && need.from !== null && need.isClosed !== true ? `Answer goes to: ${need.from}` : null,
         need.at === null ? null : `Asked ${ago(need.at, now)}`,
       ]
   const head = el('header', 'details-head')
@@ -871,7 +904,7 @@ $('lanes').addEventListener('click', event => {
 function openFromAddress(state) {
   if (!location.hash.startsWith('#details=') || detailsOf !== null) return
   const code = decodeURIComponent(location.hash.slice('#details='.length))
-  const need = [...state.forYou, ...state.backlogForYou].find(one => one.step === code || one.id === code)
+  const need = everyNeed(state).find(one => one.step === code || one.id === code)
   if (need !== undefined) return openDetails({ need: need.id })
   for (const lane of state.chats) {
     const place = lane.queue.findIndex(step => step.id === code)
