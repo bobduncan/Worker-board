@@ -156,7 +156,8 @@ function etaOf(task, state, now) {
 
 function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
-  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null }
+  // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
+  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null }
   const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
@@ -212,7 +213,11 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   }
 }
 
-const asAnswer = message => (message === undefined ? null : { at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state })
+const asAnswer = message => (message === undefined ? null : {
+  at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state,
+  // When its chat took it, and when it was typed there.
+  takenAt: message.takenAt ?? null, deliveredAt: message.deliveredAt ?? null,
+})
 
 /**
  * What the person answered to a request, as far as the outbox knows: the last message about it. An answer stands
@@ -394,11 +399,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   let advisor = null
   if (advisorChat !== undefined) {
-    const { state, doingNow: doing, session } = card(advisorChat, raw, context)
+    const { state, doingNow: doing, session, appSession } = card(advisorChat, raw, context)
     const tail = raw.tails?.[advisorChat.cliSessionId] ?? null
     advisor = {
       name: advisorChat.name,
       session,
+      appSession,
       state,
       doingNow: doing,
       messages: tail === null || typeof tail.text !== 'string'
@@ -476,6 +482,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     main: main === undefined ? null : main.name,
     interrupted: live.filter(lane => lane.state === 'interrupted').map(lane => lane.name),
     notRunning: live.filter(lane => runningOf(lane.name) === false).map(lane => lane.name),
+    // The chats the main chat was lately asked to start, each with how that word fared.
+    starting: [...new Map(sent
+      .filter(message => message.command === 'start' && typeof message.about === 'string' && now - message.at < 10 * MIN)
+      .map(message => [message.about, { chat: message.about, at: message.at, state: message.state }])).values()],
     prepared: Number.isFinite(raw.restartNote?.at) ? { at: raw.restartNote.at } : null,
     preparing: word?.command === 'prepare restart' ? { at: word.at, state: word.state, working: live.filter(lane => lane.state === 'working').map(lane => lane.name) } : null,
     resuming: word?.command === 'resume' && now - word.at < 15 * MIN ? { at: word.at, state: word.state } : null,

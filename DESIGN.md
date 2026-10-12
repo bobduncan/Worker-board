@@ -82,6 +82,12 @@ forbids touching the file. What is typed:
 | answers a chat that waits | `(answered on the worker board, 16:02) <their words>` |
 | types to the advisor | `<their words>` and `(typed on the worker board, 16:02)` |
 
+An answered card stays in sight until its answer was typed into its chat and two minutes more, and says where the
+answer is; it is no longer counted as waiting for the person. What is sent to a chat that is not running makes
+the board ask the main chat to start it (`start <name>`, with the id the app knows the chat by, at most every two
+minutes per chat; `wakeFor` in `src/say.mjs`); the card and the advisor's tab say that it was asked, or offer the
+button when it was not.
+
 A request a chat filed itself says "Close this request." where a step says "Tick this step in the backlog.". An
 answer waits for its chat for `answerKeepHours` (48): the chat may be busy or not open. A line typed to the
 advisor is dropped after `messageKeepMinutes` (10), so nothing typed long ago turns up in a chat. A delivered
@@ -107,6 +113,10 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   (`isCutOff` in `src/state.mjs`): the file says waiting since after the turn began and the transcript has not
   moved on, or it says working and is no longer renewed. A chat whose process keeps no such file is never called
   interrupted. It is a state of its own, with the task the chat was on.
+- *Switched off for now.* On 2026-10-12 at 19:42 the person had every board stopped ("stop all worker boards. i
+  will start 1 manually from main myself"), and the list under "boards" is empty since. As long as it is, no chat
+  starts a board: the person starts the one on main themselves, from the Run pane. Putting "worker-board" back
+  into that list switches the automatic start on again; that is theirs to say.
 - *Not running.* The two restarts of 2026-10-12 showed that after a restart no worker's chat runs until something
   starts it, and that a message addressed by a chat's name does not reach a chat that is not running. A running
   chat's mod asks the board every few seconds what waits for it, so the board knows who runs: a chat it has not
@@ -182,8 +192,22 @@ The board works without the workers' help. A worker's plan line adds the step an
 - The first estimate a worker gives is kept. The card shows time so far, the first estimate, and what the worker
   says now. Past the first estimate, the overrun shows in a warning colour.
 - An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminds a working chat to renew it.
+- A lane's main figure is the time left ("24 min left"); the clock time it ends at is the small one (B95). A time
+  that has run out says by how much ("12 min over").
+- A working worker always has a time: its own, else the "about <time>" of its backlog step, else the one in its
+  hand-over; the last two count from the task's start and say where they are from. A worker that works with none
+  of the three is a fault, shown in the warning colour ("No time"). The main chat has no task to time.
+- One turn can hold several tasks. A task a chat names starts no earlier than its last message to the main chat,
+  and when the board still showed another task the chat had named, it starts when it was named (B94).
+- A hand-over that arrives while a chat works is not a user entry in the transcript: the app keeps it with the
+  turn as a queued command. The board reads it as a hand-over just the same.
 
 ## The queue
+
+A step a worker is on is in progress, not queued, also when the step names no branch (a check, a comparison, a
+merge): the step that names its branch, else the open step of its own that its task record names by id, else the
+one its hand-over names (B94).
+
 
 The queue stays in the backlog, under "Next to hand out (Game - Main)", so there is one list. The main chat writes
 each queued step so the board can read it: `- [ ] <task> (for Units; after <condition>; about 40 min)`. The board

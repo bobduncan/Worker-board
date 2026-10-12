@@ -147,7 +147,7 @@ test('a request shows the answer that was sent for it, until it is delivered or 
       { id: 'm3', at: NOW - MIN, to: 'Units', ask: 'other', verdict: null, text: 'Hello', state: 'waiting' },
     ],
   })
-  assert.deepEqual(state.forYou[0].answer, { at: NOW - MIN, verdict: 'approve', text: '', state: 'waiting' })
+  assert.deepEqual(state.forYou[0].answer, { at: NOW - MIN, verdict: 'approve', text: '', state: 'waiting', takenAt: null, deliveredAt: null })
 })
 
 test('a running turn without a sign of life is raised for you, and cannot be answered on the board', () => {
@@ -285,7 +285,7 @@ test('a step for you in the backlog is a card of its kind, answered to the worke
   assert.equal(withIds('the walk is smooth now').id, 'backlog:B14')
   // The answer that was sent for a step is shown with it; without a main chat nobody can be told.
   const answered = build({ apps: [app('Main')], backlog, outbox: [{ id: 'm1', at: NOW, to: 'Main', ask: state.backlogForYou[3].id, verdict: 'done', text: '', state: 'waiting' }] })
-  assert.deepEqual(answered.backlogForYou[3].answer, { at: NOW, verdict: 'done', text: '', state: 'waiting' })
+  assert.deepEqual(answered.backlogForYou[3].answer, { at: NOW, verdict: 'done', text: '', state: 'waiting', takenAt: null, deliveredAt: null })
   assert.deepEqual(build({ apps: [app('Units')], backlog }).backlogForYou.map(step => [step.from, step.canAnswer])[1], [null, false])
 })
 
@@ -643,7 +643,7 @@ test('a chat that keeps no file of its own in this turn is never called interrup
 
 test('the restart: who was cut off, what was prepared, and how long the board was off', () => {
   const quiet = build({ apps: [app('Main'), app('Units', summary('completed'))], tails: { Units: tail(ended) } })
-  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], notRunning: [], prepared: null, preparing: null, resuming: null, off: null })
+  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], notRunning: [], starting: [], prepared: null, preparing: null, resuming: null, off: null })
 
   const prepare = { id: 'p1', at: NOW - 10 * MIN, to: 'Main', ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
   const preparing = build({
@@ -700,4 +700,19 @@ test('a chat that asks under its name from another session than the board shows 
   const state = build({ apps: [app('Main'), app('Units')], seen: { shown: { Main: NOW - 5_000 }, other: { Units: NOW - 4_000 } }, board: { startedAt: NOW - 5 * MIN, offSince: null } })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.isRunning]), [['Main', true], ['Units', null]])
   assert.deepEqual(state.restart.notRunning, [])
+})
+
+test('an answer carries when it was handed to its chat and when it was typed; a chat carries the id the app knows it by', () => {
+  const backlog = '## Art\n- [ ] B14 Verify: the walk @you\n'
+  const first = build({ apps: [app('Main')], backlog }).backlogForYou[0]
+  const typed = { id: 'm1', at: NOW - 9 * MIN, to: 'Main', ask: first.id, version: first.version, verdict: 'approve', text: '', state: 'delivered', takenAt: NOW - 8 * MIN, deliveredAt: NOW - 7 * MIN }
+  const state = build({ apps: [app('Main'), app('Advisor')], backlog, outbox: [typed] })
+  assert.deepEqual(state.backlogForYou[0].answer, { at: NOW - 9 * MIN, verdict: 'approve', text: '', state: 'delivered', takenAt: NOW - 8 * MIN, deliveredAt: NOW - 7 * MIN })
+  assert.deepEqual([state.chats[0].appSession, state.advisor.appSession], ['local_Main', 'local_Advisor'])
+})
+
+test('the board says which chats the main chat was asked to start, for ten minutes', () => {
+  const asked = (about, at, state = 'delivered') => ({ id: `w-${about}-${at}`, at, to: 'Main', ask: null, command: 'start', about, text: `start ${about}`, state })
+  const state = build({ apps: [app('Main'), app('Units')], outbox: [asked('Units', NOW - 5 * MIN, 'expired'), asked('Units', NOW - MIN), asked('Advisor', NOW - 11 * MIN)] })
+  assert.deepEqual(state.restart.starting, [{ chat: 'Units', at: NOW - MIN, state: 'delivered' }])
 })

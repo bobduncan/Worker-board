@@ -31,7 +31,7 @@ import { cached, gitRunner, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { findPicture } from './src/pictures.mjs'
-import { checkSay } from './src/say.mjs'
+import { checkSay, wakeFor } from './src/say.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { fileStore, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -229,7 +229,9 @@ async function main(args) {
   // The demo has no chats to type into, so it has no bridge.
   // Neither has a board that only shows another one's history: the board that records is the one that delivers,
   // so of two boards on one project it is always the same one.
-  const isShowOnly = historyFrom !== undefined
+  // The same holds for a copy in another folder than the repository's main one: a branch that is being built
+  // must never take the chats away from the person's board, also not while that board is stopped.
+  const isShowOnly = historyFrom !== undefined || chosen.isMain === false
   const bridgeKey = isDemo || isShowOnly ? null : randomBytes(32).toString('hex')
 
   // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
@@ -309,10 +311,14 @@ async function main(args) {
     say: async body => {
       // What is answered here would never arrive: this board has no bridge.
       if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
-      const checked = checkSay(body, await readState(), config.maxMessageChars)
+      const state = await readState()
+      const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: 'waiting' }
       await store.say(message)
+      // Sent to a chat that is not running: the main chat is asked to start it, so nothing waits without a word.
+      const wake = wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+      if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
       // What was sent shows at once.
       readState.reset()
       return { ok: true, message }
