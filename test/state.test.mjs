@@ -74,7 +74,7 @@ test('a working chat shows the task of its plan line and what it does now', () =
   assert.equal(units.doingNow, 'Run the tests')
   assert.equal(units.isQuiet, false)
   assert.deepEqual(units.task, {
-    text: 'Shadow Beast', step: 2, steps: 6, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, source: 'plan', by: null,
+    text: 'Shadow Beast', step: 2, steps: 6, names: null, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, source: 'plan', by: null,
     // First seen now, in a turn the person opened 20 minutes ago, with an estimate given 3 minutes ago.
     startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null,
   })
@@ -303,7 +303,7 @@ test('a running turn that wrote nothing for more than ten minutes is quiet', () 
   assert.equal(units.isQuiet, true)
 })
 
-test('a worker without a task in its plan line takes the task handed over to it; the main chat does not', () => {
+test('a worker that recorded nothing has a task without words, from when it was handed over; no word of the hand-over is shown', () => {
   const handOver = fromChat(NOW - 30 * MIN, 'Game - Main', 'Task from Game - Main: build the archer.\nDetails follow.')
   const report = fromChat(NOW - 30 * MIN, 'Game - Units', 'The knight is finished.')
   const state = build({
@@ -312,36 +312,42 @@ test('a worker without a task in its plan line takes the task handed over to it;
     plans: { Units: planLine(null) },
   })
   assert.deepEqual(chatNamed(state, 'Units').task, {
-    text: 'Build the archer', step: null, steps: null, leftMs: null, estimateAt: null, source: 'handover', by: null,
+    text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null,
     startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null,
   })
-  // A report is no task for the main chat; its card shows what started the turn it is in.
-  assert.deepEqual([chatNamed(state, 'Main').task.source, chatNamed(state, 'Main').task.by], ['prompt', 'Units'])
+  // A report is no task for the main chat; it works, on something it has not recorded.
+  assert.deepEqual([chatNamed(state, 'Main').task.source, chatNamed(state, 'Main').task.text], ['unrecorded', ''])
+  assert.ok(!JSON.stringify(state).includes('archer') && !JSON.stringify(state).includes('knight'))
 })
 
-test('a working chat that named no task shows what started its turn, and who asked', () => {
+test('a working chat that recorded no task has one without words, from when its turn started', () => {
   const asked = [answer(NOW - 40 * MIN, 'Done'), typed(NOW - 25 * MIN, 'Make the lava glow more. It looks flat.'), step(NOW - 2 * MIN, 'Read the shader')]
-  const units = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(asked) } }), 'Units')
+  const state = build({ apps: [app('Units')], tails: { Units: tail(asked) } })
+  const units = chatNamed(state, 'Units')
   assert.deepEqual(units.task, {
-    text: 'Make the lava glow more', step: null, steps: null, leftMs: null, estimateAt: null, source: 'prompt', by: 'you',
+    text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null,
     startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null,
   })
+  assert.ok(!JSON.stringify(state).includes('lava'))
   const main = chatNamed(build({
     apps: [app('Main')],
     tails: { Main: tail([answer(NOW - 40 * MIN, 'Done'), fromChat(NOW - 5 * MIN, 'Game - Units', 'The archer is merged.'), step(NOW - 2 * MIN, 'Read the backlog')]) },
   }), 'Main')
-  assert.deepEqual([main.task.text, main.task.by], ['The archer is merged', 'Units'])
+  assert.deepEqual([main.task.text, main.task.source, main.task.startedAt], ['', 'unrecorded', NOW - 5 * MIN])
   const ended = chatNamed(build({ apps: [app('Units')], tails: { Units: tail([typed(NOW - 25 * MIN, 'Make the lava glow more.'), answer(NOW - 9 * MIN, 'Done')]) } }), 'Units')
   assert.equal(ended.task, null)
 })
 
 test('what the history recorded as the start of a long turn stands when the tail only holds a later remark', () => {
+  // The line is from before the board stopped keeping a prompt's words: its start counts, its words are not shown.
   const lines = [{ at: NOW - 90 * MIN, chat: 'Units', state: 'working', task: 'Make the lava glow more', step: null, steps: null, leftMs: null, startedAt: NOW - 91 * MIN, source: 'prompt', by: 'you' }]
   const remark = [toolResult(NOW - 12 * MIN), typed(NOW - 10 * MIN, 'How far are you?'), step(NOW - 2 * MIN, 'Run the tests')]
-  const units = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(remark) }, lines }), 'Units')
-  assert.deepEqual([units.task.text, units.task.by, units.task.startedAt], ['Make the lava glow more', 'you', NOW - 91 * MIN])
+  const state = build({ apps: [app('Units')], tails: { Units: tail(remark) }, lines })
+  const units = chatNamed(state, 'Units')
+  assert.deepEqual([units.task.text, units.task.source, units.task.startedAt], ['', 'unrecorded', NOW - 91 * MIN])
+  assert.ok(!JSON.stringify(state).includes('lava') && !JSON.stringify(state).includes('How far'))
   const fresh = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(remark) } }), 'Units')
-  assert.equal(fresh.task.text, 'How far are you')
+  assert.deepEqual([fresh.task.text, fresh.task.startedAt], ['', NOW - 10 * MIN])
 })
 
 test('a task handed over further back than the tail is found by the longer look back', () => {
@@ -351,33 +357,34 @@ test('a task handed over further back than the tail is found by the longer look 
     apps: [app('Units')],
     tails: { Units: { ...tail(running), earlier: [report(210), handOver].join('\n') } },
   }), 'Units')
-  assert.equal(units.task.text, 'Build the worker board')
-  assert.equal(units.task.source, 'handover')
+  assert.deepEqual([units.task.text, units.task.source], ['', 'unrecorded'])
   assert.equal(units.task.startedAt, NOW - 200 * MIN)
   assert.equal(units.doingNow, 'Run the tests')
-  // Reported since: that task is finished, and the chat is on what was typed to it afterwards.
+  // Reported since: that task is finished, and the chat is on what started its turn afterwards.
   const after = chatNamed(build({
     apps: [app('Units')],
     tails: { Units: { ...tail(running), earlier: [handOver, report(190), answer(NOW - 189 * MIN, 'Reported.')].join('\n') } },
   }), 'Units')
-  assert.deepEqual([after.task.text, after.task.source], ['Go', 'prompt'])
+  assert.deepEqual([after.task.text, after.task.source, after.task.startedAt], ['', 'unrecorded', NOW - 20 * MIN])
 })
 
-test('a handed-over task the tail no longer holds is kept from the history, until the chat is free', () => {
+test('a handed-over task the tail no longer holds keeps its start from the history, until the chat is free', () => {
   const lines = [{ at: NOW - 60 * MIN, chat: 'Units', state: 'working', task: 'Build the archer', step: null, steps: null, leftMs: null, startedAt: NOW - 62 * MIN, source: 'handover' }]
-  const busy = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(running) }, lines }), 'Units')
-  assert.equal(busy.task.text, 'Build the archer')
-  assert.equal(busy.task.startedAt, NOW - 62 * MIN)
+  const state = build({ apps: [app('Units')], tails: { Units: tail(running) }, lines })
+  const busy = chatNamed(state, 'Units')
+  assert.deepEqual([busy.task.text, busy.task.startedAt], ['', NOW - 62 * MIN])
+  // The words the history kept from before are not shown, on the lane or in the day's timeline.
+  assert.ok(!JSON.stringify(state).includes('archer'))
   const free = chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: tail(ended) }, lines }), 'Units')
   assert.equal(free.task, null)
   // Reported, but the turn still runs: the task stands until it ends.
   const report = minutesAgo => assistant(NOW - minutesAgo * MIN, 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Finished.' })])
   const wrappingUp = chatNamed(build({ apps: [app('Units')], tails: { Units: tail([...running, report(1)]) }, lines }), 'Units')
-  assert.equal(wrappingUp.task.text, 'Build the archer')
+  assert.deepEqual([wrappingUp.task.text, wrappingUp.task.startedAt], ['', NOW - 62 * MIN])
   // Reported and ended, and now on something the person typed: the remembered task is over.
   const next = [typed(NOW - 20 * MIN, 'Go'), report(15), toolResult(NOW - 15 * MIN), answer(NOW - 14 * MIN, 'Reported.'), typed(NOW - 5 * MIN, 'One more thing.'), step(NOW - 2 * MIN, 'Look')]
   const after = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(next) }, lines }), 'Units')
-  assert.deepEqual([after.task.text, after.task.source], ['One more thing', 'prompt'])
+  assert.deepEqual([after.task.text, after.task.source, after.task.startedAt], ['', 'unrecorded', NOW - 5 * MIN])
 })
 
 test('a task keeps the start, the first estimate and the waiting time the history recorded', () => {
@@ -406,7 +413,7 @@ test('the scenarios of the review: a thank-you from the main chat is no task, an
   const now = [typed(NOW - 30 * MIN, 'Fix the lava glow.'), step(NOW - 2 * MIN, 'Read the shader')]
 
   const unnamed = chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail([...past, ...now]) } }), 'Units')
-  assert.deepEqual([unnamed.task.text, unnamed.task.source, unnamed.task.startedAt], ['Fix the lava glow', 'prompt', NOW - 30 * MIN])
+  assert.deepEqual([unnamed.task.text, unnamed.task.source, unnamed.task.startedAt], ['', 'unrecorded', NOW - 30 * MIN])
 
   const named = chatNamed(build({
     apps: [app('Main'), app('Units')],

@@ -123,11 +123,11 @@ test('a worker without an estimate of its own gets its time from its step, count
   const state = build({ apps: everyone, tails: { Features: tail([handOver(NOW - 25 * MIN), ...running]) }, plans: { Features: planLine(null) } })
   const features = chatNamed(state, 'Features')
   assert.equal(features.state, 'working')
-  assert.deepEqual([features.task.text, features.task.source, features.task.stepId, features.task.stepMinutes], ['Build the camera', 'handover', 'B02', 60])
+  assert.deepEqual([features.task.text, features.task.source, features.task.stepId, features.task.stepMinutes], ['B02 The camera', 'step', 'B02', 60])
   // B02 says "about 1 h": 25 minutes in, 35 are left. It is not the worker's own estimate.
   assert.deepEqual(features.eta, { at: NOW + 35 * MIN, leftMs: 35 * MIN, isOverdue: false, isOwn: false })
   // The queue is planned after it, with each step's own time.
-  assert.deepEqual(features.ahead.map(span => [span.title, (span.to - span.from) / MIN, span.isQueued]), [['Build the camera', 35, false], ['The upgrade offer', 90, true]])
+  assert.deepEqual(features.ahead.map(span => [span.title, (span.to - span.from) / MIN, span.isQueued]), [['B02 The camera', 35, false], ['The upgrade offer', 90, true]])
 })
 
 test('a worker\'s own estimate wins over the step\'s time', () => {
@@ -154,8 +154,9 @@ test('a task without a name takes it from the open step that names the worker\'s
   const midTurn = [step(NOW - 2 * MIN, 'Run the tests'), toolResult(NOW - MIN)]
   const features = chatNamed(build({ apps: everyone, tails: { Features: tail(midTurn) } }), 'Features')
   assert.deepEqual([features.state, features.task.text, features.task.source, features.task.stepId], ['working', 'B02 The camera', 'step', 'B02'])
-  // Without such a step the task has no name, as before.
-  assert.equal(chatNamed(build({ apps: everyone, tails: { Units: tail(midTurn) } }), 'Units').task, null)
+  // Without such a step the task has no words: the page says it is not recorded yet.
+  const units = chatNamed(build({ apps: everyone, tails: { Units: tail(midTurn) } }), 'Units')
+  assert.deepEqual([units.task.text, units.task.source, units.task.stepId], ['', 'unrecorded', null])
 })
 
 test('a worker whose turn has ended is not free while its task is not reported', () => {
@@ -181,7 +182,7 @@ test('a worker whose turn has ended is not free while its task is not reported',
 
 test('a worker whose turn has ended is not free while the task handed to it is not reported', () => {
   const units = chatNamed(build({ apps: everyone, tails: { Units: tail([handOver(NOW - 30 * MIN), ...ended]) } }), 'Units')
-  assert.deepEqual([units.state, units.between, units.task.text], ['working', 'Its turn has ended; the task handed to it is not reported yet.', 'Build the camera'])
+  assert.deepEqual([units.state, units.between, units.task.text], ['working', 'Its turn has ended; the task handed to it is not reported yet.', ''])
 })
 
 test('a worker whose turn has ended is not free while background work it started runs (a review before a merge)', () => {

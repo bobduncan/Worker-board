@@ -256,7 +256,9 @@ function handOvers(entries, { mainTitle, mainSession = null }) {
     if (message !== null) {
       const isFromMain = message.from !== null && (message.from === mainTitle || message.from === mainSession)
       if (isFromMain && HANDS_OVER.test(message.body)) {
-        start = { at: entry.at, from: message.from, title: titleOf(message.body, true) }
+        // The backlog steps its first line names ("backlog steps B64 and then B65"): ids, never its words.
+        const steps = [...new Set((message.body.trim().split('\n')[0] ?? '').match(/\bB\d+\b/g) ?? [])]
+        start = { at: entry.at, from: message.from, title: titleOf(message.body, true), steps }
         reportedAt = null
       }
     } else if (isReportTo(entry, mainTitle)) {

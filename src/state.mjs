@@ -56,46 +56,50 @@ export function heldBy({ plan, handOver, background, step }) {
 }
 
 /**
- * The task a chat is on. Its own plan line first; else the task the main chat handed to it; else, for a chat that
- * works without having named a task, what started its turn (`source: 'prompt'`, with who asked in `by`); else the
- * backlog step that names its branch (`source: 'step'`). `step` is that step, when there is one: it gives the
- * task its id and, for a chat with no estimate of its own, its time.
+ * The task a chat is on, as the chat recorded it: the topic, the steps and the time of its plan line (`source:
+ * 'plan'`). A busy chat that has recorded nothing shows the backlog step it works on (`source: 'step'`): the one
+ * that names its branch, else the first open one the hand-over names by id. With neither, the task is there but
+ * has no words (`source: 'unrecorded'`, `text: ''`). The words of a prompt or of a hand-over are never used: what
+ * a person or a chat typed stays in the chat. `step` is the step that names the chat's branch, `stepById` finds
+ * an open step by its id; a step gives the task its id and, for a chat with no estimate of its own, its time.
  */
-function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, step = null }) {
+function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, step = null, stepById = () => null }) {
   // `scan` holds the entries that can start or end a task: the tail, after a longer look back when there is one.
   const handOver = chat.isMain || scan === null ? null : taskStart(scan, main)
   const opening = scan === null ? null : turnStart(scan, { prefix })
-  const bare = { step: null, steps: null, leftMs: null, estimateAt: null, source: 'handover', by: null }
+  const bare = { step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null }
   // A handed-over task stands while the chat works on it or waits for the person; a free chat has finished it.
   const isBusy = state === 'working' || state === 'waiting'
   let task = null
+  // The step a chat without a record of its own is on: the one that names its branch, else the one handed to it.
+  let onStep = step
   if (plan?.task != null && !plan.task.isReported) {
-    const { text, step, steps, leftMs } = plan.task
-    task = { text, step, steps, leftMs, estimateAt: leftMs === null ? null : plan.at, source: 'plan', by: null }
-  } else if (handOver !== null && isBusy) {
-    task = { text: handOver.title, ...bare }
-  } else if (handOver === null && isBusy && !chat.isMain && before?.source === 'handover' && typeof before.task === 'string') {
-    // The hand-over is further back than the board looks: the history remembers it, until the chat has reported.
+    const { text, step: at, steps, names, leftMs } = plan.task
+    task = { text, step: at, steps, names, leftMs, estimateAt: leftMs === null ? null : plan.at, source: 'plan', by: null }
+  } else if (isBusy) {
+    // The hand-over may be further back than the board looks: the history remembers that there was one, until
+    // the chat has reported.
     const finishedAt = scan === null ? null : lastFinish(scan, main)
-    if (finishedAt === null || finishedAt <= (before.startedAt ?? before.at)) task = { text: before.task, ...bare }
+    const isRemembered = handOver === null && !chat.isMain && (before?.source === 'handover' || before?.source === 'unrecorded' || before?.source === 'step')
+      && (finishedAt === null || finishedAt <= (before.startedAt ?? before.at))
+    onStep ??= (handOver?.steps ?? []).map(id => stepById(id)).find(found => found !== null) ?? null
+    if (onStep !== null) task = { text: [onStep.id, onStep.title].filter(Boolean).join(' '), ...bare, source: 'step' }
+    else if (handOver !== null || isRemembered || state === 'working') task = { text: '', ...bare }
   }
-  if (task === null && state === 'working') {
-    const current = opening !== null && opening.isOpen && opening.title !== '' ? opening : null
-    // An opening the entries cannot be sure of gives way to the one the history recorded while the chat kept working.
-    const remembered = before?.source === 'prompt' && before.state === 'working' && typeof before.task === 'string' ? before : null
-    if (current !== null && (current.isSure || remembered === null)) task = { text: current.title, ...bare, source: 'prompt', by: current.by }
-    else if (remembered !== null) task = { text: remembered.task, ...bare, source: 'prompt', by: remembered.by ?? null }
-  }
-  // A chat that is busy without a name for its task: the backlog step that names its branch says what it is.
-  if (task === null && isBusy && step !== null) task = { text: [step.id, step.title].filter(Boolean).join(' '), ...bare, source: 'step' }
   if (task === null) return null
 
-  const facts = taskFacts(lines, chat.name, task.text, now)
+  // A task without words has no name the history could know it by.
+  const facts = task.text === '' ? null : taskFacts(lines, chat.name, task.text, now)
   // When the task was first known: when the board first saw it, or when the chat says it named it.
   const firstSeenAt = Math.min(facts?.firstSeenAt ?? now, plan?.task?.since ?? Infinity)
   // What could have started it, not later than that: the hand-over, and for a task the chat named itself also
   // the last time the person opened a turn. The latest of them is the start.
-  const starts = [task.source === 'prompt' ? null : handOver?.at, task.source === 'handover' ? null : opening?.at]
+  // A task the chat did not record starts with its hand-over, else with what opened its turn. When the entries
+  // cannot be sure of that opening (it may be a remark in the middle of a longer turn), the start the history
+  // recorded while the chat kept working stands.
+  const kept = before?.state === 'working' && before.source !== 'plan' && Number.isFinite(before.startedAt) ? before.startedAt : null
+  const openedAt = opening === null ? null : opening.isOpen && opening.isSure ? opening.at : kept ?? opening.at
+  const starts = (task.source === 'plan' ? [handOver?.at, opening?.at] : [handOver === null ? openedAt : handOver.at])
     .filter(at => Number.isFinite(at) && at <= firstSeenAt)
   const startedAt = facts?.startedAt ?? Math.min(firstSeenAt, starts.length === 0 ? Infinity : Math.max(...starts))
   const first = facts?.firstEstimate ?? (task.leftMs === null ? null : { at: task.estimateAt ?? now, leftMs: task.leftMs })
@@ -111,8 +115,8 @@ function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, ste
     waitedMs: facts?.waitedMs ?? 0,
     workedMs,
     // The backlog step the chat works on, and the time the step's note gives it ("about 1 h"), when it has one.
-    stepId: step?.id ?? null,
-    stepMinutes: step?.minutes ?? null,
+    stepId: onStep?.id ?? null,
+    stepMinutes: onStep?.minutes ?? null,
   }
 }
 
@@ -130,7 +134,7 @@ function etaOf(task, state, now) {
   return { at, leftMs: Math.max(0, at - now), isOverdue: at < now, isOwn }
 }
 
-function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null }) {
+function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null }
   const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, cutOffAt: null, eta: null }
@@ -161,7 +165,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   if (state === 'waiting') needsYou = turn === 'asking' ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
 
   // A chat that was cut off keeps the task it was on.
-  const task = taskOf({ chat, plan, state: wasCutOff ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step })
+  const task = taskOf({ chat, plan, state: wasCutOff ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById })
   return {
     ...base,
     state,
@@ -306,7 +310,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const mine = underWay.filter(step => step.worker === name)
     return mine.find(step => (folders ?? []).some(folder => folder.branch === step.branch)) ?? mine[0] ?? null
   }
-  const cards = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf }))
+  // An open step by its id, for a hand-over that names one (not a step for the person).
+  const openSteps = backlog.activities.flatMap(activity => activity.steps).filter(one => !one.isDone && !one.isYou && one.id !== null)
+  const stepById = id => {
+    const one = openSteps.find(found => found.id === id)
+    return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch }
+  }
+  const cards = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf, stepById }))
 
   const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0 }
   for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
@@ -453,7 +463,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     otherFolders: (folders ?? []).filter(folder => folder.branch !== 'main' && owner(folder) === null),
     hasFolders: folders !== null,
     day: { from, to: now, until, end: hourEnd(Math.min(Math.max(until, now + config.hoursAhead * HOUR), now + 24 * HOUR)) },
-    today: today(lines, { from, to: now, names }).map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
+    // What the history kept from before the board stopped showing a prompt's words is not shown either.
+    today: today(lines.map(line => (line.source === 'prompt' || line.source === 'handover' ? { ...line, task: null } : line)), { from, to: now, names })
+      .map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
     restart,
     advisor,
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
