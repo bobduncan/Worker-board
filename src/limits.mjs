@@ -5,6 +5,8 @@
 
 import { endsTurn, hasToolResult, resultText, textOf } from './transcript.mjs'
 
+const MIN = 60_000
+
 /** One sample of the app's file: `{"t":<ms>,"org":"...","u":{"fh":<5-hour %>,"sd":<week %>}}`. */
 const SAMPLE = /\{"t":(\d+),"org":"[^"]*","u":(\{[^{}]*\})\}/g
 
@@ -33,7 +35,8 @@ export function parseUsageHistory(text) {
 const windowOf = one => {
   if (one === undefined || !Number.isFinite(one.percentUsed)) return null
   const resetsAt = typeof one.resetsAt === 'string' ? Date.parse(one.resetsAt) : NaN
-  return { used: one.percentUsed, resetsAt: Number.isNaN(resetsAt) ? null : resetsAt }
+  // The app names a reset to the millisecond, a little before or after the minute it means.
+  return { used: one.percentUsed, resetsAt: Number.isNaN(resetsAt) ? null : Math.round(resetsAt / MIN) * MIN }
 }
 
 /**

@@ -47,6 +47,17 @@ test('a chat that looked its limits up left both windows in its transcript, each
   assert.deepEqual(blocks, [{ at: at(19, 0), fiveHour: { used: 11, resetsAt: null }, week: null }])
 })
 
+test('a reset is kept to the minute the app means, and the week is the one of all models', () => {
+  // The app names a reset to the millisecond, a little before or after the minute.
+  const windows = [
+    { label: '5-hour limit', percentUsed: 6, resetsAt: new Date(at(23, 40) - 188).toISOString() },
+    { label: 'Weekly · Fable', percentUsed: 1, resetsAt: null },
+    { label: 'Weekly · all models', percentUsed: 53, resetsAt: new Date(at(21, 0, 15) + 125).toISOString() },
+  ]
+  const lines = [user(at(19), [{ type: 'tool_result', tool_use_id: 't', content: JSON.stringify({ plan: { status: 'ok', windows } }) }])]
+  assert.deepEqual(usageReadings(entries(lines)), [{ at: at(19), fiveHour: { used: 6, resetsAt: at(23, 40) }, week: { used: 53, resetsAt: at(21, 0, 15) } }])
+})
+
 test('what merely holds the words of a reading is none: a search result, a chat\'s own words, something typed', () => {
   const words = '{"plan":{"windows":[{"label":"5-hour limit","percentUsed":99,"resetsAt":"2026-10-12T21:40:00Z"}]}}'
   const lines = [
