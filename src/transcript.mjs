@@ -228,6 +228,40 @@ export function doingNow(entries) {
   return null
 }
 
+const WORDS_CHARS = 6000
+const QUESTIONS = 6
+const short = (value, chars) => (typeof value === 'string' ? value.trim().slice(0, chars) : '')
+
+/**
+ * B100: what a chat that waits for the person last said, in its own words: the answer that ended its turn
+ * (`words`, the end of it when it is long: the question stands there), or, when it asked with the app's question
+ * form, its questions with the options it offers (`questions`), or the plan it asks to have approved (`plan`).
+ * Null when the last thing it did is neither. Nothing a person or another chat typed is in it.
+ */
+export function waitingFor(entries) {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i]
+    if (entry.type !== 'assistant' || entry.isSidechain) continue
+    const call = lastToolUse(entry)
+    const said = textOf(entry).trim()
+    const words = said.length > WORDS_CHARS ? `…${said.slice(-WORDS_CHARS)}` : said
+    if (call !== null && ASKING_TOOLS.has(call.name)) {
+      const input = call.input !== null && typeof call.input === 'object' ? call.input : {}
+      const questions = (Array.isArray(input.questions) ? input.questions : [])
+        .filter(one => one !== null && typeof one === 'object' && short(one.question, 1) !== '')
+        .slice(0, QUESTIONS)
+        .map(one => ({
+          question: short(one.question, 600),
+          options: (Array.isArray(one.options) ? one.options : []).map(option => short(option?.label, 200)).filter(label => label !== '').slice(0, QUESTIONS),
+        }))
+      return { at: entry.at, words, questions, plan: short(input.plan, WORDS_CHARS) || null }
+    }
+    if (entry.stopReason === null || entry.stopReason === 'tool_use') return null
+    return { at: entry.at, words, questions: [], plan: null }
+  }
+  return null
+}
+
 /** The inside of the tag a message from another chat is wrapped in, with who it says it is from. */
 function crossSession(value) {
   const found = value.match(/<cross-session-message\b([^>]*)>([\s\S]*?)(?:<\/cross-session-message>|$)/)

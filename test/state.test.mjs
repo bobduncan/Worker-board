@@ -95,6 +95,8 @@ test('a chat whose turn ended blocked waits for you, and its need leads the For 
   assert.deepEqual(state.forYou, [{
     id: `chat:Units:${NOW - 9 * MIN}`, from: 'Units', kind: 'input', title: 'Needs your decision', text: 'Pick sheet A or B', at: NOW - 9 * MIN,
     options: [], pictures: [], run: null, game: null, checks: [], tried: [], canAnswer: true, version: null, answer: null, earlier: null,
+    // B100: what its window shows: its task as its card names it (it recorded none), and what it last said.
+    task: null, waits: { at: NOW - 9 * MIN, words: 'Done', questions: [], plan: null },
   }])
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.kind, step.from, step.canAnswer]), [['Say whether the mage is right', 'Art', 'input', 'Main', true]])
 })

@@ -536,6 +536,21 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .advice-age { margin: -2px 0 10px; color: var(--muted); font-size: 13.5px; }
 .advice-age.is-old { color: var(--warn); }
 
+/* B100: a lane that waits for you opens what it waits for; in its window, its task and its own words. */
+.lane.is-waiting .lane-row > .who, .lane.is-waiting .lane-row > .what, .lane.is-waiting .lane-row > .eta { cursor: pointer; }
+.lane.is-waiting .lane-row:hover > .what { background: rgba(255, 196, 61, 0.05); }
+button.needs-you { padding: 0; border: 0; background: none; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+button.needs-you small { color: var(--muted); font-size: 12.5px; }
+button.needs-you:hover small, button.needs-you:focus-visible small { color: var(--text); text-decoration: underline; }
+.waiting-topic { font-weight: 700; font-size: 15.5px; }
+.waiting-summary { font-weight: 700; }
+.waiting-question { font-weight: 700; margin-top: 4px; }
+.said { border: 1px solid var(--line); border-radius: 8px; background: var(--inset); padding: 9px 12px; }
+.said > small { display: block; margin-bottom: 4px; font-size: 12.5px; }
+.said-words { max-height: 46vh; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; }
+.said-words table { white-space: normal; border-collapse: collapse; font-size: 14px; }
+.said-words th, .said-words td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+
 /* B99: the Design tab, after the person's layout A: three parts side by side, "Ideas so far" along the bottom. */
 .design { min-height: 0; overflow-y: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 14px; }
 .design-top h1 { font-size: 22px; font-weight: 700; }
