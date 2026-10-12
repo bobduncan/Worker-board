@@ -15,7 +15,7 @@ const markup = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = script.slice(script.indexOf('// design:start'), script.indexOf('// design:end'))
 const page = {}
-vm.runInNewContext(`${cut}\nObject.assign(this, { limitsOf, ideaName, ideaBadge, designView, timeTyped, makeBody, againBody, sendBody, firstForm, sentWords })`, page)
+vm.runInNewContext(`${cut}\nObject.assign(this, { limitsOf, ideaName, ideaBadge, designView, timeTyped, makeBody, againBody, retryBody, missingOf, sendBody, firstForm, sentWords })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const MIN = 60_000
@@ -111,15 +111,23 @@ test('"Make a picture" sends the idea, what it is about and the reference pictur
   assert.equal(page.makeBody({ ...draft, kind: null }, design()).problem, 'Choose what it is about.')
   assert.equal(page.makeBody({ ...draft, kind: 'level' }, design()).problem, 'Choose what it is about.')
   assert.match(page.makeBody({ ...draft, text: 'x'.repeat(1501) }, design()).problem, /too long: 1500 characters at most, it has 1501/)
-  // The board may name its own limits.
-  assert.equal(page.makeBody({ ...draft, text: 'x'.repeat(1501) }, design([], { limits: { text: 2000 } })).problem, undefined)
-  assert.deepEqual(plain(page.limitsOf(null)), { text: 1500, change: 600, title: 160, description: 1200, requirements: 12, requirement: 200, referenceBytes: 8 * 1024 * 1024 })
+  assert.equal(page.makeBody({ ...draft, references: ['a', 'b', 'c', 'd'] }, design()).problem, 'At most 3 reference pictures.')
+  // The limits are the board's own, as its state names them.
+  assert.equal(page.makeBody({ ...draft, text: 'x'.repeat(1501) }, design([], { limits: { idea: 2000 } })).problem, undefined)
+  assert.deepEqual(plain(page.limitsOf(null)), { idea: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3 })
+  // A kind whose own reference pictures are not there says so under the button.
+  const kinds = [{ id: 'screen', name: 'Game screen', missing: [] }, { id: 'art', name: 'Unit or art', missing: ['a.png', 'b.png'] }]
+  assert.deepEqual([page.missingOf({ kinds }, 'screen'), page.missingOf({ kinds }, null), page.missingOf(null, 'art')], ['', '', ''])
+  assert.match(page.missingOf({ kinds }, 'art'), /misses 2 reference pictures for this kind/)
 })
 
 test('"Make it again" sends what should change and the version it was said of', () => {
   assert.deepEqual(plain(page.againBody(idea(), version(1), ' darker, please ', design())), { body: { action: 'again', idea: 'i1', change: 'darker, please', from: 1 } })
   assert.equal(page.againBody(idea(), version(1), ' ', design()).problem, 'Say what should change.')
   assert.match(page.againBody(idea(), version(1), 'x'.repeat(601), design()).problem, /600 characters at most/)
+  // A picture that was not made is tried again: the same change, or with no picture yet simply the idea.
+  assert.deepEqual(plain(page.retryBody(idea(), version(3, 'failed'))), { body: { action: 'again', idea: 'i1', change: 'change 3' } })
+  assert.deepEqual(plain(page.retryBody(idea(), version(1, 'failed'))), { body: { action: 'again', idea: 'i1' } })
 })
 
 test('a time is read as it is typed: "about 1 h", "45 min", "1 h 30", "90"', () => {
