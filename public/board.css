@@ -411,3 +411,7 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
   .legend { margin-top: 0; grid-auto-flow: column; }
   .more { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* B64: a time taken from the backlog step, and a worker between two turns. */
+.eta .from-step { font-style: italic; }
+.now.between b { color: var(--muted); }

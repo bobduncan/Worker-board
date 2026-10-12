@@ -165,6 +165,23 @@ function drawTop(state) {
 
 const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 
+/** B64: a time that is not the worker's own estimate says where it is from: the backlog step's "about <time>". */
+function fromStep(lane) {
+  if (lane.eta === null || lane.eta.isOwn !== false) return []
+  const note = el('small', 'from-step', `from ${lane.task?.stepId ?? 'its step'}`)
+  note.title = 'The worker gave no estimate of its own: this is the time its backlog step names, counted from when the task started.'
+  return [note]
+}
+
+/** B64: why a worker counts as working although its turn has ended (its task is not reported, a review runs, its branch is open). */
+function betweenTurns(lane) {
+  if (lane.state !== 'working' || (lane.between ?? null) === null) return []
+  const note = el('p', 'now clip between')
+  note.title = lane.between
+  note.append(el('b', '', 'Between turns: '), el('span', '', lane.between.replace(/^Its turn has ended; /, '')))
+  return [note]
+}
+
 function drawEta(lane, now) {
   const box = el('div', 'eta')
   const state = (text, isBlocked = false) => el('span', `state${isBlocked ? ' is-blocked' : ''}`, text)
@@ -172,8 +189,8 @@ function drawEta(lane, now) {
   else if (lane.state === 'waiting') box.append(el('small', '', 'ETA'), state('Blocked', true))
   else if (lane.state === 'free') box.append(state('Available'))
   else if (lane.state === 'unknown') box.append(state('Unknown'))
-  else if (lane.eta !== null && !lane.eta.isOverdue) box.append(el('small', '', 'ETA'), el('b', '', clock(lane.eta.at)), el('small', '', `(${span(lane.eta.leftMs)})`))
-  else if (lane.eta !== null) box.append(el('small', '', 'ETA'), state('Overdue', true), el('small', '', `was ${clock(lane.eta.at)}`))
+  else if (lane.eta !== null && !lane.eta.isOverdue) box.append(el('small', '', 'ETA'), el('b', '', clock(lane.eta.at)), el('small', '', `(${span(lane.eta.leftMs)})`), ...fromStep(lane))
+  else if (lane.eta !== null) box.append(el('small', '', 'ETA'), state('Overdue', true), el('small', '', `was ${clock(lane.eta.at)}`), ...fromStep(lane))
   else box.append(el('small', '', 'ETA'), state('No estimate'), lane.task === null ? '' : el('small', '', `(${span(now - lane.task.startedAt)} so far)`))
   return box
 }
@@ -225,6 +242,8 @@ function drawMore(lane, state) {
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
     if (task.source === 'prompt') list.append(el('li', 'muted', 'It named no task: this is what started its turn.'))
     if (task.source === 'handover') list.append(el('li', 'muted', 'It recorded no plan: this is the task as it was handed over.'))
+    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the backlog step that names its branch.'))
+    if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
   }
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
   for (const folder of lane.folders) list.append(el('li', '', folderLine(folder, now)))
@@ -279,6 +298,7 @@ function drawLane(lane, state) {
     now.append(el('b', '', 'Now: '), el('span', '', lane.doingNow))
     what.append(now)
   }
+  what.append(...betweenTurns(lane))
   if (lane.state === 'waiting') what.append(el('p', 'needs-you', 'Needs your decision'))
   const alerts = alertsOf(lane, state)
   if (alerts.length > 0) what.append(el('p', 'alert', alerts.join(' · ')))
