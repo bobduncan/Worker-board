@@ -543,7 +543,7 @@ function startParts(name) {
     ask.type = 'button'
     ask.dataset.start = name
     ask.disabled = sending.has(key)
-    parts.push(el('div', 'alert', `${name} is not running, so this waits.`), ask)
+    parts.push(el('div', 'alert', `${name} is not running, so what is sent to it waits.`), ask)
   }
   if (problems.has(key)) parts.push(el('p', 'problem', problems.get(key)))
   return parts
@@ -851,7 +851,10 @@ function drawNeeds(state) {
   refocus(box, focused)
 }
 
-const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting]]
+/** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
+const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
+// A card is closed two minutes after its answer was typed: the minute is part of what is drawn.
+const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
@@ -1102,7 +1105,7 @@ function drawDetails(state) {
   const step = subject.step ?? (need === null ? lane.queue[place] : null)
   const now = state.readAt
   // Drawn again only when what it shows has changed, so reading and typing in it are left alone.
-  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting]])
+  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state)])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
@@ -1597,7 +1600,7 @@ function draw(state) {
   drawDetails(state)
   openFromAddress(state)
   once('advice', state.advice, () => drawAdvice(state))
-  once('talk', state.advisor, () => drawTalk(state))
+  once('talk', [state.advisor, runningData(state), [...problems], [...sending]], () => drawTalk(state))
 }
 
 async function read() {

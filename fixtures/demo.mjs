@@ -238,7 +238,11 @@ function history(now) {
 }
 
 /** The demo's sources as they stand at `now`, in the shape `readSources` gives for the real files. */
+/** When the demo's requests were filed: fixed at the first look, as a real request is filed once. */
+let filedFrom = null
+
 export async function demoSources(now) {
+  filedFrom ??= now
   const answers = gitAnswers(now)
   return {
     project: PROJECT,
@@ -259,7 +263,7 @@ export async function demoSources(now) {
     backlogText: BACKLOG,
     adviceText: ADVICE,
     folders: await readFolders(REPO, async args => answers[args.join(' ')] ?? null),
-    askTexts: ASKS(now).map(ask => JSON.stringify(ask)),
+    askTexts: ASKS(filedFrom).map(ask => JSON.stringify(ask)),
     pictureLists: { 'art-inbox/jump': await listPictures(PROJECT, ROOTS, 'art-inbox/jump') },
     historyLines: history(now),
   }
