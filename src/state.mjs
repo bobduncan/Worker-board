@@ -51,8 +51,12 @@ const textOr = (value, fallback) => (typeof value === 'string' ? value : fallbac
  * it started still runs, or the backlog step it works on still names its branch. The board then shows it as
  * working, between two turns.
  */
-export function heldBy({ plan, handOver, background, step }) {
-  if (plan?.task != null && !plan.task.isReported) return { why: 'task', text: 'Its turn has ended; its task is not reported yet.' }
+export function heldBy({ plan, handOver, background, step, isCompleted = false }) {
+  // A card holds the chat unless the app's own summary calls the ended turn completed: a chat that reported and
+  // forgot to clear its card is done. One that asked another chat in the middle of its task still waits.
+  if (plan?.task != null && !plan.task.isReported && (!isCompleted || plan.task.asked === true)) {
+    return { why: 'task', text: plan.task.asked === true ? 'Its turn has ended; it asked another chat and waits for the answer.' : 'Its turn has ended; its task is not reported yet.' }
+  }
   if (handOver !== null) return { why: 'task', text: 'Its turn has ended; the task handed to it is not reported yet.' }
   if (background > 0) return { why: 'background', text: 'Its turn has ended; background work it started is still running.' }
   if (step !== null) return { why: 'branch', text: `Its turn has ended; its branch ${step.branch} is still open.` }
@@ -177,6 +181,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const ended = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
   const held = wasCutOff || ended !== 'free' ? null : heldBy({
     plan, step,
+    isCompleted: summary?.category === 'completed',
     handOver: chat.isMain || scan === null ? null : taskStart(scan, main),
     background: entries === null ? 0 : backgroundRunning(entries),
   })

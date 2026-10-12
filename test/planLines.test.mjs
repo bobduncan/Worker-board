@@ -16,7 +16,7 @@ test('parsePlanLine reads a line with a task', () => {
     role: 'worker',
     state: 'working',
     at: 1791791904653,
-    task: { text: 'Shadow Beast 4x unit', step: 1, steps: 6, names: null, leftMs: 2357972, stepLeftMs: null, since: null, isReported: false },
+    task: { text: 'Shadow Beast 4x unit', step: 1, steps: 6, names: null, leftMs: 2357972, stepLeftMs: null, since: null, isReported: false, asked: false },
   })
 })
 
@@ -34,6 +34,6 @@ test('parsePlanLine answers null for a file that is not JSON', () => {
 test('parsePlanLine drops a task without a text and numbers that are not numbers', () => {
   assert.equal(parsePlanLine('{"name":"Units","task":{"step":1}}').task, null)
   const parsed = parsePlanLine('{"name":"Units","task":{"text":"Archer","step":"two","left":"soon"}}')
-  assert.deepEqual(parsed.task, { text: 'Archer', step: null, steps: null, names: null, leftMs: null, stepLeftMs: null, since: null, isReported: false })
+  assert.deepEqual(parsed.task, { text: 'Archer', step: null, steps: null, names: null, leftMs: null, stepLeftMs: null, since: null, isReported: false, asked: false })
   assert.equal(parsePlanLine('{"name":"Units","task":{"text":"Archer","since":1791790000000}}').task.since, 1791790000000)
 })
