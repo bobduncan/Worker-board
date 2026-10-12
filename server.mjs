@@ -3,9 +3,14 @@
 //
 //   node server.mjs                       real data
 //   node server.mjs --demo --port 4311    made-up data from fixtures/, to judge the page without the real files
+//   node server.mjs --launch-entry        writes this folder's entry into <project>\.claude\launch.json and ends
 //   node server.mjs --port 4311 --history-from ..\worker-board\data
 //                                         a second board next to the running one: it shows that one's history
 //                                         and records none of its own
+//
+// The port: the board in the repository's main folder has the one of config.json (4310). Started from another
+// working folder, a copy takes a port of its own by itself, the same one every time, and says which
+// (src/ports.mjs); `--port` still wins.
 //
 // It never prints or logs what a chat said. What is sent from the page will be typed into a chat that can change
 // files, and `/api/game` starts a branch's game, so both are refused unless they come from the board's own page
@@ -20,6 +25,7 @@ import { fileURLToPath } from 'node:url'
 
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { loadConfig } from './src/config.mjs'
+import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
 import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
@@ -200,11 +206,21 @@ const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) 
 async function main(args) {
   const isDemo = args.includes('--demo')
   const config = await loadConfig(join(HERE, 'config.json'))
-  // `--port 4311` lets a second board run next to the real one.
-  const port = Number(argAfter(args, '--port'))
+  // The board in the main folder keeps the configured port; a copy in another folder has its own; `--port 4311`
+  // wins over both.
   // The port of the board that records, as the file names it: a second board points the person there.
   const homePort = config.port
-  if (Number.isInteger(port) && port >= 1024 && port <= 65535) config.port = port
+  const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner() })
+  config.port = chosen.port
+  if (args.includes('--launch-entry')) {
+    // This folder's entry for the preview: named after the folder, with the port it listens on.
+    if (config.project === '') return console.error('config.json names no project: there is no launch.json to write to.')
+    const file = join(config.project, '.claude', 'launch.json')
+    const entry = launchEntry({ folder: HERE, port: config.port, node: process.execPath, main: chosen.main })
+    await mkdir(join(config.project, '.claude'), { recursive: true })
+    await writeFile(file, withEntry(await readFile(file, 'utf8').catch(() => ''), entry))
+    return console.log(`Launch entry "${entry.name}" in ${file}: ${entry.url}/`)
+  }
   const historyFrom = argAfter(args, '--history-from')
   const clock = Date.now
 
@@ -398,6 +414,7 @@ async function main(args) {
       }
     }
     console.log(`Worker board: http://${HOST}:${config.port}/${isDemo ? '  (demo data)' : historyFrom === undefined ? '' : '  (shows another board\'s history, records none)'}`)
+    if (chosen.why === 'own' || chosen.why === 'new') console.log(`  Port ${config.port} is this folder's own (data/port.json); the board in the main folder has ${homePort}.`)
   })
 
   if (!isDemo && historyFrom === undefined) {
