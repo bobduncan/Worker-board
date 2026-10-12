@@ -2,6 +2,51 @@
 
 Approved by the person on 2026-10-12 ("agreed for the worker board design and plan"). Game - Support (named Game - Cleanup until that day) builds it.
 
+## The second design (2026-10-12)
+
+After a first look at the board the person changed its shape: from a dashboard that shows everything to a tool for
+three things, awareness, intervention and coordination. The picture is `design/2026-10-12-codex-design-2.webp`,
+their notes are `design/2026-10-12-notes-2.md`. Where this section and the older ones below differ, this one wins.
+It is built in the branch `redesign/two-tabs` and is merged into main when all of it works, sending included.
+
+**Two tabs.** Overview: one lane per worker (name and state, task with its progress, what it does now, the time it
+expects to be done, its own queue), the inbox "For you", and today's timeline, which also shows what is expected
+and queued after now. Advice & Chat: the advisor's advice and a conversation with the advisor. The shared queue,
+the folders table and the main chat's dock are gone; a folder's details are under its worker's lane.
+
+**Any number of workers.** The board names no worker anywhere. Every open chat of the project whose title starts
+with the prefix is a lane, the chat named `advisor` in `config.json` is the one talked with, and the main chat is
+a lane like the others. Queues, requests, answers and folders are all keyed by the chat's name. Adding a worker
+is opening a chat titled "Game - <name>".
+
+**The fixed form for what a chat needs from the person** (an "ask"): one JSON file per ask in
+`<project>\.claude\asks\`, written and closed by the chat that asks, read by the board. The fields are in
+`src/asks.mjs`. Three kinds:
+
+| Kind | The card shows | The answer |
+|---|---|---|
+| `input` | the question, options with pictures, pictures | words, required |
+| `verify` | what was done, pictures, a link to where the branch runs on this PC, what to check | Approve, with words if wanted, or Reject with the reason |
+| `intervene` | what blocks, what was tried | words, required |
+
+A chat that waits without having filed an ask shows as an `input` card with the app's own summary of what it
+needs. A turn that runs without a sign of life is raised as an `intervene` card. The steps in the backlog that end
+in `@you` are listed under the cards as "not in the new form yet", with the pictures of the folder they point to.
+
+**Where an answer goes.** The person talks with the advisor on the second tab, and the board answers the workers:
+an answer is addressed to the chat that asked and to no other. The server checks each answer against the request
+it is for (`src/say.mjs`) and keeps it in `data/outbox.jsonl`. Delivery is the bridge in the mod, as described
+below, with one change the person asked for and has still to confirm in so many words: every chat of the project
+picks up what is addressed to it, where the first design let only the main chat receive.
+
+**Pictures and links.** Pictures come only from the folders named in `config.json` (`pictureRoots`, the project's
+`art-inbox`), and the path is checked on the real file. A link to a running branch is made only to a page on this
+machine (`localhost` or `127.0.0.1`).
+
+**Still to build in the branch:** the mod's part (a tool for a chat to file and close an ask; delivery of answers
+and of the conversation with the advisor; the plan line names the chat's branch and when its task was named), and
+the line in the working agreement that tells every chat to file an ask where it would write an `@you` step.
+
 ## What it is for
 
 The person runs one main chat and four worker chats on Lava Tactics and loses track of who does what. Their words:

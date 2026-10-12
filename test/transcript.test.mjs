@@ -166,6 +166,12 @@ test('turnStart: a turn another chat started names that chat, and a tail without
   assert.equal(turnStart(entries([step(min(0), 'Run the tests'), toolResult(min(1))]), { prefix: 'Game - ' }), null)
 })
 
+test('turnStart: a message that starts with a picture is named after its words', () => {
+  const withPicture = words => user(min(1), [{ type: 'image', source: {} }, ...words.map(text => ({ type: 'text', text }))], { origin: { kind: 'human' } })
+  assert.equal(turnStart(entries([withPicture(['Make it like this. Darker.'])]), { prefix: 'Game - ' }).title, 'Make it like this')
+  assert.equal(turnStart(entries([withPicture([])]), { prefix: 'Game - ' }).title, 'A picture')
+})
+
 test('turnStart: after the turn ended, the opening is still known but no longer open', () => {
   assert.deepEqual(turnStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), { prefix: 'Game - ' }),
     { at: min(0), by: 'you', title: 'Go', isSure: false, isOpen: false })

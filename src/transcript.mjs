@@ -290,7 +290,9 @@ export function turnStart(entries, { prefix = '' } = {}) {
       if (origin !== null && origin.kind !== 'human' && opening !== null) isOpen = true
       continue
     }
-    opening = { at: entry.at, by: 'you', title: titleOf(value), isSure: hasEnd }
+    // A message that starts with a picture is named after its words.
+    const words = value.split('\n').filter(line => line.trim() !== '[picture]').join('\n').trim()
+    opening = { at: entry.at, by: 'you', title: words === '' ? 'A picture' : titleOf(words), isSure: hasEnd }
     isOpen = true
   }
   return opening === null ? null : { ...opening, isOpen }

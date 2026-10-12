@@ -223,12 +223,16 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     .map(step => [step.branch, step.worker]))
   const folders = Array.isArray(raw.folders) ? raw.folders : null
 
+  // Without such a step, a folder named after a worker ("features" for Features) is that worker's.
+  const firstWord = name => name.toLowerCase().split(/[^a-z0-9]+/)[0]
+  const owner = folder => (folder.branch === 'main' ? null : ownerOf.get(folder.branch) ?? names.find(name => firstWord(name) === folder.name.toLowerCase()) ?? null)
+
   const lanes = cards.map(lane => {
     const mine = lane.isLeftover ? [] : queued.filter(step => step.worker === lane.name)
     const withQueue = { ...lane, queue: mine.map(({ title, text, minutes, after, branch }) => ({ title, text, minutes, after, branch })) }
     return {
       ...withQueue,
-      folders: (folders ?? []).filter(folder => folder.branch !== null && ownerOf.get(folder.branch) === lane.name),
+      folders: lane.isLeftover ? [] : (folders ?? []).filter(folder => owner(folder) === lane.name),
       ahead: lane.isLeftover ? [] : aheadOf(withQueue, now),
     }
   })
@@ -274,7 +278,7 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
         .slice(0, 6),
     })),
     // Folders no worker is named for, and whether git answered at all.
-    otherFolders: (folders ?? []).filter(folder => folder.branch !== 'main' && !names.includes(ownerOf.get(folder.branch))),
+    otherFolders: (folders ?? []).filter(folder => folder.branch !== 'main' && owner(folder) === null),
     hasFolders: folders !== null,
     day: { from, to: now, until: Math.max(now, ...live.flatMap(lane => lane.ahead.map(span => span.to))) },
     today: today(lines, { from, to: now, names }).map((lane, index) => ({ ...lane, ahead: live[index].ahead })),

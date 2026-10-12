@@ -186,9 +186,11 @@ test('a folder is shown with the worker an open step names for its branch; the o
     apps: [app('Main'), app('Units')],
     tails: { Units: tail(running) },
     backlog: '## Art #focus\n- [ ] The beast (Game - Units; branch feature/beast)\n- [x] The mage (Game - Units; branch feature/mage)\n',
-    folders: [folder('game', 'main'), folder('beast', 'feature/beast'), folder('mage', 'feature/mage'), folder('probe', null)],
+    folders: [folder('game', 'main'), folder('beast', 'feature/beast'), folder('mage', 'feature/mage'), folder('probe', null), folder('units', 'fix/walk'), folder('main', 'docs/notes')],
   })
-  assert.deepEqual(chatNamed(state, 'Units').folders.map(one => one.name), ['beast'])
+  // "beast" by the step that names Units with its branch; "units" and "main" by their names.
+  assert.deepEqual(chatNamed(state, 'Units').folders.map(one => one.name), ['beast', 'units'])
+  assert.deepEqual(chatNamed(state, 'Main').folders.map(one => one.name), ['main'])
   assert.deepEqual(state.otherFolders.map(one => one.name), ['mage', 'probe'])
   assert.equal(state.hasFolders, true)
 })
@@ -416,8 +418,8 @@ test('the demo shows the second design: five lanes with their queues, two reques
   ])
   assert.deepEqual(state.counts, { working: 3, waiting: 1, free: 1, unknown: 0 })
   assert.deepEqual(state.chats.map(chat => (chat.eta === null ? null : Math.round(chat.eta.leftMs / MIN))), [22, null, 105, null, 34])
-  assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], [], ['levels']])
-  assert.deepEqual(state.otherFolders.map(folder => folder.name), ['cleanup'])
+  assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], ['cleanup'], ['levels']])
+  assert.deepEqual(state.otherFolders.map(folder => folder.name), [])
   assert.deepEqual(state.unassigned.map(step => step.title), ['Decide the name of the game'])
 
   assert.deepEqual(state.forYou.map(need => [need.from, need.kind, need.title, need.canAnswer]), [
