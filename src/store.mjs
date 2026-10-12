@@ -36,7 +36,8 @@ const TAKEN_SHOWN_MS = 10 * 60_000
  * True when a message waited too long to be delivered. A line typed to a chat is kept for minutes (`messageMs`),
  * so nothing typed long ago turns up in a chat; an answer to a request waits for its chat much longer (`answerMs`).
  */
-const isLate = (message, now, keep) => now - message.at > (isAnswer(message) ? keep.answerMs : keep.messageMs)
+// A step asked of the main chat from the Design tab waits as long as an answer does: the main chat may be closed.
+export const isLate = (message, now, keep) => now - message.at > (isAnswer(message) || message.command === 'step' ? keep.answerMs : keep.messageMs)
 
 /**
  * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never

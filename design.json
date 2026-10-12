@@ -1,0 +1,30 @@
+{
+  "seconds": 240,
+  "codex": "",
+  "kinds": [
+    {
+      "id": "screen",
+      "name": "Game screen",
+      "opening": "Make a design picture of one screen of Lava Tactics, a pixel-art tactics game for the desktop browser: dark volcanic rock, glowing lava, warm orange light. Show the whole screen as the player would see it, 16:9, with readable labels in English, in the game's own look as in the reference pictures. It is a mock-up to decide what to build, so keep the layout clear and plain.",
+      "references": ["art-inbox/camera/whole-map-1280x720.png", "art-inbox/camera/small-island-1280x720.png"]
+    },
+    {
+      "id": "art",
+      "name": "Unit or art",
+      "opening": "Make a concept picture of a unit or a piece of art for Lava Tactics, a pixel-art tactics game: chunky readable pixel art, seen from the same three-quarter view as the units and the ground in the reference pictures, on a plain flat background, with a strong silhouette. One subject, centred, with nothing else in the picture.",
+      "references": ["art-inbox/camera/small-island-1280x720.png"]
+    },
+    {
+      "id": "level",
+      "name": "Level",
+      "opening": "Make a design picture of a battle map for Lava Tactics, a pixel-art tactics game played on a grid of square tiles over lava: rock platforms, bridges, lava, a few props. Show the whole map from the game's camera as in the reference pictures, 16:9, without any interface over it, so the layout of the tiles can be read.",
+      "references": ["art-inbox/camera/whole-map-1280x720.png", "art-inbox/levels/before-now-reference.png"]
+    },
+    {
+      "id": "board",
+      "name": "Worker board",
+      "opening": "Make a design picture of one page of the worker board, a dark dashboard in a browser for following several AI chats that work on a game: dark blue panels, thin borders, white text, blue, green, orange and red accents, as in the reference pictures. Show the whole page, 3:2, with readable labels in plain English. It is a mock-up to decide what to build.",
+      "references": ["art-inbox/worker-board/2026-10-12-b84-coordinate-tab.jpg", "worker-board/design/2026-10-12-codex-design-2.webp"]
+    }
+  ]
+}

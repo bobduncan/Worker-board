@@ -12,6 +12,7 @@ async function board(t) {
   const said = []
   const asked = []
   const taken = []
+  const designed = []
   const server = createBoard({
     token: TOKEN,
     getState: async () => ({ readAt: 1, chats: [] }),
@@ -33,6 +34,15 @@ async function board(t) {
     typed: async body => {
       taken.push({ typed: body })
       return { ok: true, result: {} }
+    },
+    // The real checks are tested in design.test.mjs.
+    design: async body => {
+      designed.push(body)
+      return body?.action === 'make' ? { ok: true, result: { idea: 'i1' } } : { ok: false, status: 409, why: 'That idea is not there any more.' }
+    },
+    reference: async bytes => {
+      designed.push({ bytes: bytes.length })
+      return { ok: true, result: { path: 'art-inbox/ideas/_references/0123456789abcdef.png' } }
     },
     // The real check is tested in games.test.mjs.
     game: async body => {
@@ -56,7 +66,7 @@ async function board(t) {
   })
   const say = (headers, body = JSON.stringify({ text: 'Hello' })) => ask({ method: 'POST', path: '/api/say', headers, body })
   const good = { 'X-Board-Token': TOKEN, Origin: origin, 'Content-Type': 'application/json' }
-  return { server, port, origin, ask, say, good, said, asked, taken }
+  return { server, port, origin, ask, say, good, said, asked, taken, designed }
 }
 
 test('the board listens on this machine only', async t => {
@@ -261,4 +271,43 @@ test('a board without a bridge key has no bridge', async t => {
   t.after(() => new Promise(resolve => server.close(resolve)))
   const answer = await fetch(`http://127.0.0.1:${server.address().port}/api/bridge/take`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': '' }, body: '{"chat":"Units"}' })
   assert.equal(answer.status, 403)
+})
+
+test('the Design tab\'s calls come from the board\'s own page only, as sending does', async t => {
+  const { ask, good, designed } = await board(t)
+  const call = (headers, body = JSON.stringify({ action: 'make', kind: 'screen', text: 'A shop screen' })) => ask({ method: 'POST', path: '/api/design', headers, body })
+  assert.equal((await call({ ...good, 'X-Board-Token': 'b'.repeat(64) })).status, 403)
+  assert.equal((await call({ 'X-Board-Token': TOKEN, 'Content-Type': 'application/json' })).status, 403)
+  assert.equal((await call({ ...good, Origin: 'http://evil.example' })).status, 403)
+  assert.equal((await call({ ...good, 'Content-Type': 'text/plain' })).status, 415)
+  assert.equal((await call({ ...good, 'X-Board-Key': KEY, 'X-Board-Token': '' })).status, 403)
+  assert.equal(designed.length, 0)
+
+  const made = await call(good)
+  assert.equal(made.status, 200)
+  assert.deepEqual(JSON.parse(made.text), { idea: 'i1' })
+  assert.deepEqual(designed, [{ action: 'make', kind: 'screen', text: 'A shop screen' }])
+  const refused = await call(good, JSON.stringify({ action: 'drop', idea: 'gone' }))
+  assert.deepEqual([refused.status, refused.text.trim()], [409, 'That idea is not there any more.'])
+})
+
+test('a reference picture is taken from the board\'s own page only, as a picture, and not a large one', async t => {
+  const { ask, good, designed } = await board(t)
+  const picture = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+  const send = (headers, body = picture) => ask({ method: 'POST', path: '/api/design/reference', headers, body })
+  const asPicture = { ...good, 'Content-Type': 'image/png' }
+  assert.equal((await send({ 'Content-Type': 'image/png' })).status, 403)
+  assert.equal((await send({ ...asPicture, Origin: 'http://evil.example' })).status, 403)
+  assert.equal((await send({ ...asPicture, 'X-Board-Token': 'b'.repeat(64) })).status, 403)
+  // A form another page could post, or anything that is no picture, is not read at all.
+  assert.equal((await send({ ...asPicture, 'Content-Type': 'multipart/form-data; boundary=x' })).status, 415)
+  assert.equal((await send({ ...asPicture, 'Content-Type': 'image/svg+xml' })).status, 415)
+  assert.equal((await ask({ path: '/api/design/reference', headers: asPicture })).status, 405)
+  assert.equal((await send(asPicture, Buffer.alloc(8 * 1024 * 1024 + 1))).status, 413)
+  assert.equal(designed.length, 0)
+
+  const kept = await send(asPicture)
+  assert.equal(kept.status, 200)
+  assert.deepEqual(JSON.parse(kept.text), { path: 'art-inbox/ideas/_references/0123456789abcdef.png' })
+  assert.deepEqual(designed, [{ bytes: picture.length }])
 })

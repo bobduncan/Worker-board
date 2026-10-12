@@ -154,6 +154,34 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   written. A message from the main chat reaches a chat in the middle of its turn; what the board types waits
   until a chat is idle, which is why the main chat does the messaging.
 
+**The Design tab** (the person, 2026-10-12: "i want to be able to prompt an initial idea. let it build a visual in
+codex about what i want, present it to me, if i agree can add information to it what i want and put it either on
+the backlog or in the queue"). The page is `public/`; this is the board's side (`src/design.mjs`, `src/ideas.mjs`,
+`src/codex.mjs`).
+
+- *An idea becomes a picture.* The person types an idea and says what it is about. The kind decides how the words
+  for Codex open and which reference pictures go with them, so the picture matches the game's or the board's look;
+  both are in `design.json` next to the server, which the person can change. Codex makes the picture in about a
+  minute. To change it the person says what should change: the last picture is attached first, with the words to
+  keep everything that is not named. Every version is kept.
+- *Where things are kept.* The ideas, their versions and what was asked to change: `data/ideas.json`, there again
+  after a new start (a picture that was being made then counts as failed). The pictures, each with the words it was
+  made with: `<project>art-inboxideas<short name>1.png`, so a step can name the folder and the board shows
+  them. A reference picture the person adds: `art-inboxideas_references`, under a name of the board's choosing.
+- *The step is asked of the main chat.* "Put on the backlog" and "Put in a queue" type a word into the main chat,
+  with the board's mark: the first line `backlog step from the Design tab` or `queue step from the Design tab`,
+  then `Title:`, `About:` (the kind), `Description:`, `Requirements:` with its points, `Pictures:` (the folder and
+  the agreed picture), `Worker:` (a worker, or "Game - Main decides") and `Time:` when given. The first line and
+  the labels are the board's; every field is the person's own words, kept to one line. The main chat writes the
+  step with its id and keeps the folder in its words, by which the board finds the step and shows its id on the
+  idea. The board writes nothing into the backlog.
+- *Safety, because here the board starts a program that makes something.* Codex runs only on a call from the
+  board's own page (the token, the page's origin, JSON), one picture at a time, with a time limit (`seconds` in
+  `design.json`, 240), in a folder of its own under the system's temporary folder, which is removed afterwards. It
+  is started without a shell, told to write in that folder only, and given the idea's own words and the reference
+  pictures: nothing from a chat or a transcript. A reference picture is accepted only as PNG, JPEG or WebP by how
+  its bytes begin, 8 MB at most. Codex is the command line the person is signed in to; the board holds no key.
+
 **Pictures.** Pictures come only from the folders named in `config.json` (`pictureRoots`, the project's
 `art-inbox`), and the path is checked on the real file.
 
@@ -258,7 +286,9 @@ Safety, because what arrives is typed into a chat that can change files:
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.
-- It does not call an AI service. Only typing through the bridge and the advisor use the plan's usage.
+- It does not call an AI service, with one exception since 2026-10-12: on the Design tab, on the person's click, it
+  starts Codex to make a picture of an idea (see "The Design tab" above). Apart from that, only typing through the
+  bridge and the advisor use the plan's usage.
 - It does not change the backlog, the game's folders or git.
 
 ## Build order

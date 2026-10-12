@@ -268,3 +268,23 @@ export async function demoSources(now) {
     historyLines: history(now),
   }
 }
+
+/** The demo's ideas for the Design tab: one being looked at, one agreed, one that failed. Made-up, as all of it. */
+export function demoIdeas(now) {
+  const version = (n, minutesAgo, picture, more = {}) => ({ n, at: now - minutesAgo * MIN, change: null, from: null, state: 'done', picture, why: null, seconds: 52, ...more })
+  const idea = (id, name, kind, text, minutesAgo, versions, more = {}) => ({
+    id, name, kind, text, createdAt: now - minutesAgo * MIN, folder: `art-inbox/ideas/${name}`, references: [], versions, agreed: null, sent: null, droppedAt: null, ...more,
+  })
+  return [
+    idea('i-jump', 'jump-arc', 'screen', 'A jump that follows an arc, with the landing tile lit up before you let go', 40, [
+      version(1, 38, 'art-inbox/jump/jump-arc.png'),
+      version(2, 12, 'art-inbox/jump/jump-arc.png', { change: 'Make the landing tile brighter', from: 1 }),
+    ]),
+    idea('i-path', 'enemy-paths', 'level', 'Show the path each enemy will walk next turn as a thin line on the tiles', 95, [
+      version(1, 93, 'art-inbox/pathfinding/option-a-navmesh.png'),
+    ], { agreed: 1 }),
+    idea('i-grid', 'grid-overlay', 'board', 'A grid overlay toggle for the map', 150, [
+      version(1, 149, null, { state: 'failed', why: 'Codex took longer than 240 seconds and was stopped.', seconds: 240 }),
+    ]),
+  ]
+}
