@@ -12,6 +12,11 @@ node --test                          the tests
 ```
 In the Claude app it is the launch entry "worker-board". Paths, the port and the advisor's name are in `config.json`.
 
+A copy in another working folder of this repository (a branch being worked on) runs beside it: started without
+`--port`, it takes a port of its own from 4320 up, the same one every time (it writes it to its `data/port.json`),
+and says which; the board in the main folder keeps the port of `config.json`. `node server.mjs --launch-entry`, run
+once in a new folder, writes that folder's launch entry with its port into the project's `.claude/launch.json`.
+
 ## What it reads (never changes)
 - the Claude app's list of chats, and the last part of each game chat's transcript;
 - each chat's own plan line, its asks (`.claude\asks`), the backlog and `advice.md` in the project's `.claude` folder;
