@@ -1,19 +1,31 @@
-// The worker board's server: one page, `GET /api/state` and `POST /api/say`, on this machine only.
+// The worker board's server: one page, `GET /api/state`, `GET /api/picture`, `POST /api/say`,
+// `POST /api/game` and, for the Workers mod, `POST /api/bridge/take`; on this machine only.
 //
-//   node server.mjs          real data
-//   node server.mjs --demo   made-up data from fixtures/, to judge the page without the real files
+//   node server.mjs                       real data
+//   node server.mjs --demo --port 4311    made-up data from fixtures/, to judge the page without the real files
+//   node server.mjs --port 4311 --history-from ..\worker-board\data
+//                                         a second board next to the running one: it shows that one's history
+//                                         and records none of its own
 //
-// It never prints or logs what a chat said. What is typed in the chat box will later be typed into a chat that can
-// change files, so sending is refused unless it comes from the board's own page (see `mayUse` and `maySend`).
+// It never prints or logs what a chat said. What is sent from the page will be typed into a chat that can change
+// files, and `/api/game` starts a branch's game, so both are refused unless they come from the board's own page
+// (see `mayUse` and `maySend`).
 
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFileSync, rmSync } from 'node:fs'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { loadConfig } from './src/config.mjs'
+import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readFolders } from './src/folders.mjs'
+import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
+import { parseHistory } from './src/history.mjs'
+import { findPicture } from './src/pictures.mjs'
+import { checkSay } from './src/say.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { fileStore, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -25,16 +37,17 @@ const BODY_BYTES = 16 * 1024
 const FOLDERS_MS = 60_000
 const STATE_MS = 2_000
 const TICK_MS = 60_000
+const HISTORY_BYTES = 8 * 1024 * 1024
 
 const FILES = {
   '/board.css': ['board.css', 'text/css; charset=utf-8'],
   '/board.js': ['board.js', 'text/javascript; charset=utf-8'],
 }
 
-// The page may load its own script and style sheet and talk to its own server. Nothing else, so words from a chat
-// that end up on the page can never run as code or call out.
+// The page may load its own script and style sheet, talk to its own server, and show pictures it fetched from
+// that server. Nothing else, so words from a chat that end up on the page can never run as code or call out.
 const PAGE_RULES = [
-  "default-src 'none'", "script-src 'self'", "style-src 'self'", "connect-src 'self'", "img-src 'self' data:",
+  "default-src 'none'", "script-src 'self'", "style-src 'self'", "connect-src 'self'", "img-src 'self' blob:",
   "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'",
 ].join('; ')
 
@@ -74,13 +87,22 @@ function readBody(req) {
 }
 
 /**
- * The server, not yet listening. `getState()` answers the `/api/state` object and `say(text)` keeps a typed
- * message and answers its record; both are handed in so the tests need no real files.
+ * The server, not yet listening. Handed in, so the tests need no real files:
+ *   `getState()`       the `/api/state` object
+ *   `say(body)`        checks and keeps what the page sent: `{ ok: true, message }` or `{ ok: false, status, why }`
+ *   `picture(path)`    a picture the board may show: `{ type, body }`, or null
+ *   `game(body)`       starts or stops a branch's game: `{ ok: true, result }` or `{ ok: false, status, why }`
+ *   `take(body)`       hands the mod what waits for its chat, the same shape; only with `bridgeKey`
+ *   `typed(body)`      takes the mod's word on what it typed, the same shape; only with `bridgeKey`
  */
-export function createBoard({ token, getState, say, maxMessageChars = 2000, publicDir = join(HERE, 'public') }) {
+export function createBoard({
+  token, getState, say, picture = async () => null, publicDir = join(HERE, 'public'),
+  game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+}) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
-    const { pathname } = new URL(req.url, `http://${self}`)
+    const { pathname, searchParams } = new URL(req.url, `http://${self}`)
 
     // A page of another website can be made to reach this server under that website's name. The name the browser
     // asked for gives it away.
@@ -94,7 +116,28 @@ export function createBoard({ token, getState, say, maxMessageChars = 2000, publ
 
     const mayUse = sameText(req.headers['x-board-token'] ?? '', token)
 
-    if (pathname === '/api/say') {
+    if (pathname === '/api/bridge/take' || pathname === '/api/bridge/typed') {
+      // The mod is no page: it knows the key from the file the board wrote for it, and it can only take.
+      const mayTake = bridgeKey !== null && sameText(req.headers['x-board-key'] ?? '', bridgeKey)
+      const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
+      if (req.method !== 'POST' || !mayTake || !isJson) {
+        req.resume()
+        if (req.method !== 'POST') return refuse(res, 405, 'Only POST.')
+        return mayTake ? refuse(res, 415, 'Send JSON.') : refuse(res, 403, 'Only the Workers mod may take.')
+      }
+      const body = await readBody(req)
+      if (body === null) return refuse(res, 413, 'Too large.')
+      let parsed
+      try {
+        parsed = JSON.parse(body)
+      } catch {
+        return refuse(res, 400, 'Not JSON.')
+      }
+      const taken = await (pathname === '/api/bridge/take' ? take : typed)(parsed)
+      return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
+    }
+
+    if (pathname === '/api/say' || pathname === '/api/game') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -105,15 +148,18 @@ export function createBoard({ token, getState, say, maxMessageChars = 2000, publ
       }
       const body = await readBody(req)
       if (body === null) return refuse(res, 413, 'Too large.')
-      let text
+      let parsed
       try {
-        text = JSON.parse(body)?.text
+        parsed = JSON.parse(body)
       } catch {
         return refuse(res, 400, 'Not JSON.')
       }
-      if (typeof text !== 'string' || text.trim() === '') return refuse(res, 400, 'No text.')
-      if (text.trim().length > maxMessageChars) return refuse(res, 413, `At most ${maxMessageChars} characters.`)
-      return json(res, await say(text.trim()))
+      if (pathname === '/api/game') {
+        const started = await game(parsed)
+        return started.ok ? json(res, started.result) : refuse(res, started.status, started.why)
+      }
+      const answer = await say(parsed)
+      return answer.ok ? json(res, answer.message) : refuse(res, answer.status, answer.why)
     }
 
     req.resume()
@@ -122,6 +168,11 @@ export function createBoard({ token, getState, say, maxMessageChars = 2000, publ
     if (pathname === '/api/state') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       return json(res, await getState())
+    }
+    if (pathname === '/api/picture') {
+      if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      const found = await picture(searchParams.get('path') ?? '')
+      return found === null ? refuse(res, 404, 'No such picture.') : send(res, 200, found.type, found.body)
     }
     if (pathname === '/' || pathname === '/index.html') {
       const page = await readFile(join(publicDir, 'index.html'), 'utf8')
@@ -144,47 +195,158 @@ export function createBoard({ token, getState, say, maxMessageChars = 2000, publ
   })
 }
 
+const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
+
 async function main(args) {
   const isDemo = args.includes('--demo')
   const config = await loadConfig(join(HERE, 'config.json'))
-  // `--port 4311` lets the demo run next to the real board.
-  const port = Number(args[args.indexOf('--port') + 1])
-  if (args.includes('--port') && Number.isInteger(port) && port >= 1024 && port <= 65535) config.port = port
+  // `--port 4311` lets a second board run next to the real one.
+  const port = Number(argAfter(args, '--port'))
+  // The port of the board that records, as the file names it: a second board points the person there.
+  const homePort = config.port
+  if (Number.isInteger(port) && port >= 1024 && port <= 65535) config.port = port
+  const historyFrom = argAfter(args, '--history-from')
   const clock = Date.now
+
+  const keep = { messageMs: config.messageKeepMinutes * 60_000, answerMs: config.answerKeepHours * 60 * 60_000 }
+  const timeOf = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  // The demo has no chats to type into, so it has no bridge.
+  // Neither has a board that only shows another one's history: the board that records is the one that delivers,
+  // so of two boards on one project it is always the same one.
+  const isShowOnly = historyFrom !== undefined
+  const bridgeKey = isDemo || isShowOnly ? null : randomBytes(32).toString('hex')
+
+  // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
+  const games = createGames({
+    launch: gameLauncher({
+      runner: join(HERE, 'run-game.mjs'),
+      cacheDir: join(HERE, 'data', 'game-cache'),
+      idleSeconds: config.gameIdleSeconds,
+      graceSeconds: config.gameOpenSeconds,
+    }),
+    now: clock,
+  })
+  let folders = async () => null
 
   let store
   let readRaw
+  let readLines = raw => raw.historyLines ?? store.lines()
   if (isDemo) {
     const { demoSources } = await import('./fixtures/demo.mjs')
     store = memoryStore()
     readRaw = () => demoSources(clock())
   } else {
-    store = await fileStore(join(HERE, 'data'), clock())
-    const folders = cached(() => readFolders(config.gameRepo, gitRunner()), FOLDERS_MS)
+    folders = cached(() => readFolders(config.gameRepo, gitRunner()), FOLDERS_MS)
     readRaw = () => readSources(config, folders)
+    if (historyFrom === undefined) {
+      store = await fileStore(join(HERE, 'data'), clock())
+    } else {
+      // The history of the board that is running; this one records nothing and keeps what is sent in memory.
+      store = memoryStore()
+      const shared = cached(async () => parseHistory((await readHead(join(resolve(historyFrom), 'history.jsonl'), HISTORY_BYTES))?.text ?? ''), TICK_MS / 2)
+      const lines = { now: [] }
+      readLines = () => lines.now
+      readRaw = async () => {
+        lines.now = await shared()
+        return readSources(config, folders)
+      }
+    }
   }
+
+  // When this board started, and since when it had been off: after a restart of the app both boards and every
+  // chat were gone for that long.
+  const startedAt = clock()
+  let lastAlive = store.aliveAt?.() ?? null
+  if (historyFrom !== undefined) {
+    try {
+      lastAlive = JSON.parse((await readHead(join(resolve(historyFrom), 'alive.json'), 1024))?.text ?? '').at
+    } catch {
+      lastAlive = null
+    }
+  }
+  const offSince = Number.isFinite(lastAlive) && startedAt - lastAlive > 3 * 60_000 ? lastAlive : null
+
+  // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
+  const seen = bridgeKey === null ? null : { shown: {}, other: {} }
 
   const readState = cached(async () => {
     const raw = await readRaw()
+    const project = raw.project ?? config.project
     const state = buildState(raw, {
-      lines: raw.historyLines ?? store.lines(),
+      lines: readLines(raw),
+      outbox: outboxNow(store.outbox(), clock(), keep),
+      runs: games.list(),
+      board: { startedAt, offSince },
+      seen,
       now: clock(),
-      config: { ...config, project: raw.project ?? config.project },
+      config: { ...config, project },
     })
-    return { ...state, isDemo }
+    return { ...state, isDemo, project }
   }, STATE_MS)
 
   const server = createBoard({
     token: randomBytes(32).toString('hex'),
-    maxMessageChars: config.maxMessageChars,
-    // What was typed shows at once, so the outbox is not part of the cached state.
-    getState: async () => ({ ...await readState(), outbox: outboxNow(store.outbox(), clock(), config.messageKeepMinutes * 60_000) }),
-    say: async text => {
-      const message = { id: randomBytes(8).toString('hex'), at: clock(), text, state: 'waiting' }
+    getState: async () => {
+      const { project, ...state } = await readState()
+      return state
+    },
+    say: async body => {
+      // What is answered here would never arrive: this board has no bridge.
+      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
+      const checked = checkSay(body, await readState(), config.maxMessageChars)
+      if (!checked.ok) return checked
+      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: 'waiting' }
       await store.say(message)
-      return message
+      // What was sent shows at once.
+      readState.reset()
+      return { ok: true, message }
+    },
+    picture: async path => {
+      const { project } = await readState()
+      const found = await findPicture(project, config.pictureRoots, path)
+      return found === null ? null : { type: found.type, body: await readFile(found.file) }
+    },
+    bridgeKey,
+    take: async body => {
+      const checked = checkTake(body, await readState())
+      // Who asks runs, also a chat the board shows another session for.
+      if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
+      if (!checked.ok) return checked
+      const taken = await store.take(checked.chat, clock(), keep)
+      // What was taken shows as on its way at once.
+      if (taken.length > 0) readState.reset()
+      return { ok: true, result: { messages: taken.map(message => ({ id: message.id, text: messageText(message, timeOf) })) } }
+    },
+    typed: async body => {
+      const checked = checkTyped(body, await readState())
+      if (!checked.ok) return checked
+      if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
+      return { ok: true, result: {} }
+    },
+    game: async body => {
+      const checked = checkGame(body, await readState())
+      if (!checked.ok) return checked
+      if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it starts no game.' }
+      if (checked.action === 'stop') {
+        games.stop(checked.path)
+        readState.reset()
+        return { ok: true, result: { url: null } }
+      }
+      try {
+        // A folder keeps its port from one start to the next, so the game finds what it saved in the browser.
+        const place = ((await folders()) ?? []).findIndex(folder => pathKey(folder.path) === pathKey(checked.path))
+        const url = await games.start({ path: checked.path, port: config.gamePort + Math.max(0, place) })
+        readState.reset()
+        return { ok: true, result: { url } }
+      } catch (error) {
+        // The reason is the board's own, or the last line of the game's own tools: never words from a chat.
+        return { ok: false, status: 502, why: error instanceof Error ? error.message : 'The game did not start.' }
+      }
     },
   })
+
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(0))
+  process.on('exit', () => games.stopAll())
 
   server.on('error', error => {
     console.error(error.code === 'EADDRINUSE'
@@ -192,11 +354,40 @@ async function main(args) {
       : `The board could not start (${error.code ?? 'unknown error'}).`)
     process.exit(1)
   })
-  server.listen(config.port, HOST, () => {
-    console.log(`Worker board: http://${HOST}:${config.port}/${isDemo ? '  (demo data)' : ''}`)
+  // Where the mod finds the board. The file goes when the board does, so no chat asks a board that is gone.
+  const noteFile = join(config.project, '.claude', 'board.json')
+  process.on('exit', () => {
+    try {
+      if (bridgeKey !== null && JSON.parse(readFileSync(noteFile, 'utf8')).key === bridgeKey) rmSync(noteFile)
+    } catch {
+      // Not there, or another board's by now.
+    }
+  })
+  /** True when the file names another board that still answers: the chats are that board's, and stay so. */
+  async function isTaken() {
+    try {
+      const other = new URL(JSON.parse(await readFile(noteFile, 'utf8')).url)
+      if (other.hostname !== HOST || Number(other.port) === config.port) return false
+      await fetch(other.href, { signal: AbortSignal.timeout(1500) })
+      return true
+    } catch {
+      return false
+    }
+  }
+  server.listen(config.port, HOST, async () => {
+    if (bridgeKey !== null && config.project !== '') {
+      if (await isTaken()) {
+        console.error('Another worker board already delivers to the chats (.claude/board.json): answers given on this one will not arrive.')
+      } else {
+        await mkdir(join(config.project, '.claude'), { recursive: true })
+          .then(() => writeFile(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
+          .catch(() => console.error('The board could not write .claude/board.json: answers will not reach the chats.'))
+      }
+    }
+    console.log(`Worker board: http://${HOST}:${config.port}/${isDemo ? '  (demo data)' : historyFrom === undefined ? '' : '  (shows another board\'s history, records none)'}`)
   })
 
-  if (!isDemo) {
+  if (!isDemo && historyFrom === undefined) {
     const look = () => readState().then(state => tick(store, state, clock())).catch(() => {})
     look()
     setInterval(look, TICK_MS)

@@ -128,10 +128,15 @@ export function taskFacts(lines, chat, taskText, now) {
   return { firstSeenAt: run.find(line => line.gap !== true).at, startedAt, firstEstimate, waitedMs, workedMs }
 }
 
-/** The start of the day the timeline shows: the last `hour` o'clock, local time, at or before `now`. */
-export function dayStart(now, hour) {
-  const start = new Date(now)
-  start.setHours(hour, 0, 0, 0)
-  if (start.getTime() > now) start.setDate(start.getDate() - 1)
+/** The full hour at or before a time, on the local clock. */
+export function hourStart(time) {
+  const start = new Date(time)
+  start.setMinutes(0, 0, 0)
   return start.getTime()
+}
+
+/** The full hour at or after a time, on the local clock. */
+export function hourEnd(time) {
+  const start = hourStart(time)
+  return start === time ? time : start + 60 * 60_000
 }

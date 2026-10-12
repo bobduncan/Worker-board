@@ -39,15 +39,15 @@ test('readFolders asks git about each folder and counts what it answers', async 
   const { run } = fakeGit({
     '-C C:/Web/game/lava worktree list --porcelain': LIST,
     '-C C:/Web/game/lava status --porcelain': '',
-    '-C C:/Web/game/lava log -1 --format=%ct': '1791790000\n',
+    '-C C:/Web/game/lava log -1 --format=%ct %h %s': '1791790000 b0c4559 Merge the camera that fits the map\n',
     '-C C:/Web/game/lava-beast status --porcelain': ' M src/a.ts\n?? notes.txt\n',
     '-C C:/Web/game/lava rev-list --count main..feature/shadow-beast': '5\n',
-    '-C C:/Web/game/lava-beast log -1 --format=%ct': '1791795000\n',
+    '-C C:/Web/game/lava-beast log -1 --format=%ct %h %s': '1791795000 1a2b3c4\n',
   })
   assert.deepEqual(await readFolders('C:/Web/game/lava', run), [
-    { path: 'C:/Web/game/lava', name: 'lava', branch: 'main', ahead: 0, uncommitted: 0, lastCommitAt: 1791790000000 },
-    { path: 'C:/Web/game/lava-beast', name: 'beast', branch: 'feature/shadow-beast', ahead: 5, uncommitted: 2, lastCommitAt: 1791795000000 },
-    { path: 'C:/Web/game/lava-probe', name: 'probe', branch: null, ahead: null, uncommitted: null, lastCommitAt: null },
+    { path: 'C:/Web/game/lava', name: 'lava', branch: 'main', ahead: 0, uncommitted: 0, lastCommitAt: 1791790000000, lastCommit: { hash: 'b0c4559', subject: 'Merge the camera that fits the map' } },
+    { path: 'C:/Web/game/lava-beast', name: 'beast', branch: 'feature/shadow-beast', ahead: 5, uncommitted: 2, lastCommitAt: 1791795000000, lastCommit: { hash: '1a2b3c4', subject: '' } },
+    { path: 'C:/Web/game/lava-probe', name: 'probe', branch: null, ahead: null, uncommitted: null, lastCommitAt: null, lastCommit: null },
   ])
 })
 
@@ -63,6 +63,18 @@ test('cached asks again only after the time is up', async () => {
   now += 59_000
   assert.equal(await read(), 1)
   now += 2_000
+  assert.equal(await read(), 2)
+})
+
+test('cached reads again after a reset, also when a read was under way', async () => {
+  let count = 0
+  const gates = []
+  const read = cached(() => new Promise(resolve => { count += 1; const mine = count; gates.push(() => resolve(mine)) }), 60_000, () => 0)
+  const before = read()
+  read.reset()
+  const after = read()
+  gates.forEach(open => open())
+  assert.deepEqual(await Promise.all([before, after]), [1, 2])
   assert.equal(await read(), 2)
 })
 

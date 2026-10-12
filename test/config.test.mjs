@@ -22,6 +22,7 @@ test('parseConfig expands the paths and fills what is missing with the defaults'
   assert.equal(config.refreshSeconds, 30)
   assert.equal(config.quietMinutes, 10)
   assert.equal(config.estimateOldMinutes, 15)
+  assert.deepEqual([config.hoursBack, config.hoursAhead], [2, 6])
 })
 
 test('parseConfig answers the defaults for text that is not JSON', () => {
@@ -30,8 +31,31 @@ test('parseConfig answers the defaults for text that is not JSON', () => {
   assert.equal(config.project, '')
 })
 
+test('parseConfig reads the advisor\'s name and the folders whose pictures may be shown', () => {
+  const config = parseConfig(JSON.stringify({ advisor: ' Coach ', pictureRoots: ['art-inbox', 'shots', '..', 'a/b', 'C:\\x', 5] }), env)
+  assert.equal(config.advisor, 'Coach')
+  assert.deepEqual(config.pictureRoots, ['art-inbox', 'shots'])
+  assert.deepEqual([parseConfig('{}', env).advisor, parseConfig('{}', env).pictureRoots], ['Advisor', ['art-inbox']])
+})
+
 test('parseConfig refuses a port or a number that makes no sense', () => {
   const config = parseConfig(JSON.stringify({ port: 'abc', refreshSeconds: -5 }), env)
   assert.equal(config.port, 4310)
   assert.equal(config.refreshSeconds, 30)
+})
+
+test('the games the board starts take their ports from 5300 and end half a minute after their tab is closed, unless set otherwise', () => {
+  const usual = parseConfig('{}', env)
+  assert.deepEqual([usual.gamePort, usual.gameIdleSeconds, usual.gameOpenSeconds], [5300, 30, 120])
+  const set = parseConfig(JSON.stringify({ gamePort: 6100, gameIdleSeconds: 5 }), env)
+  assert.deepEqual([set.gamePort, set.gameIdleSeconds], [6100, 5])
+})
+
+test('an answer waits two days for its chat unless set otherwise', () => {
+  assert.equal(parseConfig('{}', env).answerKeepHours, 48)
+  assert.equal(parseConfig('{"answerKeepHours":2}', env).answerKeepHours, 2)
+})
+
+test('an answer is never longer than the mod will type', () => {
+  assert.equal(parseConfig('{"maxMessageChars":9000}', env).maxMessageChars, 2500)
 })

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { answer, fromChat, step, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { readHead } from '../src/files.mjs'
+import { findPicture, listPictures, mentionedPaths } from '../src/pictures.mjs'
 import { oneAtATime, readSources } from '../src/sources.mjs'
 import { buildState } from '../src/state.mjs'
 
@@ -29,7 +30,12 @@ async function project(t) {
   })
   await put('project/.claude/chats/list.json', '{"prefix":"Game - ","main":"Main"}')
   await put('project/.claude/chats/units-id.json', JSON.stringify({ name: 'Units', task: { text: 'Archer', step: 1, steps: 3, left: 20 * MIN }, at: NOW }))
-  await put('project/.claude/backlog.md', '## Art #focus\n- [ ] Say whether the archer is right @you\n')
+  await put('project/.claude/backlog.md', '## Art #focus\n- [ ] Say whether the archer is right (pictures in art-inbox/archer) @you\n')
+  await put('project/.claude/asks/units-sheet.json', JSON.stringify({ id: 'units-sheet', from: 'Units', kind: 'verify', title: 'Check the sheet', pictures: ['art-inbox/archer/sheet.png'], at: NOW - 5 * MIN }))
+  await put('project/.claude/asks/notes.txt', 'not an ask')
+  await put('project/art-inbox/archer/sheet.png', 'made-up picture')
+  await put('project/art-inbox/archer/readme.md', 'not a picture')
+  await put('project/secret/plan.png', 'SECRET picture outside the shown folders')
   await put('app/a/b/local_main.json', chat('Main', 'main-id'))
   await put('app/a/b/local_units.json', chat('Units', 'units-id'))
   await put('app/a/c/local_evil.json', chat('Evil', '..\\outside'))
@@ -64,8 +70,9 @@ test('readSources reads a project\'s files into the shape buildState takes, and 
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.state]), [['Main', 'free'], ['Evil', 'unknown'], ['Slash', 'unknown'], ['Units', 'working']])
   const units = state.chats.find(chat => chat.name === 'Units')
   assert.deepEqual([units.task.text, units.task.step, units.task.startedAt, units.doingNow], ['Archer', 1, NOW - 30 * MIN, 'Draw the sheet'])
-  assert.deepEqual(state.forYou.map(need => need.text), ['Say whether the archer is right'])
-  assert.deepEqual(state.mainChat.map(message => message.text), ['Status?', 'All fine.'])
+  assert.deepEqual(raw.pictureLists, { 'art-inbox/archer': ['art-inbox/archer/sheet.png'] })
+  assert.deepEqual(state.forYou.map(need => [need.id, need.from, need.pictures]), [['units-sheet', 'Units', ['art-inbox/archer/sheet.png']]])
+  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.pictures]), [['Say whether the archer is right (pictures in art-inbox/archer)', 'Art', ['art-inbox/archer/sheet.png']]])
 })
 
 test('readSources never follows a transcript name out of the transcripts folder', async t => {
@@ -79,7 +86,20 @@ test('readSources never follows a transcript name out of the transcripts folder'
 test('readSources gives empty sources for folders that do not exist, and survives a folders reader that fails', async () => {
   const config = { ...parseConfig('{}', {}), project: join(DATA, 'no-such-project'), appSessions: join(DATA, 'no-such-app'), transcripts: join(DATA, 'none') }
   const raw = await readSources(config, async () => { throw new Error('git is not installed') }, NOW)
-  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, tails: {}, backlogText: null, adviceText: null, folders: null })
+  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, tails: {}, backlogText: null, adviceText: null, folders: null, askTexts: [], pictureLists: {}, restartNote: null })
+})
+
+test('a picture is found only inside a folder the board may show, also when a path tries to leave it', async t => {
+  const { config } = await project(t)
+  const find = path => findPicture(config.project, ['art-inbox'], path)
+  assert.deepEqual([(await find('art-inbox/archer/sheet.png')).type, (await find('art-inbox\\archer\\sheet.png')).size], ['image/png', 15])
+  for (const path of ['secret/plan.png', 'art-inbox/../secret/plan.png', 'art-inbox/archer/readme.md', 'art-inbox/archer/missing.png', 'art-inbox/archer', '.claude/backlog.md', '']) {
+    assert.equal(await find(path), null, path)
+  }
+  assert.deepEqual(await listPictures(config.project, ['art-inbox'], 'art-inbox/archer/'), ['art-inbox/archer/sheet.png'])
+  assert.deepEqual(await listPictures(config.project, ['art-inbox'], 'art-inbox/archer/sheet.png'), ['art-inbox/archer/sheet.png'])
+  for (const path of ['secret', 'art-inbox/..', 'art-inbox/nothing', '..']) assert.deepEqual(await listPictures(config.project, ['art-inbox'], path), [], path)
+  assert.deepEqual(mentionedPaths('Look (pictures in art-inbox/red-mage; art-inbox/red-mage/walk.png). Not smart-inbox/x or art-inbox.', ['art-inbox']), ['art-inbox/red-mage', 'art-inbox/red-mage/walk.png'])
 })
 
 test('readHead reads at most what it is asked for, and says whether that was the whole file', async t => {

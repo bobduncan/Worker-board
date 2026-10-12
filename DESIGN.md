@@ -2,6 +2,142 @@
 
 Approved by the person on 2026-10-12 ("agreed for the worker board design and plan"). Game - Support (named Game - Cleanup until that day) builds it.
 
+## The second design (2026-10-12)
+
+After a first look at the board the person changed its shape: from a dashboard that shows everything to a tool for
+three things, awareness, intervention and coordination. The picture is `design/2026-10-12-codex-design-2.webp`,
+their notes are `design/2026-10-12-notes-2.md`. Where this section and the older ones below differ, this one wins.
+It is built in the branch `redesign/two-tabs` and is merged into main when all of it works, sending included.
+
+**Two tabs.** Overview: one lane per worker (name and state, task with its progress, what it does now, the time it
+expects to be done, its own queue), the inbox "For you", and today's timeline, which also shows what is expected
+and queued after now. Advice & Chat: the advisor's advice and a conversation with the advisor. The shared queue,
+the folders table and the main chat's dock are gone; a folder's details are under its worker's lane.
+
+**Any number of workers.** The board names no worker anywhere. Every open chat of the project whose title starts
+with the prefix is a lane, the chat named `advisor` in `config.json` is the one talked with, and the main chat is
+a lane like the others. Queues, requests, answers and folders are all keyed by the chat's name. Adding a worker
+is opening a chat titled "Game - <name>".
+
+**The fixed form for what a chat needs from the person** (an "ask"): one JSON file per ask in
+`<project>\.claude\asks\`, written and closed by the chat that asks, read by the board. The fields are in
+`src/asks.mjs`. Three kinds:
+
+| Kind | The card shows | The answer |
+|---|---|---|
+| `input` | the question, options with pictures, pictures | words, required |
+| `verify` | what was done, pictures, a button that opens the branch's game, what to check | Approve, with words if wanted, or Reject with the reason |
+| `intervene` | what blocks, what was tried | words, required |
+
+A chat that waits without having filed an ask shows as an `input` card with the app's own summary of what it
+needs. A turn that runs without a sign of life is raised as an `intervene` card.
+
+The steps in the backlog that end in `@you` are cards too, under the others and folded until opened. The main chat
+writes in front of each what it asks of the person, and the board follows that: `Verify:` gets Approve and Reject,
+`Decide:` and `Provide:` need words, `Do:` gets a Done button. A step shows the pictures of the folder it points
+to. Its answer goes to the worker the step names, else to the main chat, which keeps the backlog.
+
+**Closed is hidden.** What the person answered on the board, and the steps for them that are ticked in the
+backlog, are closed and not shown, unless they tick "Show closed" above the inbox. An answer that did not arrive in
+time opens its request again.
+
+**Details on a click.** The head of a card, and a step in a lane's queue, open a window with everything known
+about it (`design/2026-10-12-codex-design-3-details.webp`): what it is and whose, a description, the pictures it
+points to, where it stands in the queue, its branch and folder, and for a request the answer form of its kind. A
+step of the backlog is one line, so what describes it further are the indented lines under it: a line
+"Requirements:" (or any other name with a colon) starts a part of that name, a line "- ..." is a point of it,
+"Context:" goes to the side, and a folder of pictures named in any of these lines is shown.
+
+**The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
+more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
+expected and queued is what they plan with.
+
+**The right side is as wide as it is dragged**, on both tabs, and the lanes follow the room that is left.
+
+**Where an answer goes.** The person talks with the advisor on the second tab, and the board answers the workers:
+an answer is addressed to the chat that asked and to no other. The server checks each answer against the request
+it is for (`src/say.mjs`) and keeps it in `data/outbox.jsonl`. Delivery is the bridge in the mod, as described
+below, with one change the person confirmed on 2026-10-12 ("yes i want this to be picked up and queue if needed
+or just removed from the backlog if accepted"): every chat of the project picks up what is addressed to it, where
+the first design let only the main chat receive.
+
+**The bridge as built** (`src/bridge.mjs`, and `hooks/board.ts` in the Workers mod, version 0.4.0). While it runs,
+the board keeps `<project>\.claude\board.json` with its address and a key. Every chat in the Workers list asks
+`POST /api/bridge/take` with that key, its own name and its session's id every few seconds. The board serves only
+the session it shows under that name, marks what waits for that chat taken, writes that down, then hands it out;
+the mod types it into its chat as the person's own words and tells the board what was typed and what was not
+(`POST /api/bridge/typed`), so the card says "handed to its chat", then "typed into its chat", or that it did not
+arrive. The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
+takes: sending still needs the board's own page. A second board that starts while another one's file is there
+and that board answers leaves the file alone. What remains, as with sending: a chat that wrote a `board.json` of
+its own could have its own text typed into the other chats; that takes a deliberate act, and the mod's note
+forbids touching the file. What is typed:
+
+| The person | Typed into the chat |
+|---|---|
+| approves | `(answered on the worker board, 16:02) B14 "<title>": approved. Tick this step in the backlog.` |
+| rejects | `... rejected. Reason: <their words>` and `Pick this up: now if it belongs to what you are doing, else as a step in the queue.` |
+| marks done | `... done. Tick this step in the backlog.` |
+| decides or provides | `... B67 "<title>": <their words>` |
+| answers a chat that waits | `(answered on the worker board, 16:02) <their words>` |
+| types to the advisor | `<their words>` and `(typed on the worker board, 16:02)` |
+
+A request a chat filed itself says "Close this request." where a step says "Tick this step in the backlog.". An
+answer waits for its chat for `answerKeepHours` (48): the chat may be busy or not open. A line typed to the
+advisor is dropped after `messageKeepMinutes` (10), so nothing typed long ago turns up in a chat. A delivered
+answer keeps its request closed. A step that changed since it was answered (its words, or the lines under it)
+asks again and shows the earlier answer: that is how a rejected step comes back after the rework.
+
+**From advice to work** (the person, 2026-10-12): what the person agrees with the advisor, the advisor passes on
+to the main chat, which hands out as before. The advisor still hands out nothing itself.
+
+**A restart of the app** (the person, 2026-10-12: "I want to be able to restart claude, the worker board to
+restart and reload. and then let the workers continue with what they were doing before the restart"; their
+choices: the mod starts the board, the workers carry on on their click, no compaction on the way).
+
+- *The board comes back by itself.* The boards run as children of the app and end with it. The project's list
+  of chats names the launch entries to keep running (`.claude\chats\list.json`, "boards"); every chat in the list
+  looks every 15 seconds whether each answers and starts the one that does not, as a child of its own process
+  (the Workers mod, `keepBoards`). So the first game chat that opens after a restart brings the boards back, and
+  a chat that closes hands its board on to the next one within seconds. Nothing is set up in Windows.
+- *The page keeps asking.* While the board is away the page asks every 5 seconds and says since when; a board
+  that is back has a new token, and the page loads itself anew. The board says for an hour that it was off, and
+  from when to when.
+- *Interrupted.* A chat whose transcript shows an open turn while its own file says otherwise was cut off
+  (`isCutOff` in `src/state.mjs`): the file says waiting since after the turn began and the transcript has not
+  moved on, or it says working and is no longer renewed. A chat whose process keeps no such file is never called
+  interrupted. It is a state of its own, with the task the chat was on.
+- *Two words, and the main chat does the work.* "Prepare restart" and "Resume all" type `prepare restart` and
+  `resume` into the main chat, in the board's own wording; `resume` names the chats the board read as cut off.
+  The main chat asks every working chat to stop at a safe point and writes who was on what into
+  `<project>\.claude\restart.md`, and after the restart it brings them back from that file, then removes it. The
+  board says how the preparing stands: who still works, and "Ready" when every chat is at rest and the file is
+  written. A message from the main chat reaches a chat in the middle of its turn; what the board types waits
+  until a chat is idle, which is why the main chat does the messaging.
+
+**Pictures.** Pictures come only from the folders named in `config.json` (`pictureRoots`, the project's
+`art-inbox`), and the path is checked on the real file.
+
+**The game of a branch** (the person, 2026-10-12: "i want the link to open a game with the branch that contains
+the code ... spin up a new game with new port ... find a way so it doesnt run indefinately if i close the tab").
+Work to verify has one button, "Open the game on <branch>": the branch an ask names in `run.branch` or a step
+names in its words, else `main`. The board starts the game from the working folder that holds that branch
+(`run-game.mjs`, one process per folder, the folder's own vite and configuration) on a port of its own, from
+`gamePort` (5300) plus the folder's place in git's list, and opens it in a new tab. The game ends by itself
+`gameIdleSeconds` (30) after its last tab was closed, or when nobody opened it within `gameOpenSeconds` (120); the
+board also ends its games when it is closed, and the card has a Stop button. The page names the request only: the
+branch and the folder come from the board's own state, and starting needs what sending needs (the token, the
+board's own origin, JSON). The board switches no folder to another branch: a branch that is in no working folder
+cannot be started, and the card says so. Vite's cache for these games is kept in the board's `data/game-cache`,
+so nothing is written into a folder's `node_modules` while a worker runs the game from it too. The Overview has
+a "Run game" button that is always there (the person, 2026-10-12: "lets add the run game button in the worker
+board"): it opens the game as it is on main the same way, and says which commit main is on and since when.
+
+**Still to build in the branch:** a tool in the mod for a chat to file and close an ask; the plan line names the
+chat's branch and when its task was named; and the line in the working agreement that tells every chat to file an
+ask where it would write an `@you` step. Delivery is built and tested in parts, and not yet tried with a real chat:
+that needs `/reload-plugins` in the chat that is to receive.
+
 ## What it is for
 
 The person runs one main chat and four worker chats on Lava Tactics and loses track of who does what. Their words:

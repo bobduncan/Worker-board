@@ -27,15 +27,34 @@ export function foldOutbox(text) {
   return [...byId.values()].filter(message => typeof message.text === 'string' && Number.isFinite(message.at))
 }
 
+const isAnswer = message => (message.ask ?? null) !== null
+const COMMAND_KNOWN_MS = 2 * 60 * 60_000
+/** A typed line the mod took and never said it typed is shown as on its way for this long. */
+const TAKEN_SHOWN_MS = 10 * 60_000
+
 /**
- * What was typed, as the dock and the bridge see it now. A message that waited longer than `keepMs` is `expired`:
- * it is never delivered, so nothing typed long ago turns up in a chat when delivery starts working. Expired
- * messages stay listed for `shownMs` so the person sees what did not arrive.
+ * True when a message waited too long to be delivered. A line typed to a chat is kept for minutes (`messageMs`),
+ * so nothing typed long ago turns up in a chat; an answer to a request waits for its chat much longer (`answerMs`).
  */
-export function outboxNow(messages, now, keepMs, shownMs = 12 * 60 * 60_000) {
+const isLate = (message, now, keep) => now - message.at > (isAnswer(message) ? keep.answerMs : keep.messageMs)
+
+/**
+ * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never
+ * delivered; it stays listed for `shownMs` so the person sees what did not arrive. A delivered answer stays
+ * known, because it closes its request; a delivered line shows in its chat and is listed no longer.
+ */
+export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
   return messages
-    .map(message => (message.state === 'waiting' && now - message.at > keepMs ? { ...message, state: 'expired' } : message))
-    .filter(message => message.state === 'waiting' || (message.state === 'expired' && now - message.at < shownMs))
+    .map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+    .filter(message => message.state === 'waiting'
+      // What did not arrive is shown for a while.
+      || ((message.state === 'expired' || message.state === 'failed') && now - message.at < shownMs)
+      // An answer that was taken or typed keeps its request closed.
+      || ((message.state === 'taken' || message.state === 'delivered') && isAnswer(message))
+      // A word for the restart stays known for a while: the board says how the preparing stands.
+      || (typeof message.command === 'string' && now - message.at < COMMAND_KNOWN_MS)
+      // A line that was taken shows as on its way until the chat has it.
+      || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS))
 }
 
 /** The gap line to add when the board starts after having been off, or null. */
@@ -63,16 +82,54 @@ function storeOver(lines, messages, alive, write) {
     },
     async say(message) {
       messages.push(message)
-      await write.outbox(message)
+      await write.outbox([message])
+    },
+    /**
+     * Hands out what waits for one chat, for the mod to type there. Every message is marked taken at once, before
+     * anything is awaited, so two takes never hand out the same one; and it is written down before it is handed
+     * out, so it is never typed twice. A take that cannot be written down hands out nothing.
+     */
+    async take(to, now, keep) {
+      const taken = messages.filter(message => message.to === to && message.state === 'waiting' && !isLate(message, now, keep))
+      for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now })
+      try {
+        if (taken.length > 0) await write.outbox(taken.map(message => ({ id: message.id, state: 'taken', takenAt: now })))
+      } catch (error) {
+        for (const message of taken) {
+          message.state = 'waiting'
+          delete message.takenAt
+        }
+        throw error
+      }
+      return taken.map(message => ({ ...message }))
+    },
+    /** What the mod says became of the messages a chat took: typed into the chat, or not. */
+    async settle(to, { typed = [], failed = [] }, now) {
+      const changed = []
+      for (const message of messages) {
+        if (message.to !== to || message.state !== 'taken') continue
+        if (typed.includes(message.id)) changed.push(Object.assign(message, { state: 'delivered', deliveredAt: now }))
+        else if (failed.includes(message.id)) changed.push(Object.assign(message, { state: 'failed' }))
+      }
+      if (changed.length > 0) await write.outbox(changed.map(({ id, state, deliveredAt }) => ({ id, state, ...(deliveredAt === undefined ? {} : { deliveredAt }) })))
+      return changed.length
     },
   }
 }
 
 const nothing = async () => {}
 
-/** A store that keeps everything in memory: the demo and the tests. */
+/** A store that keeps everything in memory: the demo and the tests. `failWrites` lets a test make a write fail. */
 export function memoryStore(lines = []) {
-  return storeOver([...lines], [], null, { history: nothing, alive: nothing, outbox: nothing })
+  let isFailing = false
+  const store = storeOver([...lines], [], null, {
+    history: nothing,
+    alive: nothing,
+    outbox: async () => {
+      if (isFailing) throw new Error('The outbox could not be written.')
+    },
+  })
+  return { ...store, failWrites: fails => { isFailing = fails } }
 }
 
 const jsonLines = values => `${values.map(value => JSON.stringify(value)).join('\n')}\n`
@@ -99,7 +156,7 @@ export async function fileStore(dir, now) {
   const store = storeOver(lines, foldOutbox(await read(files.outbox)), Number.isFinite(aliveAt) ? aliveAt : null, {
     history: added => appendFile(files.history, jsonLines(added)),
     alive: at => writeFile(files.alive, JSON.stringify({ at })),
-    outbox: message => appendFile(files.outbox, jsonLines([message])),
+    outbox: changed => appendFile(files.outbox, jsonLines(changed)),
   })
   const gap = startGap(lines, aliveAt, now)
   if (gap !== null) await store.record([gap])

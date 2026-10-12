@@ -13,15 +13,28 @@ const DEFAULTS = {
   quietMinutes: 10,
   /** An estimate older than this is shown as old. */
   estimateOldMinutes: 15,
-  /** The hour the Today timeline starts at. */
-  dayStartHour: 6,
+  /** How far the timeline looks back from now, and at least how far ahead: the person plans with what comes. */
+  hoursBack: 2,
+  hoursAhead: 6,
   /** The longest message the chat box accepts. */
   maxMessageChars: 2000,
   /** A typed message that was not delivered within this time is never delivered. */
   messageKeepMinutes: 10,
+  /** An answer to a request waits this long for its chat to take it: the chat may be busy, or not open. */
+  answerKeepHours: 48,
+  /** The chat that advises and is talked with on its own tab. It has no lane. */
+  advisor: 'Advisor',
+  /** The folders of the project whose pictures the board may show. */
+  pictureRoots: ['art-inbox'],
+  /** A game the board starts for a branch takes this port, plus the place of its folder in git's list. */
+  gamePort: 5300,
+  /** Such a game ends this long after its last tab was closed, or when nobody opened it in time. */
+  gameIdleSeconds: 30,
+  gameOpenSeconds: 120,
 }
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds']
 
 /** Fills `%NAME%` from the environment. Windows names have no fixed case, so the look-up ignores it. */
 export function expandEnv(text, env) {
@@ -41,10 +54,14 @@ export function parseConfig(text, env) {
   for (const key of PATHS) {
     if (typeof raw[key] === 'string') config[key] = expandEnv(raw[key], env)
   }
-  for (const key of Object.keys(DEFAULTS)) {
-    if (PATHS.includes(key)) continue
+  for (const key of NUMBERS) {
     if (Number.isFinite(raw[key]) && raw[key] > 0) config[key] = raw[key]
   }
+  // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
+  config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
+  if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()
+  // A shown folder is one plain folder name in the project: never a path that could lead out of it.
+  if (Array.isArray(raw.pictureRoots)) config.pictureRoots = raw.pictureRoots.filter(root => typeof root === 'string' && /^[\w-][\w.-]*$/.test(root))
   return config
 }
 

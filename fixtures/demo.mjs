@@ -2,12 +2,18 @@
 // that does not exist. Every time is counted back from `now`, so the demo always looks like a morning at work.
 // Each sample is text in the shape of the real file and goes through the same readers as the real data.
 
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { readFolders } from '../src/folders.mjs'
+import { listPictures } from '../src/pictures.mjs'
 import { answer, assistant, fromChat, step, tool, toolResult, typed } from './lines.mjs'
 
 const MIN = 60_000
-const PROJECT = 'C:\\Demo\\game-builder'
+// A real folder, so the demo's pictures are served the way the real ones are.
+const PROJECT = join(dirname(fileURLToPath(import.meta.url)), 'demo-project')
 const REPO = 'C:/Demo/game-builder/game'
+const ROOTS = ['art-inbox']
 
 const CHATS = [
   { name: 'Main', id: 'demo-main' },
@@ -15,26 +21,63 @@ const CHATS = [
   { name: 'Features', id: 'demo-features' },
   { name: 'Cleanup', id: 'demo-cleanup', summary: ['completed', 'the docs are tidy', ''] },
   { name: 'Levels / Environment', id: 'demo-levels' },
+  { name: 'Advisor', id: 'demo-advisor', summary: ['completed', 'advice written', ''] },
 ]
 
 const BACKLOG = `# Backlog
 
 ## Movement #focus
 - [x] Player input
-- [ ] Integrate player movement (Game - Main)
-- [ ] Animation blending
-- [ ] Say whether the jump feels right @you
+- [ ] Integrate player movement (Game - Main; branch feature/player-movement)
+- [ ] B03 Verify: the jump feels right (picture in art-inbox/jump) @you
+- [ ] B04 Do: quit and reopen the app once @you
 
 ## Enemies #focus
-- [ ] Enemy pathfinding (branch feature/enemy-ai)
-- [ ] Enemy attack patterns
+- [ ] Enemy pathfinding (Game - Units; branch feature/enemy-ai)
+- [ ] Add save / load system (Game - Features; branch feature/save-load)
+- [ ] Build first level (Game - Levels / Environment; branch feature/forest)
 
 ## Next to hand out (Game - Main)
 - [x] Add save / load system (for Features)
-- [ ] Implement main menu (for Features; after save / load merges; about 40 min)
-- [ ] Set up level streaming (for Levels / Environment; about 2 h)
-- [ ] Clean up temporary files (for Cleanup; about 15 min)
+- [ ] B11 Animation blending (for Main; branch feature/animation-blending; about 40 min)
+  Blend between the walk, run and jump animations, so a change of speed does not snap.
+  Requirements:
+  - No visible pop when the speed changes
+  - Works for the player and for enemies
+  - The jump keeps its own timing
+  Context: the jump arc is in art-inbox/jump. Keep the blend under a tenth of a second.
+- [ ] Review the merge order (for Main; about 15 min)
+- [ ] Plan the next milestone (for Main; about 30 min)
+- [ ] Enemy abilities (for Units; after the pathfinding choice; about 30 min)
+- [ ] Enemy attack patterns (for Units; about 1 h)
+- [ ] Main menu (for Features; after save / load merges; about 1 h)
+- [ ] Settings screen (for Features; about 45 min)
+- [ ] Controller support (for Features; about 2 h)
+- [ ] Remove unused assets (for Cleanup; about 20 min)
+- [ ] Lava biome (for Levels / Environment; about 1 h 30 min)
+- [ ] Level streaming (for Levels / Environment; about 2 h)
+- [ ] Decide the name of the game
 `
+
+const ASKS = now => [
+  {
+    id: 'units-pathfinding', from: 'Units', kind: 'input', at: now - 72 * MIN,
+    title: 'Choose pathfinding approach',
+    text: 'Units has compared two approaches for enemy pathfinding. Which direction should we take?',
+    options: [
+      { label: 'Option A: NavMesh', picture: 'art-inbox/pathfinding/option-a-navmesh.png', isRecommended: true },
+      { label: 'Option B: Custom grid', picture: 'art-inbox/pathfinding/option-b-grid.png' },
+    ],
+  },
+  {
+    id: 'main-player-movement', from: 'Main', kind: 'verify', at: now - 28 * MIN,
+    title: 'Test player movement',
+    text: 'The movement system is implemented and tests are passing. Please verify the behaviour.',
+    run: { branch: 'main' },
+    checks: ['Movement in all 4 directions', 'Collision with walls and obstacles', 'Smooth animation blending', 'No jitter on slopes'],
+  },
+  { id: 'old-question', from: 'Features', kind: 'input', title: 'An answered question', state: 'answered' },
+]
 
 const ADVICE = `# Advice
 
@@ -63,7 +106,7 @@ function gitAnswers(now) {
     const path = folder.name === 'game' ? REPO : `${REPO}-${folder.name.slice('game-'.length)}`
     blocks.push(`worktree ${path}\nHEAD ${'0'.repeat(40)}\nbranch refs/heads/${folder.branch}\n`)
     answers[`-C ${path} status --porcelain`] = ' M src/file.ts\n'.repeat(folder.changed)
-    answers[`-C ${path} log -1 --format=%ct`] = `${Math.round((now - folder.minutesAgo * MIN) / 1000)}\n`
+    answers[`-C ${path} log -1 --format=%ct %h %s`] = `${Math.round((now - folder.minutesAgo * MIN) / 1000)} 4f2a91c Merge player movement\n`
     answers[`-C ${REPO} rev-list --count main..${folder.branch}`] = `${folder.ahead}\n`
   }
   answers[`-C ${REPO} worktree list --porcelain`] = blocks.join('\n')
@@ -128,8 +171,16 @@ function transcripts(now) {
       fromChat(ago(40), 'Game - Main', 'Task from Game - Main: build the first level, a forest.'),
       step(ago(39), 'Look at the reference picture'),
       toolResult(ago(38)),
-      step(ago(14), 'Create terrain meshes'),
-    ], 14),
+      step(ago(2), 'Create terrain meshes'),
+    ], 2),
+    'demo-advisor': tail([
+      typed(ago(46), 'What should happen next?'),
+      step(ago(45), 'Read the backlog'),
+      toolResult(ago(45)),
+      answer(ago(44), 'Decide on the pathfinding approach first: **Units** waits for it, and nothing else on enemies can start. After that, hand Cleanup its queued task: it is free.'),
+      typed(ago(20), 'Can Features start the main menu while the save system is still in review?'),
+      answer(ago(19), 'Yes, if it does not touch the save files: the main menu only reads whether a save exists. I would let it start once its tests pass.'),
+    ], 19),
   }
 }
 
@@ -198,16 +249,18 @@ export async function demoSources(now) {
       JSON.stringify({ title: 'Game - Somewhere else', cliSessionId: 'demo-else', cwd: 'C:\\Demo', isArchived: false }),
     ],
     planLineTexts: {
-      'demo-main': plan(now, { text: 'Integrate player movement', step: 4, steps: 5, left: 12 * MIN, isReported: false }, 3),
+      'demo-main': plan(now, { text: 'Integrate player movement', step: 4, steps: 5, left: 25 * MIN, isReported: false }, 3),
       'demo-units': plan(now, { text: 'Choose enemy approach', step: 2, steps: 4, left: 30 * MIN, isReported: false }, 103),
-      'demo-features': plan(now, { text: 'Add save / load system', step: 3, steps: 5, left: 35 * MIN, isReported: false }, 9),
+      'demo-features': plan(now, { text: 'Add save / load system', step: 3, steps: 5, left: 114 * MIN, isReported: false }, 9),
       'demo-cleanup': plan(now, null, 105),
-      'demo-levels': plan(now, { text: 'Build first level (forest)', step: 2, steps: 6, left: 120 * MIN, isReported: false }, 22),
+      'demo-levels': plan(now, { text: 'Build first level (forest)', step: 2, steps: 6, left: 40 * MIN, isReported: false }, 6),
     },
     tails: transcripts(now),
     backlogText: BACKLOG,
     adviceText: ADVICE,
     folders: await readFolders(REPO, async args => answers[args.join(' ')] ?? null),
+    askTexts: ASKS(now).map(ask => JSON.stringify(ask)),
+    pictureLists: { 'art-inbox/jump': await listPictures(PROJECT, ROOTS, 'art-inbox/jump') },
     historyLines: history(now),
   }
 }

@@ -145,6 +145,31 @@ export function turnState(entries) {
   return 'unknown'
 }
 
+/** The words of a tool's result, whether it came as text or as blocks. */
+const resultText = block => (typeof block.content === 'string'
+  ? block.content
+  : blocksOf(block.content).map(part => (typeof part.text === 'string' ? part.text : '')).join('\n'))
+
+/** What the app answers when work is sent to the background: a subagent, or a command. */
+const SENT_TO_BACKGROUND = /^(Async agent launched|Command running in background)/
+
+/**
+ * How many pieces of background work these entries show as started and not yet reported back: a chat ends its
+ * turn while a subagent or a command runs, and the app starts it again when that reports. Counted from what the
+ * app itself writes; nothing of the chat's own words is read.
+ */
+export function backgroundRunning(entries) {
+  let running = 0
+  for (const entry of entries) {
+    if (entry.isSidechain || entry.type !== 'user') continue
+    for (const block of entry.blocks) {
+      if (block.type === 'tool_result' && SENT_TO_BACKGROUND.test(resultText(block).trimStart())) running += 1
+      else if (block.type === 'text' && typeof block.text === 'string' && block.text.includes('<task-notification>')) running = Math.max(0, running - 1)
+    }
+  }
+  return running
+}
+
 const baseName = path => String(path).split(/[\\/]/).filter(part => part !== '').pop() ?? ''
 
 /** What the chat is doing right now: what its last tool call says it is for, else the tool's name. */
@@ -231,7 +256,9 @@ function handOvers(entries, { mainTitle, mainSession = null }) {
     if (message !== null) {
       const isFromMain = message.from !== null && (message.from === mainTitle || message.from === mainSession)
       if (isFromMain && HANDS_OVER.test(message.body)) {
-        start = { at: entry.at, from: message.from, title: titleOf(message.body, true) }
+        // The backlog steps its first line names ("backlog steps B64 and then B65"): ids, never its words.
+        const steps = [...new Set((message.body.trim().split('\n')[0] ?? '').match(/\bB\d+\b/g) ?? [])]
+        start = { at: entry.at, from: message.from, title: titleOf(message.body, true), steps }
         reportedAt = null
       }
     } else if (isReportTo(entry, mainTitle)) {
@@ -290,7 +317,9 @@ export function turnStart(entries, { prefix = '' } = {}) {
       if (origin !== null && origin.kind !== 'human' && opening !== null) isOpen = true
       continue
     }
-    opening = { at: entry.at, by: 'you', title: titleOf(value), isSure: hasEnd }
+    // A message that starts with a picture is named after its words.
+    const words = value.split('\n').filter(line => line.trim() !== '[picture]').join('\n').trim()
+    opening = { at: entry.at, by: 'you', title: words === '' ? 'A picture' : titleOf(words), isSure: hasEnd }
     isOpen = true
   }
   return opening === null ? null : { ...opening, isOpen }
@@ -309,10 +338,11 @@ function typedText(entry) {
 }
 
 /**
- * The main chat as the dock shows it: what the person typed, the answer that ended each turn, and reports from
- * other chats. Tool calls, their results, slash commands and the app's own notes are left out.
+ * A chat as the board shows it to talk with: what the person typed (`from: 'you'`), the answer that ended each
+ * turn (`from: 'chat'`, under the chat's name `self`), and messages from other chats (`from: 'report'`). Tool
+ * calls, their results, slash commands and the app's own notes are left out.
  */
-export function mainChat(entries, { prefix = '', titles = new Map(), limit = 30 } = {}) {
+export function conversation(entries, { self = 'Main', prefix = '', titles = new Map(), limit = 30 } = {}) {
   const messages = []
   const add = (entry, from, who, value, via = null) => {
     if (value.trim() !== '') messages.push({ at: entry.at, from, who, via, text: value.trim() })
@@ -322,7 +352,7 @@ export function mainChat(entries, { prefix = '', titles = new Map(), limit = 30 
   for (const entry of entries) {
     if (entry.isSidechain) continue
     if (entry.type === 'assistant') {
-      if (entry.stopReason !== null && entry.stopReason !== 'tool_use') add(entry, 'main', 'Main', textOf(entry))
+      if (entry.stopReason !== null && entry.stopReason !== 'tool_use') add(entry, 'chat', self, textOf(entry))
       continue
     }
     if (hasToolResult(entry)) continue

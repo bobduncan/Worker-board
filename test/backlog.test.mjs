@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { forYou, openWork, parseBacklog, queue } from '../src/backlog.mjs'
+import { closedForYou, forYou, noteSections, openWork, parseBacklog, queue } from '../src/backlog.mjs'
 
 const TEXT = `# Backlog
 
@@ -55,11 +55,57 @@ test('parseBacklog adds an indented line to the step above it', () => {
 
 test('queue: the open steps to hand out, with the worker, the condition and the time picked out', () => {
   assert.deepEqual(queue(backlog), [
-    { text: 'Main menu (for Features; after the battle page merges; about 40 min)', title: 'Main menu', worker: 'Features', branch: null, after: 'the battle page merges', minutes: 40 },
-    { text: 'Level streaming (for Levels / Environment; about 2 h)', title: 'Level streaming', worker: 'Levels / Environment', branch: null, after: null, minutes: 120 },
-    { text: 'When the beast merges: tell Game - Units the portrait is old', title: 'When the beast merges: tell Game - Units the portrait is old', worker: 'Units', branch: null, after: null, minutes: null },
-    { text: 'Tidy the art inbox', title: 'Tidy the art inbox', worker: null, branch: null, after: null, minutes: null },
+    { id: null, text: 'Main menu (for Features; after the battle page merges; about 40 min)', title: 'Main menu', worker: 'Features', branch: null, after: 'the battle page merges', minutes: 40, notes: [] },
+    { id: null, text: 'Level streaming (for Levels / Environment; about 2 h)', title: 'Level streaming', worker: 'Levels / Environment', branch: null, after: null, minutes: 120, notes: [] },
+    { id: null, text: 'When the beast merges: tell Game - Units the portrait is old', title: 'When the beast merges: tell Game - Units the portrait is old', worker: 'Units', branch: null, after: null, minutes: null, notes: [] },
+    { id: null, text: 'Tidy the art inbox', title: 'Tidy the art inbox', worker: null, branch: null, after: null, minutes: null, notes: [] },
   ])
+})
+
+test('an open step starts with its id, before its kind; the id is not part of its words', () => {
+  const text = '## Art\n- [ ] B14 Verify: the walk is smooth (pictures in art-inbox/archer; Game - Units) @you\n- [ ] B7 Draw the bat\n- [x] B03 Do: quit the app @you\n- [ ] Build B12 later\n\n## Next to hand out (Game - Main)\n- [ ] B59 Redraw the portrait (for Features; after the camera; about 20 min)\n'
+  const backlog = parseBacklog(text, RULES)
+  assert.deepEqual(backlog.activities[0].steps.map(step => [step.id, step.asks, step.title]), [
+    ['B14', 'verify', 'the walk is smooth (pictures in art-inbox/archer; Game - Units)'],
+    ['B7', null, 'Draw the bat'],
+    ['B03', 'do', 'quit the app'],
+    [null, null, 'Build B12 later'],
+  ])
+  assert.deepEqual(forYou(backlog).map(step => [step.id, step.asks, step.worker]), [['B14', 'verify', 'Units']])
+  assert.deepEqual(queue(backlog).map(step => [step.id, step.title, step.worker, step.minutes]), [['B59', 'Redraw the portrait', 'Features', 20]])
+})
+
+test('the indented lines under a step are its details, in sections', () => {
+  const text = [
+    '## Next to hand out (Game - Main)',
+    '- [ ] B59 Redraw the beast\'s portrait (for Features; branch feature/hud-portrait; about 20 min)',
+    '  The portrait on the HUD uses the old concept.',
+    '  Redraw it in the current style.',
+    '  Requirements:',
+    '  - Same style as the other icons',
+    '  * Readable at 32 by 32',
+    '  Context: Focus on the face. See art-inbox/shadow-beast.',
+    '  (handed over on 2026-10-12: no)',
+    '- [ ] B60 Tidy',
+  ].join('\n')
+  const [portrait, tidy] = queue(parseBacklog(text, RULES))
+  assert.deepEqual(portrait.notes, [
+    { title: null, lines: ['The portrait on the HUD uses the old concept.', 'Redraw it in the current style.'], points: [] },
+    { title: 'Requirements', lines: [], points: ['Same style as the other icons', 'Readable at 32 by 32'] },
+    { title: 'Context', lines: ['Focus on the face. See art-inbox/shadow-beast.', '(handed over on 2026-10-12: no)'], points: [] },
+  ])
+  assert.deepEqual([portrait.branch, tidy.notes], ['feature/hud-portrait', []])
+  assert.deepEqual(noteSections(['- only a point', 'http://example.com: not a name']), [{ title: null, lines: ['http://example.com: not a name'], points: ['only a point'] }])
+})
+
+test('closedForYou: the steps for the person that are ticked, with their id and kind', () => {
+  const text = '## Art\n- [x] B03 Verify: the mage is right @you\n- [x] Say whether the knight is right @you\n- [ ] B14 Decide: the bridge @you\n- [x] B20 Draw the bat\n'
+  const backlog = parseBacklog(text, RULES)
+  assert.deepEqual(closedForYou(backlog).map(step => [step.id, step.asks, step.title, step.activity]), [
+    ['B03', 'verify', 'the mage is right', 'Art'],
+    [null, null, 'Say whether the knight is right', 'Art'],
+  ])
+  assert.deepEqual(forYou(backlog).map(step => step.id), ['B14'])
 })
 
 test('queue: a condition with brackets of its own, and a time in hours and minutes', () => {
@@ -72,8 +118,18 @@ test('queue: a condition with brackets of its own, and a time in hours and minut
 
 test('forYou: every open step that ends in @you, with its activity', () => {
   assert.deepEqual(forYou(backlog), [
-    { text: 'Say whether the run does what you intended', activity: 'Architecture' },
-    { text: 'Say which plan the music came from', activity: 'Sound' },
+    { id: null, text: 'Say whether the run does what you intended', title: 'Say whether the run does what you intended', asks: null, worker: null, branch: null, notes: [], activity: 'Architecture' },
+    { id: null, text: 'Say which plan the music came from', title: 'Say which plan the music came from', asks: null, worker: null, branch: null, notes: [], activity: 'Sound' },
+  ])
+})
+
+test('forYou: a step says what it asks of the person, and names the worker it is about', () => {
+  const text = '## Art\n- [ ] Verify: the bone ranger walks smoothly (pictures in art-inbox/archer) @you\n- [ ] decide: accept the bridge or continue (options in Game - Levels / Environment) @you\n- [ ] Provide: the Suno plan @you\n- [ ] Do: quit the app once @you\n'
+  assert.deepEqual(forYou(parseBacklog(text, RULES)).map(step => [step.asks, step.title, step.worker]), [
+    ['verify', 'the bone ranger walks smoothly (pictures in art-inbox/archer)', null],
+    ['decide', 'accept the bridge or continue (options in Game - Levels / Environment)', 'Levels / Environment'],
+    ['provide', 'the Suno plan', null],
+    ['do', 'quit the app once', null],
   ])
 })
 

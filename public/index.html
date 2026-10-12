@@ -9,58 +9,94 @@
   <script src="/board.js" defer></script>
 </head>
 <body>
-  <div class="layout">
-    <main class="board">
-      <header class="top">
-        <h1>Lava Tactics – Worker Board</h1>
-        <p class="updated" id="updated">Reading…</p>
-        <button class="icon-button" id="refresh" type="button" title="Read again" aria-label="Read again"></button>
+  <nav class="tabs" aria-label="Views">
+    <button class="tab is-active" type="button" data-tab="overview">Overview</button>
+    <button class="tab" type="button" data-tab="advice">Advice &amp; Chat</button>
+    <button class="tab" type="button" data-tab="coordinate">Coordinate</button>
+    <span class="grow"></span>
+    <button class="quiet-button" id="prepare-restart" type="button" title="Before you quit Claude: Game - Main asks every working chat to stop at a safe point and writes down who was on what" hidden>Prepare restart</button>
+    <p class="updated" id="updated">Reading…</p>
+    <button class="icon-button" id="refresh" type="button" title="Read again" aria-label="Read again"></button>
+  </nav>
+
+  <div class="view" id="view-overview">
+    <main class="overview">
+      <header class="head">
+        <h1>Lava Tactics <button class="icon-button" id="refresh-title" type="button" title="Read again" aria-label="Read again"></button></h1>
+        <div class="main-game" id="main-game"></div>
         <div class="counts" id="counts"></div>
       </header>
-
-      <section class="cards" id="cards" aria-label="Workers"></section>
-
-      <div class="three">
-        <section class="panel" id="for-you" aria-labelledby="for-you-title">
-          <h2 id="for-you-title">For you <span class="count" id="for-you-count"></span></h2>
-          <div class="list" id="for-you-list"></div>
-        </section>
-        <section class="panel" id="queue" aria-labelledby="queue-title">
-          <h2 id="queue-title">Queue <span class="count" id="queue-count"></span></h2>
-          <div class="list" id="queue-list"></div>
-        </section>
-        <section class="panel" id="folders" aria-labelledby="folders-title">
-          <h2 id="folders-title">Working folders</h2>
-          <div class="list" id="folders-list"></div>
-        </section>
-      </div>
-
+      <section class="restart" id="restart" aria-label="Restart" hidden></section>
+      <section class="lanes" id="lanes" aria-label="Workers"></section>
       <section class="panel" id="today" aria-labelledby="today-title">
-        <h2 id="today-title">Today</h2>
+        <h2 id="today-title">Timeline <small id="today-range"></small></h2>
         <div class="today">
           <div class="timeline" id="timeline"></div>
           <ul class="legend" id="legend"></ul>
         </div>
       </section>
-
-      <section class="panel" id="advice" aria-labelledby="advice-title">
-        <h2 id="advice-title">Advice</h2>
-        <div class="advice" id="advice-text"></div>
-      </section>
+      <div id="folders"></div>
     </main>
 
-    <aside class="dock" aria-labelledby="dock-title">
-      <header class="dock-top">
-        <h2 id="dock-title">Main chat</h2>
-        <span class="muted" id="dock-note">Last 30 messages</span>
+    <div class="resizer" id="inbox-resizer" role="separator" aria-orientation="vertical" aria-label="Width of For you" tabindex="0" title="Drag to make For you wider or narrower; double-click for the usual width"></div>
+    <aside class="inbox" aria-labelledby="inbox-title">
+      <header class="inbox-top">
+        <h2 id="inbox-title">For you <span class="count" id="needs-count"></span></h2>
+        <label class="check" title="Also show what you answered here and the steps that are ticked in the backlog">
+          <input type="checkbox" id="needs-closed"> Show closed
+        </label>
+        <select id="needs-order" aria-label="Order">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="worker">By worker</option>
+        </select>
+      </header>
+      <div class="needs" id="needs"></div>
+    </aside>
+  </div>
+
+  <div class="view" id="view-advice" hidden>
+    <section class="panel advice-panel" aria-labelledby="advice-title">
+      <h2 id="advice-title">Advice</h2>
+      <div class="advice" id="advice-text"></div>
+    </section>
+    <div class="resizer" id="talk-resizer" role="separator" aria-orientation="vertical" aria-label="Width of the chat" tabindex="0" title="Drag to make the chat wider or narrower; double-click for the usual width"></div>
+    <aside class="talk" aria-labelledby="talk-title">
+      <header class="talk-top">
+        <h2 id="talk-title">Advisor</h2>
+        <span id="talk-state"></span>
       </header>
       <div class="messages" id="messages"></div>
       <form class="say" id="say">
-        <textarea id="say-text" rows="2" placeholder="Type a message…" maxlength="2000" aria-label="Message to the main chat"></textarea>
+        <textarea id="say-text" rows="2" placeholder="Ask the advisor…" maxlength="2000" aria-label="Message to the advisor"></textarea>
         <button type="submit" id="say-send">Send</button>
       </form>
-      <p class="muted say-note" id="say-note">Messages are kept and shown here. Delivery to the chat is not connected in this version.</p>
+      <p class="muted say-note" id="say-note"></p>
     </aside>
   </div>
+
+  <div class="view is-single" id="view-coordinate" hidden>
+    <main class="coordinate">
+      <header class="coordinate-top">
+        <h1>Backlog <small id="coordinate-count"></small></h1>
+        <div class="coordinate-filters" id="coordinate-filters" role="group" aria-label="Which steps"></div>
+        <span class="grow"></span>
+        <input type="search" id="coordinate-find" placeholder="Find a step: B64…" aria-label="Find a step by its id" maxlength="40">
+        <label class="check" title="Also show the steps that are ticked in the backlog">
+          <input type="checkbox" id="coordinate-done"> Show finished
+        </label>
+      </header>
+      <div class="coordinate-list" id="coordinate-list"></div>
+    </main>
+  </div>
+
+  <dialog class="details" id="details" aria-label="Details"></dialog>
+
+  <dialog class="lightbox" id="lightbox" aria-label="Picture">
+    <figure>
+      <img id="lightbox-picture" alt="">
+      <figcaption id="lightbox-caption"></figcaption>
+    </figure>
+  </dialog>
 </body>
 </html>

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { answer, assistant, fromChat, line, slashCommand, step, text, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
-import { doingNow, lastFinish, mainChat, markedIn, parseTail, taskStart, turnStart, turnState } from '../src/transcript.mjs'
+import { conversation, doingNow, lastFinish, markedIn, parseTail, taskStart, turnStart, turnState } from '../src/transcript.mjs'
 
 const T = Date.UTC(2026, 9, 12, 8, 0)
 const min = n => T + n * 60_000
@@ -97,7 +97,7 @@ test('taskStart: a task handed over by the main chat gives the start, the sender
     fromChat(min(4), 'Game - Main', 'Task from Game - Main: build the archer at 4x. Time box: 45 minutes.\n\nBackground: ...'),
     step(min(5), 'Read the brief'),
   ]), MAIN)
-  assert.deepEqual(start, { at: min(4), from: 'Game - Main', title: 'Build the archer at 4x' })
+  assert.deepEqual(start, { at: min(4), from: 'Game - Main', title: 'Build the archer at 4x', steps: [] })
   for (const opening of ['Next task from the main chat: build the archer at 4x.', 'Two tasks from the main chat: build the archer at 4x. Then the knight.']) {
     assert.equal(taskStart(entries([fromChat(min(4), 'Game - Main', opening)]), MAIN).title, 'Build the archer at 4x')
   }
@@ -108,7 +108,7 @@ test('taskStart: reads the tag when the entry carries no plain text of the messa
     isMeta: true,
     origin: { kind: 'peer', from, hostInjected: true },
   })
-  assert.deepEqual(taskStart(entries([tagged('local_main')]), MAIN), { at: min(2), from: 'local_main', title: 'Fix the bridge level' })
+  assert.deepEqual(taskStart(entries([tagged('local_main')]), MAIN), { at: min(2), from: 'local_main', title: 'Fix the bridge level', steps: [] })
   assert.equal(taskStart(entries([tagged('local_units')]), MAIN), null)
 })
 
@@ -166,6 +166,12 @@ test('turnStart: a turn another chat started names that chat, and a tail without
   assert.equal(turnStart(entries([step(min(0), 'Run the tests'), toolResult(min(1))]), { prefix: 'Game - ' }), null)
 })
 
+test('turnStart: a message that starts with a picture is named after its words', () => {
+  const withPicture = words => user(min(1), [{ type: 'image', source: {} }, ...words.map(text => ({ type: 'text', text }))], { origin: { kind: 'human' } })
+  assert.equal(turnStart(entries([withPicture(['Make it like this. Darker.'])]), { prefix: 'Game - ' }).title, 'Make it like this')
+  assert.equal(turnStart(entries([withPicture([])]), { prefix: 'Game - ' }).title, 'A picture')
+})
+
 test('turnStart: after the turn ended, the opening is still known but no longer open', () => {
   assert.deepEqual(turnStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), { prefix: 'Game - ' }),
     { at: min(0), by: 'you', title: 'Go', isSure: false, isOpen: false })
@@ -192,8 +198,8 @@ test('turnStart: a turn the chat\'s own work started goes on with what the turn 
   assert.equal(idle.isOpen, false)
 })
 
-test('mainChat: what was typed, the answers, and reports; tool calls and commands are left out', () => {
-  const messages = mainChat(entries([
+test('conversation: what was typed, the answers, and reports; tool calls and commands are left out', () => {
+  const messages = conversation(entries([
     typed(min(0), 'Focus on the archer today.'),
     assistant(min(1), 'tool_use', [text('Let me look.')]),
     step(min(1), 'Read the backlog'),
@@ -206,43 +212,43 @@ test('mainChat: what was typed, the answers, and reports; tool calls and command
   ]), { prefix: 'Game - ' })
   assert.deepEqual(messages, [
     { at: min(0), from: 'you', who: 'You', via: null, text: 'Focus on the archer today.' },
-    { at: min(3), from: 'main', who: 'Main', via: null, text: 'Handed to Units.' },
+    { at: min(3), from: 'chat', who: 'Main', via: null, text: 'Handed to Units.' },
     { at: min(9), from: 'report', who: 'Units', via: null, text: 'Archer finished and merged.' },
-    { at: min(10), from: 'main', who: 'Main', via: null, text: 'Units reports the archer is in.' },
+    { at: min(10), from: 'chat', who: 'Main', via: null, text: 'Units reports the archer is in.' },
   ])
 })
 
-test('mainChat: a line typed on the board is yours and says where it came from', () => {
+test('conversation: a line typed on the board is yours and says where it came from', () => {
   const viaBoard = user(min(1), 'Hello (typed on the worker board, 10:01)', { origin: { kind: 'plugin', name: 'folder-branches', asUser: true } })
-  assert.deepEqual(mainChat(entries([viaBoard]), { prefix: 'Game - ' }), [
+  assert.deepEqual(conversation(entries([viaBoard]), { prefix: 'Game - ' }), [
     { at: min(1), from: 'you', who: 'You', via: 'board', text: 'Hello (typed on the worker board, 10:01)' },
   ])
 })
 
-test('mainChat: a picture becomes a marker and the app\'s own notes are stripped', () => {
+test('conversation: a picture becomes a marker and the app\'s own notes are stripped', () => {
   const withPicture = user(min(1), [
     { type: 'image', source: { type: 'base64', data: 'AAAA' } },
     { type: 'text', text: 'Like this picture.' },
     { type: 'text', text: '<system-reminder>internal note</system-reminder>' },
   ], { origin: { kind: 'human' } })
-  assert.equal(mainChat(entries([withPicture]), { prefix: 'Game - ' })[0].text, '[picture]\nLike this picture.')
+  assert.equal(conversation(entries([withPicture]), { prefix: 'Game - ' })[0].text, '[picture]\nLike this picture.')
 })
 
-test('mainChat: a report without a name is looked up by the sending chat, and helpers and notices are left out', () => {
+test('conversation: a report without a name is looked up by the sending chat, and helpers and notices are left out', () => {
   const unnamed = user(min(1), 'A message:\n<cross-session-message from="local_77">\nLevels done.\n</cross-session-message>', {
     isMeta: true,
     origin: { kind: 'peer', from: 'local_77', hostInjected: true },
   })
   const handBack = user(min(2), 'x', { isMeta: true, origin: { kind: 'peer', from: 'a1', senderTaskId: 'a1', handback: true, body: 'helper' } })
   const notice = user(min(3), '<task-notification>done</task-notification>', { origin: { kind: 'task-notification' } })
-  const messages = mainChat(entries([unnamed, handBack, notice]), { prefix: 'Game - ', titles: new Map([['local_77', 'Game - Levels']]) })
+  const messages = conversation(entries([unnamed, handBack, notice]), { prefix: 'Game - ', titles: new Map([['local_77', 'Game - Levels']]) })
   assert.deepEqual(messages.map(m => [m.from, m.who, m.text]), [['report', 'Levels', 'Levels done.']])
 })
 
-test('mainChat: only the last 30', () => {
+test('conversation: only the last 30', () => {
   const many = []
   for (let i = 0; i < 40; i += 1) many.push(typed(min(i), `message ${i}`))
-  const messages = mainChat(entries(many), { prefix: 'Game - ' })
+  const messages = conversation(entries(many), { prefix: 'Game - ' })
   assert.equal(messages.length, 30)
   assert.equal(messages[0].text, 'message 10')
 })

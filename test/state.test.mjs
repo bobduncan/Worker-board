@@ -4,6 +4,7 @@ import test from 'node:test'
 import { demoSources } from '../fixtures/demo.mjs'
 import { answer, assistant, fromChat, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
+import { hourEnd, hourStart } from '../src/history.mjs'
 import { buildState, chatState } from '../src/state.mjs'
 
 const MIN = 60_000
@@ -22,7 +23,7 @@ const planLine = task => JSON.stringify({ name: 'x', role: 'worker', state: 'wor
 const running = [typed(NOW - 20 * MIN, 'Go'), step(NOW - 2 * MIN, 'Run the tests'), toolResult(NOW - MIN)]
 const ended = [typed(NOW - 20 * MIN, 'Go'), answer(NOW - 9 * MIN, 'Done')]
 
-function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [] }) {
+function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {}, runs = [], restartNote = null, board = null, seen = null }) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: apps,
@@ -30,9 +31,12 @@ function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox 
     planLineTexts: Object.fromEntries(Object.entries(plans).map(([name, value]) => [`cli-${name}`, value])),
     backlogText: backlog,
     adviceText: null,
-    folders: null,
+    folders,
+    askTexts: asks.map(ask => JSON.stringify(ask)),
+    pictureLists,
+    restartNote,
   }
-  return buildState(raw, { lines, outbox, now: NOW, config })
+  return buildState(raw, { lines, outbox, runs, board, seen, now: NOW, config })
 }
 const chatNamed = (state, name) => state.chats.find(chat => chat.name === name)
 
@@ -70,9 +74,9 @@ test('a working chat shows the task of its plan line and what it does now', () =
   assert.equal(units.doingNow, 'Run the tests')
   assert.equal(units.isQuiet, false)
   assert.deepEqual(units.task, {
-    text: 'Shadow Beast', step: 2, steps: 6, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, source: 'plan', by: null,
+    text: 'Shadow Beast', step: 2, steps: 6, names: null, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, source: 'plan', by: null,
     // First seen now, in a turn the person opened 20 minutes ago, with an estimate given 3 minutes ago.
-    startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN,
+    startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null,
   })
 })
 
@@ -88,10 +92,11 @@ test('a chat whose turn ended blocked waits for you, and its need leads the For 
   assert.equal(units.statusDetail, 'two sheets drawn')
   assert.equal(units.waitingSince, NOW - 9 * MIN)
   assert.equal(units.doingNow, null)
-  assert.deepEqual(state.forYou, [
-    { text: 'Pick sheet A or B', activity: null, chat: 'Units', since: NOW - 9 * MIN },
-    { text: 'Say whether the mage is right', activity: 'Art', chat: null, since: null },
-  ])
+  assert.deepEqual(state.forYou, [{
+    id: `chat:Units:${NOW - 9 * MIN}`, from: 'Units', kind: 'input', title: 'Needs your decision', text: 'Pick sheet A or B', at: NOW - 9 * MIN,
+    options: [], pictures: [], run: null, game: null, checks: [], tried: [], canAnswer: true, version: null, answer: null, earlier: null,
+  }])
+  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.kind, step.from, step.canAnswer]), [['Say whether the mage is right', 'Art', 'input', 'Main', true]])
 })
 
 test('a chat whose turn ended with nothing open is free, and one without a transcript is unknown', () => {
@@ -102,7 +107,7 @@ test('a chat whose turn ended with nothing open is free, and one without a trans
   assert.equal(chatNamed(state, 'Units').state, 'free')
   assert.equal(chatNamed(state, 'Levels').state, 'unknown')
   assert.equal(chatNamed(state, 'Main').state, 'unknown')
-  assert.deepEqual(state.counts, { working: 0, waiting: 0, free: 1, unknown: 2 })
+  assert.deepEqual(state.counts, { working: 0, waiting: 0, free: 1, unknown: 2, interrupted: 0 })
 })
 
 test('a chat that asked a question in its own chat waits for you', () => {
@@ -112,6 +117,176 @@ test('a chat that asked a question in its own chat waits for you', () => {
   assert.equal(units.needsYou, 'Asked you a question in its chat.')
   assert.equal(units.waitingSince, NOW - 4 * MIN)
   assert.equal(units.isQuiet, false)
+})
+
+test('a question asked with the app\'s own form is shown, but cannot be answered on the board', () => {
+  const asked = [typed(NOW - 20 * MIN, 'Go'), assistant(NOW - 4 * MIN, 'tool_use', [tool('AskUserQuestion', {})])]
+  const need = build({ apps: [app('Units')], tails: { Units: tail(asked, 4) } }).forYou[0]
+  assert.deepEqual([need.title, need.kind, need.canAnswer], ['Asked you a question in its chat', 'input', false])
+})
+
+test('a request a chat filed is shown as filed, newest first, and stands in for the chat\'s own waiting', () => {
+  const ask = (id, at, extra = {}) => ({ id, from: 'Units', kind: 'verify', title: `Check ${id}`, text: 'Look.', at, ...extra })
+  const state = build({
+    apps: [app('Main'), app('Units', summary('blocked', 'Pick sheet A or B'))],
+    tails: { Units: tail(ended) },
+    asks: [ask('old', NOW - 50 * MIN), ask('new', NOW - 5 * MIN, { checks: ['It walks'] }), ask('closed', NOW, { state: 'answered' }), { ...ask('stray', NOW - 20 * MIN), from: 'Nobody' }],
+  })
+  assert.deepEqual(state.forYou.map(need => [need.id, need.from, need.canAnswer]), [['new', 'Units', true], ['stray', 'Nobody', false], ['old', 'Units', true]])
+  assert.deepEqual(state.forYou[0].checks, ['It walks'])
+})
+
+test('a request shows the answer that was sent for it, until it is delivered or too old', () => {
+  const state = build({
+    apps: [app('Units')],
+    tails: { Units: tail(ended) },
+    asks: [{ id: 'sheet', from: 'Units', kind: 'verify', title: 'Check the sheet', at: NOW - 30 * MIN }],
+    outbox: [
+      { id: 'm1', at: NOW - 9 * MIN, to: 'Units', ask: 'sheet', verdict: 'reject', text: 'Too dark.', state: 'expired' },
+      { id: 'm2', at: NOW - MIN, to: 'Units', ask: 'sheet', verdict: 'approve', text: '', state: 'waiting' },
+      { id: 'm3', at: NOW - MIN, to: 'Units', ask: 'other', verdict: null, text: 'Hello', state: 'waiting' },
+    ],
+  })
+  assert.deepEqual(state.forYou[0].answer, { at: NOW - MIN, verdict: 'approve', text: '', state: 'waiting' })
+})
+
+test('a running turn without a sign of life is raised for you, and cannot be answered on the board', () => {
+  const state = build({ apps: [app('Units')], tails: { Units: tail(running, 14) } })
+  assert.deepEqual(state.forYou.map(need => [need.id, need.kind, need.title, need.canAnswer]), [['quiet:Units', 'intervene', 'No sign of life for 14 min', false]])
+})
+
+test('a working chat with an estimate has a time it expects to be done, and its queue is planned after it', () => {
+  const state = build({
+    apps: [app('Main'), app('Units'), app('Levels')],
+    tails: { Units: tail(running), Levels: tail(running), Main: tail(ended) },
+    plans: {
+      Units: planLine({ text: 'Archer', step: 1, steps: 3, left: 25 * MIN }),
+      Levels: planLine({ text: 'Forest', left: 2 * MIN }),
+    },
+    backlog: '## Next to hand out (Game - Main)\n- [ ] Knight rows (for Units; about 30 min)\n- [ ] Polish (for Units)\n- [ ] Banner (for Units; about 10 min)\n- [ ] Lava biome (for Levels; about 1 h)\n- [ ] Name the game\n',
+  })
+  const units = chatNamed(state, 'Units')
+  assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOwn: true })
+  assert.deepEqual(units.queue.map(step => [step.id, step.title, step.minutes]), [[null, 'Knight rows', 30], [null, 'Polish', null], [null, 'Banner', 10]])
+  assert.deepEqual(units.queue[0], { id: null, title: 'Knight rows', text: 'Knight rows (for Units; about 30 min)', minutes: 30, after: null, branch: null, notes: [], pictures: [] })
+  // The plan stops at the first step without a time: what follows it cannot be placed.
+  assert.deepEqual(units.ahead, [
+    { from: NOW, to: NOW + 22 * MIN, title: 'Archer', isQueued: false },
+    { from: NOW + 22 * MIN, to: NOW + 52 * MIN, title: 'Knight rows', isQueued: true },
+  ])
+  // An estimate that has run out gives no time and no plan.
+  const levels = chatNamed(state, 'Levels')
+  assert.deepEqual([levels.eta.isOverdue, levels.eta.leftMs, levels.ahead], [true, 0, []])
+  assert.deepEqual([chatNamed(state, 'Main').eta, chatNamed(state, 'Main').queue], [null, []])
+  assert.deepEqual(state.unassigned.map(step => step.title), ['Name the game'])
+  assert.equal(state.day.until, NOW + 52 * MIN)
+  // The timeline runs from the full hour two hours back to the full hour six hours ahead.
+  assert.deepEqual([state.day.from, state.day.to, state.day.end], [hourStart(NOW - 120 * MIN), NOW, hourEnd(NOW + 360 * MIN)])
+  assert.deepEqual(state.today.map(lane => [lane.chat, lane.ahead.length]), [['Main', 0], ['Units', 2], ['Levels', 0]])
+})
+
+test('the timeline reaches as far ahead as what is planned, and shows only the last hours of what was', () => {
+  const state = build({
+    apps: [app('Units')],
+    tails: { Units: tail(running) },
+    plans: { Units: planLine({ text: 'Archer', left: 300 * MIN }) },
+    backlog: '## Next to hand out (Game - Main)\n- [ ] Knight (for Units; about 4 h)\n- [ ] Bat (for Units; about 3 h)\n',
+    lines: [
+      { at: NOW - 400 * MIN, chat: 'Units', state: 'free', task: null },
+      { at: NOW - 30 * MIN, chat: 'Units', state: 'working', task: 'Archer' },
+    ],
+  })
+  // Planned: the task until about five hours from now, then four hours of queue. A step that would start more
+  // than eight hours from now is not planned.
+  assert.equal(state.day.end, hourEnd(state.day.until))
+  assert.deepEqual(state.today[0].ahead.map(span => span.title), ['Archer', 'Knight'])
+  assert.ok(state.day.end > NOW + 8 * 60 * MIN)
+  assert.deepEqual(state.today[0].spans.map(span => [span.from, span.state]), [[hourStart(NOW - 120 * MIN), 'free'], [NOW - 30 * MIN, 'working']])
+})
+
+test('a folder is shown with the worker an open step names for its branch; the others are listed apart', () => {
+  const folder = (name, branch) => ({ path: `C:/game-${name}`, name, branch, ahead: 2, uncommitted: 0, lastCommitAt: NOW })
+  const state = build({
+    apps: [app('Main'), app('Units')],
+    tails: { Units: tail(running) },
+    backlog: '## Art #focus\n- [ ] The beast (Game - Units; branch feature/beast)\n- [x] The mage (Game - Units; branch feature/mage)\n',
+    folders: [folder('game', 'main'), folder('beast', 'feature/beast'), folder('mage', 'feature/mage'), folder('probe', null), folder('units', 'fix/walk'), folder('main', 'docs/notes')],
+  })
+  // "beast" by the step that names Units with its branch; "units" and "main" by their names.
+  assert.deepEqual(chatNamed(state, 'Units').folders.map(one => one.name), ['beast', 'units'])
+  assert.deepEqual(chatNamed(state, 'Main').folders.map(one => one.name), ['main'])
+  assert.deepEqual(state.otherFolders.map(one => one.name), ['mage', 'probe'])
+  assert.equal(state.hasFolders, true)
+})
+
+test('a step for you in the backlog shows the pictures of the folder it points to', () => {
+  const state = build({
+    apps: [app('Main')],
+    backlog: '## Art\n- [ ] Say whether the mage is right (pictures in art-inbox/red-mage) @you\n- [ ] Pick a name @you\n',
+    pictureLists: { 'art-inbox/red-mage': ['art-inbox/red-mage/a.png', 'art-inbox/red-mage/b.png'], 'art-inbox/other': ['art-inbox/other/c.png'] },
+  })
+  assert.deepEqual(state.backlogForYou.map(step => step.pictures), [['art-inbox/red-mage/a.png', 'art-inbox/red-mage/b.png'], []])
+})
+
+test('the ticked steps for you are kept apart as closed, and take no answer', () => {
+  const state = build({
+    apps: [app('Main')],
+    backlog: '## Art\n- [x] B03 Verify: the mage is right (pictures in art-inbox/red-mage) @you\n- [ ] B14 Decide: the bridge @you\n',
+    pictureLists: { 'art-inbox/red-mage': ['art-inbox/red-mage/a.png'] },
+    outbox: [{ id: 'm1', at: NOW, to: 'Main', ask: 'backlog:B03', verdict: 'approve', text: '', state: 'waiting' }],
+  })
+  assert.deepEqual(state.backlogForYou.map(step => [step.step, step.isClosed, step.canAnswer]), [['B14', false, true]])
+  assert.deepEqual(state.backlogClosed.map(step => [step.step, step.isClosed, step.canAnswer, step.answer, step.kind, step.pictures]), [
+    ['B03', true, false, null, 'verify', ['art-inbox/red-mage/a.png']],
+  ])
+  assert.deepEqual(buildState({}, { now: NOW, config }).backlogClosed, [])
+})
+
+test('a step carries what its details show: its words, its notes in sections, its branch, and a queued step its pictures', () => {
+  const state = build({
+    apps: [app('Main'), app('Units')],
+    backlog: [
+      '## Art',
+      '- [ ] B14 Verify: the walk is smooth (branch fix/archer-walk; pictures in art-inbox/archer) @you',
+      '  Requirements:',
+      '  - No sliding feet',
+      '## Next to hand out (Game - Main)',
+      '- [ ] B59 Redraw the portrait, see art-inbox/beast (for Units; about 20 min)',
+      '  Context: keep the glowing eyes. The icons are in art-inbox/hud.',
+    ].join('\n'),
+    pictureLists: { 'art-inbox/archer': ['art-inbox/archer/walk.png'], 'art-inbox/beast': ['art-inbox/beast/old.png'], 'art-inbox/hud': ['art-inbox/hud/icons.png'] },
+  })
+  const [step] = state.backlogForYou
+  assert.deepEqual([step.words, step.branch, step.notes], [
+    'Verify: the walk is smooth (branch fix/archer-walk; pictures in art-inbox/archer)',
+    'fix/archer-walk',
+    [{ title: 'Requirements', lines: [], points: ['No sliding feet'] }],
+  ])
+  const [queued] = chatNamed(state, 'Units').queue
+  // Pictures are found in the step's own line and in the lines under it.
+  assert.deepEqual([queued.id, queued.pictures, queued.notes], ['B59', ['art-inbox/beast/old.png', 'art-inbox/hud/icons.png'], [{ title: 'Context', lines: ['keep the glowing eyes. The icons are in art-inbox/hud.'], points: [] }]])
+})
+
+test('a step for you in the backlog is a card of its kind, answered to the worker it names or to the main chat', () => {
+  const backlog = '## Art\n- [ ] Verify: the walk is smooth (Game - Units) @you\n- [ ] Decide: the bridge @you\n- [ ] Provide: the plan @you\n- [ ] Do: quit the app @you\n- [ ] Pick a name @you\n'
+  const state = build({ apps: [app('Main'), app('Units')], backlog, outbox: [] })
+  assert.deepEqual(state.backlogForYou.map(step => [step.kind, step.asks, step.title, step.from]), [
+    ['verify', 'verify', 'the walk is smooth (Game - Units)', 'Units'],
+    ['input', 'decide', 'the bridge', 'Main'],
+    ['input', 'provide', 'the plan', 'Main'],
+    ['do', 'do', 'quit the app', 'Main'],
+    ['input', null, 'Pick a name', 'Main'],
+  ])
+  assert.match(state.backlogForYou[0].id, /^backlog:[0-9a-f]+$/)
+  assert.equal(new Set(state.backlogForYou.map(step => step.id)).size, 5)
+  // A step with an id is known by it, also when its words are changed.
+  const withIds = text => build({ apps: [app('Main')], backlog: `## Art\n- [ ] B14 Verify: ${text} @you\n` }).backlogForYou[0]
+  assert.deepEqual([withIds('the walk is smooth').id, withIds('the walk is smooth').step, withIds('the walk is smooth').title], ['backlog:B14', 'B14', 'the walk is smooth'])
+  assert.equal(withIds('the walk is smooth now').id, 'backlog:B14')
+  // The answer that was sent for a step is shown with it; without a main chat nobody can be told.
+  const answered = build({ apps: [app('Main')], backlog, outbox: [{ id: 'm1', at: NOW, to: 'Main', ask: state.backlogForYou[3].id, verdict: 'done', text: '', state: 'waiting' }] })
+  assert.deepEqual(answered.backlogForYou[3].answer, { at: NOW, verdict: 'done', text: '', state: 'waiting' })
+  assert.deepEqual(build({ apps: [app('Units')], backlog }).backlogForYou.map(step => [step.from, step.canAnswer])[1], [null, false])
 })
 
 test('a summary the app wrote about an older answer is not used', () => {
@@ -128,7 +303,7 @@ test('a running turn that wrote nothing for more than ten minutes is quiet', () 
   assert.equal(units.isQuiet, true)
 })
 
-test('a worker without a task in its plan line takes the task handed over to it; the main chat does not', () => {
+test('a worker that recorded nothing has a task without words, from when it was handed over; no word of the hand-over is shown', () => {
   const handOver = fromChat(NOW - 30 * MIN, 'Game - Main', 'Task from Game - Main: build the archer.\nDetails follow.')
   const report = fromChat(NOW - 30 * MIN, 'Game - Units', 'The knight is finished.')
   const state = build({
@@ -137,36 +312,42 @@ test('a worker without a task in its plan line takes the task handed over to it;
     plans: { Units: planLine(null) },
   })
   assert.deepEqual(chatNamed(state, 'Units').task, {
-    text: 'Build the archer', step: null, steps: null, leftMs: null, estimateAt: null, source: 'handover', by: null,
-    startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN,
+    text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null,
+    startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null,
   })
-  // A report is no task for the main chat; its card shows what started the turn it is in.
-  assert.deepEqual([chatNamed(state, 'Main').task.source, chatNamed(state, 'Main').task.by], ['prompt', 'Units'])
+  // A report is no task for the main chat; it works, on something it has not recorded.
+  assert.deepEqual([chatNamed(state, 'Main').task.source, chatNamed(state, 'Main').task.text], ['unrecorded', ''])
+  assert.ok(!JSON.stringify(state).includes('archer') && !JSON.stringify(state).includes('knight'))
 })
 
-test('a working chat that named no task shows what started its turn, and who asked', () => {
+test('a working chat that recorded no task has one without words, from when its turn started', () => {
   const asked = [answer(NOW - 40 * MIN, 'Done'), typed(NOW - 25 * MIN, 'Make the lava glow more. It looks flat.'), step(NOW - 2 * MIN, 'Read the shader')]
-  const units = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(asked) } }), 'Units')
+  const state = build({ apps: [app('Units')], tails: { Units: tail(asked) } })
+  const units = chatNamed(state, 'Units')
   assert.deepEqual(units.task, {
-    text: 'Make the lava glow more', step: null, steps: null, leftMs: null, estimateAt: null, source: 'prompt', by: 'you',
-    startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN,
+    text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null,
+    startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null,
   })
+  assert.ok(!JSON.stringify(state).includes('lava'))
   const main = chatNamed(build({
     apps: [app('Main')],
     tails: { Main: tail([answer(NOW - 40 * MIN, 'Done'), fromChat(NOW - 5 * MIN, 'Game - Units', 'The archer is merged.'), step(NOW - 2 * MIN, 'Read the backlog')]) },
   }), 'Main')
-  assert.deepEqual([main.task.text, main.task.by], ['The archer is merged', 'Units'])
+  assert.deepEqual([main.task.text, main.task.source, main.task.startedAt], ['', 'unrecorded', NOW - 5 * MIN])
   const ended = chatNamed(build({ apps: [app('Units')], tails: { Units: tail([typed(NOW - 25 * MIN, 'Make the lava glow more.'), answer(NOW - 9 * MIN, 'Done')]) } }), 'Units')
   assert.equal(ended.task, null)
 })
 
 test('what the history recorded as the start of a long turn stands when the tail only holds a later remark', () => {
+  // The line is from before the board stopped keeping a prompt's words: its start counts, its words are not shown.
   const lines = [{ at: NOW - 90 * MIN, chat: 'Units', state: 'working', task: 'Make the lava glow more', step: null, steps: null, leftMs: null, startedAt: NOW - 91 * MIN, source: 'prompt', by: 'you' }]
   const remark = [toolResult(NOW - 12 * MIN), typed(NOW - 10 * MIN, 'How far are you?'), step(NOW - 2 * MIN, 'Run the tests')]
-  const units = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(remark) }, lines }), 'Units')
-  assert.deepEqual([units.task.text, units.task.by, units.task.startedAt], ['Make the lava glow more', 'you', NOW - 91 * MIN])
+  const state = build({ apps: [app('Units')], tails: { Units: tail(remark) }, lines })
+  const units = chatNamed(state, 'Units')
+  assert.deepEqual([units.task.text, units.task.source, units.task.startedAt], ['', 'unrecorded', NOW - 91 * MIN])
+  assert.ok(!JSON.stringify(state).includes('lava') && !JSON.stringify(state).includes('How far'))
   const fresh = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(remark) } }), 'Units')
-  assert.equal(fresh.task.text, 'How far are you')
+  assert.deepEqual([fresh.task.text, fresh.task.startedAt], ['', NOW - 10 * MIN])
 })
 
 test('a task handed over further back than the tail is found by the longer look back', () => {
@@ -176,33 +357,34 @@ test('a task handed over further back than the tail is found by the longer look 
     apps: [app('Units')],
     tails: { Units: { ...tail(running), earlier: [report(210), handOver].join('\n') } },
   }), 'Units')
-  assert.equal(units.task.text, 'Build the worker board')
-  assert.equal(units.task.source, 'handover')
+  assert.deepEqual([units.task.text, units.task.source], ['', 'unrecorded'])
   assert.equal(units.task.startedAt, NOW - 200 * MIN)
   assert.equal(units.doingNow, 'Run the tests')
-  // Reported since: that task is finished, and the chat is on what was typed to it afterwards.
+  // Reported since: that task is finished, and the chat is on what started its turn afterwards.
   const after = chatNamed(build({
     apps: [app('Units')],
     tails: { Units: { ...tail(running), earlier: [handOver, report(190), answer(NOW - 189 * MIN, 'Reported.')].join('\n') } },
   }), 'Units')
-  assert.deepEqual([after.task.text, after.task.source], ['Go', 'prompt'])
+  assert.deepEqual([after.task.text, after.task.source, after.task.startedAt], ['', 'unrecorded', NOW - 20 * MIN])
 })
 
-test('a handed-over task the tail no longer holds is kept from the history, until the chat is free', () => {
+test('a handed-over task the tail no longer holds keeps its start from the history, until the chat is free', () => {
   const lines = [{ at: NOW - 60 * MIN, chat: 'Units', state: 'working', task: 'Build the archer', step: null, steps: null, leftMs: null, startedAt: NOW - 62 * MIN, source: 'handover' }]
-  const busy = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(running) }, lines }), 'Units')
-  assert.equal(busy.task.text, 'Build the archer')
-  assert.equal(busy.task.startedAt, NOW - 62 * MIN)
+  const state = build({ apps: [app('Units')], tails: { Units: tail(running) }, lines })
+  const busy = chatNamed(state, 'Units')
+  assert.deepEqual([busy.task.text, busy.task.startedAt], ['', NOW - 62 * MIN])
+  // The words the history kept from before are not shown, on the lane or in the day's timeline.
+  assert.ok(!JSON.stringify(state).includes('archer'))
   const free = chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: tail(ended) }, lines }), 'Units')
   assert.equal(free.task, null)
   // Reported, but the turn still runs: the task stands until it ends.
   const report = minutesAgo => assistant(NOW - minutesAgo * MIN, 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Finished.' })])
   const wrappingUp = chatNamed(build({ apps: [app('Units')], tails: { Units: tail([...running, report(1)]) }, lines }), 'Units')
-  assert.equal(wrappingUp.task.text, 'Build the archer')
+  assert.deepEqual([wrappingUp.task.text, wrappingUp.task.startedAt], ['', NOW - 62 * MIN])
   // Reported and ended, and now on something the person typed: the remembered task is over.
   const next = [typed(NOW - 20 * MIN, 'Go'), report(15), toolResult(NOW - 15 * MIN), answer(NOW - 14 * MIN, 'Reported.'), typed(NOW - 5 * MIN, 'One more thing.'), step(NOW - 2 * MIN, 'Look')]
   const after = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(next) }, lines }), 'Units')
-  assert.deepEqual([after.task.text, after.task.source], ['One more thing', 'prompt'])
+  assert.deepEqual([after.task.text, after.task.source, after.task.startedAt], ['', 'unrecorded', NOW - 5 * MIN])
 })
 
 test('a task keeps the start, the first estimate and the waiting time the history recorded', () => {
@@ -231,7 +413,7 @@ test('the scenarios of the review: a thank-you from the main chat is no task, an
   const now = [typed(NOW - 30 * MIN, 'Fix the lava glow.'), step(NOW - 2 * MIN, 'Read the shader')]
 
   const unnamed = chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail([...past, ...now]) } }), 'Units')
-  assert.deepEqual([unnamed.task.text, unnamed.task.source, unnamed.task.startedAt], ['Fix the lava glow', 'prompt', NOW - 30 * MIN])
+  assert.deepEqual([unnamed.task.text, unnamed.task.source, unnamed.task.startedAt], ['', 'unrecorded', NOW - 30 * MIN])
 
   const named = chatNamed(build({
     apps: [app('Main'), app('Units')],
@@ -274,53 +456,248 @@ test('building the state prints nothing, whatever the sources hold', () => {
   assert.deepEqual(printed, [])
 })
 
-test('the queue, the open work and the outbox pass through, and a leftover chat is greyed and not counted', () => {
+test('a leftover chat is greyed and not counted, and the advisor has no lane', () => {
   const state = build({
-    apps: [app('Main'), app('Main (fork)'), app('Units')],
-    tails: { Main: tail(ended), Units: tail(running) },
-    backlog: '## Game #focus\n- [ ] Step 4 (branch feature/x)\n\n## Next to hand out (Game - Main)\n- [ ] Main menu (for Units; about 40 min)\n',
-    outbox: [{ id: 'a', at: NOW, text: 'Hello', state: 'waiting' }],
+    apps: [app('Main'), app('Main (fork)'), app('Units'), app('Advisor')],
+    tails: { Main: tail(ended), Units: tail(running), Advisor: tail(ended) },
+    backlog: '## Next to hand out (Game - Main)\n- [ ] Main menu (for Units; about 40 min)\n- [ ] Advice round (for Advisor)\n',
   })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.isLeftover]), [['Main', false], ['Units', false], ['Main (fork)', true]])
-  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0 })
-  assert.deepEqual(state.queue.map(item => [item.title, item.worker, item.minutes]), [['Main menu', 'Units', 40]])
-  assert.deepEqual(state.openWork.map(item => item.branch), ['feature/x'])
-  assert.deepEqual(state.outbox, [{ id: 'a', at: NOW, text: 'Hello', state: 'waiting' }])
+  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0, interrupted: 0 })
+  assert.deepEqual(chatNamed(state, 'Units').queue.map(step => step.title), ['Main menu'])
+  assert.deepEqual(state.unassigned.map(step => step.title), ['Advice round'])
   assert.deepEqual(state.today.map(lane => lane.chat), ['Main', 'Units'])
   assert.equal(state.readAt, NOW)
 })
 
-test('the dock shows the main chat, with the names of the chats that reported', () => {
+test('the advisor is talked with: its conversation, its state, and what was typed to it and is not there yet', () => {
   const state = build({
-    apps: [app('Main'), app('Units')],
-    tails: { Main: tail([typed(NOW - 9 * MIN, 'Status?'), fromChat(NOW - 8 * MIN, 'Game - Units', 'Archer done.'), answer(NOW - 7 * MIN, 'Units is done.')]) },
+    apps: [app('Main'), app('Advisor')],
+    tails: { Advisor: tail([typed(NOW - 9 * MIN, 'What next?'), fromChat(NOW - 8 * MIN, 'Game - Main', 'From the main chat: the archer is merged.'), answer(NOW - 7 * MIN, 'Hand out the knight.')]) },
+    outbox: [
+      { id: 'm1', at: NOW - MIN, to: 'Advisor', ask: null, verdict: null, text: 'And after that?', state: 'waiting' },
+      { id: 'm2', at: NOW - MIN, to: 'Main', ask: null, verdict: null, text: 'Not for the advisor', state: 'waiting' },
+    ],
   })
-  assert.deepEqual(state.mainChat.map(message => [message.who, message.text]), [['You', 'Status?'], ['Units', 'Archer done.'], ['Main', 'Units is done.']])
+  assert.deepEqual([state.advisor.name, state.advisor.state], ['Advisor', 'free'])
+  assert.deepEqual(state.advisor.messages.map(message => [message.from, message.who, message.text]), [
+    ['you', 'You', 'What next?'],
+    ['report', 'Main', 'From the main chat: the archer is merged.'],
+    ['chat', 'Advisor', 'Hand out the knight.'],
+  ])
+  assert.deepEqual(state.advisor.pending.map(message => message.text), ['And after that?'])
+  assert.equal(build({ apps: [app('Main')] }).advisor, null)
 })
 
 test('sources that are missing or broken give an empty board, never an error', () => {
   const state = buildState({}, { now: NOW, config })
   assert.deepEqual(state.chats, [])
-  assert.deepEqual([state.forYou, state.queue, state.openWork, state.mainChat, state.outbox, state.today], [[], [], [], [], [], []])
-  assert.equal(state.folders, null)
-  assert.equal(state.advice, null)
+  assert.deepEqual([state.forYou, state.backlogForYou, state.unassigned, state.otherFolders, state.today], [[], [], [], [], []])
+  assert.deepEqual([state.hasFolders, state.advisor, state.advice], [false, null, null])
+  assert.doesNotThrow(() => buildState({ askTexts: ['{', 'null', 5, '{"id":"x"}'], pictureLists: 7, folders: 'x' }, { outbox: 'x', now: NOW, config }))
   assert.doesNotThrow(() => buildState({ appChatTexts: ['{', 'null', '5'], tails: { x: { text: '{', isCut: true, modifiedAt: 1 } }, backlogText: 5 }, { now: NOW, config }))
 })
 
-test('the demo shows the five chats of the design, in the states the design shows', async () => {
+test('the demo shows the second design: five lanes with their queues, two requests, and the advisor', async () => {
   const demo = await demoSources(NOW)
   const state = buildState(demo, { lines: demo.historyLines, now: NOW, config: { ...config, project: demo.project } })
-  assert.deepEqual(state.chats.map(chat => [chat.name, chat.state]), [
-    ['Main', 'working'],
-    ['Units', 'waiting'],
-    ['Features', 'working'],
-    ['Cleanup', 'free'],
-    ['Levels / Environment', 'working'],
+  assert.deepEqual(state.chats.map(chat => [chat.name, chat.state, chat.queue.length]), [
+    ['Main', 'working', 3],
+    ['Units', 'waiting', 2],
+    ['Features', 'working', 3],
+    ['Cleanup', 'free', 1],
+    ['Levels / Environment', 'working', 2],
   ])
-  assert.deepEqual(state.counts, { working: 3, waiting: 1, free: 1, unknown: 0 })
-  assert.equal(state.queue.length, 3)
-  assert.equal(state.folders.length, 5)
-  assert.ok(state.mainChat.length >= 5)
+  assert.deepEqual(state.counts, { working: 3, waiting: 1, free: 1, unknown: 0, interrupted: 0 })
+  assert.deepEqual(state.chats.map(chat => (chat.eta === null ? null : Math.round(chat.eta.leftMs / MIN))), [22, null, 105, null, 34])
+  assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], ['cleanup'], ['levels']])
+  assert.deepEqual(state.otherFolders.map(folder => folder.name), [])
+  assert.deepEqual(state.unassigned.map(step => step.title), ['Decide the name of the game'])
+
+  assert.deepEqual(state.forYou.map(need => [need.from, need.kind, need.title, need.canAnswer]), [
+    ['Main', 'verify', 'Test player movement', true],
+    ['Units', 'input', 'Choose pathfinding approach', true],
+  ])
+  assert.deepEqual(state.forYou[1].options.map(option => [option.picture, option.isRecommended]), [
+    ['art-inbox/pathfinding/option-a-navmesh.png', true],
+    ['art-inbox/pathfinding/option-b-grid.png', false],
+  ])
+  assert.deepEqual([state.forYou[0].game.branch, state.forYou[0].game.folder, state.forYou[0].game.url], ['main', 'game', null])
+  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.kind, step.from, step.pictures]), [
+    ['the jump feels right (picture in art-inbox/jump)', 'verify', 'Main', ['art-inbox/jump/jump-arc.png']],
+    ['quit and reopen the app once', 'do', 'Main', []],
+  ])
+
+  assert.deepEqual([state.advisor.name, state.advisor.state, state.advisor.messages.length], ['Advisor', 'free', 4])
   assert.ok(state.today.every(lane => lane.spans.length > 0))
+  assert.equal(state.today.filter(lane => lane.ahead.length > 0).length, 3)
   assert.match(state.advice, /pathfinding/)
+})
+
+test('work to verify names the game to look at: its branch, else main, with the folder that holds it', () => {
+  const folder = (name, branch) => ({ path: `C:/game-${name}`, name, branch, ahead: 2, uncommitted: 0, lastCommitAt: NOW })
+  const state = build({
+    apps: [app('Main'), app('Units')],
+    tails: { Units: tail(running) },
+    asks: [
+      { id: 'walk', from: 'Units', kind: 'verify', title: 'Check the walk', at: NOW - 3 * MIN, run: { branch: 'fix/walk' } },
+      { id: 'sheet', from: 'Units', kind: 'verify', title: 'Check the sheet', at: NOW - 4 * MIN },
+      { id: 'lost', from: 'Units', kind: 'verify', title: 'Check the jump', at: NOW - 5 * MIN, run: { branch: 'fix/jump' } },
+      { id: 'name', from: 'Units', kind: 'input', title: 'Pick a name', at: NOW - 6 * MIN },
+    ],
+    backlog: '## Art\n- [ ] B14 Verify: the mage is right @you\n- [ ] B15 Verify: the walk (branch fix/walk) @you\n- [ ] B16 Decide: a name @you\n- [ ] B17 Verify: the board on http://127.0.0.1:4311/ @you\n- [x] B02 Verify: the torch @you\n',
+    folders: [folder('main', 'main'), folder('units', 'fix/walk')],
+    runs: [{ path: 'c:\\game-units', url: 'http://127.0.0.1:5301/', startedAt: NOW - MIN }],
+  })
+  const games = Object.fromEntries([...state.forYou, ...state.backlogForYou, ...state.backlogClosed].map(need => [need.id, need.game]))
+  assert.deepEqual(games.walk, { branch: 'fix/walk', folder: 'units', path: 'C:/game-units', url: 'http://127.0.0.1:5301/', since: NOW - MIN })
+  assert.deepEqual(games.sheet, { branch: 'main', folder: 'main', path: 'C:/game-main', url: null, since: null })
+  assert.deepEqual(games.lost, { branch: 'fix/jump', folder: null, path: null, url: null, since: null })
+  assert.equal(games.name, null)
+  assert.equal(games['backlog:B14'].branch, 'main')
+  assert.equal(games['backlog:B15'].url, 'http://127.0.0.1:5301/')
+  assert.equal(games['backlog:B16'], null)
+  // A step that gives an address of its own is not about the game.
+  assert.equal(games['backlog:B17'], null)
+  assert.equal(games['backlog:B02'].branch, 'main')
+})
+
+test('without an answer from git, no game is offered', () => {
+  const state = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the mage is right @you\n' })
+  assert.equal(state.backlogForYou[0].game, null)
+})
+
+test('an answer stands for the step as it was: a step that changed since asks again, and shows the earlier answer', () => {
+  const answerTo = step => ({ id: 'm1', at: NOW - MIN, to: 'Main', ask: step.id, version: step.version, verdict: 'reject', text: 'The feet slide', state: 'delivered' })
+  const first = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the walk @you\n' }).backlogForYou[0]
+  assert.match(first.version, /^[0-9a-f]+$/)
+
+  const same = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the walk @you\n', outbox: [answerTo(first)] }).backlogForYou[0]
+  assert.deepEqual([same.answer?.verdict, same.answer?.state, same.earlier], ['reject', 'delivered', null])
+
+  const reworked = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the walk @you\n  Reworked: the feet stay put now\n', outbox: [answerTo(first)] }).backlogForYou[0]
+  assert.equal(reworked.answer, null)
+  assert.deepEqual([reworked.earlier.verdict, reworked.earlier.text], ['reject', 'The feet slide'])
+})
+
+test('a request a chat filed asks again when it was filed anew, also under the same name', () => {
+  const ask = at => ({ id: 'walk', from: 'Units', kind: 'verify', title: 'Check the walk', at })
+  const first = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(running) }, asks: [ask(NOW - 30 * MIN)] }).forYou[0]
+  assert.match(first.version, /^[0-9a-f]+$/)
+  const answer = { id: 'm1', at: NOW - 20 * MIN, to: 'Units', ask: 'walk', version: first.version, verdict: 'reject', text: 'Feet slide', state: 'delivered' }
+  const same = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(running) }, asks: [ask(NOW - 30 * MIN)], outbox: [answer] }).forYou[0]
+  assert.equal(same.answer.verdict, 'reject')
+  const again = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(running) }, asks: [ask(NOW - 5 * MIN)], outbox: [answer] }).forYou[0]
+  assert.deepEqual([again.answer, again.earlier.text], [null, 'Feet slide'])
+})
+
+test('each chat carries the id of its session, for the bridge to know which chat asks, and main\'s game is always offered', () => {
+  const folder = (name, branch) => ({ path: `C:/game-${name}`, name, branch, ahead: 0, uncommitted: 0, lastCommitAt: NOW - 90 * MIN, lastCommit: { hash: 'b0c4559', subject: 'Merge the camera' } })
+  const state = build({ apps: [app('Main'), app('Units'), app('Advisor')], folders: [folder('main', 'main'), folder('units', 'fix/walk')] })
+  assert.deepEqual(state.chats.map(chat => [chat.name, chat.session]), [['Main', 'cli-Main'], ['Units', 'cli-Units']])
+  assert.equal(state.advisor.session, 'cli-Advisor')
+  assert.deepEqual(state.mainGame, { branch: 'main', folder: 'main', path: 'C:/game-main', url: null, since: null, lastCommitAt: NOW - 90 * MIN, commit: { hash: 'b0c4559', subject: 'Merge the camera' } })
+  assert.equal(build({ apps: [app('Main')] }).mainGame, null)
+})
+
+// The chat's own file, as its process keeps it: what it says the chat does, and when it last wrote.
+const ownFile = (state, at, task = null) => JSON.stringify({ name: 'x', role: 'worker', state, task, at })
+const beast = { text: 'Shadow Beast', step: 2, steps: 6, left: 40 * MIN, isReported: false }
+
+test('a chat cut off in the middle of its turn is interrupted: its own file was set to waiting after the turn began', () => {
+  // The transcript still shows the turn as open (it began 20 minutes ago); the process that ran it is gone.
+  const state = build({
+    apps: [app('Main'), app('Units')],
+    tails: { Units: tail(running, 6) },
+    plans: { Units: ownFile('waiting', NOW - 2 * MIN, beast) },
+  })
+  const units = chatNamed(state, 'Units')
+  assert.equal(units.state, 'interrupted')
+  // What it was on is kept; it expects nothing and is not reported as quiet on top.
+  assert.equal(units.task.text, 'Shadow Beast')
+  assert.deepEqual([units.eta, units.isQuiet, units.doingNow], [null, false, null])
+  assert.equal(units.cutOffAt, NOW - 6 * MIN)
+  assert.equal(state.counts.interrupted, 1)
+  assert.deepEqual(state.restart.interrupted, ['Units'])
+  assert.equal(state.forYou.some(need => need.id === 'quiet:Units'), false)
+})
+
+test('a chat whose file still says working but is no longer renewed is interrupted too', () => {
+  const stale = build({ apps: [app('Units')], tails: { Units: tail(running, 4) }, plans: { Units: ownFile('working', NOW - 4 * MIN, beast) } })
+  assert.equal(chatNamed(stale, 'Units').state, 'interrupted')
+  // Renewed within the last minutes: the turn is alive, however long its tool runs.
+  const alive = build({ apps: [app('Units')], tails: { Units: tail(running, 4) }, plans: { Units: ownFile('working', NOW - MIN, beast) } })
+  assert.equal(chatNamed(alive, 'Units').state, 'working')
+})
+
+test('a chat that keeps no file of its own in this turn is never called interrupted', () => {
+  // A file from yesterday: this chat's process does not write one, so it says nothing about the turn.
+  for (const said of ['working', 'waiting']) {
+    const state = build({ apps: [app('Units')], tails: { Units: tail(running, 1) }, plans: { Units: ownFile(said, NOW - 20 * 60 * MIN, beast) } })
+    assert.equal(chatNamed(state, 'Units').state, 'working')
+  }
+  assert.equal(chatNamed(build({ apps: [app('Units')], tails: { Units: tail(running, 1) } }), 'Units').state, 'working')
+  // A turn that ended is free, whatever the file says.
+  assert.equal(chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: tail(ended) }, plans: { Units: ownFile('waiting', NOW - MIN) } }), 'Units').state, 'free')
+})
+
+test('the restart: who was cut off, what was prepared, and how long the board was off', () => {
+  const quiet = build({ apps: [app('Main'), app('Units', summary('completed'))], tails: { Units: tail(ended) } })
+  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], notRunning: [], prepared: null, preparing: null, resuming: null, off: null })
+
+  const prepare = { id: 'p1', at: NOW - 10 * MIN, to: 'Main', ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
+  const preparing = build({
+    apps: [app('Main'), app('Units'), app('Features', summary('completed'))],
+    tails: { Units: tail(running), Features: tail(ended) },
+    outbox: [prepare],
+    restartNote: { at: NOW - 3 * MIN },
+    board: { startedAt: NOW - 20 * MIN, offSince: NOW - 28 * MIN },
+  })
+  assert.deepEqual(preparing.restart.preparing, { at: NOW - 10 * MIN, state: 'delivered', working: ['Units'] })
+  assert.deepEqual(preparing.restart.prepared, { at: NOW - 3 * MIN })
+  assert.deepEqual(preparing.restart.off, { from: NOW - 28 * MIN, to: NOW - 20 * MIN })
+
+  // "resume" ends the preparing; a board that has run for long says no more about having been off.
+  const resume = { id: 'r1', at: NOW - MIN, to: 'Main', ask: null, command: 'resume', text: 'resume', state: 'waiting' }
+  const resumed = build({ apps: [app('Main')], outbox: [prepare, resume], board: { startedAt: NOW - 3 * 60 * MIN, offSince: NOW - 4 * 60 * MIN } })
+  assert.deepEqual([resumed.restart.preparing, resumed.restart.resuming, resumed.restart.off], [null, { at: NOW - MIN, state: 'waiting' }, null])
+  // Without a main chat there is nobody to do the resuming.
+  assert.equal(build({ apps: [app('Units')] }).restart.main, null)
+})
+
+test('a turn that kept writing after its chat\'s file said waiting is alive, not interrupted', () => {
+  // The file says waiting since 8 minutes ago (the turn before ended then); the open turn wrote a minute ago.
+  // A turn opened by a slash command or a background notice has no opening of its own, so the file looks newer
+  // than the turn: what tells them apart is that the transcript moved on.
+  const state = build({ apps: [app('Units')], tails: { Units: tail(running, 1) }, plans: { Units: ownFile('waiting', NOW - 8 * MIN, beast) } })
+  assert.equal(chatNamed(state, 'Units').state, 'working')
+})
+
+test('a chat whose process asks the board is running; one that has not asked for a while is not', () => {
+  // After a restart of the app a chat does not run until something starts it. A running chat's mod asks the
+  // board every few seconds what waits for it: `seen` holds when each last asked.
+  const apps = [app('Main'), app('Units'), app('Features'), app('Advisor')]
+  const state = build({ apps, seen: { shown: { Main: NOW - 5_000, Units: NOW - 10 * MIN }, other: {} }, board: { startedAt: NOW - 5 * MIN, offSince: null } })
+  assert.deepEqual(state.chats.map(chat => [chat.name, chat.isRunning]), [['Main', true], ['Units', false], ['Features', false]])
+  assert.equal(state.advisor.isRunning, false)
+  // The lanes that are not running, in the board's order; the advisor is not one of the workers.
+  assert.deepEqual(state.restart.notRunning, ['Units', 'Features'])
+})
+
+test('just after the board started, and where no chat can ask it, nothing is said about who runs', () => {
+  const apps = [app('Main'), app('Units')]
+  // Half a minute is given for every running chat to have asked once.
+  const young = build({ apps, seen: { shown: { Main: NOW - 1000 }, other: {} }, board: { startedAt: NOW - 10_000, offSince: null } })
+  assert.deepEqual(young.chats.map(chat => chat.isRunning), [null, null])
+  assert.deepEqual(young.restart.notRunning, [])
+  // The demo, and a board without a bridge: nobody asks, so nobody is called "not running".
+  const deaf = build({ apps, seen: null, board: { startedAt: NOW - 5 * MIN, offSince: null } })
+  assert.deepEqual([deaf.chats.map(chat => chat.isRunning), deaf.restart.notRunning], [[null, null], []])
+})
+
+test('a chat that asks under its name from another session than the board shows is not called "not running"', () => {
+  // Two chats of one title, or a chat the app's files are behind on: somebody is there, the board cannot tell who.
+  const state = build({ apps: [app('Main'), app('Units')], seen: { shown: { Main: NOW - 5_000 }, other: { Units: NOW - 4_000 } }, board: { startedAt: NOW - 5 * MIN, offSince: null } })
+  assert.deepEqual(state.chats.map(chat => [chat.name, chat.isRunning]), [['Main', true], ['Units', null]])
+  assert.deepEqual(state.restart.notRunning, [])
 })
