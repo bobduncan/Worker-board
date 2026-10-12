@@ -689,9 +689,10 @@ const showsClosed = () => $('needs-closed').checked
  * branch is still open goes to its worker, who merges. A rejection always goes back to the worker.
  */
 function approveHint(need) {
-  if (need.approval === 'tick') return 'A note, kept under the step (optional). Approve ticks it on the backlog; nobody is woken.'
-  if (need.approval === 'worker') return `Feedback (optional when you approve)… Approve goes to ${need.from}${need.branch ? `: its branch ${need.branch} is still open` : ''}.`
-  return 'Feedback (optional when you approve)…'
+  const [press, usual] = need.kind === 'do' ? ['Done', 'A note (optional)…'] : ['Approve', 'Feedback (optional when you approve)…']
+  if (need.approval === 'tick') return `A note, kept under the step (optional). ${press} ticks it on the backlog; nobody is woken.`
+  if (need.approval === 'worker') return `${usual} ${press} goes to ${need.from}${need.branch ? `: its branch ${need.branch} is still open` : ''}.`
+  return usual
 }
 // approve:end
 
@@ -722,7 +723,7 @@ function answerPart(need, state, isFolded) {
   const text = el('textarea')
   text.rows = 2
   text.maxLength = state.maxMessageChars
-  text.placeholder = need.kind === 'verify' ? approveHint(need) : need.kind === 'do' ? 'A note (optional)…' : 'Your decision or feedback…'
+  text.placeholder = need.kind === 'verify' || need.kind === 'do' ? approveHint(need) : 'Your decision or feedback…'
   text.value = drafts.get(need.id) ?? ''
   text.setAttribute('aria-label', `Answer to ${need.from}`)
   const buttons = el('div', `buttons${need.kind === 'verify' ? ' is-split' : ''}`)
@@ -738,7 +739,10 @@ function answerPart(need, state, isFolded) {
     buttons.firstChild.title = approveHint(need)
     buttons.lastChild.title = `Goes back to ${need.from} with your words.`
   }
-  else if (need.kind === 'do') buttons.append(button('✓  Done', 'is-approve', 'done'))
+  else if (need.kind === 'do') {
+    buttons.append(button('✓  Done', 'is-approve', 'done'))
+    buttons.firstChild.title = approveHint(need)
+  }
   else buttons.append(button('Send', '', ''))
   if (need.kind === 'verify') parts.push(buttons, text)
   else parts.push(text, buttons)
@@ -1110,7 +1114,9 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
   chips.push({ text: isStep ? names.ask(need.asks) : names.kind(need.kind), tone: 'kind' })
   if (isStep && need.activity) chips.push({ text: need.activity, tone: 'plain' })
   if (!isStep && need.from) chips.push({ text: `From: ${need.from}`, tone: 'to' })
-  if (isStep && need.from !== null && need.from !== undefined && need.isClosed !== true) chips.push({ text: `Answer goes to: ${need.from}`, tone: 'to' })
+  // B110: a step the board ticks itself says so; only what makes work goes to a chat.
+  const ticks = need.approval === 'tick' ? (need.kind === 'do' ? 'Done ticks it here' : `Approve ticks it here · Reject goes to: ${need.from}`) : null
+  if (isStep && need.from !== null && need.from !== undefined && need.isClosed !== true) chips.push({ text: ticks ?? `Answer goes to: ${need.from}`, tone: 'to' })
   // `hasNotes`: something is written under the step, wherever the window shows it (B94).
   return { code: need.step ?? null, title: need.title, chips, at: need.at ?? null, checklist, notes: rest, hasNotes: notes.length > 0 }
 }

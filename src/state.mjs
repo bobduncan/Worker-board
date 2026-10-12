@@ -493,8 +493,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // about something else than the game.
       game: step.asks === 'verify' && !/https?:\/\//.test(step.text) ? gameOf(step.branch ?? 'main') : null,
       // B110: where an approval goes: the board ticks a step whose work is merged (`tick`); one whose branch is
-      // still there, or of which the board cannot tell, goes to its worker (`worker`). Null for what is not approved.
-      approval: step.asks === 'verify' && !isClosed ? approvalRoute(step.branch, Array.isArray(raw.branches) ? raw.branches : null) : null,
+      // still there, or of which the board cannot tell, goes to its worker (`worker`). The same for "Done" on a
+      // step only the person could do. Null for what is neither.
+      approval: (step.asks === 'verify' || step.asks === 'do') && !isClosed ? approvalRoute(step.branch, Array.isArray(raw.branches) ? raw.branches : null) : null,
       checks: [],
       tried: [],
       // A closed step takes no answer.

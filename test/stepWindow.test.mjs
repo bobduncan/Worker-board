@@ -36,6 +36,13 @@ test('a Verify step: its id, its title, and chips for its kind, its activity and
   assert.deepEqual(view.chips, [{ text: 'Verify', tone: 'kind' }, { text: 'Architecture', tone: 'plain' }, { text: 'Answer goes to: Features', tone: 'to' }])
 })
 
+test('a step the board ticks itself says so in its head, in place of where the answer goes (B110)', () => {
+  const chip = more => windowOf({ need: { ...verify, ...more }, isStep: true, isClosed: false }).chips.at(-1).text
+  assert.equal(chip({ approval: 'tick' }), 'Approve ticks it here · Reject goes to: Features')
+  assert.equal(chip({ approval: 'tick', kind: 'do', asks: 'do' }), 'Done ticks it here')
+  assert.equal(chip({ approval: 'worker' }), 'Answer goes to: Features')
+})
+
 test('the checklist is what the step lists under "Requirements"; the other notes stay notes', () => {
   const view = windowOf({ need: verify, isStep: true })
   assert.deepEqual(view.checklist, ['The whole map is on screen', 'No tile lies under the panel'])

@@ -75,7 +75,9 @@ note when you gave one. No chat is woken, and the note is sent to nobody. Merged
 or one that is in neither the game's repository nor the board's any more; the board asks git anew at the click.
 A step whose branch is still there goes to its worker, who merges; so does every approval when git does not
 answer or the file cannot be written, so none is lost. A rejection, with your words, always goes back to the
-worker, and an answer to a Decide or Provide step goes where it went before. When open steps waited for the
+worker, and an answer to a Decide or Provide step goes where it went before. "Done" on a Do step, what only
+you could do, is settled the same way: ticked by the board with "Done by you on the worker board on ..." under
+it, unless the step names a branch that is still there. When open steps waited for the
 approved one ("after B55"), the main chat gets one line of the board's own that names them. Only the board that
 delivers writes (the one in the repository's main folder); a copy and the demo never do. The file is read anew
 right before, only the step's line and the new line change and every other byte stays, the new text is written

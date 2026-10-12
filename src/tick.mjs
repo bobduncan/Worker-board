@@ -7,6 +7,8 @@
 import { randomBytes } from 'node:crypto'
 import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 
+import { parseBacklog } from './backlog.mjs'
+
 const STEP = /^- \[( |x|X)\]\s+(B\d+)\b/
 const NOTE_CHARS = 400
 
@@ -42,18 +44,18 @@ export function tickStep(text, id, under) {
 const pad = value => String(value).padStart(2, '0')
 
 /**
- * The line written under an approved step: when the person approved it, and their note when they gave one. The
- * note is kept to one line; it is sent to nobody.
+ * The line written under a step the person approved, or marked done (`verdict`): when, and their note when they
+ * gave one. The note is kept to one line; it is sent to nobody.
  */
-export function approvalLine(now, note = '') {
+export function approvalLine(now, note = '', verdict = 'approve') {
   const at = new Date(now)
   const when = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} at ${pad(at.getHours())}:${pad(at.getMinutes())}`
   const words = String(note ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_CHARS)
-  return `Approved by you on the worker board on ${when}${words === '' ? '.' : `: ${words}`}`
+  return `${verdict === 'done' ? 'Done' : 'Approved'} by you on the worker board on ${when}${words === '' ? '.' : `: ${words}`}`
 }
 
 /**
- * Where the person's approval of a backlog step goes. `tick`: the board ticks it, because its work is merged: the
+ * Where the person's approval of a backlog step goes (and their "Done" on a step only they could do). `tick`: the board ticks it, because its work is merged: the
  * step names no branch, or main, or a branch that is in none of the repositories any more. `worker`: its branch is
  * still there, so the worker merges; or the board cannot tell (`branches` is null: git did not answer), and then
  * the approval goes to the worker as before, never lost. `branches` are the local branches of the repositories
@@ -114,4 +116,35 @@ export async function writeTick(file, id, under, fs = files) {
     }
   }
   return { ok: false, why: 'write' }
+}
+
+/** What the person's word on a step is called in the line under it: an approval of work, or "done" for what only they could do. */
+const WORDS = { approve: 'Approved', done: 'Done' }
+
+/**
+ * B110: settles what the person answered to a backlog step when that is the board's own to do: an approval of a
+ * Verify step, or "Done" on a Do step, whose work is merged, so nothing is left for a worker. The board ticks the
+ * step in the backlog and writes the word with its time under it; no chat is woken. When open steps waited for
+ * it, the main chat gets one line of the board's own (`say`).
+ *
+ * `message` is what `checkSay` let through, `state` the board's state. `canWrite` is true only on the board that
+ * delivers: a copy and the demo never write. `branchesNow` asks git anew at the click, so a branch made a moment
+ * ago counts. Answers `{ ok: true, message }` when the step is ticked, `{ ok: false, status, why }` when the step
+ * is ticked already or gone, and null when it is not the board's to settle or could not be written: the answer
+ * then goes to its worker as before, never lost.
+ */
+export async function settleByBoard(message, state, { canWrite, file, branchesNow, now, say, newId, fs = files }) {
+  if (canWrite !== true || WORDS[message.verdict] === undefined || typeof message.step !== 'string') return null
+  const item = (state.backlogForYou ?? []).find(need => need.id === message.ask)
+  if (item === undefined || item.approval !== 'tick' || item.kind !== (message.verdict === 'done' ? 'do' : 'verify')) return null
+  if (approvalRoute(item.branch, await branchesNow().catch(() => null)) !== 'tick') return null
+  const done = await writeTick(file, message.step, approvalLine(now, message.text, message.verdict), fs)
+  if (!done.ok) return done.why === 'write' ? null : { ok: false, status: 409, why: 'That step is ticked already, or no longer on the backlog.' }
+  const text = await fs.readFile(file).then(bytes => bytes.toString('utf8'), () => '')
+  const waiting = waitingOn(parseBacklog(text), message.step)
+  const main = state.restart?.main ?? null
+  if (waiting.length > 0 && main !== null) {
+    await say({ id: newId(), at: now, to: main, ask: null, step: message.step, title: null, version: null, verdict: null, command: 'next', text: nextWords(message.step, waiting), state: 'waiting' })
+  }
+  return { ok: true, message: { ...message, to: null, state: 'ticked' } }
 }

@@ -161,6 +161,8 @@ test('a step for the person says where its approval goes: ticked by the board, o
     '- [ ] B61 Verify: Look at the archer on branch feature/archer (Game - Units) @you',
     '- [ ] B62 Verify: Look at the mage on branch feature/mage (Game - Units) @you',
     '- [ ] B63 Decide: Which bow (Game - Units) @you',
+    '- [ ] B65 Do: Record the sound yourself (Game - Units) @you',
+    '- [ ] B66 Do: Try the build on branch feature/archer (Game - Units) @you',
     '- [x] B64 Verify: An old one @you',
     '',
   ].join('\n')
@@ -168,9 +170,9 @@ test('a step for the person says where its approval goes: ticked by the board, o
     { lines: [], outbox: [], runs: [], now: 1, config: { ...parseConfig('{}', {}), project: 'C:\game' } })
   const routes = state => Object.fromEntries([...state.backlogForYou, ...state.backlogClosed].map(need => [need.step, need.approval]))
   // The knight names no branch; the archer's branch is still there; the mage's is gone: merged.
-  assert.deepEqual(routes(build(['main', 'feature/archer'])), { B60: 'tick', B61: 'worker', B62: 'tick', B63: null, B64: null })
+  assert.deepEqual(routes(build(['main', 'feature/archer'])), { B60: 'tick', B61: 'worker', B62: 'tick', B63: null, B65: 'tick', B66: 'worker', B64: null })
   // Git did not answer: a step that names a branch goes to its worker, as before.
-  assert.deepEqual(routes(build(null)), { B60: 'tick', B61: 'worker', B62: 'worker', B63: null, B64: null })
+  assert.deepEqual(routes(build(null)), { B60: 'tick', B61: 'worker', B62: 'worker', B63: null, B65: 'tick', B66: 'worker', B64: null })
 })
 
 test('the branches are those of every repository the board knows, or nothing when git did not answer for one', async () => {
@@ -179,14 +181,130 @@ test('the branches are those of every repository the board knows, or nothing whe
   assert.equal(await readBranches(['game', 'board'], run({ game: 'main\n' })), null)
 })
 
-test('the page says before the click where an approval goes', async () => {
+test('the page says before the click where an approval or a "Done" goes', async () => {
   const { readFile: read } = await import('node:fs/promises')
   const vm = (await import('node:vm')).default
   const script = await read(new URL('../public/board.js', import.meta.url), 'utf8')
   const page = {}
   vm.runInNewContext(`${script.slice(script.indexOf('// approve:start'), script.indexOf('// approve:end'))}\nthis.approveHint = approveHint`, page)
-  assert.match(page.approveHint({ approval: 'tick', from: 'Units', branch: null }), /Approve ticks it on the backlog; nobody is woken\.$/)
-  assert.match(page.approveHint({ approval: 'worker', from: 'Units', branch: 'feature/archer' }), /Approve goes to Units: its branch feature\/archer is still open\.$/)
-  assert.equal(page.approveHint({ approval: null, from: 'Units' }), 'Feedback (optional when you approve)…')
-  assert.match(script, /text\.placeholder = need\.kind === 'verify' \? approveHint\(need\)/)
+  assert.match(page.approveHint({ kind: 'verify', approval: 'tick', from: 'Units', branch: null }), /Approve ticks it on the backlog; nobody is woken\.$/)
+  assert.match(page.approveHint({ kind: 'verify', approval: 'worker', from: 'Units', branch: 'feature/archer' }), /Approve goes to Units: its branch feature\/archer is still open\.$/)
+  assert.equal(page.approveHint({ kind: 'verify', approval: null, from: 'Units' }), 'Feedback (optional when you approve)…')
+  assert.match(page.approveHint({ kind: 'do', approval: 'tick', from: 'Units', branch: null }), /Done ticks it on the backlog; nobody is woken\.$/)
+  assert.equal(page.approveHint({ kind: 'do', approval: 'worker', from: 'Units', branch: null }), 'A note (optional)… Done goes to Units.')
+  assert.match(script, /text\.placeholder = need\.kind === 'verify' \|\| need\.kind === 'do' \? approveHint\(need\)/)
+})
+
+// The server's own path, end to end, against a made-up project folder
+
+const { settleByBoard } = await import('../src/tick.mjs')
+const { checkSay } = await import('../src/say.mjs')
+
+const PROJECT_BACKLOG = [
+  '## Art',
+  '- [ ] B60 Verify: Say whether the knight is right (Game - Units) @you',
+  '  Requirements:',
+  '  - the helmet shines',
+  '- [ ] B61 Verify: Look at the archer on branch feature/archer (Game - Units) @you',
+  '- [ ] B63 Decide: Which bow (Game - Units) @you',
+  '- [ ] B65 Do: Record the sound yourself (Game - Units) @you',
+  '- [ ] B70 The portraits (for Units; after B60; about 20 min)',
+  '- [ ] B71 The level (for Levels; after B61)',
+  '',
+].join('\r\n')
+const AT = new Date(2026, 9, 12, 22, 40).getTime()
+
+/** A project folder with a backlog, the board's state of it, and everything the server hands to `settleByBoard`. */
+async function project({ branches = ['main', 'feature/archer'], fresh = branches, canWrite = true } = {}) {
+  const folder = await mkdtemp(join(tmpdir(), 'board-project-'))
+  const file = join(folder, 'backlog.md')
+  await writeFile(file, PROJECT_BACKLOG)
+  const app = name => JSON.stringify({ title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\\game', isArchived: false, createdAt: 1, lastActivityAt: AT, lastAssistantUuid: 'u' })
+  const state = buildState({ listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [app('Main'), app('Units'), app('Levels')], tails: {}, planLineTexts: {}, backlogText: PROJECT_BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, branches },
+    { lines: [], outbox: [], runs: [], now: AT, config: { ...parseConfig('{}', {}), project: 'C:\\game' } })
+  const said = []
+  const asked = { git: 0 }
+  const deps = { canWrite, file, branchesNow: async () => { asked.git += 1; return fresh }, now: AT, say: async message => { said.push(message) }, newId: () => 'id-1' }
+  /** What the page sends, through the same check the server runs first. */
+  const answer = async body => {
+    const checked = checkSay(body, state, 4000)
+    assert.equal(checked.ok, true, JSON.stringify(checked))
+    return settleByBoard({ id: 'm-1', at: AT, ...checked.message, state: 'waiting' }, state, deps)
+  }
+  return { folder, file, said, asked, answer, text: async () => (await readFile(file)).toString('utf8') }
+}
+
+test('approving a step whose work is merged ticks it in the file and wakes nobody; steps that waited are named to the main chat', async () => {
+  const board = await project()
+  try {
+    const done = await board.answer({ to: 'Units', ask: 'backlog:B60', verdict: 'approve', text: ' looks right ' })
+    assert.deepEqual([done.ok, done.message.state, done.message.to], [true, 'ticked', null])
+    assert.equal(await board.text(), PROJECT_BACKLOG
+      .replace('- [ ] B60', '- [x] B60')
+      .replace('  - the helmet shines\r\n', '  - the helmet shines\r\n  Approved by you on the worker board on 2026-10-12 at 22:40: looks right\r\n'))
+    // One line of the board's own to the main chat, and nothing to the step's worker.
+    assert.deepEqual(board.said.map(sent => [sent.to, sent.command, sent.text, sent.state, sent.verdict]), [['Main', 'next', 'B60 is approved and ticked on the worker board; no worker was woken for it. Open steps that waited for it: B70 (for Units).', 'waiting', null]])
+    // Approved again from a page that had not read yet: refused, and the file stays.
+    const after = await board.text()
+    const again = await board.answer({ to: 'Units', ask: 'backlog:B60', verdict: 'approve', text: '' })
+    assert.deepEqual([again.ok, again.status], [false, 409])
+    assert.equal(await board.text(), after)
+  } finally {
+    await rm(board.folder, { recursive: true, force: true })
+  }
+})
+
+test('"Done" on a step only the person could do is ticked the same way, with its own word', async () => {
+  const board = await project()
+  try {
+    const done = await board.answer({ to: 'Units', ask: 'backlog:B65', verdict: 'done', text: '' })
+    assert.deepEqual([done.ok, done.message.state], [true, 'ticked'])
+    assert.equal(await board.text(), PROJECT_BACKLOG.replace('- [ ] B65 Do: Record the sound yourself (Game - Units) @you\r\n', '- [x] B65 Do: Record the sound yourself (Game - Units) @you\r\n  Done by you on the worker board on 2026-10-12 at 22:40.\r\n'))
+    // Nobody waited for it: the main chat hears nothing.
+    assert.deepEqual(board.said, [])
+  } finally {
+    await rm(board.folder, { recursive: true, force: true })
+  }
+})
+
+test('what is not the board\'s to settle goes to its worker as before, and the file is not touched', async () => {
+  const cases = [
+    ['a step whose branch is still there', {}, { to: 'Units', ask: 'backlog:B61', verdict: 'approve', text: '' }],
+    ['a rejection', {}, { to: 'Units', ask: 'backlog:B60', verdict: 'reject', text: 'the helmet is dull' }],
+    ['an answer to a Decide step', {}, { to: 'Units', ask: 'backlog:B63', text: 'the long bow' }],
+    ['a branch made a moment ago, which only git knows', { branches: ['main'], fresh: ['main', 'feature/archer'] }, { to: 'Units', ask: 'backlog:B61', verdict: 'approve', text: '' }],
+    ['git not answering at the click, for a step that names a branch', { branches: ['main'], fresh: null }, { to: 'Units', ask: 'backlog:B61', verdict: 'approve', text: '' }],
+    ['a copy of the board, or the demo', { canWrite: false }, { to: 'Units', ask: 'backlog:B60', verdict: 'approve', text: '' }],
+  ]
+  for (const [name, setup, body] of cases) {
+    const board = await project(setup)
+    try {
+      assert.equal(await board.answer(body), null, name)
+      assert.equal(await board.text(), PROJECT_BACKLOG, name)
+      assert.deepEqual(board.said, [], name)
+      // A copy does not even ask git: it returns before anything is read.
+      if (setup.canWrite === false) assert.equal(board.asked.git, 0)
+    } finally {
+      await rm(board.folder, { recursive: true, force: true })
+    }
+  }
+})
+
+test('a backlog that cannot be written sends the approval to the worker, so it is not lost', async () => {
+  const board = await project()
+  try {
+    const { readFile: read, writeFile: write, rm: remove } = await import('node:fs/promises')
+    const stuck = { readFile: read, writeFile: write, rm: remove, rename: async () => { throw new Error('in use') } }
+    const checked = checkSay({ to: 'Units', ask: 'backlog:B60', verdict: 'approve', text: '' }, buildState({ listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [], tails: {}, planLineTexts: {}, backlogText: PROJECT_BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, branches: ['main'] },
+      { lines: [], outbox: [], runs: [], now: AT, config: { ...parseConfig('{}', {}), project: 'C:\\game' } }), 4000)
+    // No chat is on that made-up board, so the check has nobody to send to: the step itself is what matters here.
+    assert.equal(checked.ok, false)
+    const state = { backlogForYou: [{ id: 'backlog:B60', kind: 'verify', approval: 'tick', branch: null }], restart: { main: 'Main' } }
+    const done = await settleByBoard({ ask: 'backlog:B60', step: 'B60', verdict: 'approve', text: '' }, state, { canWrite: true, file: board.file, branchesNow: async () => ['main'], now: AT, say: async () => {}, newId: () => 'x', fs: stuck })
+    assert.equal(done, null)
+    assert.equal(await board.text(), PROJECT_BACKLOG)
+    assert.deepEqual(await readdir(board.folder), ['backlog.md'])
+  } finally {
+    await rm(board.folder, { recursive: true, force: true })
+  }
 })
