@@ -729,13 +729,26 @@ function drawNeed(need, state) {
   return card
 }
 
+// B85 (the order of the cards): kept between these two marks so a test can run it without the page.
+// order:start
+/**
+ * How new a card is: when it was filed. A step from the backlog has no date, so the number of its id says it: the
+ * highest id is the newest.
+ */
+const newness = need => need.at ?? (Number(String(need.step ?? '').replace(/\D/g, '')) || 0)
+
+/**
+ * The cards in the order chosen in "For you": newest first, oldest first, or by the worker the answer goes to
+ * (newest first within a worker). For the requests of the chats and for the steps from the backlog alike.
+ */
 function ordered(needs) {
   const order = $('needs-order').value
-  const list = [...needs]
+  const list = [...needs].sort((a, b) => newness(b) - newness(a))
   if (order === 'oldest') list.reverse()
-  if (order === 'worker') list.sort((a, b) => a.from.localeCompare(b.from) || (b.at ?? 0) - (a.at ?? 0))
+  if (order === 'worker') list.sort((a, b) => (a.from ?? '').localeCompare(b.from ?? '') || newness(b) - newness(a))
   return list
 }
+// order:end
 
 function drawLegacy(state) {
   const open = state.backlogForYou.filter(step => !isClosed(step))
@@ -749,8 +762,8 @@ function drawLegacy(state) {
   if (closed.length > 0) notes.push(`${closed.length} closed ${showsClosed() ? 'shown' : 'hidden'}`)
   summary.append(el('small', '', notes.join(' · ')))
   box.append(summary)
-  for (const step of open) box.append(drawNeed(step, state))
-  if (showsClosed()) for (const step of closed) box.append(drawNeed(step, state))
+  for (const step of ordered(open)) box.append(drawNeed(step, state))
+  if (showsClosed()) for (const step of ordered(closed)) box.append(drawNeed(step, state))
   box.addEventListener('toggle', () => { isLegacyOpen = box.open })
   return box
 }
