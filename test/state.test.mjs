@@ -514,7 +514,7 @@ test('the demo shows the second design: five lanes with their queues, two reques
     ['art-inbox/pathfinding/option-a-navmesh.png', true],
     ['art-inbox/pathfinding/option-b-grid.png', false],
   ])
-  assert.equal(state.forYou[0].run.url, 'http://localhost:5173/')
+  assert.deepEqual([state.forYou[0].game.branch, state.forYou[0].game.folder, state.forYou[0].game.url], ['main', 'game', null])
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.kind, step.from, step.pictures]), [
     ['the jump feels right (picture in art-inbox/jump)', 'verify', 'Main', ['art-inbox/jump/jump-arc.png']],
     ['quit and reopen the app once', 'do', 'Main', []],
