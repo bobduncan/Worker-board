@@ -208,8 +208,9 @@ async function main(args) {
   const config = await loadConfig(join(HERE, 'config.json'))
   // The board in the main folder keeps the configured port; a copy in another folder has its own; `--port 4311`
   // wins over both.
+  // The port of the board that records, as the file names it: a second board points the person there.
+  const homePort = config.port
   const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner() })
-  const mainPort = config.port
   config.port = chosen.port
   if (args.includes('--launch-entry')) {
     // This folder's entry for the preview: named after the folder, with the port it listens on.
@@ -226,7 +227,10 @@ async function main(args) {
   const keep = { messageMs: config.messageKeepMinutes * 60_000, answerMs: config.answerKeepHours * 60 * 60_000 }
   const timeOf = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
   // The demo has no chats to type into, so it has no bridge.
-  const bridgeKey = isDemo ? null : randomBytes(32).toString('hex')
+  // Neither has a board that only shows another one's history: the board that records is the one that delivers,
+  // so of two boards on one project it is always the same one.
+  const isShowOnly = historyFrom !== undefined
+  const bridgeKey = isDemo || isShowOnly ? null : randomBytes(32).toString('hex')
 
   // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
   const games = createGames({
@@ -279,7 +283,7 @@ async function main(args) {
   const offSince = Number.isFinite(lastAlive) && startedAt - lastAlive > 3 * 60_000 ? lastAlive : null
 
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
-  const seen = bridgeKey === null ? null : {}
+  const seen = bridgeKey === null ? null : { shown: {}, other: {} }
 
   const readState = cached(async () => {
     const raw = await readRaw()
@@ -303,6 +307,8 @@ async function main(args) {
       return state
     },
     say: async body => {
+      // What is answered here would never arrive: this board has no bridge.
+      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
       const checked = checkSay(body, await readState(), config.maxMessageChars)
       if (!checked.ok) return checked
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: 'waiting' }
@@ -319,8 +325,9 @@ async function main(args) {
     bridgeKey,
     take: async body => {
       const checked = checkTake(body, await readState())
+      // Who asks runs, also a chat the board shows another session for.
+      if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
       if (!checked.ok) return checked
-      if (seen !== null) seen[checked.chat] = clock()
       const taken = await store.take(checked.chat, clock(), keep)
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
@@ -372,13 +379,22 @@ async function main(args) {
       // Not there, or another board's by now.
     }
   })
-  /** True when the file names another board that still answers: the chats are that board's, and stay so. */
+  /**
+   * True when the file names another board that still delivers: it takes the key the file holds. The chats are
+   * that board's, and stay so. A board that is gone, or one that was started anew and only shows, has let go.
+   */
   async function isTaken() {
     try {
-      const other = new URL(JSON.parse(await readFile(noteFile, 'utf8')).url)
+      const note = JSON.parse(await readFile(noteFile, 'utf8'))
+      const other = new URL(note.url)
       if (other.hostname !== HOST || Number(other.port) === config.port) return false
-      await fetch(other.href, { signal: AbortSignal.timeout(1500) })
-      return true
+      const answer = await fetch(new URL('/api/bridge/take', other), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Board-Key': String(note.key) },
+        body: '{}',
+        signal: AbortSignal.timeout(1500),
+      })
+      return answer.status !== 403 && answer.status !== 404
     } catch {
       return false
     }
@@ -394,7 +410,7 @@ async function main(args) {
       }
     }
     console.log(`Worker board: http://${HOST}:${config.port}/${isDemo ? '  (demo data)' : historyFrom === undefined ? '' : '  (shows another board\'s history, records none)'}`)
-    if (chosen.why === 'own' || chosen.why === 'new') console.log(`  Port ${config.port} is this folder's own (data/port.json); the board in the main folder has ${mainPort}.`)
+    if (chosen.why === 'own' || chosen.why === 'new') console.log(`  Port ${config.port} is this folder's own (data/port.json); the board in the main folder has ${homePort}.`)
   })
 
   if (!isDemo && historyFrom === undefined) {
