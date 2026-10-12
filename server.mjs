@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { loadConfig } from './src/config.mjs'
-import { IDEAS_FOLDER, REFERENCES_FOLDER, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
+import { IDEAS_FOLDER, REFERENCES_FOLDER, REFERENCE_BYTES, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver } from './src/ideas.mjs'
 import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
 import { readHead } from './src/files.mjs'
@@ -46,8 +46,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
 const HOST = '127.0.0.1'
 const BODY_BYTES = 16 * 1024
-/** A reference picture the person adds to an idea is at most this large. */
-const PICTURE_BYTES = 8 * 1024 * 1024
+const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
 const STATE_MS = 2_000
 const TICK_MS = 60_000
@@ -446,6 +445,8 @@ async function main(args) {
         canMake,
         why: whyNoPicture,
         busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
+        canSend: !isDemo && !isShowOnly && (state.restart?.main ?? null) !== null,
+        whyNot: isDemo ? 'This is the demo: it asks nobody.' : isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${homePort}/` : 'No main chat is open to ask.',
         outbox: sentNow(),
         backlog: state.backlog,
         missing: isDemo ? [] : await missingReferences(),
