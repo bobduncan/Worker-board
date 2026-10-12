@@ -436,14 +436,17 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const word = sent.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
 
   /**
-   * Whether a chat's process runs: its mod asked the board lately (`seen`, by the chat's name). After a restart
+   * Whether a chat's process runs: its mod asked the board lately (`seen.shown`, by the chat's name). After a restart
    * of the app a chat does not run until it is opened or messaged through the app, and until then nothing reaches
    * it by its name. Null where that cannot be told: no chat can ask this board, or the board has only just
    * started and not every chat has asked yet.
    */
   function runningOf(name) {
     if (seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) || now - board.startedAt < SEEN_MS) return null
-    return Number.isFinite(seen[name]) && now - seen[name] < SEEN_MS
+    const isFresh = at => Number.isFinite(at) && now - at < SEEN_MS
+    if (isFresh(seen.shown?.[name])) return true
+    // Somebody asks under this name from another session than the one the board shows: it cannot tell.
+    return isFresh(seen.other?.[name]) ? null : false
   }
   const restart = {
     main: main === undefined ? null : main.name,

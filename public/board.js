@@ -1305,7 +1305,11 @@ function drawTalk(state) {
   const box = $('messages')
   const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60
   $('talk-title').textContent = advisor?.name ?? 'Advisor'
-  fill($('talk-state'), [advisor === null ? null : el('span', `pill is-${advisor.state}`, STATES[advisor.state])])
+  fill($('talk-state'), [
+    advisor === null ? null : el('span', `pill is-${advisor.state}`, STATES[advisor.state]),
+    // A chat that does not run takes nothing: what is typed here waits until its chat is opened.
+    advisor !== null && advisor.isRunning === false ? el('small', 'not-running', 'not running: open its chat, or what you type here does not arrive') : null,
+  ])
   $('say-send').disabled = advisor === null
   $('say-text').maxLength = state.maxMessageChars
   if (!$('say-note').classList.contains('is-error')) $('say-note').textContent = UNDELIVERED

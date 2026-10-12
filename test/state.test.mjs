@@ -677,7 +677,7 @@ test('a chat whose process asks the board is running; one that has not asked for
   // After a restart of the app a chat does not run until something starts it. A running chat's mod asks the
   // board every few seconds what waits for it: `seen` holds when each last asked.
   const apps = [app('Main'), app('Units'), app('Features'), app('Advisor')]
-  const state = build({ apps, seen: { Main: NOW - 5_000, Units: NOW - 10 * MIN }, board: { startedAt: NOW - 5 * MIN, offSince: null } })
+  const state = build({ apps, seen: { shown: { Main: NOW - 5_000, Units: NOW - 10 * MIN }, other: {} }, board: { startedAt: NOW - 5 * MIN, offSince: null } })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.isRunning]), [['Main', true], ['Units', false], ['Features', false]])
   assert.equal(state.advisor.isRunning, false)
   // The lanes that are not running, in the board's order; the advisor is not one of the workers.
@@ -687,10 +687,17 @@ test('a chat whose process asks the board is running; one that has not asked for
 test('just after the board started, and where no chat can ask it, nothing is said about who runs', () => {
   const apps = [app('Main'), app('Units')]
   // Half a minute is given for every running chat to have asked once.
-  const young = build({ apps, seen: { Main: NOW - 1000 }, board: { startedAt: NOW - 10_000, offSince: null } })
+  const young = build({ apps, seen: { shown: { Main: NOW - 1000 }, other: {} }, board: { startedAt: NOW - 10_000, offSince: null } })
   assert.deepEqual(young.chats.map(chat => chat.isRunning), [null, null])
   assert.deepEqual(young.restart.notRunning, [])
   // The demo, and a board without a bridge: nobody asks, so nobody is called "not running".
   const deaf = build({ apps, seen: null, board: { startedAt: NOW - 5 * MIN, offSince: null } })
   assert.deepEqual([deaf.chats.map(chat => chat.isRunning), deaf.restart.notRunning], [[null, null], []])
+})
+
+test('a chat that asks under its name from another session than the board shows is not called "not running"', () => {
+  // Two chats of one title, or a chat the app's files are behind on: somebody is there, the board cannot tell who.
+  const state = build({ apps: [app('Main'), app('Units')], seen: { shown: { Main: NOW - 5_000 }, other: { Units: NOW - 4_000 } }, board: { startedAt: NOW - 5 * MIN, offSince: null } })
+  assert.deepEqual(state.chats.map(chat => [chat.name, chat.isRunning]), [['Main', true], ['Units', null]])
+  assert.deepEqual(state.restart.notRunning, [])
 })
