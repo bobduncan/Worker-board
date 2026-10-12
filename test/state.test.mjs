@@ -22,7 +22,7 @@ const planLine = task => JSON.stringify({ name: 'x', role: 'worker', state: 'wor
 const running = [typed(NOW - 20 * MIN, 'Go'), step(NOW - 2 * MIN, 'Run the tests'), toolResult(NOW - MIN)]
 const ended = [typed(NOW - 20 * MIN, 'Go'), answer(NOW - 9 * MIN, 'Done')]
 
-function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [] }) {
+function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {} }) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: apps,
@@ -30,7 +30,9 @@ function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox 
     planLineTexts: Object.fromEntries(Object.entries(plans).map(([name, value]) => [`cli-${name}`, value])),
     backlogText: backlog,
     adviceText: null,
-    folders: null,
+    folders,
+    askTexts: asks.map(ask => JSON.stringify(ask)),
+    pictureLists,
   }
   return buildState(raw, { lines, outbox, now: NOW, config })
 }
@@ -88,10 +90,11 @@ test('a chat whose turn ended blocked waits for you, and its need leads the For 
   assert.equal(units.statusDetail, 'two sheets drawn')
   assert.equal(units.waitingSince, NOW - 9 * MIN)
   assert.equal(units.doingNow, null)
-  assert.deepEqual(state.forYou, [
-    { text: 'Pick sheet A or B', activity: null, chat: 'Units', since: NOW - 9 * MIN },
-    { text: 'Say whether the mage is right', activity: 'Art', chat: null, since: null },
-  ])
+  assert.deepEqual(state.forYou, [{
+    id: `chat:Units:${NOW - 9 * MIN}`, from: 'Units', kind: 'input', title: 'Needs your decision', text: 'Pick sheet A or B', at: NOW - 9 * MIN,
+    options: [], pictures: [], run: null, checks: [], tried: [], canAnswer: true, answer: null,
+  }])
+  assert.deepEqual(state.backlogForYou, [{ text: 'Say whether the mage is right', activity: 'Art', pictures: [] }])
 })
 
 test('a chat whose turn ended with nothing open is free, and one without a transcript is unknown', () => {
@@ -112,6 +115,91 @@ test('a chat that asked a question in its own chat waits for you', () => {
   assert.equal(units.needsYou, 'Asked you a question in its chat.')
   assert.equal(units.waitingSince, NOW - 4 * MIN)
   assert.equal(units.isQuiet, false)
+})
+
+test('a question asked with the app\'s own form is shown, but cannot be answered on the board', () => {
+  const asked = [typed(NOW - 20 * MIN, 'Go'), assistant(NOW - 4 * MIN, 'tool_use', [tool('AskUserQuestion', {})])]
+  const need = build({ apps: [app('Units')], tails: { Units: tail(asked, 4) } }).forYou[0]
+  assert.deepEqual([need.title, need.kind, need.canAnswer], ['Asked you a question in its chat', 'input', false])
+})
+
+test('a request a chat filed is shown as filed, newest first, and stands in for the chat\'s own waiting', () => {
+  const ask = (id, at, extra = {}) => ({ id, from: 'Units', kind: 'verify', title: `Check ${id}`, text: 'Look.', at, ...extra })
+  const state = build({
+    apps: [app('Main'), app('Units', summary('blocked', 'Pick sheet A or B'))],
+    tails: { Units: tail(ended) },
+    asks: [ask('old', NOW - 50 * MIN), ask('new', NOW - 5 * MIN, { checks: ['It walks'] }), ask('closed', NOW, { state: 'answered' }), { ...ask('stray', NOW - 20 * MIN), from: 'Nobody' }],
+  })
+  assert.deepEqual(state.forYou.map(need => [need.id, need.from, need.canAnswer]), [['new', 'Units', true], ['stray', 'Nobody', false], ['old', 'Units', true]])
+  assert.deepEqual(state.forYou[0].checks, ['It walks'])
+})
+
+test('a request shows the answer that was sent for it, until it is delivered or too old', () => {
+  const state = build({
+    apps: [app('Units')],
+    tails: { Units: tail(ended) },
+    asks: [{ id: 'sheet', from: 'Units', kind: 'verify', title: 'Check the sheet', at: NOW - 30 * MIN }],
+    outbox: [
+      { id: 'm1', at: NOW - 9 * MIN, to: 'Units', ask: 'sheet', verdict: 'reject', text: 'Too dark.', state: 'expired' },
+      { id: 'm2', at: NOW - MIN, to: 'Units', ask: 'sheet', verdict: 'approve', text: '', state: 'waiting' },
+      { id: 'm3', at: NOW - MIN, to: 'Units', ask: 'other', verdict: null, text: 'Hello', state: 'waiting' },
+    ],
+  })
+  assert.deepEqual(state.forYou[0].answer, { at: NOW - MIN, verdict: 'approve', text: '', state: 'waiting' })
+})
+
+test('a running turn without a sign of life is raised for you, and cannot be answered on the board', () => {
+  const state = build({ apps: [app('Units')], tails: { Units: tail(running, 14) } })
+  assert.deepEqual(state.forYou.map(need => [need.id, need.kind, need.title, need.canAnswer]), [['quiet:Units', 'intervene', 'No sign of life for 14 min', false]])
+})
+
+test('a working chat with an estimate has a time it expects to be done, and its queue is planned after it', () => {
+  const state = build({
+    apps: [app('Main'), app('Units'), app('Levels')],
+    tails: { Units: tail(running), Levels: tail(running), Main: tail(ended) },
+    plans: {
+      Units: planLine({ text: 'Archer', step: 1, steps: 3, left: 25 * MIN }),
+      Levels: planLine({ text: 'Forest', left: 2 * MIN }),
+    },
+    backlog: '## Next to hand out (Game - Main)\n- [ ] Knight rows (for Units; about 30 min)\n- [ ] Polish (for Units)\n- [ ] Banner (for Units; about 10 min)\n- [ ] Lava biome (for Levels; about 1 h)\n- [ ] Name the game\n',
+  })
+  const units = chatNamed(state, 'Units')
+  assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false })
+  assert.deepEqual(units.queue.map(step => [step.title, step.minutes]), [['Knight rows', 30], ['Polish', null], ['Banner', 10]])
+  // The plan stops at the first step without a time: what follows it cannot be placed.
+  assert.deepEqual(units.ahead, [
+    { from: NOW, to: NOW + 22 * MIN, title: 'Archer', isQueued: false },
+    { from: NOW + 22 * MIN, to: NOW + 52 * MIN, title: 'Knight rows', isQueued: true },
+  ])
+  // An estimate that has run out gives no time and no plan.
+  const levels = chatNamed(state, 'Levels')
+  assert.deepEqual([levels.eta.isOverdue, levels.eta.leftMs, levels.ahead], [true, 0, []])
+  assert.deepEqual([chatNamed(state, 'Main').eta, chatNamed(state, 'Main').queue], [null, []])
+  assert.deepEqual(state.unassigned.map(step => step.title), ['Name the game'])
+  assert.equal(state.day.until, NOW + 52 * MIN)
+  assert.deepEqual(state.today.map(lane => [lane.chat, lane.ahead.length]), [['Main', 0], ['Units', 2], ['Levels', 0]])
+})
+
+test('a folder is shown with the worker an open step names for its branch; the others are listed apart', () => {
+  const folder = (name, branch) => ({ path: `C:/game-${name}`, name, branch, ahead: 2, uncommitted: 0, lastCommitAt: NOW })
+  const state = build({
+    apps: [app('Main'), app('Units')],
+    tails: { Units: tail(running) },
+    backlog: '## Art #focus\n- [ ] The beast (Game - Units; branch feature/beast)\n- [x] The mage (Game - Units; branch feature/mage)\n',
+    folders: [folder('game', 'main'), folder('beast', 'feature/beast'), folder('mage', 'feature/mage'), folder('probe', null)],
+  })
+  assert.deepEqual(chatNamed(state, 'Units').folders.map(one => one.name), ['beast'])
+  assert.deepEqual(state.otherFolders.map(one => one.name), ['mage', 'probe'])
+  assert.equal(state.hasFolders, true)
+})
+
+test('a step for you in the backlog shows the pictures of the folder it points to', () => {
+  const state = build({
+    apps: [app('Main')],
+    backlog: '## Art\n- [ ] Say whether the mage is right (pictures in art-inbox/red-mage) @you\n- [ ] Pick a name @you\n',
+    pictureLists: { 'art-inbox/red-mage': ['art-inbox/red-mage/a.png', 'art-inbox/red-mage/b.png'], 'art-inbox/other': ['art-inbox/other/c.png'] },
+  })
+  assert.deepEqual(state.backlogForYou.map(step => step.pictures), [['art-inbox/red-mage/a.png', 'art-inbox/red-mage/b.png'], []])
 })
 
 test('a summary the app wrote about an older answer is not used', () => {
@@ -274,53 +362,79 @@ test('building the state prints nothing, whatever the sources hold', () => {
   assert.deepEqual(printed, [])
 })
 
-test('the queue, the open work and the outbox pass through, and a leftover chat is greyed and not counted', () => {
+test('a leftover chat is greyed and not counted, and the advisor has no lane', () => {
   const state = build({
-    apps: [app('Main'), app('Main (fork)'), app('Units')],
-    tails: { Main: tail(ended), Units: tail(running) },
-    backlog: '## Game #focus\n- [ ] Step 4 (branch feature/x)\n\n## Next to hand out (Game - Main)\n- [ ] Main menu (for Units; about 40 min)\n',
-    outbox: [{ id: 'a', at: NOW, text: 'Hello', state: 'waiting' }],
+    apps: [app('Main'), app('Main (fork)'), app('Units'), app('Advisor')],
+    tails: { Main: tail(ended), Units: tail(running), Advisor: tail(ended) },
+    backlog: '## Next to hand out (Game - Main)\n- [ ] Main menu (for Units; about 40 min)\n- [ ] Advice round (for Advisor)\n',
   })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.isLeftover]), [['Main', false], ['Units', false], ['Main (fork)', true]])
   assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0 })
-  assert.deepEqual(state.queue.map(item => [item.title, item.worker, item.minutes]), [['Main menu', 'Units', 40]])
-  assert.deepEqual(state.openWork.map(item => item.branch), ['feature/x'])
-  assert.deepEqual(state.outbox, [{ id: 'a', at: NOW, text: 'Hello', state: 'waiting' }])
+  assert.deepEqual(chatNamed(state, 'Units').queue.map(step => step.title), ['Main menu'])
+  assert.deepEqual(state.unassigned.map(step => step.title), ['Advice round'])
   assert.deepEqual(state.today.map(lane => lane.chat), ['Main', 'Units'])
   assert.equal(state.readAt, NOW)
 })
 
-test('the dock shows the main chat, with the names of the chats that reported', () => {
+test('the advisor is talked with: its conversation, its state, and what was typed to it and is not there yet', () => {
   const state = build({
-    apps: [app('Main'), app('Units')],
-    tails: { Main: tail([typed(NOW - 9 * MIN, 'Status?'), fromChat(NOW - 8 * MIN, 'Game - Units', 'Archer done.'), answer(NOW - 7 * MIN, 'Units is done.')]) },
+    apps: [app('Main'), app('Advisor')],
+    tails: { Advisor: tail([typed(NOW - 9 * MIN, 'What next?'), fromChat(NOW - 8 * MIN, 'Game - Main', 'From the main chat: the archer is merged.'), answer(NOW - 7 * MIN, 'Hand out the knight.')]) },
+    outbox: [
+      { id: 'm1', at: NOW - MIN, to: 'Advisor', ask: null, verdict: null, text: 'And after that?', state: 'waiting' },
+      { id: 'm2', at: NOW - MIN, to: 'Main', ask: null, verdict: null, text: 'Not for the advisor', state: 'waiting' },
+    ],
   })
-  assert.deepEqual(state.mainChat.map(message => [message.who, message.text]), [['You', 'Status?'], ['Units', 'Archer done.'], ['Main', 'Units is done.']])
+  assert.deepEqual([state.advisor.name, state.advisor.state], ['Advisor', 'free'])
+  assert.deepEqual(state.advisor.messages.map(message => [message.from, message.who, message.text]), [
+    ['you', 'You', 'What next?'],
+    ['report', 'Main', 'From the main chat: the archer is merged.'],
+    ['chat', 'Advisor', 'Hand out the knight.'],
+  ])
+  assert.deepEqual(state.advisor.pending.map(message => message.text), ['And after that?'])
+  assert.equal(build({ apps: [app('Main')] }).advisor, null)
 })
 
 test('sources that are missing or broken give an empty board, never an error', () => {
   const state = buildState({}, { now: NOW, config })
   assert.deepEqual(state.chats, [])
-  assert.deepEqual([state.forYou, state.queue, state.openWork, state.mainChat, state.outbox, state.today], [[], [], [], [], [], []])
-  assert.equal(state.folders, null)
-  assert.equal(state.advice, null)
+  assert.deepEqual([state.forYou, state.backlogForYou, state.unassigned, state.otherFolders, state.today], [[], [], [], [], []])
+  assert.deepEqual([state.hasFolders, state.advisor, state.advice], [false, null, null])
+  assert.doesNotThrow(() => buildState({ askTexts: ['{', 'null', 5, '{"id":"x"}'], pictureLists: 7, folders: 'x' }, { outbox: 'x', now: NOW, config }))
   assert.doesNotThrow(() => buildState({ appChatTexts: ['{', 'null', '5'], tails: { x: { text: '{', isCut: true, modifiedAt: 1 } }, backlogText: 5 }, { now: NOW, config }))
 })
 
-test('the demo shows the five chats of the design, in the states the design shows', async () => {
+test('the demo shows the second design: five lanes with their queues, two requests, and the advisor', async () => {
   const demo = await demoSources(NOW)
   const state = buildState(demo, { lines: demo.historyLines, now: NOW, config: { ...config, project: demo.project } })
-  assert.deepEqual(state.chats.map(chat => [chat.name, chat.state]), [
-    ['Main', 'working'],
-    ['Units', 'waiting'],
-    ['Features', 'working'],
-    ['Cleanup', 'free'],
-    ['Levels / Environment', 'working'],
+  assert.deepEqual(state.chats.map(chat => [chat.name, chat.state, chat.queue.length]), [
+    ['Main', 'working', 3],
+    ['Units', 'waiting', 2],
+    ['Features', 'working', 3],
+    ['Cleanup', 'free', 1],
+    ['Levels / Environment', 'working', 2],
   ])
   assert.deepEqual(state.counts, { working: 3, waiting: 1, free: 1, unknown: 0 })
-  assert.equal(state.queue.length, 3)
-  assert.equal(state.folders.length, 5)
-  assert.ok(state.mainChat.length >= 5)
+  assert.deepEqual(state.chats.map(chat => (chat.eta === null ? null : Math.round(chat.eta.leftMs / MIN))), [22, null, 105, null, 34])
+  assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], [], ['levels']])
+  assert.deepEqual(state.otherFolders.map(folder => folder.name), ['cleanup'])
+  assert.deepEqual(state.unassigned.map(step => step.title), ['Decide the name of the game'])
+
+  assert.deepEqual(state.forYou.map(need => [need.from, need.kind, need.title, need.canAnswer]), [
+    ['Main', 'verify', 'Test player movement', true],
+    ['Units', 'input', 'Choose pathfinding approach', true],
+  ])
+  assert.deepEqual(state.forYou[1].options.map(option => [option.picture, option.isRecommended]), [
+    ['art-inbox/pathfinding/option-a-navmesh.png', true],
+    ['art-inbox/pathfinding/option-b-grid.png', false],
+  ])
+  assert.equal(state.forYou[0].run.url, 'http://localhost:5173/')
+  assert.deepEqual(state.backlogForYou.map(step => [step.text, step.pictures]), [
+    ['Say whether the jump feels right (picture in art-inbox/jump)', ['art-inbox/jump/jump-arc.png']],
+  ])
+
+  assert.deepEqual([state.advisor.name, state.advisor.state, state.advisor.messages.length], ['Advisor', 'free', 4])
   assert.ok(state.today.every(lane => lane.spans.length > 0))
+  assert.equal(state.today.filter(lane => lane.ahead.length > 0).length, 3)
   assert.match(state.advice, /pathfinding/)
 })

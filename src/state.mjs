@@ -2,10 +2,12 @@
 // texts that were read: a source that is missing or broken gives "unknown" or an empty list, never an error.
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
-import { forYou, openWork, parseBacklog, queue } from './backlog.mjs'
+import { parseAsk } from './asks.mjs'
+import { forYou, parseBacklog, queue } from './backlog.mjs'
 import { dayStart, taskFacts, today } from './history.mjs'
+import { mentionedPaths } from './pictures.mjs'
 import { parsePlanLine } from './planLines.mjs'
-import { doingNow, lastFinish, mainChat, parseTail, taskStart, turnStart, turnState } from './transcript.mjs'
+import { conversation, doingNow, lastFinish, parseTail, taskStart, turnStart, turnState } from './transcript.mjs'
 
 const MIN = 60_000
 const ASKED = 'Asked you a question in its chat.'
@@ -77,11 +79,19 @@ function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now }) {
   }
 }
 
+
+/** When a working chat expects to be done: when it gave its estimate, plus what it said was left. */
+function etaOf(task, state, now) {
+  if (state !== 'working' || task === null || task.leftMs === null || task.estimateAt === null) return null
+  const at = task.estimateAt + task.leftMs
+  return { at, leftMs: Math.max(0, at - now), isOverdue: at < now }
+}
+
 function card(chat, raw, { now, config, last, lines, main, prefix }) {
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover }
-  if (chat.isLeftover) {
-    return { ...base, state: 'unknown', quietMs: null, isQuiet: false, doingNow: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, lastActivityAt: chat.lastActivityAt }
-  }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, eta: null }
+  if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
+
   const tail = raw.tails?.[chat.cliSessionId] ?? null
   const entries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
   const turn = entries === null ? null : turnState(entries)
@@ -93,30 +103,96 @@ function card(chat, raw, { now, config, last, lines, main, prefix }) {
   let needsYou = null
   if (state === 'waiting') needsYou = turn === 'asking' ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
 
+  const task = taskOf({
+    chat, plan, state, before: last.get(chat.name), lines, main, prefix, now,
+    // The longer look back is a few minutes old, so the tail follows it: the newest hand-over or report wins.
+    scan: typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries,
+  })
   return {
     ...base,
     state,
     quietMs,
     isQuiet: quietMs !== null && quietMs > config.quietMinutes * MIN,
+    // It asked with the app's own question form: that can only be answered in its chat.
+    isAsking: turn === 'asking',
     doingNow: state === 'working' ? doingNow(entries) : null,
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state === 'waiting' ? entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null : null,
-    task: taskOf({
-      chat, plan, state, before: last.get(chat.name), lines, main, prefix, now,
-      // The longer look back is a few minutes old, so the tail follows it: the newest hand-over or report wins.
-      scan: typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries,
-    }),
+    task,
+    eta: etaOf(task, state, now),
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
   }
 }
 
+/** What the person answered to a request, as far as the outbox knows: the last message about it. */
+function answerOf(outbox, id) {
+  const message = outbox.findLast(sent => sent.ask === id)
+  return message === undefined ? null : { at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state }
+}
+
+/**
+ * What waits for the person, newest first: the asks the chats filed, a chat that waits without having filed one,
+ * and a chat whose turn runs but shows no sign of life. `canAnswer` says the board's own form can answer it.
+ */
+function needsOf(asks, lanes, outbox) {
+  const live = lanes.filter(lane => !lane.isLeftover)
+  const names = new Set(live.map(lane => lane.name))
+  const items = asks.map(ask => ({ ...ask, canAnswer: names.has(ask.from) }))
+  const asked = new Set(asks.map(ask => ask.from))
+  const blank = { options: [], pictures: [], run: null, checks: [], tried: [] }
+  for (const lane of live) {
+    if (lane.state === 'waiting' && !asked.has(lane.name)) {
+      items.push({
+        // One id per time it started waiting, so an answer to an earlier question never sticks to a later one.
+        id: `chat:${lane.name}:${lane.waitingSince ?? 0}`,
+        from: lane.name,
+        kind: 'input',
+        title: lane.isAsking ? 'Asked you a question in its chat' : 'Needs your decision',
+        text: lane.isAsking ? 'It used the app\'s question form, which can only be answered there.' : lane.needsYou ?? 'It waits for you.',
+        at: lane.waitingSince,
+        ...blank,
+        canAnswer: !lane.isAsking,
+      })
+    }
+    if (lane.isQuiet) {
+      items.push({
+        id: `quiet:${lane.name}`,
+        from: lane.name,
+        kind: 'intervene',
+        title: `No sign of life for ${Math.round(lane.quietMs / MIN)} min`,
+        text: 'Its turn is running, but it has written nothing. It may be a long build, or the app was closed in the middle of the turn. Look at its chat.',
+        at: lane.lastActivityAt,
+        ...blank,
+        canAnswer: false,
+      })
+    }
+  }
+  return items
+    .map(item => ({ ...item, answer: answerOf(outbox, item.id) }))
+    .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+}
+
+/** What a chat is expected to work on after now: the rest of its task, then its queue, as far as times are given. */
+function aheadOf(lane, now) {
+  if (lane.eta === null || lane.eta.isOverdue) return []
+  const spans = [{ from: now, to: lane.eta.at, title: lane.task.text, isQueued: false }]
+  let at = lane.eta.at
+  for (const step of lane.queue) {
+    if (step.minutes === null || at - now > 8 * 60 * MIN) break
+    spans.push({ from: at, to: at + step.minutes * MIN, title: step.title, isQueued: true })
+    at += step.minutes * MIN
+  }
+  return spans
+}
+
 /**
  * The `/api/state` object. `raw` holds the texts as they were read (see sources.mjs), `lines` the history, and
- * `outbox` what was typed in the chat box.
+ * `outbox` what was sent from the page and is not delivered yet (see store.mjs, `outboxNow`).
  */
 export function buildState(raw, { lines = [], outbox = [], now, config }) {
+  const sent = Array.isArray(outbox) ? outbox : []
   const list = parseList(textOr(raw.listText, ''))
   const apps = (Array.isArray(raw.appChatTexts) ? raw.appChatTexts : [])
     .map(text => parseAppChat(textOr(text, '')))
@@ -130,20 +206,54 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     // How a message from the main chat is known: by its title, or by the app's id for it.
     main: { mainTitle: `${list.prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
   }
-  const chats = found.map(chat => card(chat, raw, context))
-  const live = chats.filter(chat => !chat.isLeftover)
+  // The advisor is talked with on its own tab. Every other chat is a lane, however many there are.
+  const isAdvisor = chat => !chat.isLeftover && !chat.isMain && chat.name === config.advisor
+  const advisorChat = found.find(isAdvisor)
+  const cards = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, context))
+  const names = cards.filter(lane => !lane.isLeftover).map(lane => lane.name)
 
   const counts = { working: 0, waiting: 0, free: 0, unknown: 0 }
-  for (const chat of live) counts[chat.state] += 1
+  for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
 
-  const backlog = parseBacklog(textOr(raw.backlogText, ''), { prefix: list.prefix, names: live.map(chat => chat.name) })
-  const asked = live
-    .filter(chat => chat.state === 'waiting')
-    .map(chat => ({ text: chat.needsYou ?? 'Waits for you.', activity: null, chat: chat.name, since: chat.waitingSince }))
+  const backlog = parseBacklog(textOr(raw.backlogText, ''), { prefix: list.prefix, names })
+  const queued = queue(backlog)
+  // A folder belongs to the worker an open step names together with the folder's branch.
+  const ownerOf = new Map(backlog.activities.flatMap(activity => activity.steps)
+    .filter(step => !step.isDone && step.branch !== null && step.worker !== null)
+    .map(step => [step.branch, step.worker]))
+  const folders = Array.isArray(raw.folders) ? raw.folders : null
 
-  const mainTail = main === undefined ? null : raw.tails?.[main.cliSessionId] ?? null
+  const lanes = cards.map(lane => {
+    const mine = lane.isLeftover ? [] : queued.filter(step => step.worker === lane.name)
+    const withQueue = { ...lane, queue: mine.map(({ title, text, minutes, after, branch }) => ({ title, text, minutes, after, branch })) }
+    return {
+      ...withQueue,
+      folders: (folders ?? []).filter(folder => folder.branch !== null && ownerOf.get(folder.branch) === lane.name),
+      ahead: lane.isLeftover ? [] : aheadOf(withQueue, now),
+    }
+  })
+  const live = lanes.filter(lane => !lane.isLeftover)
+
+  const asks = (Array.isArray(raw.askTexts) ? raw.askTexts : []).map(text => parseAsk(textOr(text, ''))).filter(ask => ask !== null)
+  const pictureLists = raw.pictureLists !== null && typeof raw.pictureLists === 'object' ? raw.pictureLists : {}
   const titles = new Map(apps.filter(chat => chat.sessionId !== null).map(chat => [chat.sessionId, chat.title]))
   const from = dayStart(now, config.dayStartHour)
+
+  let advisor = null
+  if (advisorChat !== undefined) {
+    const { state, doingNow: doing } = card(advisorChat, raw, context)
+    const tail = raw.tails?.[advisorChat.cliSessionId] ?? null
+    advisor = {
+      name: advisorChat.name,
+      state,
+      doingNow: doing,
+      messages: tail === null || typeof tail.text !== 'string'
+        ? []
+        : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix: list.prefix, titles }),
+      // Typed on the board to the advisor and not in its chat yet.
+      pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null),
+    }
+  }
 
   return {
     readAt: now,
@@ -151,17 +261,24 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     estimateOldMs: config.estimateOldMinutes * MIN,
     maxMessageChars: config.maxMessageChars,
     counts,
-    chats,
-    forYou: [...asked, ...forYou(backlog).map(step => ({ ...step, chat: null, since: null }))],
-    queue: queue(backlog),
-    openWork: openWork(backlog),
-    folders: Array.isArray(raw.folders) ? raw.folders : null,
-    day: { from, to: now },
-    today: today(lines, { from, to: now, names: live.map(chat => chat.name) }),
-    mainChat: mainTail === null || typeof mainTail.text !== 'string'
-      ? []
-      : mainChat(parseTail(mainTail.text, mainTail.isCut === true), { prefix: list.prefix, titles }),
-    outbox: Array.isArray(outbox) ? outbox : [],
+    chats: lanes,
+    // Queued steps that name no worker on the board.
+    unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)),
+    forYou: needsOf(asks, lanes, sent),
+    // The steps in the backlog that end in @you. They are not in the fixed form, so the board cannot say what
+    // each wants or take an answer; it shows them with the pictures they point to.
+    backlogForYou: forYou(backlog).map(step => ({
+      ...step,
+      pictures: mentionedPaths(step.text, config.pictureRoots)
+        .flatMap(path => (Array.isArray(pictureLists[path]) ? pictureLists[path] : []))
+        .slice(0, 6),
+    })),
+    // Folders no worker is named for, and whether git answered at all.
+    otherFolders: (folders ?? []).filter(folder => folder.branch !== 'main' && !names.includes(ownerOf.get(folder.branch))),
+    hasFolders: folders !== null,
+    day: { from, to: now, until: Math.max(now, ...live.flatMap(lane => lane.ahead.map(span => span.to))) },
+    today: today(lines, { from, to: now, names }).map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
+    advisor,
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
   }
 }

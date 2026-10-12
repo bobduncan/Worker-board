@@ -74,13 +74,29 @@ export function cached(read, ttlMs, now = Date.now) {
   let value
   let readAt = -Infinity
   let pending = null
-  return () => {
+  let round = 0
+  const fresh = () => {
     if (now() - readAt < ttlMs) return Promise.resolve(value)
-    pending ??= read().then(answer => {
-      value = answer
-      readAt = now()
+    if (pending !== null) return pending
+    const mine = round
+    const reading = read().then(answer => {
+      // An answer that was asked for before `reset` is given to who waited for it, but not kept.
+      if (mine === round) {
+        value = answer
+        readAt = now()
+      }
       return answer
-    }).finally(() => { pending = null })
-    return pending
+    }).finally(() => {
+      if (pending === reading) pending = null
+    })
+    pending = reading
+    return reading
   }
+  /** Forgets the kept answer and a read that is under way: the next call reads again. */
+  fresh.reset = () => {
+    round += 1
+    readAt = -Infinity
+    pending = null
+  }
+  return fresh
 }

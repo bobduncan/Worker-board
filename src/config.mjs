@@ -19,9 +19,14 @@ const DEFAULTS = {
   maxMessageChars: 2000,
   /** A typed message that was not delivered within this time is never delivered. */
   messageKeepMinutes: 10,
+  /** The chat that advises and is talked with on its own tab. It has no lane. */
+  advisor: 'Advisor',
+  /** The folders of the project whose pictures the board may show. */
+  pictureRoots: ['art-inbox'],
 }
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'dayStartHour', 'maxMessageChars', 'messageKeepMinutes']
 
 /** Fills `%NAME%` from the environment. Windows names have no fixed case, so the look-up ignores it. */
 export function expandEnv(text, env) {
@@ -41,10 +46,12 @@ export function parseConfig(text, env) {
   for (const key of PATHS) {
     if (typeof raw[key] === 'string') config[key] = expandEnv(raw[key], env)
   }
-  for (const key of Object.keys(DEFAULTS)) {
-    if (PATHS.includes(key)) continue
+  for (const key of NUMBERS) {
     if (Number.isFinite(raw[key]) && raw[key] > 0) config[key] = raw[key]
   }
+  if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()
+  // A shown folder is one plain folder name in the project: never a path that could lead out of it.
+  if (Array.isArray(raw.pictureRoots)) config.pictureRoots = raw.pictureRoots.filter(root => typeof root === 'string' && /^[\w-][\w.-]*$/.test(root))
   return config
 }
 

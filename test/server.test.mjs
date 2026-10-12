@@ -11,13 +11,17 @@ async function board(t) {
   const said = []
   const server = createBoard({
     token: TOKEN,
-    maxMessageChars: 50,
     getState: async () => ({ readAt: 1, chats: [] }),
-    say: async text => {
-      const message = { id: `m${said.length}`, at: 1, text, state: 'waiting' }
+    // The real check of a message is tested in say.test.mjs; this one stands in for it.
+    say: async body => {
+      const text = typeof body?.text === 'string' ? body.text.trim() : ''
+      if (text === '') return { ok: false, status: 400, why: 'No text.' }
+      if (text.length > 50) return { ok: false, status: 413, why: 'Too long.' }
+      const message = { id: `m${said.length}`, at: 1, to: body.to ?? null, text, state: 'waiting' }
       said.push(message)
-      return message
+      return { ok: true, message }
     },
+    picture: async path => (path === 'art-inbox/a b.png' ? { type: 'image/png', body: Buffer.from('made-up picture') } : null),
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
@@ -51,6 +55,8 @@ test('the page carries the token and forbids scripts and styles from anywhere el
   assert.ok(page.text.includes(`<meta name="board-token" content="${TOKEN}">`))
   assert.match(page.headers['content-security-policy'], /default-src 'none'/)
   assert.match(page.headers['content-security-policy'], /script-src 'self'/)
+  // Pictures come from the board itself, or from what the page fetched from it.
+  assert.match(page.headers['content-security-policy'], /img-src 'self' blob:;/)
   // No other page may hold the board in a frame, and no form on it may post anywhere.
   assert.match(page.headers['content-security-policy'], /frame-ancestors 'none'/)
   assert.match(page.headers['content-security-policy'], /form-action 'none'/)
@@ -76,6 +82,17 @@ test('the state is given to the page only: it needs the token', async t => {
   assert.equal(answer.status, 200)
   assert.deepEqual(JSON.parse(answer.text), { readAt: 1, chats: [] })
   assert.equal(answer.headers['cache-control'], 'no-store')
+})
+
+test('a picture is given to the page only, by the path the board may show', async t => {
+  const { ask } = await board(t)
+  const path = `/api/picture?path=${encodeURIComponent('art-inbox/a b.png')}`
+  assert.equal((await ask({ path })).status, 403)
+  const answer = await ask({ path, headers: { 'X-Board-Token': TOKEN } })
+  assert.deepEqual([answer.status, answer.headers['content-type'], answer.text], [200, 'image/png', 'made-up picture'])
+  assert.equal(answer.headers['x-content-type-options'], 'nosniff')
+  assert.equal((await ask({ path: '/api/picture?path=art-inbox/other.png', headers: { 'X-Board-Token': TOKEN } })).status, 404)
+  assert.equal((await ask({ path: '/api/picture', headers: { 'X-Board-Token': TOKEN } })).status, 404)
 })
 
 test('no answer carries a header that lets another website read it', async t => {
@@ -122,7 +139,7 @@ test('sending is accepted with the token, the page\'s own origin and a JSON body
   const { say, good, said } = await board(t)
   const answer = await say({ ...good, 'Content-Type': 'application/json; charset=utf-8' }, JSON.stringify({ text: '  Hello Main  ' }))
   assert.equal(answer.status, 200)
-  assert.deepEqual(JSON.parse(answer.text), { id: 'm0', at: 1, text: 'Hello Main', state: 'waiting' })
+  assert.deepEqual(JSON.parse(answer.text), { id: 'm0', at: 1, to: null, text: 'Hello Main', state: 'waiting' })
   assert.deepEqual(said.map(message => message.text), ['Hello Main'])
 })
 

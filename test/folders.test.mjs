@@ -66,6 +66,18 @@ test('cached asks again only after the time is up', async () => {
   assert.equal(await read(), 2)
 })
 
+test('cached reads again after a reset, also when a read was under way', async () => {
+  let count = 0
+  const gates = []
+  const read = cached(() => new Promise(resolve => { count += 1; const mine = count; gates.push(() => resolve(mine)) }), 60_000, () => 0)
+  const before = read()
+  read.reset()
+  const after = read()
+  gates.forEach(open => open())
+  assert.deepEqual(await Promise.all([before, after]), [1, 2])
+  assert.equal(await read(), 2)
+})
+
 test('cached shares one read between callers that ask at the same moment', async () => {
   let count = 0
   const read = cached(async () => { count += 1; return count }, 60_000, () => 0)

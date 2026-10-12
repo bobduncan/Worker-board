@@ -309,10 +309,11 @@ function typedText(entry) {
 }
 
 /**
- * The main chat as the dock shows it: what the person typed, the answer that ended each turn, and reports from
- * other chats. Tool calls, their results, slash commands and the app's own notes are left out.
+ * A chat as the board shows it to talk with: what the person typed (`from: 'you'`), the answer that ended each
+ * turn (`from: 'chat'`, under the chat's name `self`), and messages from other chats (`from: 'report'`). Tool
+ * calls, their results, slash commands and the app's own notes are left out.
  */
-export function mainChat(entries, { prefix = '', titles = new Map(), limit = 30 } = {}) {
+export function conversation(entries, { self = 'Main', prefix = '', titles = new Map(), limit = 30 } = {}) {
   const messages = []
   const add = (entry, from, who, value, via = null) => {
     if (value.trim() !== '') messages.push({ at: entry.at, from, who, via, text: value.trim() })
@@ -322,7 +323,7 @@ export function mainChat(entries, { prefix = '', titles = new Map(), limit = 30 
   for (const entry of entries) {
     if (entry.isSidechain) continue
     if (entry.type === 'assistant') {
-      if (entry.stopReason !== null && entry.stopReason !== 'tool_use') add(entry, 'main', 'Main', textOf(entry))
+      if (entry.stopReason !== null && entry.stopReason !== 'tool_use') add(entry, 'chat', self, textOf(entry))
       continue
     }
     if (hasToolResult(entry)) continue

@@ -30,6 +30,13 @@ test('parseConfig answers the defaults for text that is not JSON', () => {
   assert.equal(config.project, '')
 })
 
+test('parseConfig reads the advisor\'s name and the folders whose pictures may be shown', () => {
+  const config = parseConfig(JSON.stringify({ advisor: ' Coach ', pictureRoots: ['art-inbox', 'shots', '..', 'a/b', 'C:\\x', 5] }), env)
+  assert.equal(config.advisor, 'Coach')
+  assert.deepEqual(config.pictureRoots, ['art-inbox', 'shots'])
+  assert.deepEqual([parseConfig('{}', env).advisor, parseConfig('{}', env).pictureRoots], ['Advisor', ['art-inbox']])
+})
+
 test('parseConfig refuses a port or a number that makes no sense', () => {
   const config = parseConfig(JSON.stringify({ port: 'abc', refreshSeconds: -5 }), env)
   assert.equal(config.port, 4310)

@@ -4,7 +4,10 @@
 import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mjs'
+import { readAsks } from './asks.mjs'
+import { forYou, parseBacklog } from './backlog.mjs'
 import { readHead } from './files.mjs'
+import { listPictures, mentionedPaths } from './pictures.mjs'
 import { readMarked, readTail } from './transcript.mjs'
 
 /** A transcript's name comes from a file another program wrote; only a plain id may become part of a path. */
@@ -12,6 +15,8 @@ const SAFE_ID = /^[A-Za-z0-9_-]+$/
 const TEXT_BYTES = 512 * 1024
 /** The longer look back is a large read, so its answer is kept for a while per transcript. */
 const EARLIER_MS = 5 * 60_000
+const PICTURES_MS = 60_000
+const MOST_FOLDERS = 40
 
 const readText = async file => (await readHead(file, TEXT_BYTES))?.text ?? null
 
@@ -34,16 +39,34 @@ export function oneAtATime(read, ttlMs) {
 }
 
 const earlier = oneAtATime(readMarked, EARLIER_MS)
+const picturesIn = new Map()
+
+/** The pictures in the folders the backlog's steps for the person point to, per mentioned path. */
+async function pictureLists(config, backlogText, now) {
+  const backlog = parseBacklog(backlogText ?? '')
+  const paths = [...new Set(forYou(backlog).flatMap(step => mentionedPaths(step.text, config.pictureRoots)))].slice(0, MOST_FOLDERS)
+  const lists = {}
+  await Promise.all(paths.map(async path => {
+    const key = `${config.project}|${path}`
+    const before = picturesIn.get(key)
+    if (before === undefined || now - before.at >= PICTURES_MS) {
+      picturesIn.set(key, { at: now, files: listPictures(config.project, config.pictureRoots, path) })
+    }
+    lists[path] = await picturesIn.get(key).files
+  }))
+  return lists
+}
 
 /** `readFolders()` answers the working folders (see folders.mjs). */
 export async function readSources(config, readFolders, now = Date.now()) {
   const claude = join(config.project, '.claude')
-  const [listText, appChatTexts, backlogText, adviceText, folders] = await Promise.all([
+  const [listText, appChatTexts, backlogText, adviceText, folders, askTexts] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     readAppChats(config.appSessions),
     readText(join(claude, 'backlog.md')),
     readText(join(claude, 'advice.md')),
     readFolders().catch(() => null),
+    readAsks(join(claude, 'asks')),
   ])
 
   const chats = boardChats(
@@ -62,5 +85,8 @@ export async function readSources(config, readFolders, now = Date.now()) {
     planLineTexts[cliSessionId] = await readText(join(claude, 'chats', `${cliSessionId}.json`))
   }))
 
-  return { listText, appChatTexts, planLineTexts, tails, backlogText, adviceText, folders }
+  return {
+    listText, appChatTexts, planLineTexts, tails, backlogText, adviceText, folders, askTexts,
+    pictureLists: await pictureLists(config, backlogText, now),
+  }
 }
