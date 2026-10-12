@@ -232,6 +232,44 @@ function drawRestart(state) {
 
 const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 
+/** B64: a time that is not the worker's own estimate says where it is from: the backlog step's "about <time>". */
+function fromStep(lane) {
+  if (lane.eta === null || lane.eta.isOwn !== false) return []
+  const note = el('small', 'from-step', `from ${lane.task?.stepId ?? 'its step'}`)
+  note.title = 'The worker gave no estimate of its own: this is the time its backlog step names, counted from when the task started.'
+  return [note]
+}
+
+/** B82: the topic the chat recorded for its task. A chat that recorded nothing has no words to show: what was typed to it stays in its chat. */
+function taskTitle(task) {
+  if (task.text === '') return el('p', 'task is-none', 'Task not recorded yet')
+  const title = el('p', 'task clip', task.text)
+  title.title = task.text
+  return title
+}
+
+/** B82: the steps of a task by name, the one the chat is on marked. Null when the chat recorded no names: the page then shows "2 of 5". */
+function stepNames(task) {
+  if (!Array.isArray(task.names) || task.names.length === 0) return null
+  const at = task.step === null ? -1 : task.step - 1
+  const list = el('ol', 'steps')
+  task.names.forEach((name, index) => {
+    const item = el('li', index < at ? 'is-done' : index === at ? 'is-now' : 'is-next', name)
+    item.title = index < at ? 'Done' : index === at ? `Step ${index + 1} of ${task.names.length}: it is on this one` : `Step ${index + 1} of ${task.names.length}`
+    list.append(item)
+  })
+  return list
+}
+
+/** B64: why a worker counts as working although its turn has ended (its task is not reported, a review runs, its branch is open). */
+function betweenTurns(lane) {
+  if (lane.state !== 'working' || (lane.between ?? null) === null) return []
+  const note = el('p', 'now clip between')
+  note.title = lane.between
+  note.append(el('b', '', 'Between turns: '), el('span', '', lane.between.replace(/^Its turn has ended; /, '')))
+  return [note]
+}
+
 function drawEta(lane, now) {
   const box = el('div', 'eta')
   const state = (text, isBlocked = false) => el('span', `state${isBlocked ? ' is-blocked' : ''}`, text)
@@ -240,8 +278,8 @@ function drawEta(lane, now) {
   else if (lane.state === 'waiting') box.append(el('small', '', 'ETA'), state('Blocked', true))
   else if (lane.state === 'free') box.append(state('Available'))
   else if (lane.state === 'unknown') box.append(state('Unknown'))
-  else if (lane.eta !== null && !lane.eta.isOverdue) box.append(el('small', '', 'ETA'), el('b', '', clock(lane.eta.at)), el('small', '', `(${span(lane.eta.leftMs)})`))
-  else if (lane.eta !== null) box.append(el('small', '', 'ETA'), state('Overdue', true), el('small', '', `was ${clock(lane.eta.at)}`))
+  else if (lane.eta !== null && !lane.eta.isOverdue) box.append(el('small', '', 'ETA'), el('b', '', clock(lane.eta.at)), el('small', '', `(${span(lane.eta.leftMs)})`), ...fromStep(lane))
+  else if (lane.eta !== null) box.append(el('small', '', 'ETA'), state('Overdue', true), el('small', '', `was ${clock(lane.eta.at)}`), ...fromStep(lane))
   else box.append(el('small', '', 'ETA'), state('No estimate'), lane.task === null ? '' : el('small', '', `(${span(now - lane.task.startedAt)} so far)`))
   return box
 }
@@ -291,8 +329,9 @@ function drawMore(lane, state) {
     list.append(el('li', '', `Started ${clock(task.startedAt)}: ${span(now - task.startedAt)} so far${waited}`))
     if (task.firstEstimateMs !== null) list.append(el('li', '', `First estimate ${span(task.firstEstimateMs)}, worked ${span(task.workedMs)}`))
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
-    if (task.source === 'prompt') list.append(el('li', 'muted', 'It named no task: this is what started its turn.'))
-    if (task.source === 'handover') list.append(el('li', 'muted', 'It recorded no plan: this is the task as it was handed over.'))
+    if (task.source === 'unrecorded') list.append(el('li', 'muted', 'It has recorded no task yet: no topic, no steps and no time.'))
+    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the backlog step that names its branch.'))
+    if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
   }
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
   for (const folder of lane.folders) list.append(el('li', '', folderLine(folder, now)))
@@ -324,15 +363,13 @@ function drawLane(lane, state) {
   const what = el('div', 'what')
   const task = lane.task
   if (task === null) {
-    what.append(el('p', 'task is-none', lane.state === 'working' ? 'Task not named' : 'No active task'))
+    what.append(el('p', 'task is-none', lane.state === 'working' ? 'Task not recorded yet' : 'No active task'))
     if (lane.state === 'free') what.append(el('p', 'note', 'Ready for a new task'))
   } else {
-    const title = el('p', 'task clip')
-    title.title = task.text
-    if (task.source === 'prompt') title.append(el('span', 'muted', task.by === 'you' || task.by === null ? 'You asked: ' : `${task.by} sent: `))
-    title.append(task.text)
-    what.append(title)
-    if (task.step !== null && task.steps !== null && task.steps > 0) {
+    what.append(taskTitle(task))
+    const steps = stepNames(task)
+    if (steps !== null) what.append(steps)
+    else if (task.step !== null && task.steps !== null && task.steps > 0) {
       const progress = el('div', 'progress')
       const bar = el('div', 'bar')
       const done = el('div', 'fill')
@@ -347,6 +384,7 @@ function drawLane(lane, state) {
     now.append(el('b', '', 'Now: '), el('span', '', lane.doingNow))
     what.append(now)
   }
+  what.append(...betweenTurns(lane))
   if (lane.state === 'interrupted') what.append(el('p', 'alert', 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
   if (lane.state === 'waiting') what.append(el('p', 'needs-you', 'Needs your decision'))
   const alerts = alertsOf(lane, state)
@@ -432,8 +470,8 @@ function drawToday(state) {
     const track = el('div', 'track')
     let before = null
     for (const piece of lane.spans) {
-      track.append(bar(`is-${piece.state}`, piece.from, piece.to, `${STATES[piece.state] ?? piece.state}, ${clock(piece.from)} to ${clock(piece.to)}${piece.task === null ? '' : `: ${piece.task}`}`))
-      if (piece.task !== null && piece.task !== before) {
+      track.append(bar(`is-${piece.state}`, piece.from, piece.to, `${STATES[piece.state] ?? piece.state}, ${clock(piece.from)} to ${clock(piece.to)}${(piece.task ?? '') === '' ? '' : `: ${piece.task}`}`))
+      if ((piece.task ?? '') !== '' && piece.task !== before) {
         const tick = place(el('div', 'tick'), piece.from)
         tick.title = `${clock(piece.from)}: ${piece.task}`
         track.append(tick)
@@ -691,13 +729,26 @@ function drawNeed(need, state) {
   return card
 }
 
+// B85 (the order of the cards): kept between these two marks so a test can run it without the page.
+// order:start
+/**
+ * How new a card is: when it was filed. A step from the backlog has no date, so the number of its id says it: the
+ * highest id is the newest.
+ */
+const newness = need => need.at ?? (Number(String(need.step ?? '').replace(/\D/g, '')) || 0)
+
+/**
+ * The cards in the order chosen in "For you": newest first, oldest first, or by the worker the answer goes to
+ * (newest first within a worker). For the requests of the chats and for the steps from the backlog alike.
+ */
 function ordered(needs) {
   const order = $('needs-order').value
-  const list = [...needs]
+  const list = [...needs].sort((a, b) => newness(b) - newness(a))
   if (order === 'oldest') list.reverse()
-  if (order === 'worker') list.sort((a, b) => a.from.localeCompare(b.from) || (b.at ?? 0) - (a.at ?? 0))
+  if (order === 'worker') list.sort((a, b) => (a.from ?? '').localeCompare(b.from ?? '') || newness(b) - newness(a))
   return list
 }
+// order:end
 
 function drawLegacy(state) {
   const open = state.backlogForYou.filter(step => !isClosed(step))
@@ -711,8 +762,8 @@ function drawLegacy(state) {
   if (closed.length > 0) notes.push(`${closed.length} closed ${showsClosed() ? 'shown' : 'hidden'}`)
   summary.append(el('small', '', notes.join(' · ')))
   box.append(summary)
-  for (const step of open) box.append(drawNeed(step, state))
-  if (showsClosed()) for (const step of closed) box.append(drawNeed(step, state))
+  for (const step of ordered(open)) box.append(drawNeed(step, state))
+  if (showsClosed()) for (const step of ordered(closed)) box.append(drawNeed(step, state))
   box.addEventListener('toggle', () => { isLegacyOpen = box.open })
   return box
 }

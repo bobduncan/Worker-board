@@ -426,3 +426,13 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
   .legend { margin-top: 0; grid-auto-flow: column; }
   .more { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* B64: a time taken from the backlog step, and a worker between two turns. */
+.eta .from-step { font-style: italic; }
+.now.between b { color: var(--muted); }
+
+/* B82: the steps of a task by name, in a row; the one the chat is on stands out, the ones done are dimmed. */
+.steps { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 2px 0 0; padding: 0; font-size: 13px; }
+.steps li { padding: 1px 9px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); }
+.steps li.is-done { text-decoration: line-through; opacity: 0.7; }
+.steps li.is-now { color: var(--ink); background: var(--working); border-color: var(--working); font-weight: 700; }
