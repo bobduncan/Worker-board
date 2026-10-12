@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import { readFolders } from '../src/folders.mjs'
 import { listPictures } from '../src/pictures.mjs'
-import { answer, assistant, fromChat, step, tool, toolResult, typed } from './lines.mjs'
+import { answer, assistant, fromChat, step, tool, toolResult, typed, usageResult } from './lines.mjs'
 
 const MIN = 60_000
 // A real folder, so the demo's pictures are served the way the real ones are.
@@ -131,11 +131,17 @@ function appChat({ name, id, summary }, index, now) {
 const plan = (now, task, minutesAgo) =>
   JSON.stringify({ name: 'demo', role: 'worker', state: 'working', task, at: now - minutesAgo * MIN })
 
+/** B113: when the demo's 5-hour limit resets, to the minute, and that moment as this machine's clock shows it. */
+const resetOf = now => Math.round((now + 52 * MIN) / MIN) * MIN
+const clockOf = at => `${String(new Date(at).getHours()).padStart(2, '0')}:${String(new Date(at).getMinutes()).padStart(2, '0')}`
+
 function transcripts(now) {
   const ago = minutes => now - minutes * MIN
   const tail = (lines, quietMinutes) => ({ text: lines.join('\n'), isCut: false, modifiedAt: ago(quietMinutes) })
   return {
     'demo-main': tail([
+      // The main chat looked the limits up an hour ago: that is where the board has the reset times from.
+      usageResult(ago(60), { fiveHour: { used: 61, resetsAt: resetOf(now) }, week: { used: 62, resetsAt: Math.round((now + 70 * 60 * MIN) / (60 * MIN)) * 60 * MIN } }),
       typed(ago(12), "Let's focus on player movement today. Please run the tests once it's integrated."),
       step(ago(12), 'Read the movement code'),
       toolResult(ago(11.5)),
@@ -157,8 +163,13 @@ function transcripts(now) {
       fromChat(ago(55), 'Game - Main', 'Task from Game - Main: add a save / load system.'),
       step(ago(54), 'Read the game state'),
       toolResult(ago(53)),
-      step(ago(1), 'Implement code', 'Edit'),
-    ], 1),
+      step(ago(12), 'Implement code', 'Edit'),
+      toolResult(ago(11)),
+      // It stopped at a safe point for the limit, and said so in the fixed first line the board reads.
+      assistant(ago(9), 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: `Note from Game - Features: paused for the limit until ${clockOf(resetOf(now))}.` })]),
+      toolResult(ago(9)),
+      answer(ago(8), 'The work is committed. I go on after the reset.'),
+    ], 8),
     'demo-cleanup': tail([
       fromChat(ago(130), 'Game - Main', 'Task from Game - Main: tidy the docs.'),
       step(ago(129), 'List the docs'),
@@ -218,7 +229,8 @@ function history(now) {
     line(57, 'Features', 'free'),
     line(55, 'Features', 'working', 'Add save / load system', { step: 1, steps: 5, leftMs: 80 * MIN }),
     line(30, 'Features', 'working', 'Add save / load system', { step: 2, steps: 5, leftMs: 60 * MIN }),
-    line(9, 'Features', 'working', 'Add save / load system', { step: 3, steps: 5, leftMs: 35 * MIN }),
+    line(14, 'Features', 'working', 'Add save / load system', { step: 3, steps: 5, leftMs: 35 * MIN }),
+    line(8, 'Features', 'suspended', 'Add save / load system', { step: 3, steps: 5, leftMs: 35 * MIN }),
 
     line(262, 'Cleanup', 'free'),
     line(255, 'Cleanup', 'working', 'Remove old assets'),
@@ -261,6 +273,8 @@ export async function demoSources(now) {
     },
     tails: transcripts(now),
     backlogText: BACKLOG,
+    // B113: the app's usage file, three minutes old.
+    usageText: `{"version":2,"samples":[{"t":${now - 3 * MIN},"org":"demo","u":{"fh":86,"sd":64}}]}`,
     adviceText: ADVICE,
     folders: await readFolders(REPO, async args => answers[args.join(' ')] ?? null),
     askTexts: ASKS(filedFrom).map(ask => JSON.stringify(ask)),
