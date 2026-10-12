@@ -12,19 +12,25 @@
 // working folder, a copy takes a port of its own by itself, the same one every time, and says which
 // (src/ports.mjs); `--port` still wins.
 //
+// The Design tab adds `POST /api/design` and `POST /api/design/reference`: an idea becomes a picture made by Codex
+// (src/codex.mjs), only on the person's click on the board's own page.
+//
 // It never prints or logs what a chat said. What is sent from the page will be typed into a chat that can change
 // files, and `/api/game` starts a branch's game, so both are refused unless they come from the board's own page
 // (see `mayUse` and `maySend`).
 
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
+import { findCodex, makePicture } from './src/codex.mjs'
 import { loadConfig } from './src/config.mjs'
+import { REFERENCES_FOLDER, checkDesign, designState, parseDesignSettings, promptFor } from './src/design.mjs'
+import { ideasFile, ideasOver } from './src/ideas.mjs'
 import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
 import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readFolders } from './src/folders.mjs'
@@ -34,12 +40,14 @@ import { findPicture } from './src/pictures.mjs'
 import { checkSay, wakeFor } from './src/say.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
-import { fileStore, memoryStore, outboxNow, tick } from './src/store.mjs'
+import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
 const HOST = '127.0.0.1'
 const BODY_BYTES = 16 * 1024
+/** A reference picture the person adds to an idea is at most this large. */
+const PICTURE_BYTES = 8 * 1024 * 1024
 const FOLDERS_MS = 60_000
 const STATE_MS = 2_000
 const TICK_MS = 60_000
@@ -92,6 +100,29 @@ function readBody(req) {
   })
 }
 
+/** The body as bytes, or null when it is larger than `most`. */
+function readBytes(req, most) {
+  return new Promise(done => {
+    const chunks = []
+    let size = 0
+    req.on('data', chunk => {
+      size += chunk.length
+      if (size <= most) chunks.push(chunk)
+      else if (size > 4 * most) req.destroy()
+    })
+    req.on('end', () => done(size > most ? null : Buffer.concat(chunks)))
+    req.on('close', () => done(null))
+  })
+}
+
+/** The kind of picture some bytes are, by how they begin: never by what the sender calls them. */
+export function pictureKind(bytes) {
+  if (bytes.length >= 8 && bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'png'
+  if (bytes.length >= 3 && bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'jpg'
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP') return 'webp'
+  return null
+}
+
 /**
  * The server, not yet listening. Handed in, so the tests need no real files:
  *   `getState()`       the `/api/state` object
@@ -100,11 +131,14 @@ function readBody(req) {
  *   `game(body)`       starts or stops a branch's game: `{ ok: true, result }` or `{ ok: false, status, why }`
  *   `take(body)`       hands the mod what waits for its chat, the same shape; only with `bridgeKey`
  *   `typed(body)`      takes the mod's word on what it typed, the same shape; only with `bridgeKey`
+ *   `design(body)`     the Design tab's calls (make a picture, change it, agree, ask for the step), the same shape
+ *   `reference(bytes)` keeps a reference picture the person added to an idea, the same shape
  */
 export function createBoard({
   token, getState, say, picture = async () => null, publicDir = join(HERE, 'public'),
   game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
 }) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
@@ -143,7 +177,22 @@ export function createBoard({
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game') {
+    if (pathname === '/api/design/reference') {
+      // A picture, not JSON: the token and the origin are what another website's page cannot bring.
+      const maySend = mayUse && req.headers.origin === `http://${self}`
+      const isPicture = /^image\/(png|jpeg|webp)\s*(;|$)/i.test(req.headers['content-type'] ?? '')
+      if (req.method !== 'POST' || !maySend || !isPicture) {
+        req.resume()
+        if (req.method !== 'POST') return refuse(res, 405, 'Only POST.')
+        return maySend ? refuse(res, 415, 'Send a PNG, JPEG or WebP picture.') : refuse(res, 403, 'Only the board\'s own page may send.')
+      }
+      const bytes = await readBytes(req, PICTURE_BYTES)
+      if (bytes === null) return refuse(res, 413, 'A picture of at most 8 MB.')
+      const kept = await reference(bytes)
+      return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
+    }
+
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -163,6 +212,10 @@ export function createBoard({
       if (pathname === '/api/game') {
         const started = await game(parsed)
         return started.ok ? json(res, started.result) : refuse(res, started.status, started.why)
+      }
+      if (pathname === '/api/design') {
+        const done = await design(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       const answer = await say(parsed)
       return answer.ok ? json(res, answer.message) : refuse(res, answer.status, answer.why)
@@ -287,6 +340,78 @@ async function main(args) {
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
   const seen = bridgeKey === null ? null : { shown: {}, other: {} }
 
+  // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
+  // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
+  const settings = parseDesignSettings(await readFile(join(HERE, 'design.json'), 'utf8').catch(() => ''))
+  const ideas = isDemo ? ideasOver((await import('./fixtures/demo.mjs')).demoIdeas(clock())) : await ideasFile(join(HERE, 'data', 'ideas.json'))
+  const codex = isDemo ? null : await findCodex({ given: settings.codex })
+  const inProject = (project, path) => join(project, ...path.split('/'))
+  /** The picture being made: which idea and version, since when, and how to stop it. */
+  let making = null
+  /** The reference pictures the settings name that are not there, looked for once a minute. */
+  const missingReferences = cached(async () => {
+    const paths = [...new Set(settings.kinds.flatMap(kind => kind.references))]
+    const found = await Promise.all(paths.map(path => stat(inProject(config.project, path)).then(file => file.isFile(), () => false)))
+    return paths.filter((_path, index) => !found[index])
+  }, 60_000)
+  const canMake = !isDemo && codex !== null && settings.kinds.length > 0 && config.project !== ''
+  const whyNoPicture = isDemo ? 'This is the demo: it makes no picture.'
+    : settings.kinds.length === 0 ? 'design.json names no kinds of idea.'
+      : codex === null ? 'Codex was not found on this PC (see "codex" in design.json).' : 'config.json names no project.'
+  /** What a picture took lately, for the page's "about a minute". */
+  const typicalSeconds = () => {
+    const took = ideas.all().flatMap(idea => idea.versions).filter(version => version.state === 'done' && Number.isFinite(version.seconds)).map(version => version.seconds).sort((a, b) => a - b)
+    return took.length === 0 ? 60 : took[Math.floor(took.length / 2)]
+  }
+  /** What the checks of the Design tab's calls go by. */
+  const designNow = state => ({
+    ideas: ideas.all(),
+    kinds: settings.kinds,
+    canMake,
+    why: whyNoPicture,
+    busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
+    // Asking the main chat for the step is sending: only the board that delivers does it.
+    canSend: !isDemo && !isShowOnly,
+    whyNot: isDemo ? 'This is the demo: it asks nobody.' : `This board only shows. Do this on the board that delivers: http://${HOST}:${homePort}/`,
+    main: state.restart?.main ?? null,
+    workers: (state.chats ?? []).filter(chat => !chat.isLeftover && !chat.isMain).map(chat => chat.name),
+  })
+
+  /** Has Codex make one version of an idea; the answer to the page does not wait for it. */
+  function startPicture(idea, version) {
+    const kind = settings.kinds.find(one => one.id === idea.kind)
+    making = { idea: idea.id, version: version.n, since: clock(), stop: () => {} }
+    const mine = making
+    const work = async () => {
+      const missing = await missingReferences()
+      const before = version.from === null ? null : idea.versions.find(one => one.n === version.from)?.picture ?? null
+      const looks = [...(kind?.references ?? []).filter(path => !missing.includes(path)), ...idea.references]
+      const prompt = promptFor({
+        opening: kind?.opening ?? '',
+        text: idea.text,
+        // What was asked before still holds; the change itself is named apart.
+        changes: idea.versions.filter(one => one.n < version.n && one.state === 'done' && one.change).map(one => one.change),
+        change: version.change,
+        isEdit: before !== null,
+        references: looks.length,
+      })
+      const picture = `${idea.folder}/v${version.n}.png`
+      const made = await makePicture({
+        command: [codex],
+        prompt,
+        // The picture to change comes first, then the references for the look.
+        images: [...(before === null ? [] : [before]), ...looks].map(path => inProject(config.project, path)),
+        to: inProject(config.project, picture),
+        seconds: settings.seconds,
+        onChild: stop => { mine.stop = stop },
+      })
+      await ideas.finish(idea.id, version.n, made.ok ? { picture, seconds: made.seconds } : { why: made.why, seconds: made.seconds })
+    }
+    work().catch(() => ideas.finish(idea.id, version.n, { why: 'The picture could not be made.' }).catch(() => {})).finally(() => {
+      if (making === mine) making = null
+    })
+  }
+
   const readState = cached(async () => {
     const raw = await readRaw()
     const project = raw.project ?? config.project
@@ -306,7 +431,57 @@ async function main(args) {
     token: randomBytes(32).toString('hex'),
     getState: async () => {
       const { project, ...state } = await readState()
-      return state
+      const now = clock()
+      const design = designState({
+        ideas: ideas.all(),
+        settings,
+        canMake,
+        why: whyNoPicture,
+        busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
+        // Everything that was sent, with what waited too long marked so.
+        outbox: store.outbox().map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message)),
+        backlog: state.backlog,
+        missing: isDemo ? [] : await missingReferences(),
+        typical: typicalSeconds(),
+      })
+      return { ...state, design }
+    },
+    design: async body => {
+      const state = await readState()
+      const checked = checkDesign(body, designNow(state))
+      if (!checked.ok) return checked
+      const now = clock()
+      if (checked.action === 'make') {
+        const idea = await ideas.add({ id: `i${randomBytes(6).toString('hex')}`, kind: checked.kind, text: checked.text, references: checked.references, now })
+        startPicture(idea, idea.versions[0])
+        return { ok: true, result: { idea: idea.id } }
+      }
+      if (checked.action === 'again') {
+        const version = await ideas.again(checked.idea, { change: checked.change, from: checked.from, now })
+        startPicture(ideas.all().find(idea => idea.id === checked.idea), version)
+        return { ok: true, result: { idea: checked.idea, version: version.n } }
+      }
+      if (checked.action === 'agree') await ideas.agree(checked.idea, checked.version)
+      if (checked.action === 'drop') await ideas.drop(checked.idea, now)
+      if (checked.action === 'send') {
+        // The step is asked of the main chat in the board's own wording; the main chat writes it.
+        const message = { id: randomBytes(8).toString('hex'), at: now, to: state.restart.main, ask: null, step: null, title: null, version: null, verdict: null, command: 'step', text: checked.text, state: 'waiting' }
+        await store.say(message)
+        await ideas.send(checked.idea, { at: now, where: checked.where, worker: checked.worker, title: checked.title, message: message.id })
+        readState.reset()
+      }
+      return { ok: true, result: {} }
+    },
+    reference: async bytes => {
+      if (!canMake) return { ok: false, status: 409, why: whyNoPicture }
+      const kind = pictureKind(bytes)
+      if (kind === null) return { ok: false, status: 415, why: 'That is no PNG, JPEG or WebP picture.' }
+      // A name of the board's own choosing: nothing of the sender's reaches the path.
+      const path = `${REFERENCES_FOLDER}/${randomBytes(8).toString('hex')}.${kind}`
+      const file = inProject(config.project, path)
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, bytes)
+      return { ok: true, result: { path } }
     },
     say: async body => {
       // What is answered here would never arrive: this board has no bridge.
@@ -368,7 +543,11 @@ async function main(args) {
   })
 
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(0))
-  process.on('exit', () => games.stopAll())
+  process.on('exit', () => {
+    games.stopAll()
+    // A picture that is being made ends with the board.
+    making?.stop()
+  })
 
   server.on('error', error => {
     console.error(error.code === 'EADDRINUSE'
