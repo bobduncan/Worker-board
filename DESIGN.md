@@ -82,6 +82,12 @@ forbids touching the file. What is typed:
 | answers a chat that waits | `(answered on the worker board, 16:02) <their words>` |
 | types to the advisor | `<their words>` and `(typed on the worker board, 16:02)` |
 
+An answered card stays in sight until its answer was typed into its chat and two minutes more, and says where the
+answer is; it is no longer counted as waiting for the person. What is sent to a chat that is not running makes
+the board ask the main chat to start it (`start <name>`, with the id the app knows the chat by, at most every two
+minutes per chat; `wakeFor` in `src/say.mjs`); the card and the advisor's tab say that it was asked, or offer the
+button when it was not.
+
 A request a chat filed itself says "Close this request." where a step says "Tick this step in the backlog.". An
 answer waits for its chat for `answerKeepHours` (48): the chat may be busy or not open. A line typed to the
 advisor is dropped after `messageKeepMinutes` (10), so nothing typed long ago turns up in a chat. A delivered
@@ -107,6 +113,10 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   (`isCutOff` in `src/state.mjs`): the file says waiting since after the turn began and the transcript has not
   moved on, or it says working and is no longer renewed. A chat whose process keeps no such file is never called
   interrupted. It is a state of its own, with the task the chat was on.
+- *Switched off for now.* On 2026-10-12 at 19:42 the person had every board stopped ("stop all worker boards. i
+  will start 1 manually from main myself"), and the list under "boards" is empty since. As long as it is, no chat
+  starts a board: the person starts the one on main themselves, from the Run pane. Putting "worker-board" back
+  into that list switches the automatic start on again; that is theirs to say.
 - *Not running.* The two restarts of 2026-10-12 showed that after a restart no worker's chat runs until something
   starts it, and that a message addressed by a chat's name does not reach a chat that is not running. A running
   chat's mod asks the board every few seconds what waits for it, so the board knows who runs: a chat it has not
