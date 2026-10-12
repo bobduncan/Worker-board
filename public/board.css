@@ -240,14 +240,19 @@ button, textarea, select { font: inherit; color: inherit; }
 .sent b { color: var(--text); font-weight: 600; }
 .problem { color: var(--warn); font-size: 13.5px; }
 
+.need.is-do { border-left-color: var(--working); }
+.is-do .kind { background: #12381f; color: var(--working); }
+
+/* The steps of the backlog: the same cards, kept short until one is opened to answer it. */
 .legacy { border: 1px dashed var(--line); border-radius: 9px; padding: 10px 12px; }
 .legacy summary { cursor: pointer; font-weight: 600; }
 .legacy summary small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
-.legacy-item { border-top: 1px solid var(--line); padding: 9px 0; font-size: 14px; display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
-.legacy-item small { color: var(--muted); }
-.thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
-.thumbs .picture { width: 74px; }
-.thumbs .picture img { aspect-ratio: 1; }
+.need.is-step { margin-top: 10px; padding: 10px 11px 11px; gap: 7px; }
+.need.is-step h4 { font-size: 14.5px; font-weight: 600; }
+.need.is-step .tag { background: var(--inset); color: var(--text); border: 1px solid var(--line); }
+.need.is-step .need-top small { margin-left: auto; text-align: right; font-size: 12.5px; }
+.need.is-step .pictures { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.need.is-step .choice { align-self: flex-start; color: var(--muted); }
 
 /* Advice and the chat with the advisor */
 

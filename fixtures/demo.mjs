@@ -29,7 +29,8 @@ const BACKLOG = `# Backlog
 ## Movement #focus
 - [x] Player input
 - [ ] Integrate player movement (Game - Main; branch feature/player-movement)
-- [ ] Say whether the jump feels right (picture in art-inbox/jump) @you
+- [ ] Verify: the jump feels right (picture in art-inbox/jump) @you
+- [ ] Do: quit and reopen the app once @you
 
 ## Enemies #focus
 - [ ] Enemy pathfinding (Game - Units; branch feature/enemy-ai)

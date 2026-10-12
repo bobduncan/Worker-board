@@ -49,9 +49,13 @@ function parseStep(isDone, rest, { prefix, names }) {
     }
   }
 
+  // A step for the person starts with what it asks of them: "Verify:", "Decide:", "Provide:" or "Do:".
+  const asks = text.match(/^(Verify|Decide|Provide|Do):\s*/i)
+
   return {
     text,
-    title: spec === null ? text : text.slice(0, spec.index).trim(),
+    title: (spec === null ? text : text.slice(0, spec.index)).slice(asks === null ? 0 : asks[0].length).trim(),
+    asks: asks === null ? null : asks[1].toLowerCase(),
     isDone,
     isYou,
     notes: [],
@@ -104,10 +108,13 @@ export function queue(backlog) {
     .map(({ text, title, worker, branch, after, minutes }) => ({ text, title, worker, branch, after, minutes }))
 }
 
-/** Every open step only the person can do. */
+/**
+ * Every open step only the person can do: what it asks of them (`verify`, `decide`, `provide`, `do`, or null when
+ * the step does not say), and the worker it names, if any.
+ */
 export function forYou(backlog) {
   return backlog.activities.flatMap(activity =>
-    open(activity).filter(step => step.isYou).map(step => ({ text: step.text, activity: activity.name })))
+    open(activity).filter(step => step.isYou).map(({ text, title, asks, worker }) => ({ text, title, asks, worker, activity: activity.name })))
 }
 
 /** The open steps of the person's main focus that a chat can do. */

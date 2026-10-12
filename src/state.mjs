@@ -174,6 +174,13 @@ function needsOf(asks, lanes, outbox) {
     .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
 }
 
+/** A name for a backlog step that stays the same as long as its words do: an answer is kept under it. */
+function stepId(words) {
+  let hash = 5381
+  for (const letter of words) hash = ((hash * 33) ^ letter.codePointAt(0)) >>> 0
+  return `backlog:${hash.toString(16)}`
+}
+
 /** What a chat is expected to work on after now: the rest of its task, then its queue, as far as times are given. */
 function aheadOf(lane, now) {
   if (lane.eta === null || lane.eta.isOverdue) return []
@@ -269,14 +276,32 @@ export function buildState(raw, { lines = [], outbox = [], now, config }) {
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)),
     forYou: needsOf(asks, lanes, sent),
-    // The steps in the backlog that end in @you. They are not in the fixed form, so the board cannot say what
-    // each wants or take an answer; it shows them with the pictures they point to.
-    backlogForYou: forYou(backlog).map(step => ({
-      ...step,
-      pictures: mentionedPaths(step.text, config.pictureRoots)
-        .flatMap(path => (Array.isArray(pictureLists[path]) ? pictureLists[path] : []))
-        .slice(0, 6),
-    })),
+    // The steps in the backlog that end in @you, as cards like the ones above. A step says what it asks of the
+    // person ("Verify:", "Decide:", "Provide:", "Do:"); the answer goes to the worker it names, else to the main
+    // chat, which keeps the backlog.
+    backlogForYou: forYou(backlog).map(step => {
+      const to = step.worker !== null && names.includes(step.worker) ? step.worker : main?.name ?? null
+      const id = stepId(`${step.activity}\n${step.text}`)
+      return {
+        id,
+        from: to,
+        kind: step.asks === 'verify' || step.asks === 'do' ? step.asks : 'input',
+        asks: step.asks,
+        title: step.title,
+        text: '',
+        at: null,
+        activity: step.activity,
+        options: [],
+        pictures: mentionedPaths(step.text, config.pictureRoots)
+          .flatMap(path => (Array.isArray(pictureLists[path]) ? pictureLists[path] : []))
+          .slice(0, 6),
+        run: null,
+        checks: [],
+        tried: [],
+        canAnswer: to !== null,
+        answer: answerOf(sent, id),
+      }
+    }),
     // Folders no worker is named for, and whether git answered at all.
     otherFolders: (folders ?? []).filter(folder => folder.branch !== 'main' && owner(folder) === null),
     hasFolders: folders !== null,

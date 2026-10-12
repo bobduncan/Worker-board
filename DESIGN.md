@@ -30,8 +30,12 @@ is opening a chat titled "Game - <name>".
 | `intervene` | what blocks, what was tried | words, required |
 
 A chat that waits without having filed an ask shows as an `input` card with the app's own summary of what it
-needs. A turn that runs without a sign of life is raised as an `intervene` card. The steps in the backlog that end
-in `@you` are listed under the cards as "not in the new form yet", with the pictures of the folder they point to.
+needs. A turn that runs without a sign of life is raised as an `intervene` card.
+
+The steps in the backlog that end in `@you` are cards too, under the others and folded until opened. The main chat
+writes in front of each what it asks of the person, and the board follows that: `Verify:` gets Approve and Reject,
+`Decide:` and `Provide:` need words, `Do:` gets a Done button. A step shows the pictures of the folder it points
+to. Its answer goes to the worker the step names, else to the main chat, which keeps the backlog.
 
 **Where an answer goes.** The person talks with the advisor on the second tab, and the board answers the workers:
 an answer is addressed to the chat that asked and to no other. The server checks each answer against the request

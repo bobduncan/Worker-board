@@ -94,7 +94,7 @@ test('a chat whose turn ended blocked waits for you, and its need leads the For 
     id: `chat:Units:${NOW - 9 * MIN}`, from: 'Units', kind: 'input', title: 'Needs your decision', text: 'Pick sheet A or B', at: NOW - 9 * MIN,
     options: [], pictures: [], run: null, checks: [], tried: [], canAnswer: true, answer: null,
   }])
-  assert.deepEqual(state.backlogForYou, [{ text: 'Say whether the mage is right', activity: 'Art', pictures: [] }])
+  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.kind, step.from, step.canAnswer]), [['Say whether the mage is right', 'Art', 'input', 'Main', true]])
 })
 
 test('a chat whose turn ended with nothing open is free, and one without a transcript is unknown', () => {
@@ -202,6 +202,24 @@ test('a step for you in the backlog shows the pictures of the folder it points t
     pictureLists: { 'art-inbox/red-mage': ['art-inbox/red-mage/a.png', 'art-inbox/red-mage/b.png'], 'art-inbox/other': ['art-inbox/other/c.png'] },
   })
   assert.deepEqual(state.backlogForYou.map(step => step.pictures), [['art-inbox/red-mage/a.png', 'art-inbox/red-mage/b.png'], []])
+})
+
+test('a step for you in the backlog is a card of its kind, answered to the worker it names or to the main chat', () => {
+  const backlog = '## Art\n- [ ] Verify: the walk is smooth (Game - Units) @you\n- [ ] Decide: the bridge @you\n- [ ] Provide: the plan @you\n- [ ] Do: quit the app @you\n- [ ] Pick a name @you\n'
+  const state = build({ apps: [app('Main'), app('Units')], backlog, outbox: [] })
+  assert.deepEqual(state.backlogForYou.map(step => [step.kind, step.asks, step.title, step.from]), [
+    ['verify', 'verify', 'the walk is smooth (Game - Units)', 'Units'],
+    ['input', 'decide', 'the bridge', 'Main'],
+    ['input', 'provide', 'the plan', 'Main'],
+    ['do', 'do', 'quit the app', 'Main'],
+    ['input', null, 'Pick a name', 'Main'],
+  ])
+  assert.match(state.backlogForYou[0].id, /^backlog:[0-9a-f]+$/)
+  assert.equal(new Set(state.backlogForYou.map(step => step.id)).size, 5)
+  // The answer that was sent for a step is shown with it; without a main chat nobody can be told.
+  const answered = build({ apps: [app('Main')], backlog, outbox: [{ id: 'm1', at: NOW, to: 'Main', ask: state.backlogForYou[3].id, verdict: 'done', text: '', state: 'waiting' }] })
+  assert.deepEqual(answered.backlogForYou[3].answer, { at: NOW, verdict: 'done', text: '', state: 'waiting' })
+  assert.deepEqual(build({ apps: [app('Units')], backlog }).backlogForYou.map(step => [step.from, step.canAnswer])[1], [null, false])
 })
 
 test('a summary the app wrote about an older answer is not used', () => {
@@ -431,8 +449,9 @@ test('the demo shows the second design: five lanes with their queues, two reques
     ['art-inbox/pathfinding/option-b-grid.png', false],
   ])
   assert.equal(state.forYou[0].run.url, 'http://localhost:5173/')
-  assert.deepEqual(state.backlogForYou.map(step => [step.text, step.pictures]), [
-    ['Say whether the jump feels right (picture in art-inbox/jump)', ['art-inbox/jump/jump-arc.png']],
+  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.kind, step.from, step.pictures]), [
+    ['the jump feels right (picture in art-inbox/jump)', 'verify', 'Main', ['art-inbox/jump/jump-arc.png']],
+    ['quit and reopen the app once', 'do', 'Main', []],
   ])
 
   assert.deepEqual([state.advisor.name, state.advisor.state, state.advisor.messages.length], ['Advisor', 'free', 4])

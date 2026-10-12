@@ -72,7 +72,7 @@ test('readSources reads a project\'s files into the shape buildState takes, and 
   assert.deepEqual([units.task.text, units.task.step, units.task.startedAt, units.doingNow], ['Archer', 1, NOW - 30 * MIN, 'Draw the sheet'])
   assert.deepEqual(raw.pictureLists, { 'art-inbox/archer': ['art-inbox/archer/sheet.png'] })
   assert.deepEqual(state.forYou.map(need => [need.id, need.from, need.pictures]), [['units-sheet', 'Units', ['art-inbox/archer/sheet.png']]])
-  assert.deepEqual(state.backlogForYou, [{ text: 'Say whether the archer is right (pictures in art-inbox/archer)', activity: 'Art', pictures: ['art-inbox/archer/sheet.png'] }])
+  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.pictures]), [['Say whether the archer is right (pictures in art-inbox/archer)', 'Art', ['art-inbox/archer/sheet.png']]])
 })
 
 test('readSources never follows a transcript name out of the transcripts folder', async t => {

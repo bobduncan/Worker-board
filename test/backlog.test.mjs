@@ -72,8 +72,18 @@ test('queue: a condition with brackets of its own, and a time in hours and minut
 
 test('forYou: every open step that ends in @you, with its activity', () => {
   assert.deepEqual(forYou(backlog), [
-    { text: 'Say whether the run does what you intended', activity: 'Architecture' },
-    { text: 'Say which plan the music came from', activity: 'Sound' },
+    { text: 'Say whether the run does what you intended', title: 'Say whether the run does what you intended', asks: null, worker: null, activity: 'Architecture' },
+    { text: 'Say which plan the music came from', title: 'Say which plan the music came from', asks: null, worker: null, activity: 'Sound' },
+  ])
+})
+
+test('forYou: a step says what it asks of the person, and names the worker it is about', () => {
+  const text = '## Art\n- [ ] Verify: the bone ranger walks smoothly (pictures in art-inbox/archer) @you\n- [ ] decide: accept the bridge or continue (options in Game - Levels / Environment) @you\n- [ ] Provide: the Suno plan @you\n- [ ] Do: quit the app once @you\n'
+  assert.deepEqual(forYou(parseBacklog(text, RULES)).map(step => [step.asks, step.title, step.worker]), [
+    ['verify', 'the bone ranger walks smoothly (pictures in art-inbox/archer)', null],
+    ['decide', 'accept the bridge or continue (options in Game - Levels / Environment)', 'Levels / Environment'],
+    ['provide', 'the Suno plan', null],
+    ['do', 'quit the app once', null],
   ])
 })
 

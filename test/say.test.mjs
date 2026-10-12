@@ -11,6 +11,12 @@ const state = {
     { id: 'main-move', from: 'Main', kind: 'verify', title: 'Test player movement', canAnswer: true },
     { id: 'quiet:Units', from: 'Units', kind: 'intervene', title: 'Quiet', canAnswer: false },
   ],
+  backlogForYou: [
+    { id: 'backlog:1', from: 'Main', kind: 'do', title: 'Quit the app once', canAnswer: true },
+    { id: 'backlog:2', from: 'Units', kind: 'verify', title: 'The walk is smooth', canAnswer: true },
+    { id: 'backlog:3', from: 'Main', kind: 'input', title: 'The Suno plan', canAnswer: true },
+    { id: 'backlog:4', from: null, kind: 'input', title: 'Nobody to tell', canAnswer: false },
+  ],
 }
 const check = body => checkSay(body, state, 50)
 
@@ -45,6 +51,18 @@ test('work to verify is approved, with or without words, or rejected with the re
   assert.equal(check({ to: 'Main', ask: 'main-move', verdict: 'reject' }).status, 400)
   assert.equal(check({ to: 'Main', ask: 'main-move', text: 'Fine' }).status, 400)
   assert.equal(check({ to: 'Main', ask: 'main-move', verdict: 'maybe', text: 'Fine' }).status, 400)
+})
+
+test('a step from the backlog is answered by its kind: done, a verdict, or words', () => {
+  assert.deepEqual(check({ to: 'Main', ask: 'backlog:1', verdict: 'done' }).message, { to: 'Main', ask: 'backlog:1', title: 'Quit the app once', verdict: 'done', text: '' })
+  assert.equal(check({ to: 'Main', ask: 'backlog:1', verdict: 'done', text: 'Reopened at ten.' }).message.text, 'Reopened at ten.')
+  assert.equal(check({ to: 'Main', ask: 'backlog:1', text: 'ok' }).status, 400)
+  assert.equal(check({ to: 'Units', ask: 'backlog:2', verdict: 'approve' }).ok, true)
+  assert.equal(check({ to: 'Units', ask: 'backlog:2', verdict: 'reject' }).status, 400)
+  assert.equal(check({ to: 'Main', ask: 'backlog:3', text: 'The paid plan.' }).ok, true)
+  assert.equal(check({ to: 'Main', ask: 'backlog:3', verdict: 'done' }).status, 400)
+  assert.equal(check({ to: 'Main', ask: 'backlog:2', verdict: 'approve' }).status, 409)
+  assert.equal(check({ to: 'Main', ask: 'backlog:4', text: 'x' }).status, 409)
 })
 
 test('an answer goes only to the chat that asked, and only while the request is open and can be answered here', () => {

@@ -11,7 +11,10 @@ const KINDS = {
   input: { sign: '?', tag: 'Input needed' },
   verify: { sign: '✓', tag: 'Verification needed' },
   intervene: { sign: '!', tag: 'Intervention needed' },
+  do: { sign: '→', tag: 'Only you can do' },
 }
+/** What a step in the backlog says it asks of the person. */
+const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
 const MIN = 60_000
 const HOUR = 60 * MIN
 const LONG_CHARS = 700
@@ -26,6 +29,7 @@ const drafts = new Map()
 const chosen = new Map()
 const problems = new Map()
 const sending = new Set()
+const openForms = new Set()
 const pictures = new Map()
 const drawn = {}
 let isLegacyOpen = false
@@ -394,7 +398,7 @@ function drawToday(state) {
 
 function sentLine(answer, now) {
   const line = el('div', 'sent')
-  const what = answer.verdict === 'approve' ? 'You approved' : answer.verdict === 'reject' ? 'You rejected' : 'You answered'
+  const what = { approve: 'You approved', reject: 'You rejected', done: 'You marked it done' }[answer.verdict] ?? 'You answered'
   line.append(el('b', '', what), ` at ${clock(answer.at)} · `, answer.state === 'delivered' ? 'delivered' : 'not delivered yet')
   if (answer.text !== '') line.append(el('div', '', answer.text))
   return line
@@ -402,10 +406,13 @@ function sentLine(answer, now) {
 
 function drawNeed(need, state) {
   const kind = KINDS[need.kind]
-  const card = el('article', `need is-${need.kind}`)
+  // A step from the backlog has no chat that asked: it is headed by its activity and says where the answer goes.
+  const isStep = need.activity !== undefined
+  const card = el('article', `need is-${need.kind}${isStep ? ' is-step' : ''}`)
   card.dataset.id = need.id
   const top = el('header', 'need-top')
-  top.append(el('span', 'kind', kind.sign), el('b', '', need.from), el('span', 'tag', kind.tag), since(need.at, state.readAt))
+  if (isStep) top.append(el('span', 'kind', kind.sign), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
+  else top.append(el('span', 'kind', kind.sign), el('b', '', need.from), el('span', 'tag', kind.tag), since(need.at, state.readAt))
   card.append(top, el('h4', '', need.title))
   if (need.text !== '') card.append(el('p', '', need.text))
 
@@ -462,14 +469,22 @@ function drawNeed(need, state) {
   }
   if (answer !== null) card.append(el('p', 'problem', `Your answer of ${clock(answer.at)} was not delivered in time. Send it again when the chat can take it.`))
   if (!need.canAnswer) {
-    card.append(el('p', 'muted', 'Answer in its chat.'))
+    card.append(el('p', 'muted', isStep ? 'No main chat is open to take the answer.' : 'Answer in its chat.'))
+    return card
+  }
+  // The many steps of the backlog stay short until one is opened to answer it.
+  if (isStep && !openForms.has(need.id)) {
+    const open = el('button', 'choice', `Answer (goes to ${need.from})`)
+    open.type = 'button'
+    open.dataset.open = need.id
+    card.append(open)
     return card
   }
 
   const text = el('textarea')
   text.rows = 2
   text.maxLength = state.maxMessageChars
-  text.placeholder = need.kind === 'verify' ? 'Feedback (optional when you approve)…' : 'Your decision or feedback…'
+  text.placeholder = need.kind === 'verify' ? 'Feedback (optional when you approve)…' : need.kind === 'do' ? 'A note (optional)…' : 'Your decision or feedback…'
   text.value = drafts.get(need.id) ?? ''
   text.setAttribute('aria-label', `Answer to ${need.from}`)
   const buttons = el('div', `buttons${need.kind === 'verify' ? ' is-split' : ''}`)
@@ -481,6 +496,7 @@ function drawNeed(need, state) {
     return node
   }
   if (need.kind === 'verify') buttons.append(button('✓  Approve', 'is-approve', 'approve'), button('✕  Reject', 'is-reject', 'reject'))
+  else if (need.kind === 'do') buttons.append(button('✓  Done', 'is-approve', 'done'))
   else buttons.append(button('Send', '', ''))
   if (need.kind === 'verify') card.append(buttons, text)
   else card.append(text, buttons)
@@ -500,19 +516,11 @@ function drawLegacy(state) {
   if (state.backlogForYou.length === 0) return null
   const box = el('details', 'legacy')
   box.open = isLegacyOpen
+  const counts = Object.keys(ASKS).map(asks => [ASKS[asks], state.backlogForYou.filter(step => step.asks === asks).length]).filter(([, count]) => count > 0)
   const summary = el('summary', '', `From the backlog (${state.backlogForYou.length})`)
-  summary.append(el('small', '', 'Not in the new form yet: the board cannot say what each wants or take an answer.'))
+  summary.append(el('small', '', counts.map(([name, count]) => `${count} ${name.toLowerCase()}`).join(' · ')))
   box.append(summary)
-  for (const step of state.backlogForYou) {
-    const item = el('div', 'legacy-item')
-    item.append(el('div', '', step.text), el('small', '', step.activity))
-    if (step.pictures.length > 0) {
-      const thumbs = el('div', 'thumbs')
-      for (const path of step.pictures) thumbs.append(picture(path))
-      item.append(thumbs)
-    }
-    box.append(item)
-  }
+  for (const step of state.backlogForYou) box.append(drawNeed(step, state))
   box.addEventListener('toggle', () => { isLegacyOpen = box.open })
   return box
 }
@@ -535,7 +543,7 @@ function drawNeeds(state) {
   }
 }
 
-const needsData = state => [state.forYou, state.backlogForYou, $('needs-order').value, [...chosen], [...problems], [...sending]]
+const needsData = state => [state.forYou, state.backlogForYou, $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms]]
 
 $('needs').addEventListener('input', event => {
   const card = event.target.closest('.need')
@@ -546,7 +554,13 @@ $('needs').addEventListener('click', event => {
   const card = event.target.closest('.need')
   if (card === null || board === null) return
   const id = card.dataset.id
-  const need = board.forYou.find(one => one.id === id)
+  const need = [...board.forYou, ...board.backlogForYou].find(one => one.id === id)
+  if (event.target.closest('[data-open]') !== null) {
+    openForms.add(id)
+    once('needs', needsData(board), () => drawNeeds(board))
+    card.ownerDocument.querySelector(`.need[data-id="${CSS.escape(id)}"] textarea`)?.focus()
+    return
+  }
   const choice = event.target.closest('[data-choose]')
   if (choice !== null) {
     // Choosing an option writes it into the answer, where it can be added to before it is sent.
@@ -564,6 +578,7 @@ $('needs').addEventListener('click', event => {
   const text = (drafts.get(id) ?? '').trim()
   if (verdict === 'reject' && text === '') return fail(id, 'Say why you reject it: the worker needs to know what to change.')
   if (verdict === null && text === '') return fail(id, 'This needs your words.')
+  openForms.delete(id)
   send({ to: need.from, ask: id, verdict, text }, id)
 })
 
