@@ -286,4 +286,5 @@ to structure it, "instead of taking my feedback literally".
 
 1. Answering a worker from the board stays in step 4.
 2. "Game - Support" (was "Game - Cleanup") builds it, because it built the Workers list in the same mod.
-3. The folder `worker-board` becomes a small git repository of its own, kept on this PC only.
+3. The folder `worker-board` becomes a small git repository of its own. It was kept on this PC only until 2026-10-12;
+   since then it has a remote the person made, and everything is pushed to it (see "Git" in `README.md`).

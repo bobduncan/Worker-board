@@ -25,10 +25,21 @@ once in a new folder, writes that folder's launch entry with its port into the p
 ## What it writes
 Only `data/` in this folder, which git ignores: `history.jsonl` (when a chat's state or task changed),
 `outbox.jsonl` (your answers and what you typed to the advisor) and `alive.json` (when the board last ran).
-Nothing delivers what you send yet: that is the bridge in the `folder-branches` mod.
+The Workers mod (`folder-branches`) takes what you send and types it into the chat it is for.
 
 ## Safety
 The server listens on 127.0.0.1 only. The page gets a random token at each start; reading needs it, and sending
 also needs the page's own origin and a JSON body, so another website in your browser can do neither. An answer is
 accepted only for a request that is open and only to the chat that asked. What a chat said is shown on the page
 and kept in `data/`; it is never printed or logged.
+
+## Git
+The repository has a remote since 2026-10-12: `origin`, https://github.com/bobduncan/Worker-board.git. The rule,
+from the person, for every chat that works here:
+- Push a branch when you make it and as you commit to it (`git push -u origin <branch>`).
+- After a merge into main: push main, delete the merged branch on the remote too
+  (`git push origin --delete <branch>`), and prune (`git fetch --prune`), so the remote shows the same branches as
+  this folder.
+- Never force-push main.
+- Nothing that holds words from a chat goes into the repository: `data/` stays ignored, and the tests keep made-up
+  samples. Look at what a commit adds before you push it: a push shows it to whoever can see that repository.
