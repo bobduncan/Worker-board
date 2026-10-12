@@ -84,6 +84,34 @@ right before, only the step's line and the new line change and every other byte 
 beside the file and put in its place in one move, and when somebody else wrote the backlog in between, theirs
 stands and the board starts again from it. A step that is ticked already, gone, or there twice is left alone.
 
+**The plan's limits (B113).** The person, 2026-10-12: "put a visual indictator of the sessions limits on the
+overview page so i understand how much work we can still do and way maybe items are stuck in the queue instead of
+in the worker", and "add the status for worker that they are suspended, instead of free or working. due to the
+session limit." Of the mock-up, 2026-10-13: "pick only 1 location. preferable at the top on the same vertical axis
+as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-result-demo.png`.
+
+- *Where the figures come from* (`src/limits.mjs`). The board asks no chat and no service: reading the limits
+  wakes nothing and costs nothing. The percentages are in a file the app keeps for its own usage card
+  (`usageHistory` in `config.json`, by default `%APPDATA%\Claude\plan-usage-history.json`), renewed about every 15
+  minutes while the app is open. The time a limit resets is not in that file. It is in a transcript: where a chat
+  looked its limits up (once per 5-hour window is enough, the time does not move), and where the app stopped a
+  chat at the limit. The person chose that Game - Main looks the limits up once after each reset, so the time is
+  known. Without it the bar says "reset time not known yet".
+- *The bar.* In the head, in the title's row, once: the 5-hour limit with its figure, its reset and how long that
+  is; the week smaller beside it; and how old the figure is (marked when older than 20 minutes). Calm below 80%
+  (`limitWarnPercent`), a warning colour from there, and at 100%, or while a stop's reset is ahead, "Limit reached"
+  with when work goes on. After a known reset with no figure since, the bar is empty and says since when.
+- *Suspended.* A state of its own, in place of working or free, in two cases. The app stopped the chat at the
+  limit: its line is the last thing in the transcript, and names the time. Or a worker paused by itself: its last
+  word to the main chat says in its first line "paused for the limit", with "until HH:MM" when it knows, and its
+  turn has ended (the person's choice of 2026-10-13; a pause on the worker's card through the Workers mod would be
+  the exact way, later). Only that phrase is looked for. The lane says who held it and when it goes on; the time
+  column shows that time. Nothing starts a chat by itself: once the time has passed the lane says the limit is
+  back and the chat has not gone on, in the warning colour. A suspended chat asks the person nothing.
+- *Why a queued step is not started.* One line on the step, the first of these that holds: a limit is reached; its
+  worker is suspended; its condition is not met (the open steps it names by id, else the condition's own words,
+  which the board cannot judge); its worker is busy, waits for the person or was cut off; or nobody handed it out.
+
 **The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
 more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
 expected and queued is what they plan with.
