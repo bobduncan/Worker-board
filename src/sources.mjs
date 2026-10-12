@@ -1,6 +1,7 @@
 // Reads the real files into texts, in the shape `buildState` takes. Everything outside this folder is read-only
 // for the board, and a file that is missing or cannot be read comes back as null: the page shows it as unknown.
 
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mjs'
@@ -89,5 +90,7 @@ export async function readSources(config, readFolders, now = Date.now()) {
   return {
     listText, appChatTexts, planLineTexts, tails, backlogText, adviceText, folders, askTexts,
     pictureLists: await pictureLists(config, backlogText, now),
+    // The main chat's note of who was on what before a restart: only whether it is there, and since when.
+    restartNote: await stat(join(claude, 'restart.md')).then(file => ({ at: file.mtimeMs }), () => null),
   }
 }

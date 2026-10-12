@@ -6,7 +6,9 @@
 'use strict'
 
 const TOKEN = document.querySelector('meta[name="board-token"]').content
-const STATES = { working: 'Working', waiting: 'Waiting for you', free: 'Free', unknown: 'Unknown' }
+const STATES = { working: 'Working', waiting: 'Waiting for you', free: 'Free', unknown: 'Unknown', interrupted: 'Interrupted' }
+/** How often the page asks again while the board does not answer. */
+const AWAY_MS = 5000
 const KINDS = {
   input: { sign: '?', tag: 'Input needed' },
   verify: { sign: '✓', tag: 'Verification needed' },
@@ -37,6 +39,10 @@ const drawn = {}
 let isLegacyOpen = false
 let board = null
 let timer = null
+/** When the board stopped answering; null while it answers. */
+let awaySince = null
+/** True while the person is asked whether they really want to prepare a restart. */
+let isAskingRestart = false
 
 // Small helpers
 
@@ -151,14 +157,75 @@ function drawTop(state) {
   const updated = $('updated')
   updated.textContent = `Last updated ${clock(state.readAt)}${state.isDemo ? ' · demo data' : ''}`
   updated.classList.remove('is-stale')
-  fill($('counts'), ['working', 'waiting', 'free', 'unknown']
-    .filter(name => name !== 'unknown' || state.counts.unknown > 0)
+  fill($('counts'), ['working', 'waiting', 'free', 'interrupted', 'unknown']
+    .filter(name => (name !== 'unknown' && name !== 'interrupted') || (state.counts[name] ?? 0) > 0)
     .map(name => {
       const pill = el('div', `count-pill is-${name}`)
       pill.append(el('span', 'dot'), el('b', '', String(state.counts[name])), STATES[name].toLowerCase())
       return pill
     }))
   for (const node of document.querySelectorAll('time[data-at]')) node.textContent = ago(Number(node.dataset.at), state.readAt)
+}
+
+// A restart of the app
+
+/**
+ * What the board knows about a restart of the app, above the lanes: that it was off, who was cut off, how the
+ * preparing stands, and the one button that brings the workers back. The main chat does the work: the buttons
+ * type "prepare restart" and "resume" into its chat. Nothing is shown when there is nothing to say.
+ */
+function drawRestart(state) {
+  const restart = state.restart ?? null
+  const box = $('restart')
+  const prepare = $('prepare-restart')
+  prepare.hidden = restart === null || restart.main === null
+  prepare.disabled = sending.has('restart')
+  if (restart === null || restart.main === null) {
+    box.hidden = true
+    return
+  }
+  const line = (className, text) => el('p', className, text)
+  const button = (label, className, command) => {
+    const node = el('button', `button ${className}`, label)
+    node.type = 'button'
+    node.dataset.restart = command
+    node.disabled = sending.has('restart')
+    return node
+  }
+  const parts = []
+  if (restart.off !== null) parts.push(line('muted', `The board was off from ${clock(restart.off.from)} to ${clock(restart.off.to)} (${span(restart.off.to - restart.off.from)}).`))
+  if (restart.interrupted.length > 0) parts.push(line('alert', `Cut off in the middle of a task: ${restart.interrupted.join(', ')}.`))
+  if (restart.prepared !== null) parts.push(line('muted', `${restart.main} wrote down who was on what at ${clock(restart.prepared.at)} (restart.md).`))
+
+  if (isAskingRestart) {
+    const ask = el('div', 'restart-ask')
+    ask.append(line('', `Prepare a restart? ${restart.main} asks every working chat to stop at a safe point and writes down who was on what.`), button('Yes, prepare', '', 'prepare restart'), button('No', 'is-quiet', 'cancel'))
+    parts.push(ask)
+  }
+  const preparing = restart.preparing
+  if (preparing !== null) {
+    const isWritten = restart.prepared !== null && restart.prepared.at >= preparing.at
+    if (preparing.state === 'waiting') parts.push(line('', `"Prepare restart" waits for ${restart.main} to take it: its chat must be open.`))
+    else if (preparing.state === 'expired' || preparing.state === 'failed') parts.push(line('problem', `"Prepare restart" did not reach ${restart.main}. Open its chat and press it again.`))
+    else if (preparing.working.length > 0) parts.push(line('', `Preparing the restart since ${clock(preparing.at)}. Still working: ${preparing.working.join(', ')}.`))
+    else if (isWritten) parts.push(line('ready', `Ready: every chat is at rest and ${restart.main} wrote down who was on what. You can quit Claude now.`))
+    else parts.push(line('', `Every chat is at rest. ${restart.main} has not written down who was on what yet.`))
+  }
+  const resuming = restart.resuming
+  if (resuming !== null) {
+    if (resuming.state === 'waiting') parts.push(line('', `"Resume" waits for ${restart.main} to take it: its chat must be open.`))
+    else if (resuming.state === 'expired' || resuming.state === 'failed') parts.push(line('problem', `"Resume" did not reach ${restart.main}. Open its chat and press it again.`))
+    else parts.push(line('muted', `"Resume" was handed to ${restart.main} at ${clock(resuming.at)}: it brings the workers back.`))
+  }
+  // Resuming is offered when there is somebody to bring back: a chat that was cut off, or a restart that was prepared.
+  if ((restart.interrupted.length > 0 || restart.prepared !== null) && (resuming === null || resuming.state === 'expired' || resuming.state === 'failed')) {
+    const row = el('div', 'restart-ask')
+    row.append(button(restart.interrupted.length > 0 ? `Resume all (${restart.interrupted.length} cut off)` : 'Resume all', '', 'resume'), el('small', 'muted', `${restart.main} does the resuming: its chat must be open.`))
+    parts.push(row)
+  }
+  if (problems.has('restart')) parts.push(line('problem', problems.get('restart')))
+  box.hidden = parts.length === 0
+  fill(box, parts)
 }
 
 // The lanes
@@ -169,6 +236,7 @@ function drawEta(lane, now) {
   const box = el('div', 'eta')
   const state = (text, isBlocked = false) => el('span', `state${isBlocked ? ' is-blocked' : ''}`, text)
   if (lane.isLeftover) box.append(state('Leftover'))
+  else if (lane.state === 'interrupted') box.append(el('small', '', 'Cut off'), state(lane.cutOffAt === null ? 'by a restart' : `at ${clock(lane.cutOffAt)}`, true))
   else if (lane.state === 'waiting') box.append(el('small', '', 'ETA'), state('Blocked', true))
   else if (lane.state === 'free') box.append(state('Available'))
   else if (lane.state === 'unknown') box.append(state('Unknown'))
@@ -279,6 +347,7 @@ function drawLane(lane, state) {
     now.append(el('b', '', 'Now: '), el('span', '', lane.doingNow))
     what.append(now)
   }
+  if (lane.state === 'interrupted') what.append(el('p', 'alert', 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
   if (lane.state === 'waiting') what.append(el('p', 'needs-you', 'Needs your decision'))
   const alerts = alertsOf(lane, state)
   if (alerts.length > 0) what.append(el('p', 'alert', alerts.join(' · ')))
@@ -679,6 +748,7 @@ const needsData = state => [state.forYou, state.backlogForYou, state.backlogClos
 function redrawNeeds() {
   if (board === null) return
   drawMainGame(board)
+  drawRestart(board)
   once('needs', needsData(board), () => drawNeeds(board))
   drawDetails(board)
 }
@@ -735,6 +805,17 @@ function fail(id, why) {
 
 takeAnswers($('needs'))
 takeAnswers($('details'))
+$('prepare-restart').addEventListener('click', () => {
+  isAskingRestart = true
+  redrawNeeds()
+})
+$('restart').addEventListener('click', event => {
+  const button = event.target.closest('[data-restart]')
+  if (button === null || board === null || board.restart.main === null) return
+  isAskingRestart = false
+  if (button.dataset.restart === 'cancel') return redrawNeeds()
+  send({ to: board.restart.main, command: button.dataset.restart }, 'restart')
+})
 $('main-game').addEventListener('click', event => {
   const button = event.target.closest('[data-game]')
   if (button !== null && board !== null) game('main', button.dataset.game)
@@ -1216,6 +1297,7 @@ function draw(state) {
   board = state
   drawTop(state)
   drawMainGame(state)
+  drawRestart(state)
   fill($('lanes'), state.chats.map(lane => drawLane(lane, state)))
   drawStrips(state)
   drawToday(state)
@@ -1239,14 +1321,17 @@ async function read() {
     }
     if (!answer.ok) throw new Error(String(answer.status))
     draw(await answer.json())
+    awaySince = null
   } catch {
+    // The board is away (Claude was closed, or the board is being started again): the page keeps asking, and
+    // says for how long. When the board is back it has a new token, and the page loads itself anew.
+    if (awaySince === null) awaySince = Date.now()
     const updated = $('updated')
     updated.classList.add('is-stale')
-    updated.textContent = board === null
-      ? 'The board\'s server does not answer.'
-      : `The board's server does not answer. Showing what was read at ${clock(board.readAt)}.`
+    const away = `The board has not answered since ${clock(awaySince)} (${span(Date.now() - awaySince)}). Asking again every few seconds`
+    updated.textContent = board === null ? `${away}.` : `${away}; showing what was read at ${clock(board.readAt)}.`
   }
-  timer = setTimeout(read, (board?.refreshSeconds ?? 30) * 1000)
+  timer = setTimeout(read, awaySince === null ? (board?.refreshSeconds ?? 30) * 1000 : AWAY_MS)
 }
 
 /** Sends an answer or a message. `id` is the request it answers, or null for the chat with the advisor. */

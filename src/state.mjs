@@ -13,6 +13,21 @@ import { conversation, doingNow, lastFinish, parseTail, taskStart, turnStart, tu
 const MIN = 60_000
 const HOUR = 60 * MIN
 const ASKED = 'Asked you a question in its chat.'
+/** A chat's own file that says it works is renewed twice a minute. Older than this, its process is gone. */
+const CUT_OFF_MS = 150_000
+
+/**
+ * True when the app was closed in the middle of a chat's turn. The transcript still shows the turn as open, but the
+ * chat's own file, which its process keeps (`plan`), says otherwise: it was set to waiting after this turn began
+ * (the process ended, or started again), or it says working and is no longer renewed. A file that was not written
+ * around this turn says nothing: that chat's process keeps none.
+ */
+export function isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now }) {
+  if (turn !== 'running' && turn !== 'asking') return false
+  if (plan === null || plan.at === null || plan.state === null) return false
+  if (plan.state === 'waiting') return plan.at > (turnStartedAt ?? lastWriteAt ?? Infinity)
+  return Number.isFinite(lastWriteAt) && plan.at >= lastWriteAt - MIN && now - plan.at > CUT_OFF_MS
+}
 
 /**
  * The state shown for a chat. The transcript decides whether it is busy; the app's summary of the last turn only
@@ -92,22 +107,25 @@ function etaOf(task, state, now) {
 function card(chat, raw, { now, config, last, lines, main, prefix }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, eta: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, needsYou: null, statusDetail: null, waitingSince: null, task: null, cutOffAt: null, eta: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
   const entries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
   const turn = entries === null ? null : turnState(entries)
   const summary = chat.summary?.isCurrent === true ? chat.summary : null
-  const state = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
   const plan = parsePlanLine(textOr(raw.planLineTexts?.[chat.cliSessionId], ''))
+  const lastWriteAt = Number.isFinite(tail?.modifiedAt) ? tail.modifiedAt : null
+  const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt: entries === null ? null : turnStart(entries, { prefix })?.at ?? null, now })
+  const state = wasCutOff ? 'interrupted' : chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
   const quietMs = state === 'working' && Number.isFinite(tail?.modifiedAt) ? Math.max(0, now - tail.modifiedAt) : null
 
   let needsYou = null
   if (state === 'waiting') needsYou = turn === 'asking' ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
 
   const task = taskOf({
-    chat, plan, state, before: last.get(chat.name), lines, main, prefix, now,
+    // A chat that was cut off keeps the task it was on.
+    chat, plan, state: wasCutOff ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now,
     // The longer look back is a few minutes old, so the tail follows it: the newest hand-over or report wins.
     scan: typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries,
   })
@@ -124,6 +142,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix }) {
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state === 'waiting' ? entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null : null,
     task,
+    // When a chat that was cut off last wrote.
+    cutOffAt: wasCutOff ? lastWriteAt : null,
     eta: etaOf(task, state, now),
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
   }
@@ -221,7 +241,7 @@ function aheadOf(lane, now) {
  * `outbox` what was sent from the page and is not delivered yet (see store.mjs, `outboxNow`), and `runs` the
  * games the board started and that still run (see games.mjs).
  */
-export function buildState(raw, { lines = [], outbox = [], runs = [], now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, now, config }) {
   const sent = Array.isArray(outbox) ? outbox : []
   const started = Array.isArray(runs) ? runs : []
   const list = parseList(textOr(raw.listText, ''))
@@ -243,7 +263,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], now, confi
   const cards = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, context))
   const names = cards.filter(lane => !lane.isLeftover).map(lane => lane.name)
 
-  const counts = { working: 0, waiting: 0, free: 0, unknown: 0 }
+  const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0 }
   for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
 
   const backlog = parseBacklog(textOr(raw.backlogText, ''), { prefix: list.prefix, names })
@@ -353,6 +373,19 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], now, confi
 
   const until = Math.max(now, ...live.flatMap(lane => lane.ahead.map(span => span.to)))
 
+  // A restart of the app: who was cut off, what the main chat wrote down before it, and the last word the person
+  // gave the main chat about it ("prepare restart", then "resume"). `board` says when this board started and
+  // since when it had been off.
+  const word = sent.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
+  const restart = {
+    main: main === undefined ? null : main.name,
+    interrupted: live.filter(lane => lane.state === 'interrupted').map(lane => lane.name),
+    prepared: Number.isFinite(raw.restartNote?.at) ? { at: raw.restartNote.at } : null,
+    preparing: word?.command === 'prepare restart' ? { at: word.at, state: word.state, working: live.filter(lane => lane.state === 'working').map(lane => lane.name) } : null,
+    resuming: word?.command === 'resume' && now - word.at < 15 * MIN ? { at: word.at, state: word.state } : null,
+    off: Number.isFinite(board?.offSince) && Number.isFinite(board?.startedAt) && now - board.startedAt < HOUR ? { from: board.offSince, to: board.startedAt } : null,
+  }
+
   return {
     readAt: now,
     refreshSeconds: config.refreshSeconds,
@@ -378,6 +411,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], now, confi
     hasFolders: folders !== null,
     day: { from, to: now, until, end: hourEnd(Math.min(Math.max(until, now + config.hoursAhead * HOUR), now + 24 * HOUR)) },
     today: today(lines, { from, to: now, names }).map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
+    restart,
     advisor,
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
   }

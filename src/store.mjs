@@ -28,6 +28,7 @@ export function foldOutbox(text) {
 }
 
 const isAnswer = message => (message.ask ?? null) !== null
+const COMMAND_KNOWN_MS = 2 * 60 * 60_000
 /** A typed line the mod took and never said it typed is shown as on its way for this long. */
 const TAKEN_SHOWN_MS = 10 * 60_000
 
@@ -50,6 +51,8 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
       || ((message.state === 'expired' || message.state === 'failed') && now - message.at < shownMs)
       // An answer that was taken or typed keeps its request closed.
       || ((message.state === 'taken' || message.state === 'delivered') && isAnswer(message))
+      // A word for the restart stays known for a while: the board says how the preparing stands.
+      || (typeof message.command === 'string' && now - message.at < COMMAND_KNOWN_MS)
       // A line that was taken shows as on its way until the chat has it.
       || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS))
 }

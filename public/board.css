@@ -56,6 +56,14 @@ button, textarea, select { font: inherit; color: inherit; }
 .tab.is-active { background: var(--inset); color: var(--text); border-bottom-color: var(--free); }
 .tab .count { margin-left: 8px; }
 .updated { color: var(--muted); font-size: 14px; }
+.quiet-button { margin-right: 12px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--muted); font-size: 13.5px; cursor: pointer; }
+.quiet-button:hover { color: var(--text); border-color: #3a4a63; }
+.quiet-button:disabled { opacity: 0.5; cursor: default; }
+.restart { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; padding: 12px 14px; border: 1px solid #6a3a2a; border-radius: 10px; background: var(--panel); font-size: 14px; }
+.restart .ready { color: var(--working); font-weight: 600; }
+.restart-ask { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.restart-ask p { flex: 1 1 260px; }
+.button.is-quiet { background: var(--inset); color: var(--text); border: 1px solid var(--line); }
 .updated.is-stale { color: var(--warn); }
 
 .icon-button { width: 30px; height: 30px; padding: 5px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
@@ -86,6 +94,13 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .count-pill.is-working { border-color: #1f5a3a; }
 .count-pill.is-waiting { border-color: #6a531d; }
 .count-pill.is-free { border-color: #1f3f7a; }
+.count-pill.is-interrupted { border-color: #6a3a2a; }
+.is-interrupted > .dot, .dot.is-interrupted { background: var(--warn); }
+.lane.is-interrupted { border-color: #6a3a2a; }
+.is-interrupted .avatar { color: var(--warn); border-color: #6a3a2a; }
+.pill.is-interrupted { background: var(--warn); color: var(--ink); }
+.is-interrupted .fill { background: var(--warn); }
+.span.is-interrupted { background: var(--warn); }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px 16px; min-width: 0; }
 .panel h2, .inbox h2, .talk h2 { font-size: 21px; font-weight: 700; display: flex; align-items: baseline; gap: 12px; }

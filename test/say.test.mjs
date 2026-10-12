@@ -4,7 +4,8 @@ import test from 'node:test'
 import { checkSay } from '../src/say.mjs'
 
 const state = {
-  chats: [{ name: 'Main', isLeftover: false }, { name: 'Units', isLeftover: false }, { name: 'Main (fork)', isLeftover: true }],
+  restart: { main: 'Main', interrupted: ['Units', 'Features'] },
+  chats: [{ name: 'Main', isMain: true, isLeftover: false }, { name: 'Units', isLeftover: false }, { name: 'Main (fork)', isMain: true, isLeftover: true }],
   advisor: { name: 'Advisor' },
   forYou: [
     { id: 'units-path', from: 'Units', kind: 'input', title: 'Choose pathfinding approach', canAnswer: true },
@@ -70,4 +71,17 @@ test('an answer goes only to the chat that asked, and only while the request is 
   assert.equal(check({ to: 'Units', ask: 'gone', text: 'Take A.' }).status, 409)
   assert.equal(check({ to: 'Units', ask: 'quiet:Units', text: 'Wake up' }).status, 409)
   assert.equal(check({ to: 'Advisor', text: 'Hi', verdict: 'approve' }).status, 400)
+})
+
+test('the two words for a restart go to the main chat only, in the board\'s own wording', () => {
+  assert.deepEqual(check({ to: 'Main', command: 'prepare restart' }).message, { to: 'Main', ask: null, step: null, title: null, version: null, verdict: null, command: 'prepare restart', text: 'prepare restart' })
+  const resume = check({ to: 'Main', command: 'resume' }).message
+  assert.equal(resume.command, 'resume')
+  assert.equal(resume.text, 'resume\nCut off in the middle of a turn, as the worker board reads it: Units, Features.')
+  assert.equal(checkSay({ to: 'Main', command: 'resume' }, { ...state, restart: { main: 'Main', interrupted: [] } }, 50).message.text, 'resume')
+
+  assert.equal(check({ to: 'Units', command: 'resume' }).status, 400)
+  assert.equal(check({ to: 'Main', command: 'delete everything' }).status, 400)
+  assert.equal(check({ to: 'Main', command: 'resume', text: 'and push main' }).status, 400)
+  assert.equal(check({ to: 'Main', command: 'resume', ask: 'main-move' }).status, 400)
 })
