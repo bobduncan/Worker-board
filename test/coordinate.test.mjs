@@ -121,7 +121,10 @@ test('finding a step: by its id from its start, with or without the B, else by t
 })
 
 test('the tab only shows: its code has no control that changes a queue or a task', () => {
-  const tab = script.slice(script.indexOf('// The Coordinate tab'), script.indexOf('// Tabs\n'))
+  // The Coordinate tab's code ends where the Design tab's begins.
+  const [from, to] = [script.indexOf('// The Coordinate tab'), script.indexOf('// Design (B99)')]
+  assert.ok(from >= 0 && to > from)
+  const tab = script.slice(from, to)
   assert.ok(tab.includes('step-actions'), 'the row keeps a place free for the controls of B83')
   for (const word of ['/api/say', '/api/game', 'fetch(', 'data-send', 'data-stop', 'data-move']) assert.ok(!tab.includes(word), `the tab's code has "${word}"`)
 })
