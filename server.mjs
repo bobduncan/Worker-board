@@ -363,13 +363,22 @@ async function main(args) {
       // Not there, or another board's by now.
     }
   })
-  /** True when the file names another board that still answers: the chats are that board's, and stay so. */
+  /**
+   * True when the file names another board that still delivers: it takes the key the file holds. The chats are
+   * that board's, and stay so. A board that is gone, or one that was started anew and only shows, has let go.
+   */
   async function isTaken() {
     try {
-      const other = new URL(JSON.parse(await readFile(noteFile, 'utf8')).url)
+      const note = JSON.parse(await readFile(noteFile, 'utf8'))
+      const other = new URL(note.url)
       if (other.hostname !== HOST || Number(other.port) === config.port) return false
-      await fetch(other.href, { signal: AbortSignal.timeout(1500) })
-      return true
+      const answer = await fetch(new URL('/api/bridge/take', other), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Board-Key': String(note.key) },
+        body: '{}',
+        signal: AbortSignal.timeout(1500),
+      })
+      return answer.status !== 403 && answer.status !== 404
     } catch {
       return false
     }
