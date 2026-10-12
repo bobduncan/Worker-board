@@ -26,17 +26,19 @@ export function checkSay(body, state, maxChars) {
 
   const item = [...(state.forYou ?? []), ...(state.backlogForYou ?? [])].find(need => need.id === body.ask && need.from === body.to)
   if (item === undefined || !item.canAnswer) return refuse(409, 'That request is no longer open.')
+  // The request as it stood when it was answered: a step that changes later asks again.
+  const about = { to: body.to, ask: item.id, step: item.step ?? null, title: item.title, version: item.version ?? null }
   if (item.kind === 'do') {
     // Something only the person can do: all there is to say is that it is done.
     if (body.verdict !== 'done') return refuse(400, 'Say that it is done.')
-    return { ok: true, message: { to: body.to, ask: item.id, step: item.step ?? null, title: item.title, verdict: 'done', text } }
+    return { ok: true, message: { ...about, verdict: 'done', text } }
   }
   if (item.kind === 'verify') {
     if (body.verdict !== 'approve' && body.verdict !== 'reject') return refuse(400, 'Approve or reject.')
     if (body.verdict === 'reject' && text === '') return refuse(400, 'Say why you reject it.')
-    return { ok: true, message: { to: body.to, ask: item.id, step: item.step ?? null, title: item.title, verdict: body.verdict, text } }
+    return { ok: true, message: { ...about, verdict: body.verdict, text } }
   }
   if (body.verdict !== undefined && body.verdict !== null) return refuse(400, 'Only work to verify is approved or rejected.')
   if (text === '') return refuse(400, 'This needs your words.')
-  return { ok: true, message: { to: body.to, ask: item.id, step: item.step ?? null, title: item.title, verdict: null, text } }
+  return { ok: true, message: { ...about, verdict: null, text } }
 }

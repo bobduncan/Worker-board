@@ -63,11 +63,12 @@ test('outboxNow: a message that waited too long is expired, shown for a while, a
     { id: 'b', at: 55 * MIN, text: 'Fresh', state: 'waiting' },
     { id: 'c', at: 50 * MIN, text: 'Arrived', state: 'delivered' },
   ]
-  assert.deepEqual(outboxNow(typed, 60 * MIN, 10 * MIN), [
+  const keep = { messageMs: 10 * MIN, answerMs: 10 * MIN }
+  assert.deepEqual(outboxNow(typed, 60 * MIN, keep), [
     { id: 'a', at: 0, text: 'Old', state: 'expired' },
     { id: 'b', at: 55 * MIN, text: 'Fresh', state: 'waiting' },
   ])
-  assert.deepEqual(outboxNow(typed, 13 * 60 * MIN, 10 * MIN).map(message => message.id), [])
+  assert.deepEqual(outboxNow(typed, 13 * 60 * MIN, keep).map(message => message.id), [])
   assert.equal(typed[0].state, 'waiting')
 })
 

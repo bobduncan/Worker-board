@@ -50,3 +50,8 @@ test('the games the board starts take their ports from 5300 and end half a minut
   const set = parseConfig(JSON.stringify({ gamePort: 6100, gameIdleSeconds: 5 }), env)
   assert.deepEqual([set.gamePort, set.gameIdleSeconds], [6100, 5])
 })
+
+test('an answer waits two days for its chat unless set otherwise', () => {
+  assert.equal(parseConfig('{}', env).answerKeepHours, 48)
+  assert.equal(parseConfig('{"answerKeepHours":2}', env).answerKeepHours, 2)
+})

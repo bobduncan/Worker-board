@@ -93,7 +93,7 @@ test('a chat whose turn ended blocked waits for you, and its need leads the For 
   assert.equal(units.doingNow, null)
   assert.deepEqual(state.forYou, [{
     id: `chat:Units:${NOW - 9 * MIN}`, from: 'Units', kind: 'input', title: 'Needs your decision', text: 'Pick sheet A or B', at: NOW - 9 * MIN,
-    options: [], pictures: [], run: null, game: null, checks: [], tried: [], canAnswer: true, answer: null,
+    options: [], pictures: [], run: null, game: null, checks: [], tried: [], canAnswer: true, version: null, answer: null, earlier: null,
   }])
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.kind, step.from, step.canAnswer]), [['Say whether the mage is right', 'Art', 'input', 'Main', true]])
 })
@@ -557,4 +557,17 @@ test('work to verify names the game to look at: its branch, else main, with the 
 test('without an answer from git, no game is offered', () => {
   const state = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the mage is right @you\n' })
   assert.equal(state.backlogForYou[0].game, null)
+})
+
+test('an answer stands for the step as it was: a step that changed since asks again, and shows the earlier answer', () => {
+  const answerTo = step => ({ id: 'm1', at: NOW - MIN, to: 'Main', ask: step.id, version: step.version, verdict: 'reject', text: 'The feet slide', state: 'delivered' })
+  const first = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the walk @you\n' }).backlogForYou[0]
+  assert.match(first.version, /^[0-9a-f]+$/)
+
+  const same = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the walk @you\n', outbox: [answerTo(first)] }).backlogForYou[0]
+  assert.deepEqual([same.answer?.verdict, same.answer?.state, same.earlier], ['reject', 'delivered', null])
+
+  const reworked = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the walk @you\n  Reworked: the feet stay put now\n', outbox: [answerTo(first)] }).backlogForYou[0]
+  assert.equal(reworked.answer, null)
+  assert.deepEqual([reworked.earlier.verdict, reworked.earlier.text], ['reject', 'The feet slide'])
 })

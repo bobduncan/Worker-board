@@ -5,11 +5,13 @@ import test from 'node:test'
 import { createBoard } from '../server.mjs'
 
 const TOKEN = 'a'.repeat(64)
+const KEY = 'c'.repeat(64)
 
 /** A board on a free port, with a made-up state and a list of what was sent to it. */
 async function board(t) {
   const said = []
   const asked = []
+  const taken = []
   const server = createBoard({
     token: TOKEN,
     getState: async () => ({ readAt: 1, chats: [] }),
@@ -23,6 +25,11 @@ async function board(t) {
       return { ok: true, message }
     },
     picture: async path => (path === 'art-inbox/a b.png' ? { type: 'image/png', body: Buffer.from('made-up picture') } : null),
+    bridgeKey: KEY,
+    take: async body => {
+      taken.push(body)
+      return { ok: true, result: { messages: [{ id: 'm1', text: 'Hello\n(typed on the worker board, 16:02)' }] } }
+    },
     // The real check is tested in games.test.mjs.
     game: async body => {
       asked.push(body)
@@ -45,7 +52,7 @@ async function board(t) {
   })
   const say = (headers, body = JSON.stringify({ text: 'Hello' })) => ask({ method: 'POST', path: '/api/say', headers, body })
   const good = { 'X-Board-Token': TOKEN, Origin: origin, 'Content-Type': 'application/json' }
-  return { server, port, origin, ask, say, good, said, asked }
+  return { server, port, origin, ask, say, good, said, asked, taken }
 }
 
 test('the board listens on this machine only', async t => {
@@ -213,4 +220,35 @@ test('a game is started only by the board\'s own page: the token, its origin and
   const refused = await game(good, JSON.stringify({ item: 'other', action: 'start' }))
   assert.equal(refused.status, 409)
   assert.match(refused.text, /names no branch/)
+})
+
+test('the mod takes what waits for its chat with the bridge\'s key; the page\'s token does not open it, and the key sends nothing', async t => {
+  const { ask, say, good, taken, said } = await board(t)
+  const take = (headers, body = JSON.stringify({ chat: 'Units' })) => ask({ method: 'POST', path: '/api/bridge/take', headers, body })
+  const json = { 'Content-Type': 'application/json' }
+  assert.equal((await take(json)).status, 403)
+  assert.equal((await take({ ...json, 'X-Board-Key': 'd'.repeat(64) })).status, 403)
+  assert.equal((await take(good)).status, 403)
+  assert.equal((await take({ 'X-Board-Key': KEY, 'Content-Type': 'text/plain' })).status, 415)
+  assert.equal((await ask({ path: '/api/bridge/take', headers: { 'X-Board-Key': KEY } })).status, 405)
+  assert.equal((await take({ ...json, 'X-Board-Key': KEY, Host: 'evil.example' })).status, 403)
+  assert.equal(taken.length, 0)
+
+  const answer = await take({ ...json, 'X-Board-Key': KEY })
+  assert.equal(answer.status, 200)
+  assert.deepEqual(JSON.parse(answer.text), { messages: [{ id: 'm1', text: 'Hello\n(typed on the worker board, 16:02)' }] })
+  assert.deepEqual(taken, [{ chat: 'Units' }])
+  assert.equal(answer.headers['access-control-allow-origin'], undefined)
+
+  // The key is for taking only.
+  assert.equal((await say({ 'X-Board-Key': KEY, 'Content-Type': 'application/json' })).status, 403)
+  assert.equal(said.length, 0)
+})
+
+test('a board without a bridge key has no bridge', async t => {
+  const server = createBoard({ token: TOKEN, getState: async () => ({}), say: async () => ({}) })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise(resolve => server.close(resolve)))
+  const answer = await fetch(`http://127.0.0.1:${server.address().port}/api/bridge/take`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': '' }, body: '{"chat":"Units"}' })
+  assert.equal(answer.status, 403)
 })

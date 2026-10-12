@@ -27,15 +27,23 @@ export function foldOutbox(text) {
   return [...byId.values()].filter(message => typeof message.text === 'string' && Number.isFinite(message.at))
 }
 
+const isAnswer = message => (message.ask ?? null) !== null
+
 /**
- * What was typed, as the dock and the bridge see it now. A message that waited longer than `keepMs` is `expired`:
- * it is never delivered, so nothing typed long ago turns up in a chat when delivery starts working. Expired
- * messages stay listed for `shownMs` so the person sees what did not arrive.
+ * True when a message waited too long to be delivered. A line typed to a chat is kept for minutes (`messageMs`),
+ * so nothing typed long ago turns up in a chat; an answer to a request waits for its chat much longer (`answerMs`).
  */
-export function outboxNow(messages, now, keepMs, shownMs = 12 * 60 * 60_000) {
+const isLate = (message, now, keep) => now - message.at > (isAnswer(message) ? keep.answerMs : keep.messageMs)
+
+/**
+ * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never
+ * delivered; it stays listed for `shownMs` so the person sees what did not arrive. A delivered answer stays
+ * known, because it closes its request; a delivered line shows in its chat and is listed no longer.
+ */
+export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
   return messages
-    .map(message => (message.state === 'waiting' && now - message.at > keepMs ? { ...message, state: 'expired' } : message))
-    .filter(message => message.state === 'waiting' || (message.state === 'expired' && now - message.at < shownMs))
+    .map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+    .filter(message => message.state === 'waiting' || (message.state === 'expired' && now - message.at < shownMs) || (message.state === 'delivered' && isAnswer(message)))
 }
 
 /** The gap line to add when the board starts after having been off, or null. */
@@ -64,6 +72,19 @@ function storeOver(lines, messages, alive, write) {
     async say(message) {
       messages.push(message)
       await write.outbox(message)
+    },
+    /**
+     * Hands out what waits for one chat, for the mod to type there. Each message is marked delivered, also in the
+     * log, before it is handed out: whatever happens after, it is never typed twice.
+     */
+    async take(to, now, keep) {
+      const taken = messages.filter(message => message.to === to && message.state === 'waiting' && !isLate(message, now, keep))
+      for (const message of taken) {
+        message.state = 'delivered'
+        message.deliveredAt = now
+        await write.outbox({ id: message.id, state: 'delivered', deliveredAt: now })
+      }
+      return taken.map(message => ({ ...message }))
     },
   }
 }

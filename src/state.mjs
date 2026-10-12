@@ -128,10 +128,19 @@ function card(chat, raw, { now, config, last, lines, main, prefix }) {
   }
 }
 
-/** What the person answered to a request, as far as the outbox knows: the last message about it. */
-function answerOf(outbox, id) {
-  const message = outbox.findLast(sent => sent.ask === id)
-  return message === undefined ? null : { at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state }
+const asAnswer = message => (message === undefined ? null : { at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state })
+
+/**
+ * What the person answered to a request, as far as the outbox knows: the last message about it. An answer stands
+ * for the request as it was then (`version`): one given to a step that has changed since is `earlier`, and the
+ * step asks again.
+ */
+function answerOf(outbox, id, version = null) {
+  const isCurrent = sent => version === null || (sent.version ?? null) === null || sent.version === version
+  return {
+    answer: asAnswer(outbox.findLast(sent => sent.ask === id && isCurrent(sent))),
+    earlier: asAnswer(outbox.findLast(sent => sent.ask === id && !isCurrent(sent) && sent.state === 'delivered')),
+  }
 }
 
 /**
@@ -173,16 +182,17 @@ function needsOf(asks, lanes, outbox, gameOf) {
     }
   }
   return items
-    .map(item => ({ ...item, answer: answerOf(outbox, item.id) }))
+    .map(item => ({ ...item, version: null, ...answerOf(outbox, item.id) }))
     .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
 }
 
 /** A name for a backlog step that stays the same as long as its words do: an answer is kept under it. */
-function stepId(words) {
+function hashOf(words) {
   let hash = 5381
   for (const letter of words) hash = ((hash * 33) ^ letter.codePointAt(0)) >>> 0
-  return `backlog:${hash.toString(16)}`
+  return hash.toString(16)
 }
+const stepId = words => `backlog:${hashOf(words)}`
 
 /** What a chat is expected to work on after now: the rest of its task, then its queue, as far as times are given. */
 function aheadOf(lane, now) {
@@ -297,8 +307,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], now, confi
     const to = step.worker !== null && names.includes(step.worker) ? step.worker : main?.name ?? null
     // Kept under the step's own id; a step from before the ids is kept under its words.
     const id = step.id === null ? stepId(`${step.activity}\n${step.text}`) : `backlog:${step.id}`
+    // The step as it reads now, with the lines under it: an answer is about this version of it.
+    const version = hashOf(`${step.text}\n${JSON.stringify(step.notes)}`)
+    const { answer, earlier } = isClosed ? { answer: null, earlier: null } : answerOf(sent, id, version)
     return {
       id,
+      version,
       isClosed,
       step: step.id,
       from: to,
@@ -322,7 +336,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], now, confi
       tried: [],
       // A closed step takes no answer.
       canAnswer: to !== null && !isClosed,
-      answer: isClosed ? null : answerOf(sent, id),
+      answer,
+      earlier,
     }
   }
 

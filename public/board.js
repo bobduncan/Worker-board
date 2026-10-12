@@ -18,7 +18,7 @@ const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' 
 const MIN = 60_000
 const HOUR = 60 * MIN
 const LONG_CHARS = 700
-const UNDELIVERED = 'What you send is kept and shown here. It reaches the chat once the bridge is in.'
+const UNDELIVERED = 'What you send is typed into the advisor\'s chat as your own words, within seconds when that chat is open.'
 
 const $ = id => document.getElementById(id)
 
@@ -405,7 +405,7 @@ function drawToday(state) {
 function sentLine(answer) {
   const line = el('div', 'sent')
   const what = { approve: 'You approved', reject: 'You rejected', done: 'You marked it done' }[answer.verdict] ?? 'You answered'
-  line.append(el('b', '', what), ` at ${clock(answer.at)} · `, answer.state === 'delivered' ? 'delivered' : 'not delivered yet')
+  line.append(el('b', '', what), ` at ${clock(answer.at)} · `, answer.state === 'delivered' ? 'delivered to its chat' : 'waits for its chat to take it')
   if (answer.text !== '') line.append(el('div', '', answer.text))
   return line
 }
@@ -430,6 +430,12 @@ function answerPart(need, state, isFolded) {
   if (answer !== null && answer.state !== 'expired') return [sentLine(answer)]
   if (need.isClosed === true) return [el('p', 'muted', 'Closed: ticked in the backlog.')]
   if (answer !== null) parts.push(el('p', 'problem', `Your answer of ${clock(answer.at)} was not delivered in time. Send it again when the chat can take it.`))
+  // The step changed since it was answered: it asks again, and says what was answered before.
+  const earlier = need.earlier ?? null
+  if (earlier !== null) {
+    const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
+    parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
+  }
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)

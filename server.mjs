@@ -1,5 +1,5 @@
-// The worker board's server: one page, `GET /api/state`, `GET /api/picture`, `POST /api/say` and
-// `POST /api/game`, on this machine only.
+// The worker board's server: one page, `GET /api/state`, `GET /api/picture`, `POST /api/say`,
+// `POST /api/game` and, for the Workers mod, `POST /api/bridge/take`; on this machine only.
 //
 //   node server.mjs                       real data
 //   node server.mjs --demo --port 4311    made-up data from fixtures/, to judge the page without the real files
@@ -12,11 +12,13 @@
 // (see `mayUse` and `maySend`).
 
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFileSync, rmSync } from 'node:fs'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { bridgeNote, checkTake, messageText } from './src/bridge.mjs'
 import { loadConfig } from './src/config.mjs'
 import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readFolders } from './src/folders.mjs'
@@ -90,8 +92,13 @@ function readBody(req) {
  *   `say(body)`        checks and keeps what the page sent: `{ ok: true, message }` or `{ ok: false, status, why }`
  *   `picture(path)`    a picture the board may show: `{ type, body }`, or null
  *   `game(body)`       starts or stops a branch's game: `{ ok: true, result }` or `{ ok: false, status, why }`
+ *   `take(body)`       hands the mod what waits for its chat, the same shape; only with `bridgeKey`
  */
-export function createBoard({ token, getState, say, picture = async () => null, game = async () => ({ ok: false, status: 404, why: 'Not here.' }), publicDir = join(HERE, 'public') }) {
+export function createBoard({
+  token, getState, say, picture = async () => null, publicDir = join(HERE, 'public'),
+  game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+}) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
     const { pathname, searchParams } = new URL(req.url, `http://${self}`)
@@ -107,6 +114,27 @@ export function createBoard({ token, getState, say, picture = async () => null, 
     }
 
     const mayUse = sameText(req.headers['x-board-token'] ?? '', token)
+
+    if (pathname === '/api/bridge/take') {
+      // The mod is no page: it knows the key from the file the board wrote for it, and it can only take.
+      const mayTake = bridgeKey !== null && sameText(req.headers['x-board-key'] ?? '', bridgeKey)
+      const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
+      if (req.method !== 'POST' || !mayTake || !isJson) {
+        req.resume()
+        if (req.method !== 'POST') return refuse(res, 405, 'Only POST.')
+        return mayTake ? refuse(res, 415, 'Send JSON.') : refuse(res, 403, 'Only the Workers mod may take.')
+      }
+      const body = await readBody(req)
+      if (body === null) return refuse(res, 413, 'Too large.')
+      let parsed
+      try {
+        parsed = JSON.parse(body)
+      } catch {
+        return refuse(res, 400, 'Not JSON.')
+      }
+      const taken = await take(parsed)
+      return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
+    }
 
     if (pathname === '/api/say' || pathname === '/api/game') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
@@ -177,6 +205,11 @@ async function main(args) {
   const historyFrom = argAfter(args, '--history-from')
   const clock = Date.now
 
+  const keep = { messageMs: config.messageKeepMinutes * 60_000, answerMs: config.answerKeepHours * 60 * 60_000 }
+  const timeOf = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  // The demo has no chats to type into, so it has no bridge.
+  const bridgeKey = isDemo ? null : randomBytes(32).toString('hex')
+
   // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
   const games = createGames({
     launch: gameLauncher({
@@ -219,7 +252,7 @@ async function main(args) {
     const project = raw.project ?? config.project
     const state = buildState(raw, {
       lines: readLines(raw),
-      outbox: outboxNow(store.outbox(), clock(), config.messageKeepMinutes * 60_000),
+      outbox: outboxNow(store.outbox(), clock(), keep),
       runs: games.list(),
       now: clock(),
       config: { ...config, project },
@@ -246,6 +279,15 @@ async function main(args) {
       const { project } = await readState()
       const found = await findPicture(project, config.pictureRoots, path)
       return found === null ? null : { type: found.type, body: await readFile(found.file) }
+    },
+    bridgeKey,
+    take: async body => {
+      const checked = checkTake(body)
+      if (!checked.ok) return checked
+      const taken = await store.take(checked.chat, clock(), keep)
+      // What was taken shows as delivered at once.
+      if (taken.length > 0) readState.reset()
+      return { ok: true, result: { messages: taken.map(message => ({ id: message.id, text: messageText(message, timeOf) })) } }
     },
     game: async body => {
       const checked = checkGame(body, await readState())
@@ -278,7 +320,21 @@ async function main(args) {
       : `The board could not start (${error.code ?? 'unknown error'}).`)
     process.exit(1)
   })
+  // Where the mod finds the board. The file goes when the board does, so no chat asks a board that is gone.
+  const noteFile = join(config.project, '.claude', 'board.json')
+  process.on('exit', () => {
+    try {
+      if (bridgeKey !== null && JSON.parse(readFileSync(noteFile, 'utf8')).key === bridgeKey) rmSync(noteFile)
+    } catch {
+      // Not there, or another board's by now.
+    }
+  })
   server.listen(config.port, HOST, () => {
+    if (bridgeKey !== null && config.project !== '') {
+      mkdir(join(config.project, '.claude'), { recursive: true })
+        .then(() => writeFile(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
+        .catch(() => console.error('The board could not write .claude/board.json: answers will not reach the chats.'))
+    }
     console.log(`Worker board: http://${HOST}:${config.port}/${isDemo ? '  (demo data)' : historyFrom === undefined ? '' : '  (shows another board\'s history, records none)'}`)
   })
 

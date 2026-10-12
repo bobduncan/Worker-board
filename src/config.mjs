@@ -20,6 +20,8 @@ const DEFAULTS = {
   maxMessageChars: 2000,
   /** A typed message that was not delivered within this time is never delivered. */
   messageKeepMinutes: 10,
+  /** An answer to a request waits this long for its chat to take it: the chat may be busy, or not open. */
+  answerKeepHours: 48,
   /** The chat that advises and is talked with on its own tab. It has no lane. */
   advisor: 'Advisor',
   /** The folders of the project whose pictures the board may show. */
@@ -32,7 +34,7 @@ const DEFAULTS = {
 }
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
-const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds']
 
 /** Fills `%NAME%` from the environment. Windows names have no fixed case, so the look-up ignores it. */
 export function expandEnv(text, env) {
