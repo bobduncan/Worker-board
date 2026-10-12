@@ -149,10 +149,10 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   (`isCutOff` in `src/state.mjs`): the file says waiting since after the turn began and the transcript has not
   moved on, or it says working and is no longer renewed. A chat whose process keeps no such file is never called
   interrupted. It is a state of its own, with the task the chat was on.
-- *Switched off for now.* On 2026-10-12 at 19:42 the person had every board stopped ("stop all worker boards. i
-  will start 1 manually from main myself"), and the list under "boards" is empty since. As long as it is, no chat
-  starts a board: the person starts the one on main themselves, from the Run pane. Putting "worker-board" back
-  into that list switches the automatic start on again; that is theirs to say.
+- *Off for one evening, on again.* On 2026-10-12 at 19:42 the person had every board stopped ("stop all worker boards. i
+  will start 1 manually from main myself"), and the list under "boards" was empty while they checked the new board.
+  Since 2026-10-13 it names "worker-board" again, on their yes of 2026-10-12: the board on 4310 comes back by itself
+  after a restart of the app. An empty list switches the automatic start off; that is theirs to say.
 - *Not running.* The two restarts of 2026-10-12 showed that after a restart no worker's chat runs until something
   starts it, and that a message addressed by a chat's name does not reach a chat that is not running. A running
   chat's mod asks the board every few seconds what waits for it, so the board knows who runs: a chat it has not
