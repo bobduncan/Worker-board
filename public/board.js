@@ -240,6 +240,27 @@ function fromStep(lane) {
   return [note]
 }
 
+/** B82: the topic the chat recorded for its task. A chat that recorded nothing has no words to show: what was typed to it stays in its chat. */
+function taskTitle(task) {
+  if (task.text === '') return el('p', 'task is-none', 'Task not recorded yet')
+  const title = el('p', 'task clip', task.text)
+  title.title = task.text
+  return title
+}
+
+/** B82: the steps of a task by name, the one the chat is on marked. Null when the chat recorded no names: the page then shows "2 of 5". */
+function stepNames(task) {
+  if (!Array.isArray(task.names) || task.names.length === 0) return null
+  const at = task.step === null ? -1 : task.step - 1
+  const list = el('ol', 'steps')
+  task.names.forEach((name, index) => {
+    const item = el('li', index < at ? 'is-done' : index === at ? 'is-now' : 'is-next', name)
+    item.title = index < at ? 'Done' : index === at ? `Step ${index + 1} of ${task.names.length}: it is on this one` : `Step ${index + 1} of ${task.names.length}`
+    list.append(item)
+  })
+  return list
+}
+
 /** B64: why a worker counts as working although its turn has ended (its task is not reported, a review runs, its branch is open). */
 function betweenTurns(lane) {
   if (lane.state !== 'working' || (lane.between ?? null) === null) return []
@@ -308,8 +329,7 @@ function drawMore(lane, state) {
     list.append(el('li', '', `Started ${clock(task.startedAt)}: ${span(now - task.startedAt)} so far${waited}`))
     if (task.firstEstimateMs !== null) list.append(el('li', '', `First estimate ${span(task.firstEstimateMs)}, worked ${span(task.workedMs)}`))
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
-    if (task.source === 'prompt') list.append(el('li', 'muted', 'It named no task: this is what started its turn.'))
-    if (task.source === 'handover') list.append(el('li', 'muted', 'It recorded no plan: this is the task as it was handed over.'))
+    if (task.source === 'unrecorded') list.append(el('li', 'muted', 'It has recorded no task yet: no topic, no steps and no time.'))
     if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the backlog step that names its branch.'))
     if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
   }
@@ -343,15 +363,13 @@ function drawLane(lane, state) {
   const what = el('div', 'what')
   const task = lane.task
   if (task === null) {
-    what.append(el('p', 'task is-none', lane.state === 'working' ? 'Task not named' : 'No active task'))
+    what.append(el('p', 'task is-none', lane.state === 'working' ? 'Task not recorded yet' : 'No active task'))
     if (lane.state === 'free') what.append(el('p', 'note', 'Ready for a new task'))
   } else {
-    const title = el('p', 'task clip')
-    title.title = task.text
-    if (task.source === 'prompt') title.append(el('span', 'muted', task.by === 'you' || task.by === null ? 'You asked: ' : `${task.by} sent: `))
-    title.append(task.text)
-    what.append(title)
-    if (task.step !== null && task.steps !== null && task.steps > 0) {
+    what.append(taskTitle(task))
+    const steps = stepNames(task)
+    if (steps !== null) what.append(steps)
+    else if (task.step !== null && task.steps !== null && task.steps > 0) {
       const progress = el('div', 'progress')
       const bar = el('div', 'bar')
       const done = el('div', 'fill')
@@ -452,8 +470,8 @@ function drawToday(state) {
     const track = el('div', 'track')
     let before = null
     for (const piece of lane.spans) {
-      track.append(bar(`is-${piece.state}`, piece.from, piece.to, `${STATES[piece.state] ?? piece.state}, ${clock(piece.from)} to ${clock(piece.to)}${piece.task === null ? '' : `: ${piece.task}`}`))
-      if (piece.task !== null && piece.task !== before) {
+      track.append(bar(`is-${piece.state}`, piece.from, piece.to, `${STATES[piece.state] ?? piece.state}, ${clock(piece.from)} to ${clock(piece.to)}${(piece.task ?? '') === '' ? '' : `: ${piece.task}`}`))
+      if ((piece.task ?? '') !== '' && piece.task !== before) {
         const tick = place(el('div', 'tick'), piece.from)
         tick.title = `${clock(piece.from)}: ${piece.task}`
         track.append(tick)

@@ -265,7 +265,7 @@ const stepId = words => `backlog:${hashOf(words)}`
 /** What a chat is expected to work on after now: the rest of its task, then its queue, as far as times are given. */
 function aheadOf(lane, now) {
   if (lane.eta === null || lane.eta.isOverdue) return []
-  const spans = [{ from: now, to: lane.eta.at, title: lane.task.text, isQueued: false }]
+  const spans = [{ from: now, to: lane.eta.at, title: lane.task.text === '' ? 'Task not recorded yet' : lane.task.text, isQueued: false }]
   let at = lane.eta.at
   for (const step of lane.queue) {
     if (step.minutes === null || at - now > 8 * 60 * MIN) break

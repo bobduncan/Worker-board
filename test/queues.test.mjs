@@ -35,6 +35,8 @@ const BACKLOG = [
   '## Next to hand out (Game - Main)',
   '- [ ] B09 A new prop',
   '- [ ] B10 Sound for the beast (for Game - Units; about 30 min)',
+  '- [ ] B11 A tool for later (not queued: the user said to leave it for now; about 30 min)',
+  '  Context: asked in Game - Main.',
   '',
 ].join('\n')
 
@@ -66,7 +68,8 @@ test('the queue holds every open step that names a worker and no branch of its o
     ['B09', null, null],            // under "Next to hand out": queued also without a worker
     ['B10', 'Units', 30],
   ])
-  // Not queued: a ticked step (B01), a step in progress (B02, B07), a step for the person (B04), a step that names nobody (B05).
+  // Not queued: a ticked step (B01), a step in progress (B02, B07), a step for the person (B04), a step that names
+  // nobody (B05), and a step marked "(not queued: ...)", also under "Next to hand out" (B11).
   assert.deepEqual(queued.find(one => one.id === 'B03').notes, [{ title: 'Requirements', lines: [], points: ['three cards'] }])
 })
 

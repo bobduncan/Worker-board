@@ -146,13 +146,13 @@ export function allWords(step) {
 /**
  * The steps waiting to be started, in the backlog's order: the open ones under "Next to hand out", and anywhere
  * on the backlog the open ones whose note names a worker ("(for Units; ...)") and that are not the person's. A
- * step that names its own branch is in progress, not queued.
+ * step that names its own branch is in progress, not queued; neither is one the main chat marked "(not queued: ...)".
  */
 export function queue(backlog) {
   return backlog.activities
     .flatMap(activity => {
       const isQueue = activity.name.toLowerCase().startsWith(QUEUE_HEADING)
-      return open(activity).filter(step => step.ownBranch === null && (isQueue || (step.isFor && !step.isYou)))
+      return open(activity).filter(step => step.ownBranch === null && !/\(not queued/i.test(step.text) && (isQueue || (step.isFor && !step.isYou)))
     })
     .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(notes) }))
 }
