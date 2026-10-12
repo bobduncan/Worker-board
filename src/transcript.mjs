@@ -3,6 +3,8 @@
 
 import { open } from 'node:fs/promises'
 
+import { aboutMinutes } from './backlog.mjs'
+
 const TAIL_BYTES = 1024 * 1024
 /** Tools that stop a turn until the person answers in the chat. */
 const ASKING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
@@ -79,7 +81,10 @@ function blocksOf(content) {
   return content.filter(block => block !== null && typeof block === 'object')
 }
 
-/** The user and assistant entries of a tail, in the file's order. Lines that do not parse are skipped. */
+/**
+ * The user and assistant entries of a tail, in the file's order, and the messages of other chats that arrived in
+ * the middle of a turn (`type: 'queued'`). Lines that do not parse are skipped.
+ */
 export function parseTail(text, isCut) {
   const lines = text.split('\n')
   if (isCut) lines.shift()
@@ -93,10 +98,22 @@ export function parseTail(text, isCut) {
       continue
     }
     if (entry === null || typeof entry !== 'object') continue
+    const at = Date.parse(entry.timestamp)
+    if (entry.type === 'attachment') {
+      // A message from another chat that arrives while a turn runs is no user entry: the app keeps it with the
+      // turn, as a queued command. It opens no turn and ends none, but it can hand over a task (`queued`).
+      const held = entry.attachment
+      if (held === null || typeof held !== 'object' || held.type !== 'queued_command' || typeof held.prompt !== 'string') continue
+      if (held.origin === null || typeof held.origin !== 'object' || held.origin.kind !== 'peer') continue
+      entries.push({
+        type: 'queued', at: Number.isNaN(at) ? null : at, isMeta: true, isSidechain: entry.isSidechain === true,
+        isCompactSummary: false, origin: held.origin, stopReason: null, blocks: blocksOf(held.prompt),
+      })
+      continue
+    }
     if (entry.type !== 'user' && entry.type !== 'assistant') continue
     const message = entry.message
     if (message === null || typeof message !== 'object') continue
-    const at = Date.parse(entry.timestamp)
     entries.push({
       type: entry.type,
       at: Number.isNaN(at) ? null : at,
@@ -128,7 +145,7 @@ const isCommandText = value => /^\s*<(local-command-[a-z]+|command-name|command-
 export function turnState(entries) {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]
-    if (entry.isSidechain) continue
+    if (entry.isSidechain || entry.type === 'queued') continue
     if (entry.type === 'assistant') {
       if (entry.stopReason !== null && entry.stopReason !== 'tool_use') return 'ended'
       const call = lastToolUse(entry)
@@ -172,7 +189,30 @@ export function backgroundRunning(entries) {
 
 const baseName = path => String(path).split(/[\\/]/).filter(part => part !== '').pop() ?? ''
 
-/** What the chat is doing right now: what its last tool call says it is for, else the tool's name. */
+/** What a kind of tool call is, in plain words: the first whose pattern fits the tool's name. */
+const DOING = [
+  [/^(Read|NotebookRead)$/, 'Reading'],
+  [/^(Edit|Write|NotebookEdit|MultiEdit)$/, 'Editing'],
+  [/^(Grep|Glob|LS)$/, 'Searching the files'],
+  [/^(Bash|PowerShell|BashOutput)$/, 'Running a command'],
+  [/^(Agent|Task|Workflow)$/, 'Working with a helper'],
+  [/^SendMessage$/, 'Writing to another chat'],
+  [/^(AskUserQuestion|ExitPlanMode)$/, 'Asking you a question'],
+  [/^WebSearch$/, 'Searching the web'],
+  [/^WebFetch$/, 'Reading a web page'],
+  [/^(Skill|ToolSearch)$/, 'Looking up how to do it'],
+  [/^(TodoWrite|TaskCreate|TaskUpdate)$/, 'Updating its to-do list'],
+  [/^mcp__(Claude_Browser|claude-in-chrome)__/, 'Working in the browser'],
+  [/^mcp__folder-branches__/, 'Recording its task'],
+  [/^mcp__backlog__/, 'Updating the backlog'],
+  [/^mcp__terminal__/, 'Working in the terminal'],
+  [/^mcp__visualize__/, 'Drawing a picture'],
+]
+
+/**
+ * What the chat is doing right now: what its last tool call says it is for (its description, or the summary a
+ * browser action carries), else what that kind of call is in plain words. Never the tool's own name.
+ */
 export function doingNow(entries) {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]
@@ -180,9 +220,10 @@ export function doingNow(entries) {
     const call = lastToolUse(entry)
     if (call === null) continue
     const input = call.input !== null && typeof call.input === 'object' ? call.input : {}
-    if (typeof input.description === 'string' && input.description.trim() !== '') return input.description.trim()
-    const name = typeof call.name === 'string' ? call.name.replace(/^mcp__/, '').replace(/__/g, ': ') : 'a tool'
-    return typeof input.file_path === 'string' ? `${name} ${baseName(input.file_path)}` : name
+    for (const said of [input.description, input.action_summary]) if (typeof said === 'string' && said.trim() !== '') return said.trim()
+    const plain = DOING.find(([pattern]) => typeof call.name === 'string' && pattern.test(call.name))?.[1] ?? 'Using a tool'
+    if (plain !== 'Reading' && plain !== 'Editing') return plain
+    return `${plain} ${typeof input.file_path === 'string' && baseName(input.file_path) !== '' ? baseName(input.file_path) : 'a file'}`
   }
   return null
 }
@@ -196,7 +237,7 @@ function crossSession(value) {
 
 /** A message another chat sent, or null. A helper's own report back (a subagent) is not one. */
 function peerMessage(entry) {
-  if (entry.type !== 'user' || entry.isSidechain) return null
+  if ((entry.type !== 'user' && entry.type !== 'queued') || entry.isSidechain) return null
   const origin = entry.origin
   if (origin !== null && origin.kind !== 'peer') return null
   if (origin !== null && (origin.handback === true || origin.senderTaskId !== undefined)) return null
@@ -242,6 +283,7 @@ function handOvers(entries, { mainTitle, mainSession = null }) {
   let start = null
   let reportedAt = null
   let finishedAt = null
+  let lastReportAt = null
   for (const entry of entries) {
     if (entry.isSidechain) continue
     if (endsTurn(entry)) {
@@ -256,16 +298,19 @@ function handOvers(entries, { mainTitle, mainSession = null }) {
     if (message !== null) {
       const isFromMain = message.from !== null && (message.from === mainTitle || message.from === mainSession)
       if (isFromMain && HANDS_OVER.test(message.body)) {
-        // The backlog steps its first line names ("backlog steps B64 and then B65"): ids, never its words.
-        const steps = [...new Set((message.body.trim().split('\n')[0] ?? '').match(/\bB\d+\b/g) ?? [])]
-        start = { at: entry.at, from: message.from, title: titleOf(message.body, true), steps }
+        // The backlog steps its first line names ("backlog steps B64 and then B65") and the time it gives
+        // ("about 45 minutes"): ids and a number, never its words.
+        const first = message.body.trim().split('\n')[0] ?? ''
+        const steps = [...new Set(first.match(/\bB\d+\b/g) ?? [])]
+        start = { at: entry.at, from: message.from, title: titleOf(message.body, true), steps, minutes: aboutMinutes(first) }
         reportedAt = null
       }
     } else if (isReportTo(entry, mainTitle)) {
       reportedAt = entry.at
+      lastReportAt = entry.at
     }
   }
-  return { start, finishedAt }
+  return { start, finishedAt, lastReportAt }
 }
 
 /**
@@ -282,6 +327,14 @@ export function lastFinish(entries, main) {
 }
 
 /**
+ * When the chat last sent the main chat a message, whether or not its turn ended after it. A chat that reports
+ * and goes on in the same turn has started on something else there. Or null.
+ */
+export function lastReport(entries, main) {
+  return handOvers(entries, main).lastReportAt
+}
+
+/**
  * The last thing that opened a turn: the first thing typed by the person, or sent by another chat, since the turn
  * before ended. `isOpen` says no turn has ended since, so it is what the running turn is about. `isSure` is false
  * when the entries do not reach back to the end of the turn before: the entry may then be a remark made in the
@@ -292,7 +345,8 @@ export function turnStart(entries, { prefix = '' } = {}) {
   let isOpen = false
   let hasEnd = false
   for (const entry of entries) {
-    if (entry.isSidechain) continue
+    // What arrived in the middle of a turn opened none.
+    if (entry.isSidechain || entry.type === 'queued') continue
     if (endsTurn(entry)) {
       isOpen = false
       hasEnd = true
@@ -350,7 +404,7 @@ export function conversation(entries, { self = 'Main', prefix = '', titles = new
   const short = title => (title.startsWith(prefix) ? title.slice(prefix.length) : title)
 
   for (const entry of entries) {
-    if (entry.isSidechain) continue
+    if (entry.isSidechain || entry.type === 'queued') continue
     if (entry.type === 'assistant') {
       if (entry.stopReason !== null && entry.stopReason !== 'tool_use') add(entry, 'chat', self, textOf(entry))
       continue

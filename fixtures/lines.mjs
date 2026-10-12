@@ -21,6 +21,22 @@ export const fromChat = (at, title, body) =>
     origin: { kind: 'peer', from: 'uds:pipe', name: title, fromSession: `local_${title}`, body },
   })
 
+/**
+ * A message from another chat that arrives while a turn runs: the app keeps it with the turn, as a queued command,
+ * not as a user entry. `name` is left out by the app when it passes the message on itself.
+ */
+export const midTurn = (at, session, body, name = null) => line({
+  type: 'attachment',
+  timestamp: iso(at),
+  attachment: {
+    type: 'queued_command',
+    prompt: `<cross-session-message from="${session}"${name === null ? '' : ` name="${name}"`}>\n${body}\n</cross-session-message>`,
+    commandMode: 'prompt',
+    origin: name === null ? { kind: 'peer', from: session, hostInjected: true } : { kind: 'peer', from: 'uds:pipe', name, fromSession: session, body },
+    isMeta: true,
+  },
+})
+
 export const assistant = (at, stopReason, blocks) =>
   line({ type: 'assistant', timestamp: iso(at), message: { role: 'assistant', stop_reason: stopReason, content: blocks } })
 

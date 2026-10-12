@@ -65,7 +65,7 @@ test('a lane shows what the chat recorded: the topic, the steps by name with the
   })
   const { task, eta } = units(state)
   assert.deepEqual([task.text, task.source, task.step, task.steps, task.names], ['Archer at 4x', 'plan', 2, 3, ['Sheet', 'Clips', 'Merge']])
-  assert.deepEqual(eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOwn: true })
+  assert.deepEqual(eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOwn: true, from: 'own' })
 })
 
 test('a chat that recorded nothing shows the backlog step it was handed, by the id the hand-over names', () => {
@@ -74,7 +74,7 @@ test('a chat that recorded nothing shows the backlog step it was handed, by the 
   const { task, eta } = units(state)
   // The first step it names that is open, with the backlog's own words for it and its "about 20 min".
   assert.deepEqual([task.text, task.source, task.stepId, task.stepMinutes, task.startedAt], ['B08 Portraits', 'step', 'B08', 20, NOW - 15 * MIN])
-  assert.deepEqual(eta, { at: NOW + 5 * MIN, leftMs: 5 * MIN, isOverdue: false, isOwn: false })
+  assert.deepEqual(eta, { at: NOW + 5 * MIN, leftMs: 5 * MIN, isOverdue: false, isOwn: false, from: 'step' })
   assert.ok(!JSON.stringify(state).includes('zebracorn'))
 })
 

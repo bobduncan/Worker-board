@@ -66,6 +66,7 @@ function once(key, data, draw) {
   draw()
 }
 
+// times:start
 const pad = value => String(value).padStart(2, '0')
 
 function clock(ms) {
@@ -82,8 +83,9 @@ function span(ms) {
   if (hours >= 48) return `${Math.round(hours / 24)} days`
   return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${pad(minutes % 60)}`
 }
+// times:end
 
-const ago = (ms, now) => (now - ms < MIN ? 'just now' : `${span(now - ms)} ago`)
+const ago =(ms, now) => (now - ms < MIN ? 'just now' : `${span(now - ms)} ago`)
 
 /** A time that keeps counting between redraws: `data-at` is read again at every look. */
 function since(at, now) {
@@ -108,11 +110,17 @@ function icon(name) {
   return svg
 }
 
-/** Puts text into a node, with **bold** and `code` as the only marks. */
+/** Puts text into a node, with **bold**, `code` and [words](where they point) as the only marks. */
 function mark(node, text) {
   const pieces = []
-  for (const piece of text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/)) {
-    if (piece.startsWith('**') && piece.endsWith('**') && piece.length > 4) pieces.push(el('strong', '', piece.slice(2, -2)))
+  for (const piece of text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\))/)) {
+    const link = piece.match(/^\[([^\]\n]+)\]\(([^)\s]+)\)$/)
+    if (link !== null) {
+      // B94: a link shows its words; where it points is the hint. The page opens nothing by it.
+      const words = el('span', 'linked', link[1])
+      words.title = link[2]
+      pieces.push(words)
+    } else if (piece.startsWith('**') && piece.endsWith('**') && piece.length > 4) pieces.push(el('strong', '', piece.slice(2, -2)))
     else if (piece.startsWith('`') && piece.endsWith('`') && piece.length > 2) pieces.push(el('code', '', piece.slice(1, -1)))
     else if (piece !== '') pieces.push(piece)
   }
@@ -239,13 +247,37 @@ function drawRestart(state) {
 
 const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 
-/** B64: a time that is not the worker's own estimate says where it is from: the backlog step's "about <time>". */
-function fromStep(lane) {
-  if (lane.eta === null || lane.eta.isOwn !== false) return []
-  const note = el('small', 'from-step', `from ${lane.task?.stepId ?? 'its step'}`)
-  note.title = 'The worker gave no estimate of its own: this is the time its backlog step names, counted from when the task started.'
-  return [note]
+// lanetime:start
+/**
+ * B95: what a lane's time column says. For a worker that works, the time left is the main figure ("24 min left")
+ * and the clock time it ends at the small one. A time that is not the worker's own estimate says where it is from
+ * (`from`, B64): its backlog step's "about <time>", or the one in its hand-over. A worker that works without any
+ * time is a fault (`tone: 'fault'`), not a normal lane. Every part is one line: `label` above, `main` large,
+ * `small` beside or under it.
+ */
+function timeOf(lane, now) {
+  const plain = (main, tone = 'muted', label = '') => ({ label, main, tone, small: [], from: null })
+  if (lane.isLeftover) return plain('Leftover')
+  if (lane.state === 'interrupted') return plain(lane.cutOffAt === null ? 'by a restart' : `at ${clock(lane.cutOffAt)}`, 'bad', 'Cut off')
+  if (lane.state === 'waiting') return plain('Blocked', 'bad', 'ETA')
+  if (lane.state === 'free') return plain('Available')
+  if (lane.state !== 'working') return plain('Unknown')
+  const eta = lane.eta ?? null
+  const soFar = lane.task === null || !Number.isFinite(lane.task.startedAt) ? [] : [`${span(now - lane.task.startedAt)} so far`]
+  if (eta === null) {
+    // The main chat hands out work and answers: it has no task to time.
+    return lane.isWithoutTime === true
+      ? { label: 'ETA', main: 'No time', tone: 'fault', small: soFar, from: null, title: 'This worker works without a time: it gave none, its step names none, and its hand-over named none.' }
+      : { label: '', main: 'Working', tone: 'muted', small: soFar, from: null }
+  }
+  const from = eta.isOwn !== false ? null : {
+    text: eta.from === 'handover' ? 'from its hand-over' : `from ${lane.task?.stepId ?? 'its step'}`,
+    title: `The worker gave no estimate of its own: this is the time its ${eta.from === 'handover' ? 'hand-over' : 'backlog step'} names, counted from when the task started.`,
+  }
+  if (eta.isOverdue) return { label: 'ETA', main: `${span(now - eta.at)} over`, tone: 'bad', small: [`was ${clock(eta.at)}`], from }
+  return { label: 'ETA', main: `${span(eta.leftMs)} left`, tone: 'time', small: [`until ${clock(eta.at)}`], from }
 }
+// lanetime:end
 
 /** B82: the topic the chat recorded for its task. A chat that recorded nothing has no words to show: what was typed to it stays in its chat. */
 function taskTitle(task) {
@@ -278,16 +310,17 @@ function betweenTurns(lane) {
 }
 
 function drawEta(lane, now) {
-  const box = el('div', 'eta')
-  const state = (text, isBlocked = false) => el('span', `state${isBlocked ? ' is-blocked' : ''}`, text)
-  if (lane.isLeftover) box.append(state('Leftover'))
-  else if (lane.state === 'interrupted') box.append(el('small', '', 'Cut off'), state(lane.cutOffAt === null ? 'by a restart' : `at ${clock(lane.cutOffAt)}`, true))
-  else if (lane.state === 'waiting') box.append(el('small', '', 'ETA'), state('Blocked', true))
-  else if (lane.state === 'free') box.append(state('Available'))
-  else if (lane.state === 'unknown') box.append(state('Unknown'))
-  else if (lane.eta !== null && !lane.eta.isOverdue) box.append(el('small', '', 'ETA'), el('b', '', clock(lane.eta.at)), el('small', '', `(${span(lane.eta.leftMs)})`), ...fromStep(lane))
-  else if (lane.eta !== null) box.append(el('small', '', 'ETA'), state('Overdue', true), el('small', '', `was ${clock(lane.eta.at)}`), ...fromStep(lane))
-  else box.append(el('small', '', 'ETA'), state('No estimate'), lane.task === null ? '' : el('small', '', `(${span(now - lane.task.startedAt)} so far)`))
+  const time = timeOf(lane, now)
+  const box = el('div', `eta is-${time.tone}`)
+  if (time.title !== undefined) box.title = time.title
+  if (time.label !== '') box.append(el('small', '', time.label))
+  box.append(el(time.tone === 'time' ? 'b' : 'span', time.tone === 'time' ? '' : `state${time.tone === 'bad' ? ' is-blocked' : time.tone === 'fault' ? ' is-fault' : ''}`, time.main))
+  for (const line of time.small) box.append(el('small', '', line))
+  if (time.from !== null) {
+    const note = el('small', 'from-step', time.from.text)
+    note.title = time.from.title
+    box.append(note)
+  }
   return box
 }
 
@@ -296,6 +329,8 @@ function alertsOf(lane, state) {
   const alerts = []
   const task = lane.task
   if (lane.isQuiet) alerts.push(`no sign of life for ${span(lane.quietMs)}`)
+  // B95: no worker works without a time; one that does is a fault to fix.
+  if (lane.isWithoutTime === true) alerts.push('works without a time: its chat has to say how long it expects')
   if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
   if (lane.state === 'working' && task !== null && task.estimateAt !== null && state.readAt - task.estimateAt > state.estimateOldMs) {
     alerts.push(`estimate ${span(state.readAt - task.estimateAt)} old`)
@@ -338,7 +373,11 @@ function drawMore(lane, state) {
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
     if (task.source === 'unrecorded') list.append(el('li', 'muted', 'It has recorded no task yet: no topic, no steps and no time.'))
     if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the backlog step that names its branch.'))
-    if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
+    if (lane.eta !== null && lane.eta.isOwn === false) {
+      const [where, minutes] = lane.eta.from === 'handover' ? ['its hand-over', task.handMinutes] : [task.stepId ?? 'its step', task.stepMinutes]
+      list.append(el('li', 'muted', `It gave no estimate: ${where} says ${about(minutes)}, counted from the start.`))
+    }
+    if (task.source === 'plan' && (task.stepId ?? null) !== null) list.append(el('li', 'muted', `It is on step ${task.stepId} of the backlog.`))
   }
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
   for (const folder of lane.folders) list.append(el('li', '', folderLine(folder, now)))
@@ -932,6 +971,7 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
       at: null,
       checklist,
       notes: rest,
+      hasNotes: notes.length > 0,
     }
   }
   const chips = []
@@ -940,7 +980,8 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
   if (isStep && need.activity) chips.push({ text: need.activity, tone: 'plain' })
   if (!isStep && need.from) chips.push({ text: `From: ${need.from}`, tone: 'to' })
   if (isStep && need.from !== null && need.from !== undefined && need.isClosed !== true) chips.push({ text: `Answer goes to: ${need.from}`, tone: 'to' })
-  return { code: need.step ?? null, title: need.title, chips, at: need.at ?? null, checklist, notes: rest }
+  // `hasNotes`: something is written under the step, wherever the window shows it (B94).
+  return { code: need.step ?? null, title: need.title, chips, at: need.at ?? null, checklist, notes: rest, hasNotes: notes.length > 0 }
 }
 // window:end
 
@@ -1087,7 +1128,11 @@ function drawDetails(state) {
   const full = need !== null && isStep(need) && typeof need.words === 'string' && need.words !== need.title ? [el('p', '', need.words)] : []
   const described = [...words, ...full, ...notes.lead]
   const left = el('div', 'details-main')
-  left.append(section('Description', described.length > 0 ? described : [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]), ...notes.named)
+  // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
+  // has them on the right.
+  if (described.length > 0) left.append(section('Description', described))
+  else if (!view.hasNotes) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
+  left.append(...notes.named)
   if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
   const shown = need === null ? step.pictures.map(path => ({ path, caption: '' })) : [
     ...need.options.filter(option => option.picture !== null).map(option => ({ path: option.picture, caption: `${option.label}${option.isRecommended ? ' (recommended)' : ''}` })),
@@ -1229,7 +1274,90 @@ document.addEventListener('click', event => {
 
 $('lightbox').addEventListener('click', () => $('lightbox').close())
 
-// Advice: headings, lists and paragraphs of a plain markdown text
+// Advice: headings, lists, tables and paragraphs of a plain markdown text
+
+// rich:start
+const isTableLine = line => /^\s*\|.*\|\s*$/.test(line)
+/** The cells of one line of a table: "| a | b |" is ["a", "b"]. */
+const cellsOf = line => line.trim().slice(1, -1).split('|').map(cell => cell.trim())
+const isRuleLine = line => isTableLine(line) && cellsOf(line).every(cell => /^:?-+:?$/.test(cell))
+
+/**
+ * B94: a text in parts, in order: `{ text }` for plain lines and `{ table: { head, rows } }` for a table as the
+ * chats write it (two or more lines between bars; a line of dashes under the first makes that one the head). The
+ * advisor's tables are then drawn as tables, not as bars and dashes.
+ */
+function partsOf(text) {
+  const lines = text.split('\n').map(line => line.replace(/\r$/, ''))
+  const parts = []
+  let plain = []
+  const flush = () => {
+    const words = plain.join('\n').replace(/^\n+|\n+$/g, '')
+    if (words !== '') parts.push({ text: words })
+    plain = []
+  }
+  for (let at = 0; at < lines.length; at += 1) {
+    let end = at
+    while (end < lines.length && isTableLine(lines[end])) end += 1
+    if (end - at < 2) {
+      plain.push(lines[at])
+      continue
+    }
+    flush()
+    const block = lines.slice(at, end)
+    const hasHead = isRuleLine(block[1])
+    parts.push({ table: { head: hasHead ? cellsOf(block[0]) : null, rows: block.slice(hasHead ? 2 : 0).filter(line => !isRuleLine(line)).map(cellsOf) } })
+    at = end - 1
+  }
+  flush()
+  return parts
+}
+
+const ADVICE_OLD_MS = 2 * 60 * 60_000
+
+/**
+ * B94: how old the advice is, in words, and whether that is old enough to warn (`isOld`): the advisor writes it
+ * once and the person decides things after. Null when the board does not know when it was written.
+ */
+function adviceAge(at, now) {
+  if (!Number.isFinite(at)) return null
+  const isToday = new Date(at).toDateString() === new Date(now).toDateString()
+  const day = isToday ? '' : `on ${new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} `
+  const isOld = now - at > ADVICE_OLD_MS
+  const age = now - at < 60_000 ? 'just now' : `${span(now - at)} ago`
+  return { text: `Written ${age}, ${day}at ${clock(at)}.${isOld ? ' What was decided since is not in it.' : ''}`, isOld }
+}
+// rich:end
+
+/** B94: a table of the advisor's, drawn as one. */
+function drawTable({ head, rows }) {
+  const table = el('table')
+  if (head !== null) {
+    const top = el('thead')
+    const row = el('tr')
+    for (const cell of head) row.append(marked('th', '', cell))
+    top.append(row)
+    table.append(top)
+  }
+  const body = el('tbody')
+  for (const cells of rows) {
+    const row = el('tr')
+    for (const cell of cells) row.append(marked('td', '', cell))
+    body.append(row)
+  }
+  table.append(body)
+  const wrap = el('div', 'table-wrap')
+  wrap.append(table)
+  return wrap
+}
+
+/** B94: text with its tables drawn as tables; all else as `mark` puts it. */
+function rich(node, text) {
+  const parts = partsOf(text)
+  if (parts.every(part => part.table === undefined)) return mark(node, text)
+  node.replaceChildren(...parts.map(part => (part.table === undefined ? marked('div', '', part.text) : drawTable(part.table))))
+  return node
+}
 
 function drawAdvice(state) {
   const box = $('advice-text')
@@ -1242,8 +1370,7 @@ function drawAdvice(state) {
     if (paragraph !== null) nodes.push(marked('p', '', paragraph))
     paragraph = null
   }
-  const lines = state.advice.split('\n').map(line => line.replace(/\r$/, ''))
-  lines.forEach((line, index) => {
+  const take = (line, index) => {
     const heading = line.match(/^(#{1,4})\s+(.*)$/)
     const bullet = line.match(/^\s*[-*]\s+(.*)$/)
     const numbered = line.match(/^\s*(\d+)[.)]\s+(.*)$/)
@@ -1279,7 +1406,19 @@ function drawAdvice(state) {
       item = null
       paragraph = paragraph === null ? line.trim() : `${paragraph} ${line.trim()}`
     }
-  })
+  }
+  let index = 0
+  for (const part of partsOf(state.advice)) {
+    if (part.table === undefined) {
+      for (const line of part.text.split('\n')) take(line, index++)
+      continue
+    }
+    flush()
+    list = null
+    item = null
+    index += 1
+    nodes.push(drawTable(part.table))
+  }
   flush()
   fill(box, nodes)
 }
@@ -1294,7 +1433,7 @@ function drawMessage({ key, kind, time, who, text, note = null }) {
     bubble.dataset.key = key
     if (openBubbles.has(key)) bubble.classList.add('is-open')
   }
-  mark(bubble, text)
+  rich(bubble, text)
   if (note !== null) bubble.append(el('small', '', note))
   row.append(el('time', '', time), el('span', 'speaker', who), bubble)
   return row
@@ -1545,6 +1684,12 @@ function draw(state) {
   drawDetails(state)
   openFromAddress(state)
   once('advice', state.advice, () => drawAdvice(state))
+  const age = state.advice === null ? null : adviceAge(state.adviceAt ?? null, state.readAt)
+  once('advice-age', age, () => {
+    $('advice-age').hidden = age === null
+    $('advice-age').className = `advice-age${age !== null && age.isOld ? ' is-old' : ''}`
+    $('advice-age').textContent = age === null ? '' : age.text
+  })
   once('talk', state.advisor, () => drawTalk(state))
 }
 

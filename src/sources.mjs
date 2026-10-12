@@ -92,5 +92,7 @@ export async function readSources(config, readFolders, now = Date.now()) {
     pictureLists: await pictureLists(config, backlogText, now),
     // The main chat's note of who was on what before a restart: only whether it is there, and since when.
     restartNote: await stat(join(claude, 'restart.md')).then(file => ({ at: file.mtimeMs }), () => null),
+    // When the advisor last wrote its advice.
+    adviceAt: await stat(join(claude, 'advice.md')).then(file => file.mtimeMs, () => null),
   }
 }

@@ -80,10 +80,10 @@ test('turnState: nothing to go by is unknown', () => {
   assert.equal(turnState(entries(slashCommand(min(0), '/compact'))), 'unknown')
 })
 
-test('doingNow: the description of the last tool call, else its name', () => {
+test('doingNow: what the last tool call says it is for, else what that kind of call is in plain words', () => {
   assert.equal(doingNow(entries([step(min(0), 'Install'), toolResult(min(1)), step(min(2), 'Run the tests')])), 'Run the tests')
-  assert.equal(doingNow(entries([assistant(min(0), 'tool_use', [tool('Grep', { pattern: 'x' })])])), 'Grep')
-  assert.equal(doingNow(entries([assistant(min(0), 'tool_use', [tool('Edit', { file_path: 'C:\\game\\src\\app.ts' })])])), 'Edit app.ts')
+  assert.equal(doingNow(entries([assistant(min(0), 'tool_use', [tool('Grep', { pattern: 'x' })])])), 'Searching the files')
+  assert.equal(doingNow(entries([assistant(min(0), 'tool_use', [tool('Edit', { file_path: 'C:\\game\\src\\app.ts' })])])), 'Editing app.ts')
   assert.equal(doingNow(entries([typed(min(0), 'Go')])), null)
 })
 
@@ -97,7 +97,7 @@ test('taskStart: a task handed over by the main chat gives the start, the sender
     fromChat(min(4), 'Game - Main', 'Task from Game - Main: build the archer at 4x. Time box: 45 minutes.\n\nBackground: ...'),
     step(min(5), 'Read the brief'),
   ]), MAIN)
-  assert.deepEqual(start, { at: min(4), from: 'Game - Main', title: 'Build the archer at 4x', steps: [] })
+  assert.deepEqual(start, { at: min(4), from: 'Game - Main', title: 'Build the archer at 4x', steps: [], minutes: null })
   for (const opening of ['Next task from the main chat: build the archer at 4x.', 'Two tasks from the main chat: build the archer at 4x. Then the knight.']) {
     assert.equal(taskStart(entries([fromChat(min(4), 'Game - Main', opening)]), MAIN).title, 'Build the archer at 4x')
   }
@@ -108,7 +108,7 @@ test('taskStart: reads the tag when the entry carries no plain text of the messa
     isMeta: true,
     origin: { kind: 'peer', from, hostInjected: true },
   })
-  assert.deepEqual(taskStart(entries([tagged('local_main')]), MAIN), { at: min(2), from: 'local_main', title: 'Fix the bridge level', steps: [] })
+  assert.deepEqual(taskStart(entries([tagged('local_main')]), MAIN), { at: min(2), from: 'local_main', title: 'Fix the bridge level', steps: [], minutes: null })
   assert.equal(taskStart(entries([tagged('local_units')]), MAIN), null)
 })
 

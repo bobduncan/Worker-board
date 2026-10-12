@@ -31,6 +31,15 @@ function minutesOf(part) {
   return Math.round(Number(found[1] ?? 0) * 60 + Number(found[2] ?? 0))
 }
 
+/** The first "about <time>" in a text, as minutes, or null: "About 45 minutes, after B92" is 45. */
+export function aboutMinutes(text) {
+  for (const found of text.matchAll(/\babout\s/gi)) {
+    const minutes = minutesOf(text.slice(found.index))
+    if (minutes !== null) return minutes
+  }
+  return null
+}
+
 function parseStep(isDone, rest, { prefix, names }) {
   const isYou = /(^|\s)@you\s*$/.test(rest)
   // A step starts with its id ("B14"): the person names a step by it, and it never changes.
@@ -152,11 +161,13 @@ function isQueuedIn(activity) {
 /**
  * The steps waiting to be started, in the backlog's order: the open ones under "Next to hand out", and anywhere
  * on the backlog the open ones whose note names a worker ("(for Units; ...)") and that are not the person's. A
- * step that names its own branch is in progress, not queued; neither is one the main chat marked "(not queued: ...)".
+ * step that names its own branch is in progress, not queued; neither is one the main chat marked "(not queued: ...)",
+ * nor one a worker is on right now (`underWay`: ids of steps, see `overview`).
  */
-export function queue(backlog) {
+export function queue(backlog, { underWay = new Set() } = {}) {
   return backlog.activities
     .flatMap(activity => open(activity).filter(isQueuedIn(activity)))
+    .filter(step => step.id === null || !underWay.has(step.id))
     .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(notes) }))
 }
 
@@ -195,10 +206,11 @@ export function openWork(backlog) {
 /**
  * The whole backlog, for the Coordinate tab: every activity, the person's focus first, with each of its steps and
  * where the step stands (`status`): `done` (ticked), `you` (only the person can do it), `progress` (it names its own
- * branch), `queued` (it waits to be started, see `queue`), or `open` (none of these). `key` names a step within
- * the backlog: its id, or its place for a step from before the ids.
+ * branch, or a worker is on it right now), `queued` (it waits to be started, see `queue`), or `open` (none of
+ * these). `key` names a step within the backlog: its id, or its place for a step from before the ids. `underWay`
+ * holds the ids of the steps the workers say they are on, or were handed: a check or a merge has no branch to name.
  */
-export function overview(backlog) {
+export function overview(backlog, { underWay = new Set() } = {}) {
   const listed = backlog.activities.map((activity, place) => {
     const isQueued = isQueuedIn(activity)
     return {
@@ -215,7 +227,7 @@ export function overview(backlog) {
         minutes: step.minutes,
         after: step.after,
         notes: noteSections(step.notes),
-        status: step.isDone ? 'done' : step.isYou ? 'you' : step.ownBranch !== null ? 'progress' : isQueued(step) ? 'queued' : 'open',
+        status: step.isDone ? 'done' : step.isYou ? 'you' : step.ownBranch !== null || (step.id !== null && underWay.has(step.id)) ? 'progress' : isQueued(step) ? 'queued' : 'open',
       })),
     }
   })

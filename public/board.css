@@ -514,3 +514,21 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
   .step-row { grid-template-columns: 46px minmax(0, 1fr) 96px; }
   .step-kind, .step-worker, .step-branch, .step-actions { display: none; }
 }
+
+/* B95: the time left is a lane's main figure; every figure of the column stays on one line. A worker that works
+   without a time is a fault, and looks like one. */
+.lane-row { grid-template-columns: minmax(170px, 0.56fr) minmax(0, 1fr) minmax(146px, 0.4fr) minmax(0, 1.02fr); }
+.eta b, .eta .state { white-space: nowrap; }
+.eta b { font-size: 22px; }
+.eta .state.is-fault { color: var(--warn); }
+.eta.is-fault { box-shadow: inset 3px 0 0 var(--warn); }
+
+/* B94: a table of the advisor's, in the advice and in its messages; a link shows its words; the advice's age. */
+.table-wrap { overflow-x: auto; margin: 8px 0; }
+.advice table, .bubble table { border-collapse: collapse; font-size: 14px; white-space: normal; }
+.advice th, .advice td, .bubble th, .bubble td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.advice th, .bubble th { background: var(--inset); font-weight: 700; }
+.bubble th { background: var(--panel); }
+.linked { text-decoration: underline dotted; text-underline-offset: 3px; }
+.advice-age { margin: -2px 0 10px; color: var(--muted); font-size: 13.5px; }
+.advice-age.is-old { color: var(--warn); }

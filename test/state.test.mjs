@@ -76,7 +76,7 @@ test('a working chat shows the task of its plan line and what it does now', () =
   assert.deepEqual(units.task, {
     text: 'Shadow Beast', step: 2, steps: 6, names: null, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, source: 'plan', by: null,
     // First seen now, in a turn the person opened 20 minutes ago, with an estimate given 3 minutes ago.
-    startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null,
+    startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
   })
 })
 
@@ -166,7 +166,7 @@ test('a working chat with an estimate has a time it expects to be done, and its 
     backlog: '## Next to hand out (Game - Main)\n- [ ] Knight rows (for Units; about 30 min)\n- [ ] Polish (for Units)\n- [ ] Banner (for Units; about 10 min)\n- [ ] Lava biome (for Levels; about 1 h)\n- [ ] Name the game\n',
   })
   const units = chatNamed(state, 'Units')
-  assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOwn: true })
+  assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOwn: true, from: 'own' })
   assert.deepEqual(units.queue.map(step => [step.id, step.title, step.minutes]), [[null, 'Knight rows', 30], [null, 'Polish', null], [null, 'Banner', 10]])
   assert.deepEqual(units.queue[0], { id: null, title: 'Knight rows', text: 'Knight rows (for Units; about 30 min)', minutes: 30, after: null, branch: null, notes: [], pictures: [] })
   // The plan stops at the first step without a time: what follows it cannot be placed.
@@ -313,7 +313,7 @@ test('a worker that recorded nothing has a task without words, from when it was 
   })
   assert.deepEqual(chatNamed(state, 'Units').task, {
     text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null,
-    startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null,
+    startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
   })
   // A report is no task for the main chat; it works, on something it has not recorded.
   assert.deepEqual([chatNamed(state, 'Main').task.source, chatNamed(state, 'Main').task.text], ['unrecorded', ''])
@@ -326,7 +326,7 @@ test('a working chat that recorded no task has one without words, from when its 
   const units = chatNamed(state, 'Units')
   assert.deepEqual(units.task, {
     text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null,
-    startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null,
+    startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
   })
   assert.ok(!JSON.stringify(state).includes('lava'))
   const main = chatNamed(build({
