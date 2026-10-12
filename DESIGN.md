@@ -57,8 +57,31 @@ expected and queued is what they plan with.
 **Where an answer goes.** The person talks with the advisor on the second tab, and the board answers the workers:
 an answer is addressed to the chat that asked and to no other. The server checks each answer against the request
 it is for (`src/say.mjs`) and keeps it in `data/outbox.jsonl`. Delivery is the bridge in the mod, as described
-below, with one change the person asked for and has still to confirm in so many words: every chat of the project
-picks up what is addressed to it, where the first design let only the main chat receive.
+below, with one change the person confirmed on 2026-10-12 ("yes i want this to be picked up and queue if needed
+or just removed from the backlog if accepted"): every chat of the project picks up what is addressed to it, where
+the first design let only the main chat receive.
+
+**The bridge as built** (`src/bridge.mjs`, and `hooks/board.ts` in the Workers mod, version 0.4.0). While it runs,
+the board keeps `<project>\.claude\board.json` with its address and a key. Every chat in the Workers list asks
+`POST /api/bridge/take` with that key and its own name every few seconds; the board marks what waits for that
+chat delivered, then hands it out, and the mod types it into its chat as the person's own words. The engine runs
+it once the chat is idle, so a busy chat gets it after what it is doing. The key only takes: sending still needs
+the board's own page. What is typed:
+
+| The person | Typed into the chat |
+|---|---|
+| approves | `(answered on the worker board, 16:02) B14 "<title>": approved. Tick this step in the backlog.` |
+| rejects | `... rejected. Reason: <their words>` and `Pick this up: now if it belongs to what you are doing, else as a step in the queue.` |
+| marks done | `... done. Tick this step in the backlog.` |
+| decides or provides | `... B67 "<title>": <their words>` |
+| answers a chat that waits | `(answered on the worker board, 16:02) <their words>` |
+| types to the advisor | `<their words>` and `(typed on the worker board, 16:02)` |
+
+A request a chat filed itself says "Close this request." where a step says "Tick this step in the backlog.". An
+answer waits for its chat for `answerKeepHours` (48): the chat may be busy or not open. A line typed to the
+advisor is dropped after `messageKeepMinutes` (10), so nothing typed long ago turns up in a chat. A delivered
+answer keeps its request closed. A step that changed since it was answered (its words, or the lines under it)
+asks again and shows the earlier answer: that is how a rejected step comes back after the rework.
 
 **From advice to work** (the person, 2026-10-12): what the person agrees with the advisor, the advisor passes on
 to the main chat, which hands out as before. The advisor still hands out nothing itself.
@@ -79,9 +102,10 @@ board's own origin, JSON). The board switches no folder to another branch: a bra
 cannot be started, and the card says so. Vite's cache for these games is kept in the board's `data/game-cache`,
 so nothing is written into a folder's `node_modules` while a worker runs the game from it too.
 
-**Still to build in the branch:** the mod's part (a tool for a chat to file and close an ask; delivery of answers
-and of the conversation with the advisor; the plan line names the chat's branch and when its task was named), and
-the line in the working agreement that tells every chat to file an ask where it would write an `@you` step.
+**Still to build in the branch:** a tool in the mod for a chat to file and close an ask; the plan line names the
+chat's branch and when its task was named; and the line in the working agreement that tells every chat to file an
+ask where it would write an `@you` step. Delivery is built and tested in parts, and not yet tried with a real chat:
+that needs `/reload-plugins` in the chat that is to receive.
 
 ## What it is for
 
