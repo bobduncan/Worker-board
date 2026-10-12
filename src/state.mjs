@@ -6,6 +6,7 @@ import { parseAsk } from './asks.mjs'
 import { allWords, closedForYou, forYou, inProgress, overview, parseBacklog, queue } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
+import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
@@ -17,6 +18,8 @@ const ASKED = 'Asked you a question in its chat.'
 const CUT_OFF_MS = 150_000
 /** A running chat's mod asks the board every few seconds. Not heard from for this long, its process is not running. */
 const SEEN_MS = 30_000
+/** How long a window of the 5-hour limit lasts. */
+const FIVE_HOURS = 5 * HOUR
 
 /**
  * True when the app was closed in the middle of a chat's turn. The transcript still shows the turn as open, but the
@@ -164,7 +167,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [] }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -185,15 +188,21 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     handOver: chat.isMain || scan === null ? null : taskStart(scan, main),
     background: entries === null ? 0 : backgroundRunning(entries),
   })
-  const state = wasCutOff ? 'interrupted' : held === null ? ended : 'working'
+  // B113: held by a limit of the plan. The app stopped it there, or the worker told the main chat that it paused
+  // and its turn has ended. Until when is settled once the limits are known (`heldUntil`).
+  const stop = entries === null ? null : limitStop(entries)
+  const note = stop !== null || entries === null || chat.isMain || turn !== 'ended' ? null : pauseNote(entries, main.mainTitle)
+  const paused = stop !== null ? { by: 'app', limit: stop.limit, since: stop.at, named: stop.resetsAt }
+    : note !== null ? { by: 'note', limit: 'fiveHour', since: note.at, named: note.until } : null
+  const state = paused !== null ? 'suspended' : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // No sign of life is about a turn that runs: between two turns a chat writes nothing.
   const quietMs = state === 'working' && held === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
 
   let needsYou = null
   if (state === 'waiting') needsYou = turn === 'asking' ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
 
-  // A chat that was cut off keeps the task it was on.
-  const task = taskOf({ chat, plan, state: wasCutOff ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById })
+  // A chat that was cut off, or is held by a limit, keeps the task it was on.
+  const task = taskOf({ chat, plan, state: wasCutOff || paused !== null ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById })
   const eta = etaOf(task, state, now)
   return {
     ...base,
@@ -204,7 +213,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     isAsking: turn === 'asking',
     doingNow: state === 'working' && held === null ? doingNow(entries) : null,
     // Why it counts as working although its turn has ended, in words; null for a turn that runs.
-    between: held === null ? null : held.text,
+    between: state === 'working' && held !== null ? held.text : null,
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
@@ -219,7 +228,29 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // out work and answers the person; it has no task to time.
     isWithoutTime: state === 'working' && !chat.isMain && eta === null,
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
+    suspended: paused,
+    // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).
+    usage: entries === null ? [] : usageReadings([...(typeof tail.usage === 'string' ? parseTail(tail.usage, false) : []), ...entries]),
   }
+}
+
+/**
+ * B113: a chat held by a limit, with the time it can go on: `{ by, limit, since, until, isBack }`. `until` is the
+ * time the app's stop or the worker's note named, else when that limit resets as far as the board knows; null
+ * when nothing says. `isBack` says that time has passed: the limit is back and the chat has not gone on, because
+ * nothing starts it by itself.
+ */
+function heldUntil(paused, limits, now) {
+  if (paused === null) return null
+  const { named, ...held } = paused
+  if (named !== null) return { ...held, until: named, isBack: named <= now }
+  const limit = limits[held.limit]
+  if (limit === null) return { ...held, until: null, isBack: false }
+  if (limit.resetAt !== null && limit.resetAt > held.since) return { ...held, until: limit.resetAt, isBack: true }
+  if (limit.resetsAt === null) return { ...held, until: null, isBack: false }
+  // A window of five hours that began after the pause: the limit came back in between.
+  if (held.limit === 'fiveHour' && limit.resetsAt - FIVE_HOURS > held.since) return { ...held, until: null, isBack: true }
+  return { ...held, until: limit.resetsAt, isBack: false }
 }
 
 /** How long the card of a chat's question stays after its answer was typed in. The page hides it sooner. */
@@ -388,9 +419,22 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const one = openSteps.find(found => found.id === id && (whose === null || found.worker === null || found.worker === whose))
     return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch }
   }
-  const cards = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf, stepById }))
+  const read = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf, stepById }))
+  const advisorCard = advisorChat === undefined ? null : card(advisorChat, raw, context)
 
-  const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0 }
+  // B113: the plan's limits, from what is on this machine: the app's own file, what any chat looked up, and a
+  // chat the app stopped. Reading them asks no chat and costs nothing.
+  const everyone = advisorCard === null ? read : [...read, advisorCard]
+  const limits = limitsOf({
+    sample: parseUsageHistory(raw.usageText ?? null),
+    readings: everyone.flatMap(one => one.usage),
+    stops: everyone.filter(one => one.suspended?.by === 'app').map(one => ({ at: one.suspended.since, limit: one.suspended.limit, resetsAt: one.suspended.named })),
+    now,
+    warnAt: config.limitWarnPercent,
+  })
+  const cards = read.map(({ usage, ...lane }) => ({ ...lane, suspended: heldUntil(lane.suspended, limits, now) }))
+
+  const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0 }
   for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
 
   // The steps the workers are on right now, also the ones that name no branch (a check, a comparison, a merge):
@@ -423,9 +467,35 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const firstWord = name => name.toLowerCase().split(/[^a-z0-9]+/)[0]
   const owner = folder => (folder.branch === 'main' ? null : ownerOf.get(folder.branch) ?? names.find(name => firstWord(name) === folder.name.toLowerCase()) ?? null)
 
+  /**
+   * B113: why a queued step is not started, the first of these that holds: a limit of the plan is full, its
+   * worker is held by the limit, its condition is not met (an open step it names by id, else the condition's own
+   * words: the board cannot tell whether those are met), or what its worker is doing. `lane` is null for a step
+   * that names no worker on the board.
+   */
+  const withId = backlog.activities.flatMap(activity => activity.steps).filter(one => one.id !== null)
+  const openIds = new Set(withId.filter(one => !one.isDone).map(one => one.id))
+  const knownIds = new Set(withId.map(one => one.id))
+  function whyNot(step, lane) {
+    for (const limit of ['fiveHour', 'week']) if (limits[limit]?.level === 'full') return { reason: 'limit', limit, until: limits[limit].resetsAt }
+    if (lane?.state === 'suspended') return { reason: 'suspended', worker: lane.name, until: lane.suspended.until, isBack: lane.suspended.isBack }
+    if (step.after !== null) {
+      const ids = [...new Set(step.after.match(/\bB\d+\b/g) ?? [])]
+      const open = ids.filter(id => openIds.has(id))
+      if (open.length > 0) return { reason: 'after', steps: open }
+      if (ids.length === 0 || ids.some(id => !knownIds.has(id))) return { reason: 'after', words: step.after }
+    }
+    if (lane === null) return { reason: 'nobody' }
+    if (lane.state === 'working') return { reason: 'busy', worker: lane.name, leftMs: lane.eta === null || lane.eta.isOverdue ? null : lane.eta.leftMs }
+    if (lane.state === 'waiting') return { reason: 'you', worker: lane.name }
+    if (lane.state === 'interrupted') return { reason: 'cut', worker: lane.name }
+    if (lane.state === 'free') return { reason: 'handout', main: context.main.mainTitle, isOwn: lane.isMain }
+    return { reason: 'unknown', worker: lane.name }
+  }
+
   const lanes = cards.map(lane => {
     const mine = lane.isLeftover ? [] : queued.filter(step => step.worker === lane.name)
-    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, pictures: picturesOf(allWords(step)) })) }
+    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, pictures: picturesOf(allWords(step)), why: whyNot(step, lane) })) }
     return {
       ...withQueue,
       folders: lane.isLeftover ? [] : (folders ?? []).filter(folder => owner(folder) === lane.name),
@@ -441,7 +511,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   let advisor = null
   if (advisorChat !== undefined) {
-    const { state, doingNow: doing, session, appSession } = card(advisorChat, raw, context)
+    const { state, doingNow: doing, session, appSession } = advisorCard
     const tail = raw.tails?.[advisorChat.cliSessionId] ?? null
     advisor = {
       name: advisorChat.name,
@@ -540,9 +610,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     estimateOldMs: config.estimateOldMinutes * MIN,
     maxMessageChars: config.maxMessageChars,
     counts,
+    // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
+    limits,
     chats: lanes.map(lane => ({ ...lane, isRunning: lane.isLeftover ? null : runningOf(lane.name) })),
     // Queued steps that name no worker on the board.
-    unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)),
+    unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)).map(step => ({ ...step, why: whyNot(step, null) })),
     forYou: needsOf(asks, lanes, sent, gameOf, now),
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
     backlog: overview(backlog, { underWay: onNow }).map(activity => ({

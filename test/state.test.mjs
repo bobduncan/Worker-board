@@ -109,7 +109,7 @@ test('a chat whose turn ended with nothing open is free, and one without a trans
   assert.equal(chatNamed(state, 'Units').state, 'free')
   assert.equal(chatNamed(state, 'Levels').state, 'unknown')
   assert.equal(chatNamed(state, 'Main').state, 'unknown')
-  assert.deepEqual(state.counts, { working: 0, waiting: 0, free: 1, unknown: 2, interrupted: 0 })
+  assert.deepEqual(state.counts, { working: 0, waiting: 0, free: 1, unknown: 2, interrupted: 0, suspended: 0 })
 })
 
 test('a chat that asked a question in its own chat waits for you', () => {
@@ -170,7 +170,7 @@ test('a working chat with an estimate has a time it expects to be done, and its 
   const units = chatNamed(state, 'Units')
   assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOwn: true, from: 'own' })
   assert.deepEqual(units.queue.map(step => [step.id, step.title, step.minutes]), [[null, 'Knight rows', 30], [null, 'Polish', null], [null, 'Banner', 10]])
-  assert.deepEqual(units.queue[0], { id: null, title: 'Knight rows', text: 'Knight rows (for Units; about 30 min)', minutes: 30, after: null, branch: null, notes: [], pictures: [] })
+  assert.deepEqual(units.queue[0], { id: null, title: 'Knight rows', text: 'Knight rows (for Units; about 30 min)', minutes: 30, after: null, branch: null, notes: [], pictures: [], why: { reason: 'busy', worker: 'Units', leftMs: 22 * MIN } })
   // The plan stops at the first step without a time: what follows it cannot be placed.
   assert.deepEqual(units.ahead, [
     { from: NOW, to: NOW + 22 * MIN, title: 'Archer', isQueued: false },
@@ -465,7 +465,7 @@ test('a leftover chat is greyed and not counted, and the advisor has no lane', (
     backlog: '## Next to hand out (Game - Main)\n- [ ] Main menu (for Units; about 40 min)\n- [ ] Advice round (for Advisor)\n',
   })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.isLeftover]), [['Main', false], ['Units', false], ['Main (fork)', true]])
-  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0, interrupted: 0 })
+  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0, interrupted: 0, suspended: 0 })
   assert.deepEqual(chatNamed(state, 'Units').queue.map(step => step.title), ['Main menu'])
   assert.deepEqual(state.unassigned.map(step => step.title), ['Advice round'])
   assert.deepEqual(state.today.map(lane => lane.chat), ['Main', 'Units'])
@@ -510,7 +510,7 @@ test('the demo shows the second design: five lanes with their queues, two reques
     ['Cleanup', 'free', 1],
     ['Levels / Environment', 'working', 2],
   ])
-  assert.deepEqual(state.counts, { working: 3, waiting: 1, free: 1, unknown: 0, interrupted: 0 })
+  assert.deepEqual(state.counts, { working: 3, waiting: 1, free: 1, unknown: 0, interrupted: 0, suspended: 0 })
   assert.deepEqual(state.chats.map(chat => (chat.eta === null ? null : Math.round(chat.eta.leftMs / MIN))), [22, null, 105, null, 34])
   assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], ['cleanup'], ['levels']])
   assert.deepEqual(state.otherFolders.map(folder => folder.name), [])

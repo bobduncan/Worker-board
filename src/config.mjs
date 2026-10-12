@@ -31,10 +31,13 @@ const DEFAULTS = {
   /** Such a game ends this long after its last tab was closed, or when nobody opened it in time. */
   gameIdleSeconds: 30,
   gameOpenSeconds: 120,
+  /** B113: the file the app keeps its usage samples in, and the percentage from which a limit's bar warns. */
+  usageHistory: '%APPDATA%\\Claude\\plan-usage-history.json',
+  limitWarnPercent: 80,
 }
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
-const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent']
 
 /** Fills `%NAME%` from the environment. Windows names have no fixed case, so the look-up ignores it. */
 export function expandEnv(text, env) {
@@ -54,6 +57,8 @@ export function parseConfig(text, env) {
   for (const key of PATHS) {
     if (typeof raw[key] === 'string') config[key] = expandEnv(raw[key], env)
   }
+  // This one has a place by default: the app's own folder.
+  config.usageHistory = expandEnv(typeof raw.usageHistory === 'string' ? raw.usageHistory : DEFAULTS.usageHistory, env)
   for (const key of NUMBERS) {
     if (Number.isFinite(raw[key]) && raw[key] > 0) config[key] = raw[key]
   }
