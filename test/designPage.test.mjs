@@ -114,7 +114,9 @@ test('"Make a picture" sends the idea, what it is about and the reference pictur
   assert.equal(page.makeBody({ ...draft, references: ['a', 'b', 'c', 'd'] }, design()).problem, 'At most 3 reference pictures.')
   // The limits are the board's own, as its state names them.
   assert.equal(page.makeBody({ ...draft, text: 'x'.repeat(1501) }, design([], { limits: { idea: 2000 } })).problem, undefined)
-  assert.deepEqual(plain(page.limitsOf(null)), { idea: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3 })
+  assert.deepEqual(plain(page.limitsOf(null)), { idea: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3, referenceBytes: 8 * 1024 * 1024 })
+  // A board that cannot ask the main chat (a copy, the demo) says why in its own words, before the click.
+  assert.match(script, /cannotSend \? design\.whyNot \?\? /)
   // A kind whose own reference pictures are not there says so under the button.
   const kinds = [{ id: 'screen', name: 'Game screen', missing: [] }, { id: 'art', name: 'Unit or art', missing: ['a.png', 'b.png'] }]
   assert.deepEqual([page.missingOf({ kinds }, 'screen'), page.missingOf({ kinds }, null), page.missingOf(null, 'art')], ['', '', ''])

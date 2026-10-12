@@ -1808,9 +1808,7 @@ $('coordinate-list').addEventListener('click', event => {
 
 // design:start
 /** What the server holds to, as `design.limits` names it; these stand in for a board that does not say. */
-const DESIGN_LIMITS = { idea: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3 }
-/** The largest reference picture the board takes. */
-const REFERENCE_BYTES = 8 * 1024 * 1024
+const DESIGN_LIMITS = { idea: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3, referenceBytes: 8 * 1024 * 1024 }
 const limitsOf = design => ({ ...DESIGN_LIMITS, ...(design?.limits ?? {}) })
 
 /** "shop-screen", the folder's short name, as a name to read: "Shop screen". */
@@ -2149,7 +2147,7 @@ function drawDesignForm(design, view, main) {
   $('design-agreed').hidden = idea === null || idea.agreed === null
   $('design-form-note').textContent = view.form === 'locked'
     ? (idea === null ? 'Agree with a picture first. Then you say here what you want and where it goes.' : 'Agree with a picture of this idea first: "I agree" under it.')
-    : view.form === 'open' && cannotSend ? 'This board does not deliver: put it on the backlog from the board started from main.'
+    : view.form === 'open' && cannotSend ? design.whyNot ?? 'This board cannot ask the main chat for the step.'
       : view.form === 'open' && view.isLost ? 'Your asking did not arrive. Send it again.' : ''
   $('design-form-note').hidden = $('design-form-note').textContent === ''
   const sent = $('design-sent')
@@ -2229,7 +2227,7 @@ $('design-file').addEventListener('change', async () => {
   if (file === undefined) return
   const limits = limitsOf(designNow())
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) designProblems.make = 'A reference is a PNG, JPEG or WebP picture.'
-  else if (file.size > REFERENCE_BYTES) designProblems.make = `That picture is too large: ${Math.floor(REFERENCE_BYTES / (1024 * 1024))} MB at most.`
+  else if (file.size > limits.referenceBytes) designProblems.make = `That picture is too large: ${Math.floor(limits.referenceBytes / (1024 * 1024))} MB at most.`
   else if (designDraft.references.length >= limits.references) designProblems.make = `At most ${limits.references} reference pictures.`
   else {
     designProblems.make = null
