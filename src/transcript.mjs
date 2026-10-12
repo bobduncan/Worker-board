@@ -122,16 +122,18 @@ export function parseTail(text, isCut) {
       isCompactSummary: entry.isCompactSummary === true,
       origin: entry.origin !== null && typeof entry.origin === 'object' ? entry.origin : null,
       stopReason: typeof message.stop_reason === 'string' ? message.stop_reason : null,
+      // What the app says went wrong where it wrote the entry itself: `rate_limit` when the chat ran into a limit.
+      error: typeof entry.error === 'string' ? entry.error : null,
       blocks: blocksOf(message.content),
     })
   }
   return entries
 }
 
-const textOf = entry =>
+export const textOf = entry =>
   entry.blocks.filter(block => block.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
 
-const hasToolResult = entry => entry.blocks.some(block => block.type === 'tool_result')
+export const hasToolResult = entry => entry.blocks.some(block => block.type === 'tool_result')
 
 const lastToolUse = entry => entry.blocks.findLast(block => block.type === 'tool_use') ?? null
 
@@ -163,7 +165,7 @@ export function turnState(entries) {
 }
 
 /** The words of a tool's result, whether it came as text or as blocks. */
-const resultText = block => (typeof block.content === 'string'
+export const resultText = block => (typeof block.content === 'string'
   ? block.content
   : blocksOf(block.content).map(part => (typeof part.text === 'string' ? part.text : '')).join('\n'))
 
@@ -303,7 +305,7 @@ const isReportTo = (entry, title) =>
   && entry.blocks.some(block => block.type === 'tool_use' && block.name === 'SendMessage' && block.input?.to === title)
 
 /** An entry after which no turn is running: the answer that ends it, or the app's mark that the person stopped it. */
-const endsTurn = entry =>
+export const endsTurn = entry =>
   entry.type === 'assistant'
     ? entry.stopReason !== null && entry.stopReason !== 'tool_use'
     : !hasToolResult(entry) && textOf(entry).startsWith('[Request interrupted')
