@@ -77,7 +77,7 @@ function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, ste
   // `scan` holds the entries that can start or end a task: the tail, after a longer look back when there is one.
   const handOver = chat.isMain || scan === null ? null : taskStart(scan, main)
   const opening = scan === null ? null : turnStart(scan, { prefix })
-  const bare = { step: null, steps: null, names: null, leftMs: null, estimateAt: null, source: 'unrecorded', by: null }
+  const bare = { step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null }
   // A handed-over task stands while the chat works on it or waits for the person; a free chat has finished it.
   const isBusy = state === 'working' || state === 'waiting'
   let task = null
@@ -87,7 +87,9 @@ function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, ste
   let onStep = step
   if (plan?.task != null && !plan.task.isReported) {
     const { text, step: at, steps, names, leftMs } = plan.task
-    task = { text, step: at, steps, names, leftMs, estimateAt: leftMs === null ? null : plan.at, source: 'plan', by: null }
+    // The time for the step it is on, and when it said so: like the task's own time, it counts down from there.
+    const stepLeftMs = plan.task.stepLeftMs ?? null
+    task = { text, step: at, steps, names, leftMs, estimateAt: leftMs === null ? null : plan.at, stepLeftMs, stepEstimateAt: stepLeftMs === null ? null : plan.at, source: 'plan', by: null }
     // Its record may name other steps too ("after B93"): only a step of its own, or of nobody, counts.
     onStep ??= firstOpen(text.match(/\bB\d+\b/g) ?? [], chat.name) ?? firstOpen(handOver?.steps ?? [])
   } else if (isBusy) {

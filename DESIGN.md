@@ -248,6 +248,10 @@ The board works without the workers' help. A worker's plan line adds the step an
   and when the board still showed another task the chat had named, it starts when it was named (B94).
 - A hand-over that arrives while a chat works is not a user entry in the transcript: the app keeps it with the
   turn as a queued command. The board reads it as a hand-over just the same.
+- The steps of a task are one line in the lane (B108): which step of how many, the step's name and the time left for
+  that step ("2/5 · Sheet and two views · 12 min left"), from `task.stepLeft` in the chat's card (B107). It counts
+  down while the chat works; a step without a time says so. The names of all steps, the current one marked, open
+  under the line on hover and when the keyboard is on it. The task's own time stays in the lane's time column.
 
 ## The queue
 
