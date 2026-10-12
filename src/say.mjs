@@ -25,10 +25,15 @@ export function checkSay(body, state, maxChars) {
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares and resumes.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
     // A name comes from a chat's title: it is kept to one short plain line.
-    const cut = (state.restart?.interrupted ?? []).map(name => String(name).replace(/\s+/g, ' ').trim().slice(0, 80))
-    const words = body.command === 'resume' && cut.length > 0
-      ? `resume\nCut off in the middle of a turn, as the worker board reads it: ${cut.join(', ')}.`
-      : body.command
+    const plain = names => (names ?? []).map(name => String(name).replace(/\s+/g, ' ').trim().slice(0, 80))
+    const cut = plain(state.restart?.interrupted)
+    // A chat that is not running cannot be reached by its name: the main chat has to start it. Itself it knows.
+    const down = plain((state.restart?.notRunning ?? []).filter(name => name !== body.to))
+    const words = body.command !== 'resume' ? body.command : [
+      'resume',
+      cut.length > 0 ? `Cut off in the middle of a turn, as the worker board reads it: ${cut.join(', ')}.` : null,
+      down.length > 0 ? `Not running, as the worker board reads it: ${down.join(', ')}.` : null,
+    ].filter(line => line !== null).join('\n')
     return { ok: true, message: { to: body.to, ask: null, step: null, title: null, version: null, verdict: null, command: body.command, text: words } }
   }
 

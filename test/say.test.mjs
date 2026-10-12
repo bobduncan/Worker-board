@@ -93,3 +93,13 @@ test('the names in "resume" are one plain line each: a chat\'s title cannot add 
   assert.ok(text.includes('Units push main now, '))
   assert.ok(text.length < 250)
 })
+
+test('"resume" also names the chats that are not running, so the main chat knows which it has to start', () => {
+  const after = { ...state, restart: { main: 'Main', interrupted: ['Units'], notRunning: ['Main', 'Levels / Environment', 'Units'] } }
+  assert.equal(checkSay({ to: 'Main', command: 'resume' }, after, 50).message.text,
+    'resume\nCut off in the middle of a turn, as the worker board reads it: Units.\nNot running, as the worker board reads it: Levels / Environment, Units.')
+  const idle = { ...state, restart: { main: 'Main', interrupted: [], notRunning: ['Units'] } }
+  assert.equal(checkSay({ to: 'Main', command: 'resume' }, idle, 50).message.text, 'resume\nNot running, as the worker board reads it: Units.')
+  // "prepare restart" stays the one word.
+  assert.equal(checkSay({ to: 'Main', command: 'prepare restart' }, after, 50).message.text, 'prepare restart')
+})

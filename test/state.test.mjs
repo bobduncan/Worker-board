@@ -23,7 +23,7 @@ const planLine = task => JSON.stringify({ name: 'x', role: 'worker', state: 'wor
 const running = [typed(NOW - 20 * MIN, 'Go'), step(NOW - 2 * MIN, 'Run the tests'), toolResult(NOW - MIN)]
 const ended = [typed(NOW - 20 * MIN, 'Go'), answer(NOW - 9 * MIN, 'Done')]
 
-function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {}, runs = [], restartNote = null, board = null }) {
+function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {}, runs = [], restartNote = null, board = null, seen = null }) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: apps,
@@ -36,7 +36,7 @@ function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox 
     pictureLists,
     restartNote,
   }
-  return buildState(raw, { lines, outbox, runs, board, now: NOW, config })
+  return buildState(raw, { lines, outbox, runs, board, seen, now: NOW, config })
 }
 const chatNamed = (state, name) => state.chats.find(chat => chat.name === name)
 
@@ -643,7 +643,7 @@ test('a chat that keeps no file of its own in this turn is never called interrup
 
 test('the restart: who was cut off, what was prepared, and how long the board was off', () => {
   const quiet = build({ apps: [app('Main'), app('Units', summary('completed'))], tails: { Units: tail(ended) } })
-  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], prepared: null, preparing: null, resuming: null, off: null })
+  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], notRunning: [], prepared: null, preparing: null, resuming: null, off: null })
 
   const prepare = { id: 'p1', at: NOW - 10 * MIN, to: 'Main', ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
   const preparing = build({
@@ -671,4 +671,26 @@ test('a turn that kept writing after its chat\'s file said waiting is alive, not
   // than the turn: what tells them apart is that the transcript moved on.
   const state = build({ apps: [app('Units')], tails: { Units: tail(running, 1) }, plans: { Units: ownFile('waiting', NOW - 8 * MIN, beast) } })
   assert.equal(chatNamed(state, 'Units').state, 'working')
+})
+
+test('a chat whose process asks the board is running; one that has not asked for a while is not', () => {
+  // After a restart of the app a chat does not run until something starts it. A running chat's mod asks the
+  // board every few seconds what waits for it: `seen` holds when each last asked.
+  const apps = [app('Main'), app('Units'), app('Features'), app('Advisor')]
+  const state = build({ apps, seen: { Main: NOW - 5_000, Units: NOW - 10 * MIN }, board: { startedAt: NOW - 5 * MIN, offSince: null } })
+  assert.deepEqual(state.chats.map(chat => [chat.name, chat.isRunning]), [['Main', true], ['Units', false], ['Features', false]])
+  assert.equal(state.advisor.isRunning, false)
+  // The lanes that are not running, in the board's order; the advisor is not one of the workers.
+  assert.deepEqual(state.restart.notRunning, ['Units', 'Features'])
+})
+
+test('just after the board started, and where no chat can ask it, nothing is said about who runs', () => {
+  const apps = [app('Main'), app('Units')]
+  // Half a minute is given for every running chat to have asked once.
+  const young = build({ apps, seen: { Main: NOW - 1000 }, board: { startedAt: NOW - 10_000, offSince: null } })
+  assert.deepEqual(young.chats.map(chat => chat.isRunning), [null, null])
+  assert.deepEqual(young.restart.notRunning, [])
+  // The demo, and a board without a bridge: nobody asks, so nobody is called "not running".
+  const deaf = build({ apps, seen: null, board: { startedAt: NOW - 5 * MIN, offSince: null } })
+  assert.deepEqual([deaf.chats.map(chat => chat.isRunning), deaf.restart.notRunning], [[null, null], []])
 })

@@ -261,6 +261,9 @@ async function main(args) {
   }
   const offSince = Number.isFinite(lastAlive) && startedAt - lastAlive > 3 * 60_000 ? lastAlive : null
 
+  // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
+  const seen = bridgeKey === null ? null : {}
+
   const readState = cached(async () => {
     const raw = await readRaw()
     const project = raw.project ?? config.project
@@ -269,6 +272,7 @@ async function main(args) {
       outbox: outboxNow(store.outbox(), clock(), keep),
       runs: games.list(),
       board: { startedAt, offSince },
+      seen,
       now: clock(),
       config: { ...config, project },
     })
@@ -299,6 +303,7 @@ async function main(args) {
     take: async body => {
       const checked = checkTake(body, await readState())
       if (!checked.ok) return checked
+      if (seen !== null) seen[checked.chat] = clock()
       const taken = await store.take(checked.chat, clock(), keep)
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()

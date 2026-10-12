@@ -117,6 +117,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .lane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .lane.is-waiting { border-color: #6a531d; }
 .lane.is-leftover { opacity: 0.45; }
+.not-running { display: block; margin-top: 3px; color: var(--muted); font-size: 12.5px; }
 
 /* The four parts share the lane as in the design: the task and the queue about a third each. */
 .lane-row { display: grid; grid-template-columns: minmax(170px, 0.56fr) minmax(0, 1fr) minmax(118px, 0.36fr) minmax(0, 1.06fr); }

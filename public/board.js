@@ -195,6 +195,13 @@ function drawRestart(state) {
   const parts = []
   if (restart.off !== null) parts.push(line('muted', `The board was off from ${clock(restart.off.from)} to ${clock(restart.off.to)} (${span(restart.off.to - restart.off.from)}).`))
   if (restart.interrupted.length > 0) parts.push(line('alert', `Cut off in the middle of a task: ${restart.interrupted.join(', ')}.`))
+  // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
+  const down = restart.notRunning ?? []
+  const isAtHand = restart.off !== null || restart.interrupted.length > 0 || restart.prepared !== null || restart.resuming !== null
+  if (isAtHand && down.includes(restart.main)) parts.push(line('alert', `${restart.main} is not running: open its chat first, the buttons here type into it.`))
+  if (isAtHand && down.some(name => name !== restart.main)) {
+    parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
+  }
   if (restart.prepared !== null) parts.push(line('muted', `${restart.main} wrote down who was on what at ${clock(restart.prepared.at)} (restart.md).`))
 
   if (isAskingRestart) {
@@ -358,6 +365,12 @@ function drawLane(lane, state) {
   const who = el('div', 'who')
   const names = el('div')
   names.append(el('h3', '', lane.name), el('span', `pill is-${lane.state}`, lane.isLeftover ? 'Leftover' : STATES[lane.state]))
+  if (lane.isRunning === false) {
+    // After a restart of the app a chat does not run until it is opened, or messaged through the app.
+    const idle = el('small', 'not-running', 'not running')
+    idle.title = 'This chat\'s process is not running: nothing reaches it until its chat is opened, or Game - Main starts it.'
+    names.append(idle)
+  }
   who.append(el('span', 'avatar', lane.name.charAt(0).toUpperCase()), names)
 
   const what = el('div', 'what')

@@ -15,6 +15,8 @@ const HOUR = 60 * MIN
 const ASKED = 'Asked you a question in its chat.'
 /** A chat's own file that says it works is renewed twice a minute. Older than this, its process is gone. */
 const CUT_OFF_MS = 150_000
+/** A running chat's mod asks the board every few seconds. Not heard from for this long, its process is not running. */
+const SEEN_MS = 30_000
 
 /**
  * True when the app was closed in the middle of a chat's turn. The transcript still shows the turn as open, but the
@@ -282,7 +284,7 @@ function aheadOf(lane, now) {
  * `outbox` what was sent from the page and is not delivered yet (see store.mjs, `outboxNow`), and `runs` the
  * games the board started and that still run (see games.mjs).
  */
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, now, config }) {
   const sent = Array.isArray(outbox) ? outbox : []
   const started = Array.isArray(runs) ? runs : []
   const list = parseList(textOr(raw.listText, ''))
@@ -432,9 +434,21 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // gave the main chat about it ("prepare restart", then "resume"). `board` says when this board started and
   // since when it had been off.
   const word = sent.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
+
+  /**
+   * Whether a chat's process runs: its mod asked the board lately (`seen`, by the chat's name). After a restart
+   * of the app a chat does not run until it is opened or messaged through the app, and until then nothing reaches
+   * it by its name. Null where that cannot be told: no chat can ask this board, or the board has only just
+   * started and not every chat has asked yet.
+   */
+  function runningOf(name) {
+    if (seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) || now - board.startedAt < SEEN_MS) return null
+    return Number.isFinite(seen[name]) && now - seen[name] < SEEN_MS
+  }
   const restart = {
     main: main === undefined ? null : main.name,
     interrupted: live.filter(lane => lane.state === 'interrupted').map(lane => lane.name),
+    notRunning: live.filter(lane => runningOf(lane.name) === false).map(lane => lane.name),
     prepared: Number.isFinite(raw.restartNote?.at) ? { at: raw.restartNote.at } : null,
     preparing: word?.command === 'prepare restart' ? { at: word.at, state: word.state, working: live.filter(lane => lane.state === 'working').map(lane => lane.name) } : null,
     resuming: word?.command === 'resume' && now - word.at < 15 * MIN ? { at: word.at, state: word.state } : null,
@@ -447,7 +461,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     estimateOldMs: config.estimateOldMinutes * MIN,
     maxMessageChars: config.maxMessageChars,
     counts,
-    chats: lanes,
+    chats: lanes.map(lane => ({ ...lane, isRunning: lane.isLeftover ? null : runningOf(lane.name) })),
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)),
     forYou: needsOf(asks, lanes, sent, gameOf),
@@ -478,7 +492,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     today: today(lines.map(line => (line.source === 'prompt' || line.source === 'handover' ? { ...line, task: null } : line)), { from, to: now, names })
       .map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
     restart,
-    advisor,
+    advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name) },
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
   }
 }
