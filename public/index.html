@@ -12,6 +12,7 @@
   <nav class="tabs" aria-label="Views">
     <button class="tab is-active" type="button" data-tab="overview">Overview</button>
     <button class="tab" type="button" data-tab="advice">Advice &amp; Chat</button>
+    <button class="tab" type="button" data-tab="coordinate">Coordinate</button>
     <span class="grow"></span>
     <button class="quiet-button" id="prepare-restart" type="button" title="Before you quit Claude: Game - Main asks every working chat to stop at a safe point and writes down who was on what" hidden>Prepare restart</button>
     <p class="updated" id="updated">Reading…</p>
@@ -72,6 +73,21 @@
       </form>
       <p class="muted say-note" id="say-note"></p>
     </aside>
+  </div>
+
+  <div class="view is-single" id="view-coordinate" hidden>
+    <main class="coordinate">
+      <header class="coordinate-top">
+        <h1>Backlog <small id="coordinate-count"></small></h1>
+        <div class="coordinate-filters" id="coordinate-filters" role="group" aria-label="Which steps"></div>
+        <span class="grow"></span>
+        <input type="search" id="coordinate-find" placeholder="Find a step: B64…" aria-label="Find a step by its id" maxlength="40">
+        <label class="check" title="Also show the steps that are ticked in the backlog">
+          <input type="checkbox" id="coordinate-done"> Show finished
+        </label>
+      </header>
+      <div class="coordinate-list" id="coordinate-list"></div>
+    </main>
   </div>
 
   <dialog class="details" id="details" aria-label="Details"></dialog>

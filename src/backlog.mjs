@@ -143,6 +143,12 @@ export function allWords(step) {
   return [step.text, ...step.notes.flatMap(part => [...part.lines, ...part.points])].join('\n')
 }
 
+/** Whether an open step of this activity waits to be started (see `queue`). */
+function isQueuedIn(activity) {
+  const isQueue = activity.name.toLowerCase().startsWith(QUEUE_HEADING)
+  return step => step.ownBranch === null && !/\(not queued/i.test(step.text) && (isQueue || (step.isFor && !step.isYou))
+}
+
 /**
  * The steps waiting to be started, in the backlog's order: the open ones under "Next to hand out", and anywhere
  * on the backlog the open ones whose note names a worker ("(for Units; ...)") and that are not the person's. A
@@ -150,10 +156,7 @@ export function allWords(step) {
  */
 export function queue(backlog) {
   return backlog.activities
-    .flatMap(activity => {
-      const isQueue = activity.name.toLowerCase().startsWith(QUEUE_HEADING)
-      return open(activity).filter(step => step.ownBranch === null && !/\(not queued/i.test(step.text) && (isQueue || (step.isFor && !step.isYou)))
-    })
+    .flatMap(activity => open(activity).filter(isQueuedIn(activity)))
     .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(notes) }))
 }
 
@@ -187,4 +190,34 @@ function stepsForYou(backlog, isDone) {
 export function openWork(backlog) {
   return backlog.activities.filter(activity => activity.isFocus).flatMap(activity =>
     open(activity).filter(step => !step.isYou).map(({ text, worker, branch }) => ({ text, activity: activity.name, worker, branch })))
+}
+
+/**
+ * The whole backlog, for the Coordinate tab: every activity, the person's focus first, with each of its steps and
+ * where the step stands (`status`): `done` (ticked), `you` (only the person can do it), `progress` (it names its own
+ * branch), `queued` (it waits to be started, see `queue`), or `open` (none of these). `key` names a step within
+ * the backlog: its id, or its place for a step from before the ids.
+ */
+export function overview(backlog) {
+  const listed = backlog.activities.map((activity, place) => {
+    const isQueued = isQueuedIn(activity)
+    return {
+      name: activity.name,
+      isFocus: activity.isFocus,
+      steps: activity.steps.map((step, index) => ({
+        key: step.id ?? `${place}:${index}`,
+        id: step.id,
+        title: step.title,
+        text: step.text,
+        asks: step.asks,
+        worker: step.worker,
+        branch: step.ownBranch,
+        minutes: step.minutes,
+        after: step.after,
+        notes: noteSections(step.notes),
+        status: step.isDone ? 'done' : step.isYou ? 'you' : step.ownBranch !== null ? 'progress' : isQueued(step) ? 'queued' : 'open',
+      })),
+    }
+  })
+  return [...listed.filter(activity => activity.isFocus), ...listed.filter(activity => !activity.isFocus)]
 }

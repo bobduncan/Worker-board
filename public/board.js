@@ -910,7 +910,12 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
     return {
       code: step.id ?? null,
       title: step.title,
-      chips: [{ text: 'Step', tone: 'kind' }, ...(lane === null ? [] : [{ text: `For: ${lane}`, tone: 'to' }])],
+      chips: [
+        { text: 'Step', tone: 'kind' },
+        // Where the step itself stands, when the backlog says so: worked on, or ticked.
+        ...(step.status === 'progress' ? [{ text: 'In progress', tone: 'plain' }] : step.status === 'done' ? [{ text: 'Finished', tone: 'plain' }] : []),
+        ...(lane === null ? [] : [{ text: `For: ${lane}`, tone: 'to' }]),
+      ],
       at: null,
       checklist,
       notes: rest,
@@ -974,6 +979,11 @@ function subjectOf(state) {
     const need = everyNeed(state).find(one => one.id === detailsOf.need)
     return need === undefined ? null : { need, lane: null, place: -1 }
   }
+  if (detailsOf.step !== undefined) {
+    // A step of the backlog by its key (the Coordinate tab): whatever its state, with the worker it names.
+    const step = (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.key === detailsOf.step)
+    return step === undefined ? null : { need: null, lane: state.chats.find(one => one.name === step.worker) ?? null, place: -1, step }
+  }
   const lane = state.chats.find(one => one.name === detailsOf.lane)
   // A queued step is followed by its id when it has one, so the details stay on it when the queue moves.
   const place = lane === undefined ? -1 : detailsOf.id === null ? detailsOf.place : lane.queue.findIndex(step => step.id === detailsOf.id)
@@ -1025,10 +1035,10 @@ function drawDetails(state) {
     return
   }
   const { need, lane, place } = subject
-  const step = need === null ? lane.queue[place] : null
+  const step = subject.step ?? (need === null ? lane.queue[place] : null)
   const now = state.readAt
   // Drawn again only when what it shows has changed, so reading and typing in it are left alone.
-  const showing = JSON.stringify([detailsOf, need ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting]])
+  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting]])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
@@ -1036,7 +1046,7 @@ function drawDetails(state) {
 
   // The head: what it is and whose it is. Nothing about a queue: the window is about the step itself.
   const view = windowOf(
-    { need, step, lane: lane?.name ?? null, isStep: need !== null && isStep(need), isClosed: need !== null && isClosed(need) },
+    { need, step, lane: lane?.name ?? step?.worker ?? null, isStep: need !== null && isStep(need), isClosed: need !== null && isClosed(need) },
     { ask: asks => ASKS[asks] ?? 'Not sorted', kind: kind => KINDS[kind].tag },
   )
   const head = el('header', 'details-head')
@@ -1380,14 +1390,123 @@ function resizable(handle, view, name, usual) {
 resizable($('inbox-resizer'), $('view-overview'), 'for-you-width', 390)
 resizable($('talk-resizer'), $('view-advice'), 'chat-width', 500)
 
+// The Coordinate tab: the whole backlog by activity. It only shows; a click on a step opens its window.
+
+// B84: what the tab lists, worked out without the page. Kept between these two marks so a test can run it.
+// coordinate:start
+/** The ways to narrow the list, in the order of their buttons. */
+const COORDINATE_FILTERS = [['all', 'All'], ['progress', 'In progress'], ['queued', 'Queued'], ['you', 'For you'], ['unassigned', 'Without a worker']]
+
+/** Whether an open step shows under a way to narrow the list. "Without a worker": a step for nobody yet, not the person's. */
+function coordinateShows(step, filter) {
+  if (filter === 'progress' || filter === 'queued' || filter === 'you') return step.status === filter
+  if (filter === 'unassigned') return step.worker === null && step.status !== 'you'
+  return true
+}
+
+/** Whether a step is what was typed in the search: an id ("B64", "b6", "64") by its start, anything else by the words of its title. */
+function coordinateFinds(step, find) {
+  const wanted = find.trim().toLowerCase()
+  if (wanted === '') return true
+  // By its number, whatever zeros stand before it: "2" finds B02 and B20.
+  const digits = /^b?0*(\d+)$/.exec(wanted)
+  if (digits !== null) return (step.id ?? '').toLowerCase().replace(/^b0*/, '').startsWith(digits[1])
+  return `${step.id ?? ''} ${step.title}`.toLowerCase().includes(wanted)
+}
+
+/**
+ * The tab's list: the activities in the order given (the person's focus first), each with the steps that pass the
+ * filter and the search; finished steps only when asked for, and never under a filter but "All". An activity with no
+ * step left is left out. `counts` says how many open steps each filter holds, whatever is searched for.
+ */
+function coordinateList(activities, { filter = 'all', find = '', showDone = false } = {}) {
+  const counts = {}
+  for (const [name] of COORDINATE_FILTERS) counts[name] = 0
+  const groups = []
+  let shown = 0
+  for (const activity of activities) {
+    const steps = []
+    for (const step of activity.steps) {
+      const isDone = step.status === 'done'
+      if (!isDone) for (const [name] of COORDINATE_FILTERS) if (coordinateShows(step, name)) counts[name] += 1
+      if (isDone ? !(showDone && filter === 'all') : !coordinateShows(step, filter)) continue
+      if (coordinateFinds(step, find)) steps.push(step)
+    }
+    if (steps.length > 0) groups.push({ name: activity.name, isFocus: activity.isFocus, steps })
+    shown += steps.length
+  }
+  return { groups, counts, shown }
+}
+// coordinate:end
+
+const STEP_STATES = { progress: 'In progress', queued: 'Queued', you: 'For you', open: 'Open', done: 'Finished' }
+let coordinateFilter = 'all'
+
+function drawCoordinate(state) {
+  const activities = state.backlog ?? []
+  const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked })
+  $('coordinate-count').textContent = `${list.counts.all} open step${list.counts.all === 1 ? '' : 's'}`
+  fill($('coordinate-filters'), COORDINATE_FILTERS.map(([name, label]) => {
+    const button = el('button', `choice${name === coordinateFilter ? ' is-chosen' : ''}`, `${label} `)
+    button.type = 'button'
+    button.dataset.filter = name
+    button.append(el('small', '', String(list.counts[name])))
+    return button
+  }))
+  const groups = list.groups.map(group => {
+    const box = el('section', `coordinate-group${group.isFocus ? ' is-focus' : ''}`)
+    const heading = el('h2', '', group.name)
+    if (group.isFocus) heading.append(el('span', 'chip is-focus', 'Focus'))
+    heading.append(el('small', '', String(group.steps.length)))
+    box.append(heading)
+    for (const step of group.steps) {
+      const row = el('button', `step-row is-${step.status}`)
+      row.type = 'button'
+      row.dataset.openStep = step.key
+      row.title = 'Show the details'
+      row.append(
+        el('span', 'step-id', step.id ?? ''),
+        el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),
+        el('span', 'step-title', step.title),
+        el('span', 'step-worker', step.worker ?? (step.status === 'you' ? 'You' : '')),
+        el('span', 'step-branch', step.branch ?? ''),
+        el('span', `step-state is-${step.status}`, STEP_STATES[step.status] ?? step.status),
+        // Room for what B83 will put here (stop a task, move a queued step, take one out of a queue). Nothing yet.
+        el('span', 'step-actions'),
+      )
+      box.append(row)
+    }
+    return box
+  })
+  fill($('coordinate-list'), groups.length > 0 ? groups : [el('p', 'muted', activities.length === 0 ? 'The backlog could not be read.' : 'No step matches.')])
+}
+
+$('coordinate-filters').addEventListener('click', event => {
+  const button = event.target.closest('[data-filter]')
+  if (button === null) return
+  coordinateFilter = button.dataset.filter
+  if (board !== null) drawCoordinate(board)
+})
+$('coordinate-find').addEventListener('input', () => { if (board !== null) drawCoordinate(board) })
+$('coordinate-done').addEventListener('change', () => { if (board !== null) drawCoordinate(board) })
+// A step for the person opens its card, with the answer; any other step opens as the step it is.
+$('coordinate-list').addEventListener('click', event => {
+  const row = event.target.closest('[data-open-step]')
+  if (row === null || board === null) return
+  const step = (board.backlog ?? []).flatMap(activity => activity.steps).find(one => one.key === row.dataset.openStep)
+  if (step === undefined) return
+  openDetails(step.needId !== null && everyNeed(board).some(need => need.id === step.needId) ? { need: step.needId } : { step: step.key })
+})
+
 // Tabs
 
 function show(tab) {
   for (const button of document.querySelectorAll('.tab')) button.classList.toggle('is-active', button.dataset.tab === tab)
   $('view-overview').hidden = tab !== 'overview'
   $('view-advice').hidden = tab !== 'advice'
+  $('view-coordinate').hidden = tab !== 'coordinate'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
-  if (!location.hash.startsWith('#details=')) history.replaceState(null, '', tab === 'advice' ? '#advice' : location.pathname)
+  if (!location.hash.startsWith('#details=')) history.replaceState(null, '', tab === 'overview' ? location.pathname : `#${tab}`)
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
 }
 
@@ -1404,6 +1523,7 @@ function draw(state) {
   drawStrips(state)
   drawToday(state)
   once('needs', needsData(state), () => drawNeeds(state))
+  once('coordinate', state.backlog ?? null, () => drawCoordinate(state))
   drawDetails(state)
   openFromAddress(state)
   once('advice', state.advice, () => drawAdvice(state))
@@ -1532,5 +1652,5 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) read()
 })
 
-show(location.hash === '#advice' ? 'advice' : 'overview')
+show(location.hash === '#advice' ? 'advice' : location.hash === '#coordinate' ? 'coordinate' : 'overview')
 read()

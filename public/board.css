@@ -473,3 +473,43 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
   .details-body { grid-template-columns: minmax(0, 1fr); }
   .details-main { border-right: 0; border-bottom: 1px solid var(--line); }
 }
+
+/* B84: the Coordinate tab, the whole backlog by activity. A row is one step; its last cell is kept free for the
+   controls of B83. */
+.view.is-single { grid-template-columns: minmax(0, 1fr); }
+.coordinate { min-height: 0; overflow-y: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 14px; }
+.coordinate-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.coordinate-top h1 { font-size: 22px; font-weight: 700; }
+.coordinate-top h1 small { margin-left: 8px; font-size: 14px; font-weight: 400; color: var(--muted); }
+.coordinate-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.coordinate-filters .choice small { margin-left: 4px; color: var(--muted); }
+.coordinate-filters .choice.is-chosen small { color: inherit; }
+#coordinate-find { width: 190px; padding: 7px 10px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 7px; outline: 0; }
+#coordinate-find:focus { border-color: #2f5fb3; }
+.coordinate-list { display: flex; flex-direction: column; gap: 16px; }
+.coordinate-group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 6px 6px; }
+.coordinate-group.is-focus { border-color: #2a4a7d; }
+.coordinate-group h2 { display: flex; align-items: center; gap: 10px; padding: 0 10px 8px; font-size: 16px; font-weight: 700; }
+.coordinate-group h2 small { font-size: 13px; font-weight: 400; color: var(--muted); }
+.coordinate-group h2 .chip { padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #cfe0ff; background: #16294a; }
+.step-row {
+  width: 100%; display: grid; grid-template-columns: 46px 70px minmax(0, 1fr) minmax(0, 170px) minmax(0, 210px) 96px 120px;
+  gap: 10px; align-items: center; padding: 7px 10px; text-align: left; font: inherit; color: var(--text);
+  background: none; border: 0; border-top: 1px solid var(--line); cursor: pointer;
+}
+.step-row:hover, .step-row:focus-visible { background: var(--inset); outline: 0; }
+.step-id { font-weight: 700; color: #9db8e8; }
+.step-kind { font-size: 12.5px; padding: 1px 7px; border-radius: 6px; background: var(--inset); border: 1px solid var(--line); justify-self: start; }
+.step-kind.is-none { visibility: hidden; }
+.step-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-worker, .step-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 13.5px; }
+.step-branch { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+.step-state { justify-self: start; font-size: 12.5px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+.step-state.is-progress { color: var(--ink); background: var(--working); border-color: var(--working); font-weight: 700; }
+.step-state.is-queued { color: #cfe0ff; border-color: #2a4a7d; }
+.step-state.is-you { color: var(--ink); background: var(--waiting); border-color: var(--waiting); font-weight: 700; }
+.step-row.is-done .step-title { text-decoration: line-through; color: var(--muted); }
+@media (max-width: 900px) {
+  .step-row { grid-template-columns: 46px minmax(0, 1fr) 96px; }
+  .step-kind, .step-worker, .step-branch, .step-actions { display: none; }
+}

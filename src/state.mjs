@@ -3,7 +3,7 @@
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { allWords, closedForYou, forYou, inProgress, parseBacklog, queue } from './backlog.mjs'
+import { allWords, closedForYou, forYou, inProgress, overview, parseBacklog, queue } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { mentionedPaths } from './pictures.mjs'
@@ -451,6 +451,15 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)),
     forYou: needsOf(asks, lanes, sent, gameOf),
+    // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
+    backlog: overview(backlog).map(activity => ({
+      ...activity,
+      steps: activity.steps.map(step => ({
+        ...step,
+        pictures: picturesOf(allWords(step)),
+        needId: step.status !== 'you' ? null : step.id === null ? stepId(`${activity.name}\n${step.text}`) : `backlog:${step.id}`,
+      })),
+    })),
     // The open steps in the backlog that end in @you.
     backlogForYou: forYou(backlog).map(step => stepCard(step, false)),
     // The ticked ones: closed. The page shows them only when the person asks for them.
