@@ -145,9 +145,10 @@ test('a click on a waiting lane opens what its chat waits for, else a request it
   assert.equal(page.needOfLane(needs.slice(0, 2), 'Units'), 'ask-1')
   assert.equal(page.needOfLane([needs[0], needs[5]], 'Units'), null)
   assert.equal(page.needOfLane(needs, 'Support'), null)
-  // The lane is clickable and its line is a button; the queue and the unfolded details keep their own clicks.
+  // The lane is clickable and its line is a button; the queue, the unfolded details and the control that removes
+  // the worker (B143) keep their own clicks.
   assert.match(script, /closest\('\.lane\.is-waiting'\)/)
-  assert.match(script, /event\.target\.closest\('\.queue, \.more'\) !== null\) return/)
+  assert.match(script, /event\.target\.closest\('\.queue, \.more, \.remove-button, \.remove-warning'\) !== null\) return/)
   assert.match(script, /el\('button', 'needs-you', 'Needs your decision'\)/)
   assert.match(style, /\.lane\.is-waiting \.lane-row > \.who,[^{]*\{[^}]*cursor:\s*pointer/)
 })

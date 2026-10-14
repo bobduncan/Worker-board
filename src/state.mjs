@@ -23,6 +23,8 @@ const SEEN_MS = 30_000
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
 const SPAWN_OPEN_MS = 15 * MIN
+/** B143: an ask to remove a worker that arrived stays open this long while the worker is still in the list. */
+const REMOVE_OPEN_MS = 15 * MIN
 
 /**
  * True when the app was closed in the middle of a chat's turn. The transcript still shows the turn as open, but the
@@ -267,6 +269,17 @@ function spawnAsk(message, workerChats, now) {
   const isOnItsWay = message.state === 'waiting' || message.state === 'taken'
   const isOpen = isOnItsWay || (message.state === 'delivered' && arrived < count && now - (message.deliveredAt ?? message.at) < SPAWN_OPEN_MS)
   return { at: message.at, count, why: message.why === 'button' ? 'button' : 'alone', state: message.state, arrived, isOpen }
+}
+
+/**
+ * B143: the newest ask to remove a worker and how it fares. It is open while it is on its way, and after it arrived
+ * for 15 minutes at most while the worker is still in the list: a worker that is gone has no lane to show it.
+ */
+function removalAsk(message, now) {
+  if (message === undefined) return null
+  const isOnItsWay = message.state === 'waiting' || message.state === 'taken'
+  const isOpen = isOnItsWay || (message.state === 'delivered' && now - (message.deliveredAt ?? message.at) < REMOVE_OPEN_MS)
+  return { at: message.at, state: message.state, isOpen }
 }
 
 /** How long the card of a chat's question stays after its answer was typed in. The page hides it sooner. */
@@ -632,7 +645,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     counts,
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
-    chats: lanes.map(lane => ({ ...lane, isRunning: lane.isLeftover ? null : runningOf(lane.name) })),
+    chats: lanes.map(lane => ({
+      ...lane,
+      isRunning: lane.isLeftover ? null : runningOf(lane.name),
+      // B143: the newest ask to remove this worker; the main chat and a leftover have none.
+      removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
+    })),
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)).map(step => ({ ...step, why: whyNot(step, null) })),
     forYou: needsOf(asks, lanes, sent, gameOf, now),

@@ -13,6 +13,39 @@ const spawnWords = (to, count, why) => ({
   text: `spawn workers\nCount: ${count}\nWhy: ${SPAWN_WHY[why]}`,
 })
 
+const pad = value => String(value).padStart(2, '0')
+const timeOfDay = ms => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`
+/** A name or a title from a file a chat wrote: one short plain line without quotes. */
+const plainLine = value => String(value ?? '').replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80)
+
+/**
+ * B143: what a worker's lane says it is doing, in one line for the main chat ("working on B140 "Sheet", step 2 of
+ * 4; 1 step queued for it: B141"), and whether it is free: free, and nothing queued for it. A worker the board
+ * cannot read is not free either.
+ */
+export function workerState(lane) {
+  const task = lane.task ?? null
+  const what = task === null ? null : [task.stepId ?? null, task.text ? `"${plainLine(task.text)}"` : null].filter(Boolean).join(' ') || null
+  const on = what === null ? '' : Number.isInteger(task.step) && Number.isInteger(task.steps) ? `${what}, step ${task.step} of ${task.steps}` : what
+  const until = Number.isFinite(lane.suspended?.until) ? ` until ${timeOfDay(lane.suspended.until)}` : ''
+  const words = {
+    free: 'free',
+    working: on === '' ? 'working' : `working on ${on}`,
+    waiting: on === '' ? 'waiting for you' : `waiting for you, on ${on}`,
+    suspended: `suspended for the limit${until}${on === '' ? '' : `, on ${on}`}`,
+    interrupted: `cut off in the middle of its turn${on === '' ? '' : `, on ${on}`}`,
+  }[lane.state] ?? 'unknown to the board'
+  const queue = (lane.queue ?? []).map(step => step.id ?? `"${plainLine(step.title)}"`)
+  const queued = queue.length === 0 ? '' : `; ${queue.length} ${queue.length === 1 ? 'step' : 'steps'} queued for it: ${queue.join(', ')}`
+  return { words: `${words}${queued}`, isFree: lane.state === 'free' && queue.length === 0 }
+}
+
+/** B143: the word that asks the main chat to remove a worker: stop it at a safe point, take it out, hand its queue on. */
+const removeWords = (to, name, state) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'remove', about: name,
+  text: `remove worker\nName: ${name}\nState: ${state}\nWhy: removed with the button`,
+})
+
 /**
  * `body` is what the page posted; `state` is the board's state (its lanes, its advisor, its For you list).
  * Answers `{ ok: true, message }` with the parts to keep, or `{ ok: false, status, why }`.
@@ -30,13 +63,24 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove'].includes(body.command)) return refuse(400, 'No such command.')
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
     // B124: the person asks for one more worker, or for three when there is none. One ask at a time.
     if (body.command === 'spawn') {
       if (state.workers?.ask?.isOpen === true) return refuse(409, 'An earlier ask for workers is still open.')
       return { ok: true, message: spawnWords(body.to, (state.workers?.count ?? 0) === 0 ? 3 : 1, 'button') }
+    }
+    // B143: the person removes a worker; the main chat is never removed this way. One ask at a time per worker,
+    // and a worker that is not free only once the person confirmed the warning (`sure`). What it is doing is read
+    // here, from the board's own state: the page names the worker only.
+    if (body.command === 'remove') {
+      const lane = (state.chats ?? []).find(chat => chat.name === body.chat && !chat.isLeftover && !chat.isMain)
+      if (lane === undefined) return refuse(409, 'That is no worker on the board.')
+      if (lane.removal?.isOpen === true) return refuse(409, 'An earlier ask to remove this worker is still open.')
+      const now = workerState(lane)
+      if (!now.isFree && body.sure !== true) return refuse(409, `This worker is not free (${now.words}): confirm the warning first.`)
+      return { ok: true, message: removeWords(body.to, plainLine(lane.name), now.words) }
     }
     // A name comes from a chat's title: it is kept to one short plain line.
     const plain = names => (names ?? []).map(name => String(name).replace(/\s+/g, ' ').trim().slice(0, 80))

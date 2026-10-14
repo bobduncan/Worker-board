@@ -154,9 +154,27 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .workers-line.is-note { color: var(--muted); }
 .workers-line.is-problem { color: var(--warn); }
 
+/* B143: removing a worker from its lane */
+.remove-button { display: block; margin-top: 8px; padding: 3px 10px; border: 1px solid #3a4a63; border-radius: 6px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.remove-button:hover:not(:disabled), .remove-button.is-warned { border-color: #e5484d; color: #ff8a8a; }
+.remove-button:disabled { opacity: 0.5; cursor: default; }
+.remove-warning { border-top: 1px solid #6a531d; background: rgba(246, 185, 59, 0.08); padding: 14px 20px; display: grid; gap: 8px; border-radius: 0 0 10px 10px; }
+.remove-warning > b { color: var(--waiting); font-size: 15px; }
+.remove-warning ul { display: grid; gap: 4px; padding-left: 18px; list-style: disc; font-size: 14px; }
+.remove-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 4px; }
+.remove-sure { padding: 7px 16px; border: 1px solid #e5484d; border-radius: 8px; background: rgba(229, 72, 77, 0.12); color: #ff8a8a; font-weight: 700; cursor: pointer; }
+.remove-keep { padding: 7px 16px; border: 1px solid #3a4a63; border-radius: 8px; background: var(--inset); font-weight: 600; cursor: pointer; }
+.remove-sure:hover, .remove-keep:hover { filter: brightness(1.15); }
+.remove-actions small { color: var(--muted); font-size: 12px; }
+.remove-line { font-size: 13px; margin-top: 6px; }
+.remove-line.is-asked { color: var(--working); font-weight: 600; }
+.remove-line.is-note { color: var(--muted); }
+.remove-line.is-problem { color: var(--warn); }
+
 .lane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .lane.is-waiting { border-color: #6a531d; }
 .lane.is-leftover { opacity: 0.45; }
+.lane.has-warning { border-color: #b9862a; }
 .not-running { display: block; margin-top: 3px; color: var(--muted); font-size: 12.5px; }
 
 /* The four parts share the lane as in the design: the task and the queue about a third each. */

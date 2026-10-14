@@ -561,6 +561,18 @@ function drawLane(lane, state) {
     idle.title = 'This chat\'s process is not running: nothing reaches it until its chat is opened, or Game - Main starts it.'
     names.append(idle)
   }
+  // B143: a worker can be removed; the main chat cannot. The board asks the main chat, which closes the worker.
+  const main = state.workers?.mainTitle ?? 'the main chat'
+  const removal = removalView(lane, main, state.readAt)
+  const isWarned = removal.canRemove && warned.has(lane.name) && removal.reasons.length > 0 && !removal.isDisabled
+  if (removal.canRemove && (state.workers?.main ?? null) !== null) {
+    const remove = el('button', `remove-button${isWarned ? ' is-warned' : ''}`, '✕ Remove')
+    remove.type = 'button'
+    remove.dataset.remove = lane.name
+    remove.disabled = removal.isDisabled || sending.has(`remove:${lane.name}`)
+    remove.title = removal.reasons.length === 0 ? 'Asks the main chat to close this worker.' : 'This worker is not free: the board says what would stop first.'
+    names.append(remove)
+  }
   who.append(el('span', 'avatar', lane.name.charAt(0).toUpperCase()), names)
 
   const what = el('div', 'what')
@@ -600,6 +612,8 @@ function drawLane(lane, state) {
   }
   const alerts = alertsOf(lane, state)
   if (alerts.length > 0) what.append(el('p', 'alert', alerts.join(' · ')))
+  if (removal.line !== null) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
+  if (problems.has(`remove:${lane.name}`)) what.append(el('p', 'remove-line is-problem', problems.get(`remove:${lane.name}`)))
 
   const queue = el('div', 'queue')
   const head = el('button', 'queue-head', `Queue (${lane.queue.length})`)
@@ -629,6 +643,10 @@ function drawLane(lane, state) {
 
   row.append(who, what, drawEta(lane, state.readAt), queue)
   card.append(row)
+  if (isWarned) {
+    card.classList.add('has-warning')
+    card.append(drawRemoveWarning(lane, removal, main))
+  }
   if (isOpen) card.append(drawMore(lane, state))
   return card
 }
@@ -742,6 +760,105 @@ function drawLanes(state) {
   if (focused !== null) [...$('lanes').querySelectorAll('[data-steps-of]')].find(node => node.dataset.stepsOf === focused)?.focus()
 }
 
+// remove:start
+// B143: "✕ Remove" on a worker's lane. The board only asks: the main chat stops the worker at a safe point, takes it
+// out of the list, closes it and hands its queue on. A worker that is not free gets a warning first, which says
+// what it is doing and what would stop; removing it then takes a second click. No word here names a project.
+
+/** A line about an ask that is no longer open stays this long. */
+const REMOVE_NOTE_MS = 60 * MIN
+
+/**
+ * What a lane shows for removing its worker: `canRemove` (a worker: not the main chat, not a leftover), `reasons`
+ * (why it is not free, each a line of the warning; none when it is free and nothing is queued for it), `line` (how
+ * the newest ask fares, with its `tone`: asked, note, problem) and `isDisabled` while an ask is open. `main` is the
+ * main chat's title.
+ */
+function removalView(lane, main, now) {
+  if (lane.isMain || lane.isLeftover) return { canRemove: false, reasons: [], line: null, isDisabled: true }
+  const task = lane.task ?? null
+  const what = task === null ? null
+    : `"${task.text}"${Number.isInteger(task.step) && Number.isInteger(task.steps) ? `, step ${task.step} of ${task.steps}` : ''}`
+  const reasons = []
+  if (lane.state === 'working') {
+    reasons.push(what === null
+      ? 'It is working. What it does stops at a safe point.'
+      : `It is working on ${what}${lane.eta ? `, about ${span(lane.eta.leftMs)} left` : ''}. That task stops at a safe point: its work is committed and its branch stays for another worker.`)
+  }
+  if (lane.state === 'waiting') reasons.push(`It waits for you${what === null ? '' : ` on ${what}`}: your answer would no longer be taken.`)
+  if (lane.state === 'suspended') {
+    const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
+    reasons.push(`It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
+  }
+  if (lane.state === 'interrupted') reasons.push(`It was cut off in the middle of ${what ?? 'its turn'}: that work would not be resumed.`)
+  if (lane.state === 'unknown') reasons.push('The board cannot tell what it is doing.')
+  const queue = lane.queue ?? []
+  if (queue.length > 0) {
+    const titles = queue.slice(0, 3).map(step => `"${step.title}"`).join(', ')
+    const more = queue.length > 3 ? ` and ${queue.length - 3} more` : ''
+    reasons.push(`${queue.length === 1 ? '1 step is' : `${queue.length} steps are`} queued for it: ${titles}${more}. The main chat hands ${queue.length === 1 ? 'it' : 'them'} to another worker.`)
+  }
+
+  const ask = lane.removal ?? null
+  const asked = ask === null ? '' : `You asked the main chat, ${main}, to remove it at ${clock(ask.at)}.`
+  const line = (() => {
+    if (ask === null) return null
+    if (ask.state === 'expired' || ask.state === 'failed') {
+      return now - ask.at < REMOVE_NOTE_MS ? { tone: 'problem', text: `The ask of ${clock(ask.at)} to remove it did not reach the main chat: open its chat, then ask again.` } : null
+    }
+    if (ask.isOpen) {
+      const where = ask.state === 'waiting' ? 'It waits for the main chat to take it.' : ask.state === 'taken' ? 'It is handed to the main chat.' : 'It is typed into its chat.'
+      return { tone: 'asked', text: `${asked} ${where}` }
+    }
+    return now - ask.at < REMOVE_NOTE_MS ? { tone: 'note', text: `${asked} It is still in the list: ask again if it should go.` } : null
+  })()
+  return { canRemove: true, reasons, line, isDisabled: ask?.isOpen === true }
+}
+// remove:end
+
+/** B143: the warning under a lane whose worker is not free, with the second click. */
+function drawRemoveWarning(lane, removal, main) {
+  const box = el('div', 'remove-warning')
+  const list = el('ul')
+  for (const reason of removal.reasons) list.append(el('li', '', reason))
+  const sure = el('button', 'remove-sure', 'Remove anyway')
+  sure.type = 'button'
+  sure.dataset.removeSure = lane.name
+  const keep = el('button', 'remove-keep', 'Keep it')
+  keep.type = 'button'
+  keep.dataset.removeKeep = lane.name
+  const actions = el('div', 'remove-actions')
+  actions.append(sure, keep, el('small', '', `The board asks the main chat, ${main}, to stop it at a safe point, take it out of the list and close it.`))
+  box.append(el('b', '', `Remove ${lane.name}? It is not free.`), list, actions)
+  return box
+}
+
+/** B143: the lanes whose warning is open. It stays in this page only. */
+const warned = new Set()
+
+// B143: "✕ Remove" asks at once for a free worker with nothing queued, else opens (or closes) the warning;
+// "Remove anyway" asks; "Keep it" closes the warning.
+$('lanes').addEventListener('click', event => {
+  const button = event.target.closest('[data-remove], [data-remove-sure], [data-remove-keep]')
+  if (button === null || board === null) return
+  const { remove = null, removeSure = null, removeKeep = null } = button.dataset
+  if (removeKeep !== null) {
+    warned.delete(removeKeep)
+    return drawLanes(board)
+  }
+  const name = remove ?? removeSure
+  const lane = board.chats.find(one => one.name === name)
+  const main = board.workers?.main ?? null
+  if (lane === undefined || main === null) return
+  if (removeSure === null && removalView(lane, board.workers.mainTitle, board.readAt).reasons.length > 0) {
+    if (!warned.delete(name)) warned.add(name)
+    return drawLanes(board)
+  }
+  warned.delete(name)
+  button.disabled = true
+  send({ to: main, command: 'remove', chat: name, ...(removeSure === null ? {} : { sure: true }) }, `remove:${name}`)
+})
+
 // B124: one more worker, or three when there is none: the board asks the main chat, which starts them.
 $('lanes').addEventListener('click', event => {
   const button = event.target.closest('[data-spawn]')
@@ -754,7 +871,7 @@ $('lanes').addEventListener('click', event => {
 // queue and the unfolded details keep their own clicks.
 $('lanes').addEventListener('click', event => {
   const card = event.target.closest('.lane.is-waiting')
-  if (card === null || board === null || event.target.closest('.queue, .more') !== null) return
+  if (card === null || board === null || event.target.closest('.queue, .more, .remove-button, .remove-warning') !== null) return
   const id = needOfLane(board.forYou, card.dataset.lane)
   if (id !== null) openDetails({ need: id })
 })
