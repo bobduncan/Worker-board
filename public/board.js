@@ -2353,7 +2353,7 @@ function drawDetails(state) {
   const body = el('div', `details-body${right.children.length === 0 ? ' is-single' : ''}`)
   body.append(left, ...(right.children.length === 0 ? [] : [right]))
   // B157: a finished worker's window drawn anew keeps its details open when the person had opened them.
-  keepUnfolded(box, () => fill(box, need === null && queue === null ? [head, body] : [head, body, foot]))
+  keepUnfolded(box, () => fill(box, foot.children.length === 0 ? [head, body] : [head, body, foot]))
   body.scrollTop = scroll
   refocus(box, focused)
 }
