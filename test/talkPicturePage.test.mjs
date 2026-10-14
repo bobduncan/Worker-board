@@ -39,7 +39,7 @@ test('words are pasted as words, also when a document brings a picture of them a
 })
 
 test('the talk has a place for the picture above the words, a way to take it away, and shows it in the message', () => {
-  assert.match(html, /<form class="say main-say" id="main-say">\s*<div class="main-compose">\s*<div class="main-picture" id="main-picture" hidden><\/div>\s*<textarea id="main-text"/)
+  assert.match(html, /<form class="say main-say" id="main-say">\s*<div class="main-picture" id="main-picture" hidden><\/div>\s*<textarea id="main-text"/)
   assert.match(html, /Ctrl\+V adds a picture/)
   assert.match(script, /'Take the picture away'/)
   assert.match(script, /fetch\('\/api\/talk\/picture'/)

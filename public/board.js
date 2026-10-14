@@ -2754,7 +2754,9 @@ function setTalkPicture(file) {
   remove.type = 'button'
   remove.title = 'Take the picture away'
   remove.setAttribute('aria-label', 'Take the picture away')
-  box.replaceChildren(image, remove)
+  const frame = el('span', 'main-picture-frame')
+  frame.append(image, remove)
+  box.replaceChildren(frame)
 }
 
 /** The board keeps the picture and answers its path; null, with the reason shown, when it did not. */
