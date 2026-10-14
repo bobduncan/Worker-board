@@ -38,6 +38,12 @@ const DEFAULTS = {
   gamePort: 5300,
   /** Such a game ends this long after its last tab was closed, or when nobody opened it in time. */
   gameIdleSeconds: 30,
+  /**
+   * B197: the command that starts a working folder's game, as a list of words; none by default. `{folder}`, `{port}`,
+   * `{idle}`, `{grace}`, `{cache}`, `{node}` (this Node) and `{board}` (the board's folder) are filled in. It prints
+   * `ready <port>` once the game is served, and ends by itself when nobody looks; `run-game.mjs` (Vite) is the example.
+   */
+  runGame: [],
   gameOpenSeconds: 120,
   /** B113: the file the app keeps its usage samples in, and the percentage from which a limit's bar warns. */
   usageHistory: '%APPDATA%\\Claude\\plan-usage-history.json',
@@ -105,6 +111,7 @@ export function parseConfig(text, env) {
   if (typeof raw.advisorSuggestions === 'string' && raw.advisorSuggestions.trim() !== '') config.advisorSuggestions = raw.advisorSuggestions.trim()
   if (typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim())) config.morningRound = raw.morningRound.trim()
   if (typeof raw.weeklyRound === 'boolean') config.weeklyRound = raw.weeklyRound
+  if (Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== '')) config.runGame = [...raw.runGame]
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   return config
 }
@@ -141,6 +148,7 @@ export function configProblem(fileText) {
   if (has('advisorReadFirst') && !(Array.isArray(raw.advisorReadFirst) && raw.advisorReadFirst.every(one => typeof one === 'string' && INSIDE.test(one)))) return wrong('advisorReadFirst', 'a list of paths inside the game, written with /')
   if (has('morningRound') && !(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
+  if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   return null
 }

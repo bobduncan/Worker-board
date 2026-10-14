@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -10,6 +11,9 @@ import { fileURLToPath } from 'node:url'
 import { checkGame, createGames, gameLauncher, idleWatch } from '../src/games.mjs'
 
 const RUNNER = join(dirname(fileURLToPath(import.meta.url)), '..', 'run-game.mjs')
+// B197: the board's folder, and the start command examples/config.json gives for a Vite game: the tests run it.
+const BOARD = join(dirname(fileURLToPath(import.meta.url)), '..')
+const COMMAND = JSON.parse(readFileSync(join(BOARD, 'examples', 'config.json'), 'utf8')).runGame
 
 const need = (id, game) => ({ id, game })
 const state = {
@@ -190,7 +194,7 @@ test('the runner stops by itself when nothing was opened', async t => {
 test('the launcher serves the folder on this machine only; the game stays while a tab is open and ends after it is closed', async t => {
   const folder = await madeUpGame(t)
   let hasExited = false
-  const launch = gameLauncher({ runner: RUNNER, cacheDir: join(folder, 'cache'), idleSeconds: 1, graceSeconds: 20 })
+  const launch = gameLauncher({ command: COMMAND, board: BOARD, cacheDir: join(folder, 'cache'), idleSeconds: 1, graceSeconds: 20 })
   const game = launch({ path: folder, port: 0, onExit: () => { hasExited = true } })
   t.after(() => game.stop())
   const url = await game.ready
@@ -215,7 +219,14 @@ test('the launcher says so when a folder has no game to start', async t => {
   const folder = await mkdtemp(join(tmpdir(), 'board-game-'))
   t.after(() => rm(folder, { recursive: true, force: true }))
   let hasExited = false
-  const launch = gameLauncher({ runner: RUNNER, cacheDir: join(folder, 'cache'), idleSeconds: 1, graceSeconds: 1 })
+  const launch = gameLauncher({ command: COMMAND, board: BOARD, cacheDir: join(folder, 'cache'), idleSeconds: 1, graceSeconds: 1 })
   await assert.rejects(launch({ path: folder, port: 0, onExit: () => { hasExited = true } }).ready, /did not start/)
   assert.equal(hasExited, true)
+})
+
+test('B197: the start command\'s words get the folder, the port and the rest filled in; an unknown word stays', async () => {
+  const { commandFor } = await import('../src/games.mjs')
+  assert.deepEqual(commandFor(['{node}', '{board}/run.mjs', '--at', '{folder}', '--port={port}', '{other}'], { node: 'node', board: '/b', folder: '/g', port: 5300 }),
+    ['node', '/b/run.mjs', '--at', '/g', '--port=5300', '{other}'])
+  assert.equal(COMMAND[1], '{board}/run-game.mjs')
 })

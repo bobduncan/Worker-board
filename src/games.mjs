@@ -119,12 +119,14 @@ const lastLine = text => text.split('\n').map(line => line.trim()).filter(line =
  * Starts a folder's game with the runner, as a process of its own. The runner ends by itself (see `idleWatch`),
  * so a game never outlives the person's interest in it, also when the board is closed.
  */
-export function gameLauncher({ runner, cacheDir, idleSeconds, graceSeconds, readySeconds = 60, node = process.execPath }) {
+/** B197: the start command's words with `{folder}`, `{port}` and the others filled in; an unknown one stays as it is. */
+export const commandFor = (words, values) => words.map(word => word.replace(/\{(\w+)\}/g, (whole, key) => (values[key] === undefined ? whole : String(values[key]))))
+
+export function gameLauncher({ command, board, cacheDir, idleSeconds, graceSeconds, readySeconds = 60, node = process.execPath }) {
   return ({ path, port, onExit }) => {
     const name = pathKey(path).split('/').pop() || 'game'
-    const child = spawn(node, [
-      runner, '--folder', path, '--port', String(port), '--idle', String(idleSeconds), '--grace', String(graceSeconds), '--cache', join(cacheDir, name),
-    ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const [program, ...args] = commandFor(command, { folder: path, port, idle: idleSeconds, grace: graceSeconds, cache: join(cacheDir, name), node, board })
+    const child = spawn(program, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
 
     const ready = new Promise((resolve, reject) => {
       let out = ''

@@ -325,7 +325,8 @@ async function main(args) {
   // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
   const games = createGames({
     launch: gameLauncher({
-      runner: join(HERE, 'run-game.mjs'),
+      command: config.runGame,
+      board: HERE,
       cacheDir: join(HERE, 'data', 'game-cache'),
       idleSeconds: config.gameIdleSeconds,
       graceSeconds: config.gameOpenSeconds,
@@ -335,7 +336,9 @@ async function main(args) {
   let folders = async () => null
   let branches = async () => null
   // B110: the repositories whose branches say whether a step's work is merged: the game's, and the board's own.
-  const branchesNow = () => readBranches([config.gameRepo, HERE], gitRunner())
+  // B132: the game's repository only when the settings name one; `git -C ""` would read the board's own folder.
+  const hasGame = config.gameRepo !== ''
+  const branchesNow = () => readBranches(hasGame ? [config.gameRepo, HERE] : [HERE], gitRunner())
 
   // B110: an approval of merged work, and "Done" on what only the person could do, the board settles itself.
   const settle = (message, state) => settleByBoard(message, state, {
@@ -368,7 +371,7 @@ async function main(args) {
     store = memoryStore()
     readRaw = () => demoSources(clock())
   } else {
-    folders = cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS)
+    folders = hasGame ? cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS) : async () => null
     branches = cached(() => branchesNow(), FOLDERS_MS)
     readRaw = () => readSources(config, folders, undefined, branches)
     if (historyFrom === undefined) {
@@ -510,7 +513,8 @@ async function main(args) {
     })
     // B173: the Advisor's rounds as the clock has them, for the Advice & Chat tab.
     const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept, group: config.advisorSuggestions }
-    return { ...state, isDemo, project, rounds, name: config.name }
+    // B132: whether the project has a game to run; the demo has its made-up one.
+    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame }
   }, STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
@@ -686,6 +690,8 @@ async function main(args) {
       const checked = checkGame(body, await readState())
       if (!checked.ok) return checked
       if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it starts no game.' }
+      // B197: how the game starts is the project's to say.
+      if (checked.action === 'start' && config.runGame.length === 0) return { ok: false, status: 409, why: 'The board\'s settings name no command that starts the game ("runGame"): examples/config.json has one for a Vite game.' }
       if (checked.action === 'stop') {
         games.stop(checked.path)
         readState.reset()
