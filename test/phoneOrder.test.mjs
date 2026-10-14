@@ -15,7 +15,8 @@ const phone = style.slice(style.indexOf('/* B207:'))
 
 test('each tab has its short name for the bar beside its usual one; only the short one shows on a phone', () => {
   assert.match(html, /data-tab="overview"><span class="tab-long">Overview<\/span><span class="tab-short">Today<\/span><\/button>/)
-  assert.match(html, /data-tab="advice"><span class="tab-long">Advice &amp; Chat<\/span><span class="tab-short">Advisor<\/span><\/button>/)
+  // B195: the tab is called Advisor in both widths.
+  assert.match(html, /data-tab="advice"><span class="tab-long">Advisor<\/span><span class="tab-short">Advisor<\/span><\/button>/)
   assert.match(phone, /^\.tab-short, \.phone-more \{ display: none; \}/m)
   assert.match(phone, /\.tab-long, \.tab-list \.tab\[data-tab="design"\] \{ display: none; \}/)
   assert.match(phone, /\.tab-list \{ position: fixed; left: 0; right: 0; bottom: 0;/)
