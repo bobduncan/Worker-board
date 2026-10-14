@@ -1638,7 +1638,7 @@ function handoverParts(waiting, needId) {
   const did = plainWords(handover.did)
   const main = [briefPart([
     ['The task', [briefTask(shortTask(handover.task ?? given?.text ?? null, null, waiting.task[0] ?? null))]],
-    ['What it did', did === '' ? [] : [el('p', 'brief-text', did)]],
+    ['What I did', did === '' ? [] : [el('p', 'brief-text', did)]],
   ])]
 
   if (handover.items.length > 0) {
@@ -1849,7 +1849,7 @@ function shortTask(given, stepTitle = null, topic = null) {
 const TECHNICAL = [
   /`/, /\b[\w-]+\.(?:m?js|ts|tsx|css|html|md|json|py|png|jpe?g|webp)\b/i, /[\w.-]+[\\/][\w.-]+[\\/]?/, /[?&][\w-]+=/,
   /\b[A-Za-z_]\w*\(/, /\b[a-z]+_[a-z][\w]*\b/, /\b[a-z]+[A-Z]\w*\b/,
-  /\b(?:commits?|branch(?:es)?|npm|regex|refactor\w*|typecheck\w*|endpoints?|api|tests?|vitest|worktree|repositor(?:y|ies)|origin|stash)\b/i,
+  /\b(?:commits?|branch(?:es)?|npm|regex|refactor\w*|typecheck\w*|endpoints?|api|vitest|worktree|repositor(?:y|ies)|origin|stash)\b/i,
 ]
 
 /** B157: whether a piece of text is technical (see TECHNICAL). */
@@ -1896,7 +1896,8 @@ function laneWindowOf(lane, now, mainTitle) {
   const time = timeOf(lane, now)
   return {
     code: given?.step?.id ?? task?.stepId ?? null,
-    title: task === null || task.text === '' ? 'Task not recorded yet' : task.text,
+    // B157: a topic that starts with the step's id does not say it twice beside the id.
+    title: task === null || task.text === '' ? 'Task not recorded yet' : task.text.replace(new RegExp(`^${given?.step?.id ?? task?.stepId ?? '(?!)'}[:,]?\\s+`), ''),
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
     given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
     step: given?.step ?? null,

@@ -78,3 +78,11 @@ test('both windows: the brief on top, the rest under "Details", folded until ope
   assert.match(style, /\.task-brief \.brief-task \{[^}]*-webkit-line-clamp: 2/)
   assert.match(style, /\.task-brief h3 \{[^}]*font-weight: 700/)
 })
+
+test('the head does not say the step\'s id twice', () => {
+  const NOW = 1_000_000 * 60_000
+  const lane = { name: 'Units', state: 'working', task: { text: 'B88 zebracorn portraits', step: null, steps: null, names: null, stepId: 'B88' } }
+  const view = plain(more.laneWindowOf(lane, NOW, 'Game - Main'))
+  assert.deepEqual([view.code, view.title], ['B88', 'zebracorn portraits'])
+  assert.equal(plain(more.laneWindowOf({ ...lane, task: { ...lane.task, text: 'Portraits of B88' } }, NOW, 'Game - Main')).title, 'Portraits of B88')
+})
