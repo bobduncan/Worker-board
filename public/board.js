@@ -1174,6 +1174,8 @@ function sentLine(answer, to = null) {
   const where = {
     delivered: `typed into its chat${answer.deliveredAt ? ` at ${clock(answer.deliveredAt)}` : ''}`,
     taken: 'handed to its chat, which runs it when it is idle',
+    // B212: no Workers mod types it in: the person pastes it.
+    copied: 'copied for you to paste into its chat',
   }[answer.state] ?? 'waits for its chat to take it'
   line.append(el('b', '', what), ` at ${clock(answer.at)} · `, where)
   if (answer.text !== '') line.append(el('div', '', answer.text))
@@ -2927,7 +2929,7 @@ function drawTalk(state) {
     note: message.via === 'board' ? 'typed on the board' : null,
   }))
   for (const typed of advisor?.pending ?? []) {
-    const note = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle' }[typed.state] ?? 'waits for its chat to take it'
+    const note = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle', copied: 'copied for you to paste into its chat' }[typed.state] ?? 'waits for its chat to take it'
     rows.push(drawMessage({ key: `out:${typed.id}`, kind: 'is-you is-pending', time: clock(typed.at), who: 'You', text: typed.text, note }))
   }
   if (advisor !== null && advisor.state === 'working') {
@@ -3097,7 +3099,7 @@ function drawMainTalk(state) {
     note: message.via === 'board' ? 'typed on the board' : null,
   }))
   for (const typed of talk?.pending ?? []) {
-    const waits = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle' }[typed.state] ?? 'waits for its chat to take it'
+    const waits = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle', copied: 'copied for you to paste into its chat' }[typed.state] ?? 'waits for its chat to take it'
     rows.push(drawTalkMessage({ key: `main-out:${typed.id}`, from: 'you', who: 'You', at: typed.at, text: typed.text, picture: typed.picture ?? null, note: waits, isPending: true }))
   }
   if (rows.length === 0) rows.push(el('p', 'empty', talk === null ? 'No main chat is open.' : 'Nothing said here yet. Tell the main chat what to do next.'))
@@ -4280,6 +4282,8 @@ async function send(message, id) {
       body: JSON.stringify(message),
     })
     if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
+    // B212: no Workers mod takes the board's words: they are on the clipboard, to be pasted into the chat.
+    else showPaste((await answer.json().catch(() => null))?.paste ?? null)
   } catch {
     problem = 'the board\'s server does not answer'
   }
@@ -4298,6 +4302,47 @@ async function send(message, id) {
   }
   await read()
   if (id === null) $('messages').scrollTop = $('messages').scrollHeight
+}
+
+// paste:start
+/** B212: the line on top that says the words were copied, and into which chat to paste them. */
+function pasteLine(paste, isCopied) {
+  return isCopied
+    ? `Copied for you: open the chat "${paste.chat}" in the Claude app and paste it there (Ctrl+V). No Workers mod types it in for you.`
+    : `Not copied by itself: click Copy, then open the chat "${paste.chat}" in the Claude app and paste it there.`
+}
+// paste:end
+
+let pasting = null
+
+async function copyPaste() {
+  try {
+    await navigator.clipboard.writeText(pasting.text)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** B212: puts the words on the clipboard and says so in a bar on top, with Copy (again) and close. */
+async function showPaste(paste) {
+  if (paste === null || typeof paste?.text !== 'string') return
+  pasting = paste
+  let bar = document.querySelector('.paste-note')
+  if (bar === null) {
+    bar = el('div', 'paste-note')
+    bar.setAttribute('role', 'status')
+    document.body.append(bar)
+  }
+  const isCopied = await copyPaste()
+  const copy = el('button', 'paste-copy', 'Copy')
+  copy.type = 'button'
+  copy.addEventListener('click', async () => { copy.textContent = (await copyPaste()) ? 'Copied' : 'Copy failed' })
+  const close = el('button', 'paste-close', '×')
+  close.type = 'button'
+  close.setAttribute('aria-label', 'Close')
+  close.addEventListener('click', () => bar.remove())
+  bar.replaceChildren(el('span', '', pasteLine(paste, isCopied)), copy, close)
 }
 
 /**

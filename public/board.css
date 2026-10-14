@@ -485,6 +485,10 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .talk-code .is-bad { color: #ff8a8a; }
 .talk-code .is-plain { color: var(--muted); }
 .main-say button { width: auto; min-width: 118px; padding: 0 16px; white-space: nowrap; }
+/* B212: the words were copied for the person to paste, without a Workers mod. */
+.paste-note { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 10px; max-width: min(760px, calc(100vw - 32px)); padding: 10px 12px 10px 16px; border: 1px solid var(--waiting); border-radius: 9px; background: var(--panel); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); font-size: 14px; }
+.paste-note button { flex: none; height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--inset); color: inherit; cursor: pointer; }
+.paste-note .paste-close { width: 30px; padding: 0; }
 /* B167: a picture pasted into the talk: small above the words before it is sent, and in the message after. */
 .main-say { flex-wrap: wrap; }
 .main-picture { flex: 0 0 100%; }

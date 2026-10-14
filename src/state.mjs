@@ -843,6 +843,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       }
     })(),
     advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name) },
+    // B212: no Workers mod has asked this board for its words since it started: what is sent is copied for the person
+    // to paste instead (null on a board that does not deliver). `chatPrefix` makes a chat's name its title.
+    bridge: seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) ? null
+      : { isMissing: Object.keys(seen.shown ?? {}).length === 0 && Object.keys(seen.other ?? {}).length === 0 && now - board.startedAt >= SEEN_MS },
+    chatPrefix: prefix,
     // B161: the talk with the main chat; null without a main chat.
     mainTalk: mainTalk === null ? null : { ...mainTalk, isRunning: runningOf(mainTalk.name) },
     // B173: the game plan (config.gamePlan in the game's repository), and the Advisor's open suggestions: the open
