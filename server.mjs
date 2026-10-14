@@ -327,7 +327,7 @@ async function main(args) {
   // B110: an approval of merged work, and "Done" on what only the person could do, the board settles itself.
   const settle = (message, state) => settleByBoard(message, state, {
     canWrite: !isDemo && !isShowOnly,
-    file: join(config.project, '.claude', 'backlog.md'),
+    file: join(config.project, ...config.backlog.split('/')),
     branchesNow,
     now: clock(),
     say: sent => store.say(sent),

@@ -67,7 +67,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const [listText, appChatTexts, backlogText, adviceText, folders, askTexts] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     readAppChats(config.appSessions),
-    readText(join(claude, 'backlog.md')),
+    readText(join(config.project, ...config.backlog.split('/'))),
     readText(join(claude, 'advice.md')),
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
