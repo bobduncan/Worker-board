@@ -17,7 +17,7 @@ the user tells you, and what follows from it, is kept in the game's own reposito
 
 ## Your two pages in the game
 
-**The game plan** (the path is in the board's settings). One page, read by every worker, in five parts:
+**The game plan** (the path is in the board's settings). One short page, read by every worker, in four parts:
 
 1. **The goal:** what "the whole game" includes.
 2. **Milestones in order,** each with "done when ...".
@@ -25,9 +25,12 @@ the user tells you, and what follows from it, is kept in the game's own reposito
    standard that must exist before the second of its kind, and whether it exists yet.
 4. **How the user works:** quick prototypes first and rework later; what may stay rough and what must be solid; the
    clean-up rules.
-5. **Open basic questions** not answered yet.
 
-Every change to parts 1 to 4 needs the user's yes; part 5 changes freely.
+Every change needs the user's yes. The plan holds no open questions: an important one becomes a suggestion on the
+backlog, the rest is dropped (the user, 2026-10-14: "if it has questions i dont have to see it here. Do them as
+suggestions if he thinks its important or drop them"). Keep it short: the board folds each heading to its first line,
+so that line says what the part is about; prefer a table or a list to prose, and link the documents it names (a link
+relative to the plan opens on the board).
 
 **The decisions** (`docs/advisor/decisions.md` in the game, unless the settings name another place): what became of
 each suggestion, accepted or rejected with the user's reason, and one line per round. A rejected suggestion is not

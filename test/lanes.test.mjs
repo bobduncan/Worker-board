@@ -265,7 +265,8 @@ test('a table as a chat writes it is read as a table: its head, its rows, and th
   assert.deepEqual(plain(page.partsOf('| just bars |\nand text')), [{ text: '| just bars |\nand text' }])
   assert.deepEqual(plain(page.partsOf('No table here.\nTwo lines.')), [{ text: 'No table here.\nTwo lines.' }])
   // The page draws the parts: the advice and a message of the advisor.
-  assert.match(script, /nodes\.push\(drawTable\(part\.table\)\)/)
+  // B218: the game plan draws its tables with its links working.
+  assert.match(script, /add\(drawTable\(part\.table, linker\)\)/)
   assert.match(script, /rich\(bubble, text\)/)
 })
 

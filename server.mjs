@@ -49,6 +49,7 @@ import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
+import { readGameFile } from './src/gameFile.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -145,7 +146,7 @@ export function pictureKind(bytes) {
  *   `talkPicture(bytes)` keeps a picture the person pasted into Talk to Main (B167), the same shape
  */
 export function createBoard({
-  token, getState, say, picture = async () => null, publicDir = join(HERE, 'public'),
+  token, getState, say, picture = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
   game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -251,6 +252,12 @@ export function createBoard({
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       const found = await picture(searchParams.get('path') ?? '')
       return found === null ? refuse(res, 404, 'No such picture.') : send(res, 200, found.type, found.body)
+    }
+    // B218: a file a link in the game plan names, read-only, from the game's folder only.
+    if (pathname === '/api/game-file') {
+      if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      const found = await gameFile(searchParams.get('path') ?? '')
+      return found === null ? refuse(res, 404, 'No such file in the game\'s folder, or not one the board shows.') : send(res, 200, found.type, found.body)
     }
     if (pathname === '/' || pathname === '/index.html') {
       const page = await readFile(join(publicDir, 'index.html'), 'utf8')
@@ -663,6 +670,7 @@ async function main(args) {
       readState.reset()
       return { ok: true, message }
     },
+    gameFile: path => readGameFile(config.gameRepo, path),
     picture: async path => {
       const { project } = await readState()
       const found = await findPicture(project, config.pictureRoots, path)
