@@ -40,11 +40,11 @@ const sent = (at, more = {}) => ({ id: `m${at}`, at, ...WORDS, count: 3, why: 'a
 // What the state says
 
 test('the state names the main chat, counts the workers, and gives what a new project needs to make its main chat', () => {
-  assert.deepEqual(build().workers, { main: 'Main', mainTitle: 'Game - Main', project: PROJECT, count: 0, ask: null })
+  assert.deepEqual(build().workers, { main: 'Main', mainTitle: 'Game - Main', project: PROJECT, count: 0, ask: null, lookFor: [] })
   assert.equal(build({ chats: ['Main', 'Units', 'Worker 1'] }).workers.count, 2)
   // The advisor is talked with on its own tab: it is no worker.
   assert.equal(build({ chats: ['Main', 'Advisor'] }).workers.count, 0)
-  assert.deepEqual(build({ chats: ['Units'] }).workers, { main: null, mainTitle: 'Game - Main', project: PROJECT, count: 1, ask: null })
+  assert.deepEqual(build({ chats: ['Units'] }).workers, { main: null, mainTitle: 'Game - Main', project: PROJECT, count: 1, ask: null, lookFor: [] })
   // The names come from the list of chats, whatever the project calls its chats.
   assert.equal(build({ chats: [], listText: '{"prefix":"Studio · ","main":"Lead"}' }).workers.mainTitle, 'Studio · Lead')
 })
@@ -112,4 +112,24 @@ test('the button asks only the main chat, carries nothing else, and waits while 
   assert.deepEqual(checkSay({ to: 'Main', command: 'spawn' }, open, 2000), { ok: false, status: 409, why: 'An earlier ask for workers is still open.' })
   const lost = build({ chats: ['Main', 'Units'], outbox: [sent(NOW - 20 * MIN, { count: 1, why: 'button', state: 'expired', deliveredAt: undefined })] })
   assert.equal(checkSay({ to: 'Main', command: 'spawn' }, lost, 2000).ok, true)
+})
+
+test('B131, B137: an empty board says what it looks for and where, from the settings; a full one says nothing', async () => {
+  const { lookingFor } = await import('../src/state.mjs')
+  const { join } = await import('node:path')
+  const settings = { project: 'C:/p', backlog: '.claude/backlog.md' }
+  const ok = { prefix: 'Team - ', main: 'Lead', problem: null }
+  const listFile = join('C:/p', '.claude', 'chats', 'list.json')
+  assert.deepEqual(lookingFor({ list: ok, prefix: 'Team - ', config: settings, chats: 2, hasBacklog: true }), [])
+  assert.deepEqual(lookingFor({ list: { prefix: null, main: null, problem: 'missing' }, prefix: '', config: settings, chats: 0, hasBacklog: false }), [
+    `No list of chats: the board looks for ${listFile}. Copy examples/list.json there and set "prefix" (how the project's chat titles start) and "main" (the main chat's name).`,
+    `No backlog yet: the board reads ${join('C:/p', '.claude', 'backlog.md')}.`,
+  ])
+  assert.deepEqual(lookingFor({ list: { prefix: null, main: null, problem: 'broken' }, prefix: '', config: settings, chats: 0, hasBacklog: true }), [`The list of chats ${listFile} is not valid JSON.`])
+  assert.deepEqual(lookingFor({ list: ok, prefix: 'Team - ', config: settings, chats: 0, hasBacklog: true }), ['No chat of this project yet: the board shows the open chats in C:/p whose titles start with "Team - ".'])
+  assert.deepEqual(lookingFor({ list: ok, prefix: '', config: { ...settings, project: '' }, chats: 0, hasBacklog: false }), ['The settings name no "project": the board looks for everything in that folder.'])
+  // Without a list the state has no main chat and no main chat's title to guess.
+  const empty = build({ chats: ['Main'], listText: null })
+  assert.deepEqual([empty.workers.main, empty.workers.mainTitle, empty.chats.length], [null, null, 0])
+  assert.match(empty.workers.lookFor[0], /^No list of chats: the board looks for /)
 })

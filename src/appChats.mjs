@@ -50,15 +50,22 @@ export function parseAppChat(fileText) {
   }
 }
 
-/** `<project>\.claude\chats\list.json`: which chats are the game's, and which one is the main chat. */
+/**
+ * `<project>\.claude\chats\list.json`: which chats are the project's (their titles start with `prefix`), and which
+ * one is the main chat. B131: nothing is guessed. Without the file, or with one that is no JSON or names no prefix or
+ * main chat, `problem` says so ('missing', 'broken', 'incomplete') and the board shows no chats until it is right.
+ */
 export function parseList(fileText) {
-  const fallback = { prefix: 'Game - ', main: 'Main' }
+  if (typeof fileText !== 'string' || fileText.trim() === '') return { prefix: null, main: null, problem: 'missing' }
+  let raw
   try {
-    const raw = JSON.parse(fileText)
-    return { prefix: text(raw?.prefix) ?? fallback.prefix, main: text(raw?.main) ?? fallback.main }
+    raw = JSON.parse(fileText.replace(/^\uFEFF/, ''))
   } catch {
-    return fallback
+    return { prefix: null, main: null, problem: 'broken' }
   }
+  const named = value => (typeof value === 'string' && value.trim() !== '' ? value : null)
+  const [prefix, main] = [named(raw?.prefix), named(raw?.main)]
+  return { prefix, main, problem: prefix === null || main === null ? 'incomplete' : null }
 }
 
 const folderKey = path => path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
@@ -78,6 +85,8 @@ const oldestMade = (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)
  * workers in the order they were made, and leftovers (a fork, an older chat of the same name) greyed at the end.
  */
 export function boardChats(appChats, { project, prefix, main }) {
+  // B131: without a prefix from the list of chats no chat is the project's.
+  if (prefix === null || prefix === undefined) return []
   const mine = appChats
     .filter(chat => !chat.isArchived && isInside(chat.cwd, project) && chat.title.startsWith(prefix))
     .sort(newestFirst)

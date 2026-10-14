@@ -1,5 +1,12 @@
 # Worker board: design
 
+> **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
+> or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
+> settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on a new tie; the ties known
+> today are listed there, each with the part of `ANY-PROJECT-PLAN.md` that removes it, and that list only shrinks.
+> The user, 2026-10-14: "first ensure that its clear to all future work that this is the constraint if i develop
+> something the worker board."
+
 Approved by the person on 2026-10-12 ("agreed for the worker board design and plan"). Game - Support (named Game - Cleanup until that day) builds it.
 
 ## The second design (2026-10-12)

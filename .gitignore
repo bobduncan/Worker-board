@@ -1,2 +1,4 @@
 # Own data: the history and what was typed. It can hold words from a chat and stays on this PC.
 data/
+# The settings of one PC (B127): made from examples/config.json at the board's first start, filled in there.
+config.json

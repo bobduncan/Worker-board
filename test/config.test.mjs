@@ -71,3 +71,61 @@ test('B173: the Advisor\'s settings: paths stay inside their folder, the morning
   assert.deepEqual([kept.backlog, kept.gamePlan, kept.morningRound, kept.weeklyRound], ['.claude/backlog.md', 'docs/game-plan.md', '09:00', true])
   assert.equal(parseConfig(JSON.stringify({ morningRound: '' }), {}).morningRound, '')
 })
+
+test('B128: a broken settings file is named in one line: what is wrong and where; unknown settings are left alone', async () => {
+  const { configProblem } = await import('../src/config.mjs')
+  assert.equal(configProblem('{\n  "port": 4310\n  "project": "x"\n}'), 'it is not valid JSON at line 3, column 3: Expected \',\' or \'}\' after property value')
+  assert.equal(configProblem(''), 'it is not valid JSON: Unexpected end of JSON input')
+  assert.equal(configProblem('[]'), 'it must hold one object, { ... }')
+  assert.equal(configProblem('{"port": "4310"}'), '"port" must be a number above 0, not "4310"')
+  assert.equal(configProblem('{"port": 4310.5}'), '"port" must be a whole number from 1 to 65535, not 4310.5')
+  assert.equal(configProblem('{"project": 5}'), '"project" must be text, not 5')
+  assert.equal(configProblem('{"pictureRoots": ["../up"]}'), '"pictureRoots" must be a list of plain folder names, not ["../up"]')
+  assert.equal(configProblem('{"backlog": "../backlog.md"}'), '"backlog" must be a path inside its folder, written with /, not "../backlog.md"')
+  assert.equal(configProblem('{"morningRound": "9:00"}'), '"morningRound" must be a time like "09:00", or "" for none, not "9:00"')
+  assert.equal(configProblem('{"weeklyRound": "yes"}'), '"weeklyRound" must be true or false, not "yes"')
+  // A good file, one saved with a byte-order mark, and settings the board does not know pass.
+  for (const text of ['{"port": 4310, "project": "C:/p", "morningRound": ""}', '\uFEFF{"port": 4310}', '{"boards": ["x"]}']) assert.equal(configProblem(text), null, text)
+  assert.equal(parseConfig('\uFEFF{"port": 4320}', {}).port, 4320)
+})
+
+test('B128: loading a broken settings file stops with that line; a missing one keeps the defaults', async t => {
+  const { BrokenConfig, loadConfig } = await import('../src/config.mjs')
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const folder = await mkdtemp(join(tmpdir(), 'worker-board-config-'))
+  t.after(() => rm(folder, { recursive: true, force: true }))
+  const file = join(folder, 'config.json')
+  await writeFile(file, '{"port": 4310,}')
+  await assert.rejects(loadConfig(file, {}), error => error instanceof BrokenConfig
+    && error.message === `The worker board's settings file ${file} is broken: it is not valid JSON at line 1, column 15: Expected double-quoted property name. Fix it and start the board again.`)
+  assert.equal((await loadConfig(join(folder, 'none.json'), {})).port, 4310)
+})
+
+test('B127: a first start without a settings file makes it from the template, says which paths to fill in, and never writes over one', async t => {
+  const { firstStart } = await import('../src/config.mjs')
+  const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const folder = await mkdtemp(join(tmpdir(), 'worker-board-first-'))
+  t.after(() => rm(folder, { recursive: true, force: true }))
+  const [file, template] = [join(folder, 'config.json'), join(folder, 'template.json')]
+  await writeFile(template, '{ "project": "C:/Work/my-project" }\n')
+  const said = await firstStart(file, template)
+  assert.match(said, /made its settings file .*config\.json from .*template\.json\. Fill in "project" .*"transcripts" .*"gameRepo" .*then start the board again\./)
+  assert.equal(await readFile(file, 'utf8'), '{ "project": "C:/Work/my-project" }\n')
+  await writeFile(file, '{ "port": 4399 }')
+  assert.equal(await firstStart(file, template), null)
+  assert.equal(await readFile(file, 'utf8'), '{ "port": 4399 }')
+})
+
+test('B127: the settings file of one PC is not in the repository; the template is', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { dirname, join } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const tracked = execFileSync('git', ['ls-files', 'config.json', 'examples/config.json'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean)
+  assert.deepEqual(tracked, ['examples/config.json'])
+  assert.match(execFileSync('git', ['check-ignore', 'config.json'], { cwd: root, encoding: 'utf8' }), /config\.json/)
+})

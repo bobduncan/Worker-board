@@ -1,5 +1,12 @@
 # Worker board
 
+> **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
+> or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
+> settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on a new tie; the ties known
+> today are listed there, each with the part of `ANY-PROJECT-PLAN.md` that removes it, and that list only shrinks.
+> The user, 2026-10-14: "first ensure that its clear to all future work that this is the constraint if i develop
+> something the worker board."
+
 One page on your PC for a project in which several Claude chats work together: one main chat hands out the tasks,
 worker chats do them. The Overview shows a lane per chat (working, waiting for you, free; its task, step and time
 left; its queue), what waits for you with a form to answer it, and the day's timeline. Your answer is typed into the
@@ -11,7 +18,7 @@ idea becomes a picture made by Codex, optional). `DESIGN.md` is the agreed desig
 | What | What for |
 |---|---|
 | Windows, the Claude desktop app, signed in | The board reads the app's list of chats and their transcripts on this PC. Not tried on a Mac. |
-| Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies); git gets it and lists the working folders. |
+| Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies; `package.json` names the Node it needs and the scripts `start`, `demo` and `test`); git gets it and lists the working folders. |
 | The Workers mod `folder-branches` | Keeps each chat's card, types your answers from the board into the chats, and keeps the board running. |
 | A project folder | Holds the code's repository and the board as folders of their own. Every chat of the project is opened in the project folder itself, not in a folder inside it: the app keeps the transcripts per folder. |
 | One main chat, titled `<prefix>Main` | It hands out the work, and the board types its words (restart, resume, start a chat) into it. |
@@ -55,20 +62,22 @@ the briefings for the main chat and the workers.
    ```
    git clone https://github.com/bobduncan/Worker-board.git worker-board
    cd worker-board
-   node --test
+   npm test
    ```
-   → the tests end with `fail 0`. `node server.mjs --demo --port 4311` shows the page with made-up data, if you
+   → the tests end with `fail 0`. `npm run demo -- --port 4311` shows the page with made-up data, if you
    want to look first (Ctrl+C ends it).
-7. **Its settings.** Write `config.json` in the board's folder after `examples\config.json`: `project` is
+7. **Its settings.** Start the board once with `npm start`: it makes `config.json` in its folder from
+   `examples\config.json`, says which paths to fill in, and stops. The file stays on your PC: it is not in git. In it,
+   `project` is
    `<project>`, `transcripts` the folder of step 5, `gameRepo` the folder of your code's git repository (empty until
    there is one), `port` a free port. Write `\\` for every `\` in a path, or use `/`. With the app from the
    Microsoft Store, `%APPDATA%\Claude` holds the app's files only for programs the app starts (the mod, the Run
    pane); a board you start from your own PowerShell finds them only under the package folder: set `appSessions` to
    `%LOCALAPPDATA%\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude-code-sessions` and
    `usageHistory` to `plan-usage-history.json` in that same `Claude` folder. →
-   `node -e "JSON.parse(require('fs').readFileSync('config.json','utf8'))"` prints nothing (an error means a fault
-   in the file, and the board would silently take its defaults), and `node server.mjs` prints
-   `Worker board: http://127.0.0.1:<your port>/`. Ctrl+C ends it.
+   `npm start` prints `Worker board: http://127.0.0.1:<your port>/`. Ctrl+C ends it. A file that is not valid JSON,
+   or holds a setting of the wrong kind, stops the board with one line that names the file, what is wrong and
+   where (for example "not valid JSON at line 3, column 14", or `"port" must be a number above 0`).
 8. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
    <project>\.claude\launch.json`. With `"boards": ["worker-board"]` in `list.json`, every chat in the list starts
    the board when it does not answer, within 15 seconds: no need to start it yourself, also after a restart.
@@ -158,15 +167,15 @@ following the steps above in an empty, made-up project with another prefix (Node
 11 need the app and real chats: the trial stood in for them with made-up chat files. Each point is a step on that
 project's backlog, part of B126 (the board for any project).
 
-1. `config.json` is in the repository with that project's paths. A clone started unchanged uses them, and on a PC
-   without that folder the board makes it, to write `.claude\board.json` there (`server.mjs`). B127
-2. A `config.json` that is not valid JSON makes the board take its defaults without a word: port 4310 and no
-   project (`src/config.mjs`, `parseConfig`). It happened in the trial, through single backslashes. B128
+1. Done (B127): `config.json` is not in the repository; a new copy makes it from `examples\config.json` at its first
+   start and says which paths to fill in.
+2. Done (B128): a `config.json` that is not valid JSON, or holds a setting of the wrong kind, stops the board with
+   one line saying what is wrong and where; the yellow note does not start a new version on such a file.
 3. The page's title is "Lava Tactics" (`public/index.html`, line 26), also in the demo. B129
 4. "Game - Main" stands in fixed words: `public/index.html` line 18, `public/board.js` line 561, `src/design.mjs`
    line 111. B130
-5. Without `list.json` the board looks for chats titled "Game - " and a main chat "Main" (`src/appChats.mjs`,
-   line 55), and says nothing. B131
+5. Done (B131): without a right `list.json` the board guesses no prefix and no main chat; it shows no chats and
+   says which file it looks for.
 6. The game is built in: the key `gameRepo`, a "Run game" button that is always there, `run-game.mjs`, which runs
    only a folder with its own Vite, and the branch name `main` (`src/folders.mjs`, line 49). With `gameRepo` empty,
    git answers for the folder the board was started from: in the trial the head showed the board's own commit as
@@ -177,9 +186,8 @@ project's backlog, part of B126 (the board for any project).
 9. Windows only as written: `%NAME%` in paths, the app's folders under `%APPDATA%\Claude` (for the Store app
    only as the app's own programs see it; the real folder is in its package folder, step 7), backslashes in
    `src/appChats.mjs` (`folderKey`), `codex.exe` under `%LOCALAPPDATA%\OpenAI\Codex` (`src/codex.mjs`). B135
-10. No file says which Node is needed: there is no `package.json`. Tried with Node 24 only. B136
-11. The page says what to do when it finds no main chat or no worker (B124), but nothing when `list.json` or the
-    backlog is missing, or when `transcripts` names the wrong folder: the trial's empty project showed 0 working,
-    0 waiting, 0 free and nothing else. B137
+10. Done (B136): `package.json` names Node 24 or newer, and the scripts `start`, `demo` and `test`.
+11. Done (B137): an empty board says under its lanes what it looks for and where: the list of chats, a chat of the
+    project, the backlog. Still open: a `transcripts` setting that names the wrong folder is not pointed out.
 12. `BRIEF.md` and `DESIGN.md` name that project's folders and chats throughout. B138
 13. The Workers mod is on one PC only, in no repository: step 2 copies its folder by hand. B125 works on it.

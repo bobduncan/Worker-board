@@ -821,17 +821,21 @@ const workersWord = count => (count === 1 ? 'one more worker' : `${COUNT_WORDS[c
  */
 function workersView(workers, now) {
   if (workers === null || workers === undefined) return null
+  // B131, B137: what the board looks for and did not find, with where (the paths from the settings).
+  const lookFor = (workers.lookFor ?? []).map(text => ({ tone: 'problem', text }))
   if (workers.main === null) {
+    // Without a list of chats there is no main chat's name to give: the lines say what to make first.
+    const hasList = typeof workers.mainTitle === 'string'
     return {
       kind: 'none',
       title: 'No main chat yet',
-      text: 'The board shows the chats of this project: the main chat, which hands out the work, and its workers. It has found no main chat. To begin:',
-      steps: [
+      text: `The board shows the chats of this project: the main chat, which hands out the work, and its workers. ${hasList ? 'It has found no main chat. To begin:' : 'It has not found what it looks for yet:'}`,
+      steps: !hasList ? [] : [
         workers.project === '' ? ['In the Claude app, start a new chat in the project\'s folder.'] : ['In the Claude app, start a new chat in the folder ', { code: workers.project }, '.'],
         ['Name it ', { code: workers.mainTitle }, ': the name the list of chats gives the main chat.'],
         ['The board finds it within a minute and asks it for three workers.'],
       ],
-      lines: [],
+      lines: lookFor,
       button: null,
     }
   }
@@ -857,7 +861,7 @@ function workersView(workers, now) {
     title: isAlone ? 'No workers yet' : null,
     text: null,
     steps: [],
-    lines,
+    lines: [...lookFor, ...lines],
     button: { label: isAlone ? 'Ask for three workers' : '+ Add worker', isDisabled: ask?.isOpen === true },
   }
 }

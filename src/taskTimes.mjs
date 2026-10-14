@@ -34,7 +34,7 @@ export function areaOf(body) {
   const touches = body.match(/^\s*Touches:(.*)$/im)?.[1] ?? ''
   if (/\.mjs\b|board\.(?:js|css)|index\.html|worker-board/i.test(touches)) return 'board'
   if (/\b(?:sprites?|portraits?|pixel art|animations?|walk cycles?)\b/i.test(body)) return 'art'
-  if (/\.tsx?\b|lava-tactics\b|vitest/i.test(touches)) return 'game'
+  if (/\.tsx?\b|vitest/i.test(touches)) return 'game'
   if (/\bworker board\b|\bthe board\b|\bboard's\b/i.test(body)) return 'board'
   return 'game'
 }
