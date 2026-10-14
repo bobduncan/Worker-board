@@ -3014,7 +3014,9 @@ function drawFinished(state) {
   fold.title = finishedFolded ? 'Show the steps finished last' : 'Fold the list away'
   fold.setAttribute('aria-expanded', String(!finishedFolded))
   fold.setAttribute('aria-controls', 'finished-body')
-  fold.append(el('span', 'finished-arrow', finishedFolded ? '▸' : '▾'), 'Recently finished', el('small', '', 'the last 20, newest first'))
+  const arrow = el('span', 'finished-arrow', finishedFolded ? '▸' : '▾')
+  arrow.setAttribute('aria-hidden', 'true')
+  fold.append(arrow, 'Recently finished', el('small', '', 'the last 20, newest first'))
   head.append(fold)
   const rows = finishedRows(state.finished, state.readAt)
   const list = rows.length === 0 ? el('p', 'muted finished-none', 'No finished step has a time the board can find yet.') : el('ol', 'finished-list')
@@ -3030,7 +3032,10 @@ function drawFinished(state) {
     item.append(button)
     list.append(item)
   }
+  // A redraw with new data keeps the keyboard on the head when it was there.
+  const wasOnHead = document.activeElement?.closest?.('[data-fold-finished]') != null
   fill(box, [head, list])
+  if (wasOnHead) fold.focus()
 }
 
 $('finished').addEventListener('click', event => {
@@ -3042,7 +3047,7 @@ $('finished').addEventListener('click', event => {
       // Kept for this page only.
     }
     if (board !== null) drawFinished(board)
-    // The head is drawn anew: the keyboard stays on it.
+    // The head is drawn anew: the keyboard stays on it, also where a click does not focus a button.
     $('finished').querySelector('[data-fold-finished]')?.focus()
     return
   }
