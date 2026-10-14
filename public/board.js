@@ -2568,7 +2568,7 @@ function rich(node, text) {
 }
 
 // advisor:start
-// B173: the Advice & Chat tab shows the Advisor's work: its open suggestions, when its rounds come, and the game plan.
+// B173: the Advisor tab (Advice & Chat until B195) shows the Advisor's work: its open suggestions, when its rounds come, and the game plan.
 
 /** When the board's clock starts the Advisor's rounds, and a round it left out in the last day. `clockOf(ms)` is "09:00". */
 function roundsLine(rounds, now, clockOf) {
@@ -2591,6 +2591,8 @@ function drawSuggestions(state) {
   const list = state.suggestions ?? []
   const group = state.rounds?.group ?? 'Advisor suggestions'
   const head = el('h3', '', list.length === 0 ? 'Suggestions' : `Suggestions (${list.length} open)`)
+  // B195: the count on the Suggestions button of the Advisor's tab.
+  $('advisor-suggestions-count').textContent = list.length === 0 ? '' : String(list.length)
   if (list.length === 0) return fill($('advice-suggestions'), [head, el('p', 'muted', `No open suggestions. The Advisor puts them on the backlog under "${group}"; you answer them under For you.`)])
   fill($('advice-suggestions'), [head, ...list.map(step => {
     const view = suggestionView(step)
@@ -2599,6 +2601,201 @@ function drawSuggestions(state) {
     return card
   }), el('p', 'muted', 'Accept or reject each one under For you.')])
 }
+
+// B195: the Advisor's tab in four parts: the way to the next milestone first, then the game plan, the suggestions and
+// the chat. The person, 2026-10-14: the details go to "different tabs and the main tab only shows some visual
+// simplistic flow"; the chat is one of those parts, not a tab of the board's own ("i Do not want a 5th tab").
+const ADVISOR_PANES = ['way', 'plan', 'suggestions', 'chat']
+function showAdvisorPane(name) {
+  const pane = ADVISOR_PANES.includes(name) ? name : 'way'
+  $('view-advice').dataset.pane = pane
+  for (const button of $('advisor-tabs').querySelectorAll('[data-advisor-pane]')) button.setAttribute('aria-pressed', String(button.dataset.advisorPane === pane))
+  if (pane === 'chat') $('messages').scrollTop = $('messages').scrollHeight
+  try {
+    localStorage.setItem('advisor-pane', pane)
+  } catch {
+    // Kept for this page only.
+  }
+}
+$('advisor-tabs').addEventListener('click', event => {
+  const button = event.target.closest('[data-advisor-pane]')
+  if (button !== null) showAdvisorPane(button.dataset.advisorPane)
+})
+{
+  let saved = null
+  try {
+    saved = localStorage.getItem('advisor-pane')
+  } catch {
+    // Without storage the tab opens on the way.
+  }
+  showAdvisorPane(saved)
+}
+
+// B195: the way to the next milestone, as the Advisor maps it (src/milestone.mjs): a row of steps, the one picked
+// with its items under it, and the Advisor's recommendation answered with a click.
+const WAY_STATES = { done: '✓ Done', part: 'Part done', none: 'Not started' }
+let wayPicked = null
+let wayNoOpen = false
+let wayReason = ''
+
+function drawWay(state) {
+  const box = $('advisor-way')
+  const way = state.milestone ?? null
+  if (way === null) {
+    return fill(box, [el('h2', '', 'The way to the next milestone'), el('p', 'muted', `No map yet. The Advisor draws it at its next round, in ${state.milestoneMap ?? 'its map'} in the game's repository.`)])
+  }
+  const { milestone, nodes, totals } = way
+  const head = el('div', 'way-head')
+  const named = el('div')
+  named.append(el('small', 'way-kicker', milestone.name === '' ? 'Next milestone' : `Next milestone · ${milestone.name}`), el('h2', '', milestone.title))
+  if (milestone.doneWhen !== '') named.append(el('p', 'muted', `Done when: ${milestone.doneWhen}`))
+  const total = el('div', 'way-total')
+  total.append(el('b', '', `${totals.left} to go`), el('span', 'muted', `${totals.done} done · ${totals.open} on the backlog · ${totals.missing} not on it yet`))
+  head.append(named, total)
+  const all = totals.done + totals.open + totals.missing
+  const bar = el('div', 'way-bar')
+  bar.setAttribute('aria-hidden', 'true')
+  for (const [key, count] of [['done', totals.done], ['open', totals.open], ['missing', totals.missing]]) {
+    const part = el('i', `is-${key}`)
+    part.style.width = `${all === 0 ? 0 : (100 * count) / all}%`
+    bar.append(part)
+  }
+  // Under the row: the step picked, else the first that is not done.
+  const picked = Math.min(wayPicked ?? Math.max(0, nodes.findIndex(node => node.state !== 'done')), nodes.length - 1)
+  const flow = el('ol', 'way-flow')
+  nodes.forEach((node, index) => {
+    const item = el('li', `way-node is-${node.isGoal ? 'goal' : node.state}`)
+    const button = el('button', 'way-step')
+    button.type = 'button'
+    button.dataset.wayNode = String(index)
+    button.setAttribute('aria-pressed', String(index === picked))
+    const counts = el('span', 'way-counts')
+    if (node.done > 0) counts.append(el('span', 'way-count is-done', `${node.done} done`))
+    if (node.open > 0) counts.append(el('span', 'way-count is-open', `${node.open} open`))
+    if (node.missing.length > 0) counts.append(el('span', 'way-count is-missing', `${node.missing.length} missing`))
+    const left = el('span', 'way-left')
+    left.append(el('b', '', String(node.left)), ' to go')
+    button.append(el('span', 'way-state', node.isGoal ? '⚑ Milestone' : WAY_STATES[node.state]), el('span', 'way-title', node.title), counts, left)
+    item.append(button)
+    flow.append(item)
+  })
+  const legend = el('p', 'way-legend muted', 'Open: on the backlog. Missing: not on the backlog yet. Click a step to see its items.')
+  const node = nodes[picked]
+  const details = el('div', 'way-details')
+  const list = el('ul')
+  const line = (tag, kind, words) => {
+    const li = el('li')
+    li.append(el('span', `way-tag is-${kind}`, tag), el('span', '', words))
+    list.append(li)
+  }
+  for (const item of node.items.filter(one => !one.isDone)) line(`${item.id} open`, 'open', item.title)
+  for (const missing of node.missing) line('missing', 'missing', missing)
+  const done = node.items.filter(one => one.isDone)
+  if (done.length > 0) line(`${done.length} done`, 'done', done.map(one => one.id).join(', '))
+  if (list.children.length === 0) list.append(el('li', 'muted', 'Nothing is listed for this step yet.'))
+  details.append(el('h3', '', node.title), list)
+  fill(box, [head, bar, flow, legend, details, ...recommendationPart(way.recommendation ?? null, state)])
+}
+
+/** B195: the Advisor's recommendation under the way: yes goes to the main chat, no with a reason to the Advisor. */
+function recommendationPart(rec, state) {
+  if (rec === null) return []
+  const main = state.workers?.mainTitle ?? state.workers?.main ?? 'the main chat'
+  const box = el('section', 'way-rec')
+  box.setAttribute('aria-label', 'The Advisor recommends next')
+  const words = el('div')
+  words.append(el('small', 'way-kicker', 'The Advisor recommends next'), el('h3', '', rec.title))
+  const why = [rec.why, rec.cost].filter(Boolean).join(' ')
+  if (why !== '') words.append(el('p', 'muted', why))
+  box.append(words)
+  const answer = rec.answer ?? null
+  if (answer !== null) {
+    const sent = answer.state === 'delivered' ? '' : ' (on its way)'
+    box.append(el('p', 'way-answered', answer.answer === 'yes'
+      ? `You said yes at ${clock(answer.at)}${sent}: ${main} puts it on the backlog when it is not there and hands it out.`
+      : `You said no at ${clock(answer.at)}${sent}: the Advisor proposes another step at its next round.`))
+    return [box]
+  }
+  const canYes = (state.workers?.main ?? null) !== null
+  const canNo = (state.advisor?.name ?? null) !== null
+  const buttons = el('div', 'way-buttons')
+  const button = (what, words, kind) => {
+    const one = el('button', kind, words)
+    one.type = 'button'
+    one.dataset.recommend = what
+    one.disabled = sending.has('recommend')
+    buttons.append(one)
+  }
+  if (canYes) button('yes', 'Yes, queue it', 'is-yes')
+  if (canNo && !wayNoOpen) button('no-open', 'No…', 'is-no')
+  box.append(buttons)
+  if (canNo && wayNoOpen) {
+    const form = el('div', 'way-reason')
+    const reason = el('textarea')
+    reason.id = 'way-reason'
+    reason.maxLength = 1000
+    reason.placeholder = 'Why not? The Advisor reads it and proposes another step.'
+    reason.setAttribute('aria-label', 'Why not')
+    reason.value = wayReason
+    form.append(reason)
+    const send = el('button', 'is-no', 'Send no')
+    send.type = 'button'
+    send.dataset.recommend = 'no'
+    send.disabled = sending.has('recommend')
+    const cancel = el('button', '', 'Cancel')
+    cancel.type = 'button'
+    cancel.dataset.recommend = 'cancel'
+    const both = el('div', 'way-buttons')
+    both.append(send, cancel)
+    form.append(both)
+    box.append(form)
+  }
+  if (problems.has('recommend')) box.append(el('p', 'problem', problems.get('recommend')))
+  box.append(el('p', 'way-where muted', `Yes: ${main} puts it on the backlog when it is not there and hands it out. No: you say why, and the Advisor proposes another step at its next round.`))
+  return [box]
+}
+
+$('advisor-way').addEventListener('click', event => {
+  if (board === null) return
+  const step = event.target.closest('[data-way-node]')
+  if (step !== null) {
+    wayPicked = Number(step.dataset.wayNode)
+    drawWay(board)
+    $('advisor-way').querySelector(`[data-way-node="${wayPicked}"]`)?.focus()
+    return
+  }
+  const button = event.target.closest('[data-recommend]')
+  const rec = board.milestone?.recommendation ?? null
+  if (button === null || rec === null) return
+  const what = button.dataset.recommend
+  if (what === 'no-open' || what === 'cancel') {
+    wayNoOpen = what === 'no-open'
+    problems.delete('recommend')
+    drawWay(board)
+    if (wayNoOpen) $('way-reason')?.focus()
+    return
+  }
+  if (what === 'yes') {
+    button.disabled = true
+    send({ to: board.workers.main, command: 'recommend', about: rec.id, answer: 'yes' }, 'recommend')
+    return
+  }
+  if (what === 'no') {
+    if (wayReason.trim() === '') {
+      problems.set('recommend', 'Say why, so the Advisor can propose another step.')
+      return drawWay(board)
+    }
+    button.disabled = true
+    send({ to: board.advisor.name, command: 'recommend', about: rec.id, answer: 'no', reason: wayReason.trim() }, 'recommend').then(() => {
+      if (problems.has('recommend')) return
+      wayNoOpen = false
+      wayReason = ''
+    })
+  }
+})
+$('advisor-way').addEventListener('input', event => {
+  if (event.target.id === 'way-reason') wayReason = event.target.value
+})
 
 function drawAdvice(state) {
   const box = $('advice-text')
@@ -3993,6 +4190,8 @@ function draw(state) {
     document.title = state.name ? `${state.name} · Worker board` : 'Worker board'
   })
   once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))
+  // B195: the way to the next milestone, also when an answer to its recommendation is on its way or refused.
+  once('way', [state.milestone ?? null, state.milestoneMap ?? null, state.workers?.main ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null], () => drawWay(state))
   once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
   // The line about a round left out goes after a day.
   once('advice-rounds', [state.rounds ?? null, Math.floor(state.readAt / 3_600_000)], () => { $('advice-rounds').textContent = roundsLine(state.rounds, state.readAt, clock) })

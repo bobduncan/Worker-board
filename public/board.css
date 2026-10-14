@@ -81,6 +81,72 @@ button, textarea, select { font: inherit; color: inherit; }
 /* The right side of each tab is as wide as the person drags it: the script sets --side and remembers it. */
 .view { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 7px var(--side, 390px); }
 #view-advice { --side: 500px; }
+/* B195: the Advisor's tab shows one of its four parts at a time, under their buttons; the chat is one of them. */
+#view-advice { display: flex; flex-direction: column; }
+#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
+#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
+#view-advice[data-pane="chat"] > .talk { display: flex; flex: 1; width: min(900px, calc(100% - 36px)); }
+#view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
+.advisor-tabs { display: flex; gap: 8px; padding: 14px 18px 0; flex: none; }
+.advisor-tabs button { padding: 6px 14px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
+.advisor-tabs button[aria-pressed="true"] { color: var(--text); border-color: var(--free); background: #16294a; font-weight: 600; }
+.advisor-tabs button:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
+.advisor-tabs small { color: var(--muted); margin-left: 4px; }
+.advisor-way { margin: 14px 18px 16px; max-width: 1240px; }
+.way-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; }
+.way-head h2 { font-size: 22px; }
+.way-kicker { display: block; color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; }
+.way-head p { font-size: 13.5px; margin-top: 3px; }
+.way-total { text-align: right; flex: none; }
+.way-total b { display: block; font-size: 26px; }
+.way-total span { font-size: 13.5px; }
+.way-bar { display: flex; height: 8px; border-radius: 5px; background: var(--inset); margin: 12px 0 18px; overflow: hidden; }
+.way-bar i { display: block; height: 100%; }
+.way-bar .is-done { background: var(--working); }
+.way-bar .is-open { background: #2f5fb3; }
+.way-bar .is-missing { background: repeating-linear-gradient(45deg, #6b5320 0 6px, #3d3016 6px 12px); }
+.way-flow { display: flex; list-style: none; padding: 0; margin: 0; }
+.way-node { flex: 1; min-width: 0; display: flex; }
+.way-node + .way-node::before { content: "→"; flex: none; width: 26px; align-self: center; text-align: center; color: var(--unknown); font-size: 20px; }
+.way-step { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.way-step[aria-pressed="true"] { outline: 2px solid var(--free); outline-offset: 2px; }
+.way-step:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; }
+.way-node.is-done .way-step { border-color: #1f6b43; }
+.way-node.is-part .way-step { border-color: #2a4a7d; }
+.way-node.is-goal .way-step { background: #1a1630; border-color: #4b3f80; }
+.way-state { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.way-node.is-done .way-state { color: var(--working); }
+.way-node.is-part .way-state { color: #8fb4ff; }
+.way-node.is-goal .way-state { color: #b9a8ff; }
+.way-title { font-size: 15px; font-weight: 700; line-height: 1.3; }
+.way-counts { display: flex; gap: 6px; flex-wrap: wrap; }
+.way-count, .way-tag { font-size: 12.5px; padding: 0 7px; border-radius: 10px; border: 1px solid var(--line); white-space: nowrap; }
+.way-count.is-done, .way-tag.is-done { color: var(--working); border-color: #1f6b43; }
+.way-count.is-open, .way-tag.is-open { color: #cfe0ff; border-color: #2a4a7d; }
+.way-count.is-missing, .way-tag.is-missing { color: var(--waiting); border-color: #6b5320; border-style: dashed; }
+.way-left { font-size: 12.5px; color: var(--muted); margin-top: auto; }
+.way-left b { color: var(--text); font-size: 15px; }
+.way-legend { font-size: 12.5px; margin: 10px 0 0; }
+.way-details { margin-top: 14px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 14px; }
+.way-details h3 { font-size: 14px; margin-bottom: 6px; }
+.way-details ul { list-style: none; padding: 0; margin: 0; }
+.way-details li { display: flex; gap: 8px; align-items: baseline; margin: 3px 0; }
+.way-rec { margin-top: 16px; padding: 14px 16px; border: 1px solid #4b3f80; border-radius: 12px; background: #151229; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 24px; align-items: center; }
+.way-rec .way-kicker { color: #b9a8ff; font-weight: 700; }
+.way-rec h3 { font-size: 17px; margin: 2px 0 4px; }
+.way-rec p { font-size: 13.5px; }
+.way-buttons { display: flex; gap: 8px; }
+.way-buttons button { padding: 8px 18px; border-radius: 8px; border: 1px solid var(--line); background: var(--inset); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.way-buttons button.is-yes { background: var(--working); border-color: var(--working); color: var(--ink); }
+.way-buttons button.is-no { background: none; border-color: var(--warn); color: var(--warn); }
+.way-buttons button:disabled { opacity: .6; cursor: default; }
+.way-buttons button:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; }
+.way-reason, .way-rec .problem, .way-answered, .way-where { grid-column: 1 / -1; margin: 0; }
+.way-reason { display: flex; gap: 8px; align-items: flex-start; }
+.way-reason textarea { flex: 1; min-height: 56px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 14px; }
+.way-answered { color: var(--text); }
+.way-where { border-top: 1px solid #2c2550; padding-top: 8px; font-size: 12.5px; }
+@media (max-width: 900px) { .way-flow { flex-direction: column; gap: 8px; } .way-node + .way-node::before { content: none; } .way-head { flex-direction: column; align-items: flex-start; } .way-total { text-align: left; } }
 
 .resizer { cursor: col-resize; border-left: 1px solid var(--line); outline: 0; touch-action: none; }
 .resizer:hover, .resizer:focus-visible, .is-resizing .resizer { background: #2f5fb3; border-left-color: #2f5fb3; }

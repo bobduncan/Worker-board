@@ -12,6 +12,7 @@ import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList, reportsOf } from './finished.mjs'
 import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
+import { milestoneWay, parseMilestoneMap } from './milestone.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
@@ -30,7 +31,7 @@ const SEEN_MS = 30_000
 const TYPED_MARK = /\n?\(typed on the worker board, \d{1,2}:\d{2}\)\s*$/
 const TALK_MESSAGES = 40
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation)\b/
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -856,5 +857,18 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       .map(step => ({ id: step.id, title: step.title, notes: noteSections(step.notes) })),
     // When the advice was written: the page says how old it is.
     adviceAt: Number.isFinite(raw.adviceAt) ? raw.adviceAt : null,
+    // B195: the way to the next milestone (config.milestoneMap in the game's repository), counted against the backlog
+    // as it stands; with the person's answer to the Advisor's recommendation once given (one that did not arrive
+    // does not count). Null without a map.
+    milestone: (() => {
+      const map = typeof raw.milestoneText === 'string' ? parseMilestoneMap(raw.milestoneText) : null
+      if (map === null) return null
+      const way = milestoneWay(map, backlog)
+      const rec = way.recommendation
+      if (rec === null) return way
+      const said = sent.findLast(message => message.command === 'recommend' && message.about === rec.id && message.state !== 'failed' && message.state !== 'expired')
+      return { ...way, recommendation: { ...rec, answer: said === undefined ? null : { answer: said.answer, at: said.at, state: said.state } } }
+    })(),
+    milestoneMap: config.milestoneMap,
   }
 }

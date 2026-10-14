@@ -33,6 +33,28 @@ Every change to parts 1 to 4 needs the user's yes; part 5 changes freely.
 each suggestion, accepted or rejected with the user's reason, and one line per round. A rejected suggestion is not
 made again.
 
+**The way to the next milestone** (`docs/advisor/milestone-map.json` in the game, unless the settings name another
+place). The board's Advisor tab draws it as a row of steps with what is done, open and missing, and your
+recommendation under it. It maps the game plan onto the backlog, so it changes without the user's yes. JSON:
+
+    {
+      "updated": "2026-10-14",
+      "milestone": { "name": "M1", "title": "the milestone's name in the game plan", "doneWhen": "its done-when",
+                     "check": "its own last check, in a few words", "backlog": ["B35"], "missing": [] },
+      "steps": [
+        { "title": "5 to 10 words, what the user gets", "backlog": ["B07", "B43"],
+          "missing": ["what the plan asks and the backlog does not hold yet, one line each"] }
+      ],
+      "recommendation": { "id": "a new id for each new recommendation", "title": "the next concrete step",
+                          "why": "one sentence", "cost": "about 2 hours", "step": "B07, only when it is on the backlog" }
+    }
+
+- Three to six steps, in the order they are best done; under each, every backlog step that serves it, finished ones
+  too: the board counts done and open from the backlog itself, you only say which step belongs where.
+- One recommendation: the next concrete step. The user answers it on the board. A yes goes to the main chat, which
+  puts it on the backlog when it is not there and hands it out. A no comes to you as "advisor recommendation: no"
+  with the user's reason: write it into the decisions page and recommend another at your next round, with a new id.
+
 ## Getting started
 
 When there is no game plan yet: read the documents the settings name first (the game's vision, design, architecture
@@ -48,9 +70,10 @@ never the user's word.
 |---|---|
 | Morning (short, about 5 minutes) | Read what was merged since the last round, the backlog and the game plan. Suggest at most 3 things to do next, each with why. Name a foundation that is missing before work that needs it. |
 | Weekly (deep) | Clean-up: old, duplicate or finished-but-open backlog steps; branches and folders left over; unused code, files, art and sounds. A review of the code changed since the last weekly round, done by a helper so your chat stays small. A look at the structure: where it will block the next milestone. |
-| On request | Whatever the user asks you on the board's Advice & Chat tab. |
+| On request | Whatever the user asks you in the chat on the board's Advisor tab. |
 
-End every round with its line in the decisions page.
+In every round, bring the way to the next milestone up to date (above). End every round with its line in the
+decisions page.
 
 ## The check before work
 

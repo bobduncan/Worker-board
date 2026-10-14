@@ -66,13 +66,16 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const claude = join(config.project, '.claude')
   // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository.
   const plan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.gamePlan.split('/'))
-  const [listText, appChatTexts, backlogText, adviceText, folders, askTexts] = await Promise.all([
+  // B195: the Advisor's map of the way to the next milestone, beside the game plan.
+  const map = config.gameRepo === '' ? null : join(config.gameRepo, ...config.milestoneMap.split('/'))
+  const [listText, appChatTexts, backlogText, adviceText, folders, askTexts, milestoneText] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     readAppChats(config.appSessions),
     readText(join(config.project, ...config.backlog.split('/'))),
     plan === null ? null : readText(plan),
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
+    map === null ? null : readText(map),
   ])
 
   const chats = boardChats(
@@ -100,7 +103,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   }))
 
   return {
-    listText, appChatTexts, planLineTexts, planLineAt, tails, backlogText, adviceText, folders, askTexts,
+    listText, appChatTexts, planLineTexts, planLineAt, tails, backlogText, adviceText, folders, askTexts, milestoneText,
     pictureLists: await pictureLists(config, backlogText, now),
     // B113: the file the app keeps for its own usage card. The board only reads it.
     usageText: (await readTail(config.usageHistory, USAGE_BYTES))?.text ?? null,

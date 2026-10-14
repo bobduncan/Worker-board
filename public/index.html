@@ -13,7 +13,7 @@
   <button class="update-note" id="update-note" type="button" hidden></button>
   <nav class="tabs" aria-label="Views">
     <button class="tab is-active" type="button" data-tab="overview">Overview</button>
-    <button class="tab" type="button" data-tab="advice">Advice &amp; Chat</button>
+    <button class="tab" type="button" data-tab="advice">Advisor</button>
     <button class="tab" type="button" data-tab="coordinate">Backlog</button>
     <button class="tab" type="button" data-tab="design">Design</button>
     <span class="grow"></span>
@@ -84,14 +84,25 @@
     </aside>
   </div>
 
-  <div class="view" id="view-advice" hidden>
+  <div class="view" id="view-advice" data-pane="way" hidden>
+    <nav class="advisor-tabs" id="advisor-tabs" aria-label="The Advisor's parts">
+      <button type="button" data-advisor-pane="way" aria-pressed="true">Next milestone</button>
+      <button type="button" data-advisor-pane="plan" aria-pressed="false">Game plan</button>
+      <button type="button" data-advisor-pane="suggestions" aria-pressed="false">Suggestions <small id="advisor-suggestions-count"></small></button>
+      <button type="button" data-advisor-pane="chat" aria-pressed="false">Chat</button>
+    </nav>
+    <section class="panel advisor-way" id="advisor-way" aria-label="The way to the next milestone"></section>
     <section class="panel advice-panel" aria-labelledby="advice-title">
       <h2 id="advice-title">The Advisor</h2>
-      <p class="muted advice-rounds" id="advice-rounds"></p>
-      <div class="advice-suggestions" id="advice-suggestions"></div>
-      <h3 class="advice-plan-title">The game plan</h3>
-      <p class="advice-age" id="advice-age" hidden></p>
-      <div class="advice" id="advice-text"></div>
+      <div class="advice-part-suggestions">
+        <p class="muted advice-rounds" id="advice-rounds"></p>
+        <div class="advice-suggestions" id="advice-suggestions"></div>
+      </div>
+      <div class="advice-part-plan">
+        <h3 class="advice-plan-title">The game plan</h3>
+        <p class="advice-age" id="advice-age" hidden></p>
+        <div class="advice" id="advice-text"></div>
+      </div>
     </section>
     <div class="resizer" id="talk-resizer" role="separator" aria-orientation="vertical" aria-label="Width of the chat" tabindex="0" title="Drag to make the chat wider or narrower; double-click for the usual width"></div>
     <aside class="talk" aria-labelledby="talk-title">

@@ -18,7 +18,7 @@ It is built in the branch `redesign/two-tabs` and is merged into main when all o
 
 **Two tabs.** Overview: one lane per worker (name and state, task with its progress, what it does now, the time it
 expects to be done, its own queue), the inbox "For you", and today's timeline, which also shows what is expected
-and queued after now. Advice & Chat: the advisor's advice and a conversation with the advisor. The shared queue,
+and queued after now. Advisor (Advice & Chat until B195): the advisor's advice and a conversation with the advisor. The shared queue,
 the folders table and the main chat's dock are gone; a folder's details are under its worker's lane.
 
 **Any number of workers.** The board names no worker anywhere. Every open chat of the project whose title starts
@@ -218,6 +218,21 @@ running is started through the main chat. The Advice & Chat tab shows when the r
 backlog's "Advisor suggestions" group with their Why, Cost and Unblocks lines (answered under For you); and the game
 plan from the game's repository instead of `.claude/advice.md`. The Advisor's talk leaves the clock's lines out. The
 picture: `art-inbox/worker-board/b173/`.
+
+**The way to the next milestone (B195).** The tab is called Advisor and has four parts under their buttons: "Next
+milestone" first, then the game plan, the suggestions (with their count) and the chat; the part last opened is kept
+in this browser. The person, 2026-10-14: "the main tab only shows some visual simplistic flow of where we roughly are
+till the next milestone, looking an the backlog whats already there or whats missing", with "visual diagrams" and
+"a recommendation to click yes no"; the chat is one of the parts ("i Do not want a 5th tab"). The Advisor writes the
+map in the game's repository (`milestoneMap`, JSON, its form in `roles/advisor.md`): the milestone, three to six
+steps with the backlog steps that serve each and what is missing from the backlog, and one recommendation.
+`src/milestone.mjs` counts each step against the backlog as it stands (done, open; an id not on the backlog counts
+as missing), so the numbers stay current between rounds. The page draws the steps as a row of boxes (done, part done,
+not started, and the milestone's own check last) with a bar of done, open and missing; a click on a box lists its
+items under the row. "Yes, queue it" types "advisor recommendation: yes" with the step into the main chat, which
+puts it on the backlog when it is not there and hands it out; "No…" asks why and types "advisor recommendation: no"
+with the reason into the Advisor's chat. One answer per recommendation (its id); the box then says what was answered.
+The mock-up the person agreed to ("1. yes. 2. yes."): `art-inbox/worker-board/b195/2026-10-14-b195-mockup.png`.
 
 **A picture in Talk to Main (B167).** The person, 2026-10-14: "i need a change so that i can post pictures in the 'talk
 to main' chat in the worker board, from my clipboard". Ctrl+V in the talk takes the picture on the clipboard (PNG,

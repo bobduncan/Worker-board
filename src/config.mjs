@@ -58,6 +58,8 @@ const DEFAULTS = {
    */
   backlog: '.claude/backlog.md',
   gamePlan: 'docs/game-plan.md',
+  // B195: the Advisor's map of the way to the next milestone, in the game's repository (JSON, see roles/advisor.md).
+  milestoneMap: 'docs/advisor/milestone-map.json',
   advisorDecisions: 'docs/advisor/decisions.md',
   advisorReadFirst: [],
   advisorSuggestions: 'Advisor suggestions',
@@ -106,7 +108,7 @@ export function parseConfig(text, env) {
   // A shown folder is one plain folder name in the project: never a path that could lead out of it.
   if (Array.isArray(raw.pictureRoots)) config.pictureRoots = raw.pictureRoots.filter(root => typeof root === 'string' && /^[\w-][\w.-]*$/.test(root))
   // B173: the Advisor's paths stay inside the project or the game's repository.
-  for (const key of ['backlog', 'gamePlan', 'advisorDecisions', 'designKinds']) {
+  for (const key of ['backlog', 'gamePlan', 'milestoneMap', 'advisorDecisions', 'designKinds']) {
     if (typeof raw[key] === 'string' && INSIDE.test(raw[key].trim())) config[key] = raw[key].trim()
   }
   if (Array.isArray(raw.advisorReadFirst)) config.advisorReadFirst = raw.advisorReadFirst.filter(path => typeof path === 'string' && INSIDE.test(path))
@@ -145,7 +147,7 @@ export function configProblem(fileText) {
   for (const key of [...PATHS, 'name', 'usageHistory', 'advisor', 'advisorSuggestions']) if (has(key) && typeof raw[key] !== 'string') return wrong(key, 'text')
   for (const key of NUMBERS) if (has(key) && !(Number.isFinite(raw[key]) && raw[key] > 0)) return wrong(key, 'a number above 0')
   if (has('port') && !(Number.isInteger(raw.port) && raw.port <= 65535)) return wrong('port', 'a whole number from 1 to 65535')
-  for (const key of ['backlog', 'gamePlan', 'advisorDecisions', 'designKinds']) if (has(key) && !(typeof raw[key] === 'string' && INSIDE.test(raw[key].trim()))) return wrong(key, 'a path inside its folder, written with /')
+  for (const key of ['backlog', 'gamePlan', 'milestoneMap', 'advisorDecisions', 'designKinds']) if (has(key) && !(typeof raw[key] === 'string' && INSIDE.test(raw[key].trim()))) return wrong(key, 'a path inside its folder, written with /')
   if (has('pictureRoots') && !(Array.isArray(raw.pictureRoots) && raw.pictureRoots.length > 0 && raw.pictureRoots.every(one => typeof one === 'string' && /^[\w-][\w.-]*$/.test(one)))) return wrong('pictureRoots', 'a list of one or more plain folder names')
   if (has('advisorReadFirst') && !(Array.isArray(raw.advisorReadFirst) && raw.advisorReadFirst.every(one => typeof one === 'string' && INSIDE.test(one)))) return wrong('advisorReadFirst', 'a list of paths inside the game, written with /')
   if (has('morningRound') && !(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')

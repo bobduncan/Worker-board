@@ -59,6 +59,31 @@ const queueWords = (to, step) => ({
 })
 
 /**
+ * B195: the person's answer to the Advisor's recommendation on the way to the next milestone. Yes goes to the main
+ * chat, which puts the step on the backlog when it is not there and hands it out; no goes to the Advisor with the
+ * person's reason. What was recommended is read from the board's own state: the page sends the answer and a reason.
+ */
+function recommendWords(body, state) {
+  const rec = state.milestone?.recommendation ?? null
+  if (rec === null || body.about !== rec.id) return refuse(409, 'That is no longer the Advisor\'s recommendation.')
+  if ((rec.answer ?? null) !== null) return refuse(409, 'This recommendation is answered already.')
+  if ((body.text ?? '') !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+  const base = { ask: null, step: null, title: null, version: null, verdict: null, command: 'recommend', about: rec.id, answer: body.answer }
+  const step = rec.step === null ? '' : `\nStep: ${rec.step}`
+  if (body.answer === 'yes') {
+    if (body.to !== (state.restart?.main ?? null)) return refuse(400, 'A yes goes to the main chat.')
+    return { ok: true, message: { ...base, to: body.to, text: `advisor recommendation: yes\nRecommended: ${rec.title}${step}${rec.why === '' ? '' : `\nWhy: ${rec.why}`}` } }
+  }
+  if (body.answer === 'no') {
+    if (body.to !== (state.advisor?.name ?? null)) return refuse(400, 'A no goes to the Advisor.')
+    const reason = typeof body.reason === 'string' ? body.reason.replace(/\s+/g, ' ').trim() : ''
+    if (reason === '' || reason.length > 1000) return refuse(400, 'Say why, in at most 1000 characters.')
+    return { ok: true, message: { ...base, to: body.to, text: `advisor recommendation: no\nRecommended: ${rec.title}${step}\nReason: ${reason}` } }
+  }
+  return refuse(400, 'Yes or no.')
+}
+
+/**
  * `body` is what the page posted; `state` is the board's state (its lanes, its advisor, its For you list).
  * Answers `{ ok: true, message }` with the parts to keep, or `{ ok: false, status, why }`.
  */
@@ -83,7 +108,9 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend'].includes(body.command)) return refuse(400, 'No such command.')
+    // B195: the one answer that may go to the Advisor as well as to the main chat.
+    if (body.command === 'recommend') return recommendWords(body, state)
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
     // B181: a step of the backlog for the queue: one with an id that nobody has (not queued, not in progress, not

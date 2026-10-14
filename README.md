@@ -10,7 +10,7 @@
 One page on your PC for a project in which several Claude chats work together: one main chat hands out the tasks,
 worker chats do them. The Overview shows a lane per chat (working, waiting for you, free; its task, step and time
 left; its queue), what waits for you with a form to answer it, and the day's timeline. Your answer is typed into the
-chat it is for. Further tabs: Advice & Chat (an advisor chat, optional), Backlog (the whole backlog, with the steps finished last at its top), Design (an
+chat it is for. Further tabs: Advisor (the way to the next milestone, the game plan, suggestions and a chat with an advisor, optional), Backlog (the whole backlog, with the steps finished last at its top), Design (an
 idea becomes a picture made by Codex, optional). `DESIGN.md` is the agreed design.
 
 ## What you need
@@ -139,7 +139,8 @@ shows: answers are given on the board in the main folder.
 
 - the app's list of chats, and the last part of each project chat's transcript;
 - each chat's card and requests (`.claude\chats`, `.claude\asks`) and the backlog in `<project>\.claude`, and the game
-  plan in the game's repository (`gamePlan` in `config.json`, `docs/game-plan.md`) for the Advice & Chat tab;
+  plan in the game's repository (`gamePlan` in `config.json`, `docs/game-plan.md`) and the Advisor's map of the way to the next milestone
+  (`milestoneMap`, `docs/advisor/milestone-map.json`) for the Advisor tab;
 - the app's usage file for the limits, pictures in the picture folders of `<project>`, and the working folders through git
   commands that only read.
 
