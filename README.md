@@ -13,6 +13,8 @@ left; its queue), what waits for you with a form to answer it, and the day's tim
 chat it is for. Further tabs: Advisor (the way to the next milestone, the game plan, suggestions and a chat with an advisor, optional), Backlog (the whole backlog, with the steps finished last at its top), Design (an
 idea becomes a picture made by Codex, optional). `DESIGN.md` is the agreed design.
 
+What the board does and how it looks, part by part with screenshots: `BOARD.md`.
+
 ## What you need
 
 | What | What for |
