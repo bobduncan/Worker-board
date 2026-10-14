@@ -166,7 +166,8 @@ function transcripts(now) {
       fromChat(ago(8), 'Game - Units', 'Report: investigating pathfinding options.\n\nTwo approaches look workable: a NavMesh, or a custom grid. I asked in my chat which one to take.'),
       answer(ago(7.5), 'Noted. Units waits for your choice between the two pathfinding approaches.'),
       fromChat(ago(4), 'Game - Features', 'Save system is implemented. Running local tests.'),
-      answer(ago(3.5), 'Features has the save system in and is testing it.'),
+      // B161: an answer in every chat's form, with what is the person's and the closing block.
+      answer(ago(3.5), 'Features has the save system in and is testing it.\n\n> **For you**\n> 1. **Answer:** Shall Features start the main menu after the save system? I advise yes.\n\n---\n\n```diff\n  Prompt: how far is the save system\n  Who:    Game - Main\n+ Done:   yes\n```'),
       typed(ago(0.5), 'Great! Next we can look at animation blending.'),
       step(ago(0.3), 'Run the tests'),
     ], 0.3),
