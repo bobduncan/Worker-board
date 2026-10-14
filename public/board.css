@@ -150,6 +150,11 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .finished { margin: 4px 0 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .finished h2 { font-size: 17px; padding: 12px 16px 6px; display: flex; align-items: baseline; gap: 10px; }
 .finished h2 small { color: var(--muted); font-size: 13px; font-weight: 400; }
+/* B179: a click on the head folds the list away */
+.finished-fold { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.finished-fold:focus-visible { outline: 2px solid var(--free); outline-offset: 3px; border-radius: 4px; }
+.finished-arrow { color: var(--muted); font-size: 13px; width: 1em; }
+.finished.is-folded h2 { padding-bottom: 12px; }
 .finished-none { padding: 0 16px 14px; font-size: 14px; }
 .finished-list { padding: 0 8px 8px; }
 .finished-row { width: 100%; display: grid; grid-template-columns: 100px 58px minmax(0, 1fr) 150px 190px; gap: 10px; align-items: baseline; padding: 6px 8px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 14px; cursor: pointer; }

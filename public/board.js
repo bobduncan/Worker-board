@@ -2991,17 +2991,35 @@ function finishedRows(list, now) {
 }
 // finished:end
 
+// B179: the list folds away with a click on its head, and stays so in this browser. The person, 2026-10-14: "Make
+// the backlog 'recently finished' collapsible."
+let finishedFolded = false
+try {
+  finishedFolded = localStorage.getItem('finished-folded') === 'yes'
+} catch {
+  // Without storage the list opens unfolded.
+}
+
 /** B155: the list at the top of the Backlog tab. A click on a row opens the step's window, as the list below does. */
 function drawFinished(state) {
   const box = $('finished')
   box.hidden = !Array.isArray(state.finished)
   if (box.hidden) return
-  const head = el('h2', '', 'Recently finished')
+  box.classList.toggle('is-folded', finishedFolded)
+  const head = el('h2')
   head.id = 'finished-title'
-  head.append(el('small', '', 'the last 20, newest first'))
+  const fold = el('button', 'finished-fold')
+  fold.type = 'button'
+  fold.dataset.foldFinished = ''
+  fold.title = finishedFolded ? 'Show the steps finished last' : 'Fold the list away'
+  fold.setAttribute('aria-expanded', String(!finishedFolded))
+  fold.setAttribute('aria-controls', 'finished-body')
+  fold.append(el('span', 'finished-arrow', finishedFolded ? '▸' : '▾'), 'Recently finished', el('small', '', 'the last 20, newest first'))
+  head.append(fold)
   const rows = finishedRows(state.finished, state.readAt)
-  if (rows.length === 0) return fill(box, [head, el('p', 'muted finished-none', 'No finished step has a time the board can find yet.')])
-  const list = el('ol', 'finished-list')
+  const list = rows.length === 0 ? el('p', 'muted finished-none', 'No finished step has a time the board can find yet.') : el('ol', 'finished-list')
+  list.id = 'finished-body'
+  list.hidden = finishedFolded
   for (const row of rows) {
     const item = el('li')
     const button = el('button', 'finished-row')
@@ -3016,6 +3034,18 @@ function drawFinished(state) {
 }
 
 $('finished').addEventListener('click', event => {
+  if (event.target.closest('[data-fold-finished]') !== null) {
+    finishedFolded = !finishedFolded
+    try {
+      localStorage.setItem('finished-folded', finishedFolded ? 'yes' : 'no')
+    } catch {
+      // Kept for this page only.
+    }
+    if (board !== null) drawFinished(board)
+    // The head is drawn anew: the keyboard stays on it.
+    $('finished').querySelector('[data-fold-finished]')?.focus()
+    return
+  }
   const row = event.target.closest('[data-finished]')
   if (row !== null) openDetails({ step: row.dataset.finished })
 })
@@ -3128,11 +3158,12 @@ $('coordinate-filters').addEventListener('click', event => {
 })
 $('coordinate-find').addEventListener('input', () => { if (board !== null) drawCoordinate(board) })
 $('coordinate-done').addEventListener('change', () => { if (board !== null) drawCoordinate(board) })
-// B164: one list or by activity, kept in this browser.
+// B164: one list or by activity, kept in this browser. B179: one list unless this browser chose otherwise (the
+// person, 2026-10-14: "one list checkbox turned on by default").
 try {
-  $('coordinate-one').checked = localStorage.getItem('backlog-one') === 'yes'
+  $('coordinate-one').checked = localStorage.getItem('backlog-one') !== 'no'
 } catch {
-  // Without storage the tab opens by activity.
+  // Without storage the tab opens as one list, as the page says.
 }
 $('coordinate-one').addEventListener('change', () => {
   try {
