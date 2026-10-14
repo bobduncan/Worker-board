@@ -99,6 +99,9 @@ function since(at, now) {
 const ICONS = {
   refresh: 'M20 11a8 8 0 0 0-14.3-4.5M4 4v4h4M4 13a8 8 0 0 0 14.3 4.5M20 20v-4h-4',
   open: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  // B159: a worker (a chat, whatever it works on) and a queue.
+  chat: 'M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01',
+  list: 'M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01',
 }
 
 function icon(name) {
@@ -625,7 +628,7 @@ function drawLane(lane, state) {
   const row = el('div', 'lane-row')
 
   const who = el('div', 'who')
-  const names = el('div')
+  const names = el('div', 'who-names')
   names.append(el('h3', '', lane.name), el('span', `pill is-${lane.state}`, lane.isLeftover ? 'Leftover' : STATES[lane.state]))
   if (lane.isRunning === false) {
     // After a restart of the app a chat does not run until it is opened, or messaged through the app.
@@ -637,15 +640,21 @@ function drawLane(lane, state) {
   const main = state.workers?.mainTitle ?? 'the main chat'
   const removal = removalView(lane, main, state.readAt)
   const isWarned = removal.canRemove && warned.has(lane.name) && removal.reasons.length > 0 && !removal.isDisabled
+  // B159: the button sits in the part a click on "⋯" unfolds, as in the agreed design.
+  let tools = null
   if (removal.canRemove && (state.workers?.main ?? null) !== null) {
     const remove = el('button', `remove-button${isWarned ? ' is-warned' : ''}`, '✕ Remove')
     remove.type = 'button'
     remove.dataset.remove = lane.name
     remove.disabled = removal.isDisabled || sending.has(`remove:${lane.name}`)
     remove.title = removal.reasons.length === 0 ? 'Asks the main chat to close this worker.' : 'This worker is not free: the board says what would stop first.'
-    names.append(remove)
+    tools = remove
   }
-  who.append(el('span', 'avatar', lane.name.charAt(0).toUpperCase()), names)
+  // B159: the worker's icon takes the colour of its state.
+  const sign = el('span', `worker-icon is-${lane.isLeftover ? 'leftover' : lane.state}`)
+  sign.setAttribute('aria-hidden', 'true')
+  sign.append(icon('chat'))
+  who.append(sign, names)
 
   const what = el('div', 'what')
   const task = lane.task
@@ -655,18 +664,19 @@ function drawLane(lane, state) {
     if (free !== null) what.append(el('p', 'note', free))
   } else {
     what.append(taskTitle(task))
-    const steps = stepLine(lane, state.readAt)
-    if (steps !== null) what.append(drawStepLine(lane, steps))
-    else if (task.step !== null && task.steps !== null && task.steps > 0) {
-      const progress = el('div', 'progress')
-      const bar = el('div', 'bar')
-      const done = el('div', 'fill')
-      done.style.width = `${Math.max(0, Math.min(100, (task.step / task.steps) * 100))}%`
-      bar.append(done)
-      progress.append(bar, el('span', '', `${task.step} of ${task.steps}`))
-      what.append(progress)
-    }
   }
+  // B159: the progress of its task in a column of its own: a bar of its steps, and its step line (B108) under it.
+  const progress = el('div', 'progress-cell')
+  const bar = el('div', 'bar')
+  const done = el('div', 'fill')
+  const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
+  done.style.width = hasSteps ? `${Math.max(0, Math.min(100, (task.step / task.steps) * 100))}%` : '0%'
+  bar.append(done)
+  progress.append(bar)
+  const steps = task === null ? null : stepLine(lane, state.readAt)
+  if (steps !== null) progress.append(drawStepLine(lane, steps))
+  else if (hasSteps) progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
+  else if (task !== null) progress.append(el('small', 'progress-count', 'no steps given'))
   if (lane.state === 'working' && lane.doingNow !== null) {
     const now = el('p', 'now clip')
     now.append(el('b', '', 'Now: '), el('span', '', lane.doingNow))
@@ -689,11 +699,7 @@ function drawLane(lane, state) {
   if (problems.has(`remove:${lane.name}`)) what.append(el('p', 'remove-line is-problem', problems.get(`remove:${lane.name}`)))
 
   const queue = el('div', 'queue')
-  const head = el('button', 'queue-head', `Queue (${lane.queue.length})`)
-  head.type = 'button'
-  head.dataset.lane = lane.name
-  head.title = 'Show the whole queue and the details'
-  queue.append(head)
+  if (lane.queue.length === 0) queue.append(el('span', 'queue-empty', 'Queue (0)'))
   if (lane.queue.length > 0) {
     const first = el('div', 'queue-first')
     const item = el('button', 'queue-item')
@@ -701,31 +707,52 @@ function drawLane(lane, state) {
     item.dataset.lane = lane.name
     item.dataset.step = '0'
     item.title = `${lane.queue[0].text}\nShow the details`
-    item.append(el('b', '', lane.queue[0].title), el('small', '', [lane.queue[0].id, about(lane.queue[0].minutes) ?? 'no time given'].filter(Boolean).join(' · ')))
+    const listSign = el('span', 'queue-icon')
+    listSign.append(icon('list'))
+    const words = el('span', 'queue-text')
+    words.append(el('b', '', lane.queue[0].title), el('small', '', [`Queue (${lane.queue.length})`, lane.queue[0].id, about(lane.queue[0].minutes) ?? 'no time given'].filter(Boolean).join(' · ')))
+    item.append(listSign, words)
     // B113: why it is not started.
     const why = whyText(lane.queue[0].why)
     if (why !== null) {
       const line = el('small', `why is-${why.tone}`, why.text)
       line.title = why.text
-      item.append(line)
+      words.append(line)
     }
     first.append(item)
     if (lane.queue.length > 1) first.append(el('div', 'queue-more', `+${lane.queue.length - 1}`))
     queue.append(first)
   }
 
-  row.append(who, what, drawEta(lane, state.readAt), queue)
+  const menu = el('div', 'lane-menu-cell')
+  const unfold = el('button', 'lane-menu', '⋯')
+  unfold.type = 'button'
+  unfold.dataset.lane = lane.name
+  unfold.title = 'The whole queue, the details, and Remove'
+  unfold.setAttribute('aria-label', `${lane.name}: the whole queue, the details, and Remove`)
+  unfold.setAttribute('aria-expanded', String(isOpen))
+  menu.append(unfold)
+
+  row.append(who, what, progress, drawEta(lane, state.readAt), queue, menu)
   card.append(row)
   if (isWarned) {
     card.classList.add('has-warning')
     card.append(drawRemoveWarning(lane, removal, main))
   }
-  if (isOpen) card.append(drawMore(lane, state))
+  if (isOpen) {
+    const more = drawMore(lane, state)
+    if (tools !== null) {
+      const bar = el('div', 'lane-tools')
+      bar.append(tools)
+      more.prepend(bar)
+    }
+    card.append(more)
+  }
   return card
 }
 
 $('lanes').addEventListener('click', event => {
-  const head = event.target.closest('.queue-head')
+  const head = event.target.closest('.queue-head, .lane-menu')
   if (head === null) return
   if (!openLanes.delete(head.dataset.lane)) openLanes.add(head.dataset.lane)
   if (board !== null) drawLanes(board)
@@ -785,7 +812,7 @@ function workersView(workers, now) {
     text: null,
     steps: [],
     lines,
-    button: { label: isAlone ? 'Ask for three workers' : '+ One more worker', isDisabled: ask?.isOpen === true },
+    button: { label: isAlone ? 'Ask for three workers' : '+ Add worker', isDisabled: ask?.isOpen === true },
   }
 }
 // workers:end
@@ -793,6 +820,7 @@ function workersView(workers, now) {
 /** B124: the row under the lanes (see `workersView`), or null. */
 function drawWorkers(state) {
   const shown = workersView(state.workers, state.readAt)
+  fill($('workers-add'), [])
   if (shown === null) return null
   const isRow = shown.kind === 'more'
   const box = el(isRow ? 'div' : 'section', isRow ? 'lane-add' : 'empty-workers')
@@ -819,7 +847,14 @@ function drawWorkers(state) {
   button.dataset.spawn = 'ask'
   button.disabled = shown.button.isDisabled || sending.has('spawn')
   button.title = 'The board asks the main chat; the main chat starts the worker.'
-  box.append(...(isRow ? [button, lines] : [lines, button]))
+  if (isRow) {
+    // B159: in the panel's head, as in the agreed design. What it does is its title; only what became of an ask is said.
+    button.title = shown.lines.find(line => line.tone === '')?.text ?? button.title
+    for (const line of [...lines.children]) if (line.className === 'workers-line') line.remove()
+    fill($('workers-add'), [lines, button])
+    return null
+  }
+  box.append(lines, button)
   return box
 }
 
@@ -830,6 +865,8 @@ function drawWorkers(state) {
 function drawLanes(state) {
   const focused = document.activeElement?.dataset?.stepsOf ?? null
   fill($('lanes'), [...state.chats.map(lane => drawLane(lane, state)), drawWorkers(state)].filter(part => part !== null))
+  // B159: the columns are named only when there are lanes under them.
+  $('workers-columns').hidden = state.chats.length === 0
   if (focused !== null) [...$('lanes').querySelectorAll('[data-steps-of]')].find(node => node.dataset.stepsOf === focused)?.focus()
 }
 
@@ -937,7 +974,7 @@ $('lanes').addEventListener('click', event => {
 })
 
 // B124: one more worker, or three when there is none: the board asks the main chat, which starts them.
-$('lanes').addEventListener('click', event => {
+$('workers-panel').addEventListener('click', event => {
   const button = event.target.closest('[data-spawn]')
   if (button === null || board === null || (board.workers?.main ?? null) === null) return
   button.disabled = true

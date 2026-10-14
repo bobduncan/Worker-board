@@ -65,11 +65,11 @@ test('the main chat alone: the board says it will ask, that it asked and what ha
   assert.deepEqual([none.lines, none.button.isDisabled], [[{ tone: '', text: 'The board asked the main chat, Studio · Lead, for three workers at 09:12; none has come.' }], false])
 })
 
-test('with workers there is a button for one more under the lanes, and it waits while its ask is open', () => {
+test('with workers there is a button "+ Add worker" in the panel head (B159), and it waits while its ask is open', () => {
   assert.deepEqual(view(base), {
     kind: 'more', title: null, text: null, steps: [],
     lines: [{ tone: '', text: 'Asks the main chat, Studio · Lead, to start one more worker. Any worker takes any task.' }],
-    button: { label: '+ One more worker', isDisabled: false },
+    button: { label: '+ Add worker', isDisabled: false },
   })
   const open = view({ ...base, ask: ask() })
   assert.deepEqual([open.lines, open.button.isDisabled], [[

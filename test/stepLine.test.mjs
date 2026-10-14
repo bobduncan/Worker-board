@@ -95,11 +95,13 @@ test('a card without names keeps the bar and "2 of 5"; a lane without a task has
   assert.equal(page.stepLine(lane({ names: null }), NOW), null)
   assert.equal(page.stepLine(lane({ names: [] }), NOW), null)
   assert.equal(page.stepLine({ name: 'Units', state: 'free', task: null }, NOW), null)
-  assert.match(script, /else if \(task\.step !== null && task\.steps !== null && task\.steps > 0\) \{\n\s+const progress = el\('div', 'progress'\)/)
+  // B159: in the Progress column, under the bar.
+  assert.match(script, /else if \(hasSteps\) progress\.append\(el\('small', 'progress-count', `\$\{task\.step\} of \$\{task\.steps\}`\)\)/)
 })
 
 test('the lane draws the one line in place of a chip per step, and its list opens on hover and for the keyboard', () => {
-  assert.match(script, /const steps = stepLine\(lane, state\.readAt\)\n\s+if \(steps !== null\) what\.append\(drawStepLine\(lane, steps\)\)/)
+  // B159: the line sits in the lane's Progress column, under the bar of its steps.
+  assert.match(script, /const steps = task === null \? null : stepLine\(lane, state\.readAt\)\n\s+if \(steps !== null\) progress\.append\(drawStepLine\(lane, steps\)\)/)
   assert.ok(!script.includes('el(\'ol\', \'steps\')') && !/\n\.steps li/.test(style), 'the chips are still there')
   // The line is a button, so Tab reaches it; the list is its sibling and shows while the pointer or the focus is on it.
   assert.match(script, /const now = el\('button', 'step-now'\)/)

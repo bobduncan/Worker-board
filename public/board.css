@@ -258,6 +258,75 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .more .why { display: block; }
 .queue-more { flex: none; width: 58px; display: grid; place-items: center; background: var(--inset); border: 1px solid var(--line); border-radius: 7px; font-size: 16px; font-weight: 700; }
 
+/* B159: the Workers panel, after the design agreed on the Design tab (art-inbox/ideas/any-improvement-to-this/v2.png):
+   one panel with its name and "+ Add worker" on top, the columns named, slim rows, and each worker's icon in the
+   colour of its state. */
+.workers-panel { padding: 0; margin-bottom: 14px; overflow: hidden; }
+.workers-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px 12px; }
+.workers-head h2 { font-size: 20px; font-weight: 700; }
+.workers-add { display: flex; align-items: center; gap: 12px; }
+.workers-add .workers-lines { text-align: right; font-size: 12.5px; }
+.workers-add .spawn-button { align-self: center; }
+.workers-columns, .workers-panel .lane-row {
+  display: grid; column-gap: 18px;
+  grid-template-columns: minmax(170px, 0.85fr) minmax(0, 1.45fr) minmax(130px, 0.75fr) minmax(92px, 0.5fr) minmax(0, 1.25fr) 36px;
+  grid-template-areas: "who what progress eta queue menu";
+}
+.workers-columns { padding: 8px 18px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+.workers-panel .lanes { gap: 0; margin: 0; }
+.workers-panel .lane { background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.workers-panel .lane:first-child { border-top: 0; }
+.workers-panel .lane.has-warning { box-shadow: inset 3px 0 0 #b9862a; }
+.workers-panel .lane-row { padding: 11px 18px; align-items: center; row-gap: 8px; }
+.workers-panel .lane-row > div { padding: 0; }
+.workers-panel .lane-row > div + div { border-left: 0; }
+.lane-row > .who { grid-area: who; align-items: center; gap: 10px; }
+.lane-row > .what { grid-area: what; gap: 3px; }
+.lane-row > .progress-cell { grid-area: progress; }
+.lane-row > .eta { grid-area: eta; }
+.lane-row > .queue { grid-area: queue; }
+.lane-row > .lane-menu-cell { grid-area: menu; display: flex; justify-content: flex-end; }
+.who-names { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.workers-panel .who h3 { font-size: 16px; margin: 0; }
+.workers-panel .not-running { flex-basis: 100%; margin-top: 0; }
+.worker-icon { flex: none; display: grid; place-items: center; width: 30px; height: 30px; color: var(--unknown); }
+.worker-icon svg { width: 27px; height: 27px; }
+.worker-icon.is-working { color: var(--working); }
+.worker-icon.is-waiting { color: var(--waiting); }
+.worker-icon.is-free { color: var(--free); }
+.worker-icon.is-suspended { color: var(--suspended); }
+.worker-icon.is-interrupted { color: var(--warn); }
+.workers-panel .pill { padding: 2px 9px; border-radius: 6px; font-size: 12.5px; font-weight: 600; background: rgba(91, 103, 121, 0.22); color: #aab4c3; box-shadow: inset 0 0 0 1px rgba(91, 103, 121, 0.5); }
+.workers-panel .pill.is-working { background: rgba(63, 210, 127, 0.12); color: var(--working); box-shadow: inset 0 0 0 1px rgba(63, 210, 127, 0.45); }
+.workers-panel .pill.is-waiting { background: rgba(246, 185, 59, 0.12); color: var(--waiting); box-shadow: inset 0 0 0 1px rgba(246, 185, 59, 0.45); }
+.workers-panel .pill.is-free { background: rgba(59, 130, 246, 0.14); color: #7fb0ff; box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.5); }
+.workers-panel .pill.is-suspended { background: rgba(167, 139, 250, 0.14); color: var(--suspended); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.5); }
+.workers-panel .pill.is-interrupted { background: rgba(255, 122, 89, 0.14); color: var(--warn); box-shadow: inset 0 0 0 1px rgba(255, 122, 89, 0.5); }
+.workers-panel .task { font-size: 15px; }
+.workers-panel .now, .workers-panel .note, .workers-panel .needs-you { font-size: 13.5px; }
+.progress-cell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.progress-cell .bar { flex: none; width: 100%; height: 7px; }
+.progress-count { color: var(--muted); font-size: 13px; text-align: right; }
+.lane.is-suspended .fill { background: var(--suspended); }
+.lane.is-interrupted .fill { background: var(--warn); }
+.workers-panel .eta b { font-size: 16px; }
+.workers-panel .eta .state { font-size: 15px; }
+.workers-panel .eta small { font-size: 12px; }
+.workers-panel .queue { gap: 0; }
+.workers-panel .queue-first { gap: 6px; }
+.workers-panel .queue-item { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
+.queue-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); }
+.queue-icon svg { width: 16px; height: 16px; }
+.queue-text { flex: 1; min-width: 0; }
+.queue-text small { display: block; }
+.workers-panel .queue-more { width: 40px; font-size: 14px; }
+.queue-empty { color: var(--muted); font-size: 13px; }
+.lane-menu { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 18px; font-weight: 700; line-height: 1; cursor: pointer; }
+.lane-menu:hover, .lane.is-open .lane-menu { background: var(--inset); color: var(--text); }
+.lane-tools { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+.lane-tools .remove-button { margin-top: 0; }
+.workers-panel .empty-workers { margin: 12px 18px 16px; }
+
 .more { border-top: 1px solid var(--line); padding: 12px 16px 14px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 28px; font-size: 14px; }
 .more h4 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; }
 .more li { padding: 3px 0; overflow-wrap: anywhere; }
@@ -483,17 +552,15 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 
 /* Less room for the lanes: the queue goes under its lane, then the name goes above the task. */
 @container (max-width: 940px) {
-  .lane-row { grid-template-columns: 170px minmax(0, 1fr) 120px; }
-  .lane-row > .queue { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
+  .workers-columns { display: none; }
+  .workers-panel .lane-row { grid-template-columns: minmax(150px, 0.9fr) minmax(0, 1.5fr) minmax(90px, 0.6fr) 36px; grid-template-areas: "who what eta menu" ". progress . ." "queue queue queue queue"; }
   .today { flex-direction: column; }
   .legend { margin-top: 0; grid-auto-flow: column; grid-template-rows: repeat(2, auto); }
   .more { grid-template-columns: minmax(0, 1fr); }
 }
 
 @container (max-width: 600px) {
-  .lane-row { grid-template-columns: minmax(0, 1fr) 112px; }
-  .lane-row > .who { grid-column: 1 / -1; border-bottom: 1px solid var(--line); }
-  .lane-row > .what { border-left: 0; }
+  .workers-panel .lane-row { grid-template-columns: minmax(0, 1fr) 92px 36px; grid-template-areas: "who who menu" "what what eta" "progress progress progress" "queue queue queue"; }
   .head h1 { font-size: 24px; }
   .row { grid-template-columns: 96px minmax(0, 1fr); }
   .legend { grid-template-rows: repeat(4, auto); }
@@ -506,8 +573,6 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
   .overview { overflow: visible; }
   .inbox { border-left: 0; border-top: 1px solid var(--line); }
   .needs { overflow: visible; }
-  .lane-row { grid-template-columns: 170px minmax(0, 1fr) 120px; }
-  .lane-row > .queue { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
   .advice-panel, .talk { margin: 14px 16px; }
   .talk { height: 80vh; }
   .today { flex-direction: column; }

@@ -32,7 +32,11 @@
         <div class="counts" id="counts"></div>
       </header>
       <section class="restart" id="restart" aria-label="Restart" hidden></section>
-      <section class="lanes" id="lanes" aria-label="Workers"></section>
+      <section class="panel workers-panel" id="workers-panel" aria-labelledby="workers-title">
+        <header class="workers-head"><h2 id="workers-title">Workers</h2><span class="grow"></span><div class="workers-add" id="workers-add"></div></header>
+        <div class="workers-columns" id="workers-columns" aria-hidden="true"><span>Worker</span><span>Current task</span><span>Progress</span><span>Est. time</span><span>Queue</span><span></span></div>
+        <section class="lanes" id="lanes" aria-label="Workers"></section>
+      </section>
       <section class="panel" id="today" aria-labelledby="today-title">
         <h2 id="today-title">Timeline <small id="today-range"></small></h2>
         <div class="today">
