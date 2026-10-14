@@ -513,6 +513,12 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 
 .advice-panel { margin: 16px 0 16px 18px; overflow-y: auto; border-radius: 10px; }
 .advice { max-width: 900px; }
+/* B173: the Advisor's open suggestions above the game plan. */
+.advice-rounds { max-width: 900px; margin: 4px 0 12px; font-size: 13.5px; }
+.advice-suggestions { max-width: 900px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.advice-suggestions h3, .advice-plan-title { font-size: 17px; margin: 6px 0 2px; }
+.suggestion { padding: 10px 13px; border: 1px solid var(--line); border-left: 3px solid var(--waiting); border-radius: 8px; background: var(--inset); }
+.suggestion p { margin: 4px 0 0; color: var(--muted); }
 .advice h3 { font-size: 17px; margin: 14px 0 6px; }
 .advice h4 { font-size: 15.5px; margin: 12px 0 5px; }
 .advice p { margin: 6px 0; }

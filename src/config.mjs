@@ -34,10 +34,27 @@ const DEFAULTS = {
   /** B113: the file the app keeps its usage samples in, and the percentage from which a limit's bar warns. */
   usageHistory: '%APPDATA%\\Claude\\plan-usage-history.json',
   limitWarnPercent: 80,
+  /**
+   * B173: what one project sets for the Advisor (its job is the board's `roles/advisor.md`). The backlog, in the
+   * project; the game plan, the Advisor's decisions and the documents it reads first, in the game's repository; the
+   * backlog group its suggestions stand in; and its rounds: the morning one at this time ("" leaves it out, and so
+   * does a 5-hour limit above `morningSkipPercent`), the weekly one right after the weekly limit resets.
+   */
+  backlog: '.claude/backlog.md',
+  gamePlan: 'docs/game-plan.md',
+  advisorDecisions: 'docs/advisor/decisions.md',
+  advisorReadFirst: [],
+  advisorSuggestions: 'Advisor suggestions',
+  morningRound: '09:00',
+  weeklyRound: true,
+  morningSkipPercent: 80,
 }
 
+/** A path inside a folder, written with "/": no way out of it, never absolute. */
+const INSIDE = /^(?!.*(?:^|\/)\.\.(?:\/|$))[\w.-]+(?:\/[\w .-]+)*$/
+
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
-const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent']
+const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'morningSkipPercent']
 
 /** Fills `%NAME%` from the environment. Windows names have no fixed case, so the look-up ignores it. */
 export function expandEnv(text, env) {
@@ -67,6 +84,15 @@ export function parseConfig(text, env) {
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()
   // A shown folder is one plain folder name in the project: never a path that could lead out of it.
   if (Array.isArray(raw.pictureRoots)) config.pictureRoots = raw.pictureRoots.filter(root => typeof root === 'string' && /^[\w-][\w.-]*$/.test(root))
+  // B173: the Advisor's paths stay inside the project or the game's repository.
+  for (const key of ['backlog', 'gamePlan', 'advisorDecisions']) {
+    if (typeof raw[key] === 'string' && INSIDE.test(raw[key].trim())) config[key] = raw[key].trim()
+  }
+  if (Array.isArray(raw.advisorReadFirst)) config.advisorReadFirst = raw.advisorReadFirst.filter(path => typeof path === 'string' && INSIDE.test(path))
+  if (typeof raw.advisorSuggestions === 'string' && raw.advisorSuggestions.trim() !== '') config.advisorSuggestions = raw.advisorSuggestions.trim()
+  if (typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim())) config.morningRound = raw.morningRound.trim()
+  if (typeof raw.weeklyRound === 'boolean') config.weeklyRound = raw.weeklyRound
+  config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   return config
 }
 

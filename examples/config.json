@@ -5,5 +5,13 @@
   "transcripts": "%USERPROFILE%\\.claude\\projects\\C--Work-my-project",
   "port": 4310,
   "refreshSeconds": 10,
-  "advisor": "Advisor"
+  "advisor": "Advisor",
+  "backlog": ".claude/backlog.md",
+  "gamePlan": "docs/game-plan.md",
+  "advisorDecisions": "docs/advisor/decisions.md",
+  "advisorReadFirst": ["docs/vision.md", "docs/design.md"],
+  "advisorSuggestions": "Advisor suggestions",
+  "morningRound": "09:00",
+  "weeklyRound": true,
+  "morningSkipPercent": 80
 }

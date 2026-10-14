@@ -4,5 +4,13 @@
   "appSessions": "%APPDATA%\\Claude\\claude-code-sessions",
   "transcripts": "%USERPROFILE%\\.claude\\projects\\C--Web-lava-tactics-project",
   "port": 4310,
-  "refreshSeconds": 10
+  "refreshSeconds": 10,
+  "backlog": ".claude/backlog.md",
+  "gamePlan": "docs/game-plan.md",
+  "advisorDecisions": "docs/advisor/decisions.md",
+  "advisorReadFirst": ["docs/game-vision.md", "docs/game-design.md", "docs/architecture.md", "docs/process/roadmap.md"],
+  "advisorSuggestions": "Advisor suggestions",
+  "morningRound": "09:00",
+  "weeklyRound": true,
+  "morningSkipPercent": 80
 }
