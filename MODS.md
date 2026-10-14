@@ -65,7 +65,7 @@ Each piece is merged on its own and changes nothing for a PC that has the mods.
    not needed.
 2. **The Run mod out of the setup**: not now; the user keeps it in the setup for now (B205).
 3. **Cards without the mod** (about 1 to 1.5 h): the board also reads a card the chat wrote itself; the job texts say
-   how. B177's first part.
+   how. B177's first part. Done (B210).
 4. **Starting the board without the mod** (about 1 h): a start script and the README.
 5. **Answers without the mod** (about 2 to 3 h): when no mod takes the board's words, the board copies them and
    opens the chat. B177's largest part.

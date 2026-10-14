@@ -17,6 +17,36 @@ function namesOf(value) {
   return names.length === 0 ? null : names
 }
 
+/**
+ * B210: the file name of a card a chat wrote itself, without the Workers mod: its name in the list of chats in small
+ * letters, every other run of characters a "-" ("Worker 1" is `worker-1`), in `<project>\.claude\chats\own\`.
+ */
+export const ownCardKey = name => String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+/**
+ * B210: a card a chat wrote itself, made into the mod's card: the same fields, where `minutes` and `stepMinutes` may
+ * stand for `left` and `stepLeft` (milliseconds), and the file's time (`fileAt`) for `at` when it has none: the time
+ * counts down from when the card was written. Its text as the board reads a card, or null when it is no card.
+ */
+export function ownCard(fileText, fileAt) {
+  let raw
+  try {
+    raw = JSON.parse(fileText)
+  } catch {
+    return null
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const task = raw.task !== null && typeof raw.task === 'object' && !Array.isArray(raw.task) ? { ...raw.task } : raw.task
+  if (task !== null && typeof task === 'object') {
+    if (!Number.isFinite(task.left) && Number.isFinite(task.minutes)) task.left = Math.round(task.minutes * 60_000)
+    if (!Number.isFinite(task.stepLeft) && Number.isFinite(task.stepMinutes)) task.stepLeft = Math.round(task.stepMinutes * 60_000)
+    if (!Number.isFinite(task.steps) && Array.isArray(task.names)) task.steps = task.names.length
+  }
+  // The mod's own word on whether its process runs is not the chat's to give.
+  const { state: _state, ...rest } = raw
+  return JSON.stringify({ ...rest, task, at: Number.isFinite(raw.at) ? raw.at : Number.isFinite(fileAt) ? fileAt : null })
+}
+
 export function parsePlanLine(fileText) {
   let raw
   try {
