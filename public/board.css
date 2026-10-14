@@ -38,6 +38,14 @@ button, textarea, select { font: inherit; color: inherit; }
 .warn { color: var(--warn); }
 .grow { flex: 1; }
 
+/* B142: the note on top that a new version of the board is there, in the yellow of "waiting for you" */
+.update-note { flex: none; display: block; width: 100%; padding: 9px 18px; border: 0; background: var(--waiting); color: #1c1403; font-weight: 700; text-align: center; cursor: pointer; }
+.update-note:hover:not(:disabled) { filter: brightness(1.07); }
+.update-note:disabled { cursor: default; }
+.update-note.is-busy { opacity: 0.85; }
+.update-note.is-problem { background: var(--warn); color: var(--ink); }
+.version { color: var(--muted); font-size: 13px; white-space: nowrap; }
+
 /* Tabs and the top bar */
 
 .tabs { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px 16px 0; border-bottom: 1px solid var(--line); }
