@@ -593,7 +593,9 @@ function alertsOf(lane, state) {
   const task = lane.task
   // B247: a quiet lane that waits on one step without an answer may wait for the person's approval in its chat.
   const waits = lane.unanswered ?? null
-  if (lane.isQuiet) alerts.push(waits === null ? `no sign of life for ${span(lane.quietMs)}` : `its step "${waits.doing}" has had no answer for ${span(state.readAt - waits.since)}: it may wait for your approval in its chat`)
+  // The step "Now:" names already is "it".
+  const step = waits === null ? null : waits.doing === lane.doingNow ? 'it' : `its step "${waits.doing}"`
+  if (lane.isQuiet) alerts.push(step === null ? `no sign of life for ${span(lane.quietMs)}` : `no answer to ${step} for ${span(state.readAt - waits.since)}: it may wait for your approval in its chat`)
   // B95: no worker works without a time; one that does is a fault to fix.
   if (lane.isWithoutTime === true) alerts.push('works without a time: its chat has to say how long it expects')
   if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)

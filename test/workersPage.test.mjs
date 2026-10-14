@@ -136,6 +136,10 @@ test('B247: a quiet lane whose step has no answer says how long, and that it may
   const lane = { isQuiet: true, quietMs: 34 * 60_000, isWithoutTime: false, task: null, state: 'working', unanswered: null }
   const state = { readAt: now, estimateOldMs: 30 * 60_000 }
   assert.deepEqual([...part.alertsOf(lane, state)], ['no sign of life for 34 min'])
-  assert.deepEqual([...part.alertsOf({ ...lane, unanswered: { doing: 'Working in the browser', since: now - 42 * 60_000 } }, state)],
-    ['its step "Working in the browser" has had no answer for 42 min: it may wait for your approval in its chat'])
+  const waits = { doing: 'Working in the browser', since: now - 42 * 60_000 }
+  assert.deepEqual([...part.alertsOf({ ...lane, unanswered: waits, doingNow: 'Working in the browser' }, state)],
+    ['no answer to it for 42 min: it may wait for your approval in its chat'])
+  // A later call than the one without an answer is what "Now:" names: the waiting one is named.
+  assert.deepEqual([...part.alertsOf({ ...lane, unanswered: waits, doingNow: 'Run the tests' }, state)],
+    ['no answer to its step "Working in the browser" for 42 min: it may wait for your approval in its chat'])
 })
