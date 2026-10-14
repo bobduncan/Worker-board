@@ -42,6 +42,7 @@ import { seenTicks } from './src/finished.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
+import { roundText, roundsNow } from './src/rounds.mjs'
 import { settleByBoard } from './src/tick.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
@@ -340,6 +341,9 @@ async function main(args) {
   // B155: when the board first saw each step ticked, kept in its data folder from now on; null before its first look.
   const FINISHED_FILE = join(HERE, 'data', 'finished.json')
   let finishedSeen = {}
+  // B173: what the clock of the Advisor's rounds wrote down; null before its first look.
+  const ROUNDS_FILE = join(HERE, 'data', 'rounds.json')
+  let roundsKept = null
   if (isDemo) {
     const { demoSources } = await import('./fixtures/demo.mjs')
     store = memoryStore()
@@ -351,6 +355,7 @@ async function main(args) {
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
       finishedSeen = await readFile(FINISHED_FILE, 'utf8').then(text => JSON.parse(text), () => null)
+      roundsKept = await readFile(ROUNDS_FILE, 'utf8').then(text => JSON.parse(text), () => null)
     } else {
       // The history of the board that is running; this one records nothing and keeps what is sent in memory.
       store = memoryStore()
@@ -481,7 +486,9 @@ async function main(args) {
       now: clock(),
       config: { ...config, project },
     })
-    return { ...state, isDemo, project }
+    // B173: the Advisor's rounds as the clock has them, for the Advice & Chat tab.
+    const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept }
+    return { ...state, isDemo, project, rounds }
   }, STATE_MS)
 
   const server = createBoard({
@@ -704,6 +711,27 @@ async function main(args) {
       if (next !== finishedSeen) {
         await writeFile(FINISHED_FILE, JSON.stringify(next))
         finishedSeen = next
+      }
+      // B173: the Advisor's rounds, typed into its chat on the board's clock. Only the board that delivers, and only
+      // while there is an Advisor; a chat that is not running is started through the main chat, as for a message.
+      if (bridgeKey !== null && (state.advisor ?? null) !== null) {
+        const now = clock()
+        const week = state.limits?.week ?? null
+        const next = roundsNow({
+          now, kept: roundsKept, morningRound: config.morningRound, weeklyRound: config.weeklyRound, skipPercent: config.morningSkipPercent,
+          weekReset: week?.resetsAt ?? week?.resetAt ?? null, fiveHour: state.limits?.fiveHour?.used ?? null,
+        })
+        if (next.round !== null) {
+          const message = { id: randomBytes(8).toString('hex'), at: now, to: state.advisor.name, ask: null, step: null, title: null, version: null, verdict: null, command: 'round', round: next.round, text: roundText(next.round, { board: HERE, config }), state: 'waiting' }
+          await store.say(message)
+          const wake = wakeFor({ ...message, command: null }, state, store.outbox(), now, config.maxMessageChars)
+          if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })
+          readState.reset()
+        }
+        if (JSON.stringify(next.kept) !== JSON.stringify(roundsKept)) {
+          await writeFile(ROUNDS_FILE, JSON.stringify(next.kept))
+          roundsKept = next.kept
+        }
       }
       // B124: the main chat alone in the list is asked for workers, once. Only the board that delivers asks.
       const ask = bridgeKey === null ? null : spawnWhenAlone(state, store.outbox(), store.lines())

@@ -13,6 +13,7 @@ import { mentionedPaths } from './pictures.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
+import { isClockLine } from './rounds.mjs'
 import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -621,9 +622,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       doingNow: doing,
       messages: tail === null || typeof tail.text !== 'string'
         ? []
-        : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix: list.prefix, titles }),
+        : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix: list.prefix, titles })
+          // B173: a round the board's clock typed is the clock's, not the person's.
+          .filter(message => !(message.from === 'you' && isClockLine(message.text))),
       // Typed on the board to the advisor and not in its chat yet.
-      pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null),
+      pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null && (message.command ?? null) === null),
     }
   }
 
