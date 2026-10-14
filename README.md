@@ -83,6 +83,11 @@ the briefings for the main chat and the workers.
 8. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
    <project>\.claude\launch.json`. With `"boards": ["worker-board"]` in `list.json`, every chat in the list starts
    the board when it does not answer, within 15 seconds: no need to start it yourself, also after a restart.
+   **Without the Workers mod** (B211): `node start-board.mjs` starts the board in the background when it does not run
+   yet and prints where it runs (its own words go to `data\board.log`); a second call says it runs already. To have
+   it start with every chat of the project, copy `examples\settings.json` to `<project>\.claude\settings.json` (or add
+   its hook to the one there) and put the board's folder for `<board>`: a chat that opens then starts the board,
+   quietly, when it does not answer.
 9. **Open it.** Open `http://127.0.0.1:<your port>/` in a browser. → the lane "Main" comes first, under it "No
    workers yet" (step 11); "For you" holds B1 and B2 under "From the backlog"; Main's queue holds B4, waiting for B2.
    Without a main chat the page says "No main chat yet" and how to make one, as step 5 does.
