@@ -16,6 +16,7 @@ test('parsePlanLine reads a line with a task', () => {
     role: 'worker',
     state: 'working',
     at: 1791791904653,
+    compaction: null,
     task: { text: 'Shadow Beast 4x unit', step: 1, steps: 6, names: null, leftMs: 2357972, stepLeftMs: null, since: null, isReported: false, asked: false },
   })
 })
@@ -48,4 +49,15 @@ test('B210: a card a chat wrote itself reads as the mod\'s card: minutes for the
   assert.deepEqual([same.at, same.task.leftMs, same.task.stepLeftMs, same.task.steps], [7, 5_000, 1_000, 4])
   assert.equal(ownCard('not json', 1), null)
   assert.equal(ownCard('[]', 1), null)
+})
+
+test('B235: the card says whether the Workers mod compacted the chat after its report, or why not; the newer counts', () => {
+  const card = more => parsePlanLine(JSON.stringify({ name: 'Worker 1', task: null, at: 1, ...more })).compaction
+  assert.equal(card({}), null)
+  assert.deepEqual(card({ compacted: { at: 5000, before: 820000, after: 95000 } }), { kind: 'compacted', at: 5000, before: 820000, after: 95000 })
+  assert.deepEqual(card({ compactNote: { at: 6000, why: '  below the size  ' } }), { kind: 'skipped', at: 6000, why: 'below the size' })
+  assert.equal(card({ compacted: { at: 5000, before: 1, after: 1 }, compactNote: { at: 6000, why: 'turn still running' } }).kind, 'skipped')
+  assert.equal(card({ compacted: { at: 7000, before: 1, after: 1 }, compactNote: { at: 6000, why: 'x' } }).kind, 'compacted')
+  assert.equal(card({ compacted: { at: '2026-10-14T16:40:00Z', before: 10, after: 5 } }).at, Date.parse('2026-10-14T16:40:00Z'))
+  assert.equal(card({ compactNote: { at: 6000, why: '' } }), null)
 })

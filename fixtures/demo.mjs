@@ -298,8 +298,10 @@ export async function demoSources(now) {
       'demo-main': plan(now, { text: 'Integrate player movement', step: 4, steps: 5, left: 25 * MIN, isReported: false }, 3),
       'demo-units': plan(now, { text: 'Choose enemy approach', step: 2, steps: 4, left: 30 * MIN, isReported: false }, 103),
       'demo-features': plan(now, { text: 'Add save / load system', step: 3, steps: 5, left: 114 * MIN, isReported: false }, 9),
-      'demo-cleanup': plan(now, { text: 'Tidy the docs', step: 2, steps: 2, left: 0, isReported: false }, 105),
-      'demo-levels': plan(now, { text: 'Build first level (forest)', step: 2, steps: 6, left: 40 * MIN, isReported: false }, 6),
+      // B235: the Workers mod compacted Cleanup after its report.
+      'demo-cleanup': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Tidy the docs', step: 2, steps: 2, left: 0, isReported: false }, 105)), compacted: { at: now - 100 * MIN, before: 612000, after: 88000 } }),
+      // ... and why it did not compact Levels / Environment.
+      'demo-levels': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Build first level (forest)', step: 2, steps: 6, left: 40 * MIN, isReported: false }, 6)), compactNote: { at: now - 30 * MIN, why: 'below the size to compact (140k of 250k tokens)' } }),
     },
     tails: transcripts(now),
     backlogText: BACKLOG + FINISHED(now),

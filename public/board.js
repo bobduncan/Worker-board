@@ -686,6 +686,13 @@ function drawLane(lane, state) {
     idle.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
     names.append(idle)
   }
+  // B235: whether the Workers mod compacted it after its last report, or why not.
+  const compacted = compactionLine(lane.compaction ?? null, clock)
+  if (compacted !== null) {
+    const note = el('small', `compaction${compacted.isSkipped ? ' is-skipped' : ''}`, compacted.text)
+    note.title = compacted.text
+    names.append(note)
+  }
   // B143: a worker can be removed; the main chat cannot. The board asks the main chat, which closes the worker.
   const main = state.workers?.mainTitle ?? 'the main chat'
   const removal = removalView(lane, main, state.readAt)
@@ -2090,6 +2097,17 @@ function drawReferences(shown) {
 
 
 // lanewindow:start
+/** B235: a size in tokens, short: 820000 is "820k". */
+const tokensOf = count => (Number.isFinite(count) ? (count >= 1000 ? `${Math.round(count / 1000)}k` : String(count)) : null)
+
+/** B235: the one line on whether the Workers mod compacted a worker after its last report, or why not; null without. */
+function compactionLine(compaction, clockOf) {
+  if (compaction === null || compaction === undefined) return null
+  if (compaction.kind === 'skipped') return { text: `not compacted at ${clockOf(compaction.at)}: ${compaction.why}`, isSkipped: true }
+  const [before, after] = [tokensOf(compaction.before), tokensOf(compaction.after)]
+  return { text: `compacted at ${clockOf(compaction.at)}${before === null ? '' : `, from ${before}${after === null ? '' : ` to ${after}`} tokens`}`, isSkipped: false }
+}
+
 const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off' }
 
 /**

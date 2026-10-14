@@ -224,7 +224,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, reports: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, reports: null, compaction: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -301,6 +301,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
     // The task a free chat's card still named: finished, not current work.
     lastTask: isLeftBehind && state === 'free' ? { text: plan.task.text } : null,
+    // B235: whether the Workers mod compacted the chat after its last report, or why not.
+    compaction: plan?.compaction ?? null,
     givenTask: given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title } },
     suspended: paused,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).

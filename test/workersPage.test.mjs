@@ -110,3 +110,14 @@ test('B213: without the Workers mod the row says plainly what the board cannot d
   assert.match(lines[0].text, /^No Workers mod answers this board: what you send is copied for you to paste into the chat, the board cannot tell whether a chat runs, and a large worker is not compacted after its report\.$/)
   assert.ok(!view({ main: 'Lead', mainTitle: 'Team - Lead', project: 'C:\p', count: 1, ask: null, lookFor: [], withoutMod: false }).lines.some(line => /Workers mod/.test(line.text)))
 })
+
+test('B235: one line under a worker\'s name says it was compacted and from what size, or why not', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const part = {}
+  vm.runInNewContext(`${script.slice(script.indexOf('// lanewindow:start'), script.indexOf('function laneWindowOf'))}\nObject.assign(this, { compactionLine })`, part)
+  const at = '16:40'
+  assert.deepEqual({ ...part.compactionLine({ kind: 'compacted', at: 1, before: 820000, after: 95000 }, () => at) }, { text: 'compacted at 16:40, from 820k to 95k tokens', isSkipped: false })
+  assert.deepEqual({ ...part.compactionLine({ kind: 'skipped', at: 1, why: 'its turn was still running' }, () => at) }, { text: 'not compacted at 16:40: its turn was still running', isSkipped: true })
+  assert.equal(part.compactionLine(null, () => at), null)
+})
