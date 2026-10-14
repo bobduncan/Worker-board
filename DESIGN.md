@@ -488,6 +488,14 @@ chat's branch and when its task was named; and the line in the working agreement
 ask where it would write an `@you` step. Delivery is built and tested in parts, and not yet tried with a real chat:
 that needs `/reload-plugins` in the chat that is to receive.
 
+**On a phone, piece 1: the width (B206).** The person chose pieces 1 to 3 of `PHONE-PLAN.md` (B199: "1. yes"). Up to
+760 px the top bar wraps: the tabs, in a box of their own (`.tab-list`, which counts for nothing on a wide screen),
+scroll sideways on the first line, "Prepare restart", the version and "Last updated" go on the next; the limits box
+stacks its windows. In a narrow Workers panel a worker's time takes the two columns beside its task (it sat in the
+menu's narrow column and was cut). Up to 600 px a window fills the screen, its Send row at the bottom. The page is
+then as wide as the phone in every tab; the Design tab's strip of pictures scrolls inside itself. The wide view is
+as before. The pictures: `art-inbox/worker-board/b206/`.
+
 ## What it is for
 
 The person runs one main chat and four worker chats on Lava Tactics and loses track of who does what. Their words:
