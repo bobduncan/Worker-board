@@ -496,6 +496,13 @@ menu's narrow column and was cut). Up to 600 px a window fills the screen, its S
 then as wide as the phone in every tab; the Design tab's strip of pictures scrolls inside itself. The wide view is
 as before. The pictures: `art-inbox/worker-board/b206/`.
 
+**On a phone, piece 2: the order (B207).** Up to 600 px the Overview shows Needs your attention (with Talk to Main
+beside it) first, then the head and the workers; the timeline and the folders are folded away under a button "Show
+the timeline and folders". The tabs are a bar along the bottom with their short names, "Today", "Advisor" and
+"Backlog" (each tab holds both names, `.tab-long` and `.tab-short`); the Design tab is left out. A backlog step's
+state goes under its title, so the title keeps the width. The wide view is as before. The pictures:
+`art-inbox/worker-board/b207/`.
+
 ## What it is for
 
 The person runs one main chat and four worker chats on Lava Tactics and loses track of who does what. Their words:
