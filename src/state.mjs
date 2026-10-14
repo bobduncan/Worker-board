@@ -398,8 +398,10 @@ function needsOf(asks, lanes, outbox, gameOf, now) {
         id: `chat:${lane.name}:${lane.waitingSince ?? 0}`,
         from: lane.name,
         kind: 'input',
+        // B169: the main chat asks the person as part of its talk with them, not as a finished task.
         title: lane.isAsking ? 'Asked you a question in its chat'
-          : isFinished ? `Finished: ${(form.task ?? 'its task').split('\n')[0].slice(0, 120)}` : 'Needs your decision',
+          : lane.isMain ? `${lane.name} needs your answer`
+            : isFinished ? `Finished: ${(form.task ?? 'its task').split('\n')[0].slice(0, 120)}` : 'Needs your decision',
         text: lane.isAsking ? 'It used the app\'s question form, which can only be answered there.' : lane.needsYou ?? 'It waits for you.',
         at: lane.waitingSince,
         ...blank,
@@ -407,6 +409,7 @@ function needsOf(asks, lanes, outbox, gameOf, now) {
         canAnswer: !lane.isAsking,
         task: cardOf(lane.task),
         waits: lane.waitsFor,
+        isMain: lane.isMain === true,
       })
     }
     if (lane.isQuiet) {

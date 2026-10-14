@@ -101,6 +101,8 @@ test('a chat whose turn ended blocked waits for you, and its need leads the For 
     // B100: what its window shows: its task as its card names it (it recorded none), and what it last said.
     // B149: no parts of the agreed form, and no hand-over from the main chat.
     task: null, waits: { at: NOW - 9 * MIN, words: 'Done', questions: [], plan: null, handover: null, given: null },
+    // B169: a worker, not the main chat.
+    isMain: false,
   }])
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.kind, step.from, step.canAnswer]), [['Say whether the mage is right', 'Art', 'input', 'Main', true]])
 })

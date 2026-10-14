@@ -1635,6 +1635,8 @@ function waitingOf(need, now) {
     // the message that gave it that task (`given`).
     handover: waits?.handover ?? null,
     given: waits?.given ?? null,
+    // B169: the main chat's window shows what the person decides on (`mainParts`).
+    isMain: need.isMain === true,
   }
 }
 
@@ -1678,55 +1680,7 @@ function handoverParts(waiting, needId) {
     ['What I did', did === '' ? [] : [el('p', 'brief-text', did)]],
   ])]
 
-  if (handover.items.length > 0) {
-    const answers = itemAnswers.get(needId) ?? new Map()
-    const list = el('ol', 'handover-items')
-    for (const item of handover.items) {
-      const li = el('li', 'handover-item')
-      li.dataset.item = String(item.n)
-      const ask = el('p', 'handover-ask')
-      ask.append(el('b', '', `${item.n}. ${item.kind === 'do' ? 'Do' : 'Answer'}: `), item.text)
-      li.append(ask)
-      for (const link of item.links) {
-        const open = el('button', 'handover-link', link.kind === 'picture' ? link.label : `▶  ${link.label}`)
-        open.type = 'button'
-        if (link.kind === 'picture') {
-          open.dataset.zoom = link.path
-          open.dataset.caption = link.label
-          open.title = `Opens the picture here: ${link.path}`
-        } else {
-          open.dataset.play = link.branch
-          open.dataset.settings = link.settings
-          open.disabled = starting.has(`play:${link.branch}`)
-          open.title = 'Starts the game with this work in a new tab, where the change shows. It stops by itself after you close the tab.'
-        }
-        li.append(open)
-        if (link.kind === 'play' && problems.has(`play:${link.branch}`)) li.append(el('p', 'problem', problems.get(`play:${link.branch}`)))
-      }
-      if (waiting.where === 'here') {
-        const mine = answers.get(item.n) ?? { verdict: null, words: '' }
-        const row = el('div', 'handover-answer')
-        for (const verdict of item.kind === 'do' ? ['done'] : ['yes', 'no']) {
-          const pick = el('button', `choice${mine.verdict === verdict ? ' is-chosen' : ''}`, verdict.charAt(0).toUpperCase() + verdict.slice(1))
-          pick.type = 'button'
-          pick.dataset.itemVerdict = verdict
-          pick.setAttribute('aria-pressed', String(mine.verdict === verdict))
-          row.append(pick)
-        }
-        const words = el('input')
-        words.type = 'text'
-        words.value = mine.words
-        words.maxLength = 500
-        words.placeholder = item.kind === 'do' ? 'Your words, if any…' : 'Your words (needed for No)…'
-        words.dataset.itemWords = ''
-        words.setAttribute('aria-label', `Your answer to ${item.n}`)
-        row.append(words)
-        li.append(row)
-      }
-      list.append(li)
-    }
-    main.push(section('For you', [list, ...(waiting.where === 'here' ? [el('p', 'muted', 'Your answers gather in the box below; change it there if you like, then send.')] : [])]))
-  }
+  if (handover.items.length > 0) main.push(itemsPart(handover.items, waiting, needId))
   // B157: below, folded: the message as it was given, its whole answer, its closing block.
   main.push(foldedDetails([
     given === null ? null : section('Its task as it was given', [
@@ -1736,6 +1690,110 @@ function handoverParts(waiting, needId) {
     ...closingParts(handover.closing),
   ]))
   return { main: main.filter(part => part !== null), side: [] }
+}
+
+/**
+ * B169: the window of the main chat that waits for the person. The person, 2026-10-14: "This 'for you' tab, doesnt
+ * contain the information i need to approve. i think it works for for workers, but not for the main chat", and of
+ * the mock-up "1. yes". On top what the person asked it (its closing block's Prompt) and where that stands (Done);
+ * then its answer itself, open: what the person decides on; then its questions, with the choices it lists; its
+ * closing block folded, and for a question it first asked in an earlier answer, the way to Talk to Main ("2. yes: A").
+ */
+function mainParts(waiting, needId) {
+  const handover = waiting.handover
+  const closing = handover?.closing ?? null
+  const asked = closing?.prompt ?? ''
+  const stands = closing?.done ?? ''
+  const tone = closing?.isDone === true ? ' is-good' : closing?.isDone === false ? ' is-bad' : ''
+  const main = []
+  if (asked !== '' || stands !== '') {
+    main.push(briefPart([
+      ['You asked', asked === '' ? [] : [briefTask(capitalized(asked))]],
+      ['Where it stands', stands === '' ? [] : [el('p', `brief-text${tone}`, capitalized(stands))]],
+    ]))
+  }
+  const material = handover?.material ?? waiting.words
+  if (material !== '') main.push(section(`What you decide on${waiting.saidAt === null ? '' : ` · its answer of ${clock(waiting.saidAt)}`}`, [drawTalkText(el('div', 'main-material'), material)]))
+  if (handover !== null && handover.items.length > 0) main.push(itemsPart(handover.items, waiting, needId, true))
+  if (material === '' && (handover?.items.length ?? 0) === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
+  const talk = board?.mainTalk?.name ?? 'Main'
+  const open = el('button', 'link-button', `Open Talk to ${talk}`)
+  open.type = 'button'
+  open.dataset.showSide = 'main'
+  main.push(foldedDetails([
+    ...closingParts(closing),
+    section('Asked before', [el('p', 'muted', 'A question it first asked in an earlier answer: all its answers are in the talk with it.'), open]),
+  ]))
+  return { main, side: [] }
+}
+
+/** B169: words with a capital first letter, as a line of the window starts. */
+const capitalized = text => text.charAt(0).toUpperCase() + text.slice(1)
+
+/**
+ * B149: the items of a "For you" block, numbered, each with its links and its own answer: Yes or No, Done, or (B169,
+ * the main chat's window, `withChoices`) the choices it lists, shown under its question with its advice.
+ */
+function itemsPart(items, waiting, needId, withChoices = false) {
+  const answers = itemAnswers.get(needId) ?? new Map()
+  const list = el('ol', 'handover-items')
+  for (const item of items) {
+    const li = el('li', 'handover-item')
+    li.dataset.item = String(item.n)
+    const ask = el('p', 'handover-ask')
+    ask.append(el('b', '', `${item.n}. ${item.kind === 'do' ? 'Do' : 'Answer'}: `), withChoices ? capitalized(item.ask ?? item.text) : item.text)
+    li.append(ask)
+    const choices = withChoices ? item.options ?? [] : []
+    if (choices.some(choice => choice.text !== null)) {
+      const listed = el('ul', 'handover-options')
+      for (const choice of choices) {
+        const row = el('li')
+        row.append(el('b', '', `${choice.key}: `), choice.text ?? '')
+        listed.append(row)
+      }
+      li.append(listed)
+    }
+    if (withChoices && (item.note ?? '') !== '') li.append(el('p', 'handover-note', item.note))
+    for (const link of item.links) {
+      const open = el('button', 'handover-link', link.kind === 'picture' ? link.label : `▶  ${link.label}`)
+      open.type = 'button'
+      if (link.kind === 'picture') {
+        open.dataset.zoom = link.path
+        open.dataset.caption = link.label
+        open.title = `Opens the picture here: ${link.path}`
+      } else {
+        open.dataset.play = link.branch
+        open.dataset.settings = link.settings
+        open.disabled = starting.has(`play:${link.branch}`)
+        open.title = 'Starts the game with this work in a new tab, where the change shows. It stops by itself after you close the tab.'
+      }
+      li.append(open)
+      if (link.kind === 'play' && problems.has(`play:${link.branch}`)) li.append(el('p', 'problem', problems.get(`play:${link.branch}`)))
+    }
+    if (waiting.where === 'here') {
+      const mine = answers.get(item.n) ?? { verdict: null, words: '' }
+      const row = el('div', 'handover-answer')
+      for (const verdict of choices.length > 0 ? choices.map(choice => choice.key) : item.kind === 'do' ? ['done'] : ['yes', 'no']) {
+        const pick = el('button', `choice${mine.verdict === verdict ? ' is-chosen' : ''}`, verdict.charAt(0).toUpperCase() + verdict.slice(1))
+        pick.type = 'button'
+        pick.dataset.itemVerdict = verdict
+        pick.setAttribute('aria-pressed', String(mine.verdict === verdict))
+        row.append(pick)
+      }
+      const words = el('input')
+      words.type = 'text'
+      words.value = mine.words
+      words.maxLength = 500
+      words.placeholder = item.kind === 'do' || choices.length > 0 ? 'Your words, if any…' : 'Your words (needed for No)…'
+      words.dataset.itemWords = ''
+      words.setAttribute('aria-label', `Your answer to ${item.n}`)
+      row.append(words)
+      li.append(row)
+    }
+    list.append(li)
+  }
+  // B169: the person, 2026-10-14: "lets rename 'For you' to 'Need your attention'", and "everywhere".
+  return section('Needs your attention', [list, ...(waiting.where === 'here' ? [el('p', 'muted', 'Your answers gather in the box below; change it there if you like, then send.')] : [])])
 }
 
 /** B149: the closing block of a worker's answer as three lines, Done in green or red; nothing when it has none. */
@@ -1761,6 +1819,13 @@ function gatherAnswers(box, needId) {
 }
 
 $('details').addEventListener('click', event => {
+  // B169: from the main chat's window to the talk with it, on the right side.
+  const side = event.target.closest('[data-show-side]')
+  if (side !== null) {
+    closeDetails()
+    showSide(side.dataset.showSide)
+    return
+  }
   const pick = event.target.closest('[data-item-verdict]')
   if (pick === null || detailsOf?.need === undefined) return
   const n = Number(pick.closest('[data-item]').dataset.item)
@@ -1788,6 +1853,8 @@ $('details').addEventListener('input', event => {
 
 /** B100: the two parts of a waiting worker's window: its task, and what it wants from the person. */
 function waitingParts(waiting, needId = null) {
+  // B169: the main chat, which asks the person as part of its talk with them.
+  if (waiting.isMain) return mainParts(waiting, needId)
   // B149: a finished worker whose answer has the agreed form.
   if (hasForm(waiting.handover)) return handoverParts(waiting, needId)
   const task = waiting.task.map((line, index) => el('p', index === 0 ? `waiting-topic${waiting.hasTask ? '' : ' muted'}` : 'muted', line))
@@ -2861,7 +2928,7 @@ $('finished').addEventListener('click', event => {
 // B84: what the tab lists, worked out without the page. Kept between these two marks so a test can run it.
 // coordinate:start
 /** The ways to narrow the list, in the order of their buttons. */
-const COORDINATE_FILTERS = [['all', 'All'], ['progress', 'In progress'], ['queued', 'Queued'], ['you', 'For you'], ['unassigned', 'Without a worker']]
+const COORDINATE_FILTERS = [['all', 'All'], ['progress', 'In progress'], ['queued', 'Queued'], ['you', 'Needs your attention'], ['unassigned', 'Without a worker']]
 
 /** Whether an open step shows under a way to narrow the list. "Without a worker": a step for nobody yet, not the person's. */
 function coordinateShows(step, filter) {
@@ -2914,7 +2981,7 @@ function coordinateList(activities, { filter = 'all', find = '', showDone = fals
 }
 // coordinate:end
 
-const STEP_STATES = { progress: 'In progress', queued: 'Queued', you: 'For you', open: 'Open', done: 'Finished' }
+const STEP_STATES = { progress: 'In progress', queued: 'Queued', you: 'Needs your attention', open: 'Open', done: 'Finished' }
 let coordinateFilter = 'all'
 
 function drawCoordinate(state) {

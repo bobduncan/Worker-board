@@ -17,6 +17,9 @@
 
 const LINK = /\[([^\]\n]{1,200})\]\((?:https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d{2,5})?\/?)?#(picture|play)=([^)\s]{1,600})\)/g
 const ITEM = /^(\d{1,2})\.\s+\*\*(Answer|Do):\*\*\s*(.*)$/
+// B169: an option under an item, "- **A:** ...", and the options a question names in its words, "A, B or C?".
+const OPTION = /^[-*]\s+\*\*([A-H])[:.)]?\*\*[:.)]?\s*(.*)$/
+const NAMED = /\b((?:[A-H],\s*)*[A-H]),?\s+or\s+([A-H])\b/
 const PLAIN_PATH = /^[\w-][\w.@ -]*(\/[\w.@ -]+)+$/
 const BRANCH = /^[\w][\w./-]{0,120}$/
 const SETTINGS = /^[\w.,=&%-]{0,400}$/
@@ -71,6 +74,14 @@ export function closingOf(text) {
   return closing.prompt === null && closing.who === null && closing.done === null ? null : closing
 }
 
+/** B169: the options a question names in its words ("A, B or C?"), in order from A, or none. */
+function namedOptions(ask) {
+  const found = ask.match(NAMED)
+  if (found === null) return []
+  const keys = [...found[1].split(',').map(key => key.trim()), found[2]]
+  return keys.every((key, index) => key === String.fromCharCode(65 + index)) ? keys.map(key => ({ key, text: null })) : []
+}
+
 /** The answer without its closing block, and without the rule that stands above it. */
 export function withoutClosing(text) {
   return text.replace(/\n?(?:-{3,}\s*\n+)?```diff[^\n]*\n[\s\S]*?```\s*$/, '').trimEnd()
@@ -90,9 +101,12 @@ function labelled(lines, label) {
 }
 
 /**
- * The parts of a worker's last answer: `{ task, did, items, closing, rest }`. `items` are the "For you" block's, in
- * order, each `{ n, kind: 'answer' | 'do', text, links }`; `rest` is the answer without its closing block. Null when
- * the answer has none of the parts, so the board shows it as it is.
+ * The parts of a worker's last answer: `{ task, did, items, closing, rest, material }`. `items` are the "For you"
+ * block's, in order, each `{ n, kind: 'answer' | 'do', text, links, ask, options, note }`: `text` is all its words on
+ * one line; B169 adds `ask`, its first line, `options`, the choices it lists (`{ key: 'A', text }`, or with `text`
+ * null those its words name, "A, B or C?"), and `note`, its other lines (the advice). `rest` is the answer without
+ * its closing block; `material` also without the "For you" block: what the person reads to decide (B169). Null
+ * when the answer has none of the parts, so the board shows it as it is.
  */
 export function parseHandover(text) {
   if (typeof text !== 'string' || text.trim() === '') return null
@@ -100,28 +114,36 @@ export function parseHandover(text) {
   const task = labelled(lines, 'Task')
   const did = labelled(lines, 'What I did')
 
-  // The "For you" block: the quoted lines from its title on.
+  // The "For you" block: the quoted lines from its title on (B169: also under the board's name for it).
   const items = []
-  const start = lines.findIndex(line => /^>\s*\*\*For you\*\*\s*$/.test(line.trim()))
+  const start = lines.findIndex(line => /^>\s*\*\*(?:For you|Needs your attention)\*\*\s*$/.test(line.trim()))
+  let end = start
   if (start >= 0) {
     for (const line of lines.slice(start + 1)) {
       if (!line.trim().startsWith('>')) break
+      end += 1
       const inner = line.trim().replace(/^>\s?/, '')
       const head = inner.trim().match(ITEM)
       if (head !== null && items.length < ITEMS) {
         const { links, words } = linksIn(head[3])
-        items.push({ n: Number(head[1]), kind: head[2].toLowerCase(), text: oneLine(words), links })
+        items.push({ n: Number(head[1]), kind: head[2].toLowerCase(), text: oneLine(words), links, ask: oneLine(words), options: [], note: '' })
         continue
       }
       const item = items.at(-1)
       if (item === undefined || inner.trim() === '') continue
       const { links, words } = linksIn(inner)
       item.links.push(...links)
-      if (words.trim() !== '') item.text = oneLine(`${item.text} ${words}`)
+      if (words.trim() === '') continue
+      item.text = oneLine(`${item.text} ${words}`)
+      const option = words.trim().match(OPTION)
+      if (option !== null && item.options.length < ITEMS) item.options.push({ key: option[1], text: oneLine(option[2], 400) })
+      else item.note = oneLine(`${item.note} ${words}`)
     }
   }
+  for (const item of items) if (item.options.length === 0 && item.kind === 'answer') item.options = namedOptions(item.ask)
 
   const closing = closingOf(text)
   if (task === null && did === null && items.length === 0 && closing === null) return null
-  return { task, did, items, closing, rest: withoutClosing(text) }
+  const material = withoutClosing((start < 0 ? lines : [...lines.slice(0, start), ...lines.slice(end + 1)]).join('\n')).trim()
+  return { task, did, items, closing, rest: withoutClosing(text), material }
 }

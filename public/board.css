@@ -864,3 +864,17 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .task-details > summary { font-weight: 700; font-size: 15px; cursor: pointer; }
 .task-details[open] > summary { margin-bottom: 4px; }
 .task-details > .details-part { margin-top: 12px; }
+
+/* B169: the main chat's window: its answer open, as the material to decide on, and the choices of a question listed.
+   The right side's first tab is "Needs your attention", on one line also when the side is at its narrowest. */
+.task-brief .brief-text.is-good { color: var(--working); }
+.task-brief .brief-text.is-bad { color: #ff8a8a; }
+.main-material { max-height: 42vh; overflow: auto; padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.02); font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.handover-options { margin: 6px 0 4px 18px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.handover-note { margin: 2px 0 6px; font-size: 13.5px; color: var(--muted); }
+.link-button { align-self: flex-start; border: 0; padding: 0; background: none; color: #8ab4ff; font: inherit; text-decoration: underline; cursor: pointer; }
+.side-tabs { container-type: inline-size; }
+.side-tab { white-space: nowrap; }
+@container (max-width: 370px) {
+  .side-tab { font-size: 13px; padding: 9px 7px 10px; gap: 6px; }
+}

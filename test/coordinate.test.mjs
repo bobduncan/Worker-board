@@ -81,7 +81,7 @@ const activities = JSON.parse(JSON.stringify(overview(parsed)))
 test('the page has a third tab named Backlog (B155; it was Coordinate), with its filters in order', () => {
   assert.match(page, /<button class="tab" type="button" data-tab="coordinate">Backlog<\/button>/)
   assert.match(page, /id="view-coordinate" hidden/)
-  assert.deepEqual(JSON.parse(JSON.stringify(context.filters)), [['all', 'All'], ['progress', 'In progress'], ['queued', 'Queued'], ['you', 'For you'], ['unassigned', 'Without a worker']])
+  assert.deepEqual(JSON.parse(JSON.stringify(context.filters)), [['all', 'All'], ['progress', 'In progress'], ['queued', 'Queued'], ['you', 'Needs your attention'], ['unassigned', 'Without a worker']])
 })
 
 test('all: every open step by activity, the focus first; finished steps stay hidden', () => {
