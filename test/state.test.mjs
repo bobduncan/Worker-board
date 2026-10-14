@@ -511,6 +511,9 @@ test('the demo shows the second design: five lanes with their queues, two reques
     ['Levels / Environment', 'working', 2],
   ])
   assert.deepEqual(state.counts, { working: 2, waiting: 1, free: 1, unknown: 0, interrupted: 0, suspended: 1 })
+  // B148: Cleanup's last answer ends with "+ Done:   yes": free, although its card still names its task.
+  assert.deepEqual([state.chats[3].state, state.chats[3].task], ['free', null])
+  assert.equal(JSON.parse(demo.planLineTexts['demo-cleanup']).task.isReported, false)
   assert.deepEqual(state.chats.map(chat => (chat.eta === null ? null : Math.round(chat.eta.leftMs / MIN))), [22, null, null, null, 34])
   // B113: the limits, a worker that paused for the limit, and why each first queued step is not started.
   assert.deepEqual([state.limits.fiveHour.used, state.limits.fiveHour.level, Math.round((state.limits.fiveHour.resetsAt - NOW) / MIN), state.limits.week.used], [86, 'warn', 52, 64])

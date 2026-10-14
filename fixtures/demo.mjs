@@ -19,7 +19,8 @@ const CHATS = [
   { name: 'Main', id: 'demo-main' },
   { name: 'Units', id: 'demo-units', summary: ['blocked', 'two pathfinding approaches compared', 'Choose an approach for enemy pathfinding: option A (NavMesh) or option B (custom grid).'] },
   { name: 'Features', id: 'demo-features' },
-  { name: 'Cleanup', id: 'demo-cleanup', summary: ['completed', 'the docs are tidy', ''] },
+  // B148: done, and its card still names its task: the app's summary says nothing, its last answer says it all.
+  { name: 'Cleanup', id: 'demo-cleanup' },
   { name: 'Levels / Environment', id: 'demo-levels' },
   { name: 'Advisor', id: 'demo-advisor', summary: ['completed', 'advice written', ''] },
 ]
@@ -176,7 +177,7 @@ function transcripts(now) {
       toolResult(ago(128)),
       assistant(ago(106), 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'The docs are tidy.' })]),
       toolResult(ago(106)),
-      answer(ago(105), 'The docs are tidy and the report is with Game - Main.'),
+      answer(ago(105), 'The docs are tidy and the report is with Game - Main.\n\n---\n\n```diff\n  Prompt: tidy the docs\n  Who:    Game - Cleanup\n+ Done:   yes\n```'),
     ], 105),
     'demo-levels': tail([
       fromChat(ago(40), 'Game - Main', 'Task from Game - Main: build the first level, a forest.'),
@@ -268,7 +269,7 @@ export async function demoSources(now) {
       'demo-main': plan(now, { text: 'Integrate player movement', step: 4, steps: 5, left: 25 * MIN, isReported: false }, 3),
       'demo-units': plan(now, { text: 'Choose enemy approach', step: 2, steps: 4, left: 30 * MIN, isReported: false }, 103),
       'demo-features': plan(now, { text: 'Add save / load system', step: 3, steps: 5, left: 114 * MIN, isReported: false }, 9),
-      'demo-cleanup': plan(now, null, 105),
+      'demo-cleanup': plan(now, { text: 'Tidy the docs', step: 2, steps: 2, left: 0, isReported: false }, 105),
       'demo-levels': plan(now, { text: 'Build first level (forest)', step: 2, steps: 6, left: 40 * MIN, isReported: false }, 6),
     },
     tails: transcripts(now),
