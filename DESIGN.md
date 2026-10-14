@@ -158,6 +158,10 @@ Since B179 the tab opens as one list unless this browser turned the checkbox off
 away and back with a click on its head (a button that says whether the list is open), also kept in this browser.
 The person, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
 default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.jpg`.
+Since B180 the search and the two checkboxes are one group at the end of the head, after the longer "Needs your
+attention" filter: at the board's usual width (1280 px and wider) the head is one line; narrower, the group moves to
+the next line whole, the two checkboxes side by side, never one alone. A step's state stays on one line. The picture:
+`art-inbox/worker-board/2026-10-14-b180-backlog-head.png`.
 A step nobody has (open, with an id: not queued, in progress, finished or the person's) has "Add to queue" at the end
 of its row and in its window's foot (B181; the person: "I want a button add to queue for the items on the
 backlog"). The board only asks: it types "queue step from the backlog" and "Step: <id> <title>" into the main chat,
@@ -188,6 +192,25 @@ main chat, an answer to a card) are left out. An answer reads in its parts: its 
 closing block line by line, "+" green and "-" red. The head says whether the main chat's chat runs. The tab that is
 open is kept in this browser. Not built: the picture's "Task proposal" card and answer buttons, which the person's
 words did not ask for. The picture: `art-inbox/ideas/i-want-a-place/2026-10-14-b161-result.png`.
+
+**The Advisor (B173).** Step 1 of the design the person approved on 2026-10-14
+(`.claude/specs/2026-10-14-advisor-design.md` in the project). Their rule: "information needed for how the advisor
+behavies is part of the worker board, but informaion i give it and what goes from there needs to be stored in the game
+repo itself." So the job description, in general words, is the board's `roles/advisor.md`. What one project sets is
+in `config.json`: `backlog`, `gamePlan`, `advisorDecisions`, `advisorReadFirst`, `advisorSuggestions`, `morningRound`
+("" leaves it out), `weeklyRound` and `morningSkipPercent`. The paths stay inside their folder. The board's clock
+(`src/rounds.mjs`, written down in `data/rounds.json`) types `Round from the board's clock: morning` at the morning
+time, and `...: weekly` right after the weekly limit resets (as the limits bar reads it), into the Advisor's chat.
+Under that line come the job's path and the project's settings, and a line saying it is the clock's, not the user's
+word; it carries no "(typed on the worker board)" mark. A round missed while the board was off comes once at its next
+start, and a weekly round takes that day's morning round with it. The morning round is left out on the day of a
+weekly reset, and while the 5-hour limit is above 80%. The one line saying so stands on the Advice & Chat tab, not in
+the Advisor's chat, so it spends no usage. At its very first start the clock only writes down, so a new board starts
+no round at once. Only the board that delivers runs the clock, and only while there is an Advisor; a chat that is not
+running is started through the main chat. The Advice & Chat tab shows when the rounds come; the open steps of the
+backlog's "Advisor suggestions" group with their Why, Cost and Unblocks lines (answered under For you); and the game
+plan from the game's repository instead of `.claude/advice.md`. The Advisor's talk leaves the clock's lines out. The
+picture: `art-inbox/worker-board/b173/`.
 
 **A picture in Talk to Main (B167).** The person, 2026-10-14: "i need a change so that i can post pictures in the 'talk
 to main' chat in the worker board, from my clipboard". Ctrl+V in the talk takes the picture on the clipboard (PNG,

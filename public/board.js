@@ -458,11 +458,18 @@ function timeOf(lane, now) {
 }
 // lanetime:end
 
-/** B82: the topic the chat recorded for its task. A chat that recorded nothing has no words to show: what was typed to it stays in its chat. */
-function taskTitle(task) {
-  if (task.text === '') return el('p', 'task is-none', 'Task not recorded yet')
-  const title = el('p', 'task clip', task.text)
-  title.title = task.text
+/**
+ * B82: the topic the chat recorded for its task. A chat that recorded nothing has no words to show: what was typed to
+ * it stays in its chat. B182: the backlog step it is on stands in front ("B173 Build the new Advisor's job and
+ * clock", the person, 2026-10-14), once, whether or not the topic began with it.
+ */
+function taskTitle(lane) {
+  const { code, text } = laneTaskOf(lane)
+  if (text === null) return el('p', 'task is-none', 'Task not recorded yet')
+  const title = el('p', 'task clip')
+  if (code !== null) title.append(el('span', 'task-code', code), ' ')
+  title.append(text)
+  title.title = code === null ? text : `${code} ${text}`
   return title
 }
 
@@ -663,7 +670,7 @@ function drawLane(lane, state) {
     const free = freeLine(lane)
     if (free !== null) what.append(el('p', 'note', free))
   } else {
-    what.append(taskTitle(task))
+    what.append(taskTitle(lane))
   }
   // B159: the progress of its task in a column of its own: a bar of its steps, and its step line (B108) under it.
   const progress = el('div', 'progress-cell')
@@ -1921,6 +1928,19 @@ function drawReferences(shown) {
 // lanewindow:start
 const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off' }
 
+/**
+ * B182: a lane's task as the Workers panel and its window name it: `code` is the backlog step it is on (the step its
+ * hand-over named, else the one its card is on; null without one), `text` the card's topic without that step's
+ * number in front (B157: a topic that starts with "B173" or "B173:" does not say it twice beside it). Null when the
+ * chat recorded no topic.
+ */
+function laneTaskOf(lane) {
+  const task = lane.task ?? null
+  const code = lane.givenTask?.step?.id ?? task?.stepId ?? null
+  if (task === null || (task.text ?? '') === '') return { code, text: null }
+  return { code, text: code === null ? task.text : task.text.replace(new RegExp(`^${code}[:,]?\\s+`), '') }
+}
+
 const SHORT_TASK_CHARS = 220
 
 /**
@@ -1999,9 +2019,8 @@ function laneWindowOf(lane, now, mainTitle) {
   const line = stepLine(lane, now)
   const time = timeOf(lane, now)
   return {
-    code: given?.step?.id ?? task?.stepId ?? null,
-    // B157: a topic that starts with the step's id does not say it twice beside the id.
-    title: task === null || task.text === '' ? 'Task not recorded yet' : task.text.replace(new RegExp(`^${given?.step?.id ?? task?.stepId ?? '(?!)'}[:,]?\\s+`), ''),
+    code: laneTaskOf(lane).code,
+    title: laneTaskOf(lane).text ?? 'Task not recorded yet',
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
     given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
     step: given?.step ?? null,
@@ -2502,9 +2521,42 @@ function rich(node, text) {
   return node
 }
 
+// advisor:start
+// B173: the Advice & Chat tab shows the Advisor's work: its open suggestions, when its rounds come, and the game plan.
+
+/** When the board's clock starts the Advisor's rounds, and a round it left out in the last day. `clockOf(ms)` is "09:00". */
+function roundsLine(rounds, now, clockOf) {
+  if (rounds === null || rounds === undefined) return ''
+  const when = [rounds.morningRound ? `every day at ${rounds.morningRound}` : null, rounds.weeklyRound ? 'a deep one right after the weekly limit resets' : null].filter(Boolean)
+  if (when.length === 0) return 'The board\'s clock starts no rounds: the settings leave both out. Ask the Advisor in the chat.'
+  const skipped = rounds.last?.skipped ?? null
+  const left = skipped !== null && now - skipped.at < 24 * 60 * 60_000 ? ` The ${skipped.round} round at ${clockOf(skipped.at)} was left out: ${skipped.why}.` : ''
+  return `Rounds from the board's clock: ${when.join(', and ')}; or ask it in the chat.${left}`
+}
+
+/** An open suggestion as it reads on the tab: its id and title, and its lines ("Why: ...") in the order written. */
+function suggestionView(step) {
+  const lines = (step.notes ?? []).flatMap(section => [...section.lines, ...section.points].map(line => (section.title === null ? line : `${section.title}: ${line}`)))
+  return { title: [step.id, step.title].filter(Boolean).join(' '), lines }
+}
+// advisor:end
+
+function drawSuggestions(state) {
+  const list = state.suggestions ?? []
+  const group = state.rounds?.group ?? 'Advisor suggestions'
+  const head = el('h3', '', list.length === 0 ? 'Suggestions' : `Suggestions (${list.length} open)`)
+  if (list.length === 0) return fill($('advice-suggestions'), [head, el('p', 'muted', `No open suggestions. The Advisor puts them on the backlog under "${group}"; you answer them under For you.`)])
+  fill($('advice-suggestions'), [head, ...list.map(step => {
+    const view = suggestionView(step)
+    const card = el('div', 'suggestion')
+    card.append(el('b', '', view.title), ...view.lines.map(line => marked('p', '', line)))
+    return card
+  }), el('p', 'muted', 'Accept or reject each one under For you.')])
+}
+
 function drawAdvice(state) {
   const box = $('advice-text')
-  if (state.advice === null) return fill(box, [el('p', 'muted', 'No advice yet.')])
+  if (state.advice === null) return fill(box, [el('p', 'muted', `No game plan yet. The Advisor writes it with you, as ${state.gamePlan ?? 'the game plan'} in the game's repository.`)])
   const nodes = []
   let list = null
   let item = null
@@ -3887,7 +3939,10 @@ function draw(state) {
   once('finished', [state.finished ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
   drawDetails(state)
   openFromAddress(state)
-  once('advice', state.advice, () => drawAdvice(state))
+  once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))
+  once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
+  // The line about a round left out goes after a day.
+  once('advice-rounds', [state.rounds ?? null, Math.floor(state.readAt / 3_600_000)], () => { $('advice-rounds').textContent = roundsLine(state.rounds, state.readAt, clock) })
   const age = state.advice === null ? null : adviceAge(state.adviceAt ?? null, state.readAt)
   once('advice-age', age, () => {
     $('advice-age').hidden = age === null

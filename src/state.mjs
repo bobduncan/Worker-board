@@ -3,7 +3,7 @@
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { allWords, closedForYou, forYou, inProgress, overview, parseBacklog, queue } from './backlog.mjs'
+import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
@@ -13,6 +13,7 @@ import { mentionedPaths } from './pictures.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
+import { isClockLine } from './rounds.mjs'
 import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -634,9 +635,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       doingNow: doing,
       messages: tail === null || typeof tail.text !== 'string'
         ? []
-        : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix: list.prefix, titles }),
+        : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix: list.prefix, titles })
+          // B173: a round the board's clock typed is the clock's, not the person's.
+          .filter(message => !(message.from === 'you' && isClockLine(message.text))),
       // Typed on the board to the advisor and not in its chat yet.
-      pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null),
+      pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null && (message.command ?? null) === null),
     }
   }
 
@@ -810,7 +813,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name) },
     // B161: the talk with the main chat; null without a main chat.
     mainTalk: mainTalk === null ? null : { ...mainTalk, isRunning: runningOf(mainTalk.name) },
+    // B173: the game plan (config.gamePlan in the game's repository), and the Advisor's open suggestions: the open
+    // steps of the backlog's group for them, with their "Why:", "Cost:" and "Unblocks:" lines.
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
+    gamePlan: config.gamePlan,
+    suggestions: backlog.activities
+      .filter(activity => activity.name.trim().toLowerCase() === config.advisorSuggestions.toLowerCase())
+      .flatMap(activity => activity.steps.filter(step => !step.isDone))
+      .map(step => ({ id: step.id, title: step.title, notes: noteSections(step.notes) })),
     // When the advice was written: the page says how old it is.
     adviceAt: Number.isFinite(raw.adviceAt) ? raw.adviceAt : null,
   }

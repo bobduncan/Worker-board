@@ -59,3 +59,15 @@ test('an answer waits two days for its chat unless set otherwise', () => {
 test('an answer is never longer than the mod will type', () => {
   assert.equal(parseConfig('{"maxMessageChars":9000}', env).maxMessageChars, 2500)
 })
+
+test('B173: the Advisor\'s settings: paths stay inside their folder, the morning round is a time or nothing', () => {
+  const config = parseConfig(JSON.stringify({
+    backlog: 'plans/backlog.md', gamePlan: 'docs/plan.md', advisorReadFirst: ['docs/vision.md', '../secret.md', 'C:/x.md', 5],
+    advisorSuggestions: ' Advice ', morningRound: '08:30', weeklyRound: false, morningSkipPercent: 150,
+  }), {})
+  assert.deepEqual([config.backlog, config.gamePlan, config.advisorReadFirst, config.advisorSuggestions, config.morningRound, config.weeklyRound, config.morningSkipPercent],
+    ['plans/backlog.md', 'docs/plan.md', ['docs/vision.md'], 'Advice', '08:30', false, 100])
+  const kept = parseConfig(JSON.stringify({ backlog: '../backlog.md', gamePlan: '/docs/plan.md', morningRound: '9:00' }), {})
+  assert.deepEqual([kept.backlog, kept.gamePlan, kept.morningRound, kept.weeklyRound], ['.claude/backlog.md', 'docs/game-plan.md', '09:00', true])
+  assert.equal(parseConfig(JSON.stringify({ morningRound: '' }), {}).morningRound, '')
+})
