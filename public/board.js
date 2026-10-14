@@ -3984,6 +3984,11 @@ function draw(state) {
   once('finished', [state.finished ?? null, state.taskTimes?.byStep ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
   drawDetails(state)
   openFromAddress(state)
+  // B129: the project's own name from the settings, on the page and in the tab.
+  once('name', state.name ?? '', () => {
+    $('project-name').textContent = state.name || 'Worker board'
+    document.title = state.name ? `${state.name} · Worker board` : 'Worker board'
+  })
   once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))
   once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
   // The line about a round left out goes after a day.

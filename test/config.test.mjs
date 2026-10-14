@@ -129,3 +129,12 @@ test('B127: the settings file of one PC is not in the repository; the template i
   assert.deepEqual(tracked, ['examples/config.json'])
   assert.match(execFileSync('git', ['check-ignore', 'config.json'], { cwd: root, encoding: 'utf8' }), /config\.json/)
 })
+
+test('B129: the project\'s name is the setting "name", else the project folder\'s name', async () => {
+  const { configProblem } = await import('../src/config.mjs')
+  assert.equal(parseConfig('{"name": " Snow Fort ", "project": "C:/Work/my-project"}', {}).name, 'Snow Fort')
+  assert.equal(parseConfig(JSON.stringify({ project: 'C:\\Work\\my-project\\' }), {}).name, 'my-project')
+  assert.equal(parseConfig('{"project": "/home/sam/snow-fort"}', {}).name, 'snow-fort')
+  assert.equal(parseConfig('{}', {}).name, '')
+  assert.equal(configProblem('{"name": 5}'), '"name" must be text, not 5')
+})
