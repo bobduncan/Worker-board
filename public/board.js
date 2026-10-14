@@ -3744,32 +3744,36 @@ function coordinateFinds(step, find) {
  * filter and the search; finished steps only when asked for, and never under a filter but "All". An activity with no
  * step left is left out. `counts` says how many open steps each filter holds, whatever is searched for. B164: with
  * `asOne`, every step that passes is in one group (`isOne`) without the activities, the highest id on top and a step
- * from before the ids at the end, each with the name of its activity.
+ * from before the ids at the end, each with the name of its activity. B250: with `hideBusy`, the steps a worker is on
+ * or that wait in a queue are left out, and `hidden` says how many of those the filter and the search would show.
  */
-function coordinateList(activities, { filter = 'all', find = '', showDone = false, asOne = false } = {}) {
+function coordinateList(activities, { filter = 'all', find = '', showDone = false, asOne = false, hideBusy = false } = {}) {
   const counts = {}
   for (const [name] of COORDINATE_FILTERS) counts[name] = 0
   const groups = []
   let shown = 0
+  let hidden = 0
   for (const activity of activities) {
     const steps = []
     for (const step of activity.steps) {
       const isDone = step.status === 'done'
       if (!isDone) for (const [name] of COORDINATE_FILTERS) if (coordinateShows(step, name)) counts[name] += 1
       if (isDone ? !(showDone && filter === 'all') : !coordinateShows(step, filter)) continue
-      if (coordinateFinds(step, find)) steps.push(step)
+      if (!coordinateFinds(step, find)) continue
+      if (hideBusy && (step.status === 'progress' || step.status === 'queued')) hidden += 1
+      else steps.push(step)
     }
     if (steps.length > 0) groups.push({ name: activity.name, isFocus: activity.isFocus, steps })
     shown += steps.length
   }
-  if (!asOne) return { groups, counts, shown }
+  if (!asOne) return { groups, counts, shown, hidden }
   // B164: "1 long list desc. so last item on the backlog first": by the id's number, a step without one at the end.
   const number = step => (typeof step.id === 'string' ? Number(step.id.slice(1)) : -1)
   const steps = groups.flatMap(group => group.steps.map(step => ({ ...step, activity: group.name })))
     .map((step, index) => ({ step, index }))
     .sort((a, b) => number(b.step) - number(a.step) || a.index - b.index)
     .map(one => one.step)
-  return { groups: steps.length === 0 ? [] : [{ name: null, isFocus: false, isOne: true, steps }], counts, shown }
+  return { groups: steps.length === 0 ? [] : [{ name: null, isFocus: false, isOne: true, steps }], counts, shown, hidden }
 }
 // coordinate:end
 
@@ -4025,7 +4029,9 @@ function askQueue(button) {
 
 function drawCoordinate(state) {
   const activities = state.backlog ?? []
-  const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked })
+  const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked, hideBusy: $('coordinate-busy').checked })
+  // B250: how many steps the box hides, so none seems lost.
+  $('coordinate-busy-count').textContent = $('coordinate-busy').checked ? `(${list.hidden} hidden)` : ''
   $('coordinate-count').textContent = `${list.counts.all} open step${list.counts.all === 1 ? '' : 's'}`
   fill($('coordinate-filters'), COORDINATE_FILTERS.map(([name, label]) => {
     const button = el('button', `choice${name === coordinateFilter ? ' is-chosen' : ''}`, `${label} `)
@@ -4091,6 +4097,20 @@ try {
 $('coordinate-one').addEventListener('change', () => {
   try {
     localStorage.setItem('backlog-one', $('coordinate-one').checked ? 'yes' : 'no')
+  } catch {
+    // Kept for this page only.
+  }
+  if (board !== null) drawCoordinate(board)
+})
+// B250: the steps a worker is on or that wait in a queue hidden, kept in this browser; off unless it chose otherwise.
+try {
+  $('coordinate-busy').checked = localStorage.getItem('backlog-hide-busy') === 'yes'
+} catch {
+  // Without storage the box starts off.
+}
+$('coordinate-busy').addEventListener('change', () => {
+  try {
+    localStorage.setItem('backlog-hide-busy', $('coordinate-busy').checked ? 'yes' : 'no')
   } catch {
     // Kept for this page only.
   }

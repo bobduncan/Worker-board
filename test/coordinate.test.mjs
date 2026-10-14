@@ -106,6 +106,25 @@ test('narrowing: in progress, queued, for you, without a worker', () => {
   assert.deepEqual(idsOf(listOf(activities, { filter: 'unassigned' })), [['Old work', ['B02']], ['Next to hand out (Game - Main)', ['B20', 'B21']]])
 })
 
+test('B250: "Hide in progress and queued" leaves out the steps a worker is on or that wait in a queue, in both views, and says how many', () => {
+  const hidden = listOf(activities, { hideBusy: true })
+  assert.deepEqual(idsOf(hidden), [['Architecture', ['B12', 'B13']], ['Old work', ['B02']], ['Next to hand out (Game - Main)', ['B20', 'B21']]])
+  assert.equal(hidden.hidden, 2)
+  assert.equal(hidden.shown, 5)
+  // The filters' counts stay those of every open step.
+  assert.deepEqual(hidden.counts, listOf(activities).counts)
+  const one = listOf(activities, { hideBusy: true, asOne: true })
+  assert.deepEqual(one.groups[0].steps.map(step => step.id), ['B21', 'B20', 'B13', 'B12', 'B02'])
+  assert.equal(one.hidden, 2)
+  // It counts only what the filter and the search would have shown.
+  assert.equal(listOf(activities, { hideBusy: true, find: 'camera' }).hidden, 1)
+  assert.equal(listOf(activities, { hideBusy: true, filter: 'you' }).hidden, 0)
+  assert.equal(listOf(activities).hidden, 0)
+  // Off by default, kept in this browser like "One list", beside it.
+  assert.match(page, /<input type="checkbox" id="coordinate-one" checked> One list, newest first\s*<\/label>\s*<label class="check"[^>]*>\s*<input type="checkbox" id="coordinate-busy"> Hide in progress and queued <small id="coordinate-busy-count"><\/small>/)
+  assert.match(script, /localStorage\.getItem\('backlog-hide-busy'\) === 'yes'/)
+})
+
 test('finding a step: by its id from its start, with or without the B, else by the words of its title', () => {
   const found = find => listOf(activities, { find }).groups.flatMap(group => group.steps.map(step => step.id))
   assert.deepEqual(found('B12'), ['B12'])
