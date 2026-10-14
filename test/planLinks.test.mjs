@@ -62,10 +62,14 @@ test('the server shows a file inside the game\'s folder only, of a kind it knows
 })
 
 test('the page: the plan folds under its headings with their first line, and its links open where they point', () => {
-  const plan = script.slice(script.indexOf('function planNodes('), script.indexOf('function drawAdvice('))
+  const plan = script.slice(script.indexOf('function gameFileNodes('), script.indexOf('function drawAdvice('))
   assert.match(plan, /const box = el\('details', `plan-part is-level-\$\{Math\.min\(level, 4\)\}`\)\n {6}box\.open = planOpen\.has\(key\)/)
   assert.match(plan, /part\.summary\.append\(el\('small', 'plan-line'/)
-  assert.match(script, /fill\(box, planNodes\(state\.advice, state\.gamePlan \?\? '', true\)\)/)
+  assert.match(script, /fill\(box, gameFileNodes\(state\.advice, state\.gamePlan \?\? '', true\)\)/)
+  // One function of each name: a second "function planNodes" would take the place of a worker's plan in its window.
+  for (const name of ['planNodes', 'gameFileNodes', 'planTarget', 'planLinker', 'openGameFile']) {
+    assert.equal((script.match(new RegExp(`function ${name}\\(|const ${name} =`, 'g')) ?? []).length, 1, name)
+  }
   // A web page in a new tab, without the board's page as its opener; a file in the board's window.
   assert.match(script, /link\.target = '_blank'\n {4}link\.rel = 'noopener noreferrer'/)
   assert.match(script, /const query = `path=\$\{encodeURIComponent\(path\)\}\$\{alt === null \? '' : `&alt=\$\{encodeURIComponent\(alt\)\}`\}`/)

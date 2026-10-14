@@ -2899,7 +2899,7 @@ const planOpen = new Set()
  * (`from` is its own path). With `fold`, every heading folds what stands under it, folded at first with its first
  * line beside it, so the whole plan fits on a screen.
  */
-function planNodes(text, from, fold) {
+function gameFileNodes(text, from, fold) {
   const linker = planLinker(from)
   const top = []
   const stack = []
@@ -2992,7 +2992,7 @@ function planNodes(text, from, fold) {
 function drawAdvice(state) {
   const box = $('advice-text')
   if (state.advice === null) return fill(box, [el('p', 'muted', `No game plan yet. The Advisor writes it with you, as ${state.gamePlan ?? 'the game plan'} in the game's repository.`)])
-  fill(box, planNodes(state.advice, state.gamePlan ?? '', true))
+  fill(box, gameFileNodes(state.advice, state.gamePlan ?? '', true))
 }
 // The toggle of a part does not bubble: it is heard on its way down.
 $('advice-text').addEventListener('toggle', event => {
@@ -3025,7 +3025,7 @@ async function openGameFile(path, alt = null) {
   if (answer === null) body.append(el('p', 'problem', 'The board\'s server does not answer.'))
   else if (!answer.ok) body.append(el('p', 'problem', (await answer.text()).trim() || 'This file is not shown.'))
   // Its own links are read from where it was found.
-  else if (/\.md$/i.test(path)) body.append(...planNodes(await answer.text(), answer.headers.get('X-Board-File') || path, false))
+  else if (/\.md$/i.test(path)) body.append(...gameFileNodes(await answer.text(), answer.headers.get('X-Board-File') || path, false))
   else body.append(el('pre', '', await answer.text()))
   fill(box, [head, body])
   if (!box.open) box.showModal()
