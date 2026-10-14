@@ -79,7 +79,8 @@ test('a worker that waits brings its task as its card names it and its own words
   const one = need(state)
   assert.deepEqual([one.id, one.title, one.text, one.canAnswer], [`chat:Units:${NOW - 9 * MIN}`, 'Needs your decision', 'Pick sheet A or B', true])
   assert.deepEqual(one.task, { text: 'Portraits, B08', step: 2, steps: 3, name: 'Pick', startedAt: units.task.startedAt, stepId: 'B08' })
-  assert.deepEqual(one.waits, { at: NOW - 9 * MIN, words: 'Two sheets are drawn.\n\nWhich one do you want: A or B?', questions: [], plan: null })
+  // B149: no parts of the agreed form, and no hand-over: the task was typed by the person, which is never shown.
+  assert.deepEqual(one.waits, { at: NOW - 9 * MIN, words: 'Two sheets are drawn.\n\nWhich one do you want: A or B?', questions: [], plan: null, handover: null, given: null })
   assert.ok(!JSON.stringify(state).includes('Zebracorn'))
   // A chat that does not wait says nothing of the kind.
   const working = build({ tails: { Units: tail(asked.slice(0, 3)) }, summary: null })
@@ -169,7 +170,8 @@ test('the window says the task in a few lines, as the card names it, then what t
   assert.equal(page.waitingOf({ id: 'ask-1', text: 'x', canAnswer: true, answer: null }, NOW), null)
   assert.equal(page.waitingOf(null, NOW), null)
   // The window draws the two parts and keeps the cards' own answer form and "where the answer is" line.
-  assert.match(script, /if \(waiting !== null\) left\.append\(\.\.\.waitingParts\(waiting\)\)/)
-  assert.match(script, /section\('Its task', task\), section\('What it wants from you', wants\)/)
+  assert.match(script, /const waitingShown = waiting === null \? null : waitingParts\(waiting, need\.id\)/)
+  assert.match(script, /if \(waitingShown !== null\) left\.append\(\.\.\.waitingShown\.main\)/)
+  assert.match(script, /main: \[section\('Its task', task\), section\('What it wants from you', wants\)\]/)
   assert.match(script, /form\.append\(\.\.\.optionChoices\(need\), \.\.\.answerPart\(need, state, false\)\)/)
 })

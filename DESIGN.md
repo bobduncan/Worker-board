@@ -68,6 +68,34 @@ short task (B82), and the window of a worker that waits stays as B100 has it. Th
 (`LANE_PARTS` in `public/board.js`, main column and side column), so a later window adds its own. `#task=<worker>`
 in the address opens it. The picture: `art-inbox/worker-board/b151/2026-10-14-b151-task-window.png`.
 
+**A finished worker with something for you (B149).** The person, 2026-10-14: "once they are done with their task and
+they still have questions for me. i want a properly formatted popup in the worker board ... a brief recap of it's
+original task. A brief recap of what it did. A outstanding questions, decisions or actions addressed to me. links to
+the information i need to verify my actions", and of the mock-up: "i want an actual clickable link to the image,
+preferably as a popup in the board to verify. same with the game not a feature branch but a clickable link", then
+"1 yes" and, for the form below, "2 yes". The pictures are in `art-inbox/worker-board/b149`.
+
+- *The form.* A worker that finished and left something for the person opens its last answer with `**Task:**` and
+  `**What I did:**`, and every item of its "For you" block (`N. **Answer:**` or `N. **Do:**`) carries the links the
+  person needs: `[See the picture: ...](http://127.0.0.1:<port>/#picture=<path in art-inbox>)` and
+  `[Play it: ...](http://127.0.0.1:<port>/#play=<branch>&<the game's settings>)`. The text for the chats is
+  `art-inbox/worker-board/b149/2026-10-14-b149-answer-form.md`; the main chat puts it into the project's
+  CLAUDE.md. `parseHandover` in `src/handover.mjs` reads it, and the closing block apart (`closingOf`); the words
+  come from a chat, so a picture's path and a branch are kept to plain characters, and the board decides on its own
+  whether it shows a picture.
+- *The window* is B100's window of a worker that waits, when its answer has the form: its title says it finished;
+  "Its task" (its own Task line, and the main chat's hand-over folded under it; what the person typed to it is
+  never shown, as B100 has it); "What it did"; "For you", one card per item with its links and its own answer (Yes
+  or No, or Done, and words), which the window gathers in the answer box as "1. yes" / "2. no: ..." / "3. done",
+  where the person can still change them before one Send; "Its whole answer", folded; and on the right its closing
+  block as three rows, Done in green or red. An answer without the form keeps B100's window, its closing block
+  also shown apart.
+- *The links.* "See the picture" opens it in the board's own popup. "Play it" starts the game from the working
+  folder that holds the branch (main included) on a port of its own, in a new tab, with the settings in its address,
+  so it opens where the change shows; it ends by itself as "Open the game" does. The same links in a chat open the
+  board: `#picture=` shows the popup, `#play=` turns that tab into the game. Only a branch a working folder holds is
+  started, and the start goes through the board's own page with its token, like every other.
+
 **The Design tab's page (B99).** A fourth tab, after the person's layout A
 (`art-inbox/worker-board/design-tab/2026-10-12-design-tab-a-side-by-side.png`): three parts side by side and "Ideas
 so far" along the bottom. 1 New idea: the idea, what it is about (the kinds the board names), reference pictures of

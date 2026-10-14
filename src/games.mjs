@@ -18,6 +18,16 @@ export const pathKey = path => String(path).replace(/\\/g, '/').replace(/\/+$/, 
 export function checkGame(body, state) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return refuse(400, 'Not a request.')
   if (body.action !== 'start' && body.action !== 'stop') return refuse(400, 'Start or stop.')
+  // B149: a link in a worker's answer names a branch: its game starts from the working folder that holds it. The
+  // branch comes from a chat's words: it is kept to plain characters, and only a folder git lists is started.
+  if (body.item === 'branch') {
+    const branch = typeof body.branch === 'string' && /^[\w][\w./-]{0,120}$/.test(body.branch) && !body.branch.includes('..') ? body.branch : null
+    if (branch === null) return refuse(400, 'That is no branch.')
+    const folder = branch === 'main' ? state.mainGame ?? null
+      : [...(state.chats ?? []).flatMap(chat => chat.folders ?? []), ...(state.otherFolders ?? [])].find(one => one.branch === branch) ?? null
+    if (folder === null || typeof folder.path !== 'string') return refuse(409, `No working folder is on the branch ${branch} now, so there is nothing to start.`)
+    return { ok: true, action: body.action, branch, path: folder.path }
+  }
   const game = body.item === 'main'
     ? state.mainGame ?? null
     : [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])].find(one => one.id === body.item)?.game ?? null

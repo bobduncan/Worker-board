@@ -5,6 +5,7 @@ import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { allWords, closedForYou, forYou, inProgress, overview, parseBacklog, queue } from './backlog.mjs'
 import { pathKey } from './games.mjs'
+import { parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
@@ -188,6 +189,19 @@ function etaOf(task, state, now) {
   return { at, leftMs: Math.max(0, at - now), isOverdue: at < now, isOwn, from: isOwn ? 'own' : task.stepMinutes !== null ? 'step' : 'handover' }
 }
 
+/**
+ * B149: what a chat that waits last said (`waitingFor`), with its parts in the agreed form (`handover`, null when it
+ * has none) and the main chat's hand-over that gave it its task, as it arrived (`given`, B151's `taskOrigin`): the
+ * newest one up to two minutes after the task's start, else the newest one. What the person typed to a chat that
+ * waits is never shown (B100), so a task the person gave it is told by its own "Task:" line only.
+ */
+function finishedWith(waits, scan, main, task) {
+  if (waits === null) return null
+  const until = task !== null && Number.isFinite(task.startedAt) ? task.startedAt + 2 * MIN : Infinity
+  const origin = scan === null ? null : taskOrigin(scan, main, until)
+  return { ...waits, handover: parseHandover(waits.words), given: origin?.by === 'main' ? origin : null }
+}
+
 function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
@@ -256,7 +270,9 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state === 'waiting' ? entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null : null,
     // B100: what it last said, for the window of what it waits for: its own words, never what was typed to it.
-    waitsFor: state === 'waiting' ? waitingFor(entries) : null,
+    // B149: with the parts of it when it finished a task with something left for the person, and the message that
+    // gave it that task.
+    waitsFor: state === 'waiting' ? finishedWith(waitingFor(entries), scan, main, task) : null,
     task,
     // When a chat that was cut off last wrote.
     cutOffAt: wasCutOff ? lastWriteAt : null,
@@ -366,12 +382,16 @@ function needsOf(asks, lanes, outbox, gameOf, now) {
   const blank = { options: [], pictures: [], run: null, game: null, checks: [], tried: [] }
   for (const lane of live) {
     if (lane.state === 'waiting' && !asked.has(lane.name)) {
+      // B149: a worker that finished its task and left something for the person says so in the title.
+      const form = lane.waitsFor?.handover ?? null
+      const isFinished = form !== null && (form.items.length > 0 || form.task !== null || form.did !== null)
       items.push({
         // One id per time it started waiting, so an answer to an earlier question never sticks to a later one.
         id: `chat:${lane.name}:${lane.waitingSince ?? 0}`,
         from: lane.name,
         kind: 'input',
-        title: lane.isAsking ? 'Asked you a question in its chat' : 'Needs your decision',
+        title: lane.isAsking ? 'Asked you a question in its chat'
+          : isFinished ? `Finished: ${(form.task ?? 'its task').split('\n')[0].slice(0, 120)}` : 'Needs your decision',
         text: lane.isAsking ? 'It used the app\'s question form, which can only be answered there.' : lane.needsYou ?? 'It waits for you.',
         at: lane.waitingSince,
         ...blank,

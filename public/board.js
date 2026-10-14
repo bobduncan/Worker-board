@@ -1590,15 +1590,169 @@ function waitingOf(need, now) {
     summary: where === 'chat' ? '' : need.text ?? '',
     questions: waits?.questions ?? [],
     plan: waits?.plan ?? null,
-    words: waits?.words ?? '',
+    // B149: its words without the closing block, which the window shows apart, formatted.
+    words: waits?.handover?.rest ?? waits?.words ?? '',
     saidAt: waits?.at ?? null,
     where,
+    // B149: the parts of its answer when it finished a task with something left for the person (`handover`), and
+    // the message that gave it that task (`given`).
+    handover: waits?.handover ?? null,
+    given: waits?.given ?? null,
   }
+}
+
+/** B149: whether a finished worker's answer has the parts of the agreed form, so the window shows them. */
+const hasForm = handover => handover !== null && (handover.items.length > 0 || handover.task !== null || handover.did !== null)
+
+/**
+ * B149: the answer the window types for the items of a finished worker's "For you" block, as the person answers in
+ * a chat: one line per item answered, "1. yes", "2. no: it slides at the corner", "3. done". `answers` holds per
+ * item number `{ verdict: 'yes' | 'no' | 'done' | null, words }`.
+ */
+function handoverAnswer(items, answers) {
+  return items.map(item => {
+    const given = answers.get(item.n) ?? { verdict: null, words: '' }
+    const words = String(given.words ?? '').replace(/\s+/g, ' ').trim()
+    if (given.verdict === null && words === '') return null
+    return `${item.n}. ${[given.verdict, words].filter(part => part !== null && part !== '').join(': ')}`
+  }).filter(line => line !== null).join('\n')
+}
+
+/** B149: the closing block's lines, to show as a small table: `[label, words, tone]`; tone 'good' or 'bad' for Done. */
+function closingRows(closing) {
+  if (closing === null) return []
+  return [['Prompt', closing.prompt, ''], ['Who', closing.who, ''], ['Done', closing.done, closing.isDone === true ? 'good' : closing.isDone === false ? 'bad' : '']]
+    .filter(([, words]) => words !== null && words !== '')
 }
 // waiting:end
 
+/**
+ * B149: the parts of a finished worker's window when its answer has the agreed form: its task as it was given,
+ * what it did, and what it needs from the person, numbered, each with its links and its own answer; its whole
+ * answer folded; its closing block on the right. `{ main, side }`, each a list of sections.
+ */
+function handoverParts(waiting, needId) {
+  const { handover, given } = waiting
+  const main = []
+  const task = [el('p', 'waiting-topic', handover.task ?? given?.text.split('\n')[0] ?? waiting.task[0])]
+  if (given !== null) {
+    task.push(el('small', 'muted', `Given by ${given.by === 'you' ? 'you' : 'the main chat'} at ${clock(given.at)}`))
+    const whole = el('details', 'handover-given')
+    whole.append(el('summary', '', 'The message as it was given'), rich(el('div', 'said-words'), given.text))
+    task.push(whole)
+  } else task.push(...waiting.task.slice(1).map(line => el('p', 'muted', line)))
+  main.push(section('Its task', task))
+  if (handover.did !== null) main.push(section('What it did', [rich(el('div', 'said-words'), handover.did)]))
+
+  if (handover.items.length > 0) {
+    const answers = itemAnswers.get(needId) ?? new Map()
+    const list = el('ol', 'handover-items')
+    for (const item of handover.items) {
+      const li = el('li', 'handover-item')
+      li.dataset.item = String(item.n)
+      const ask = el('p', 'handover-ask')
+      ask.append(el('b', '', `${item.n}. ${item.kind === 'do' ? 'Do' : 'Answer'}: `), item.text)
+      li.append(ask)
+      for (const link of item.links) {
+        const open = el('button', 'handover-link', link.kind === 'picture' ? link.label : `▶  ${link.label}`)
+        open.type = 'button'
+        if (link.kind === 'picture') {
+          open.dataset.zoom = link.path
+          open.dataset.caption = link.label
+          open.title = `Opens the picture here: ${link.path}`
+        } else {
+          open.dataset.play = link.branch
+          open.dataset.settings = link.settings
+          open.disabled = starting.has(`play:${link.branch}`)
+          open.title = 'Starts the game with this work in a new tab, where the change shows. It stops by itself after you close the tab.'
+        }
+        li.append(open)
+        if (link.kind === 'play' && problems.has(`play:${link.branch}`)) li.append(el('p', 'problem', problems.get(`play:${link.branch}`)))
+      }
+      if (waiting.where === 'here') {
+        const mine = answers.get(item.n) ?? { verdict: null, words: '' }
+        const row = el('div', 'handover-answer')
+        for (const verdict of item.kind === 'do' ? ['done'] : ['yes', 'no']) {
+          const pick = el('button', `choice${mine.verdict === verdict ? ' is-chosen' : ''}`, verdict.charAt(0).toUpperCase() + verdict.slice(1))
+          pick.type = 'button'
+          pick.dataset.itemVerdict = verdict
+          pick.setAttribute('aria-pressed', String(mine.verdict === verdict))
+          row.append(pick)
+        }
+        const words = el('input')
+        words.type = 'text'
+        words.value = mine.words
+        words.maxLength = 500
+        words.placeholder = item.kind === 'do' ? 'Your words, if any…' : 'Your words (needed for No)…'
+        words.dataset.itemWords = ''
+        words.setAttribute('aria-label', `Your answer to ${item.n}`)
+        row.append(words)
+        li.append(row)
+      }
+      list.append(li)
+    }
+    main.push(section('For you', [list, ...(waiting.where === 'here' ? [el('p', 'muted', 'Your answers gather in the box below; change it there if you like, then send.')] : [])]))
+  }
+  if (waiting.words !== '') {
+    const whole = el('details', 'handover-whole')
+    whole.append(el('summary', '', `Its whole answer${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`), rich(el('div', 'said-words'), waiting.words))
+    main.push(whole)
+  }
+  return { main, side: closingParts(handover.closing) }
+}
+
+/** B149: the closing block of a worker's answer as three lines, Done in green or red; nothing when it has none. */
+function closingParts(closing) {
+  const rows = closingRows(closing)
+  if (rows.length === 0) return []
+  const list = el('dl', 'closing-rows')
+  for (const [label, words, tone] of rows) list.append(el('dt', 'muted', label), el('dd', tone === '' ? '' : `is-${tone}`, words))
+  return [section('Its closing block', [list])]
+}
+
+/** B149: what the person chose per item of a finished worker's "For you" block, per window; it stays in this page only. */
+const itemAnswers = new Map()
+
+/** B149: the answer box of the window shows what the items' answers make, and keeps it as the draft. */
+function gatherAnswers(box, needId) {
+  const need = everyNeed(board).find(one => one.id === needId)
+  const items = need?.waits?.handover?.items ?? []
+  const text = handoverAnswer(items, itemAnswers.get(needId) ?? new Map())
+  drafts.set(needId, text)
+  const area = box.querySelector('.details-foot textarea')
+  if (area !== null) area.value = text
+}
+
+$('details').addEventListener('click', event => {
+  const pick = event.target.closest('[data-item-verdict]')
+  if (pick === null || detailsOf?.need === undefined) return
+  const n = Number(pick.closest('[data-item]').dataset.item)
+  const answers = itemAnswers.get(detailsOf.need) ?? new Map()
+  const mine = answers.get(n) ?? { verdict: null, words: '' }
+  // A second click takes the choice back.
+  const verdict = mine.verdict === pick.dataset.itemVerdict ? null : pick.dataset.itemVerdict
+  answers.set(n, { ...mine, verdict })
+  itemAnswers.set(detailsOf.need, answers)
+  for (const other of pick.parentElement.querySelectorAll('[data-item-verdict]')) {
+    other.classList.toggle('is-chosen', other.dataset.itemVerdict === verdict)
+    other.setAttribute('aria-pressed', String(other.dataset.itemVerdict === verdict))
+  }
+  gatherAnswers($('details'), detailsOf.need)
+})
+
+$('details').addEventListener('input', event => {
+  if (!event.target.matches('[data-item-words]') || detailsOf?.need === undefined) return
+  const n = Number(event.target.closest('[data-item]').dataset.item)
+  const answers = itemAnswers.get(detailsOf.need) ?? new Map()
+  answers.set(n, { ...(answers.get(n) ?? { verdict: null }), words: event.target.value })
+  itemAnswers.set(detailsOf.need, answers)
+  gatherAnswers($('details'), detailsOf.need)
+})
+
 /** B100: the two parts of a waiting worker's window: its task, and what it wants from the person. */
-function waitingParts(waiting) {
+function waitingParts(waiting, needId = null) {
+  // B149: a finished worker whose answer has the agreed form.
+  if (hasForm(waiting.handover)) return handoverParts(waiting, needId)
   const task = waiting.task.map((line, index) => el('p', index === 0 ? `waiting-topic${waiting.hasTask ? '' : ' muted'}` : 'muted', line))
   const wants = []
   if (waiting.summary !== '') wants.push(el('p', 'waiting-summary', waiting.summary))
@@ -1618,7 +1772,8 @@ function waitingParts(waiting) {
   }
   if (wants.length === 0) wants.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
   if (waiting.where === 'chat') wants.push(el('p', 'muted', 'It asked with the app\'s own question form: that one takes its answer only in its chat.'))
-  return [section('Its task', task), section('What it wants from you', wants)]
+  // B149: an answer that has only the closing block shows it apart, formatted, and not among its words.
+  return { main: [section('Its task', task), section('What it wants from you', wants)], side: closingParts(waiting.handover?.closing ?? null) }
 }
 
 /** B65: the ticks the person set in a window's checklist, kept while the page is open (they are the person's own notes, sent nowhere). */
@@ -1842,7 +1997,8 @@ function drawDetails(state) {
   const left = el('div', 'details-main')
   // B100: a worker that waits: its task in a few lines, then what it wants, in place of a description.
   const waiting = waitingOf(need, now)
-  if (waiting !== null) left.append(...waitingParts(waiting))
+  const waitingShown = waiting === null ? null : waitingParts(waiting, need.id)
+  if (waitingShown !== null) left.append(...waitingShown.main)
   // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
   // has them on the right.
   if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section('Description', described))
@@ -1866,6 +2022,8 @@ function drawDetails(state) {
   if (branch !== null) files.push(copyRow('Branch', branch))
   if (folder !== null) files.push(el('p', 'muted', folderLine(folder, now)))
   if (need !== null) files.push(...gameParts(need))
+  // B149: a worker's closing block, formatted, first on the right.
+  if (waitingShown !== null) right.append(...waitingShown.side)
   if (files.length > 0) right.append(section('Files / Branch', files))
   if (view.checklist.length > 0) {
     const part = section('Checklist', [drawChecklist(need === null ? `step:${view.code ?? view.title}` : need.id, view.checklist)])
@@ -1964,6 +2122,20 @@ $('lanes').addEventListener('click', event => {
 
 /** `#details=B14` in the address opens the details of that step: a link to it, and what a picture of it is taken with. */
 function openFromAddress(state) {
+  // B149: the links in a worker's answer: `#picture=<path>` shows that picture here, `#play=<branch>&<settings>`
+  // makes this tab that branch's game, where the settings put it. Followed once.
+  if (location.hash.startsWith('#picture=') || location.hash.startsWith('#play=')) {
+    const hash = location.hash
+    history.replaceState(null, '', location.pathname)
+    if (hash.startsWith('#picture=')) {
+      const path = decodeURIComponent(hash.slice('#picture='.length))
+      openPicture(path, path)
+    } else {
+      const [branch, ...settings] = hash.slice('#play='.length).split('&')
+      play(decodeURIComponent(branch), settings.join('&'), { inPlace: true })
+    }
+    return
+  }
   // B151: `#task=Units` opens the window of that working worker's task.
   if (location.hash.startsWith('#task=') && detailsOf === null) {
     const name = decodeURIComponent(location.hash.slice('#task='.length))
@@ -1983,15 +2155,32 @@ function openFromAddress(state) {
 
 // Pictures, large: a window of its own, so it also opens over the details
 
-document.addEventListener('click', event => {
-  const frame = event.target.closest('[data-zoom]')
-  if (frame === null) return
-  pictureUrl(frame.dataset.zoom).then(url => {
+/** A picture the board may show, large, with its caption; nothing when the board will not show it. */
+function openPicture(path, caption) {
+  pictureUrl(path).then(url => {
     if (url === null) return
     $('lightbox-picture').src = url
-    $('lightbox-caption').textContent = frame.dataset.caption || frame.dataset.zoom
+    $('lightbox-caption').textContent = caption || path
     if (!$('lightbox').open) $('lightbox').showModal()
   })
+}
+
+document.addEventListener('click', event => {
+  const frame = event.target.closest('[data-zoom]')
+  if (frame !== null) openPicture(frame.dataset.zoom, frame.dataset.caption)
+})
+
+// B149: "Play it" in a finished worker's window: the tab is opened with the click itself, as for "Open the game".
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-play]')
+  if (link === null) return
+  let tab = null
+  try {
+    tab = window.open('about:blank', '_blank')
+  } catch {
+    // Stopped by the browser: said below.
+  }
+  play(link.dataset.play, link.dataset.settings ?? '', { tab })
 })
 
 $('lightbox').addEventListener('click', () => $('lightbox').close())
@@ -2957,7 +3146,8 @@ function show(tab) {
   $('view-coordinate').hidden = tab !== 'coordinate'
   $('view-design').hidden = tab !== 'design'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
-  if (!location.hash.startsWith('#details=') && !location.hash.startsWith('#task=')) history.replaceState(null, '', tab === 'overview' ? location.pathname : `#${tab}`)
+  // B149: so is a worker's link to a picture or to the game, until it is followed.
+  if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) history.replaceState(null, '', tab === 'overview' ? location.pathname : `#${tab}`)
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
 }
 
@@ -3055,6 +3245,44 @@ async function send(message, id) {
  * Starts the game of a request's branch and shows it in a new tab, or stops it. The tab is opened with the click
  * itself: one opened after the server answered would be stopped by the browser as a pop-up.
  */
+/**
+ * B149: starts the game with a branch's work and shows it where the change is: the game's own settings
+ * ("arena=crossing&enemies=skeletons") go into its address. From a click the game opens in the tab opened with it;
+ * from a link to the board (`#play=`, `inPlace`) this tab becomes the game.
+ */
+async function play(branch, settings, { tab = null, inPlace = false } = {}) {
+  const key = `play:${branch}`
+  starting.add(key)
+  problems.delete(key)
+  let problem = !inPlace && tab === null ? 'the browser stopped the new tab; allow pop-ups for the board' : null
+  if (problem === null) {
+    try {
+      const answer = await fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
+        body: JSON.stringify({ item: 'branch', branch, action: 'start' }),
+      })
+      if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
+      else {
+        const url = new URL((await answer.json()).url)
+        url.search = settings
+        if (inPlace) location.replace(url.href)
+        else {
+          // The game's page gets no hold on the board's page.
+          tab.opener = null
+          tab.location.replace(url.href)
+        }
+      }
+    } catch {
+      problem = 'the board\'s server does not answer'
+    }
+  }
+  if (problem !== null && tab !== null) tab.close()
+  starting.delete(key)
+  if (problem !== null) problems.set(key, `Not started: ${problem}`)
+  await read()
+}
+
 async function game(id, action) {
   const key = `game:${id}`
   let tab = null

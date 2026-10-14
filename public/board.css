@@ -632,6 +632,21 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .said { border: 1px solid var(--line); border-radius: 8px; background: var(--inset); padding: 9px 12px; }
 .said > small { display: block; margin-bottom: 4px; font-size: 12.5px; }
 .said-words { max-height: 46vh; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; }
+/* B149: a finished worker's window: its questions with their links and answers, and its closing block */
+.handover-items { display: grid; gap: 12px; padding: 0; list-style: none; }
+.handover-item { display: grid; gap: 8px; justify-items: start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
+.handover-ask { font-size: 15px; justify-self: stretch; }
+.handover-link { padding: 0; border: none; background: none; color: #7cb4ff; font-size: 15px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; text-align: left; }
+.handover-link:hover:not(:disabled) { color: #a9cdff; }
+.handover-link:disabled { opacity: 0.6; cursor: default; }
+.handover-answer { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-self: stretch; }
+.handover-answer input { flex: 1; min-width: 200px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 14px; }
+.handover-given, .handover-whole { font-size: 14px; }
+.handover-given summary, .handover-whole summary { color: var(--muted); cursor: pointer; }
+.handover-given .said-words, .handover-whole .said-words { margin-top: 6px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); }
+.closing-rows { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
+.closing-rows dd.is-good { color: var(--working); font-weight: 600; }
+.closing-rows dd.is-bad { color: #ff8a8a; font-weight: 600; }
 .said-words table { white-space: normal; border-collapse: collapse; font-size: 14px; }
 .said-words th, .said-words td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
 
