@@ -279,6 +279,26 @@ export function waitingFor(entries) {
   return null
 }
 
+const CLOSING = '```diff\n'
+
+/**
+ * B148: whether the answer that ended the chat's last turn says its work is done. Every chat ends an answer to the
+ * person with a closing block (the project's CLAUDE.md, part 3) whose last line is "+ Done:   yes", or
+ * "- Done:   no, ..." or "- Done:   partly, ...". Only that block at the very end of the answer counts; a turn
+ * that runs, or an answer of the app's own (a stop at the limit), says nothing.
+ */
+export function saysDone(entries) {
+  const last = entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)
+  if (last === undefined || !endsTurn(last) || (last.error ?? null) !== null) return false
+  const words = textOf(last).replace(/\r\n/g, '\n').trimEnd()
+  const at = words.lastIndexOf(CLOSING)
+  if (at === -1 || !words.endsWith('\n```')) return false
+  const block = words.slice(at + CLOSING.length, -'\n```'.length)
+  if (block.includes('```')) return false
+  const lines = block.split('\n').map(line => line.trim()).filter(line => line !== '')
+  return /^\+\s*Done:\s*yes\b/i.test(lines.at(-1) ?? '')
+}
+
 /** The inside of the tag a message from another chat is wrapped in, with who it says it is from. */
 function crossSession(value) {
   const found = value.match(/<cross-session-message\b([^>]*)>([\s\S]*?)(?:<\/cross-session-message>|$)/)

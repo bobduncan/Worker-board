@@ -10,7 +10,7 @@ import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from
 import { mentionedPaths } from './pictures.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
-import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
+import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -59,10 +59,11 @@ const textOr = (value, fallback) => (typeof value === 'string' ? value : fallbac
  * it started still runs, or the backlog step it works on still names its branch. The board then shows it as
  * working, between two turns.
  */
-export function heldBy({ plan, handOver, background, step, isCompleted = false }) {
+export function heldBy({ plan, handOver, background, step, isCompleted = false, isDone = false }) {
   // A card holds the chat unless the app's own summary calls the ended turn completed: a chat that reported and
-  // forgot to clear its card is done. One that asked another chat in the middle of its task still waits.
-  if (plan?.task != null && !plan.task.isReported && (!isCompleted || plan.task.asked === true)) {
+  // forgot to clear its card is done. One that asked another chat in the middle of its task still waits. B148: a
+  // chat whose last answer ends with "+ Done:   yes" is done, whatever its card says.
+  if (plan?.task != null && !plan.task.isReported && !isDone && (!isCompleted || plan.task.asked === true)) {
     return { why: 'task', text: plan.task.asked === true ? 'Its turn has ended; it asked another chat and waits for the answer.' : 'Its turn has ended; its task is not reported yet.' }
   }
   if (handOver !== null) return { why: 'task', text: 'Its turn has ended; the task handed to it is not reported yet.' }
@@ -187,9 +188,12 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt: entries === null ? null : turnStart(entries, { prefix })?.at ?? null, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
   const ended = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
+  // B148: its last answer ends with "+ Done:   yes": it has finished, and a card it forgot to clear holds nothing.
+  const isDone = turn === 'ended' && entries !== null && saysDone(entries)
   const held = wasCutOff || ended !== 'free' ? null : heldBy({
     plan, step,
     isCompleted: summary?.category === 'completed',
+    isDone,
     handOver: chat.isMain || scan === null ? null : taskStart(scan, main),
     background: entries === null ? 0 : backgroundRunning(entries),
   })
@@ -207,7 +211,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   if (state === 'waiting') needsYou = turn === 'asking' ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
 
   // A chat that was cut off, or is held by a limit, keeps the task it was on.
-  const task = taskOf({ chat, plan, state: wasCutOff || paused !== null ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById })
+  const task = taskOf({ chat, plan: isDone && plan !== null ? { ...plan, task: null } : plan, state: wasCutOff || paused !== null ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById })
   const eta = etaOf(task, state, now)
   return {
     ...base,
