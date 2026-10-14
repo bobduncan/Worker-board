@@ -35,7 +35,7 @@ test('parseConfig reads the advisor\'s name and the folders whose pictures may b
   const config = parseConfig(JSON.stringify({ advisor: ' Coach ', pictureRoots: ['art-inbox', 'shots', '..', 'a/b', 'C:\\x', 5] }), env)
   assert.equal(config.advisor, 'Coach')
   assert.deepEqual(config.pictureRoots, ['art-inbox', 'shots'])
-  assert.deepEqual([parseConfig('{}', env).advisor, parseConfig('{}', env).pictureRoots], ['Advisor', ['art-inbox']])
+  assert.deepEqual([parseConfig('{}', env).advisor, parseConfig('{}', env).pictureRoots], ['Advisor', ['pictures']])
 })
 
 test('parseConfig refuses a port or a number that makes no sense', () => {
@@ -80,7 +80,8 @@ test('B128: a broken settings file is named in one line: what is wrong and where
   assert.equal(configProblem('{"port": "4310"}'), '"port" must be a number above 0, not "4310"')
   assert.equal(configProblem('{"port": 4310.5}'), '"port" must be a whole number from 1 to 65535, not 4310.5')
   assert.equal(configProblem('{"project": 5}'), '"project" must be text, not 5')
-  assert.equal(configProblem('{"pictureRoots": ["../up"]}'), '"pictureRoots" must be a list of plain folder names, not ["../up"]')
+  assert.equal(configProblem('{"pictureRoots": ["../up"]}'), '"pictureRoots" must be a list of one or more plain folder names, not ["../up"]')
+  assert.equal(configProblem('{"pictureRoots": []}'), '"pictureRoots" must be a list of one or more plain folder names, not []')
   assert.equal(configProblem('{"backlog": "../backlog.md"}'), '"backlog" must be a path inside its folder, written with /, not "../backlog.md"')
   assert.equal(configProblem('{"morningRound": "9:00"}'), '"morningRound" must be a time like "09:00", or "" for none, not "9:00"')
   assert.equal(configProblem('{"weeklyRound": "yes"}'), '"weeklyRound" must be true or false, not "yes"')

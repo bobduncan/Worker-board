@@ -2,7 +2,7 @@
 // person's own words, so it must be addressed to a chat on the board and, when it answers a request, fit that
 // request: a verdict for work to verify, "done" for something only the person can do, words for a question.
 
-import { TALK_PICTURE } from './talkPicture.mjs'
+import { isTalkPicture } from './talkPicture.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
@@ -75,7 +75,7 @@ export function checkSay(body, state, maxChars) {
   // with a plain message.
   const picture = body.picture ?? null
   if (picture !== null) {
-    if (typeof picture !== 'string' || !TALK_PICTURE.test(picture)) return refuse(400, 'That is no picture the board kept.')
+    if (!isTalkPicture(picture, state.pictures ?? 'pictures')) return refuse(400, 'That is no picture the board kept.')
     if (body.to !== state.restart?.main) return refuse(400, 'A picture goes to the main chat only.')
     if ((body.ask ?? null) !== null || (body.command ?? null) !== null) return refuse(400, 'A picture goes with a plain message only.')
   }

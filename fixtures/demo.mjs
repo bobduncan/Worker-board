@@ -27,7 +27,8 @@ const FINISHED = now => `
 // A real folder, so the demo's pictures are served the way the real ones are.
 const PROJECT = join(dirname(fileURLToPath(import.meta.url)), 'demo-project')
 const REPO = 'C:/Demo/game-builder/game'
-const ROOTS = ['art-inbox']
+// B193: the demo project's picture folder; the demo board shows it in place of the settings' own.
+export const ROOTS = ['art-inbox']
 
 const CHATS = [
   { name: 'Main', id: 'demo-main' },

@@ -26,13 +26,6 @@ const IN_SCOPE = /^(?:server\.mjs|run-game\.mjs|config\.json|design\.json|src\/|
 
 /** The ties known on 2026-10-14 (main a8ea248): file, kind, how many, and the plan's part that removes them. */
 const KNOWN = [
-  ['public/board.css', 'folder', 2, 2],
-  ['server.mjs', 'folder', 1, 2],
-  ['src/asks.mjs', 'folder', 1, 2],
-  ['src/config.mjs', 'folder', 1, 2],
-  ['src/handover.mjs', 'folder', 1, 2],
-  ['src/pictures.mjs', 'folder', 3, 2],
-  ['src/talkPicture.mjs', 'folder', 5, 2],
   ['design.json', 'project', 3, 3], ['design.json', 'folder', 6, 3],
   ['src/design.mjs', 'folder', 2, 3],
   ['examples/main-briefing.md', 'folder', 2, 4],

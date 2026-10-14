@@ -685,7 +685,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       messages: said
         .filter(one => one.from === 'chat' || (one.from === 'you' && isPersons(one)))
         // B167: a picture pasted with a line is shown from the "Picture:" line the board typed under its words.
-        .map(one => (one.via === 'board' ? { ...one, ...splitPicture(one.text.replace(TYPED_MARK, '').trim()) } : one))
+        .map(one => (one.via === 'board' ? { ...one, ...splitPicture(one.text.replace(TYPED_MARK, '').trim(), config.pictureRoots[0]) } : one))
         .filter(one => one.text !== '' || (one.picture ?? null) !== null)
         .slice(-TALK_MESSAGES),
       // Typed here and not in its chat yet: the person's own lines, not the board's words to it.
@@ -846,6 +846,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // steps of the backlog's group for them, with their "Why:", "Cost:" and "Unblocks:" lines.
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
     gamePlan: config.gamePlan,
+    // B193: the project's own picture folder, where the board keeps the pictures it is given.
+    pictures: config.pictureRoots[0],
     suggestions: backlog.activities
       .filter(activity => activity.name.trim().toLowerCase() === config.advisorSuggestions.toLowerCase())
       .flatMap(activity => activity.steps.filter(step => !step.isDone))

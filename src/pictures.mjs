@@ -1,5 +1,5 @@
 // Pictures the board may show: the ones in the folders named in config.json (`pictureRoots`, by default the
-// project's art-inbox). A chat or the backlog only gives a path; whether it may be shown is decided here, on the
+// project's picture folder). A chat or the backlog only gives a path; whether it may be shown is decided here, on the
 // real file, so nothing outside those folders can be asked for through the board.
 
 import { readdir, realpath, stat } from 'node:fs/promises'
@@ -43,7 +43,7 @@ export async function findPicture(project, roots, value) {
   }
 }
 
-/** A folder's path as the backlog writes it ("art-inbox/red-mage"), cleaned, or null. */
+/** A folder's path as the backlog writes it ("pictures/red-mage"), cleaned, or null. */
 function folderPath(value) {
   if (typeof value !== 'string' || /[\0:*?"<>|]/.test(value)) return null
   const parts = value.replace(/\\/g, '/').replace(/[/.]+$/, '').split('/')
@@ -74,7 +74,7 @@ export async function listPictures(project, roots, value, most = 6) {
   }
 }
 
-/** The paths into the shown folders that a text mentions, as the backlog does: "(pictures in art-inbox/red-mage)". */
+/** The paths into the shown folders that a text mentions, as the backlog does: "(pictures in pictures/red-mage)". */
 export function mentionedPaths(text, roots) {
   const found = []
   for (const root of roots) {

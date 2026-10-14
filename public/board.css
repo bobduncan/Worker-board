@@ -263,7 +263,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .more .why { display: block; }
 .queue-more { flex: none; width: 58px; display: grid; place-items: center; background: var(--inset); border: 1px solid var(--line); border-radius: 7px; font-size: 16px; font-weight: 700; }
 
-/* B159: the Workers panel, after the design agreed on the Design tab (art-inbox/ideas/any-improvement-to-this/v2.png):
+/* B159: the Workers panel, after the design agreed on the Design tab (its idea any-improvement-to-this, v2):
    one panel with its name and "+ Add worker" on top, the columns named, slim rows, and each worker's icon in the
    colour of its state. */
 .workers-panel { padding: 0; margin-bottom: 14px; overflow: hidden; }
@@ -379,7 +379,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .inbox-top { gap: 10px; }
 .inbox-top h2 { flex: 1; white-space: nowrap; }
 
-/* B161: the right side's two tabs, and the talk with the main chat (art-inbox/ideas/i-want-a-place/v2.png) */
+/* B161: the right side's two tabs, and the talk with the main chat (its idea i-want-a-place, v2) */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .inbox-top h2.sr-only { flex: none; }
 .side-tabs { flex: none; display: flex; gap: 2px; padding: 10px 12px 0; border-bottom: 1px solid var(--line); }

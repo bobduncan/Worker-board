@@ -6,7 +6,7 @@
 //
 //   > **For you**
 //   > 1. **Answer:** <a question>
-//   >    [See the picture: <what it shows>](http://127.0.0.1:4310/#picture=art-inbox/<subject>/<file>.png)
+//   >    [See the picture: <what it shows>](http://127.0.0.1:4310/#picture=<picture folder>/<subject>/<file>.png)
 //   > 2. **Answer:** <a check in the game>
 //   >    [Play it: <where>](http://127.0.0.1:4310/#play=<branch>&arena=crossing&enemies=skeletons)
 //   > 3. **Do:** <an action>

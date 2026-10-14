@@ -27,8 +27,11 @@ const DEFAULTS = {
   answerKeepHours: 48,
   /** The chat that advises and is talked with on its own tab. It has no lane. */
   advisor: 'Advisor',
-  /** The folders of the project whose pictures the board may show. */
-  pictureRoots: ['art-inbox'],
+  /**
+   * The folders of the project whose pictures the board may show. B193: the first is the project's own picture
+   * folder, where the board keeps the pictures it is given (those pasted into Talk to Main).
+   */
+  pictureRoots: ['pictures'],
   /** A game the board starts for a branch takes this port, plus the place of its folder in git's list. */
   gamePort: 5300,
   /** Such a game ends this long after its last tab was closed, or when nobody opened it in time. */
@@ -128,7 +131,7 @@ export function configProblem(fileText) {
   for (const key of NUMBERS) if (has(key) && !(Number.isFinite(raw[key]) && raw[key] > 0)) return wrong(key, 'a number above 0')
   if (has('port') && !(Number.isInteger(raw.port) && raw.port <= 65535)) return wrong('port', 'a whole number from 1 to 65535')
   for (const key of ['backlog', 'gamePlan', 'advisorDecisions']) if (has(key) && !(typeof raw[key] === 'string' && INSIDE.test(raw[key].trim()))) return wrong(key, 'a path inside its folder, written with /')
-  if (has('pictureRoots') && !(Array.isArray(raw.pictureRoots) && raw.pictureRoots.every(one => typeof one === 'string' && /^[\w-][\w.-]*$/.test(one)))) return wrong('pictureRoots', 'a list of plain folder names')
+  if (has('pictureRoots') && !(Array.isArray(raw.pictureRoots) && raw.pictureRoots.length > 0 && raw.pictureRoots.every(one => typeof one === 'string' && /^[\w-][\w.-]*$/.test(one)))) return wrong('pictureRoots', 'a list of one or more plain folder names')
   if (has('advisorReadFirst') && !(Array.isArray(raw.advisorReadFirst) && raw.advisorReadFirst.every(one => typeof one === 'string' && INSIDE.test(one)))) return wrong('advisorReadFirst', 'a list of paths inside the game, written with /')
   if (has('morningRound') && !(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')

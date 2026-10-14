@@ -13,7 +13,7 @@ const MIN = 60_000
 const outsideWindow = state => JSON.stringify({ ...state, chats: (state.chats ?? []).map(({ givenTask, ...lane }) => lane) })
 const NOW = Date.UTC(2026, 9, 12, 8, 24)
 const PROJECT = 'C:\\game'
-const config = { ...parseConfig('{}', {}), project: PROJECT }
+const config = { ...parseConfig('{}', {}), project: PROJECT, pictureRoots: ['art-inbox'] }
 
 const app = (name, extra = {}) => JSON.stringify({
   title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false,

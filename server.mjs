@@ -363,7 +363,8 @@ async function main(args) {
   const TASK_LIST_FILE = join(HERE, 'data', 'task-times.md')
   let taskTimes = { scans: {}, tasks: [] }
   if (isDemo) {
-    const { demoSources } = await import('./fixtures/demo.mjs')
+    const { demoSources, ROOTS } = await import('./fixtures/demo.mjs')
+    config.pictureRoots = ROOTS
     store = memoryStore()
     readRaw = () => demoSources(clock())
   } else {
@@ -609,14 +610,14 @@ async function main(args) {
       await writeFile(file, bytes)
       return { ok: true, result: { path } }
     },
-    // B167: a picture pasted into Talk to Main, kept in the project's art-inbox (see keepTalkPicture).
+    // B167: a picture pasted into Talk to Main, kept in the project's picture folder (see keepTalkPicture).
     talkPicture: async bytes => {
       if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it keeps no picture.' }
       if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Send it on the board that delivers: http://${HOST}:${homePort}/` }
       if (config.project === '') return { ok: false, status: 409, why: 'This board knows no project folder to keep the picture in.' }
       const kind = pictureKind(bytes)
       if (kind === null) return { ok: false, status: 415, why: 'That is no PNG, JPEG or WebP picture.' }
-      const path = await keepTalkPicture(config.project, bytes, kind, clock())
+      const path = await keepTalkPicture(config.project, bytes, kind, clock(), config.pictureRoots[0])
       return path === null ? { ok: false, status: 409, why: 'Too many pictures in this minute: wait a minute.' } : { ok: true, result: { path } }
     },
     say: async body => {

@@ -108,7 +108,8 @@ the briefings for the main chat and the workers.
 
 `config.json`, next to `server.mjs`: `project`, `gameRepo`, `appSessions` (the app's list of chats), `transcripts`,
 `port` (4310 unless set), `refreshSeconds`, `advisor` (the name of the advisor chat, "Advisor" unless set),
-`pictureRoots` (the folders of `<project>` whose pictures the board shows, `["art-inbox"]` unless set) and the times
+`pictureRoots` (the folders of `<project>` whose pictures the board shows, `["pictures"]` unless set; the first is
+the project's own picture folder, where the board keeps the pictures pasted into Talk to Main, under `talk`) and the times
 in `src/config.mjs`. `design.json`: what the Design tab tells Codex per kind of idea.
 
 `<project>\.claude\chats\list.json`: `prefix` and `main` (the main chat's title is the two together), `boards` (the
@@ -119,7 +120,7 @@ The backlog's form, which the board reads: an activity is a `## ` heading (`#foc
 focus); a step is `- [ ] B<number> ...`, ticked `- [x]`; `@you` at its end is a step for you, starting with
 `Verify:`, `Decide:`, `Provide:` or `Do:`; the queue is the open steps under a heading that starts with "Next to
 hand out", each ending in `(for <worker>; now | after B<number>; about <time>)`; indented lines under a step
-describe it. A step that names a folder of `art-inbox` shows its pictures.
+describe it. A step that names a folder in one of the picture folders shows its pictures.
 
 ## A copy beside it
 
@@ -133,14 +134,14 @@ shows: answers are given on the board in the main folder.
 - the app's list of chats, and the last part of each project chat's transcript;
 - each chat's card and requests (`.claude\chats`, `.claude\asks`) and the backlog in `<project>\.claude`, and the game
   plan in the game's repository (`gamePlan` in `config.json`, `docs/game-plan.md`) for the Advice & Chat tab;
-- the app's usage file for the limits, pictures in `<project>\art-inbox`, and the working folders through git
+- the app's usage file for the limits, pictures in the picture folders of `<project>`, and the working folders through git
   commands that only read.
 
 ## What it writes
 
 `data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran
 and the Design tab's ideas. Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
-pictures Codex makes in `<project>\art-inbox\ideas`, and in the backlog one thing only: the tick of a step you
+pictures Codex makes in the Design tab's ideas folder (`art-inbox\ideas` until B133 makes it per project), and in the backlog one thing only: the tick of a step you
 approved or marked done on the board, with a line under it.
 
 ## Safety

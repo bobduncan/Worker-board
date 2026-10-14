@@ -3,7 +3,7 @@
 //
 //   { id, from, kind, title, text, at, state,
 //     options:  [ { label, picture, isRecommended } ],   a choice to make
-//     pictures: [ "art-inbox/..." ],                      what to look at
+//     pictures: [ "<picture folder>/..." ],                      what to look at
 //     run:      { url, branch, entry },                   where the work runs on this PC
 //     checks:   [ "..." ],                                what to check when verifying
 //     tried:    [ "..." ] }                               what was tried before calling for help

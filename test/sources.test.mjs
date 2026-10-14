@@ -45,7 +45,7 @@ async function project(t) {
   await put('transcripts/main-id.jsonl', [typed(NOW - 9 * MIN, 'Status?'), answer(NOW - 8 * MIN, 'All fine.')].join('\n'))
   await put('transcripts/units-id.jsonl', [fromChat(NOW - 30 * MIN, 'Game - Main', 'Task from Game - Main: build the archer.'), step(NOW - MIN, 'Draw the sheet')].join('\n'))
   await put('outside.jsonl', typed(NOW, 'SECRET words outside the transcripts folder'))
-  const config = { ...parseConfig('{}', {}), project: join(root, 'project'), appSessions: join(root, 'app'), transcripts: join(root, 'transcripts') }
+  const config = { ...parseConfig('{}', {}), project: join(root, 'project'), appSessions: join(root, 'app'), transcripts: join(root, 'transcripts'), pictureRoots: ['art-inbox'] }
   return { root, config, put }
 }
 
