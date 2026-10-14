@@ -492,7 +492,8 @@ Decided on 2026-10-12:
 
 - What is typed on the board goes into the existing "Game - Main" chat (the bridge below). The tool runs no Claude
   of its own.
-- The advisor is a chat of its own, "Game - Advisor". It writes `.claude/advice.md`; the board only shows that file.
+- The advisor is a chat of its own, "Game - Advisor". It wrote `.claude/advice.md` until B173; since then it keeps the
+  game plan in the game's repository, which the board only shows. The old file was removed (B176).
 - The look follows the newest picture in `design/`. The first one is `design/2026-10-12-codex-design-1.webp`.
 
 ## The parts

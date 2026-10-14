@@ -122,7 +122,8 @@ shows: answers are given on the board in the main folder.
 ## What it reads (never changes)
 
 - the app's list of chats, and the last part of each project chat's transcript;
-- each chat's card and requests (`.claude\chats`, `.claude\asks`), the backlog and `advice.md` in `<project>\.claude`;
+- each chat's card and requests (`.claude\chats`, `.claude\asks`) and the backlog in `<project>\.claude`, and the game
+  plan in the game's repository (`gamePlan` in `config.json`, `docs/game-plan.md`) for the Advice & Chat tab;
 - the app's usage file for the limits, pictures in `<project>\art-inbox`, and the working folders through git
   commands that only read.
 
