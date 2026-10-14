@@ -157,7 +157,7 @@ row opens its window as there. The choice is kept in this browser. The picture:
 Since B179 the tab opens as one list unless this browser turned the checkbox off, and "Recently finished" folds
 away and back with a click on its head (a button that says whether the list is open), also kept in this browser.
 The person, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
-default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.png`.
+default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.jpg`.
 
 **The Workers panel (B159).** After the picture the person agreed on the Design tab
 (`art-inbox/ideas/any-improvement-to-this/v2.png`; their words: "Any improvement to this to make it nicer. dont change
