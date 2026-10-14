@@ -190,6 +190,21 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   looks every 15 seconds whether each answers and starts the one that does not, as a child of its own process
   (the Workers mod, `keepBoards`). So the first game chat that opens after a restart brings the boards back, and
   a chat that closes hands its board on to the next one within seconds. Nothing is set up in Windows.
+- *A new version, on the person's click (B142).* The person, 2026-10-14: "i want the board to show a little
+  notification on top that a new version is available and I click it to start it. dont auto refresh. i want this
+  notification visiually distinct, like the yellow we use somethwere." Whatever starts `node server.mjs` (the Run
+  pane, a chat's Workers mod, a command) starts a keeper (`src/keeper.mjs`) that runs the board as its child with a
+  channel; that process stays the one that was started, so stopping it, or the end of the app, ends the board as
+  before, and a board whose keeper is gone ends too. The board knows the commit its folder was on when it started,
+  and every 30 seconds whether the folder holds a newer one (`src/version.mjs`): a changed file of the server, or
+  only of the page. Then a note in the yellow of "waiting for you" sits on top of the page: "A new version of the
+  board is available. Click to start it." A click (`POST /api/restart`, from the board's own page only) first loads
+  the new version once in a process of its own, and refuses with the reason when it does not load; else the board
+  answers, ends with code 75, and its keeper starts it again, with the key the chats' mod knows, so nothing waits
+  for a chat in vain. The page then loads itself anew. A newer page alone needs no new start: its note loads the
+  page. Nothing starts anew by itself. The top bar says which version runs: "Board 9beb081 · since 09:48". A board
+  started without the keeper (one from before B142) says so and has to be started anew by hand once. The picture:
+  `art-inbox/worker-board/b142/2026-10-14-b142-new-version-note.png`.
 - *The page keeps asking.* While the board is away the page asks every 5 seconds and says since when; a board
   that is back has a new token, and the page loads itself anew. The board says for an hour that it was off, and
   from when to when.
