@@ -126,6 +126,11 @@ the main chat that is about the step (the first step its first line names, read 
 the moment the board first saw the step ticked, kept in `data/finished.json` from 2026-10-14 on (shown with "≈");
 a line with only the day. A step none of these gives a time for is left out. The picture:
 `art-inbox/worker-board/b155/2026-10-14-b155-backlog-tab.png`.
+A checkbox "One list, newest first" beside "Show finished" (B164; the person: "show it 1 long list desc. so last
+item on the backlog first") lists every step without the activities, the highest id on top and the steps from
+before the ids at the end; the filters, the search and "Show finished" work as in the list by activity, and each
+row opens its window as there. The choice is kept in this browser. The picture:
+`art-inbox/worker-board/2026-10-14-b164-one-list.png`.
 
 **The Workers panel (B159).** After the picture the person agreed on the Design tab
 (`art-inbox/ideas/any-improvement-to-this/v2.png`; their words: "Any improvement to this to make it nicer. dont change
