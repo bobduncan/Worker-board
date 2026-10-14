@@ -458,11 +458,18 @@ function timeOf(lane, now) {
 }
 // lanetime:end
 
-/** B82: the topic the chat recorded for its task. A chat that recorded nothing has no words to show: what was typed to it stays in its chat. */
-function taskTitle(task) {
-  if (task.text === '') return el('p', 'task is-none', 'Task not recorded yet')
-  const title = el('p', 'task clip', task.text)
-  title.title = task.text
+/**
+ * B82: the topic the chat recorded for its task. A chat that recorded nothing has no words to show: what was typed to
+ * it stays in its chat. B182: the backlog step it is on stands in front ("B173 Build the new Advisor's job and
+ * clock", the person, 2026-10-14), once, whether or not the topic began with it.
+ */
+function taskTitle(lane) {
+  const { code, text } = laneTaskOf(lane)
+  if (text === null) return el('p', 'task is-none', 'Task not recorded yet')
+  const title = el('p', 'task clip')
+  if (code !== null) title.append(el('span', 'task-code', code), ' ')
+  title.append(text)
+  title.title = code === null ? text : `${code} ${text}`
   return title
 }
 
@@ -663,7 +670,7 @@ function drawLane(lane, state) {
     const free = freeLine(lane)
     if (free !== null) what.append(el('p', 'note', free))
   } else {
-    what.append(taskTitle(task))
+    what.append(taskTitle(lane))
   }
   // B159: the progress of its task in a column of its own: a bar of its steps, and its step line (B108) under it.
   const progress = el('div', 'progress-cell')
@@ -1921,6 +1928,19 @@ function drawReferences(shown) {
 // lanewindow:start
 const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off' }
 
+/**
+ * B182: a lane's task as the Workers panel and its window name it: `code` is the backlog step it is on (the step its
+ * hand-over named, else the one its card is on; null without one), `text` the card's topic without that step's
+ * number in front (B157: a topic that starts with "B173" or "B173:" does not say it twice beside it). Null when the
+ * chat recorded no topic.
+ */
+function laneTaskOf(lane) {
+  const task = lane.task ?? null
+  const code = lane.givenTask?.step?.id ?? task?.stepId ?? null
+  if (task === null || (task.text ?? '') === '') return { code, text: null }
+  return { code, text: code === null ? task.text : task.text.replace(new RegExp(`^${code}[:,]?\\s+`), '') }
+}
+
 const SHORT_TASK_CHARS = 220
 
 /**
@@ -1999,9 +2019,8 @@ function laneWindowOf(lane, now, mainTitle) {
   const line = stepLine(lane, now)
   const time = timeOf(lane, now)
   return {
-    code: given?.step?.id ?? task?.stepId ?? null,
-    // B157: a topic that starts with the step's id does not say it twice beside the id.
-    title: task === null || task.text === '' ? 'Task not recorded yet' : task.text.replace(new RegExp(`^${given?.step?.id ?? task?.stepId ?? '(?!)'}[:,]?\\s+`), ''),
+    code: laneTaskOf(lane).code,
+    title: laneTaskOf(lane).text ?? 'Task not recorded yet',
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
     given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
     step: given?.step ?? null,
