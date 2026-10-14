@@ -172,7 +172,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 
 test('the page: the Advisor tab in four parts under their buttons, the way first; no tab of its own for the chat', () => {
-  assert.match(html, /data-tab="advice">Advisor<\/button>/)
+  assert.match(html, /data-tab="advice"><span class="tab-long">Advisor<\/span><span class="tab-short">Advisor<\/span><\/button>/)
   assert.deepEqual([...html.matchAll(/data-advisor-pane="(\w+)"/g)].map(found => found[1]), ['way', 'plan', 'suggestions', 'chat'])
   assert.equal((html.match(/class="tab[^"]*" type="button" data-tab=/g) ?? []).length, 4)
   assert.match(script, /const pane = ADVISOR_PANES\.includes\(name\) \? name : 'way'/)

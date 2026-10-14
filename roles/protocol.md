@@ -26,6 +26,7 @@ time. Every name, path and word of a project comes from its settings or its own 
 |---|---|---|---|
 | `.claude/chats/list.json` | the person or the main chat | `prefix` (how the project's chat titles start), `main` (the main chat's name), `boards` (boards a chat starts) | `src/appChats.mjs` (`parseList`) |
 | `.claude/chats/<session>.json` | each chat, its card (by the Workers mod's tool) | `task: { text, step, steps, names, left, stepLeft, since, isReported }`; `left: true` when it left the list | `src/planLines.mjs` |
+| `.claude/chats/own/<name>.json` (B210) | a chat without the Workers mod, its card itself; `<name>` in small letters, other characters "-" | the same fields, with `minutes` and `stepMinutes` for the times; the file's time when it has no `at`. Read only when the mod's card is not there | `src/planLines.mjs` (`ownCard`), `src/sources.mjs` |
 | `.claude/asks/<id>.json` | a chat that needs the person in a fixed form | `id, from, kind (input, verify, intervene), title, text, at, state, options, pictures, run, checks, tried` | `src/asks.mjs` |
 | the backlog (setting `backlog`) | the main chat and the workers | see below | `src/backlog.mjs` |
 | `.claude/restart.md` | the main chat on "prepare restart" | who was on what; the board only looks whether it is there | `src/sources.mjs` |

@@ -12,6 +12,12 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 
 - Put yourself in the list of chats once, when the main chat's first message tells you your name: the Workers mod's
   chat tool with action "join", that name, role "worker". Keep your card as that tool says: the worker board shows it.
+- Without the Workers mod (B210): your title starting with the project's prefix puts you on the board, and you
+  keep your card yourself in `<project>\.claude\chats\own\<name>.json`, `<name>` your name in small letters with
+  every other run of characters a "-" ("Worker 1" is `worker-1.json`): `{ "name": "Worker 1", "role": "worker", "task": {
+  "text": <the topic>, "names": [<the steps>], "step": <the step you are on, from 1>, "minutes": <the time left for the
+  task>, "stepMinutes": <for the step> } }`. Write it anew at each step; when the task is done, write it without
+  "task". The board counts the minutes down from the time the file was written.
 - Before you set your card's minutes, read the board's task times (`data/task-times.md` in the board's folder, made
   from the real working time of finished tasks) and go by the typical time of your kind of task, not by the
   hand-over's "about". A kind with fewer than 5 tasks there is still a guess.
@@ -56,9 +62,14 @@ hand-over therefore says what the task touches ("Touches: ...").
 
 ## The backlog, pictures, usage
 
-- The backlog (the board's setting `backlog`): tick a step when its work is merged. Add work you find as a step: read
-  the highest id right before you write (B<number>, next = highest + 1, never used twice). Never delete or reword a
-  step.
+- The backlog is one file of the project (the board's setting `backlog`), shared by every chat; the person
+  follows it on the board. An activity is a "## " heading, "#focus" after it marks the person's main focus; a step
+  is a "- [ ] B<number> ..." line, ticked "- [x]" when done; "@you" at its end marks a step only the person can do
+  (the marks: `protocol.md`). Edit the file itself; no tool is needed.
+- Tick a step when its work is merged. Add work you find as a step under the activity it belongs to: read the
+  highest id right before you write (B<number>, next = highest + 1, never used twice). When you need something from
+  the person, add it as a step for them (below). Never delete or reword a step, and never change the focus, unless
+  the user asks.
 - A new step's title is 5 to 10 words of your own, starting with a verb, saying what the user gets, never the
   user's request read back; their words go under it. Your card's topic for a task is that same short title.
 - A step for the user starts after its id with "Verify:", "Decide:", "Provide:" or "Do:", ends with "@you", and names

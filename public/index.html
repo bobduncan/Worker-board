@@ -12,10 +12,12 @@
 <body>
   <button class="update-note" id="update-note" type="button" hidden></button>
   <nav class="tabs" aria-label="Views">
-    <button class="tab is-active" type="button" data-tab="overview">Overview</button>
-    <button class="tab" type="button" data-tab="advice">Advisor</button>
-    <button class="tab" type="button" data-tab="coordinate">Backlog</button>
-    <button class="tab" type="button" data-tab="design">Design</button>
+    <div class="tab-list">
+      <button class="tab is-active" type="button" data-tab="overview"><span class="tab-long">Overview</span><span class="tab-short">Today</span></button>
+      <button class="tab" type="button" data-tab="advice"><span class="tab-long">Advisor</span><span class="tab-short">Advisor</span></button>
+      <button class="tab" type="button" data-tab="coordinate">Backlog</button>
+      <button class="tab" type="button" data-tab="design">Design</button>
+    </div>
     <span class="grow"></span>
     <button class="quiet-button" id="prepare-restart" type="button" title="Before you quit Claude: the main chat asks every working chat to stop at a safe point and writes down who was on what" hidden>Prepare restart</button>
     <span class="version" id="version"></span>
@@ -37,6 +39,7 @@
         <div class="workers-columns" id="workers-columns" aria-hidden="true"><span>Worker</span><span>Current task</span><span>Progress</span><span>Est. time</span><span>Queue</span><span></span></div>
         <section class="lanes" id="lanes" aria-label="Workers"></section>
       </section>
+      <button class="phone-more" id="phone-more" type="button" aria-expanded="false" aria-controls="today folders">Show the timeline and folders</button>
       <section class="panel" id="today" aria-labelledby="today-title">
         <h2 id="today-title">Timeline <small id="today-range"></small></h2>
         <div class="today">

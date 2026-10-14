@@ -9,6 +9,7 @@ import { readAsks } from './asks.mjs'
 import { allWords, forYou, parseBacklog, queue } from './backlog.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
+import { ownCard, ownCardKey } from './planLines.mjs'
 import { readDeep, readTail } from './transcript.mjs'
 
 /** A transcript's name comes from a file another program wrote; only a plain id may become part of a path. */
@@ -87,7 +88,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const planLineTexts = {}
   // B152: when each card was last written: a card that says its chat left the list of chats says so since then.
   const planLineAt = {}
-  await Promise.all(chats.map(async ({ cliSessionId }) => {
+  await Promise.all(chats.map(async ({ cliSessionId, name }) => {
     const file = join(config.transcripts, `${cliSessionId}.jsonl`)
     const tail = await readTail(file)
     // A task may have started further back than the tail reaches, and so may a chat's look at the limits (B113).
@@ -100,6 +101,14 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     const card = join(claude, 'chats', `${cliSessionId}.json`)
     planLineTexts[cliSessionId] = await readText(card)
     planLineAt[cliSessionId] = await stat(card).then(file => file.mtimeMs, () => null)
+    // B210: a chat without the Workers mod writes its card itself, under its name; the mod's card goes first.
+    if (planLineTexts[cliSessionId] === null && ownCardKey(name) !== '') {
+      const own = join(claude, 'chats', 'own', `${ownCardKey(name)}.json`)
+      const at = await stat(own).then(file => file.mtimeMs, () => null)
+      const text = at === null ? null : await readText(own)
+      planLineTexts[cliSessionId] = text === null ? null : ownCard(text, at)
+      planLineAt[cliSessionId] = planLineTexts[cliSessionId] === null ? null : at
+    }
   }))
 
   return {

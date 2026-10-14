@@ -30,6 +30,9 @@ async function project(t) {
   })
   await put('project/.claude/chats/list.json', '{"prefix":"Game - ","main":"Main"}')
   await put('project/.claude/chats/units-id.json', JSON.stringify({ name: 'Units', task: { text: 'Archer', step: 1, steps: 3, left: 20 * MIN }, at: NOW }))
+  // B210: a chat without the Workers mod writes its own card under its name; the mod's card goes first.
+  await put('project/.claude/chats/own/main.json', JSON.stringify({ name: 'Main', task: { text: 'Plan the week', minutes: 15 } }))
+  await put('project/.claude/chats/own/units.json', JSON.stringify({ name: 'Units', task: { text: 'Not this one' } }))
   await put('project/.claude/backlog.md', '## Art #focus\n- [ ] Say whether the archer is right (pictures in art-inbox/archer) @you\n')
   await put('project/.claude/asks/units-sheet.json', JSON.stringify({ id: 'units-sheet', from: 'Units', kind: 'verify', title: 'Check the sheet', pictures: ['art-inbox/archer/sheet.png'], at: NOW - 5 * MIN }))
   await put('project/.claude/asks/notes.txt', 'not an ask')
@@ -67,9 +70,14 @@ test('readSources reads a project\'s files into the shape buildState takes, and 
   assert.equal(typeof raw.tails['units-id'].earlier, 'string')
 
   const state = buildState(raw, { now: NOW, config })
-  assert.deepEqual(state.chats.map(chat => [chat.name, chat.state]), [['Main', 'free'], ['Evil', 'unknown'], ['Slash', 'unknown'], ['Units', 'working']])
+  assert.deepEqual(state.chats.map(chat => [chat.name, chat.state]), [['Main', 'working'], // B210: its own card names a task, as the mod's card would
+     ['Evil', 'unknown'], ['Slash', 'unknown'], ['Units', 'working']])
   const units = state.chats.find(chat => chat.name === 'Units')
   assert.deepEqual([units.task.text, units.task.step, units.task.startedAt, units.doingNow], ['Archer', 1, NOW - 30 * MIN, 'Draw the sheet'])
+  // B210: the main chat has no card of the mod: its own card is read, its time counted from the file's time.
+  const own = JSON.parse(raw.planLineTexts['main-id'])
+  assert.deepEqual([own.task.text, own.task.left, Number.isFinite(own.at), raw.planLineAt['main-id'] === own.at], ['Plan the week', 15 * MIN, true, true])
+  assert.equal(JSON.parse(raw.planLineTexts['units-id']).task.text, 'Archer')
   assert.deepEqual(raw.pictureLists, { 'art-inbox/archer': ['art-inbox/archer/sheet.png'] })
   assert.deepEqual(state.forYou.map(need => [need.id, need.from, need.pictures]), [['units-sheet', 'Units', ['art-inbox/archer/sheet.png']]])
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.pictures]), [['Say whether the archer is right (pictures in art-inbox/archer)', 'Art', ['art-inbox/archer/sheet.png']]])

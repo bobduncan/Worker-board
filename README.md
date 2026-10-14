@@ -19,15 +19,16 @@ idea becomes a picture made by Codex, optional). `DESIGN.md` is the agreed desig
 |---|---|
 | Windows, the Claude desktop app, signed in | The board reads the app's list of chats and their transcripts on this PC. Not tried on a Mac. |
 | Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies; `package.json` names the Node it needs and the scripts `start`, `demo` and `test`); git gets it and lists the working folders. |
-| The Workers mod `folder-branches` | Keeps each chat's card, types your answers from the board into the chats, and keeps the board running. |
+| The Workers mod `folder-branches` | Keeps each chat's card (a chat without it can write its card itself, see `roles/worker.md`), types your answers from the board into the chats, and keeps the board running. |
 | A project folder | Holds the code's repository and the board as folders of their own. Every chat of the project is opened in the project folder itself, not in a folder inside it: the app keeps the transcripts per folder. |
 | One main chat, titled `<prefix>Main` | It hands out the work, and the board types its words (restart, resume, start a chat) into it. |
 | `<project>\.claude\chats\list.json` | Names the prefix of the chats' titles and the main chat. |
 | `<project>\.claude\backlog.md` | The steps: the queue and what is yours come from it. |
 | A launch entry | `<project>\.claude\launch.json`, from which the mod starts the board. |
 
-Not needed, but used when there: the mods `backlog` (a Backlog pane) and `start-app` (a Run pane), Codex (pictures
-on the Design tab), an advisor chat. `examples\` holds a starting `config.json`, `list.json` and `backlog.md`, and
+Not needed: the Backlog mod `backlog` (B209: the board reads and ticks the backlog itself and has its own Backlog
+tab; the job texts in `roles\` tell the chats how to keep it). Used when there: the Run mod `start-app` (a Run pane
+in the app), Codex (pictures on the Design tab), an advisor chat. `examples\` holds a starting `config.json`, `list.json` and `backlog.md`, and
 the briefings for the main chat and the workers.
 
 ## From nothing to a running board
@@ -82,6 +83,11 @@ the briefings for the main chat and the workers.
 8. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
    <project>\.claude\launch.json`. With `"boards": ["worker-board"]` in `list.json`, every chat in the list starts
    the board when it does not answer, within 15 seconds: no need to start it yourself, also after a restart.
+   **Without the Workers mod** (B211): `node start-board.mjs` starts the board in the background when it does not run
+   yet and prints where it runs (its own words go to `data\board.log`); a second call says it runs already. To have
+   it start with every chat of the project, copy `examples\settings.json` to `<project>\.claude\settings.json` (or add
+   its hook to the one there) and put the board's folder for `<board>`: a chat that opens then starts the board,
+   quietly, when it does not answer.
 9. **Open it.** Open `http://127.0.0.1:<your port>/` in a browser. → the lane "Main" comes first, under it "No
    workers yet" (step 11); "For you" holds B1 and B2 under "From the backlog"; Main's queue holds B4, waiting for B2.
    Without a main chat the page says "No main chat yet" and how to make one, as step 5 does.
