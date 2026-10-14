@@ -1,7 +1,6 @@
 # The worker board for any project: the plan
 
-B189, 2026-10-14, checked against the board's main at 0871961. A plan only: nothing is changed before the user's yes
-(the backlog's "Decide:" step under B189). The wish: "i want the worker board to also be reusable for non-lavatactics
+B189, 2026-10-14, checked against the board's main at 0871961. Approved by the user on 2026-10-14 (B190). The wish: "i want the worker board to also be reusable for non-lavatactics
 projects. so we need to reevaluate the current that for that and maybe refactor that too."
 
 ## What still ties the board here
@@ -22,7 +21,11 @@ projects. so we need to reevaluate the current that for that and maybe refactor 
 
 ## The order
 
-Each part is one step for one worker; sizes are a worker's time.
+The work goes in small increments, one at a time, each merged on its own; a part may take several. The user, on
+approving it: "do it in small increments that can be merged back. first ensure that its clear to all future work
+that this is the constraint if i develop something the worker board. Then we can do small refactors as a time."
+The first increment is the rule itself (B191): at the top of the README and DESIGN.md, in `roles/README.md`, and
+the guard `test/anyProject.test.mjs`, whose list of known ties each increment shortens. Sizes are a worker's time.
 
 1. **Settings and start-up (about 2 h).** `config.json` leaves git and is made from `examples/config.json` at the first
    start. A settings file that is broken, or a missing list of chats, stops the board with a line saying what is
