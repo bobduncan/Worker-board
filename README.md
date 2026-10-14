@@ -179,10 +179,9 @@ project's backlog, part of B126 (the board for any project).
    line 111. B130
 5. Done (B131): without a right `list.json` the board guesses no prefix and no main chat; it shows no chats and
    says which file it looks for.
-6. The game is built in: the key `gameRepo`, a "Run game" button that is always there, `run-game.mjs`, which runs
-   only a folder with its own Vite, and the branch name `main` (`src/folders.mjs`, line 49). With `gameRepo` empty,
-   git answers for the folder the board was started from: in the trial the head showed the board's own commit as
-   the game's, and "Run game" failed on `worker-board\node_modules\vite`. B132
+6. Partly done: with `gameRepo` empty there is no game (B132): no "Run game", no "Open the game" and no play links,
+   and the board never takes its own folder for the game. The base branch is the setting `baseBranch` (B194). Still
+   built in: `run-game.mjs`, which runs only a folder with its own Vite (B197).
 7. `design.json` holds Lava Tactics' words and reference pictures for all four kinds of idea, and a path that takes
    the board to be in `<project>\worker-board`. B133
 8. `transcripts` has to be looked up by hand (step 5); the board could work it out from `project`. B134

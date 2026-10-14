@@ -618,6 +618,9 @@ test('each chat carries the id of its session, for the bridge to know which chat
   assert.equal(state.advisor.session, 'cli-Advisor')
   assert.deepEqual(state.mainGame, { branch: 'main', folder: 'main', path: 'C:/game-main', url: null, since: null, lastCommitAt: NOW - 90 * MIN, commit: { hash: 'b0c4559', subject: 'Merge the camera' } })
   assert.equal(build({ apps: [app('Main')] }).mainGame, null)
+  // B132: a project without a game (no folders read) offers no game for a step to verify either.
+  const noGame = build({ apps: [app('Main')], backlog: '## Art\n- [ ] B14 Verify: the walk is smooth (branch fix/walk) @you\n' })
+  assert.deepEqual([noGame.mainGame, noGame.backlogForYou.map(step => step.game)], [null, [null]])
 })
 
 // The chat's own file, as its process keeps it: what it says the chat does, and when it last wrote.

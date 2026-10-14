@@ -335,7 +335,9 @@ async function main(args) {
   let folders = async () => null
   let branches = async () => null
   // B110: the repositories whose branches say whether a step's work is merged: the game's, and the board's own.
-  const branchesNow = () => readBranches([config.gameRepo, HERE], gitRunner())
+  // B132: the game's repository only when the settings name one; `git -C ""` would read the board's own folder.
+  const hasGame = config.gameRepo !== ''
+  const branchesNow = () => readBranches(hasGame ? [config.gameRepo, HERE] : [HERE], gitRunner())
 
   // B110: an approval of merged work, and "Done" on what only the person could do, the board settles itself.
   const settle = (message, state) => settleByBoard(message, state, {
@@ -368,7 +370,7 @@ async function main(args) {
     store = memoryStore()
     readRaw = () => demoSources(clock())
   } else {
-    folders = cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS)
+    folders = hasGame ? cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS) : async () => null
     branches = cached(() => branchesNow(), FOLDERS_MS)
     readRaw = () => readSources(config, folders, undefined, branches)
     if (historyFrom === undefined) {
@@ -510,7 +512,8 @@ async function main(args) {
     })
     // B173: the Advisor's rounds as the clock has them, for the Advice & Chat tab.
     const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept, group: config.advisorSuggestions }
-    return { ...state, isDemo, project, rounds, name: config.name }
+    // B132: whether the project has a game to run; the demo has its made-up one.
+    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame }
   }, STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read

@@ -1806,7 +1806,8 @@ function itemsPart(items, waiting, needId, withChoices = false) {
       li.append(listed)
     }
     if (withChoices && (item.note ?? '') !== '') li.append(el('p', 'handover-note', item.note))
-    for (const link of item.links) {
+    // B132: a project without a game has nothing to play: its play links are left out.
+    for (const link of item.links.filter(one => one.kind === 'picture' || board?.hasGame !== false)) {
       const open = el('button', 'handover-link', link.kind === 'picture' ? link.label : `▶  ${link.label}`)
       open.type = 'button'
       if (link.kind === 'picture') {
@@ -2428,7 +2429,7 @@ function openFromAddress(state) {
       openPicture(path, path)
     } else {
       const [branch, ...settings] = hash.slice('#play='.length).split('&')
-      play(decodeURIComponent(branch), settings.join('&'), { inPlace: true })
+      if (state.hasGame !== false) play(decodeURIComponent(branch), settings.join('&'), { inPlace: true })
     }
     return
   }
