@@ -332,6 +332,19 @@ Decided on 2026-10-12:
 
 The board works without the workers' help. A worker's plan line adds the step and the estimate when it is there.
 
+## Done is free (B148)
+
+The person, 2026-10-14: "worker 1 should be finished but it doesnt say so on the board, why is this?" A chat whose
+turn has ended counts as working between two turns while something of its work is open: its card, background work
+it started, a task handed to it, its step's branch. Its card can be left behind, and a command it started can run
+on (a board it started for the person). Every chat ends its answer to the person with the closing block of the
+project's CLAUDE.md, so the board reads that: when the answer that ended the last turn ends with "+ Done:   yes"
+(`saysDone` in `src/transcript.mjs`), the chat has finished, and neither its card nor what it left running in the
+background holds it. What others hold for it still does: a task the main chat handed over that is not reported, or
+its step's branch. "- Done:   no" and "- Done:   partly" keep the reading as it was, and a turn that runs is never
+read as finished. The demo's Cleanup is this case; the picture is
+`art-inbox/worker-board/b148/2026-10-14-b148-before-after.png`.
+
 ## Time and estimates
 
 - A task starts when it is handed over (the message from the main chat in the worker's transcript), or when its
