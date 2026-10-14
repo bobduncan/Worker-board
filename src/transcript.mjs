@@ -307,7 +307,7 @@ function crossSession(value) {
 }
 
 /** A message another chat sent, or null. A helper's own report back (a subagent) is not one. */
-function peerMessage(entry) {
+export function peerMessage(entry) {
   if ((entry.type !== 'user' && entry.type !== 'queued') || entry.isSidechain) return null
   const origin = entry.origin
   if (origin !== null && origin.kind !== 'peer') return null
