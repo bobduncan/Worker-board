@@ -1,0 +1,66 @@
+# The protocol: the words the board and the chats share
+
+The board reads what the chats write and types into their chats, and the chats read what it types. These are the
+words both sides keep to. A chat that writes them otherwise is read wrongly by the board, so the job texts in this
+folder point here. `<main>` is the main chat's title from the list of chats, `<name>` a chat's title, `HH:MM` a
+time. Every name, path and word of a project comes from its settings or its own files, never from here.
+
+## What a chat writes, and the board reads
+
+| The words | Who writes them, where | What the board makes of them | Read in |
+|---|---|---|---|
+| `Task from <main>: B<id> ...` (first line; "Next task", "Two tasks" too) | the main chat, a message to a worker | the worker's task starts; the step ids and "about <time>" of the first line are its step and estimate | `src/transcript.mjs` (`HANDS_OVER`, `handOvers`) |
+| `Report from <name>: B<id> ...` (first line) | a worker, a message to the main chat, by any address or tool | the task is finished once the turn ends after it; the first B-id is the finished step | `src/transcript.mjs` (`isReportTo`), `src/finished.mjs` (`reportsOf`) |
+| `Note from <name>: ...`, `Question from <name>: ...` | a worker, to the main chat | a message mid-task; a note or question sent and followed by the turn's end also ends the task | `src/transcript.mjs` |
+| `Note from <name>: paused for the limit until HH:MM` (exactly this first line) | a worker that stops for the plan's limit | the worker shows as "Suspended" until that time | `src/limits.mjs` (`PAUSED`, `pauseNote`) |
+| A closing block whose last line is `+ Done:   yes` (or `- Done:   no, ...`, `- Done:   partly, ...`) at the very end of an answer | every chat, at the end of an answer to the person | "yes": the chat is done and free, whatever its card says | `src/transcript.mjs` (`saysDone`), `src/state.mjs` |
+| `**Task:** ...` and `**What I did:** ...` as the answer's first two lines | a worker that finished with something for the person | the task and the result in the worker's window | `src/handover.mjs` |
+| A quote block titled `> **For you**`, items numbered, each starting `**Answer:**` or `**Do:**` | every chat, above its closing block | the person's items in the worker's window and under For you | `src/handover.mjs` |
+| `[See the picture: ...](http://127.0.0.1:<port>/#picture=<picture folder>/<file>)` | in a For you item | a button that opens the picture on the board | `src/handover.mjs`, `public/board.js` |
+| `[Play it: ...](http://127.0.0.1:<port>/#play=<branch>&<settings>)` | in a For you item | a button that starts that branch's game (only a project with a game) | `src/handover.mjs`, `public/board.js` |
+| The AskUserQuestion or ExitPlanMode tool | any chat | the chat waits for the person | `src/transcript.mjs` (`ASKING_TOOLS`) |
+
+## The files the chats keep
+
+| File (in the project) | Who writes it | What it holds | Read in |
+|---|---|---|---|
+| `.claude/chats/list.json` | the person or the main chat | `prefix` (how the project's chat titles start), `main` (the main chat's name), `boards` (boards a chat starts) | `src/appChats.mjs` (`parseList`) |
+| `.claude/chats/<session>.json` | each chat, its card (by the Workers mod's tool) | `task: { text, step, steps, names, left, stepLeft, since, isReported }`; `left: true` when it left the list | `src/planLines.mjs` |
+| `.claude/asks/<id>.json` | a chat that needs the person in a fixed form | `id, from, kind (input, verify, intervene), title, text, at, state, options, pictures, run, checks, tried` | `src/asks.mjs` |
+| the backlog (setting `backlog`) | the main chat and the workers | see below | `src/backlog.mjs` |
+| `.claude/restart.md` | the main chat on "prepare restart" | who was on what; the board only looks whether it is there | `src/sources.mjs` |
+| `.claude/board.json` | the board | where the board is and its key, for the Workers mod | `server.mjs` |
+| `.claude/launch.json` | the board (`--launch-entry`) | the board's start entry for the app's preview | `server.mjs`, `src/ports.mjs` |
+
+## The backlog
+
+| The words | Meaning | Read in |
+|---|---|---|
+| `## <activity>`, `#focus` after it | an activity; the person's main focus | `src/backlog.mjs` |
+| `- [ ] B<n> <title>` / `- [x]` | an open or ticked step; its id never changes or comes back | `src/backlog.mjs` |
+| `@you` at the end | a step only the person can do; it shows under For you | `src/backlog.mjs` (`forYou`) |
+| `Verify:`, `Decide:`, `Provide:`, `Do:` after the id | what a step of the person's asks | `src/backlog.mjs` |
+| `(for <worker>; after <condition>; about <time>)` at the end | the step waits in that worker's queue | `src/backlog.mjs` (`queue`) |
+| `later`, `not handed out`, `not queued` in brackets | held back: in no queue | `src/backlog.mjs` (`isHeldBack`) |
+| `(branch <name>)` at the very end | the step is in progress on that branch | `src/backlog.mjs` |
+| Indented lines under a step; `Requirements:`, `Context:` ... as sections | the step's details | `src/backlog.mjs` (`noteSections`) |
+| The group named by the setting `advisorSuggestions` | the Advisor's open suggestions on its tab | `src/state.mjs` |
+
+## What the board types into a chat
+
+Typed by the Workers mod as the person's own words; each line below is the board's, marked so.
+
+| The words | When | Written in |
+|---|---|---|
+| `<words>` then `(typed on the worker board, HH:MM)` | the person typed to a chat on the board | `src/bridge.mjs` (`messageText`) |
+| `Picture: <full path>` under the words | a picture pasted into the talk with the main chat | `src/talkPicture.mjs` |
+| `(answered on the worker board, HH:MM) B<id> "<title>": approved.` / `: done.` / `: rejected. Reason: ...` / `: <answer>` | the person answered a step or a request | `src/bridge.mjs` |
+| `prepare restart`, `resume` (with the chats cut off or not running) | the person's buttons for a restart of the app | `src/say.mjs` |
+| `start "<name>"` and its session id | a message waits for a chat that is not running | `src/say.mjs` (`wakeFor`) |
+| `spawn workers` / `Count:` / `Why:` | the main chat is asked for workers | `src/say.mjs` (`spawnWords`) |
+| `remove worker` / `Name:` / `State:` / `Why:` | the person removes a worker | `src/say.mjs` (`removeWords`) |
+| `backlog step from the Design tab`, `queue step from the Design tab` | an idea of the Design tab goes on the backlog | `src/design.mjs` (`stepWord`) |
+| `queue step from the backlog` / `Step: B<id> <title>` | the person puts a step in a queue | `src/say.mjs` |
+| `Round from the board's clock: morning` (or `weekly`), with the job and the project's settings under it | the Advisor's rounds; never the person's word | `src/rounds.mjs` |
+
+The board leaves its own lines out of the talk it shows (`src/state.mjs`, `BOARD_WORDS`, `isClockLine`).
