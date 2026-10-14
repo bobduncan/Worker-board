@@ -80,6 +80,8 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
 
   const tails = {}
   const planLineTexts = {}
+  // B152: when each card was last written: a card that says its chat left the list of chats says so since then.
+  const planLineAt = {}
   await Promise.all(chats.map(async ({ cliSessionId }) => {
     const file = join(config.transcripts, `${cliSessionId}.jsonl`)
     const tail = await readTail(file)
@@ -90,11 +92,13 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
       tail.usage = deep?.usage ?? null
     }
     tails[cliSessionId] = tail
-    planLineTexts[cliSessionId] = await readText(join(claude, 'chats', `${cliSessionId}.json`))
+    const card = join(claude, 'chats', `${cliSessionId}.json`)
+    planLineTexts[cliSessionId] = await readText(card)
+    planLineAt[cliSessionId] = await stat(card).then(file => file.mtimeMs, () => null)
   }))
 
   return {
-    listText, appChatTexts, planLineTexts, tails, backlogText, adviceText, folders, askTexts,
+    listText, appChatTexts, planLineTexts, planLineAt, tails, backlogText, adviceText, folders, askTexts,
     pictureLists: await pictureLists(config, backlogText, now),
     // B113: the file the app keeps for its own usage card. The board only reads it.
     usageText: (await readTail(config.usageHistory, USAGE_BYTES))?.text ?? null,

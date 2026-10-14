@@ -25,6 +25,24 @@ const FIVE_HOURS = 5 * HOUR
 const SPAWN_OPEN_MS = 15 * MIN
 /** B143: an ask to remove a worker that arrived stays open this long while the worker is still in the list. */
 const REMOVE_OPEN_MS = 15 * MIN
+/** B152: a removed worker's lane stays this long after its card said it left, saying so. */
+const REMOVED_SHOW_MS = 2 * MIN
+
+/**
+ * B152: when a chat's card said that it left the list of chats: the time the card was written, null when the board
+ * cannot tell, undefined when the card does not say so (or there is none).
+ */
+function leftAt(raw, id) {
+  let card = null
+  try {
+    card = JSON.parse(textOr(raw.planLineTexts?.[id], ''))
+  } catch {
+    return undefined
+  }
+  if (card === null || typeof card !== 'object' || card.left !== true) return undefined
+  const at = raw.planLineAt?.[id]
+  return Number.isFinite(at) ? at : null
+}
 
 /**
  * True when the app was closed in the middle of a chat's turn. The transcript still shows the turn as open, but the
@@ -173,7 +191,7 @@ function etaOf(task, state, now) {
 function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
-  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null }
+  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
   const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
@@ -428,7 +446,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const apps = (Array.isArray(raw.appChatTexts) ? raw.appChatTexts : [])
     .map(text => parseAppChat(textOr(text, '')))
     .filter(chat => chat !== null)
-  const found = boardChats(apps, { project: config.project, ...list })
+  // B152: a chat whose card says it left the list of chats ("left": true) gets no lane, also while its chat stays
+  // open in the app (one with Remote Control on cannot be closed). For two minutes after the card said so, its lane
+  // stays and says it was removed; a card the board cannot date goes at once. A chat that joins again writes a new
+  // card and shows again. The rest of the list is made without it, so a new chat of its name is no leftover.
+  const removedAt = new Map(apps.map(chat => [chat.cliSessionId, leftAt(raw, chat.cliSessionId)]).filter(([, at]) => at !== undefined))
+  const isGone = chat => removedAt.has(chat.cliSessionId) && !(removedAt.get(chat.cliSessionId) > now - REMOVED_SHOW_MS)
+  const found = boardChats(apps.filter(chat => !isGone(chat)), { project: config.project, ...list })
+    .map(chat => ({ ...chat, removedAt: removedAt.get(chat.cliSessionId) ?? null }))
   const main = found.find(chat => chat.isMain)
   // What the history last said about each chat, also from before the board was last off.
   const last = new Map(lines.filter(line => line.gap !== true).map(line => [line.chat, line]))
@@ -694,7 +719,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many
     // workers there are, and the newest ask for workers.
     workers: (() => {
-      const workerChats = found.filter(chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat))
+      // B152: a worker that was removed is no worker any more, also while its lane still says so.
+      const workerChats = found.filter(chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat) && chat.removedAt === null)
       return {
         main: main === undefined ? null : main.name,
         mainTitle: context.main.mainTitle,
