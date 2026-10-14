@@ -31,8 +31,11 @@ the briefings for the main chat and the workers.
 1. **Node.** Install Node 24 or newer. → `node --version` prints `v24` or higher.
 2. **The Workers mod.** It is on one PC only for now (see "Not yet portable"): copy the folder
    `C:\Users\<you>\.claude\mods` from that PC to the same place, with its `.claude-plugin\marketplace.json` and the
-   folder `folder-branches`. The command `claude` comes with the app but is not on the PATH: it is
-   `%APPDATA%\Claude\claude-code\<version>\<hash>\claude.exe`. Then:
+   folder `folder-branches`. The command `claude` comes with the app but is not on the PATH. In your own PowerShell,
+   with the app from the Microsoft Store, it is
+   `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude-code\<version>\<hash>\claude.exe`
+   (only the app's own shells see it as `%APPDATA%\Claude\claude-code\...`); with the app from claude.ai's own
+   installer the folder may differ. A `claude` installed apart, on the PATH, does the same. Then:
    ```
    claude plugin marketplace add C:\Users\<you>\.claude\mods
    claude plugin install folder-branches@my-mods --scope user
@@ -45,8 +48,9 @@ the briefings for the main chat and the workers.
    replace `<project>`, `<prefix>` and `<repository>`. → `<project>\.claude\chats\list.json` names your prefix.
 5. **The main chat.** In the Claude app, start a new chat in the folder `<project>`, name it `<prefix>Main` (the
    prefix and the main chat's name from `list.json`), and send it: "Read .claude\main-briefing.md and join the list
-   of chats as the main chat." → `/workers` shows "Main" as the main chat, and `%USERPROFILE%\.claude\projects\` has a folder for the project: its path with `:` and `\` as `-`
-   (`C:\Work\my-project` becomes `C--Work-my-project`).
+   of chats as the main chat." → `/workers` shows "Main" as the main chat, and `%USERPROFILE%\.claude\projects\`
+   has a folder for the project: its path with `:` and `\` as `-` (`C:\Work\my-project` becomes
+   `C--Work-my-project`).
 6. **The board.** In `<project>`:
    ```
    git clone https://github.com/bobduncan/Worker-board.git worker-board
@@ -57,7 +61,11 @@ the briefings for the main chat and the workers.
    want to look first (Ctrl+C ends it).
 7. **Its settings.** Write `config.json` in the board's folder after `examples\config.json`: `project` is
    `<project>`, `transcripts` the folder of step 5, `gameRepo` the folder of your code's git repository (empty until
-   there is one), `port` a free port. Write `\\` for every `\` in a path, or use `/`. →
+   there is one), `port` a free port. Write `\\` for every `\` in a path, or use `/`. With the app from the
+   Microsoft Store, `%APPDATA%\Claude` holds the app's files only for programs the app starts (the mod, the Run
+   pane); a board you start from your own PowerShell finds them only under the package folder: set `appSessions` to
+   `%LOCALAPPDATA%\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude-code-sessions` and
+   `usageHistory` to `plan-usage-history.json` in that same `Claude` folder. →
    `node -e "JSON.parse(require('fs').readFileSync('config.json','utf8'))"` prints nothing (an error means a fault
    in the file, and the board would silently take its defaults), and `node server.mjs` prints
    `Worker board: http://127.0.0.1:<your port>/`. Ctrl+C ends it.
@@ -161,7 +169,8 @@ project's backlog, part of B126 (the board for any project).
 7. `design.json` holds Lava Tactics' words and reference pictures for all four kinds of idea, and a path that takes
    the board to be in `<project>\worker-board`. B133
 8. `transcripts` has to be looked up by hand (step 5); the board could work it out from `project`. B134
-9. Windows only as written: `%NAME%` in paths, the app's folders under `%APPDATA%\Claude`, backslashes in
+9. Windows only as written: `%NAME%` in paths, the app's folders under `%APPDATA%\Claude` (for the Store app
+   only as the app's own programs see it; the real folder is in its package folder, step 7), backslashes in
    `src/appChats.mjs` (`folderKey`), `codex.exe` under `%LOCALAPPDATA%\OpenAI\Codex` (`src/codex.mjs`). B135
 10. No file says which Node is needed: there is no `package.json`. Tried with Node 24 only. B136
 11. The page says what to do when it finds no main chat or no worker (B124), but nothing when `list.json` or the
