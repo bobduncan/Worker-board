@@ -14,6 +14,7 @@ import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
+import { taskTimesOf } from './taskTimes.mjs'
 import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -196,7 +197,11 @@ function etaOf(task, state, now) {
   const minutes = task.stepMinutes ?? task.handMinutes
   if (!isOwn && (minutes === null || !Number.isFinite(task.startedAt))) return null
   const at = isOwn ? task.estimateAt + task.leftMs : task.startedAt + minutes * MIN
-  return { at, leftMs: Math.max(0, at - now), isOverdue: at < now, isOwn, from: isOwn ? 'own' : task.stepMinutes !== null ? 'step' : 'handover' }
+  // B185: over its estimate (`isOverdue`, shown as a fault) only when over twice it and by at least 10 minutes, the
+  // person's yes against false alarms; a little over is only that (`isOver`).
+  const spanMs = Number.isFinite(task.startedAt) ? at - task.startedAt : 0
+  const isOverdue = now - at >= 10 * MIN && (spanMs <= 0 || now - task.startedAt > 2 * spanMs)
+  return { at, leftMs: Math.max(0, at - now), isOverdue, isOver: at < now, isOwn, from: isOwn ? 'own' : task.stepMinutes !== null ? 'step' : 'handover' }
 }
 
 /**
@@ -473,7 +478,7 @@ const stepId = words => `backlog:${hashOf(words)}`
 
 /** What a chat is expected to work on after now: the rest of its task, then its queue, as far as times are given. */
 function aheadOf(lane, now) {
-  if (lane.eta === null || lane.eta.isOverdue) return []
+  if (lane.eta === null || lane.eta.isOver) return []
   const spans = [{ from: now, to: lane.eta.at, title: lane.task.text === '' ? 'Task not recorded yet' : lane.task.text, isQueued: false }]
   let at = lane.eta.at
   for (const step of lane.queue) {
@@ -489,7 +494,7 @@ function aheadOf(lane, now) {
  * `outbox` what was sent from the page and is not delivered yet (see store.mjs, `outboxNow`), and `runs` the
  * games the board started and that still run (see games.mjs).
  */
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], now, config }) {
   const sent = Array.isArray(outbox) ? outbox : []
   const started = Array.isArray(runs) ? runs : []
   const list = parseList(textOr(raw.listText, ''))
@@ -600,7 +605,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       if (ids.length === 0 || ids.some(id => !knownIds.has(id))) return { reason: 'after', words: step.after }
     }
     if (lane === null) return { reason: 'nobody' }
-    if (lane.state === 'working') return { reason: 'busy', worker: lane.name, leftMs: lane.eta === null || lane.eta.isOverdue ? null : lane.eta.leftMs }
+    if (lane.state === 'working') return { reason: 'busy', worker: lane.name, leftMs: lane.eta === null || lane.eta.isOver ? null : lane.eta.leftMs }
     if (lane.state === 'waiting') return { reason: 'you', worker: lane.name }
     if (lane.state === 'interrupted') return { reason: 'cut', worker: lane.name }
     if (lane.state === 'free') return { reason: 'handout', main: context.main.mainTitle, isOwn: lane.isMain }
@@ -757,6 +762,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     counts,
     // B155: the steps finished last, newest first, with when (and from where the board knows it) and who.
     finished: finishedList(backlog, { reports: read.find(one => one.isMain)?.reports ?? new Map(), seen: finishedSeen ?? {}, prefix: list.prefix }),
+    // B185: how long finished tasks really took, per area and lately, and per step its estimate and working time.
+    taskTimes: taskTimesOf(taskTimes),
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
     chats: lanes.map(lane => ({

@@ -39,6 +39,7 @@ import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { seenTicks } from './src/finished.mjs'
+import { freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
@@ -344,6 +345,12 @@ async function main(args) {
   // B173: what the clock of the Advisor's rounds wrote down; null before its first look.
   const ROUNDS_FILE = join(HERE, 'data', 'rounds.json')
   let roundsKept = null
+  // B185: how long the tasks really took, read from the workers' transcripts and kept in the data folder, with the
+  // list the chats read when they give a time. A board that shows another's history starts from that one's file
+  // and measures in memory only.
+  const TASK_TIMES_FILE = join(HERE, 'data', 'task-times.json')
+  const TASK_LIST_FILE = join(HERE, 'data', 'task-times.md')
+  let taskTimes = { scans: {}, tasks: [] }
   if (isDemo) {
     const { demoSources } = await import('./fixtures/demo.mjs')
     store = memoryStore()
@@ -356,9 +363,11 @@ async function main(args) {
       store = await fileStore(join(HERE, 'data'), clock())
       finishedSeen = await readFile(FINISHED_FILE, 'utf8').then(text => JSON.parse(text), () => null)
       roundsKept = await readFile(ROUNDS_FILE, 'utf8').then(text => JSON.parse(text), () => null)
+      taskTimes = await readFile(TASK_TIMES_FILE, 'utf8').then(text => JSON.parse(text), () => null) ?? taskTimes
     } else {
       // The history of the board that is running; this one records nothing and keeps what is sent in memory.
       store = memoryStore()
+      taskTimes = await readFile(join(resolve(historyFrom), 'task-times.json'), 'utf8').then(text => JSON.parse(text), () => null) ?? taskTimes
       const shared = cached(async () => parseHistory((await readHead(join(resolve(historyFrom), 'history.jsonl'), HISTORY_BYTES))?.text ?? ''), TICK_MS / 2)
       const lines = { now: [] }
       readLines = () => lines.now
@@ -483,6 +492,7 @@ async function main(args) {
       board: { startedAt, offSince },
       seen,
       finishedSeen: finishedSeen ?? {},
+      taskTimes: taskTimes.tasks,
       now: clock(),
       config: { ...config, project },
     })
@@ -490,6 +500,40 @@ async function main(args) {
     const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept, group: config.advisorSuggestions }
     return { ...state, isDemo, project, rounds }
   }, STATE_MS)
+
+  // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
+  // at the first look. Tasks a worker reported are added to the list, and the list the chats read is written anew.
+  let measuring = false
+  let hasList = false
+  const measureTasks = async state => {
+    const main = { mainTitle: state.workers?.mainTitle ?? null, mainSession: state.chats.find(chat => chat.isMain)?.appSession ?? null }
+    if (measuring || main.mainTitle === null || typeof config.transcripts !== 'string') return
+    measuring = true
+    try {
+      const added = []
+      for (const chat of state.chats) {
+        if (chat.isMain || chat.isLeftover || typeof chat.session !== 'string' || !/^[\w-]+$/.test(chat.session)) continue
+        const scan = taskTimes.scans[chat.session] ?? freshScan(chat.name)
+        scan.worker = chat.name
+        taskTimes.scans[chat.session] = scan
+        added.push(...await readOn(join(config.transcripts, `${chat.session}.jsonl`), scan, main))
+      }
+      if (added.length > 0) taskTimes.tasks = keptTasks(taskTimes.tasks, added)
+      if (historyFrom === undefined) {
+        await writeFile(TASK_TIMES_FILE, JSON.stringify(taskTimes))
+        if (added.length > 0 || !hasList) await writeFile(TASK_LIST_FILE, listText(taskTimes.tasks, clock()))
+        hasList = true
+      }
+      if (added.length > 0) readState.reset()
+    } finally {
+      measuring = false
+    }
+  }
+  if (!isDemo && historyFrom !== undefined) {
+    const measure = () => readState().then(measureTasks).catch(() => {})
+    measure()
+    setInterval(measure, TICK_MS)
+  }
 
   const server = createBoard({
     token: randomBytes(32).toString('hex'),
@@ -705,6 +749,7 @@ async function main(args) {
   if (!isDemo && historyFrom === undefined) {
     const look = () => readState().then(async state => {
       await tick(store, state, clock())
+      await measureTasks(state).catch(() => {})
       // B155: the steps it sees ticked for the first time, with when.
       const done = (state.backlog ?? []).flatMap(activity => activity.steps).filter(step => step.status === 'done' && step.id !== null).map(step => step.id)
       const next = seenTicks(finishedSeen, done, clock())

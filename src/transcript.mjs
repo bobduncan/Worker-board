@@ -153,7 +153,7 @@ export const hasToolResult = entry => entry.blocks.some(block => block.type === 
 const lastToolUse = entry => entry.blocks.findLast(block => block.type === 'tool_use') ?? null
 
 /** What a slash command leaves in the transcript. It starts no turn. */
-const isCommandText = value => /^\s*<(local-command-[a-z]+|command-name|command-message)>/.test(value)
+export const isCommandText = value => /^\s*<(local-command-[a-z]+|command-name|command-message)>/.test(value)
 
 /**
  * Whether a turn is running, judged from the last entry that says something about it: `running`, `asking` (it
@@ -324,7 +324,7 @@ export function peerMessage(entry) {
  * How the main chat opens a message that hands over a task: "Task from ...", "Next task from ...", "Two tasks
  * from ...". Its other messages ("From the main chat, ...") are notes on a task and start none.
  */
-const HANDS_OVER = /^\s*(?:\w+\s+){0,2}tasks?\b/i
+export const HANDS_OVER = /^\s*(?:\w+\s+){0,2}tasks?\b/i
 
 /** A short title from the first line of a message: its first sentence, without the main chat's opening words. */
 function titleOf(body, isHandOver = false) {

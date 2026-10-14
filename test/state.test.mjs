@@ -174,7 +174,7 @@ test('a working chat with an estimate has a time it expects to be done, and its 
     backlog: '## Next to hand out (Game - Main)\n- [ ] Knight rows (for Units; about 30 min)\n- [ ] Polish (for Units)\n- [ ] Banner (for Units; about 10 min)\n- [ ] Lava biome (for Levels; about 1 h)\n- [ ] Name the game (for Writing)\n',
   })
   const units = chatNamed(state, 'Units')
-  assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOwn: true, from: 'own' })
+  assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOver: false, isOwn: true, from: 'own' })
   assert.deepEqual(units.queue.map(step => [step.id, step.title, step.minutes]), [[null, 'Knight rows', 30], [null, 'Polish', null], [null, 'Banner', 10]])
   assert.deepEqual(units.queue[0], { id: null, title: 'Knight rows', text: 'Knight rows (for Units; about 30 min)', minutes: 30, after: null, branch: null, notes: [], pictures: [], why: { reason: 'busy', worker: 'Units', leftMs: 22 * MIN } })
   // The plan stops at the first step without a time: what follows it cannot be placed.
@@ -184,7 +184,7 @@ test('a working chat with an estimate has a time it expects to be done, and its 
   ])
   // An estimate that has run out gives no time and no plan.
   const levels = chatNamed(state, 'Levels')
-  assert.deepEqual([levels.eta.isOverdue, levels.eta.leftMs, levels.ahead], [true, 0, []])
+  assert.deepEqual([levels.eta.isOver, levels.eta.leftMs, levels.ahead], [true, 0, []])
   assert.deepEqual([chatNamed(state, 'Main').eta, chatNamed(state, 'Main').queue], [null, []])
   assert.deepEqual(state.unassigned.map(step => step.title), ['Name the game'])
   assert.equal(state.day.until, NOW + 52 * MIN)

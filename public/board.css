@@ -157,14 +157,14 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .finished.is-folded h2 { padding-bottom: 12px; }
 .finished-none { padding: 0 16px 14px; font-size: 14px; }
 .finished-list { padding: 0 8px 8px; }
-.finished-row { width: 100%; display: grid; grid-template-columns: 100px 58px minmax(0, 1fr) 150px 190px; gap: 10px; align-items: baseline; padding: 6px 8px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 14px; cursor: pointer; }
+.finished-row { width: 100%; display: grid; grid-template-columns: 100px 58px minmax(0, 1fr) 120px 190px 170px; gap: 10px; align-items: baseline; padding: 6px 8px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 14px; cursor: pointer; }
 .finished-row:hover, .finished-row:focus-visible { background: var(--inset); }
 .finished-when { font-weight: 700; white-space: nowrap; }
 .finished-when.is-rough { color: var(--muted); font-weight: 600; }
 .finished-code { color: var(--muted); font-weight: 700; }
 .finished-title, .finished-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .finished-how { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 900px) { .finished-row { grid-template-columns: 90px 54px minmax(0, 1fr); } .finished-who, .finished-how { display: none; } }
+@media (max-width: 900px) { .finished-row { grid-template-columns: 90px 54px minmax(0, 1fr); } .finished-who, .finished-took, .finished-how { display: none; } }
 /* B124: asking for workers, under the lanes */
 .lane-add { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border: 1px dashed #3a4a63; border-radius: 10px; color: var(--muted); font-size: 14px; }
 .workers-lines { display: grid; gap: 4px; }
@@ -921,3 +921,8 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
    stay together; a step's state stays on one line. */
 .coordinate-tools { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px 12px; }
 .coordinate-checks { display: flex; align-items: center; gap: 12px; }
+
+/* B185: how long tasks really take: a finished step's estimate and working time, and on the Overview how far the
+   estimates were off lately. */
+.finished-took { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.count-pill.is-estimates { border-color: #2a4a7d; color: #cfe0ff; font-weight: 600; cursor: help; }

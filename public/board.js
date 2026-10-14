@@ -235,8 +235,45 @@ function drawTop(state) {
       const pill = el('div', `count-pill is-${name}`)
       pill.append(el('span', 'dot'), el('b', '', String(state.counts[name])), STATES[name].toLowerCase())
       return pill
-    }))
+    }).concat(estimatesPill(state.taskTimes ?? null)))
   for (const node of document.querySelectorAll('time[data-at]')) node.textContent = ago(Number(node.dataset.at), state.readAt)
+}
+
+// tasktimes:start
+// B185: how long tasks really take, as the board measured it (src/taskTimes.mjs). The person, 2026-10-14: "a
+// finished task shows 'estimate 1 h, took 6 min', and the board shows how far estimates were off lately".
+
+/** Minutes as the chats write them: "45 min", "1 h", "1 h 30 min". */
+function minutesWords(minutes) {
+  const whole = Math.round(minutes)
+  if (whole < 60) return `${whole} min`
+  return whole % 60 === 0 ? `${whole / 60} h` : `${Math.floor(whole / 60)} h ${whole % 60} min`
+}
+
+/** A finished step's times: "estimate 1 h, took 6 min", "took 6 min" without an estimate, or '' when not measured. */
+function tookWords(measured) {
+  if (measured === undefined || measured === null) return ''
+  return `${measured.estimateMin === null ? '' : `estimate ${minutesWords(measured.estimateMin)}, `}took ${minutesWords(measured.workMin)}`
+}
+
+/** How far estimates were off lately, for the Overview: `{ text, title }`, or null before anything was measured. */
+function estimatesLine(times) {
+  if (times === null || times.lately === undefined || times.lately.count === 0 || times.lately.off === null) return null
+  const areas = times.areas.map(area => `${area.area}: ${area.count} tasks, typically ${minutesWords(area.typicalMin)}${area.off === null ? '' : `, estimates ${area.off}`}${area.isEnough ? '' : ' (too few to go by)'}`)
+  return {
+    text: `Estimates lately: ${times.lately.off}`,
+    title: [`The last ${times.lately.count} finished tasks with an estimate, against their real working time.`, ...areas].join('\n'),
+  }
+}
+// tasktimes:end
+
+/** B185: the Overview's pill with how far estimates were off lately; none before anything was measured. */
+function estimatesPill(times) {
+  const line = estimatesLine(times)
+  if (line === null) return []
+  const pill = el('div', 'count-pill is-estimates', line.text)
+  pill.title = line.title
+  return [pill]
 }
 
 // limits:start
@@ -454,6 +491,8 @@ function timeOf(lane, now) {
   }
   // Overdue stays overdue, with how far over as its figure.
   if (eta.isOverdue) return { label: 'Overdue', main: `${span(now - eta.at)} over`, tone: 'bad', small: [`was ${clock(eta.at)}`], from }
+  // B185: a little over is no fault: over twice its estimate and by 10 minutes is (above).
+  if (eta.isOver === true) return { label: 'ETA', main: `${span(now - eta.at)} over`, tone: 'time', small: [`was ${clock(eta.at)}`], from }
   return { label: 'ETA', main: `${span(eta.leftMs)} left`, tone: 'time', small: [`until ${clock(eta.at)}`], from }
 }
 // lanetime:end
@@ -3034,7 +3073,7 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
  * all there is, "≈" when the board saw it ticked), the step's id and title, who finished it, and where the time
  * comes from. `isRough` marks a time that is only roughly known.
  */
-function finishedRows(list, now) {
+function finishedRows(list, now, byStep = {}) {
   const dayOf = at => `${new Date(at).getDate()} ${MONTH_NAMES[new Date(at).getMonth()]}`
   const isToday = at => new Date(at).toDateString() === new Date(now).toDateString()
   return list.map(one => ({
@@ -3045,6 +3084,8 @@ function finishedRows(list, now) {
     isRough: one.how === 'day' || one.how === 'seen',
     who: one.by ?? '—',
     how: FINISHED_HOW[one.how] ?? '',
+    // B185: its estimate and how long it really took, when the board measured it.
+    took: one.id === null ? '' : tookWords(byStep[one.id]),
   }))
 }
 // finished:end
@@ -3076,7 +3117,7 @@ function drawFinished(state) {
   arrow.setAttribute('aria-hidden', 'true')
   fold.append(arrow, 'Recently finished', el('small', '', 'the last 20, newest first'))
   head.append(fold)
-  const rows = finishedRows(state.finished, state.readAt)
+  const rows = finishedRows(state.finished, state.readAt, state.taskTimes?.byStep ?? {})
   const list = rows.length === 0 ? el('p', 'muted finished-none', 'No finished step has a time the board can find yet.') : el('ol', 'finished-list')
   list.id = 'finished-body'
   list.hidden = finishedFolded
@@ -3086,7 +3127,7 @@ function drawFinished(state) {
     button.type = 'button'
     button.dataset.finished = row.key
     button.title = 'Open the step'
-    button.append(el('span', `finished-when${row.isRough ? ' is-rough' : ''}`, row.when), el('span', 'finished-code', row.code), el('span', 'finished-title', row.title), el('span', 'finished-who', row.who), el('span', 'finished-how', row.how))
+    button.append(el('span', `finished-when${row.isRough ? ' is-rough' : ''}`, row.when), el('span', 'finished-code', row.code), el('span', 'finished-title', row.title), el('span', 'finished-who', row.who), el('span', 'finished-took', row.took), el('span', 'finished-how', row.how))
     item.append(button)
     list.append(item)
   }
@@ -3936,7 +3977,7 @@ function draw(state) {
   const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:')), state.workers?.main ?? null]
   once('coordinate', [state.backlog ?? null, queueing], () => drawCoordinate(state))
   // B155: today's times name no day, so the list is drawn anew when the day changes too.
-  once('finished', [state.finished ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
+  once('finished', [state.finished ?? null, state.taskTimes?.byStep ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
   drawDetails(state)
   openFromAddress(state)
   once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))

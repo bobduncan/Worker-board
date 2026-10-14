@@ -78,7 +78,7 @@ test('a working worker without a time of its own and without a step takes the ti
   const handOver = fromChat(NOW - 10 * MIN, 'Game - Main', 'Task from Game - Main: the zebracorn check. About 45 minutes.')
   const units = lane(build({ tails: { Units: tail([handOver, ...busy]) } }), 'Units')
   assert.deepEqual([units.task.source, units.task.stepId, units.task.handMinutes], ['unrecorded', null, 45])
-  assert.deepEqual(units.eta, { at: NOW + 35 * MIN, leftMs: 35 * MIN, isOverdue: false, isOwn: false, from: 'handover' })
+  assert.deepEqual(units.eta, { at: NOW + 35 * MIN, leftMs: 35 * MIN, isOverdue: false, isOver: false, isOwn: false, from: 'handover' })
   assert.equal(units.isWithoutTime, false)
 })
 

@@ -135,7 +135,7 @@ test('a worker without an estimate of its own gets its time from its step, count
   assert.equal(features.state, 'working')
   assert.deepEqual([features.task.text, features.task.source, features.task.stepId, features.task.stepMinutes], ['B02 The camera', 'step', 'B02', 60])
   // B02 says "about 1 h": 25 minutes in, 35 are left. It is not the worker's own estimate.
-  assert.deepEqual(features.eta, { at: NOW + 35 * MIN, leftMs: 35 * MIN, isOverdue: false, isOwn: false, from: 'step' })
+  assert.deepEqual(features.eta, { at: NOW + 35 * MIN, leftMs: 35 * MIN, isOverdue: false, isOver: false, isOwn: false, from: 'step' })
   // The queue is planned after it, with each step's own time.
   assert.deepEqual(features.ahead.map(span => [span.title, (span.to - span.from) / MIN, span.isQueued]), [['B02 The camera', 35, false], ['The upgrade offer', 90, true]])
 })
@@ -147,13 +147,16 @@ test('a worker\'s own estimate wins over the step\'s time', () => {
     plans: { Features: planLine({ text: 'Camera', step: 1, steps: 4, left: 10 * MIN, isReported: false }) },
   })
   const features = chatNamed(state, 'Features')
-  assert.deepEqual(features.eta, { at: NOW + 7 * MIN, leftMs: 7 * MIN, isOverdue: false, isOwn: true, from: 'own' })
+  assert.deepEqual(features.eta, { at: NOW + 7 * MIN, leftMs: 7 * MIN, isOverdue: false, isOver: false, isOwn: true, from: 'own' })
   assert.equal(features.task.stepId, 'B02')
 })
 
-test('a step\'s time that has run out is overdue, and a step without a time gives none', () => {
+test('a step\'s time that has run out is over, and overdue only twice over and by 10 minutes (B185); a step without a time gives none', () => {
   const late = chatNamed(build({ apps: everyone, tails: { Features: tail([handOver(NOW - 90 * MIN), ...running]) } }), 'Features')
-  assert.deepEqual(late.eta, { at: NOW - 30 * MIN, leftMs: 0, isOverdue: true, isOwn: false, from: 'step' })
+  // B185: over, but not twice its time: no fault yet. Over twice it and by 10 minutes, it is.
+  assert.deepEqual(late.eta, { at: NOW - 30 * MIN, leftMs: 0, isOverdue: false, isOver: true, isOwn: false, from: 'step' })
+  const later = chatNamed(build({ apps: everyone, tails: { Features: tail([handOver(NOW - 130 * MIN), ...running]) } }), 'Features')
+  assert.deepEqual([later.eta.isOverdue, later.eta.isOver], [true, true])
   const levels = chatNamed(build({ apps: everyone, tails: { 'Levels / Environment': tail(running) } }), 'Levels / Environment')
   assert.equal(levels.task.stepId, 'B07')
   assert.equal(levels.eta, null)

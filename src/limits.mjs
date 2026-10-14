@@ -105,7 +105,7 @@ export function limitStop(entries) {
   return { at: last.at, limit: /\bweek/i.test(words) ? 'week' : 'fiveHour', resetsAt: reset === null ? null : clockAfter(last.at, reset[1]) }
 }
 
-const PAUSED = /\bpaused\s+for\s+the\s+(?:[\w-]+\s+)?limit\b/i
+export const PAUSED = /\bpaused\s+for\s+the\s+(?:[\w-]+\s+)?limit\b/i
 
 /**
  * A worker's own pause for the limit: `{ at, until }` when its last word to the main chat says in its first line

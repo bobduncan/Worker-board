@@ -534,6 +534,21 @@ for the person keeps its card's task: that is the work it waits on. The picture 
   plan line first names it.
 - The first estimate a worker gives is kept. The card shows time so far, the first estimate, and what the worker
   says now. Past the first estimate, the overrun shows in a warning colour.
+- Since B185 that warning (Overdue) comes only when a worker is over twice its estimate and by at least 10 minutes,
+  the person's yes against false alarms; a little over shows "12 min over" in the usual colour.
+- **How long tasks really take (B185).** The person, 2026-10-14, after a simple task showed 60 minutes: "i only want
+  structural improvements to improve the accuracy". `src/taskTimes.mjs` reads each worker's transcript, the past once
+  and then only what it gained (an offset per transcript, kept in `data/task-times.json`; the tools' answers are
+  skipped unread, so a 200 MB transcript takes under a second). A task runs from the main chat's hand-over to the
+  worker's "Report from" message; a further message about the same step goes on with it. Only the time its turns run
+  counts: waiting for the person, in a queue or with the board off does not; work sent to the background counts until
+  the app starts the chat again (up to an hour); half an hour without a line in a turn does not. A task paused for the
+  limit, or never reported, is left out. The area is `board`, `art` or `game`, from the hand-over's "Touches:" line,
+  else its words. The board writes `data/task-times.md`, the list the main chat and the workers read before they give
+  a time (per area: how many tasks, the typical working time, how far estimates were off; an area under 5 tasks is
+  still a guess), and shows "Estimates lately: 7x too high" on the Overview (its tooltip per area) and "estimate 1 h,
+  took 6 min" in the Backlog tab's "Recently finished". The tasks of one step are one there. Nothing is kept by hand.
+  The picture: `art-inbox/worker-board/2026-10-14-b185-task-times.png`.
 - An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminds a working chat to renew it.
 - A lane's main figure is the time left ("24 min left"); the clock time it ends at is the small one (B95). A time
   that has run out says by how much ("12 min over").
