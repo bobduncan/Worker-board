@@ -640,12 +640,115 @@ $('lanes').addEventListener('click', event => {
   if (board !== null) drawLanes(board)
 })
 
-/** The lanes, drawn anew. A step line that held the keyboard's focus holds it again, so its list of steps stays open. */
+// workers:start
+// B124: under the lanes, what the board says about workers: how to make the main chat when the list has none, that
+// it asked the main chat for workers and what happens next, and the button for one more. The names come from the
+// list of chats: no word here names a project.
+
+const COUNT_WORDS = { 2: 'two', 3: 'three' }
+/** "one more worker", "three workers". */
+const workersWord = count => (count === 1 ? 'one more worker' : `${COUNT_WORDS[count] ?? count} workers`)
+
+/**
+ * What the row under the lanes shows: `kind` is `none` (no main chat: `steps` to make one, each a list of plain
+ * words and `{ code }`), `alone` (the main chat and no worker) or `more` (workers exist); `lines` each with a
+ * `tone` ('', asked, note, problem); `button` with its label and whether it waits for an open ask. Null when the
+ * server says nothing about workers.
+ */
+function workersView(workers, now) {
+  if (workers === null || workers === undefined) return null
+  if (workers.main === null) {
+    return {
+      kind: 'none',
+      title: 'No main chat yet',
+      text: 'The board shows the chats of this project: the main chat, which hands out the work, and its workers. It has found no main chat. To begin:',
+      steps: [
+        workers.project === '' ? ['In the Claude app, start a new chat in the project\'s folder.'] : ['In the Claude app, start a new chat in the folder ', { code: workers.project }, '.'],
+        ['Name it ', { code: workers.mainTitle }, ': the name the list of chats gives the main chat.'],
+        ['The board finds it within a minute and asks it for three workers.'],
+      ],
+      lines: [],
+      button: null,
+    }
+  }
+  const isAlone = workers.count === 0
+  const ask = workers.ask ?? null
+  const main = `the main chat, ${workers.mainTitle},`
+  const lines = (() => {
+    const done = ask === null || (ask.state === 'delivered' && !ask.isOpen && ask.arrived >= ask.count)
+    if (done) return [{ tone: '', text: isAlone ? `The board asks ${main} for three workers as soon as its chat is open.` : `Asks ${main} to start one more worker. Any worker takes any task.` }]
+    if (ask.state === 'expired' || ask.state === 'failed') return [{ tone: 'problem', text: `The ask of ${clock(ask.at)} did not reach the main chat: open its chat, then ask again.` }]
+    const asked = `${ask.why === 'button' ? 'You asked' : 'The board asked'} ${main} for ${workersWord(ask.count)} at ${clock(ask.at)}`
+    if (!ask.isOpen) return [{ tone: '', text: `${asked}; ${ask.arrived === 0 ? 'none has come' : `${ask.arrived} of ${ask.count} came`}.` }]
+    const first = { tone: 'asked', text: ask.arrived > 0 ? `${asked}: ${ask.arrived} of ${ask.count} ${ask.arrived === 1 ? 'has' : 'have'} come.` : `${asked}.` }
+    if (ask.state === 'waiting') return [first, { tone: 'note', text: 'It waits for the main chat to take it: its chat must be open.' }]
+    if (ask.state === 'taken') return [first, { tone: 'note', text: 'It is handed to the main chat.' }]
+    // Whether the main chat starts a chat itself or puts up a chip for the person to click, this stays true.
+    return [first, { tone: 'note', text: ask.count === 1
+      ? 'The main chat starts it. Where it puts a chip into its chat instead, click the chip.'
+      : 'The main chat starts them. Where it puts a chip into its chat for each worker instead, click each chip: one chip starts one worker. Each worker then shows here as a lane.' }]
+  })()
+  return {
+    kind: isAlone ? 'alone' : 'more',
+    title: isAlone ? 'No workers yet' : null,
+    text: null,
+    steps: [],
+    lines,
+    button: { label: isAlone ? 'Ask for three workers' : '+ One more worker', isDisabled: ask?.isOpen === true },
+  }
+}
+// workers:end
+
+/** B124: the row under the lanes (see `workersView`), or null. */
+function drawWorkers(state) {
+  const shown = workersView(state.workers, state.readAt)
+  if (shown === null) return null
+  const isRow = shown.kind === 'more'
+  const box = el(isRow ? 'div' : 'section', isRow ? 'lane-add' : 'empty-workers')
+  if (shown.title !== null) box.append(el('h3', '', shown.title))
+  if (shown.text !== null) box.append(el('p', '', shown.text))
+  if (shown.steps.length > 0) {
+    const list = el('ol')
+    for (const parts of shown.steps) {
+      const item = el('li')
+      item.append(...parts.map(part => (typeof part === 'string' ? part : el('code', '', part.code))))
+      list.append(item)
+    }
+    box.append(list)
+  }
+  const lines = el('div', 'workers-lines')
+  for (const line of shown.lines) lines.append(el('p', `workers-line${line.tone === '' ? '' : ` is-${line.tone}`}`, line.text))
+  if (problems.has('spawn')) lines.append(el('p', 'workers-line is-problem', problems.get('spawn')))
+  if (shown.button === null) {
+    box.append(lines)
+    return box
+  }
+  const button = el('button', 'spawn-button', shown.button.label)
+  button.type = 'button'
+  button.dataset.spawn = 'ask'
+  button.disabled = shown.button.isDisabled || sending.has('spawn')
+  button.title = 'The board asks the main chat; the main chat starts the worker.'
+  box.append(...(isRow ? [button, lines] : [lines, button]))
+  return box
+}
+
+/**
+ * The lanes, drawn anew, and under them the row about workers (B124). A step line that held the keyboard's focus
+ * holds it again, so its list of steps stays open.
+ */
 function drawLanes(state) {
   const focused = document.activeElement?.dataset?.stepsOf ?? null
-  fill($('lanes'), state.chats.map(lane => drawLane(lane, state)))
+  fill($('lanes'), [...state.chats.map(lane => drawLane(lane, state)), drawWorkers(state)].filter(part => part !== null))
   if (focused !== null) [...$('lanes').querySelectorAll('[data-steps-of]')].find(node => node.dataset.stepsOf === focused)?.focus()
 }
+
+// B124: one more worker, or three when there is none: the board asks the main chat, which starts them.
+$('lanes').addEventListener('click', event => {
+  const button = event.target.closest('[data-spawn]')
+  if (button === null || board === null || (board.workers?.main ?? null) === null) return
+  button.disabled = true
+  send({ to: board.workers.main, command: 'spawn' }, 'spawn')
+})
 
 // B100: a click on a lane that waits for the person opens what it waits for, with the form to answer it. The
 // queue and the unfolded details keep their own clicks.
