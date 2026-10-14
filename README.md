@@ -43,9 +43,9 @@ the briefings for the main chat and the workers.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `backlog.md`, `main-briefing.md` and `worker-briefing.md`; in the two briefings
    replace `<project>`, `<prefix>` and `<repository>`. → `<project>\.claude\chats\list.json` names your prefix.
-5. **The main chat.** Open a new chat in `<project>`, rename it to `<prefix>Main`, and send it: "Read
-   .claude\main-briefing.md and join the list of chats as the main chat." → `/workers` shows "Main" as the main
-   chat, and `%USERPROFILE%\.claude\projects\` has a folder for the project: its path with `:` and `\` as `-`
+5. **The main chat.** In the Claude app, start a new chat in the folder `<project>`, name it `<prefix>Main` (the
+   prefix and the main chat's name from `list.json`), and send it: "Read .claude\main-briefing.md and join the list
+   of chats as the main chat." → `/workers` shows "Main" as the main chat, and `%USERPROFILE%\.claude\projects\` has a folder for the project: its path with `:` and `\` as `-`
    (`C:\Work\my-project` becomes `C--Work-my-project`).
 6. **The board.** In `<project>`:
    ```
@@ -64,13 +64,15 @@ the briefings for the main chat and the workers.
 8. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
    <project>\.claude\launch.json`. With `"boards": ["worker-board"]` in `list.json`, every chat in the list starts
    the board when it does not answer, within 15 seconds: no need to start it yourself, also after a restart.
-9. **Open it.** Open `http://127.0.0.1:<your port>/` in a browser. → the lane "Main" comes first; "For you" holds B1
-   and B2 under "From the backlog"; Main's queue holds B4, waiting for B2.
+9. **Open it.** Open `http://127.0.0.1:<your port>/` in a browser. → the lane "Main" comes first, under it "No
+   workers yet" (step 11); "For you" holds B1 and B2 under "From the backlog"; Main's queue holds B4, waiting for B2.
+   Without a main chat the page says "No main chat yet" and how to make one, as step 5 does.
 10. **The way back.** Answer B2 on the board (a few lines, then send). → the card says "typed into its chat", and the
     main chat has your words with "(answered on the worker board, HH:MM)".
-11. **Workers.** Ask the main chat for a worker: it puts up a chip "<prefix>Worker 1" that you click, and the new
-    chat reads its briefing. → a lane "Worker 1" appears. (B124, being built: the board asks the main chat for three
-    workers when it has none, and for one more on a button.)
+11. **Workers.** With a main chat and no worker, the board asks the main chat for three workers by itself, once,
+    while the main chat's chat is open (it types "spawn workers" into it); "Ask for three workers" does the same.
+    The main chat starts them, or puts a chip "<prefix>Worker N" into its chat for each: click each chip, one chip
+    starts one worker. → each worker shows as a lane. "+ One more worker" under the last lane asks for one more.
 
 ## Daily use
 
@@ -162,7 +164,8 @@ project's backlog, part of B126 (the board for any project).
 9. Windows only as written: `%NAME%` in paths, the app's folders under `%APPDATA%\Claude`, backslashes in
    `src/appChats.mjs` (`folderKey`), `codex.exe` under `%LOCALAPPDATA%\OpenAI\Codex` (`src/codex.mjs`). B135
 10. No file says which Node is needed: there is no `package.json`. Tried with Node 24 only. B136
-11. For a project without chats, `list.json` or backlog the page shows 0 working, 0 waiting, 0 free and nothing
-    else: not which titles it looks for, nor where. B124 adds the word for a missing main chat. B137
+11. The page says what to do when it finds no main chat or no worker (B124), but nothing when `list.json` or the
+    backlog is missing, or when `transcripts` names the wrong folder: the trial's empty project showed 0 working,
+    0 waiting, 0 free and nothing else. B137
 12. `BRIEF.md` and `DESIGN.md` name that project's folders and chats throughout. B138
 13. The Workers mod is on one PC only, in no repository: step 2 copies its folder by hand. B125 works on it.
