@@ -205,5 +205,6 @@ project's backlog, part of B126 (the board for any project).
 10. Done (B136): `package.json` names Node 24 or newer, and the scripts `start`, `demo` and `test`.
 11. Done (B137): an empty board says under its lanes what it looks for and where: the list of chats, a chat of the
     project, the backlog. Still open: a `transcripts` setting that names the wrong folder is not pointed out.
-12. `BRIEF.md` and `DESIGN.md` name that project's folders and chats throughout. B138
+12. Done (B138): `BRIEF.md` and `DESIGN.md` are marked as the history of the first project and point to the general
+    documents (this README, `roles/`, `ANY-PROJECT-PLAN.md`, `MODS.md`).
 13. The Workers mod is on one PC only, in no repository: step 2 copies its folder by hand. B125 works on it.

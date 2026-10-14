@@ -1,5 +1,14 @@
 # Worker board: a crude first version
 
+> **History (B138).** This is the brief the board's very first version was built from, for its first project, a
+> game; its folders, chats and words are that project's, and much of it has changed since (see `DESIGN.md`). The
+> board as it is now, in general words:
+>
+> - How to set the board up and its settings: `README.md`.
+> - The jobs of the chats the board works with, and the words they share with it: `roles/` (`main.md`,
+>   `worker.md`, `advisor.md`, `protocol.md`).
+> - How the board was freed from its first project, and which mods it needs: `ANY-PROJECT-PLAN.md`, `MODS.md`.
+
 A brief for Codex. Build what is described here, in this folder, and nothing outside it.
 
 ## What this is for

@@ -2,10 +2,20 @@
 
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
-> settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on a new tie; the ties known
-> today are listed there, each with the part of `ANY-PROJECT-PLAN.md` that removes it, and that list only shrinks.
+> settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on any tie; its list of
+> known ties has been empty since B202 and stays empty.
 > The user, 2026-10-14: "first ensure that its clear to all future work that this is the constraint if i develop
 > something the worker board."
+
+**How to read this file (B138).** It is the history of the board's decisions, made while it was built for its
+first project, a game: the chat titles ("Game - Main", "Game - Board", ...), the folders (`C:\Web\...`,
+`art-inbox`) and the game's words in it are that project's. In another project read them as its main chat, its
+workers and its own folders. The board as it is now, in general words:
+
+- How to set the board up and its settings: `README.md`.
+- The jobs of the chats the board works with, and the words they share with it: `roles/` (`main.md`,
+  `worker.md`, `advisor.md`, `protocol.md`).
+- How the board was freed from its first project, and which mods it needs: `ANY-PROJECT-PLAN.md`, `MODS.md`.
 
 Approved by the person on 2026-10-12 ("agreed for the worker board design and plan"). Game - Support (named Game - Cleanup until that day) builds it.
 
