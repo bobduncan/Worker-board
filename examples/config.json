@@ -1,0 +1,9 @@
+{
+  "project": "C:\\Work\\my-project",
+  "gameRepo": "",
+  "appSessions": "%APPDATA%\\Claude\\claude-code-sessions",
+  "transcripts": "%USERPROFILE%\\.claude\\projects\\C--Work-my-project",
+  "port": 4310,
+  "refreshSeconds": 10,
+  "advisor": "Advisor"
+}
