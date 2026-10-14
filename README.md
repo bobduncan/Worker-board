@@ -198,9 +198,10 @@ project's backlog, part of B126 (the board for any project).
 7. Done (B133): the Design tab's kinds of idea and reference pictures are the project's own file (`designKinds`);
    without one the tab says what it needs. Its ideas live in `ideas` in the project's picture folder (B198).
 8. `transcripts` has to be looked up by hand (step 5); the board could work it out from `project`. B134
-9. Windows only as written: `%NAME%` in paths, the app's folders under `%APPDATA%\Claude` (for the Store app
-   only as the app's own programs see it; the real folder is in its package folder, step 7), backslashes in
-   `src/appChats.mjs` (`folderKey`), `codex.exe` under `%LOCALAPPDATA%\OpenAI\Codex` (`src/codex.mjs`). B135
+9. Done (B135, B214), not yet tried on a real Mac (B215): the app's folders are found per system (Windows, the
+   Store app, a Mac, Linux); folders are compared with "/" and their own letters on a Mac; Codex is found on the
+   PATH as well as under `%LOCALAPPDATA%\OpenAI\Codex`. On a Mac, use `/` in paths, `HOME` for the home folder and
+   `claude` from your shell for the mods; the steps above are written for Windows.
 10. Done (B136): `package.json` names Node 24 or newer, and the scripts `start`, `demo` and `test`.
 11. Done (B137): an empty board says under its lanes what it looks for and where: the list of chats, a chat of the
     project, the backlog. Still open: a `transcripts` setting that names the wrong folder is not pointed out.

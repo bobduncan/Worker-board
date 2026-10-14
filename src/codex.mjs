@@ -17,17 +17,26 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47])
  * Where Codex is: the path the settings give, else the newest `codex.exe` under the Codex app's folder (its name
  * changes with every update of the app). Null when there is none.
  */
-export async function findCodex({ given = '', env = process.env } = {}) {
+export async function findCodex({ given = '', env = process.env, platform = process.platform } = {}) {
   const isFile = async path => (await stat(path).then(found => found.isFile(), () => false))
   if (given !== '') return (await isFile(given)) ? given : null
-  const home = env.LOCALAPPDATA ?? env.LocalAppData
-  if (typeof home !== 'string' || home === '') return null
+  // B214: Codex as a program on the PATH, as it is installed on a Mac or Linux (and may be on Windows).
+  const onPath = async () => {
+    const byUpper = new Map(Object.entries(env).map(([name, value]) => [name.toUpperCase(), value]))
+    const folders = String(byUpper.get('PATH') ?? '').split(platform === 'win32' ? ';' : ':').filter(Boolean)
+    for (const folder of folders) {
+      for (const name of platform === 'win32' ? ['codex.exe', 'codex.cmd'] : ['codex']) if (await isFile(join(folder, name))) return join(folder, name)
+    }
+    return null
+  }
+  const home = platform === 'win32' ? env.LOCALAPPDATA ?? env.LocalAppData : null
+  if (typeof home !== 'string' || home === '') return onPath()
   const bin = join(home, 'OpenAI', 'Codex', 'bin')
   let folders
   try {
     folders = await readdir(bin)
   } catch {
-    return null
+    return onPath()
   }
   const found = []
   for (const folder of folders) {
@@ -35,7 +44,7 @@ export async function findCodex({ given = '', env = process.env } = {}) {
     const info = await stat(path).catch(() => null)
     if (info !== null && info.isFile()) found.push({ path, at: info.mtimeMs })
   }
-  return found.sort((a, b) => b.at - a.at)[0]?.path ?? null
+  return found.sort((a, b) => b.at - a.at)[0]?.path ?? onPath()
 }
 
 const lastLine = text => text.split('\n').map(line => line.trim()).filter(line => line !== '').pop() ?? ''

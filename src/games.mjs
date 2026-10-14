@@ -8,7 +8,10 @@ import { join } from 'node:path'
 const refuse = (status, why) => ({ ok: false, status, why })
 
 /** The same folder, however its path is written. */
-export const pathKey = path => String(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+/** B214: a path to compare: on Windows with "/" and in small letters; on a Mac and Linux as it is, without a last "/". */
+export const pathKey = (path, platform = process.platform) => (platform === 'win32'
+  ? String(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  : String(path).replace(/\/+$/, ''))
 
 /**
  * What the page asks for: start or stop the game of the branch a request is about, or of the base branch (`item: "main"`,

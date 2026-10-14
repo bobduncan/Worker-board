@@ -68,13 +68,18 @@ export function parseList(fileText) {
   return { prefix, main, problem: prefix === null || main === null ? 'incomplete' : null }
 }
 
-const folderKey = path => path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+/**
+ * A folder's path to compare: on Windows with "\" and in small letters, as the system treats them; on a Mac and Linux
+ * with "/" and its own letters (B214).
+ */
+export const folderKey = (path, platform = process.platform) => (platform === 'win32'
+  ? path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+  : path.replace(/\/+$/, ''))
 
-function isInside(cwd, project) {
+export function isInside(cwd, project, platform = process.platform) {
   if (cwd === null || project === '') return false
-  const inner = folderKey(cwd)
-  const outer = folderKey(project)
-  return inner === outer || inner.startsWith(`${outer}\\`)
+  const [inner, outer] = [folderKey(cwd, platform), folderKey(project, platform)]
+  return inner === outer || inner.startsWith(`${outer}${platform === 'win32' ? '\\' : '/'}`)
 }
 
 const newestFirst = (a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)
