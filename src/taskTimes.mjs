@@ -42,6 +42,8 @@ export function areaOf(body) {
 /** Whether an entry opens a turn: typed by the person, sent by another chat, or raised by the app. */
 function opensTurn(entry) {
   if (entry.type !== 'user' || hasToolResult(entry)) return false
+  // B247: a slash command opens none, also one a mod ran (the Workers mod's /compact after a report).
+  if (entry.isCompactSummary || isCommandText(textOf(entry))) return false
   if (entry.origin !== null) return true
   return !entry.isMeta && !entry.isCompactSummary && !isCommandText(textOf(entry))
 }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { demoSources } from '../fixtures/demo.mjs'
-import { answer, assistant, fromChat, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
+import { answer, assistant, fromChat, modCompaction, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { hourEnd, hourStart } from '../src/history.mjs'
 import { buildState, chatState } from '../src/state.mjs'
@@ -161,6 +161,26 @@ test('a request shows the answer that was sent for it, until it is delivered or 
 test('a running turn without a sign of life is raised for you, and cannot be answered on the board', () => {
   const state = build({ apps: [app('Units')], tails: { Units: tail(running, 14) } })
   assert.deepEqual(state.forYou.map(need => [need.id, need.kind, need.title, need.canAnswer]), [['quiet:Units', 'intervene', 'No sign of life for 14 min', false]])
+})
+
+test('B247: a worker a mod compacted after its report is free, not a turn without a sign of life', () => {
+  const card = JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW - 9 * MIN, compacted: { at: NOW - 8 * MIN, before: 349824, after: 0 } })
+  const state = build({ apps: [app('Units', summary('completed'))], tails: { Units: tail([...ended, ...modCompaction(NOW - 8 * MIN)], 8) }, plans: { Units: card } })
+  assert.equal(chatNamed(state, 'Units').state, 'free')
+  assert.equal(chatNamed(state, 'Units').isQuiet, false)
+  assert.deepEqual(state.forYou, [])
+})
+
+test('B247: a quiet chat whose step has no answer names that step, and that it may wait for your approval in its chat', () => {
+  const hung = [typed(NOW - 40 * MIN, 'Go'), assistant(NOW - 30 * MIN, 'tool_use', [tool('mcp__Claude_Browser__preview_start', { name: 'demo' })])]
+  const state = build({ apps: [app('Units')], tails: { Units: tail(hung, 30) } })
+  assert.deepEqual(chatNamed(state, 'Units').unanswered, { doing: 'Working in the browser', since: NOW - 30 * MIN })
+  const [need] = state.forYou
+  assert.equal(need.title, 'No sign of life for 30 min')
+  assert.equal(need.text, 'Its step "Working in the browser" has had no answer for 30 min. The app may wait for your approval of it in its chat, or the tool hangs. Look at its chat.')
+  // A running turn whose last step got its answer keeps the plain words.
+  assert.match(build({ apps: [app('Units')], tails: { Units: tail(running, 14) } }).forYou[0].text, /^Its turn is running, but it has written nothing\./)
+  assert.equal(chatNamed(build({ apps: [app('Units')], tails: { Units: tail(running, 14) } }), 'Units').unanswered, null)
 })
 
 test('a working chat with an estimate has a time it expects to be done, and its queue is planned after it', () => {

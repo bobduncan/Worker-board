@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { answer, assistant, fromChat, line, slashCommand, step, text, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
-import { conversation, doingNow, lastFinish, markedIn, parseTail, taskStart, turnStart, turnState } from '../src/transcript.mjs'
+import { answer, assistant, fromChat, line, modCompaction, slashCommand, step, text, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
+import { conversation, doingNow, lastFinish, markedIn, parseTail, taskStart, turnStart, turnState, unanswered } from '../src/transcript.mjs'
 
 const T = Date.UTC(2026, 9, 12, 8, 0)
 const min = n => T + n * 60_000
@@ -62,6 +62,10 @@ test('turnState: a turn running right after something was typed, or sent by anot
 
 test('turnState: a slash command after the end of a turn starts no turn', () => {
   assert.equal(turnState(entries([answer(min(0), 'Done'), ...slashCommand(min(5), '/reload-plugins')])), 'ended')
+})
+
+test('B247: turnState: a /compact a mod ran after the end of a turn starts no turn', () => {
+  assert.equal(turnState(entries([typed(min(0), 'Go'), answer(min(1), 'Done'), ...modCompaction(min(2))])), 'ended')
 })
 
 test('turnState: a turn the person interrupted has ended', () => {
@@ -217,6 +221,24 @@ test('turnStart: a turn the chat\'s own work started goes on with what the turn 
   // Slash commands and the app's notes do not open anything.
   const idle = turnStart(entries([typed(min(1), 'Build the board.'), answer(min(2), 'Done'), ...slashCommand(min(3), '/git')]), { prefix: 'Game - ' })
   assert.equal(idle.isOpen, false)
+  // B247: nor does a /compact a mod ran after the turn.
+  const compacted = turnStart(entries([typed(min(1), 'Build the board.'), answer(min(2), 'Done'), ...modCompaction(min(3))]), { prefix: 'Game - ' })
+  assert.equal(compacted.isOpen, false)
+})
+
+test('B247: unanswered: the oldest tool call of the running turn still without its answer, in plain words', () => {
+  const call = (minute, id, name, input = {}) => assistant(min(minute), 'tool_use', [{ type: 'tool_use', id, name, input }])
+  const result = (minute, id) => user(min(minute), [{ type: 'tool_result', tool_use_id: id, content: 'ok' }])
+  // Two calls at once: the first got its answer, the second never did.
+  const hung = [typed(min(0), 'Go'), call(1, 'a', 'Bash', { description: 'Add a launch entry' }), call(1, 'b', 'mcp__Claude_Browser__preview_start', { name: 'demo' }), result(2, 'a')]
+  assert.deepEqual(unanswered(entries(hung)), { doing: 'Working in the browser', since: min(1) })
+  assert.equal(unanswered(entries([...hung, result(30, 'b')])), null)
+  // A turn that ended has nothing open, whatever an earlier turn left.
+  assert.equal(unanswered(entries([...hung, answer(min(31), 'Stopped.')])), null)
+  assert.equal(unanswered(entries([typed(min(0), 'Go'), answer(min(1), 'Done')])), null)
+  // A helper's own calls are its own.
+  const helper = line({ type: 'assistant', isSidechain: true, timestamp: new Date(min(3)).toISOString(), message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'c', name: 'Read', input: {} }] } })
+  assert.equal(unanswered(entries([typed(min(0), 'Go'), helper])), null)
 })
 
 test('conversation: what was typed, the answers, and reports; tool calls and commands are left out', () => {

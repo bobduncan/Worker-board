@@ -586,11 +586,14 @@ function drawEta(lane, now) {
   return box
 }
 
+// alerts:start
 /** What is wrong with a lane, when something is: shown only then. */
 function alertsOf(lane, state) {
   const alerts = []
   const task = lane.task
-  if (lane.isQuiet) alerts.push(`no sign of life for ${span(lane.quietMs)}`)
+  // B247: a quiet lane that waits on one step without an answer may wait for the person's approval in its chat.
+  const waits = lane.unanswered ?? null
+  if (lane.isQuiet) alerts.push(waits === null ? `no sign of life for ${span(lane.quietMs)}` : `its step "${waits.doing}" has had no answer for ${span(state.readAt - waits.since)}: it may wait for your approval in its chat`)
   // B95: no worker works without a time; one that does is a fault to fix.
   if (lane.isWithoutTime === true) alerts.push('works without a time: its chat has to say how long it expects')
   if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
@@ -599,6 +602,7 @@ function alertsOf(lane, state) {
   }
   return alerts
 }
+// alerts:end
 
 function drawMore(lane, state) {
   const more = el('div', 'more')
@@ -2104,7 +2108,8 @@ const tokensOf = count => (Number.isFinite(count) ? (count >= 1000 ? `${Math.rou
 function compactionLine(compaction, clockOf) {
   if (compaction === null || compaction === undefined) return null
   if (compaction.kind === 'skipped') return { text: `not compacted at ${clockOf(compaction.at)}: ${compaction.why}`, isSkipped: true }
-  const [before, after] = [tokensOf(compaction.before), tokensOf(compaction.after)]
+  // B247: an after of 0 is not known yet (the mod writes it before the size is known): only the size before is said.
+  const [before, after] = [tokensOf(compaction.before), compaction.after > 0 ? tokensOf(compaction.after) : null]
   return { text: `compacted at ${clockOf(compaction.at)}${before === null ? '' : `, from ${before}${after === null ? '' : ` to ${after}`} tokens`}`, isSkipped: false }
 }
 
