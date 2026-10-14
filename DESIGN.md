@@ -16,6 +16,7 @@ workers and its own folders. The board as it is now, in general words:
 - The jobs of the chats the board works with, and the words they share with it: `roles/` (`main.md`,
   `worker.md`, `advisor.md`, `protocol.md`).
 - How the board was freed from its first project, and which mods it needs: `ANY-PROJECT-PLAN.md`, `MODS.md`.
+- What the board does and how it looks, to build it again: `BOARD.md` (B184).
 
 Approved by the person on 2026-10-12 ("agreed for the worker board design and plan"). Game - Support (named Game - Cleanup until that day) builds it.
 
