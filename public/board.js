@@ -2480,7 +2480,24 @@ document.addEventListener('click', event => {
   play(link.dataset.play, link.dataset.settings ?? '', { tab })
 })
 
-$('lightbox').addEventListener('click', () => $('lightbox').close())
+// B208: a phone is a screen up to 600 px wide, as the style sheet has it.
+const PHONE = matchMedia('(max-width: 600px)')
+
+$('lightbox').addEventListener('click', event => {
+  // B208: on a phone a tap on the picture keeps it open, to pinch and move it; a tap beside it closes it.
+  if (PHONE.matches && event.target === $('lightbox-picture')) return
+  $('lightbox').close()
+})
+
+// B208: on a phone an answer box grows as one types: the style sheet's field-sizing where the browser has it, else here.
+if (!CSS.supports('field-sizing', 'content')) {
+  document.addEventListener('input', event => {
+    const box = event.target
+    if (!PHONE.matches || !(box instanceof HTMLTextAreaElement)) return
+    box.style.height = 'auto'
+    box.style.height = `${Math.min(box.scrollHeight + 2, Math.round(window.innerHeight * 0.4))}px`
+  })
+}
 
 // Advice: headings, lists, tables and paragraphs of a plain markdown text
 

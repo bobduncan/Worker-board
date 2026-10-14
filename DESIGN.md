@@ -503,6 +503,12 @@ the timeline and folders". The tabs are a bar along the bottom with their short 
 state goes under its title, so the title keeps the width. The wide view is as before. The pictures:
 `art-inbox/worker-board/b207/`.
 
+**On a phone, piece 3: thumbs (B208).** Up to 600 px every button and field is at least 44 px high, an answer box
+grows as one types up to 40% of the screen (`field-sizing: content`, and the page's own code where a browser lacks
+it), and a picture opens the full width of the screen to pinch and move; a tap on the picture keeps it open, a tap
+beside it closes it. With this the three pieces the person chose (B199) are built; the way in from the phone (piece
+4) waits, until then Remote Control. The pictures: `art-inbox/worker-board/b208/`.
+
 ## What it is for
 
 The person runs one main chat and four worker chats on Lava Tactics and loses track of who does what. Their words:
