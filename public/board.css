@@ -926,3 +926,33 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
    estimates were off lately. */
 .finished-took { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .count-pill.is-estimates { border-color: #2a4a7d; color: #cfe0ff; font-weight: 600; cursor: help; }
+
+/* B206: the board on a phone, piece 1 of PHONE-PLAN.md: nothing cut off or scrolling sideways. The wide view is as it
+   was: the tabs' own box only counts from here on. */
+.tab-list { display: contents; }
+@media (max-width: 760px) {
+  .tabs { flex-wrap: wrap; gap: 2px 8px; padding: 6px 10px 0; }
+  .tab-list { display: flex; flex: 1 0 100%; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  .tab-list::-webkit-scrollbar { display: none; }
+  .tab { flex: none; padding: 8px 14px 10px; font-size: 14.5px; white-space: nowrap; }
+  .tabs .grow { display: none; }
+  .tabs .quiet-button { margin-right: 0; }
+  .tabs .version, .tabs .updated { font-size: 12.5px; }
+  .tabs .version { white-space: normal; }
+  .tabs > :not(.tab-list) { order: 1; margin-bottom: 6px; }
+  .tabs .tab-list { order: 0; }
+  .limits { flex-wrap: wrap; align-items: stretch; width: 100%; box-sizing: border-box; }
+  .limit, .limit.is-small { width: auto; flex: 1 1 130px; min-width: 0; }
+  .limit-top { white-space: normal; flex-wrap: wrap; }
+  .limit-age { flex-basis: 100%; }
+}
+@container (max-width: 600px) {
+  /* The time sat in the menu's narrow column under the menu: it gets the two columns beside the task. */
+  .workers-panel .lane-row { grid-template-columns: minmax(0, 1fr) 64px 36px; grid-template-areas: "who who menu" "what eta eta" "progress progress progress" "queue queue queue"; }
+}
+@media (max-width: 600px) {
+  /* A window fills the screen; its Send row stays at the bottom while its middle scrolls. */
+  .details { width: 100vw; max-width: 100vw; min-height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+  .details-foot { flex-wrap: wrap; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .details-head { padding: 16px 14px 12px 16px; }
+}
