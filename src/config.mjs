@@ -191,8 +191,8 @@ export async function firstStart(file, template) {
     throw error
   }
   return `The worker board made its settings file ${file} from ${template}. Fill in "project" (your project's folder), `
-    + '"transcripts" (the folder of its chats\' transcripts) and, once there is one, "gameRepo" (the folder of its code); '
-    + 'then start the board again.'
+    + '"name" (its name) and, once there is one, "gameRepo" (the folder of its code); the board finds the app\'s folders '
+    + 'and the chats\' transcripts by itself. Then start the board again.'
 }
 
 const isFolder = path => stat(path).then(info => info.isDirectory(), () => false)

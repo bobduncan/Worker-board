@@ -19,7 +19,7 @@ idea becomes a picture made by Codex, optional). `DESIGN.md` is the agreed desig
 |---|---|
 | Windows, the Claude desktop app, signed in | The board reads the app's list of chats and their transcripts on this PC. Not tried on a Mac. |
 | Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies; `package.json` names the Node it needs and the scripts `start`, `demo` and `test`); git gets it and lists the working folders. |
-| The Workers mod `folder-branches` | Keeps each chat's card (a chat without it can write its card itself, see `roles/worker.md`), types your answers from the board into the chats (without it the board copies them for you to paste, B212, and says under the lanes what it cannot tell, B213), and keeps the board running. |
+| The Workers mod `folder-branches` (optional, `MODS.md`) | Keeps each chat's card (a chat without it can write its card itself, see `roles/worker.md`), types your answers from the board into the chats (without it the board copies them for you to paste, B212, and says under the lanes what it cannot tell, B213), and keeps the board running. |
 | A project folder | Holds the code's repository and the board as folders of their own. Every chat of the project is opened in the project folder itself, not in a folder inside it: the app keeps the transcripts per folder. |
 | One main chat, titled `<prefix>Main` | It hands out the work, and the board types its words (restart, resume, start a chat) into it. |
 | `<project>\.claude\chats\list.json` | Names the prefix of the chats' titles and the main chat. |
@@ -37,7 +37,10 @@ the briefings for the main chat and the workers.
 "My Project - ". Each step ends with what you see when it worked.
 
 1. **Node.** Install Node 24 or newer. → `node --version` prints `v24` or higher.
-2. **The Workers mod.** It is on one PC only for now (see "Not yet portable"): copy the folder
+2. **The Workers mod (optional).** The board works without it (B209 to B213, `MODS.md`): start it with
+   `node start-board.mjs` (step 8), the chats keep their own cards (`roles\worker.md`), and you paste what the board
+   copies for you. With the mod the board types your answers in, wakes the chats and keeps the cards by itself.
+   To install it, copy the folder
    `C:\Users\<you>\.claude\mods` from that PC to the same place, with its `.claude-plugin\marketplace.json` and the
    folder `folder-branches`. The command `claude` comes with the app but is not on the PATH. In your own PowerShell,
    with the app from the Microsoft Store, it is
@@ -53,7 +56,8 @@ the briefings for the main chat and the workers.
    `/reload-plugins` does not do it. → a new chat has the command `/workers`.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `backlog.md`, `main-briefing.md` and `worker-briefing.md`; in the two briefings
-   replace `<project>`, `<prefix>` and `<repository>`. The two briefings hold only the project's own facts: the
+   replace `<project>`, `<prefix>` and `<repository>`. For the Design tab, also `design.json` into `.claude\`, with
+   the project's own kinds of idea. The two briefings hold only the project's own facts: the
    general jobs are `roles\main.md` and `roles\worker.md`, the words the board reads are in `roles\protocol.md`. → `<project>\.claude\chats\list.json` names your prefix.
 5. **The main chat.** In the Claude app, start a new chat in the folder `<project>`, name it `<prefix>Main` (the
    prefix and the main chat's name from `list.json`), and send it: "Read .claude\main-briefing.md and join the list

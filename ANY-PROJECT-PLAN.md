@@ -52,6 +52,13 @@ the guard `test/anyProject.test.mjs`, whose list of known ties each increment sh
    about 3 to 4 h), so it describes the general board.
 8. **The proof (about 1 h, new).** B123's trial again: a made-up empty project from the README alone, in a second
    folder, the board showing what it looks for, a chat joining. Closes **B126**, the umbrella.
+   Done (B216, 2026-10-14): a made-up project in a throwaway folder outside the first project, a fresh clone of the
+   board, the README and `roles/` only, no mod. The first start made the settings; with `name`, `project` and a port
+   filled in, `start-board.mjs` started it; the page showed the project's name, its main chat and a worker from
+   their own cards (topic, step, time), the queues from the backlog, the line about the missing mod, no game, and no
+   word of the first project. What it needed beyond the README was fixed there: the Workers mod optional in step 2,
+   the first start no longer asking for the folders the board finds itself, the template without them, and the
+   Design tab's kinds file in step 4. Left: a trial on a real Mac (B215) and the full description (B184).
 
 **In all:** about 18 to 20 h, and B184's 3 to 4 h. Without part 5 (the mods stay required): about 12 h.
 **Dropped:** none. **Replaced:** `examples/*-briefing.md` by part 4. **B126** stays the umbrella and closes with

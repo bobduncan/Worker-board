@@ -114,7 +114,7 @@ test('B127: a first start without a settings file makes it from the template, sa
   const [file, template] = [join(folder, 'config.json'), join(folder, 'template.json')]
   await writeFile(template, '{ "project": "C:/Work/my-project" }\n')
   const said = await firstStart(file, template)
-  assert.match(said, /made its settings file .*config\.json from .*template\.json\. Fill in "project" .*"transcripts" .*"gameRepo" .*then start the board again\./)
+  assert.match(said, /made its settings file .*config\.json from .*template\.json\. Fill in "project" .*"name" .*"gameRepo" .*finds the app's folders and the chats' transcripts by itself\. Then start the board again\./)
   assert.equal(await readFile(file, 'utf8'), '{ "project": "C:/Work/my-project" }\n')
   await writeFile(file, '{ "port": 4399 }')
   assert.equal(await firstStart(file, template), null)
