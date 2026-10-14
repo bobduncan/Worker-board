@@ -36,7 +36,7 @@ test('a date that does not say the step was finished is none', () => {
 
 // A report to the main chat
 
-test('a worker\'s report to the main chat names the steps it finished in its first line', () => {
+test('a worker\'s report to the main chat is about the first step its first line names', () => {
   const lines = [
     fromChat(at(14, 9, 40), 'Game - Board', 'Report from Game - Board: B142 is merged into the board\'s main and pushed.\nB140 is mentioned here only.'),
     fromChat(at(14, 9, 50), 'Game - Units', 'Note from Game - Units: B118 is half done.'),
@@ -48,8 +48,8 @@ test('a worker\'s report to the main chat names the steps it finished in its fir
     B142: { at: at(14, 9, 40), by: 'Board' },
     // The last report that names a step: the last of its parts.
     B148: { at: at(14, 10, 20), by: 'Board' },
-    B150: { at: at(14, 10, 5), by: 'Board' },
   })
+  // A step named after the first one is named in passing: B150 is not taken from that report.
 })
 
 // What the board saw

@@ -32,8 +32,9 @@ export function finishedMarks(lines, prefix = '') {
 }
 
 /**
- * The steps the workers' reports to the main chat name in their first line ("Report from Game - Board: B142 is
- * merged ..."), from the main chat's transcript: each step id with the last report that named it, `{ at, by }`.
+ * The steps the workers' reports to the main chat are about: the first step their first line names ("Report from
+ * Game - Board: B142 is merged ..."), from the main chat's transcript: each step id with the last report about it,
+ * `{ at, by }`.
  * A note or a question names no finished step.
  */
 export function reportsOf(entries, prefix = '') {
@@ -45,10 +46,12 @@ export function reportsOf(entries, prefix = '') {
     const sender = first.match(/^Report from ([^:]+):/)?.[1]?.trim()
     if (sender === undefined) continue
     const by = sender.startsWith(prefix) ? sender.slice(prefix.length).trim() : sender
-    for (const id of new Set(first.match(/\bB\d+\b/g) ?? [])) {
-      const before = reports.get(id)
-      if (before === undefined || entry.at >= before.at) reports.set(id, { at: entry.at, by })
-    }
+    // The step a report is about is the first it names; a later one in that line is named in passing ("as the yellow
+    // note (B142)"). Of several reports on one step, the last counts: the last of its parts.
+    const id = first.match(/\bB\d+\b/)?.[0]
+    if (id === undefined) continue
+    const before = reports.get(id)
+    if (before === undefined || entry.at >= before.at) reports.set(id, { at: entry.at, by })
   }
   return reports
 }
