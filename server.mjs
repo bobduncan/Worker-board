@@ -41,6 +41,7 @@ import { parseHistory } from './src/history.mjs'
 import { seenTicks } from './src/finished.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
+import { TALK_FOLDER, talkPictureName } from './src/talkPicture.mjs'
 import { settleByBoard } from './src/tick.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
@@ -139,12 +140,14 @@ export function pictureKind(bytes) {
  *   `typed(body)`      takes the mod's word on what it typed, the same shape; only with `bridgeKey`
  *   `design(body)`     the Design tab's calls (make a picture, change it, agree, ask for the step), the same shape
  *   `reference(bytes)` keeps a reference picture the person added to an idea, the same shape
+ *   `talkPicture(bytes)` keeps a picture the person pasted into Talk to Main (B167), the same shape
  */
 export function createBoard({
   token, getState, say, picture = async () => null, publicDir = join(HERE, 'public'),
   game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
 }) {
   async function handle(req, res) {
@@ -184,7 +187,7 @@ export function createBoard({
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
-    if (pathname === '/api/design/reference') {
+    if (pathname === '/api/design/reference' || pathname === '/api/talk/picture') {
       // A picture, not JSON: the token and the origin are what another website's page cannot bring.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isPicture = /^image\/(png|jpeg|webp)\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -195,7 +198,7 @@ export function createBoard({
       }
       const bytes = await readBytes(req, PICTURE_BYTES)
       if (bytes === null) return refuse(res, 413, 'A picture of at most 8 MB.')
-      const kept = await reference(bytes)
+      const kept = await (pathname === '/api/talk/picture' ? talkPicture : reference)(bytes)
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
@@ -544,12 +547,38 @@ async function main(args) {
       await writeFile(file, bytes)
       return { ok: true, result: { path } }
     },
+    // B167: a picture pasted into Talk to Main, under a plain name of the minute in the project's art-inbox; a
+    // second one in that minute gets the next number, and nothing is ever written over.
+    talkPicture: async bytes => {
+      if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it keeps no picture.' }
+      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Send it on the board that delivers: http://${HOST}:${homePort}/` }
+      if (config.project === '') return { ok: false, status: 409, why: 'This board knows no project folder to keep the picture in.' }
+      const kind = pictureKind(bytes)
+      if (kind === null) return { ok: false, status: 415, why: 'That is no PNG, JPEG or WebP picture.' }
+      const folder = inProject(config.project, TALK_FOLDER)
+      await mkdir(folder, { recursive: true })
+      const at = clock()
+      for (let count = 1; count <= 99; count += 1) {
+        const name = talkPictureName(at, kind, count)
+        try {
+          await writeFile(join(folder, name), bytes, { flag: 'wx' })
+          return { ok: true, result: { path: `${TALK_FOLDER}/${name}` } }
+        } catch (error) {
+          if (error.code !== 'EEXIST') throw error
+        }
+      }
+      return { ok: false, status: 409, why: 'Too many pictures in this minute: wait a minute.' }
+    },
     say: async body => {
       // What is answered here would never arrive: this board has no bridge.
       if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
       const state = await readState()
       const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
+      // B167: the picture is named to the main chat by where it is, so it has to be there.
+      if (typeof checked.message.picture === 'string' && !(await stat(inProject(config.project, checked.message.picture)).then(file => file.isFile(), () => false))) {
+        return { ok: false, status: 409, why: 'That picture is not there any more: paste it again.' }
+      }
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
       const ticked = await settle(message, state)
@@ -591,7 +620,7 @@ async function main(args) {
       const taken = await store.take(checked.chat, clock(), keep)
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
-      return { ok: true, result: { messages: taken.map(message => ({ id: message.id, text: messageText(message, timeOf) })) } }
+      return { ok: true, result: { messages: taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) })) } }
     },
     typed: async body => {
       const checked = checkTyped(body, await readState())

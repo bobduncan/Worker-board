@@ -4,6 +4,8 @@
 // (`POST /api/bridge/typed`). Taking marks a message taken before it is handed out, so nothing is ever typed
 // twice. Nothing can be sent through the bridge: sending needs the board's own page.
 
+import { pictureLine } from './talkPicture.mjs'
+
 const refuse = (status, why) => ({ ok: false, status, why })
 
 /**
@@ -35,11 +37,15 @@ export const bridgeNote = ({ port, key, at }) => JSON.stringify({ url: `http://1
 /**
  * The words that are typed into the chat for a message. An answer says which request it is about and what the
  * person decided, with the one thing the chat is to do with it; a line typed to the advisor arrives as it is.
- * Every one is marked as coming from the board, with the time it was given (`clock(at)`, as "16:02").
+ * Every one is marked as coming from the board, with the time it was given (`clock(at)`, as "16:02"). B167: a
+ * picture pasted with a line is named under its words by its full path (`where(path)`), so the chat can open it.
  */
-export function messageText(message, clock) {
+export function messageText(message, clock, where = path => path) {
   const words = (message.text ?? '').trim()
-  if ((message.ask ?? null) === null) return `${words}\n(typed on the worker board, ${clock(message.at)})`
+  if ((message.ask ?? null) === null) {
+    const picture = typeof message.picture === 'string' ? pictureLine(where(message.picture)) : null
+    return `${[words, picture].filter(part => part !== null && part !== '').join('\n')}\n(typed on the worker board, ${clock(message.at)})`
+  }
 
   const mark = `(answered on the worker board, ${clock(message.at)})`
   // A chat that simply waited asked in its own words: the answer needs no name.

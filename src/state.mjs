@@ -12,6 +12,7 @@ import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from
 import { mentionedPaths } from './pictures.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
+import { splitPicture } from './talkPicture.mjs'
 import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -642,8 +643,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       doingNow: lane?.doingNow ?? null,
       messages: said
         .filter(one => one.from === 'chat' || (one.from === 'you' && isPersons(one)))
-        .map(one => (one.via === 'board' ? { ...one, text: one.text.replace(TYPED_MARK, '').trim() } : one))
-        .filter(one => one.text !== '')
+        // B167: a picture pasted with a line is shown from the "Picture:" line the board typed under its words.
+        .map(one => (one.via === 'board' ? { ...one, ...splitPicture(one.text.replace(TYPED_MARK, '').trim()) } : one))
+        .filter(one => one.text !== '' || (one.picture ?? null) !== null)
         .slice(-TALK_MESSAGES),
       // Typed here and not in its chat yet: the person's own lines, not the board's words to it.
       pending: sent.filter(message => message.to === main.name && (message.ask ?? null) === null && (message.command ?? null) === null),

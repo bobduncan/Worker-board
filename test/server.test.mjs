@@ -44,6 +44,11 @@ async function board(t) {
       designed.push({ bytes: bytes.length })
       return { ok: true, result: { path: 'art-inbox/ideas/_references/0123456789abcdef.png' } }
     },
+    // B167: the real keeping is the server's own, by the bytes; this one stands in for it.
+    talkPicture: async bytes => {
+      designed.push({ talk: bytes.length })
+      return { ok: true, result: { path: 'art-inbox/talk/2026-10-14-1144.png' } }
+    },
     // The real check is tested in games.test.mjs.
     game: async body => {
       asked.push(body)
@@ -310,4 +315,20 @@ test('a reference picture is taken from the board\'s own page only, as a picture
   assert.equal(kept.status, 200)
   assert.deepEqual(JSON.parse(kept.text), { path: 'art-inbox/ideas/_references/0123456789abcdef.png' })
   assert.deepEqual(designed, [{ bytes: picture.length }])
+})
+
+test('B167: a picture pasted into Talk to Main is taken as a reference picture is: from the board\'s own page, as a picture, not a large one', async t => {
+  const { ask, good, designed } = await board(t)
+  const picture = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+  const send = (headers, body = picture) => ask({ method: 'POST', path: '/api/talk/picture', headers, body })
+  const asPicture = { ...good, 'Content-Type': 'image/png' }
+  assert.equal((await send({ 'Content-Type': 'image/png' })).status, 403)
+  assert.equal((await send({ ...asPicture, Origin: 'http://evil.example' })).status, 403)
+  assert.equal((await send({ ...asPicture, 'Content-Type': 'text/plain' })).status, 415)
+  assert.equal((await ask({ path: '/api/talk/picture', headers: asPicture })).status, 405)
+  assert.equal((await send(asPicture, Buffer.alloc(8 * 1024 * 1024 + 1))).status, 413)
+  assert.equal(designed.length, 0)
+  const kept = await send(asPicture)
+  assert.deepEqual([kept.status, JSON.parse(kept.text)], [200, { path: 'art-inbox/talk/2026-10-14-1144.png' }])
+  assert.deepEqual(designed, [{ talk: picture.length }])
 })
