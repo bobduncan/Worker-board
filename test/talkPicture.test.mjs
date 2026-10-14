@@ -3,6 +3,9 @@
 // picture again. Made-up samples only.
 
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import { answer, user } from '../fixtures/lines.mjs'
@@ -10,7 +13,7 @@ import { messageText } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { checkSay } from '../src/say.mjs'
 import { buildState } from '../src/state.mjs'
-import { TALK_PICTURE, splitPicture, talkPictureName } from '../src/talkPicture.mjs'
+import { TALK_PICTURE, keepTalkPicture, splitPicture, talkPictureName } from '../src/talkPicture.mjs'
 
 const MIN = 60_000
 const NOW = Date.UTC(2026, 9, 14, 10, 30)
@@ -26,6 +29,17 @@ test('a pasted picture is kept under a plain name of the day and the minute, a s
   for (const path of ['art-inbox/talk/../x.png', 'art-inbox/ideas/2026-10-14-1144.png', 'art-inbox/talk/mine.png', 'art-inbox/talk/2026-10-14-1144.gif', `C:/${PATH}`, `/${PATH}`]) {
     assert.ok(!TALK_PICTURE.test(path), path)
   }
+})
+
+test('the board keeps the picture in the project\'s art-inbox/talk, and never writes over one kept in the same minute', async t => {
+  const project = await mkdtemp(join(tmpdir(), 'worker-board-talk-'))
+  t.after(() => rm(project, { recursive: true, force: true }))
+  const at = new Date(2026, 9, 14, 11, 44).getTime()
+  assert.equal(await keepTalkPicture(project, Buffer.from('first'), 'png', at), PATH)
+  assert.equal(await keepTalkPicture(project, Buffer.from('second'), 'png', at + 20_000), 'art-inbox/talk/2026-10-14-1144-2.png')
+  const folder = join(project, 'art-inbox', 'talk')
+  assert.deepEqual((await readdir(folder)).sort(), ['2026-10-14-1144-2.png', '2026-10-14-1144.png'])
+  assert.equal(await readFile(join(folder, '2026-10-14-1144.png'), 'utf8'), 'first')
 })
 
 const state = {

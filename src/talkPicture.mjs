@@ -2,6 +2,9 @@
 // for the talk, under a plain name of the day and the minute. The line typed into the main chat's chat names its
 // full path, so the main chat can open it; the talk on the board shows the picture again from that line.
 
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
 export const TALK_FOLDER = 'art-inbox/talk'
 
 /** The one kind of path the page may send with a message: a picture the board kept in the talk's folder. */
@@ -13,6 +16,26 @@ export function talkPictureName(at, kind, count = 1) {
   const two = number => String(number).padStart(2, '0')
   const minute = `${day.getFullYear()}-${two(day.getMonth() + 1)}-${two(day.getDate())}-${two(day.getHours())}${two(day.getMinutes())}`
   return `${minute}${count > 1 ? `-${count}` : ''}.${kind}`
+}
+
+/**
+ * Keeps `bytes`, a picture of `kind` ("png"), in the talk's folder of the `project` under the first free name of the
+ * minute `at`: a second picture in that minute gets the next number, and nothing is ever written over. Answers its
+ * path ("art-inbox/talk/2026-10-14-1144.png"), or null when the minute is full.
+ */
+export async function keepTalkPicture(project, bytes, kind, at) {
+  const folder = join(project, ...TALK_FOLDER.split('/'))
+  await mkdir(folder, { recursive: true })
+  for (let count = 1; count <= 99; count += 1) {
+    const name = talkPictureName(at, kind, count)
+    try {
+      await writeFile(join(folder, name), bytes, { flag: 'wx' })
+      return `${TALK_FOLDER}/${name}`
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+    }
+  }
+  return null
 }
 
 /** The line under the words that tells the main chat where the picture is. */

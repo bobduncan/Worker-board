@@ -41,7 +41,7 @@ import { parseHistory } from './src/history.mjs'
 import { seenTicks } from './src/finished.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
-import { TALK_FOLDER, talkPictureName } from './src/talkPicture.mjs'
+import { keepTalkPicture } from './src/talkPicture.mjs'
 import { settleByBoard } from './src/tick.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
@@ -547,27 +547,15 @@ async function main(args) {
       await writeFile(file, bytes)
       return { ok: true, result: { path } }
     },
-    // B167: a picture pasted into Talk to Main, under a plain name of the minute in the project's art-inbox; a
-    // second one in that minute gets the next number, and nothing is ever written over.
+    // B167: a picture pasted into Talk to Main, kept in the project's art-inbox (see keepTalkPicture).
     talkPicture: async bytes => {
       if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it keeps no picture.' }
       if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Send it on the board that delivers: http://${HOST}:${homePort}/` }
       if (config.project === '') return { ok: false, status: 409, why: 'This board knows no project folder to keep the picture in.' }
       const kind = pictureKind(bytes)
       if (kind === null) return { ok: false, status: 415, why: 'That is no PNG, JPEG or WebP picture.' }
-      const folder = inProject(config.project, TALK_FOLDER)
-      await mkdir(folder, { recursive: true })
-      const at = clock()
-      for (let count = 1; count <= 99; count += 1) {
-        const name = talkPictureName(at, kind, count)
-        try {
-          await writeFile(join(folder, name), bytes, { flag: 'wx' })
-          return { ok: true, result: { path: `${TALK_FOLDER}/${name}` } }
-        } catch (error) {
-          if (error.code !== 'EEXIST') throw error
-        }
-      }
-      return { ok: false, status: 409, why: 'Too many pictures in this minute: wait a minute.' }
+      const path = await keepTalkPicture(config.project, bytes, kind, clock())
+      return path === null ? { ok: false, status: 409, why: 'Too many pictures in this minute: wait a minute.' } : { ok: true, result: { path } }
     },
     say: async body => {
       // What is answered here would never arrive: this board has no bridge.

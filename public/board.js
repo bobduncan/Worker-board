@@ -2615,6 +2615,24 @@ function mainTalkView(talk) {
         : { text: `${talk.name} is online`, tone: 'on' }
   return { title: `Talk to ${talk.name}`, tab: `Talk to ${talk.name}`, status }
 }
+
+// B167: a picture from the clipboard goes with the words. The person, 2026-10-14: "i need a change so that i can post
+// pictures in the 'talk to main' chat in the worker board, from my clipboard".
+const TALK_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+const TALK_BYTES = 8 * 1024 * 1024
+
+/**
+ * What Ctrl+V in Talk to Main takes from the clipboard's `items`: its picture (`take`), or a short line why nothing
+ * was taken (`problem`). Words stay words (`ignore`): text copied from a document often brings a picture of itself.
+ */
+function pastedTalk(items) {
+  const all = Array.from(items ?? [])
+  if (all.some(item => item?.type === 'text/plain')) return { ignore: true }
+  const files = all.filter(item => item?.kind === 'file')
+  const picture = files.find(item => typeof item.type === 'string' && item.type.startsWith('image/'))
+  if (picture !== undefined) return TALK_TYPES.includes(picture.type) ? { take: picture } : { problem: 'Only a PNG, JPEG or WebP picture can be pasted here.' }
+  return { problem: files.length > 0 ? 'That is no picture: only a picture or words can be pasted here.' : 'The clipboard holds no picture.' }
+}
 // talkmain:end
 
 /** B161: an answer drawn in its parts (see `talkParts`). */
@@ -2633,7 +2651,7 @@ function drawTalkText(node, text) {
 }
 
 /** B161: one message of the talk: who and when above, the words under it. */
-function drawTalkMessage({ key, from, who, at, text, note = null, isPending = false }) {
+function drawTalkMessage({ key, from, who, at, text, picture: shown = null, note = null, isPending = false }) {
   const row = el('div', `talk-message is-${from}${isPending ? ' is-pending' : ''}`)
   const head = el('div', 'talk-head')
   const sign = el('span', `talk-avatar is-${from}`)
@@ -2647,6 +2665,12 @@ function drawTalkMessage({ key, from, who, at, text, note = null, isPending = fa
     if (openBubbles.has(key)) bubble.classList.add('is-open')
   }
   drawTalkText(bubble, text)
+  // B167: a picture pasted with it, small; a click opens it large.
+  if (shown !== null) {
+    const frame = picture(shown)
+    frame.classList.add('talk-picture')
+    bubble.append(frame)
+  }
   if (note !== null) bubble.append(el('small', '', note))
   row.append(head, bubble)
   return row
@@ -2664,8 +2688,8 @@ function drawMainTalk(state) {
   $('main-send').disabled = talk === null || sending.has('main-talk')
   $('main-text').maxLength = state.maxMessageChars
   const note = $('main-note')
-  note.classList.toggle('is-error', problems.has('main-talk'))
-  note.textContent = problems.get('main-talk') ?? 'What you send is typed into the main chat\'s chat as your own words, once it is idle.'
+  note.classList.toggle('is-error', problems.has('main-talk') || talkPasteProblem !== null)
+  note.textContent = problems.get('main-talk') ?? talkPasteProblem ?? 'What you send is typed into the main chat\'s chat as your own words, once it is idle.'
 
   const box = $('main-messages')
   const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60
@@ -2675,11 +2699,12 @@ function drawMainTalk(state) {
     who: message.from === 'you' ? 'You' : talk.name,
     at: message.at,
     text: message.text,
+    picture: message.picture ?? null,
     note: message.via === 'board' ? 'typed on the board' : null,
   }))
   for (const typed of talk?.pending ?? []) {
     const waits = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle' }[typed.state] ?? 'waits for its chat to take it'
-    rows.push(drawTalkMessage({ key: `main-out:${typed.id}`, from: 'you', who: 'You', at: typed.at, text: typed.text, note: waits, isPending: true }))
+    rows.push(drawTalkMessage({ key: `main-out:${typed.id}`, from: 'you', who: 'You', at: typed.at, text: typed.text, picture: typed.picture ?? null, note: waits, isPending: true }))
   }
   if (rows.length === 0) rows.push(el('p', 'empty', talk === null ? 'No main chat is open.' : 'Nothing said here yet. Tell the main chat what to do next.'))
   const top = box.scrollTop
@@ -2711,13 +2736,83 @@ try {
   // Without storage the right side opens on "For you".
 }
 
+// B167: the picture pasted for the next message, shown small above the words until it is sent or taken away. The
+// board keeps it only once it is sent; what it answered is remembered, so a second try does not keep it twice.
+let talkPicture = null
+let talkPasteProblem = null
+
+function setTalkPicture(file) {
+  if (talkPicture !== null) URL.revokeObjectURL(talkPicture.url)
+  talkPicture = file === null ? null : { file, url: URL.createObjectURL(file), path: null }
+  const box = $('main-picture')
+  box.hidden = talkPicture === null
+  if (talkPicture === null) return box.replaceChildren()
+  const image = el('img')
+  image.src = talkPicture.url
+  image.alt = 'The picture to send'
+  const remove = el('button', 'main-picture-remove', '×')
+  remove.type = 'button'
+  remove.title = 'Take the picture away'
+  remove.setAttribute('aria-label', 'Take the picture away')
+  box.replaceChildren(image, remove)
+}
+
+/** The board keeps the picture and answers its path; null, with the reason shown, when it did not. */
+async function keepTalkPicture() {
+  if (talkPicture.path !== null) return talkPicture.path
+  try {
+    const got = await fetch('/api/talk/picture', { method: 'POST', headers: { 'Content-Type': talkPicture.file.type, 'X-Board-Token': TOKEN }, body: talkPicture.file })
+    if (got.ok) return (talkPicture.path = (await got.json()).path)
+    problems.set('main-talk', `Not sent: the picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}`)
+  } catch {
+    problems.set('main-talk', 'Not sent: the board\'s server does not answer')
+  }
+  return null
+}
+
 $('main-say').addEventListener('submit', async event => {
   event.preventDefault()
   const text = $('main-text').value.trim()
-  if (text === '' || (board?.mainTalk ?? null) === null) return
+  if ((text === '' && talkPicture === null) || (board?.mainTalk ?? null) === null || sending.has('main-talk')) return
   $('main-send').disabled = true
-  await send({ to: board.mainTalk.name, text }, 'main-talk')
-  if (!problems.has('main-talk')) $('main-text').value = ''
+  talkPasteProblem = null
+  problems.delete('main-talk')
+  sending.add('main-talk')
+  const picture = talkPicture === null ? null : await keepTalkPicture()
+  sending.delete('main-talk')
+  if (talkPicture === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk')
+  if (!problems.has('main-talk')) {
+    $('main-text').value = ''
+    setTalkPicture(null)
+  }
+  if (board !== null) drawMainTalk(board)
+})
+
+// Ctrl+V in the talk: a picture on the clipboard is shown small, to send with the words; anything else that is no
+// picture gets a short line. Words are pasted as words.
+$('main-say').addEventListener('paste', event => {
+  const pasted = pastedTalk(event.clipboardData?.items)
+  if (pasted.ignore === true) return
+  event.preventDefault()
+  const file = pasted.take?.getAsFile() ?? null
+  talkPasteProblem = file === null ? pasted.problem ?? 'The clipboard holds no picture.'
+    : file.size > TALK_BYTES ? `That picture is too large: ${TALK_BYTES / (1024 * 1024)} MB at most.` : null
+  if (talkPasteProblem === null) {
+    problems.delete('main-talk')
+    setTalkPicture(file)
+  }
+  if (board !== null) drawMainTalk(board)
+})
+
+$('main-picture').addEventListener('click', event => {
+  if (event.target.closest('.main-picture-remove') === null) return
+  setTalkPicture(null)
+  $('main-text').focus()
+})
+
+$('main-text').addEventListener('input', () => {
+  if (talkPasteProblem === null) return
+  talkPasteProblem = null
   if (board !== null) drawMainTalk(board)
 })
 
@@ -2730,7 +2825,7 @@ $('main-text').addEventListener('keydown', event => {
 
 $('main-messages').addEventListener('click', event => {
   const bubble = event.target.closest('.bubble[data-key]')
-  if (bubble === null || window.getSelection().toString() !== '') return
+  if (bubble === null || window.getSelection().toString() !== '' || event.target.closest('[data-zoom]') !== null) return
   if (bubble.classList.toggle('is-open')) openBubbles.add(bubble.dataset.key)
   else openBubbles.delete(bubble.dataset.key)
 })

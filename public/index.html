@@ -75,7 +75,10 @@
         </header>
         <div class="messages main-messages" id="main-messages"></div>
         <form class="say main-say" id="main-say">
-          <textarea id="main-text" rows="2" placeholder="Tell the main chat what to do next…" maxlength="2000" aria-label="Message to the main chat"></textarea>
+          <div class="main-compose">
+            <div class="main-picture" id="main-picture" hidden></div>
+            <textarea id="main-text" rows="2" placeholder="Tell the main chat what to do next… Ctrl+V adds a picture." maxlength="2000" aria-label="Message to the main chat"></textarea>
+          </div>
           <button type="submit" id="main-send">Send to Main</button>
         </form>
         <p class="muted say-note" id="main-note"></p>
