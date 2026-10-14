@@ -64,9 +64,20 @@ test('parseAppChat has no summary when the app wrote none', () => {
   assert.equal(parseAppChat(JSON.stringify({ title: 'Game - Main', cliSessionId: 'abc' })).summary, null)
 })
 
-test('parseList reads the prefix and the main chat, and has defaults', () => {
-  assert.deepEqual(parseList('{"prefix":"Team - ","main":"Lead"}'), { prefix: 'Team - ', main: 'Lead' })
-  assert.deepEqual(parseList('nope'), { prefix: 'Game - ', main: 'Main' })
+test('parseList reads the prefix and the main chat; B131: it guesses nothing when the list is missing or wrong', () => {
+  assert.deepEqual(parseList('{"prefix":"Team - ","main":"Lead"}'), { prefix: 'Team - ', main: 'Lead', problem: null })
+  assert.deepEqual(parseList('\uFEFF{"prefix":"Team - ","main":"Lead"}').problem, null)
+  assert.deepEqual(parseList(''), { prefix: null, main: null, problem: 'missing' })
+  assert.deepEqual(parseList(null), { prefix: null, main: null, problem: 'missing' })
+  assert.deepEqual(parseList('nope'), { prefix: null, main: null, problem: 'broken' })
+  assert.deepEqual(parseList('{"prefix":"Team - "}'), { prefix: 'Team - ', main: null, problem: 'incomplete' })
+  assert.deepEqual(parseList('{"prefix":"","main":"Lead"}'), { prefix: null, main: 'Lead', problem: 'incomplete' })
+})
+
+test('B131: without a prefix from the list of chats, no chat is the project\'s', () => {
+  const chat = { title: 'Team - Lead', sessionId: 'a', cliSessionId: 'c', cwd: 'C:\\p', isArchived: false, createdAt: 1, lastActivityAt: 2, completedTurns: 0, summary: null }
+  assert.deepEqual(boardChats([chat], { project: 'C:\\p', prefix: null, main: null }), [])
+  assert.equal(boardChats([chat], { project: 'C:\\p', prefix: 'Team - ', main: 'Lead' }).length, 1)
 })
 
 test('boardChats keeps the open chats of the project with the prefix, the main chat first', () => {

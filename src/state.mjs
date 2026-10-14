@@ -1,6 +1,8 @@
 // Puts the sources together into the one object the page asks for. Everything here is a pure function of the
 // texts that were read: a source that is missing or broken gives "unknown" or an empty list, never an error.
 
+import { join } from 'node:path'
+
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue } from './backlog.mjs'
@@ -489,10 +491,28 @@ function aheadOf(lane, now) {
  * `outbox` what was sent from the page and is not delivered yet (see store.mjs, `outboxNow`), and `runs` the
  * games the board started and that still run (see games.mjs).
  */
+/**
+ * B131, B137: what the board looks for and where, for each thing it did not find: the list of chats, a chat of the
+ * project, the backlog. Empty when nothing is missing. The paths come from the settings.
+ */
+export function lookingFor({ list, prefix, config, chats, hasBacklog }) {
+  const listFile = join(config.project, '.claude', 'chats', 'list.json')
+  const lines = []
+  if (config.project === '') lines.push('The settings name no "project": the board looks for everything in that folder.')
+  else if (list.problem === 'missing') lines.push(`No list of chats: the board looks for ${listFile}. Copy examples/list.json there and set "prefix" (how the project's chat titles start) and "main" (the main chat's name).`)
+  else if (list.problem === 'broken') lines.push(`The list of chats ${listFile} is not valid JSON.`)
+  else if (list.problem === 'incomplete') lines.push(`The list of chats ${listFile} needs a "prefix" and a "main".`)
+  else if (chats === 0) lines.push(`No chat of this project yet: the board shows the open chats in ${config.project} whose titles start with "${prefix}".`)
+  if (config.project !== '' && !hasBacklog) lines.push(`No backlog yet: the board reads ${join(config.project, ...config.backlog.split('/'))}.`)
+  return lines
+}
+
 export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, now, config }) {
   const sent = Array.isArray(outbox) ? outbox : []
   const started = Array.isArray(runs) ? runs : []
   const list = parseList(textOr(raw.listText, ''))
+  // The start of the project's chat titles, for reading their words; '' while the list of chats is not right.
+  const prefix = list.prefix ?? ''
   const apps = (Array.isArray(raw.appChatTexts) ? raw.appChatTexts : [])
     .map(text => parseAppChat(textOr(text, '')))
     .filter(chat => chat !== null)
@@ -508,16 +528,16 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // What the history last said about each chat, also from before the board was last off.
   const last = new Map(lines.filter(line => line.gap !== true).map(line => [line.chat, line]))
   const context = {
-    now, config, last, lines, prefix: list.prefix,
+    now, config, last, lines, prefix,
     // How a message from the main chat is known: by its title, or by the app's id for it.
-    main: { mainTitle: `${list.prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
+    main: { mainTitle: list.main === null ? null : `${prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
   }
   // The advisor is talked with on its own tab. Every other chat is a lane, however many there are.
   const isAdvisor = chat => !chat.isLeftover && !chat.isMain && chat.name === config.advisor
   const advisorChat = found.find(isAdvisor)
   const names = found.filter(chat => !isAdvisor(chat) && !chat.isLeftover).map(chat => chat.name)
 
-  const backlog = parseBacklog(textOr(raw.backlogText, ''), { prefix: list.prefix, names })
+  const backlog = parseBacklog(textOr(raw.backlogText, ''), { prefix, names })
   const folders = Array.isArray(raw.folders) ? raw.folders : null
   // The step a worker is on: the open one that names its own branch and this worker; of several, the one whose
   // branch a working folder holds.
@@ -635,7 +655,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       doingNow: doing,
       messages: tail === null || typeof tail.text !== 'string'
         ? []
-        : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix: list.prefix, titles })
+        : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix, titles })
           // B173: a round the board's clock typed is the clock's, not the person's.
           .filter(message => !(message.from === 'you' && isClockLine(message.text))),
       // Typed on the board to the advisor and not in its chat yet.
@@ -651,7 +671,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   if (main !== undefined && !main.isLeftover) {
     const lane = cards.find(one => one.isMain) ?? null
     const tail = raw.tails?.[main.cliSessionId] ?? null
-    const said = tail === null || typeof tail.text !== 'string' ? [] : conversation(parseTail(tail.text, tail.isCut === true), { self: main.name, prefix: list.prefix, titles, limit: 400 })
+    const said = tail === null || typeof tail.text !== 'string' ? [] : conversation(parseTail(tail.text, tail.isCut === true), { self: main.name, prefix, titles, limit: 400 })
     const isPersons = one => one.via !== 'board' || (TYPED_MARK.test(one.text) && !BOARD_WORDS.test(one.text))
     mainTalk = {
       name: main.name,
@@ -756,7 +776,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     maxMessageChars: config.maxMessageChars,
     counts,
     // B155: the steps finished last, newest first, with when (and from where the board knows it) and who.
-    finished: finishedList(backlog, { reports: read.find(one => one.isMain)?.reports ?? new Map(), seen: finishedSeen ?? {}, prefix: list.prefix }),
+    finished: finishedList(backlog, { reports: read.find(one => one.isMain)?.reports ?? new Map(), seen: finishedSeen ?? {}, prefix }),
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
     chats: lanes.map(lane => ({
@@ -806,6 +826,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         main: main === undefined ? null : main.name,
         mainTitle: context.main.mainTitle,
         project: config.project,
+        // B131, B137: what an empty board looks for and where, when it finds it missing.
+        lookFor: lookingFor({ list, prefix, config, chats: found.filter(chat => !chat.isLeftover).length, hasBacklog: typeof raw.backlogText === 'string' }),
         count: workerChats.length,
         ask: spawnAsk(sent.findLast(message => message.command === 'spawn'), workerChats, now),
       }

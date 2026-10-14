@@ -174,8 +174,8 @@ project's backlog, part of B126 (the board for any project).
 3. The page's title is "Lava Tactics" (`public/index.html`, line 26), also in the demo. B129
 4. "Game - Main" stands in fixed words: `public/index.html` line 18, `public/board.js` line 561, `src/design.mjs`
    line 111. B130
-5. Without `list.json` the board looks for chats titled "Game - " and a main chat "Main" (`src/appChats.mjs`,
-   line 55), and says nothing. B131
+5. Done (B131): without a right `list.json` the board guesses no prefix and no main chat; it shows no chats and
+   says which file it looks for.
 6. The game is built in: the key `gameRepo`, a "Run game" button that is always there, `run-game.mjs`, which runs
    only a folder with its own Vite, and the branch name `main` (`src/folders.mjs`, line 49). With `gameRepo` empty,
    git answers for the folder the board was started from: in the trial the head showed the board's own commit as
@@ -187,8 +187,7 @@ project's backlog, part of B126 (the board for any project).
    only as the app's own programs see it; the real folder is in its package folder, step 7), backslashes in
    `src/appChats.mjs` (`folderKey`), `codex.exe` under `%LOCALAPPDATA%\OpenAI\Codex` (`src/codex.mjs`). B135
 10. Done (B136): `package.json` names Node 24 or newer, and the scripts `start`, `demo` and `test`.
-11. The page says what to do when it finds no main chat or no worker (B124), but nothing when `list.json` or the
-    backlog is missing, or when `transcripts` names the wrong folder: the trial's empty project showed 0 working,
-    0 waiting, 0 free and nothing else. B137
+11. Done (B137): an empty board says under its lanes what it looks for and where: the list of chats, a chat of the
+    project, the backlog. Still open: a `transcripts` setting that names the wrong folder is not pointed out.
 12. `BRIEF.md` and `DESIGN.md` name that project's folders and chats throughout. B138
 13. The Workers mod is on one PC only, in no repository: step 2 copies its folder by hand. B125 works on it.

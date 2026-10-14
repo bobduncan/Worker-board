@@ -92,3 +92,14 @@ test('a board whose server says nothing about workers draws nothing there', () =
 test('the page has the look for the row under the lanes and for the empty board', () => {
   for (const rule of ['.lane-add', '.empty-workers', '.empty-workers code', '.workers-line.is-asked', '.workers-line.is-problem']) assert.ok(style.includes(rule), rule)
 })
+
+test('B131, B137: without a list of chats the row says what the board looks for, and gives no main chat\'s name to use', () => {
+  const missing = view({ main: null, mainTitle: null, project: 'C:\p', count: 0, ask: null, lookFor: ['No list of chats: the board looks for C:\p\.claude\chats\list.json.'] })
+  assert.equal(missing.kind, 'none')
+  assert.match(missing.text, /It has not found what it looks for yet:$/)
+  assert.deepEqual(missing.steps, [])
+  assert.deepEqual(missing.lines, [{ tone: 'problem', text: 'No list of chats: the board looks for C:\p\.claude\chats\list.json.' }])
+  // With lanes, a missing backlog is said above the row's own lines.
+  const lanes = view({ main: 'Lead', mainTitle: 'Team - Lead', project: 'C:\p', count: 2, ask: null, lookFor: ['No backlog yet: the board reads C:\p\.claude\backlog.md.'] })
+  assert.equal(lanes.lines[0].text, 'No backlog yet: the board reads C:\p\.claude\backlog.md.')
+})
