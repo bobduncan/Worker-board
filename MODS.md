@@ -55,6 +55,10 @@ typing for them.
 
 ## The order, one piece at a time
 
+**The user's choice (B205, 2026-10-14):** "make the board work without the workers mod and drop backlog mode from teh
+setup. keep the runs mod for now." So pieces 1 and 3 to 6 are done; piece 2 is not, and the Run mod stays in the
+setup for now.
+
 Each piece is merged on its own and changes nothing for a PC that has the mods.
 
 1. **The Backlog mod out of the setup** (about 15 minutes): the job texts carry its note; the README says it is
