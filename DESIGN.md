@@ -158,6 +158,10 @@ Since B179 the tab opens as one list unless this browser turned the checkbox off
 away and back with a click on its head (a button that says whether the list is open), also kept in this browser.
 The person, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
 default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.jpg`.
+Since B180 the search and the two checkboxes are one group at the end of the head, after the longer "Needs your
+attention" filter: at the board's usual width (1280 px and wider) the head is one line; narrower, the group moves to
+the next line whole, the two checkboxes side by side, never one alone. A step's state stays on one line. The picture:
+`art-inbox/worker-board/2026-10-14-b180-backlog-head.png`.
 
 **The Workers panel (B159).** After the picture the person agreed on the Design tab
 (`art-inbox/ideas/any-improvement-to-this/v2.png`; their words: "Any improvement to this to make it nicer. dont change
