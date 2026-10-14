@@ -21,6 +21,8 @@ const CUT_OFF_MS = 150_000
 const SEEN_MS = 30_000
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
+/** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
+const SPAWN_OPEN_MS = 15 * MIN
 
 /**
  * True when the app was closed in the middle of a chat's turn. The transcript still shows the turn as open, but the
@@ -252,6 +254,19 @@ function heldUntil(paused, limits, now) {
   // A window of five hours that began after the pause: the limit came back in between.
   if (held.limit === 'fiveHour' && limit.resetsAt - FIVE_HOURS > held.since) return { ...held, until: null, isBack: true }
   return { ...held, until: limit.resetsAt, isBack: false }
+}
+
+/**
+ * B124: the newest ask for workers and how it fares: how many of the workers it asked for have come (chats made
+ * after it), and whether it is still open: on its way, or arrived and not all come yet, for 15 minutes at most.
+ */
+function spawnAsk(message, workerChats, now) {
+  if (message === undefined) return null
+  const count = Number.isInteger(message.count) && message.count > 0 ? message.count : 1
+  const arrived = workerChats.filter(chat => Number.isFinite(chat.createdAt) && chat.createdAt > message.at).length
+  const isOnItsWay = message.state === 'waiting' || message.state === 'taken'
+  const isOpen = isOnItsWay || (message.state === 'delivered' && arrived < count && now - (message.deliveredAt ?? message.at) < SPAWN_OPEN_MS)
+  return { at: message.at, count, why: message.why === 'button' ? 'button' : 'alone', state: message.state, arrived, isOpen }
 }
 
 /** How long the card of a chat's question stays after its answer was typed in. The page hides it sooner. */
@@ -648,6 +663,18 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     today: today(lines.map(line => (line.source === 'prompt' || line.source === 'handover' ? { ...line, task: null } : line)), { from, to: now, names })
       .map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
     restart,
+    // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many
+    // workers there are, and the newest ask for workers.
+    workers: (() => {
+      const workerChats = found.filter(chat => !chat.isLeftover && !chat.isMain && !isAdvisor(chat))
+      return {
+        main: main === undefined ? null : main.name,
+        mainTitle: context.main.mainTitle,
+        project: config.project,
+        count: workerChats.length,
+        ask: spawnAsk(sent.findLast(message => message.command === 'spawn'), workerChats, now),
+      }
+    })(),
     advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name) },
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
     // When the advice was written: the page says how old it is.
