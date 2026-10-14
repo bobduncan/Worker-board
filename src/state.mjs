@@ -31,7 +31,7 @@ const SEEN_MS = 30_000
 const TYPED_MARK = /\n?\(typed on the worker board, \d{1,2}:\d{2}\)\s*$/
 const TALK_MESSAGES = 40
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step)\b/
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -40,6 +40,8 @@ const SPAWN_OPEN_MS = 15 * MIN
 const REMOVE_OPEN_MS = 15 * MIN
 /** B181: an ask to queue a step that arrived stays open this long while the step still names no worker. */
 const QUEUE_OPEN_MS = HOUR
+/** B233: an ask to refine a step that arrived stays open this long while the step lacks that round. */
+const REFINE_OPEN_MS = 30 * MIN
 /** B152: a removed worker's lane stays this long after its card said it left, saying so. */
 const REMOVED_SHOW_MS = 2 * MIN
 
@@ -360,6 +362,19 @@ function removalAsk(message, now, openMs = REMOVE_OPEN_MS) {
  */
 const queueAsk = (step, sent, now) => (step.status !== 'open' || step.id === null ? null
   : removalAsk(sent.findLast(message => message.command === 'queue' && message.about === step.id), now, QUEUE_OPEN_MS))
+
+/**
+ * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
+ * step's refine block shows the round it asked for, for half an hour at most.
+ */
+function refineAsk(step, sent, now) {
+  if (step.id === null) return null
+  const message = sent.findLast(one => one.command === 'refine' && one.about === step.id)
+  const ask = removalAsk(message, now, REFINE_OPEN_MS)
+  if (ask === null) return null
+  const round = Number.isInteger(message.round) ? message.round : 1
+  return { ...ask, round, isOpen: ask.isOpen && (step.refined?.round ?? 0) < round }
+}
 
 /** How long the card of a chat's question stays after its answer was typed in. The page hides it sooner. */
 const ANSWER_KEPT_MS = 10 * MIN
@@ -816,6 +831,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         needId: step.status !== 'you' ? null : step.id === null ? stepId(`${activity.name}\n${step.text}`) : `backlog:${step.id}`,
         // B181: whether the main chat was asked to hand it out, for a step nobody has.
         queueAsk: queueAsk(step, sent, now),
+        // B233: whether the Advisor was asked to refine it and has not written that round yet.
+        refineAsk: refineAsk(step, sent, now),
       })),
     })),
     // The open steps in the backlog that end in @you.

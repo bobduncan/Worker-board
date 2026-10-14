@@ -2381,10 +2381,12 @@ function drawDetails(state) {
   const step = subject.step ?? (need === null ? lane.queue[place] : null)
   const now = state.readAt
   // Drawn again only when what it shows has changed, so reading and typing in it are left alone.
-  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null])
+  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
+  // B233: the Refine field the person is typing in, to give its focus back after the window is drawn anew.
+  const typing = box.contains(document.activeElement) ? document.activeElement.dataset?.refineField ?? null : null
   const scroll = box.querySelector('.details-body')?.scrollTop ?? 0
 
   // The head: what it is and whose it is. Nothing about a queue: the window is about the step itself.
@@ -2411,6 +2413,9 @@ function drawDetails(state) {
   // has them on the right.
   if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section('Description', described))
   else if (!view.hasNotes) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
+  // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback.
+  const refine = subject.step !== undefined ? refinePart(subject.step, state) : null
+  if (refine !== null) left.append(refine)
   left.append(...notes.named)
   if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
   const shown = need === null ? step.pictures.map(path => ({ path, caption: '' })) : [
@@ -2459,6 +2464,9 @@ function drawDetails(state) {
   // B83: a step in a worker's queue can move to another worker, or out of the queue.
   const change = need === null && subject.step === undefined && lane !== null && lane !== undefined ? queueChangePart(lane, step, state) : null
   if (change !== null) foot.append(change)
+  // B233: Refine, and Accept as refined.
+  const refineFoot = subject.step !== undefined ? refineButtons(subject.step, state) : null
+  if (refineFoot !== null) foot.append(refineFoot)
   // B221: a step of the Backlog tab can be closed or deleted from its window.
   const edit = subject.step !== undefined ? editPart(subject.step, true) : null
   if (edit !== null) foot.append(edit)
@@ -2469,6 +2477,11 @@ function drawDetails(state) {
   keepUnfolded(box, () => fill(box, foot.children.length === 0 ? [head, body] : [head, body, foot]))
   body.scrollTop = scroll
   refocus(box, focused)
+  const field = typing === null ? null : [...box.querySelectorAll('[data-refine-field]')].find(one => one.dataset.refineField === typing)
+  if (field) {
+    field.focus()
+    field.setSelectionRange(field.value.length, field.value.length)
+  }
 }
 
 function listOf(lines) {
@@ -3810,6 +3823,145 @@ async function editStepClick(button) {
   if (problem !== null) problems.set(key, `Not done: ${problem}`)
   await read()
 }
+
+// refine:start
+/**
+ * B233: what the Refine part of a step's window shows, worked out without the page. The person, 2026-10-14: "the goal
+ * is to let AI clarify what the orginal problem is that we try to solve, if any, or what the goal is. Ask any
+ * questions needed before we start picking it up. the UI must facilitate me being able to provide feedback to the AI
+ * refining it. this information is stored inside the backlog item so it's not lost." `advisor` is the Advisor's
+ * name, or null when the board has none. Null for a step that cannot be refined (no id, or finished).
+ */
+function refineView(step, advisor) {
+  if (typeof step.id !== 'string' || step.status === 'done') return null
+  const refined = step.refined ?? null
+  const ask = step.refineAsk?.isOpen === true ? step.refineAsk : null
+  const meta = refined === null ? '' : [`round ${refined.round}`, refined.by === null ? null : `by ${refined.by}`, refined.at].filter(Boolean).join(' · ')
+  return {
+    refined,
+    meta,
+    isAccepted: refined?.accepted != null,
+    open: refined === null ? 0 : refined.questions.filter(one => one.answer === null).length,
+    // While the Advisor works on it, nothing more is sent.
+    working: ask === null ? null : { at: ask.at, round: ask.round, isDelivered: ask.state === 'delivered' },
+    canAsk: advisor !== null && ask === null,
+    why: advisor === null ? 'The board has no Advisor to refine it.' : null,
+  }
+}
+// refine:end
+
+/** B233: the Refine part of a step's window, left under its description; null when the step cannot be refined. */
+function refinePart(step, state) {
+  const advisor = state.advisor?.name ?? null
+  const view = refineView(step, advisor)
+  if (view === null) return null
+  const box = el('section', 'details-part refine')
+  const heading = el('h3', '', 'Refined')
+  if (view.refined === null) {
+    box.append(heading)
+    heading.textContent = 'Refine'
+    box.append(el('p', 'muted', `Not refined yet. ${advisor ?? 'The Advisor'} says the problem this step solves, or its goal, and asks what it needs to know before it is picked up. Your answers and feedback are kept under the step.`))
+  } else {
+    heading.append(el('small', '', `${view.meta}${view.isAccepted ? ' · accepted' : ''}`))
+    box.append(heading)
+    const { refined } = view
+    if (refined.problem !== '') box.append(el('span', 'refine-tag', 'Problem'), el('p', '', refined.problem))
+    if (refined.goal !== '') box.append(el('span', 'refine-tag', 'Goal'), el('p', '', refined.goal))
+    refined.questions.forEach((one, index) => {
+      const part = el('div', 'refine-question')
+      part.append(el('span', 'refine-tag', `Question ${index + 1}`), el('p', '', one.text))
+      if (one.answer !== null) part.append(el('p', 'refine-answer', `Your answer: ${one.answer}`))
+      const field = el('textarea', 'refine-field')
+      field.rows = 1
+      field.dataset.refineField = `${step.id}:${index}`
+      field.placeholder = one.answer === null ? 'Your answer…' : 'Change your answer…'
+      field.value = drafts.get(`refine:${step.id}:${index}`) ?? ''
+      field.setAttribute('aria-label', `Answer to question ${index + 1}`)
+      part.append(field)
+      box.append(part)
+    })
+    if (refined.feedback.length > 0) {
+      box.append(el('span', 'refine-tag', 'Your feedback so far'), listOf(refined.feedback))
+    }
+    const feedback = el('textarea', 'refine-field')
+    feedback.rows = 2
+    feedback.dataset.refineField = `${step.id}:feedback`
+    feedback.placeholder = 'Feedback: anything the Advisor got wrong or missed…'
+    feedback.value = drafts.get(`refine:${step.id}:feedback`) ?? ''
+    feedback.setAttribute('aria-label', 'Feedback to the Advisor')
+    box.append(el('span', 'refine-tag', 'Feedback'), feedback)
+  }
+  if (view.working !== null) {
+    box.append(el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'} (round ${view.working.round}). It shows here once written.`))
+  }
+  return box
+}
+
+/** B233: the buttons of the Refine part, in the window's foot: refine (again, with the answers), and accept. */
+function refineButtons(step, state) {
+  const view = refineView(step, state.advisor?.name ?? null)
+  if (view === null) return null
+  const key = `refine:${step.id}`
+  const line = el('div', 'refine-line')
+  const ask = el('button', `refine-button${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Sending…' : view.refined === null ? 'Refine' : 'Send answers · refine again')
+  ask.type = 'button'
+  ask.dataset.refineStep = step.id
+  ask.dataset.refineAction = 'ask'
+  ask.disabled = sending.has(key) || !view.canAsk
+  ask.title = view.why ?? (view.working !== null ? 'The Advisor is on it' : 'Your answers and feedback are written under the step, then the Advisor refines it again')
+  line.append(ask)
+  if (view.refined !== null && !view.isAccepted) {
+    const accept = el('button', 'refine-accept', 'Accept as refined')
+    accept.type = 'button'
+    accept.dataset.refineStep = step.id
+    accept.dataset.refineAction = 'accept'
+    accept.disabled = sending.has(key) || view.working !== null
+    accept.title = view.open > 0 ? `${view.open} question${view.open === 1 ? ' is' : 's are'} still open` : 'Mark it as refined: ready to be picked up'
+    line.append(accept)
+  }
+  if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
+  return line
+}
+
+/**
+ * B233: the click on "Refine" (or "Send answers · refine again"): the answers and feedback typed are written under
+ * the step first, then the Advisor is asked; "Accept as refined" only marks the block.
+ */
+async function refineClick(button) {
+  const step = (board?.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === button.dataset.refineStep)
+  const advisor = board?.advisor?.name ?? null
+  if (step === undefined) return
+  const key = `refine:${step.id}`
+  const fields = [...drafts.keys()].filter(name => name.startsWith(`${key}:`))
+  const answers = fields.filter(name => /:\d+$/.test(name)).map(name => ({ index: Number(name.split(':').pop()), answer: drafts.get(name) })).filter(one => one.answer.trim() !== '')
+  const feedback = drafts.get(`${key}:feedback`) ?? ''
+  sending.add(key)
+  problems.delete(key)
+  redrawNeeds()
+  let problem = null
+  if (button.dataset.refineAction === 'accept') {
+    problem = await sendBacklog({ action: 'refine-accept', step: step.id })
+  } else {
+    if (answers.length > 0 || feedback.trim() !== '') problem = await sendBacklog({ action: 'refine-answer', step: step.id, answers, feedback })
+    if (problem === null) {
+      for (const name of fields) drafts.delete(name)
+      sending.delete(key)
+      return send({ to: advisor, command: 'refine', step: step.id }, key)
+    }
+  }
+  sending.delete(key)
+  if (problem !== null) problems.set(key, `Not done: ${problem}`)
+  await read()
+}
+
+$('details').addEventListener('click', event => {
+  const button = event.target.closest('[data-refine-step]')
+  if (button !== null && !button.disabled) refineClick(button)
+})
+$('details').addEventListener('input', event => {
+  const name = event.target.dataset?.refineField
+  if (name !== undefined) drafts.set(`refine:${name}`, event.target.value)
+})
 
 /** B181: the click on "Add to queue", in a row of the Backlog tab or in a step's window. */
 function askQueue(button) {

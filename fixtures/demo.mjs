@@ -67,7 +67,13 @@ const BACKLOG = `# Backlog
 - [ ] Enemy abilities (for Units; after the pathfinding choice; about 30 min)
 - [ ] Enemy attack patterns (for Units; about 1 h)
 - [ ] Main menu (for Features; after save / load merges; about 1 h)
-- [ ] Settings screen (for Features; about 45 min)
+- [ ] B12 Settings screen (for Features; about 45 min)
+  Refined (round 1, by Advisor, 2026-10-14 18:52):
+  Problem: Players cannot turn the music down or change the keys, so some stop playing.
+  Goal: One screen for sound, keys and display, reachable from the menu and the pause screen.
+  Questions:
+  - Should the keys be changeable, or only shown? Answer: changeable
+  - Does it save per player, or once for the computer?
 - [ ] Controller support (for Features; about 2 h)
 - [ ] Remove unused assets (for Cleanup; about 20 min)
 - [ ] Lava biome (for Levels / Environment; about 1 h 30 min)

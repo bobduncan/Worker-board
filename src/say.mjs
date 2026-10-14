@@ -89,6 +89,27 @@ const queueWords = (to, step) => ({
 })
 
 /**
+ * B233: the word that asks the Advisor to refine a step of the backlog: say the problem the step solves or its goal,
+ * and ask what it needs to know, as the step's refine block (roles/advisor.md, "Refine a step"). `round` is the round
+ * it writes; from round 2 on, the person's answers and feedback stand in the block already.
+ */
+const refineWords = (to, step, round) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'refine', about: step.id, round,
+  text: `refine step\nStep: ${stepLine(step)}\nRound: ${round}${round === 1 ? '' : '\nThe answers and feedback are written in the step\'s refine block.'}`,
+})
+
+/** B233: the Advisor refines a step that is not finished; one ask at a time per step. */
+function refineCheck(body, state) {
+  const advisor = state.advisor?.name ?? null
+  if (advisor === null || body.to !== advisor) return refuse(400, 'A step is refined by the Advisor.')
+  if ((body.text ?? '') !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+  const step = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).find(one => typeof one.id === 'string' && one.id === body.step)
+  if (step === undefined || step.status === 'done') return refuse(409, 'That step is not on the backlog, or it is finished.')
+  if (step.refineAsk?.isOpen === true) return refuse(409, 'The Advisor is refining this step already.')
+  return { ok: true, message: refineWords(body.to, step, (step.refined?.round ?? 0) + 1) }
+}
+
+/**
  * B195: the person's answer to the Advisor's recommendation on the way to the next milestone. Yes goes to the main
  * chat, which puts the step on the backlog when it is not there and hands it out; no goes to the Advisor with the
  * person's reason. What was recommended is read from the board's own state: the page sends the answer and a reason.
@@ -138,9 +159,11 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'move', 'unqueue'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'move', 'unqueue', 'refine'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
+    // B233: the one command that goes to the Advisor only.
+    if (body.command === 'refine') return refineCheck(body, state)
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
     // B181: a step of the backlog for the queue: one with an id that nobody has (not queued, not in progress, not
@@ -264,8 +287,9 @@ const WAKE_PENDING_MS = 10 * 60_000
  */
 export function wakeFor(message, state, outbox, now, maxChars) {
   const main = state.restart?.main ?? null
-  // B195: of the commands, only the answer to the Advisor's recommendation goes to another chat than the main one.
-  if (main === null || message.to === main || ((message.command ?? null) !== null && message.command !== 'recommend')) return null
+  // B195, B233: of the commands, only the answer to the Advisor's recommendation and a refine go to another chat than
+  // the main one.
+  if (main === null || message.to === main || ((message.command ?? null) !== null && message.command !== 'recommend' && message.command !== 'refine')) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

@@ -853,6 +853,21 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .step-queue-line .step-queue { padding: 6px 14px; font-size: 14px; }
 .step-queue-line .problem { flex-basis: 100%; margin: 0; }
 .details-foot .step-queue.is-asked { display: block; white-space: normal; padding: 6px 12px; font-size: 14px; }
+/* B233: the Refine part of a step's window (the person's choice A of 2026-10-14): the Advisor's problem, goal and
+   questions as one block under the description, a box per question and one for feedback; its buttons in the foot. */
+.details-part.refine { border: 1px solid #2c4a7a; background: #0f1d33; border-radius: 10px; padding: 12px 14px; }
+.refine-tag { display: block; margin-top: 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #7fb0ff; }
+.refine-question { border-top: 1px solid var(--line); margin-top: 8px; }
+.refine-answer { color: var(--working) !important; }
+.refine-field { display: block; width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid #2a3850; border-radius: 6px; background: #0a111c; color: var(--text); font: inherit; resize: vertical; }
+.refine-field:focus { outline: 2px solid var(--free); outline-offset: 0; }
+.refine-working { margin-top: 10px; color: var(--waiting) !important; }
+.refine-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
+.refine-button, .refine-accept { padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--inset); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.refine-button { background: #1d4fd8; border-color: #1d4fd8; color: #fff; }
+.refine-button.is-error { background: var(--panel); border-color: var(--warn); color: var(--warn); }
+.refine-button:disabled, .refine-accept:disabled { opacity: .55; cursor: default; }
+.refine-line .problem { flex-basis: 100%; margin: 0; }
 @media (max-width: 900px) {
   .step-row { grid-template-columns: 46px minmax(0, 1fr) 150px; }
   .step-kind, .step-worker, .step-branch, .step-actions { display: none; }

@@ -7,7 +7,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 
-import { parseBacklog } from './backlog.mjs'
+import { parseBacklog, refinedSpan } from './backlog.mjs'
 
 const STEP = /^- \[( |x|X)\]\s+(B\d+)\b/
 const NOTE_CHARS = 400
@@ -61,6 +61,90 @@ export function deleteStep(text, id) {
 }
 
 const pad = value => String(value).padStart(2, '0')
+
+// refinewrite:start
+/** One line of the person's words, as it stands in the backlog: no line ends, at most `max` characters. */
+const oneLine = (words, max) => String(words ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
+
+/**
+ * B233: the step `id`'s refine block in the backlog's lines: where its head stands and the lines of its parts, as
+ * indexes of `lines`; or why not: `gone`, `twice`, or `none` (the step has no refine block yet).
+ */
+function refineBlock(lines, id) {
+  const found = lines.map((line, index) => ({ index, step: line.match(STEP) })).filter(one => one.step !== null && one.step[2] === id)
+  if (found.length === 0) return { ok: false, why: 'gone' }
+  if (found.length > 1) return { ok: false, why: 'twice' }
+  let last = found[0].index
+  while (last + 1 < lines.length && /^[ \t]+\S/.test(lines[last + 1])) last += 1
+  const under = lines.slice(found[0].index + 1, last + 1).map(line => line.replace(/\r?\n$/, ''))
+  const span = refinedSpan(under)
+  if (span === null) return { ok: false, why: 'none' }
+  const first = found[0].index + 1
+  const block = { head: first + span[0], end: first + span[1], questions: [], feedback: null, isDone: found[0].step[1] !== ' ' }
+  let part = null
+  for (let index = block.head + 1; index < block.end; index += 1) {
+    const line = lines[index].trim()
+    const named = line.match(/^(Problem|Goal|Questions|Feedback):/)
+    if (named !== null) {
+      part = named[1]
+      if (part === 'Feedback') block.feedback = index
+      continue
+    }
+    // Counted as `refinedOf` counts them: "None: ..." is no question.
+    if (part === 'Questions' && /^[-*]\s+/.test(line) && !/^[-*]\s+None\b/i.test(line)) block.questions.push(index)
+    if (part === 'Feedback') block.feedback = index
+  }
+  return { ok: true, block }
+}
+
+/**
+ * B233: the backlog's text with the person's answers to a step's refine questions and their feedback written into
+ * its refine block. `answers` are `{ index, answer }` (the question's place in the block, from 0); an answer that is
+ * there already is replaced. The feedback becomes the point "Round <the block's round>: ..." under "Feedback:", which is added
+ * at the block's end when it is not there. Every other character stays as it is.
+ */
+export function answerRefine(text, id, answers, feedback) {
+  const lines = linesOf(text)
+  const found = refineBlock(lines, id)
+  if (!found.ok) return found
+  const { block } = found
+  const round = Number(lines[block.head].match(/\bround\s+(\d+)/i)?.[1] ?? 1)
+  const out = [...lines]
+  const indent = lines[block.head].match(/^[ \t]*/)[0]
+  for (const { index, answer } of answers) {
+    const at = block.questions[index]
+    if (at === undefined) return { ok: false, why: 'question' }
+    const end = endOf(lines[at])
+    const question = lines[at].slice(0, lines[at].length - end.length).replace(/\s+Answer:\s.*$/, '').replace(/\s+$/, '')
+    out[at] = `${question} Answer: ${answer}${end}`
+  }
+  if (feedback !== '') {
+    const newline = text.includes('\r\n') ? '\r\n' : '\n'
+    const add = block.feedback === null ? [`${indent}Feedback:`, `${indent}- Round ${round}: ${feedback}`] : [`${indent}- Round ${round}: ${feedback}`]
+    const after = block.feedback ?? block.end - 1
+    // A file whose last line has no line end keeps none.
+    if (endOf(out[after]) === '') out[after] = `${out[after]}${newline}${add.join(newline)}`
+    else out.splice(after + 1, 0, ...add.map(line => `${line}${endOf(out[after])}`))
+  }
+  return { ok: true, text: out.join('') }
+}
+
+/** B233: the backlog's text with the step's refine block marked accepted ("accepted <when>" in its head's brackets). */
+export function acceptRefine(text, id, when) {
+  const lines = linesOf(text)
+  const found = refineBlock(lines, id)
+  if (!found.ok) return found
+  const at = found.block.head
+  const end = endOf(lines[at])
+  const head = lines[at].slice(0, lines[at].length - end.length)
+  const bracket = head.match(REFINED_HEAD_RAW)
+  const inside = bracket[2] === undefined ? '' : bracket[2].replace(/;\s*accepted\b[^;]*/i, '').trim()
+  const out = [...lines]
+  out[at] = `${bracket[1]}Refined (${inside === '' ? '' : `${inside}; `}accepted ${when}):${end}`
+  return { ok: true, text: out.join('') }
+}
+const REFINED_HEAD_RAW = /^([ \t]*)Refined\s*(?:\(([^)]*)\))?\s*:\s*$/
+// refinewrite:end
 
 /**
  * The line written under a step the person approved, or marked done (`verdict`): when, and their note when they
@@ -147,6 +231,8 @@ async function rewrite(file, change, fs) {
 
 const STEP_ID = /^B\d+$/
 const EDIT_WHY = {
+  none: [409, 'That step has not been refined yet.'],
+  question: [409, 'The questions changed in the meantime: open the step again.'],
   gone: [404, 'That step is no longer on the backlog.'],
   ticked: [409, 'That step is closed already.'],
   twice: [409, 'Two steps have that number: change the backlog by hand.'],
@@ -161,15 +247,52 @@ const EDIT_WHY = {
  * before the person confirms: the board does not refuse it. Answers `{ ok: true, result }` or `{ ok: false, status, why }`.
  */
 export async function editStep(body, { canWrite, file, now, fs = files }) {
-  if (canWrite !== true) return { ok: false, status: 409, why: 'This board only shows: close or delete on the board that delivers.' }
+  if (canWrite !== true) return { ok: false, status: 409, why: 'This board only shows: change the backlog on the board that delivers.' }
   const step = typeof body?.step === 'string' ? body.step : ''
   if (!STEP_ID.test(step)) return { ok: false, status: 400, why: 'Name the step by its number (B12).' }
   const action = body?.action
+  if (action === 'refine-answer' || action === 'refine-accept') return refineStep(body, step, { file, now, fs })
   if (action !== 'close' && action !== 'delete') return { ok: false, status: 400, why: 'Close or delete.' }
   const done = action === 'close'
     ? await writeTick(file, step, approvalLine(now, body?.reason ?? '', 'close'), fs)
     : await rewrite(file, before => deleteStep(before, step), fs)
   if (done.ok) return { ok: true, result: { step, action } }
+  const [status, why] = EDIT_WHY[done.why] ?? EDIT_WHY.write
+  return { ok: false, status, why }
+}
+
+/** B233: at most this many characters per answer, and for the feedback. */
+export const REFINE_CHARS = 1000
+
+/**
+ * B233: the person's answers and feedback on a step's refine block (`refine-answer`: `answers` as `[{ index, answer
+ * }]`, `feedback`), or their "accepted" (`refine-accept`), written into the block under the step. Empty answers are
+ * left out; one answer or the feedback is needed.
+ */
+async function refineStep(body, step, { file, now, fs }) {
+  let change
+  if (body.action === 'refine-accept') {
+    const at = new Date(now)
+    const when = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+    change = before => acceptRefine(before, step, when)
+  } else {
+    if (!Array.isArray(body.answers) || body.answers.length > 20) return { ok: false, status: 400, why: 'No answers.' }
+    const answers = []
+    for (const one of body.answers) {
+      if (!Number.isInteger(one?.index) || one.index < 0 || typeof one.answer !== 'string') return { ok: false, status: 400, why: 'An answer names its question by its place.' }
+      if (one.answer.length > REFINE_CHARS) return { ok: false, status: 413, why: `At most ${REFINE_CHARS} characters per answer.` }
+      const answer = oneLine(one.answer, REFINE_CHARS)
+      if (answer !== '') answers.push({ index: one.index, answer })
+    }
+    if (typeof (body.feedback ?? '') !== 'string' || (body.feedback ?? '').length > REFINE_CHARS) return { ok: false, status: 413, why: `At most ${REFINE_CHARS} characters of feedback.` }
+    const feedback = oneLine(body.feedback, REFINE_CHARS)
+    if (answers.length === 0 && feedback === '') return { ok: false, status: 400, why: 'Answer a question or give feedback first.' }
+    // The file is handled as latin1 bytes: the person's words go in as their UTF-8 bytes.
+    const bytes = words => Buffer.from(words, 'utf8').toString('latin1')
+    change = before => answerRefine(before, step, answers.map(one => ({ ...one, answer: bytes(one.answer) })), bytes(feedback))
+  }
+  const done = await rewrite(file, change, fs)
+  if (done.ok) return { ok: true, result: { step, action: body.action } }
   const [status, why] = EDIT_WHY[done.why] ?? EDIT_WHY.write
   return { ok: false, status, why }
 }

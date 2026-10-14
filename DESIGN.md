@@ -197,6 +197,22 @@ marked as typed on the worker board, and the main chat picks the worker or what 
 first is on its way or arrived less than an hour ago. On a narrow screen the button is in the window only. The
 picture: `art-inbox/worker-board/b181/2026-10-14-b181-add-to-queue.jpg`.
 
+**Refine a step (B233).** The person, 2026-10-14: "the goal is to let AI clarify what the orginal problem is that we
+try to solve, if any, or what the goal is. Ask any questions needed before we start picking it up. the UI must
+facilitate me being able to provide feedback to the AI refining it. this information is stored inside the backlog
+item so it's not lost." Of three mock-ups they chose A (`art-inbox/board-refine/refine-options.png`): the window of
+a step that is not finished has a "Refine" part under its description and a "Refine" button in its foot. The board
+types "refine step", "Step: <id> <title>" and "Round: <n>" into the Advisor's chat (the settings' `advisor`; without
+one the button says so), marked as typed on the worker board; a chat that is not running is started by the main chat,
+as for the person's other words. The Advisor writes the step's refine block under its lines (roles/advisor.md):
+"Refined (round <n>, by <name>, <date time>):", then "Problem:", "Goal:", "Questions:" with a point per question.
+The window shows the block apart from the step's other lines, with a box per question and one for feedback; "Send
+answers · refine again" writes the answers behind their questions (" Answer: ...") and the feedback as "- Round <n>:
+..." under "Feedback:", then asks the Advisor for the next round; "Accept as refined" adds "accepted <date time>" to
+the block's first line. The board writes only that block, as for Close (`src/tick.mjs`, `POST /api/backlog`, only on
+the board that delivers). While a round is asked and not written yet (on its way, or arrived less than half an hour
+ago), the window says so and the server refuses a second ask.
+
 **Stop, move or take out of the queue (B83).** The person, 2026-10-14, of the two choices: "1. A" (stop lets the worker
 reach a safe point: work committed and pushed, nothing new started) and "2. A" (the main chat makes the change). A
 worker's "⋯" menu has "■ Stop its task" for a worker on a task; it asks once ("Stop its task? It finishes what runs,

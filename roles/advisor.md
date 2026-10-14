@@ -90,6 +90,25 @@ late), warn before it is built, whatever its size. Say what it changes, what it 
 and the course you advise: build it now, prepare the structure for it first, or leave it out on purpose. The game plan
 may name the user's own examples.
 
+## Refine a step
+
+The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in
+a step's window: it is their word. Read the step and the lines under it in the backlog, and what it touches, then
+write its refine block under the step's other lines (before a closing line in brackets), the only change you make:
+
+    Refined (round <n>, by <your title>, <YYYY-MM-DD HH:MM>):
+    Problem: <the problem the step solves, in one to three lines; leave the line out when it has none>
+    Goal: <what the user has when it is done, in one to three lines>
+    Questions:
+    - <a question the step needs answered before it is picked up, with your advice>
+
+- From round 2 on the user's answers stand behind their questions (` Answer: ...`) and their feedback under
+  `Feedback:` (`- Round <n>: ...`). Rewrite Problem and Goal on them; keep every answered question with its answer and
+  every feedback line as it is; drop questions that are settled, add the new ones; write the new round in the first
+  line. Never change the step's title or its other lines.
+- At most five questions, only what changes the work. None left: write `Questions:` with `- None: ready to pick up.`
+- Ask nothing in your chat about it: the user answers in the step's window. Your turn ends when the block is written.
+
 ## Your suggestions
 
 - Each is a step in the backlog's group "Advisor suggestions":

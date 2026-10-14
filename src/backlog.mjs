@@ -145,6 +145,89 @@ export function noteSections(notes) {
   return sections
 }
 
+// refined:start
+/**
+ * B233: the lines a refine writes under a step, kept together as one block that starts with "Refined (...):" and holds
+ * "Problem:", "Goal:", "Questions:" (points, each with " Answer: ..." once the person answered) and "Feedback:"
+ * (points, "Round 1: ..."). The brackets of its first line say the round, who refined it and when, and
+ * "accepted <when>" once the person accepted it. Any other named line, or a line in brackets, ends the block.
+ */
+export const REFINED_HEAD = /^Refined\s*(?:\(([^)]*)\))?\s*:\s*$/
+const REFINED_PARTS = { Problem: 'problem', Goal: 'goal', Questions: 'questions', Feedback: 'feedback' }
+const NAMED = /^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/
+
+/** Where the refine block stands in a step's notes: `[start, end)` as indexes of `notes`, or null when it has none. */
+export function refinedSpan(notes) {
+  const start = notes.findIndex(note => REFINED_HEAD.test(note.trim()))
+  if (start < 0) return null
+  let end = start + 1
+  while (end < notes.length) {
+    const line = notes[end].trim()
+    const named = line.match(NAMED)
+    if ((named !== null && REFINED_PARTS[named[1]] === undefined) || line.startsWith('(') || REFINED_HEAD.test(line)) break
+    end += 1
+  }
+  return [start, end]
+}
+
+/**
+ * B233: a step's refine block, read from its notes, or null when it has none: `{ round, by, at, accepted, problem,
+ * goal, questions: [{ text, answer }], feedback: [lines] }`. `answer` is null for a question still open.
+ */
+export function refinedOf(notes) {
+  const span = refinedSpan(notes)
+  if (span === null) return null
+  const head = notes[span[0]].trim().match(REFINED_HEAD)[1] ?? ''
+  const refined = {
+    round: Number(head.match(/\bround\s+(\d+)/i)?.[1] ?? 1),
+    by: head.match(/\bby\s+([^,;]+)/i)?.[1].trim() ?? null,
+    at: head.match(/\d{4}-\d\d-\d\d[ T]\d\d:\d\d/)?.[0] ?? null,
+    accepted: head.match(/\baccepted\b\s*([^,;]*)/i)?.[1].trim() ?? null,
+    problem: '',
+    goal: '',
+    questions: [],
+    feedback: [],
+  }
+  if (refined.accepted !== null && refined.accepted === '') refined.accepted = 'yes'
+  let part = null
+  for (const note of notes.slice(span[0] + 1, span[1])) {
+    const line = note.trim()
+    const named = line.match(NAMED)
+    if (named !== null && REFINED_PARTS[named[1]] !== undefined) {
+      part = REFINED_PARTS[named[1]]
+      if (named[2] !== '') addRefined(refined, part, named[2])
+      continue
+    }
+    if (part !== null) addRefined(refined, part, line)
+  }
+  return refined
+}
+
+function addRefined(refined, part, line) {
+  const point = line.match(/^[-*]\s+(.*)$/)
+  const words = point === null ? line : point[1]
+  if (part === 'problem' || part === 'goal') {
+    refined[part] = refined[part] === '' ? words : `${refined[part]} ${words}`
+    return
+  }
+  if (part === 'feedback') {
+    refined.feedback.push(words)
+    return
+  }
+  // "None: ready to pick up." says no question is left: it is none.
+  if (/^None\b/i.test(words)) return
+  // A question's answer stands behind " Answer: " on its own line.
+  const at = words.search(/\sAnswer:\s/)
+  refined.questions.push(at < 0 ? { text: words, answer: null } : { text: words.slice(0, at).trim(), answer: words.slice(at).replace(/^\s*Answer:\s*/, '').trim() })
+}
+
+/** B233: a step's notes without its refine block, which the step's window shows apart. */
+export function withoutRefined(notes) {
+  const span = refinedSpan(notes)
+  return span === null ? notes : [...notes.slice(0, span[0]), ...notes.slice(span[1])]
+}
+// refined:end
+
 /** All the words of a step: its own line and the lines under it. A folder of pictures may be named in either. */
 export function allWords(step) {
   return [step.text, ...step.notes.flatMap(part => [...part.lines, ...part.points])].join('\n')
@@ -232,7 +315,8 @@ export function overview(backlog, { underWay = new Set() } = {}) {
         branch: step.ownBranch,
         minutes: step.minutes,
         after: step.after,
-        notes: noteSections(step.notes),
+        notes: noteSections(withoutRefined(step.notes)),
+        refined: refinedOf(step.notes),
         status: step.isDone ? 'done' : step.isYou ? 'you' : step.ownBranch !== null || (step.id !== null && underWay.has(step.id)) ? 'progress' : isQueued(step) ? 'queued' : 'open',
       })),
     }
