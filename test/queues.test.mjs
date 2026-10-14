@@ -37,6 +37,12 @@ const BACKLOG = [
   '- [ ] B10 Sound for the beast (for Game - Units; about 30 min)',
   '- [ ] B11 A tool for later (not queued: the user said to leave it for now; about 30 min)',
   '  Context: asked in Game - Main.',
+  // B172: what the board showed in the wrong queues on 2026-10-14, as made-up samples.
+  '- [ ] B12 Music for the menu (for Sound; about 10 min)',
+  '- [ ] B13 Verify: Check the archer (pictures in art-inbox/archer; Game - Units) @you',
+  '- [ ] B14 Run the board for any project (later; not handed out)',
+  '  Context: asked in Game - Main.',
+  '- [ ] B15 Polish the menu (for Units; later; about 1 h)',
   '',
 ].join('\n')
 
@@ -65,11 +71,12 @@ test('the queue holds every open step that names a worker and no branch of its o
     ['B03', 'Features', 90],        // under an activity, not under "Next to hand out"
     ['B06', 'Units', 40],
     ['B08', 'Units', 20],
-    ['B09', null, null],            // under "Next to hand out": queued also without a worker
     ['B10', 'Units', 30],
+    ['B12', 'Sound', 10],          // for a worker the board does not know: queued, for nobody on the board
   ])
-  // Not queued: a ticked step (B01), a step in progress (B02, B07), a step for the person (B04), a step that names
-  // nobody (B05), and a step marked "(not queued: ...)", also under "Next to hand out" (B11).
+  // Not queued: a ticked step (B01), a step in progress (B02, B07), a step for the person (B04, B13), a step that
+  // names no worker in its note, also under "Next to hand out" (B05, B09, B14, whose note names the main chat), and
+  // a step marked "not queued", "later" or "not handed out", wherever the mark stands (B11, B14, B15).
   assert.deepEqual(queued.find(one => one.id === 'B03').notes, [{ title: 'Requirements', lines: [], points: ['three cards'] }])
 })
 
@@ -119,7 +126,7 @@ test('each worker\'s queue is what the backlog holds for it, wherever the steps 
   assert.deepEqual(chatNamed(state, 'Features').queue.map(one => one.id), ['B03'])
   assert.deepEqual(chatNamed(state, 'Units').queue.map(one => one.id), ['B06', 'B08', 'B10'])
   assert.deepEqual(chatNamed(state, 'Levels / Environment').queue, [])
-  assert.deepEqual(state.unassigned.map(one => one.id), ['B09'])
+  assert.deepEqual(state.unassigned.map(one => one.id), ['B12'])
 })
 
 test('a worker without an estimate of its own gets its time from its step, counted from the task\'s start', () => {

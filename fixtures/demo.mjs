@@ -71,7 +71,7 @@ const BACKLOG = `# Backlog
 - [ ] Remove unused assets (for Cleanup; about 20 min)
 - [ ] Lava biome (for Levels / Environment; about 1 h 30 min)
 - [ ] Level streaming (for Levels / Environment; about 2 h)
-- [ ] Decide the name of the game
+- [ ] Decide the name of the game (for Writing; about 20 min)
 `
 
 const ASKS = now => [

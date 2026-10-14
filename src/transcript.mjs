@@ -335,9 +335,18 @@ function titleOf(body, isHandOver = false) {
   return short.charAt(0).toUpperCase() + short.slice(1)
 }
 
-const isReportTo = (entry, title) =>
+/** The words a chat sent to another with a tool: SendMessage's, or the app's own send_message tool's. */
+const sentWords = input => [input?.message, input?.content, input?.text, input?.prompt].find(value => typeof value === 'string') ?? ''
+
+/**
+ * A message to the main chat that ends a task: one sent to it by name or by its session id (`mains`), or, B172, any
+ * message whose first line starts "Report from", whatever address or tool sent it (the main chat's local id or pipe
+ * address, the app's send_message): only the main chat is sent reports.
+ */
+const isReportTo = (entry, mains) =>
   entry.type === 'assistant'
-  && entry.blocks.some(block => block.type === 'tool_use' && block.name === 'SendMessage' && block.input?.to === title)
+  && entry.blocks.some(block => block.type === 'tool_use' && (block.name === 'SendMessage' || /(?:^|__)send_message$/.test(block.name ?? ''))
+    && ((block.name === 'SendMessage' && mains.includes(block.input?.to)) || /^\s*Report from\b/.test(sentWords(block.input))))
 
 /** An entry after which no turn is running: the answer that ends it, or the app's mark that the person stopped it. */
 export const endsTurn = entry =>
@@ -376,7 +385,7 @@ function handOvers(entries, { mainTitle, mainSession = null }) {
         start = { at: entry.at, from: message.from, title: titleOf(message.body, true), steps, minutes: aboutMinutes(first) }
         reportedAt = null
       }
-    } else if (isReportTo(entry, mainTitle)) {
+    } else if (isReportTo(entry, [mainTitle, mainSession].filter(Boolean))) {
       reportedAt = entry.at
       lastReportAt = entry.at
     }

@@ -498,9 +498,18 @@ merge): the step that names its branch, else the open step of its own that its t
 one its hand-over names (B94).
 
 
-The queue stays in the backlog, under "Next to hand out (Game - Main)", so there is one list. The main chat writes
-each queued step so the board can read it: `- [ ] <task> (for Units; after <condition>; about 40 min)`. The board
-picks out the worker and the time; a step without them is shown as it is.
+The queue stays in the backlog, so there is one list. The main chat writes each queued step so the board can read
+it: `- [ ] <task> (for Units; after <condition>; about 40 min)`. The board picks out the worker and the time.
+
+**Only what waits for a worker (B172).** The person, 2026-10-14: "i believe the queue is out of sync ... investigate
+what caused this and try to prevent it". The board had counted every open step under "Next to hand out" as queued,
+for the first chat its words named: Main's queue held B126 "(later; not handed out)", Board's held the person's
+Verify steps. Now a step is queued only when its note names a worker ("(for Units; ...)"), wherever it stands; never
+a step for the person (@you), and never one marked "later", "not handed out" or "not queued" in brackets. A step
+under "Next to hand out" without a worker waits for the main chat; one for a worker the board does not know is
+"Queued for nobody". And a worker's message whose first line starts "Report from" ends its task, whatever address or
+tool sent it (the main chat's name, its local id or pipe address, the app's send_message): Game - Support's report of
+B168 went to the main chat's local id, and the board kept its hand-over open, so Support showed as working.
 
 ## The bridge
 

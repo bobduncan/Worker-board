@@ -2,8 +2,6 @@
 // person's main focus), a `- [ ]` line is a step, `@you` at its end marks a step only the person can do, and an
 // indented line under a step belongs to that step. An open step starts with its id, "B14".
 
-const QUEUE_HEADING = 'next to hand out'
-
 /** The worker a step names: "(for Units; ...)" first, else the first chat title found in the text. */
 function workerOf(text, forWhom, prefix, names) {
   // The longest name first, so "Levels / Environment" is not cut short by a chat called "Levels".
@@ -152,21 +150,30 @@ export function allWords(step) {
   return [step.text, ...step.notes.flatMap(part => [...part.lines, ...part.points])].join('\n')
 }
 
-/** Whether an open step of this activity waits to be started (see `queue`). */
-function isQueuedIn(activity) {
-  const isQueue = activity.name.toLowerCase().startsWith(QUEUE_HEADING)
-  return step => step.ownBranch === null && !/\(not queued/i.test(step.text) && (isQueue || (step.isFor && !step.isYou))
-}
+/**
+ * B172: a step held back by a mark in brackets: "(later; not handed out)", "(not queued: ...)", "(for Units; later)".
+ * Words of the title ("Build B12 later") are no mark.
+ */
+const isHeldBack = step => [...step.text.matchAll(/\(([^()]*)\)/g)]
+  .flatMap(found => found[1].split(';').map(part => part.trim()))
+  .some(part => /^(?:later|not handed out|not queued)\b/i.test(part))
 
 /**
- * The steps waiting to be started, in the backlog's order: the open ones under "Next to hand out", and anywhere
- * on the backlog the open ones whose note names a worker ("(for Units; ...)") and that are not the person's. A
- * step that names its own branch is in progress, not queued; neither is one the main chat marked "(not queued: ...)",
- * nor one a worker is on right now (`underWay`: ids of steps, see `overview`).
+ * Whether an open step waits to be started (see `queue`): it names its worker ("(for Units; ...)"), it is not the
+ * person's, it has no branch of its own, and nothing holds it back. Where it stands on the backlog does not matter:
+ * under "Next to hand out" stand also steps the main chat has not handed out (B172).
+ */
+const isQueued = step => step.isFor && !step.isYou && step.ownBranch === null && !isHeldBack(step)
+
+/**
+ * The steps waiting to be started, in the backlog's order: anywhere on the backlog, the open ones whose note names a
+ * worker ("(for Units; ...)") and that are not the person's. A step that names its own branch is in progress, not
+ * queued; neither is one marked "later", "not handed out" or "not queued", nor one a worker is on right now
+ * (`underWay`: ids of steps, see `overview`).
  */
 export function queue(backlog, { underWay = new Set() } = {}) {
   return backlog.activities
-    .flatMap(activity => open(activity).filter(isQueuedIn(activity)))
+    .flatMap(activity => open(activity).filter(isQueued))
     .filter(step => step.id === null || !underWay.has(step.id))
     .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(notes) }))
 }
@@ -212,7 +219,6 @@ export function openWork(backlog) {
  */
 export function overview(backlog, { underWay = new Set() } = {}) {
   const listed = backlog.activities.map((activity, place) => {
-    const isQueued = isQueuedIn(activity)
     return {
       name: activity.name,
       isFocus: activity.isFocus,

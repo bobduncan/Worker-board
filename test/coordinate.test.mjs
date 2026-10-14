@@ -51,7 +51,7 @@ test('overview: every activity with every step, the focus first, each step with 
   assert.deepEqual(all.map(activity => [activity.name, activity.isFocus]), [['Architecture', true], ['Old work', false], ['Next to hand out (Game - Main)', false]])
   const flat = Object.fromEntries(all.flatMap(activity => activity.steps).map(step => [step.id, step]))
   assert.deepEqual(Object.fromEntries(Object.entries(flat).map(([id, step]) => [id, step.status])), {
-    B01: 'done', B02: 'open', B10: 'progress', B11: 'queued', B12: 'you', B13: 'you', B14: 'done', B20: 'queued', B21: 'open',
+    B01: 'done', B02: 'open', B10: 'progress', B11: 'queued', B12: 'you', B13: 'you', B14: 'done', B20: 'open', B21: 'open',
   })
   assert.deepEqual([flat.B10.worker, flat.B10.branch, flat.B10.title, flat.B10.key], ['Features', 'feature/camera', 'The camera', 'B10'])
   assert.deepEqual([flat.B12.asks, flat.B12.worker, flat.B13.asks, flat.B13.worker], ['verify', 'Features', 'decide', null])
@@ -88,19 +88,19 @@ test('all: every open step by activity, the focus first; finished steps stay hid
   const list = listOf(activities)
   assert.deepEqual(idsOf(list), [['Architecture', ['B10', 'B11', 'B12', 'B13']], ['Old work', ['B02']], ['Next to hand out (Game - Main)', ['B20', 'B21']]])
   assert.equal(list.shown, 7)
-  assert.deepEqual(list.counts, { all: 7, progress: 1, queued: 2, you: 2, unassigned: 3 })
+  assert.deepEqual(list.counts, { all: 7, progress: 1, queued: 1, you: 2, unassigned: 3 })
 })
 
 test('finished steps show when asked for, under All only', () => {
   assert.deepEqual(idsOf(listOf(activities, { showDone: true })), [['Architecture', ['B10', 'B11', 'B12', 'B13', 'B14']], ['Old work', ['B01', 'B02']], ['Next to hand out (Game - Main)', ['B20', 'B21']]])
-  assert.deepEqual(idsOf(listOf(activities, { showDone: true, filter: 'queued' })), [['Architecture', ['B11']], ['Next to hand out (Game - Main)', ['B20']]])
+  assert.deepEqual(idsOf(listOf(activities, { showDone: true, filter: 'queued' })), [['Architecture', ['B11']]])
   // The counts are of open steps, whatever is shown.
   assert.equal(listOf(activities, { showDone: true }).counts.all, 7)
 })
 
 test('narrowing: in progress, queued, for you, without a worker', () => {
   assert.deepEqual(idsOf(listOf(activities, { filter: 'progress' })), [['Architecture', ['B10']]])
-  assert.deepEqual(idsOf(listOf(activities, { filter: 'queued' })), [['Architecture', ['B11']], ['Next to hand out (Game - Main)', ['B20']]])
+  assert.deepEqual(idsOf(listOf(activities, { filter: 'queued' })), [['Architecture', ['B11']]])
   assert.deepEqual(idsOf(listOf(activities, { filter: 'you' })), [['Architecture', ['B12', 'B13']]])
   // Without a worker: open steps nobody is named for; the person's own steps are not among them.
   assert.deepEqual(idsOf(listOf(activities, { filter: 'unassigned' })), [['Old work', ['B02']], ['Next to hand out (Game - Main)', ['B20', 'B21']]])

@@ -143,6 +143,27 @@ test('taskStart: a question sent to the main chat in the middle of the work does
   assert.equal(taskStart(entries([...asking, stopped]), MAIN), null)
 })
 
+test('B172: a report ends the task by its first line, whatever address or tool sent it to the main chat', () => {
+  const sent = (minute, name, input) => assistant(min(minute), 'tool_use', [tool(name, input)])
+  const finished = message => [handed(4, 'build the archer'), message, toolResult(min(10)), answer(min(11), 'Reported.')]
+  const reports = [
+    // To the main chat's own session id: how a report of Game - Support reached it on 2026-10-14.
+    sent(9, 'SendMessage', { to: 'local_main', message: 'Done, see the backlog.' }),
+    sent(9, 'SendMessage', { to: 'local_84e3310d-5c34-43b7-a5f4-d59006c1d556', message: 'Report from Game - Units: B12 is merged.' }),
+    sent(9, 'SendMessage', { to: 'Game - Main [c62492]', message: '\nReport from Game - Units: B12 is merged.' }),
+    sent(9, 'mcp__ccd_session_mgmt__send_message', { session_id: 'local_x', message: 'Report from Game - Units: B12 is merged.' }),
+  ]
+  for (const report of reports) {
+    assert.equal(taskStart(entries(finished(report)), MAIN), null, JSON.stringify(report))
+    assert.equal(lastFinish(entries(finished(report)), MAIN), min(9))
+  }
+  // A message to another worker, or one to an unknown address that is no report, ends nothing.
+  for (const other of [sent(9, 'SendMessage', { to: 'Game - Features', message: 'Note from Game - Units: the sheet is in.' }),
+    sent(9, 'SendMessage', { to: 'local_units', message: 'Can you look at the archer? Report from Game - Units follows.' })]) {
+    assert.equal(taskStart(entries(finished(other)), MAIN).title, 'Build the archer')
+  }
+})
+
 test('taskStart: no hand-over in the tail is null', () => {
   assert.equal(taskStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), MAIN), null)
   assert.equal(lastFinish(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), MAIN), null)
