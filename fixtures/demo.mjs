@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import { readFolders } from '../src/folders.mjs'
 import { listPictures } from '../src/pictures.mjs'
-import { answer, assistant, fromChat, step, tool, toolResult, typed, usageResult } from './lines.mjs'
+import { answer, assistant, fromChat, step, tool, toolResult, typed, usageResult, user } from './lines.mjs'
 
 const MIN = 60_000
 const pad = value => String(value).padStart(2, '0')
@@ -71,7 +71,7 @@ const BACKLOG = `# Backlog
 - [ ] Remove unused assets (for Cleanup; about 20 min)
 - [ ] Lava biome (for Levels / Environment; about 1 h 30 min)
 - [ ] Level streaming (for Levels / Environment; about 2 h)
-- [ ] Decide the name of the game
+- [ ] Decide the name of the game (for Writing; about 20 min)
 `
 
 const ASKS = now => [
@@ -149,6 +149,8 @@ const plan = (now, task, minutesAgo) =>
 /** B113: when the demo's 5-hour limit resets, to the minute, and that moment as this machine's clock shows it. */
 const resetOf = now => Math.round((now + 52 * MIN) / MIN) * MIN
 const clockOf = at => `${String(new Date(at).getHours()).padStart(2, '0')}:${String(new Date(at).getMinutes()).padStart(2, '0')}`
+// What the board typed into a chat for the person (the Workers mod types it as their own words).
+const viaBoard = (at, text) => user(at, text, { origin: { kind: 'plugin', name: 'folder-branches', asUser: true } })
 
 function transcripts(now) {
   const ago = minutes => now - minutes * MIN
@@ -168,6 +170,9 @@ function transcripts(now) {
       fromChat(ago(4), 'Game - Features', 'Save system is implemented. Running local tests.'),
       // B161: an answer in every chat's form, with what is the person's and the closing block.
       answer(ago(3.5), 'Features has the save system in and is testing it.\n\n> **For you**\n> 1. **Answer:** Shall Features start the main menu after the save system? I advise yes.\n\n---\n\n```diff\n  Prompt: how far is the save system\n  Who:    Game - Main\n+ Done:   yes\n```'),
+      // B167: a picture pasted in Talk to Main, named to the main chat by its full path.
+      viaBoard(ago(2), `The Continue button is cut off on the menu, see the picture.\nPicture: ${join(PROJECT, 'art-inbox', 'talk', '2026-10-14-1144.png')}\n(typed on the worker board, ${clockOf(ago(2))})`),
+      answer(ago(1.5), 'I see it: the border of Continue is cut on the right. Handed to Game - Features as a small fix.'),
       typed(ago(0.5), 'Great! Next we can look at animation blending.'),
       step(ago(0.3), 'Run the tests'),
     ], 0.3),

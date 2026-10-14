@@ -2,6 +2,8 @@
 // person's own words, so it must be addressed to a chat on the board and, when it answers a request, fit that
 // request: a verdict for work to verify, "done" for something only the person can do, words for a question.
 
+import { TALK_PICTURE } from './talkPicture.mjs'
+
 const refuse = (status, why) => ({ ok: false, status, why })
 
 /** B124: why the board asks the main chat for workers, in the words it types. */
@@ -59,6 +61,14 @@ export function checkSay(body, state, maxChars) {
   const names = (state.chats ?? []).filter(chat => !chat.isLeftover).map(chat => chat.name)
   if (state.advisor?.name) names.push(state.advisor.name)
   if (typeof body.to !== 'string' || !names.includes(body.to)) return refuse(400, 'No such chat on the board.')
+  // B167: a picture pasted into Talk to Main, which the board kept beforehand: one of its own names, to the main chat,
+  // with a plain message.
+  const picture = body.picture ?? null
+  if (picture !== null) {
+    if (typeof picture !== 'string' || !TALK_PICTURE.test(picture)) return refuse(400, 'That is no picture the board kept.')
+    if (body.to !== state.restart?.main) return refuse(400, 'A picture goes to the main chat only.')
+    if ((body.ask ?? null) !== null || (body.command ?? null) !== null) return refuse(400, 'A picture goes with a plain message only.')
+  }
 
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
@@ -107,8 +117,8 @@ export function checkSay(body, state, maxChars) {
 
   if (body.ask === undefined || body.ask === null) {
     if (body.verdict !== undefined && body.verdict !== null) return refuse(400, 'A verdict needs the request it is about.')
-    if (text === '') return refuse(400, 'No text.')
-    return { ok: true, message: { to: body.to, ask: null, step: null, title: null, verdict: null, text } }
+    if (text === '' && picture === null) return refuse(400, 'No text.')
+    return { ok: true, message: { to: body.to, ask: null, step: null, title: null, verdict: null, text, ...(picture === null ? {} : { picture }) } }
   }
 
   const item = [...(state.forYou ?? []), ...(state.backlogForYou ?? [])].find(need => need.id === body.ask && need.from === body.to)

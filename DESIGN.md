@@ -178,6 +178,18 @@ closing block line by line, "+" green and "-" red. The head says whether the mai
 open is kept in this browser. Not built: the picture's "Task proposal" card and answer buttons, which the person's
 words did not ask for. The picture: `art-inbox/ideas/i-want-a-place/2026-10-14-b161-result.png`.
 
+**A picture in Talk to Main (B167).** The person, 2026-10-14: "i need a change so that i can post pictures in the 'talk
+to main' chat in the worker board, from my clipboard". Ctrl+V in the talk takes the picture on the clipboard (PNG,
+JPEG or WebP, 8 MB at most) and shows it small above the box, with a × to take it away; words on the clipboard are
+pasted as words, and anything else gets a short line ("The clipboard holds no picture."). Send takes words and
+picture as one message, also a picture alone. Only then does the board keep it: `POST /api/talk/picture`, checked as
+the Design tab's reference pictures are (the board's own page, the bytes of a picture), into the project's
+`art-inbox/talk/` under a plain name of the minute (`2026-10-14-1144.png`, "-2" for a second one that minute, never
+written over). The message names it, and only a name the board gives in that folder goes to the main chat, never to
+another chat. Typed into the main chat's chat it reads "words / Picture: <full path> / (typed on the worker board,
+HH:MM)", so the main chat can open it; the talk reads the picture back from that line and shows it in the person's
+message, and a click opens it large. The pictures: `art-inbox/worker-board/b167/`.
+
 **The Design tab's page (B99).** A fourth tab, after the person's layout A
 (`art-inbox/worker-board/design-tab/2026-10-12-design-tab-a-side-by-side.png`): three parts side by side and "Ideas
 so far" along the bottom. 1 New idea: the idea, what it is about (the kinds the board names), reference pictures of
@@ -509,9 +521,18 @@ merge): the step that names its branch, else the open step of its own that its t
 one its hand-over names (B94).
 
 
-The queue stays in the backlog, under "Next to hand out (Game - Main)", so there is one list. The main chat writes
-each queued step so the board can read it: `- [ ] <task> (for Units; after <condition>; about 40 min)`. The board
-picks out the worker and the time; a step without them is shown as it is.
+The queue stays in the backlog, so there is one list. The main chat writes each queued step so the board can read
+it: `- [ ] <task> (for Units; after <condition>; about 40 min)`. The board picks out the worker and the time.
+
+**Only what waits for a worker (B172).** The person, 2026-10-14: "i believe the queue is out of sync ... investigate
+what caused this and try to prevent it". The board had counted every open step under "Next to hand out" as queued,
+for the first chat its words named: Main's queue held B126 "(later; not handed out)", Board's held the person's
+Verify steps. Now a step is queued only when its note names a worker ("(for Units; ...)"), wherever it stands; never
+a step for the person (@you), and never one marked "later", "not handed out" or "not queued" in brackets. A step
+under "Next to hand out" without a worker waits for the main chat; one for a worker the board does not know is
+"Queued for nobody". And a worker's message whose first line starts "Report from" ends its task, whatever address or
+tool sent it (the main chat's name, its local id or pipe address, the app's send_message): Game - Support's report of
+B168 went to the main chat's local id, and the board kept its hand-over open, so Support showed as working.
 
 ## The bridge
 

@@ -171,7 +171,7 @@ test('a working chat with an estimate has a time it expects to be done, and its 
       Units: planLine({ text: 'Archer', step: 1, steps: 3, left: 25 * MIN }),
       Levels: planLine({ text: 'Forest', left: 2 * MIN }),
     },
-    backlog: '## Next to hand out (Game - Main)\n- [ ] Knight rows (for Units; about 30 min)\n- [ ] Polish (for Units)\n- [ ] Banner (for Units; about 10 min)\n- [ ] Lava biome (for Levels; about 1 h)\n- [ ] Name the game\n',
+    backlog: '## Next to hand out (Game - Main)\n- [ ] Knight rows (for Units; about 30 min)\n- [ ] Polish (for Units)\n- [ ] Banner (for Units; about 10 min)\n- [ ] Lava biome (for Levels; about 1 h)\n- [ ] Name the game (for Writing)\n',
   })
   const units = chatNamed(state, 'Units')
   assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOwn: true, from: 'own' })

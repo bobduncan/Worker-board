@@ -57,9 +57,10 @@ test('queue: the open steps to hand out, with the worker, the condition and the 
   assert.deepEqual(queue(backlog), [
     { id: null, text: 'Main menu (for Features; after the battle page merges; about 40 min)', title: 'Main menu', worker: 'Features', branch: null, after: 'the battle page merges', minutes: 40, notes: [] },
     { id: null, text: 'Level streaming (for Levels / Environment; about 2 h)', title: 'Level streaming', worker: 'Levels / Environment', branch: null, after: null, minutes: 120, notes: [] },
-    { id: null, text: 'When the beast merges: tell Game - Units the portrait is old', title: 'When the beast merges: tell Game - Units the portrait is old', worker: 'Units', branch: null, after: null, minutes: null, notes: [] },
-    { id: null, text: 'Tidy the art inbox', title: 'Tidy the art inbox', worker: null, branch: null, after: null, minutes: null, notes: [] },
   ])
+  // B172: under "Next to hand out" too, a step that names no worker in its note waits for the main chat, not for a
+  // worker: a chat named in its words ("tell Game - Units") does not make it that chat's.
+  assert.ok(!queue(backlog).some(step => /beast merges|art inbox/.test(step.text)))
 })
 
 test('an open step starts with its id, before its kind; the id is not part of its words', () => {
@@ -86,7 +87,7 @@ test('the indented lines under a step are its details, in sections', () => {
     '  * Readable at 32 by 32',
     '  Context: Focus on the face. See art-inbox/shadow-beast.',
     '  (handed over on 2026-10-12: no)',
-    '- [ ] B60 Tidy',
+    '- [ ] B60 Tidy (for Units)',
   ].join('\n')
   const [portrait, tidy] = queue(parseBacklog(text, RULES))
   assert.deepEqual(portrait.notes, [
