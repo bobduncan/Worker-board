@@ -112,6 +112,26 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   worker is suspended; its condition is not met (the open steps it names by id, else the condition's own words,
   which the board cannot judge); its worker is busy, waits for the person or was cut off; or nobody handed it out.
 
+**The board asks for workers (B124).** The person, 2026-10-14: "i want the capability that the main chat or the
+worker board will will spawn the needed workers. if non exist scale up to three workers", to make the board simple
+to start in a new environment. Of the mock-up: "1 yes. but if workers and main exists i want to show them both,
+just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-result.png`.
+
+- *The board only asks; the main chat starts the chats*, names them and gives them the shared briefing. The word
+  it types into the main chat, as its other words: `spawn workers`, then `Count: N` (1 to 3), then `Why: no worker
+  is in the list` or `Why: asked with the button` (`spawnWords` in `src/say.mjs`).
+- *By itself, once.* When the list holds the main chat and no worker (the advisor is no worker), the board asks
+  for three (`spawnWhenAlone`), at its minute's look, and only while the main chat's chat is open, so the word is
+  taken and not lost. It asks once per empty list: again only after a worker was there since that ask (the
+  history holds it) and all went. An ask that did not arrive is asked again with the button, not by the board.
+- *The button.* Under the last lane, where a new worker shows: "+ One more worker" (one), or "Ask for three
+  workers" while there is none. One ask at a time: an ask is open while it is on its way, and after it arrived
+  until the workers came, for 15 minutes at most; meanwhile the button waits and the row says when it asked.
+- *What the page says* under the lanes. The main chat and workers: every lane as before, and the button. The main
+  chat alone: that the board asked, when, and what happens next, in words that stay true whether the main chat
+  starts a worker itself or puts up a chip for the person to click. No main chat: how to make one, with this
+  project's folder and the name the list of chats gives the main chat. No word names a project.
+
 **The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
 more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
 expected and queued is what they plan with.
