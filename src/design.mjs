@@ -153,7 +153,8 @@ export function checkDesign(body, design) {
     if (!Array.isArray(references) || references.length > LIMITS.references || !references.every(path => typeof path === 'string' && REFERENCE.test(path))) {
       return refuse(400, `At most ${LIMITS.references} reference pictures, added on this page.`)
     }
-    return mayMake() ?? { ok: true, action: 'make', kind: kind.id, text, references }
+    // The same picture twice is one reference.
+    return mayMake() ?? { ok: true, action: 'make', kind: kind.id, text, references: [...new Set(references)] }
   }
   if (idea === null) return refuse(409, 'That idea is not there any more.')
 

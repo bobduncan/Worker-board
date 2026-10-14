@@ -154,3 +154,15 @@ test('readSources reads the app\'s usage file, and what a chat looked up further
   const none = await readSources({ ...config, usageHistory: join(root, 'app', 'none.json') }, async () => [], NOW)
   assert.equal(none.usageText, null)
 })
+
+test('B156: a step that names an idea\'s folder shows the pictures made, not the person\'s reference pictures in it', async t => {
+  const { config } = await project(t)
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+  for (const file of ['art-inbox/ideas/shop/v1.png', 'art-inbox/ideas/shop/reference-1.png', 'art-inbox/archer/reference-1.png']) {
+    await mkdir(join(config.project, ...dirname(file).split('/')), { recursive: true })
+    await writeFile(join(config.project, ...file.split('/')), png)
+  }
+  assert.deepEqual(await listPictures(config.project, ['art-inbox'], 'art-inbox/ideas/shop'), ['art-inbox/ideas/shop/v1.png'])
+  // Outside the ideas folder such a name is a picture like any other.
+  assert.ok((await listPictures(config.project, ['art-inbox'], 'art-inbox/archer')).includes('art-inbox/archer/reference-1.png'))
+})
