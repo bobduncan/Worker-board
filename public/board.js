@@ -3967,6 +3967,13 @@ function show(tab) {
 
 for (const button of document.querySelectorAll('.tab')) button.addEventListener('click', () => show(button.dataset.tab))
 
+// B207: on a phone the timeline and the folders are folded away under the workers; this button shows them.
+$('phone-more').addEventListener('click', () => {
+  const shows = $('view-overview').classList.toggle('shows-more')
+  $('phone-more').setAttribute('aria-expanded', String(shows))
+  $('phone-more').textContent = shows ? 'Hide the timeline and folders' : 'Show the timeline and folders'
+})
+
 // Reading and sending
 
 function draw(state) {

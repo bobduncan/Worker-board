@@ -956,3 +956,24 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
   .details-foot { flex-wrap: wrap; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
   .details-head { padding: 16px 14px 12px 16px; }
 }
+
+/* B207: the board on a phone, piece 2 of PHONE-PLAN.md: up to 600 px Needs your attention comes first, then the
+   workers; the timeline and the folders are folded away under a button; the tabs are a bar at the bottom ("Today",
+   "Advisor", "Backlog"), without the Design tab. The wide view is as it was. */
+.tab-short, .phone-more { display: none; }
+@media (max-width: 600px) {
+  .tab-list { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; justify-content: space-around; gap: 4px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: #0c121d; border-top: 1px solid var(--line); overflow: visible; }
+  .tab-list .tab { flex: 1 1 0; padding: 11px 4px; border-bottom: 0; border-radius: 8px; text-align: center; }
+  .tab-list .tab.is-active { background: #16294a; }
+  .tab-long, .tab-list .tab[data-tab="design"] { display: none; }
+  .tab-short { display: inline; }
+  body { padding-bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .tabs { padding-top: 8px; }
+  #view-overview:not([hidden]) { display: flex; flex-direction: column; }
+  #view-overview .inbox { order: -1; border-top: 0; }
+  #view-overview:not(.shows-more) #today, #view-overview:not(.shows-more) #folders { display: none; }
+  /* A step's state under its title, so the title keeps the width ("Needs your attention" is a long label). */
+  .step-row { grid-template-columns: 46px minmax(0, 1fr); row-gap: 4px; }
+  .step-row .step-state { grid-column: 2; }
+  .phone-more { display: block; width: 100%; margin: 4px 0 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+}

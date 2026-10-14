@@ -13,8 +13,8 @@
   <button class="update-note" id="update-note" type="button" hidden></button>
   <nav class="tabs" aria-label="Views">
     <div class="tab-list">
-      <button class="tab is-active" type="button" data-tab="overview">Overview</button>
-      <button class="tab" type="button" data-tab="advice">Advice &amp; Chat</button>
+      <button class="tab is-active" type="button" data-tab="overview"><span class="tab-long">Overview</span><span class="tab-short">Today</span></button>
+      <button class="tab" type="button" data-tab="advice"><span class="tab-long">Advice &amp; Chat</span><span class="tab-short">Advisor</span></button>
       <button class="tab" type="button" data-tab="coordinate">Backlog</button>
       <button class="tab" type="button" data-tab="design">Design</button>
     </div>
@@ -39,6 +39,7 @@
         <div class="workers-columns" id="workers-columns" aria-hidden="true"><span>Worker</span><span>Current task</span><span>Progress</span><span>Est. time</span><span>Queue</span><span></span></div>
         <section class="lanes" id="lanes" aria-label="Workers"></section>
       </section>
+      <button class="phone-more" id="phone-more" type="button" aria-expanded="false" aria-controls="today folders">Show the timeline and folders</button>
       <section class="panel" id="today" aria-labelledby="today-title">
         <h2 id="today-title">Timeline <small id="today-range"></small></h2>
         <div class="today">
