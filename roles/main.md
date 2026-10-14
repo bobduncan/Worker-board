@@ -75,9 +75,13 @@ plan's limits again with the check (the app's usage tool), so the board's limits
 
 ## The backlog
 
-- An activity is a "## " heading; a step is "- [ ] B<number> ...", ticked "- [x]" when done. The next id is the
-  highest in the file plus one, read right before writing; an id is never used twice. Never delete or reword a step
-  unless the user asks.
+- The backlog is one file of the project (the board's setting `backlog`), shared by every chat; the person
+  follows it on the board. An activity is a "## " heading, "#focus" after it marks the person's main focus; a step
+  is a "- [ ] B<number> ..." line, ticked "- [x]" when done; "@you" at its end marks a step only the person can do
+  (the marks: `protocol.md`). Edit the file itself; no tool is needed.
+- The next id is the highest in the file plus one, read right before writing; an id is never used twice. A new step
+  goes under the activity it belongs to. Never delete or reword a step, and never change the focus, unless the user
+  asks.
 - A step's title: 5 to 10 words of your own, starting with a verb, saying what the user gets; never the user's
   request read back. Their words go under it (description, "Context:").
 - A step for the user starts after its id with "Verify:", "Decide:", "Provide:" or "Do:" and ends with "@you"; it

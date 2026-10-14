@@ -26,8 +26,9 @@ idea becomes a picture made by Codex, optional). `DESIGN.md` is the agreed desig
 | `<project>\.claude\backlog.md` | The steps: the queue and what is yours come from it. |
 | A launch entry | `<project>\.claude\launch.json`, from which the mod starts the board. |
 
-Not needed, but used when there: the mods `backlog` (a Backlog pane) and `start-app` (a Run pane), Codex (pictures
-on the Design tab), an advisor chat. `examples\` holds a starting `config.json`, `list.json` and `backlog.md`, and
+Not needed: the Backlog mod `backlog` (B209: the board reads and ticks the backlog itself and has its own Backlog
+tab; the job texts in `roles\` tell the chats how to keep it). Used when there: the Run mod `start-app` (a Run pane
+in the app), Codex (pictures on the Design tab), an advisor chat. `examples\` holds a starting `config.json`, `list.json` and `backlog.md`, and
 the briefings for the main chat and the workers.
 
 ## From nothing to a running board
