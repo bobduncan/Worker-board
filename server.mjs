@@ -37,7 +37,7 @@ import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { findPicture } from './src/pictures.mjs'
-import { checkSay, wakeFor } from './src/say.mjs'
+import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
 import { settleByBoard } from './src/tick.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
@@ -631,7 +631,15 @@ async function main(args) {
   })
 
   if (!isDemo && historyFrom === undefined) {
-    const look = () => readState().then(state => tick(store, state, clock())).catch(() => {})
+    const look = () => readState().then(async state => {
+      await tick(store, state, clock())
+      // B124: the main chat alone in the list is asked for workers, once. Only the board that delivers asks.
+      const ask = bridgeKey === null ? null : spawnWhenAlone(state, store.outbox(), store.lines())
+      if (ask !== null) {
+        await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...ask, state: 'waiting' })
+        readState.reset()
+      }
+    }).catch(() => {})
     look()
     setInterval(look, TICK_MS)
   }

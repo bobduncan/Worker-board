@@ -4,6 +4,15 @@
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
+/** B124: why the board asks the main chat for workers, in the words it types. */
+const SPAWN_WHY = { alone: 'no worker is in the list', button: 'asked with the button' }
+
+/** B124: the word that asks the main chat for `count` workers. The main chat names, briefs and starts them. */
+const spawnWords = (to, count, why) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'spawn', count, why,
+  text: `spawn workers\nCount: ${count}\nWhy: ${SPAWN_WHY[why]}`,
+})
+
 /**
  * `body` is what the page posted; `state` is the board's state (its lanes, its advisor, its For you list).
  * Answers `{ ok: true, message }` with the parts to keep, or `{ ok: false, status, why }`.
@@ -21,9 +30,14 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (body.command !== 'prepare restart' && body.command !== 'resume' && body.command !== 'start') return refuse(400, 'No such command.')
-    if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes and starts.')
+    if (!['prepare restart', 'resume', 'start', 'spawn'].includes(body.command)) return refuse(400, 'No such command.')
+    if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+    // B124: the person asks for one more worker, or for three when there is none. One ask at a time.
+    if (body.command === 'spawn') {
+      if (state.workers?.ask?.isOpen === true) return refuse(409, 'An earlier ask for workers is still open.')
+      return { ok: true, message: spawnWords(body.to, (state.workers?.count ?? 0) === 0 ? 3 : 1, 'button') }
+    }
     // A name comes from a chat's title: it is kept to one short plain line.
     const plain = names => (names ?? []).map(name => String(name).replace(/\s+/g, ' ').trim().slice(0, 80))
     const blank = { to: body.to, ask: null, step: null, title: null, version: null, verdict: null }
@@ -70,6 +84,22 @@ export function checkSay(body, state, maxChars) {
   if (body.verdict !== undefined && body.verdict !== null) return refuse(400, 'Only work to verify is approved or rejected.')
   if (text === '') return refuse(400, 'This needs your words.')
   return { ok: true, message: { ...about, verdict: null, text } }
+}
+
+/**
+ * B124: what the board asks by itself when the main chat is alone in the list: three workers. It asks once per
+ * empty list: again only after a worker was there (the history, `lines`, holds one since that ask) and all went.
+ * Only while the main chat's chat is open, so the word is taken and not lost; an ask that is still open, also
+ * the person's, stands for it. `outbox` is everything sent, also long ago. Null when nothing is to be asked.
+ */
+export function spawnWhenAlone(state, outbox, lines) {
+  const workers = state.workers ?? null
+  const main = workers?.main ?? null
+  if (main === null || workers.count > 0 || workers.ask?.isOpen === true) return null
+  if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning !== true) return null
+  const asked = outbox.findLast(sent => sent.command === 'spawn' && sent.why === 'alone')
+  if (asked !== undefined && !lines.some(line => line.gap !== true && line.chat !== main && line.at > asked.at)) return null
+  return spawnWords(main, 3, 'alone')
 }
 
 /** The main chat is asked to start a chat at most this often. */
