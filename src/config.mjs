@@ -7,6 +7,8 @@ const DEFAULTS = {
   /** B129: the project's name, the page's title; by default the project folder's name. */
   name: '',
   project: '',
+  /** B194: the branch the project's work is merged into: its game, the one the Run game button starts. */
+  baseBranch: 'main',
   gameRepo: '',
   appSessions: '',
   transcripts: '',
@@ -56,6 +58,9 @@ const DEFAULTS = {
   morningSkipPercent: 80,
 }
 
+/** A branch's name as git allows it, plainly: letters, digits, "_", ".", "/" and "-", and no "..". */
+const BRANCH = /^(?!.*\.\.)[\w][\w./-]{0,120}$/
+
 /** A path inside a folder, written with "/": no way out of it, never absolute. */
 const INSIDE = /^(?!.*(?:^|\/)\.\.(?:\/|$))[\w.-]+(?:\/[\w .-]+)*$/
 
@@ -88,6 +93,7 @@ export function parseConfig(text, env) {
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
   config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()
+  if (typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim())) config.baseBranch = raw.baseBranch.trim()
   config.name = typeof raw.name === 'string' && raw.name.trim() !== '' ? raw.name.trim() : config.project.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
   // A shown folder is one plain folder name in the project: never a path that could lead out of it.
   if (Array.isArray(raw.pictureRoots)) config.pictureRoots = raw.pictureRoots.filter(root => typeof root === 'string' && /^[\w-][\w.-]*$/.test(root))
@@ -135,6 +141,7 @@ export function configProblem(fileText) {
   if (has('advisorReadFirst') && !(Array.isArray(raw.advisorReadFirst) && raw.advisorReadFirst.every(one => typeof one === 'string' && INSIDE.test(one)))) return wrong('advisorReadFirst', 'a list of paths inside the game, written with /')
   if (has('morningRound') && !(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
+  if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   return null
 }
 

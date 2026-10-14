@@ -106,7 +106,8 @@ the briefings for the main chat and the workers.
 
 ## Settings
 
-`config.json`, next to `server.mjs`: `project`, `gameRepo`, `appSessions` (the app's list of chats), `transcripts`,
+`config.json`, next to `server.mjs`: `name` (the board's title), `project`, `gameRepo`, `baseBranch` (the branch the
+work is merged into, "main" unless set), `appSessions` (the app's list of chats), `transcripts`,
 `port` (4310 unless set), `refreshSeconds`, `advisor` (the name of the advisor chat, "Advisor" unless set),
 `pictureRoots` (the folders of `<project>` whose pictures the board shows, `["pictures"]` unless set; the first is
 the project's own picture folder, where the board keeps the pictures pasted into Talk to Main, under `talk`) and the times

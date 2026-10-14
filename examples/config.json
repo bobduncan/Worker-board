@@ -2,6 +2,7 @@
   "name": "My Project",
   "project": "C:\\Work\\my-project",
   "gameRepo": "",
+  "baseBranch": "main",
   "appSessions": "%APPDATA%\\Claude\\claude-code-sessions",
   "transcripts": "%USERPROFILE%\\.claude\\projects\\C--Work-my-project",
   "port": 4310,

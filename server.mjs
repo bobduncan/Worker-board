@@ -368,7 +368,7 @@ async function main(args) {
     store = memoryStore()
     readRaw = () => demoSources(clock())
   } else {
-    folders = cached(() => readFolders(config.gameRepo, gitRunner()), FOLDERS_MS)
+    folders = cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS)
     branches = cached(() => branchesNow(), FOLDERS_MS)
     readRaw = () => readSources(config, folders, undefined, branches)
     if (historyFrom === undefined) {

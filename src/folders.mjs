@@ -36,7 +36,7 @@ function numberIn(text) {
  * The working folders with what git says about each. `run(args)` answers git's output, or null when git failed or
  * took too long; a null shows on the page as unknown for that one fact.
  */
-export async function readFolders(gameRepo, run) {
+export async function readFolders(gameRepo, run, base = 'main') {
   const list = await run(['-C', gameRepo, 'worktree', 'list', '--porcelain'])
   if (list === null) return null
   const folders = parseWorktrees(list)
@@ -46,7 +46,7 @@ export async function readFolders(gameRepo, run) {
   return Promise.all(folders.map(async ({ path, branch }) => {
     const [status, ahead, last] = await Promise.all([
       run(['-C', path, 'status', '--porcelain']),
-      branch === null ? null : branch === 'main' ? '0' : run(['-C', gameRepo, 'rev-list', '--count', `main..${branch}`]),
+      branch === null ? null : branch === base ? '0' : run(['-C', gameRepo, 'rev-list', '--count', `${base}..${branch}`]),
       run(['-C', path, 'log', '-1', '--format=%ct %h %s']),
     ])
     const [when = '', hash = '', ...subject] = (last ?? '').trim().split(' ')

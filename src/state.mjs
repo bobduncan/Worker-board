@@ -394,7 +394,7 @@ function answerOf(outbox, id, version = null) {
  * last said (`waits`). Once answered on the board, its card stays while the answer is on its way and a little
  * after it was typed in, although the chat no longer waits: the person sees that it arrived.
  */
-function needsOf(asks, lanes, outbox, gameOf, now) {
+function needsOf(asks, lanes, outbox, gameOf, now, base = 'main') {
   const live = lanes.filter(lane => !lane.isLeftover)
   const names = new Set(live.map(lane => lane.name))
   // Work to verify is looked at in the game: on the branch the ask names, else on main.
@@ -402,7 +402,7 @@ function needsOf(asks, lanes, outbox, gameOf, now) {
   const items = asks.map(ask => ({
     ...ask,
     version: hashOf(`${ask.title}\n${ask.text}\n${ask.at}`),
-    game: gameOf(ask.run?.branch ?? (ask.kind === 'verify' ? 'main' : null)),
+    game: gameOf(ask.run?.branch ?? (ask.kind === 'verify' ? base : null)),
     canAnswer: names.has(ask.from),
   }))
   const asked = new Set(asks.map(ask => ask.from))
@@ -604,7 +604,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   // Without such a step, a folder named after a worker ("features" for Features) is that worker's.
   const firstWord = name => name.toLowerCase().split(/[^a-z0-9]+/)[0]
-  const owner = folder => (folder.branch === 'main' ? null : ownerOf.get(folder.branch) ?? names.find(name => firstWord(name) === folder.name.toLowerCase()) ?? null)
+  const owner = folder => (folder.branch === config.baseBranch ? null : ownerOf.get(folder.branch) ?? names.find(name => firstWord(name) === folder.name.toLowerCase()) ?? null)
 
   /**
    * B113: why a queued step is not started, the first of these that holds: a limit of the plan is full, its
@@ -726,11 +726,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       run: null,
       // What to verify is in the branch the step names, else in main. A step with an address of its own is
       // about something else than the game.
-      game: step.asks === 'verify' && !/https?:\/\//.test(step.text) ? gameOf(step.branch ?? 'main') : null,
+      game: step.asks === 'verify' && !/https?:\/\//.test(step.text) ? gameOf(step.branch ?? config.baseBranch) : null,
       // B110: where an approval goes: the board ticks a step whose work is merged (`tick`); one whose branch is
       // still there, or of which the board cannot tell, goes to its worker (`worker`). The same for "Done" on a
       // step only the person could do. Null for what is neither.
-      approval: (step.asks === 'verify' || step.asks === 'do') && !isClosed ? approvalRoute(step.branch, Array.isArray(raw.branches) ? raw.branches : null) : null,
+      approval: (step.asks === 'verify' || step.asks === 'do') && !isClosed ? approvalRoute(step.branch, Array.isArray(raw.branches) ? raw.branches : null, config.baseBranch) : null,
       checks: [],
       tried: [],
       // A closed step takes no answer.
@@ -794,7 +794,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     })),
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)).map(step => ({ ...step, why: whyNot(step, null) })),
-    forYou: needsOf(asks, lanes, sent, gameOf, now),
+    forYou: needsOf(asks, lanes, sent, gameOf, now, config.baseBranch),
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
     backlog: overview(backlog, { underWay: onNow }).map(activity => ({
       ...activity,
@@ -812,12 +812,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     backlogClosed: closedForYou(backlog).map(step => stepCard(step, true)),
     // The game as it is on main, which the person can always open; with when main last changed.
     mainGame: (() => {
-      const game = gameOf('main')
-      const folder = game === null || game.path === null ? null : folders.find(one => one.branch === 'main')
+      const game = gameOf(config.baseBranch)
+      const folder = game === null || game.path === null ? null : folders.find(one => one.branch === config.baseBranch)
       return folder === null ? null : { ...game, lastCommitAt: folder.lastCommitAt ?? null, commit: folder.lastCommit ?? null }
     })(),
     // Folders no worker is named for, and whether git answered at all.
-    otherFolders: (folders ?? []).filter(folder => folder.branch !== 'main' && owner(folder) === null),
+    otherFolders: (folders ?? []).filter(folder => folder.branch !== config.baseBranch && owner(folder) === null),
+    // B194: the branch the project's work is merged into.
+    baseBranch: config.baseBranch,
     hasFolders: folders !== null,
     day: { from, to: now, until, end: hourEnd(Math.min(Math.max(until, now + config.hoursAhead * HOUR), now + 24 * HOUR)) },
     // What the history kept from before the board stopped showing a prompt's words is not shown either.

@@ -11,7 +11,7 @@ const refuse = (status, why) => ({ ok: false, status, why })
 export const pathKey = path => String(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 
 /**
- * What the page asks for: start or stop the game of the branch a request is about, or of main (`item: "main"`,
+ * What the page asks for: start or stop the game of the branch a request is about, or of the base branch (`item: "main"`,
  * the button that is always there). The page names the request; the branch and the folder come from the board's
  * own state, never from the page.
  */
@@ -23,7 +23,7 @@ export function checkGame(body, state) {
   if (body.item === 'branch') {
     const branch = typeof body.branch === 'string' && /^[\w][\w./-]{0,120}$/.test(body.branch) && !body.branch.includes('..') ? body.branch : null
     if (branch === null) return refuse(400, 'That is no branch.')
-    const folder = branch === 'main' ? state.mainGame ?? null
+    const folder = branch === (state.baseBranch ?? 'main') ? state.mainGame ?? null
       : [...(state.chats ?? []).flatMap(chat => chat.folders ?? []), ...(state.otherFolders ?? [])].find(one => one.branch === branch) ?? null
     if (folder === null || typeof folder.path !== 'string') return refuse(409, `No working folder is on the branch ${branch} now, so there is nothing to start.`)
     return { ok: true, action: body.action, branch, path: folder.path }

@@ -1321,7 +1321,7 @@ function drawMainGame(state) {
     stop.dataset.game = 'stop'
     row.append(stop)
   }
-  const facts = ['main', game.commit?.hash ?? null, game.lastCommitAt === null ? null : `last change ${ago(game.lastCommitAt, state.readAt)}`].filter(Boolean)
+  const facts = [state.baseBranch, game.commit?.hash ?? null, game.lastCommitAt === null ? null : `last change ${ago(game.lastCommitAt, state.readAt)}`].filter(Boolean)
   const note = el('small', 'run-note', facts.join(' · '))
   if (game.commit?.subject) note.title = game.commit.subject
   if (game.url !== null) {

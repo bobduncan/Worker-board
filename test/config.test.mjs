@@ -139,3 +139,29 @@ test('B129: the project\'s name is the setting "name", else the project folder\'
   assert.equal(parseConfig('{}', {}).name, '')
   assert.equal(configProblem('{"name": 5}'), '"name" must be text, not 5')
 })
+
+test('B194: the base branch is the setting baseBranch, "main" when not set; a name git would refuse is named', async () => {
+  const { configProblem } = await import('../src/config.mjs')
+  assert.equal(parseConfig('{}', {}).baseBranch, 'main')
+  assert.equal(parseConfig('{"baseBranch": " trunk "}', {}).baseBranch, 'trunk')
+  assert.equal(parseConfig('{"baseBranch": "release/1.0"}', {}).baseBranch, 'release/1.0')
+  assert.equal(configProblem('{"baseBranch": "a..b"}'), '"baseBranch" must be a branch name such as "main", not "a..b"')
+  assert.equal(configProblem('{"baseBranch": 5}'), '"baseBranch" must be a branch name such as "main", not 5')
+})
+
+test('B194: the base branch is ticked by the board, and git counts the commits ahead of it, whatever its name', async () => {
+  const { approvalRoute } = await import('../src/tick.mjs')
+  const { readFolders } = await import('../src/folders.mjs')
+  assert.equal(approvalRoute('trunk', ['trunk', 'feature/x'], 'trunk'), 'tick')
+  assert.equal(approvalRoute('main', ['main'], 'trunk'), 'worker')
+  assert.equal(approvalRoute('feature/x', ['trunk', 'feature/x'], 'trunk'), 'worker')
+  const asked = []
+  const run = async args => {
+    asked.push(args.join(' '))
+    if (args.includes('worktree')) return 'worktree /r/game\nHEAD a\nbranch refs/heads/trunk\n\nworktree /r/game-units\nHEAD b\nbranch refs/heads/feature/x\n'
+    return args.includes('rev-list') ? '3\n' : ''
+  }
+  await readFolders('/r/game', run, 'trunk')
+  assert.ok(asked.includes('-C /r/game rev-list --count trunk..feature/x'), asked.join('\n'))
+  assert.ok(!asked.some(line => line.includes('trunk..trunk')))
+})

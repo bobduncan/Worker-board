@@ -56,13 +56,13 @@ export function approvalLine(now, note = '', verdict = 'approve') {
 
 /**
  * Where the person's approval of a backlog step goes (and their "Done" on a step only they could do). `tick`: the board ticks it, because its work is merged: the
- * step names no branch, or main, or a branch that is in none of the repositories any more. `worker`: its branch is
+ * step names no branch, or the base branch (`base`, the setting baseBranch), or a branch that is in none of the repositories any more. `worker`: its branch is
  * still there, so the worker merges; or the board cannot tell (`branches` is null: git did not answer), and then
  * the approval goes to the worker as before, never lost. `branches` are the local branches of the repositories
  * the board knows.
  */
-export function approvalRoute(branch, branches) {
-  if (branch === null || branch === undefined || branch === 'main') return 'tick'
+export function approvalRoute(branch, branches, base = 'main') {
+  if (branch === null || branch === undefined || branch === base) return 'tick'
   if (!Array.isArray(branches)) return 'worker'
   return branches.includes(branch) ? 'worker' : 'tick'
 }
@@ -137,7 +137,7 @@ export async function settleByBoard(message, state, { canWrite, file, branchesNo
   if (canWrite !== true || WORDS[message.verdict] === undefined || typeof message.step !== 'string') return null
   const item = (state.backlogForYou ?? []).find(need => need.id === message.ask)
   if (item === undefined || item.approval !== 'tick' || item.kind !== (message.verdict === 'done' ? 'do' : 'verify')) return null
-  if (approvalRoute(item.branch, await branchesNow().catch(() => null)) !== 'tick') return null
+  if (approvalRoute(item.branch, await branchesNow().catch(() => null), state.baseBranch) !== 'tick') return null
   const done = await writeTick(file, message.step, approvalLine(now, message.text, message.verdict), fs)
   if (!done.ok) return done.why === 'write' ? null : { ok: false, status: 409, why: 'That step is ticked already, or no longer on the backlog.' }
   const text = await fs.readFile(file).then(bytes => bytes.toString('utf8'), () => '')
