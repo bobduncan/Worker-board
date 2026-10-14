@@ -96,6 +96,17 @@ preferably as a popup in the board to verify. same with the game not a feature b
   board: `#picture=` shows the popup, `#play=` turns that tab into the game. Only a branch a working folder holds is
   started, and the start goes through the board's own page with its token, like every other.
 
+**The Backlog tab (B155).** The tab that was called Coordinate is called Backlog (`#backlog`; `#coordinate` still
+opens it). At its top it lists the last 20 finished steps, newest first: when, the step's id and title, who finished
+it, and where the time comes from; a click opens the step's window. The person, 2026-10-14: "i want a chronological
+list of backlog items that were recently finish desc, so latest items first. this will allow to to verify what the
+last 20 items were that were picked up and are done." The backlog holds no time for a tick, so `src/finished.mjs`
+takes the first of: a line under the step that says it was approved, done or closed with a time; the last report to
+the main chat that is about the step (the first step its first line names, read from the main chat's transcript);
+the moment the board first saw the step ticked, kept in `data/finished.json` from 2026-10-14 on (shown with "≈");
+a line with only the day. A step none of these gives a time for is left out. The picture:
+`art-inbox/worker-board/b155/2026-10-14-b155-backlog-tab.png`.
+
 **The Design tab's page (B99).** A fourth tab, after the person's layout A
 (`art-inbox/worker-board/design-tab/2026-10-12-design-tab-a-side-by-side.png`): three parts side by side and "Ideas
 so far" along the bottom. 1 New idea: the idea, what it is about (the kinds the board names), reference pictures of
