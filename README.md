@@ -114,7 +114,8 @@ a Vite game, `run-game.mjs`; none unless set), `appSessions` (the app's list of 
 `port` (4310 unless set), `refreshSeconds`, `advisor` (the name of the advisor chat, "Advisor" unless set),
 `pictureRoots` (the folders of `<project>` whose pictures the board shows, `["pictures"]` unless set; the first is
 the project's own picture folder, where the board keeps the pictures pasted into Talk to Main, under `talk`) and the times
-in `src/config.mjs`. `design.json`: what the Design tab tells Codex per kind of idea.
+in `src/config.mjs`. `designKinds` (`.claude/design.json` unless set): the project's file of what the Design tab tells Codex per kind of
+idea, and its reference pictures; `examples\design.json` shows one.
 
 `<project>\.claude\chats\list.json`: `prefix` and `main` (the main chat's title is the two together), `boards` (the
 launch entries the mod keeps running) and `compactAbove` (a worker larger than this many tokens is compacted after
@@ -185,8 +186,8 @@ project's backlog, part of B126 (the board for any project).
 6. Done: with `gameRepo` empty there is no game (B132): no "Run game", no "Open the game" and no play links, and the
    board never takes its own folder for the game. The base branch is the setting `baseBranch` (B194), and how a game
    starts the setting `runGame` (B197), with `run-game.mjs` (Vite) as the example.
-7. `design.json` holds Lava Tactics' words and reference pictures for all four kinds of idea, and a path that takes
-   the board to be in `<project>\worker-board`. B133
+7. Done (B133): the Design tab's kinds of idea and reference pictures are the project's own file (`designKinds`);
+   without one the tab says what it needs. Still fixed: its ideas folder (`art-inbox/ideas`), B198.
 8. `transcripts` has to be looked up by hand (step 5); the board could work it out from `project`. B134
 9. Windows only as written: `%NAME%` in paths, the app's folders under `%APPDATA%\Claude` (for the Store app
    only as the app's own programs see it; the real folder is in its package folder, step 7), backslashes in

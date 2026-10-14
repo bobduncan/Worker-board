@@ -39,8 +39,11 @@ test('the settings: kinds with their opening words and reference pictures; what 
   assert.equal(parseDesignSettings('{"seconds":5}').seconds, 240)
 })
 
-test('the settings that come with the board name the four kinds of the design', async () => {
-  const settings = parseDesignSettings(await readFile(join(HERE, '..', 'design.json'), 'utf8'))
+test('B133: the example kinds name no project, and the demo has its made-up four', async () => {
+  const example = parseDesignSettings(await readFile(join(HERE, '..', 'examples', 'design.json'), 'utf8'))
+  assert.deepEqual(example.kinds.map(kind => [kind.id, kind.name, kind.references.length]), [['screen', 'Screen', 0], ['art', 'Art', 0]])
+  assert.ok(example.kinds.every(kind => kind.opening.length > 80))
+  const settings = parseDesignSettings(await readFile(join(HERE, '..', 'fixtures', 'demo-design.json'), 'utf8'))
   assert.deepEqual(settings.kinds.map(kind => [kind.id, kind.name]), [['screen', 'Game screen'], ['art', 'Unit or art'], ['level', 'Level'], ['board', 'Worker board']])
   assert.ok(settings.kinds.every(kind => kind.opening.length > 80 && kind.references.length > 0))
 })

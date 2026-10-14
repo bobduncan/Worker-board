@@ -1,0 +1,18 @@
+{
+  "seconds": 240,
+  "codex": "",
+  "kinds": [
+    {
+      "id": "screen",
+      "name": "Screen",
+      "opening": "Make a design picture of one screen of the project as it would look in use: the whole screen, its main controls and readable text, in the project's own style.",
+      "references": []
+    },
+    {
+      "id": "art",
+      "name": "Art",
+      "opening": "Make a concept picture of one piece of art for the project, such as a character, an object or an icon, on a plain background, in the project's own style.",
+      "references": []
+    }
+  ]
+}

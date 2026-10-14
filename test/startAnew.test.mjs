@@ -79,7 +79,7 @@ test('stopping the keeper stops the board it runs', () => {
 
 test('a change under public is the page\'s, the server\'s own files are the server\'s, the rest is neither', () => {
   for (const path of ['public/board.js', 'public/index.html', 'public/board.css']) assert.equal(kindOf(path), 'page', path)
-  for (const path of ['server.mjs', 'run-game.mjs', 'src/state.mjs', 'src/deep/x.mjs', 'config.json', 'design.json']) assert.equal(kindOf(path), 'server', path)
+  for (const path of ['server.mjs', 'run-game.mjs', 'src/state.mjs', 'src/deep/x.mjs', 'config.json']) assert.equal(kindOf(path), 'server', path)
   for (const path of ['README.md', 'DESIGN.md', 'test/x.test.mjs', 'fixtures/demo.mjs', 'design/a.webp', '']) assert.equal(kindOf(path), null, path)
 })
 

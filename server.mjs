@@ -418,7 +418,9 @@ async function main(args) {
 
   // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
-  const settings = parseDesignSettings(await readFile(join(HERE, 'design.json'), 'utf8').catch(() => ''))
+  // B133: the kinds of idea are the project's own (the setting designKinds); the demo has its made-up ones.
+  const kindsFile = isDemo ? join(HERE, 'fixtures', 'demo-design.json') : config.project === '' ? null : join(config.project, ...config.designKinds.split('/'))
+  const settings = parseDesignSettings(kindsFile === null ? '' : await readFile(kindsFile, 'utf8').catch(() => ''))
   const ideas = isDemo ? ideasOver((await import('./fixtures/demo.mjs')).demoIdeas(clock())) : await ideasFile(join(HERE, 'data', 'ideas.json'))
   const codex = isDemo ? null : await findCodex({ given: settings.codex })
   const inProject = (project, path) => join(project, ...path.split('/'))
@@ -432,8 +434,9 @@ async function main(args) {
   }, 60_000)
   const canMake = !isDemo && codex !== null && settings.kinds.length > 0 && config.project !== ''
   const whyNoPicture = isDemo ? 'This is the demo: it makes no picture.'
-    : settings.kinds.length === 0 ? 'design.json names no kinds of idea.'
-      : codex === null ? 'Codex was not found on this PC (see "codex" in design.json).' : 'config.json names no project.'
+    : kindsFile === null ? 'config.json names no project.'
+      : settings.kinds.length === 0 ? `${kindsFile} names no kinds of idea: copy examples/design.json there and write the project's own.`
+        : codex === null ? `Codex was not found on this PC (see "codex" in ${kindsFile}).` : 'config.json names no project.'
   /** What a picture took lately, for the page's "about a minute". */
   const typicalSeconds = () => {
     const took = ideas.all().flatMap(idea => idea.versions).filter(version => version.state === 'done' && Number.isFinite(version.seconds)).map(version => version.seconds).sort((a, b) => a - b)

@@ -173,3 +173,10 @@ test('B197: the game\'s start command is the setting runGame, none by default; a
   assert.equal(configProblem('{"runGame": "npm run dev"}'), '"runGame" must be a list of words, the program first, not "npm run dev"')
   assert.equal(configProblem('{"runGame": ["node", ""]}'), '"runGame" must be a list of words, the program first, not ["node",""]')
 })
+
+test('B133: the Design tab\'s kinds are the project\'s file designKinds, inside the project', async () => {
+  const { configProblem } = await import('../src/config.mjs')
+  assert.equal(parseConfig('{}', {}).designKinds, '.claude/design.json')
+  assert.equal(parseConfig('{"designKinds": "design/kinds.json"}', {}).designKinds, 'design/kinds.json')
+  assert.equal(configProblem('{"designKinds": "../kinds.json"}'), '"designKinds" must be a path inside its folder, written with /, not "../kinds.json"')
+})

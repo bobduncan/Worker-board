@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 /** What a changed file of the board's folder is: the page's (`page`), the server's (`server`), or neither (null). */
 export function kindOf(path) {
   if (path.startsWith('public/')) return 'page'
-  if (path === 'server.mjs' || path === 'run-game.mjs' || path === 'config.json' || path === 'design.json' || path.startsWith('src/')) return 'server'
+  if (path === 'server.mjs' || path === 'run-game.mjs' || path === 'config.json' || path.startsWith('src/')) return 'server'
   return null
 }
 
