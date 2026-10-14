@@ -117,13 +117,39 @@ test('B235: one line under a worker\'s name says it was compacted and from what 
   const part = {}
   vm.runInNewContext(`${script.slice(script.indexOf('// lanewindow:start'), script.indexOf('function laneWindowOf'))}\nObject.assign(this, { compactionLine })`, part)
   const at = '16:40'
-  assert.deepEqual({ ...part.compactionLine({ kind: 'compacted', at: 1, before: 820000, after: 95000 }, () => at) }, { text: 'compacted at 16:40, from 820k to 95k tokens', isSkipped: false })
-  assert.deepEqual({ ...part.compactionLine({ kind: 'skipped', at: 1, why: 'its turn was still running' }, () => at) }, { text: 'not compacted at 16:40: its turn was still running', isSkipped: true })
+  const done = text => ({ text, title: text, isWarning: false })
+  assert.deepEqual({ ...part.compactionLine({ kind: 'compacted', at: 1, before: 820000, after: 95000 }, () => at) }, done('compacted at 16:40, from 820k to 95k tokens'))
   assert.equal(part.compactionLine(null, () => at), null)
   // B247: a size after of 0 (or none) is not known yet: only the size before is said.
   for (const after of [0, null]) {
-    assert.deepEqual({ ...part.compactionLine({ kind: 'compacted', at: 1, before: 349824, after }, () => at) }, { text: 'compacted at 16:40, from 350k tokens', isSkipped: false })
+    assert.deepEqual({ ...part.compactionLine({ kind: 'compacted', at: 1, before: 349824, after }, () => at) }, done('compacted at 16:40, from 350k tokens'))
   }
+})
+
+test('B248: why a worker was not compacted, in plain words: grey when all is well, yellow only for a real failure, the mod\'s words in the tooltip', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const part = {}
+  vm.runInNewContext(`${script.slice(script.indexOf('// lanewindow:start'), script.indexOf('function laneWindowOf'))}\nObject.assign(this, { compactionLine })`, part)
+  const line = why => {
+    const said = part.compactionLine({ kind: 'skipped', at: 1, why }, () => '16:40')
+    return said === null ? null : [said.text, said.isWarning, said.title]
+  }
+  const tip = why => `Workers mod at 16:40: ${why}`
+  // What the mod says when all is as it should be.
+  assert.deepEqual(line('it is small enough'), ['small, no compaction needed', false, tip('it is small enough')])
+  assert.deepEqual(line('switched off in the list of chats'), ['compaction switched off', false, tip('switched off in the list of chats')])
+  assert.deepEqual(line('its last task is not reported yet'), ['not compacted: its task is not reported yet', false, tip('its last task is not reported yet')])
+  assert.deepEqual(line('more of the same work follows'), ['not compacted: more of the same work follows', false, tip('more of the same work follows')])
+  assert.deepEqual(line('compacting with /compact once this chat is idle'), ['compaction on its way', false, tip('compacting with /compact once this chat is idle')])
+  assert.equal(line('the main chat is not compacted this way'), null)
+  // What went wrong, and for an old mod what fixes it.
+  const old = 'folder-branches: $.session.compact: not available in a headless (-p / SDK) session yet: compaction here runs inside a turn (a /compact prompt); catch it and carry on'
+  assert.deepEqual(line(old), ['not compacted: needs a restart of the app for the new Workers mod', true, tip(old)])
+  assert.deepEqual(line('its size is not known'), ['not compacted: its size could not be read', true, tip('its size is not known')])
+  assert.deepEqual(line("the list of chats or this chat's card could not be read"), ['not compacted: its card could not be read', true, tip("the list of chats or this chat's card could not be read")])
+  assert.deepEqual(line('/compact did not run: busy'), ['not compacted: the compaction did not run', true, tip('/compact did not run: busy')])
+  assert.deepEqual(line('something new went wrong'), ['not compacted: the Workers mod hit a problem', true, tip('something new went wrong')])
 })
 
 test('B247: a quiet lane whose step has no answer says how long, and that it may wait for your approval in its chat', async () => {

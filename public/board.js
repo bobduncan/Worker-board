@@ -695,8 +695,8 @@ function drawLane(lane, state) {
   // B235: whether the Workers mod compacted it after its last report, or why not.
   const compacted = compactionLine(lane.compaction ?? null, clock)
   if (compacted !== null) {
-    const note = el('small', `compaction${compacted.isSkipped ? ' is-skipped' : ''}`, compacted.text)
-    note.title = compacted.text
+    const note = el('small', `compaction${compacted.isWarning ? ' is-warning' : ''}`, compacted.text)
+    note.title = compacted.title
     names.append(note)
   }
   // B143: a worker can be removed; the main chat cannot. The board asks the main chat, which closes the worker.
@@ -2106,13 +2106,40 @@ function drawReferences(shown) {
 /** B235: a size in tokens, short: 820000 is "820k". */
 const tokensOf = count => (Number.isFinite(count) ? (count >= 1000 ? `${Math.round(count / 1000)}k` : String(count)) : null)
 
-/** B235: the one line on whether the Workers mod compacted a worker after its last report, or why not; null without. */
+/**
+ * B248: why the Workers mod did not compact a worker, in plain words: the first whose pattern fits its reason. `null`
+ * words are not shown (the main chat is never compacted this way); `isWarning` only for a real failure. A reason
+ * the board does not know is a failure too.
+ */
+const NOT_COMPACTED = [
+  [/main chat/, null, false],
+  [/small enough/, 'small, no compaction needed', false],
+  [/switched off/, 'compaction switched off', false],
+  [/not reported yet/, 'not compacted: its task is not reported yet', false],
+  [/more of the same work/, 'not compacted: more of the same work follows', false],
+  [/compacting with \/compact once/, 'compaction on its way', false],
+  // Mod 0.9.0 could not compact in the app's chats; a chat gets the newer one only when the app starts anew.
+  [/headless|\$\.session\.compact/, 'not compacted: needs a restart of the app for the new Workers mod', true],
+  [/size is not known/, 'not compacted: its size could not be read', true],
+  [/could not be read/, 'not compacted: its card could not be read', true],
+  [/^\/compact did not run/, 'not compacted: the compaction did not run', true],
+  [/(?:)/, 'not compacted: the Workers mod hit a problem', true],
+]
+
+/**
+ * B235: the one line on whether the Workers mod compacted a worker after its last report, or why not; null without.
+ * B248: the mod's own words, with the time, in its tooltip (`title`).
+ */
 function compactionLine(compaction, clockOf) {
   if (compaction === null || compaction === undefined) return null
-  if (compaction.kind === 'skipped') return { text: `not compacted at ${clockOf(compaction.at)}: ${compaction.why}`, isSkipped: true }
+  if (compaction.kind === 'skipped') {
+    const [, words, isWarning] = NOT_COMPACTED.find(([pattern]) => pattern.test(compaction.why))
+    return words === null ? null : { text: words, title: `Workers mod at ${clockOf(compaction.at)}: ${compaction.why}`, isWarning }
+  }
   // B247: an after of 0 is not known yet (the mod writes it before the size is known): only the size before is said.
   const [before, after] = [tokensOf(compaction.before), compaction.after > 0 ? tokensOf(compaction.after) : null]
-  return { text: `compacted at ${clockOf(compaction.at)}${before === null ? '' : `, from ${before}${after === null ? '' : ` to ${after}`} tokens`}`, isSkipped: false }
+  const text = `compacted at ${clockOf(compaction.at)}${before === null ? '' : `, from ${before}${after === null ? '' : ` to ${after}`} tokens`}`
+  return { text, title: text, isWarning: false }
 }
 
 const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off' }
