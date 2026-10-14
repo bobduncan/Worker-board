@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -15,15 +15,11 @@ async function folder(t) {
   return dir
 }
 
-/** The board's own run folders under the temporary folder, to see that none is left behind. */
-const runFolders = async () => (await readdir(tmpdir())).filter(name => name.startsWith('worker-board-design-'))
-
 test('a picture is made in a folder of its own and copied where it belongs, with its words beside it', async t => {
   const out = await folder(t)
   const log = join(out, 'log.json')
   process.env.FAKE_CODEX_LOG = log
   t.after(() => { delete process.env.FAKE_CODEX_LOG })
-  const before = await runFolders()
   const made = await makePicture({ command: FAKE, prompt: 'A shop screen\n', images: ['C:\\ref\\one.png', 'C:/ref/two.png'], to: join(out, 'ideas', 'shop', 'v1.png'), seconds: 20 })
   assert.equal(made.ok, true)
   assert.ok(Number.isInteger(made.seconds))
@@ -38,8 +34,9 @@ test('a picture is made in a folder of its own and copied where it belongs, with
   assert.equal(seen.told, 'A shop screen\n')
   assert.ok(seen.args[2].includes('worker-board-design-'))
   assert.equal(seen.args.at(-1), '-')
-  // Its folder is gone again.
-  assert.deepEqual(await runFolders(), before)
+  // Its folder is gone again. B166: the very folder it was started in, not "no such folder in the temporary
+  // folder": that one is shared, and another run of these tests, or the board making a picture, has its own there.
+  await assert.rejects(stat(seen.args[2]), { code: 'ENOENT' })
 })
 
 test('when Codex makes no picture the reason is said, and nothing is kept', async t => {
