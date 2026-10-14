@@ -25,9 +25,8 @@ const KINDS = {
 const IN_SCOPE = /^(?:server\.mjs|run-game\.mjs|config\.json|design\.json|src\/|public\/|roles\/|examples\/)/
 
 /** The ties known on 2026-10-14 (main a8ea248): file, kind, how many, and the plan's part that removes them. */
-const KNOWN = [
-  ['examples/main-briefing.md', 'folder', 2, 4],
-]
+// Empty since B202 (2026-10-14): every known tie is gone. It stays empty.
+const KNOWN = []
 
 function tiesNow() {
   const files = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n')

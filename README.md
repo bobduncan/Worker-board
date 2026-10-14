@@ -52,8 +52,8 @@ the briefings for the main chat and the workers.
    `/reload-plugins` does not do it. → a new chat has the command `/workers`.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `backlog.md`, `main-briefing.md` and `worker-briefing.md`; in the two briefings
-   replace `<project>`, `<prefix>` and `<repository>`. The worker briefing holds only the project's own facts: a
-   worker's general job is `roles\worker.md`, the words the board reads are in `roles\protocol.md`. → `<project>\.claude\chats\list.json` names your prefix.
+   replace `<project>`, `<prefix>` and `<repository>`. The two briefings hold only the project's own facts: the
+   general jobs are `roles\main.md` and `roles\worker.md`, the words the board reads are in `roles\protocol.md`. → `<project>\.claude\chats\list.json` names your prefix.
 5. **The main chat.** In the Claude app, start a new chat in the folder `<project>`, name it `<prefix>Main` (the
    prefix and the main chat's name from `list.json`), and send it: "Read .claude\main-briefing.md and join the list
    of chats as the main chat." → `/workers` shows "Main" as the main chat, and `%USERPROFILE%\.claude\projects\`
