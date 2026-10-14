@@ -1,7 +1,7 @@
 // The paths that differ per machine, from config.json next to the server.
 
 import { constants } from 'node:fs'
-import { access, copyFile, readFile } from 'node:fs/promises'
+import { access, copyFile, readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const DEFAULTS = {
@@ -195,11 +195,35 @@ export async function firstStart(file, template) {
     + 'then start the board again.'
 }
 
+const isFolder = path => stat(path).then(info => info.isDirectory(), () => false)
+
+/**
+ * B135: the Claude app's own folder, where it keeps its list of chats (`claude-code-sessions`) and its usage file
+ * (`plan-usage-history.json`): the first place the app uses on this system that holds the list of chats, or null.
+ * Windows: `%APPDATA%\Claude`, which the Microsoft Store app shows only to programs it starts itself; a board started
+ * elsewhere finds the Store app's real folder, `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`. A Mac:
+ * `~/Library/Application Support/Claude`. Linux: `~/.config/Claude`.
+ */
+export async function appFolder(env, platform = process.platform, { list = readdir, there = isFolder } = {}) {
+  const byUpper = new Map(Object.entries(env).map(([name, value]) => [name.toUpperCase(), value]))
+  const [roaming, local, home] = ['APPDATA', 'LOCALAPPDATA', 'HOME'].map(name => byUpper.get(name) ?? '')
+  const places = []
+  if (platform === 'win32') {
+    if (roaming !== '') places.push(join(roaming, 'Claude'))
+    if (local !== '') {
+      const packages = await list(join(local, 'Packages')).catch(() => [])
+      for (const name of packages.filter(one => /^Claude_/i.test(one))) places.push(join(local, 'Packages', name, 'LocalCache', 'Roaming', 'Claude'))
+    }
+  } else if (home !== '') places.push(platform === 'darwin' ? join(home, 'Library', 'Application Support', 'Claude') : join(home, '.config', 'Claude'))
+  for (const place of places) if (await there(join(place, 'claude-code-sessions'))) return place
+  return null
+}
+
 /** A settings file the board cannot run on: its message is the one line the board says before it stops. */
 export class BrokenConfig extends Error {}
 
 /** The settings in `file`. A broken file throws `BrokenConfig`; a missing one leaves the defaults (B127 takes that). */
-export async function loadConfig(file, env = process.env) {
+export async function loadConfig(file, env = process.env, platform = process.platform) {
   let text = null
   try {
     text = await readFile(file, 'utf8')
@@ -208,5 +232,22 @@ export async function loadConfig(file, env = process.env) {
   }
   const problem = text === null ? null : configProblem(text)
   if (problem !== null) throw new BrokenConfig(`The worker board's settings file ${file} is broken: ${problem}. Fix it and start the board again.`)
-  return parseConfig(text ?? '', env)
+  const config = parseConfig(text ?? '', env)
+  // B135: the app's list of chats and its usage file, where the app keeps them on this system, when not set.
+  let raw = {}
+  try {
+    raw = JSON.parse((text ?? '{}').replace(/^\uFEFF/, '')) ?? {}
+  } catch {
+    // A file that is no JSON was refused above.
+  }
+  const isSet = key => typeof raw[key] === 'string' && raw[key].trim() !== ''
+  if (!isSet('appSessions') || !isSet('usageHistory')) {
+    const found = await appFolder(env, platform)
+    if (found !== null) {
+      if (!isSet('appSessions')) config.appSessions = join(found, 'claude-code-sessions')
+      if (!isSet('usageHistory')) config.usageHistory = join(found, 'plan-usage-history.json')
+      config.appFolder = found
+    }
+  }
+  return config
 }

@@ -73,12 +73,12 @@ the briefings for the main chat and the workers.
    `examples\config.json`, says which paths to fill in, and stops. The file stays on your PC: it is not in git. In it,
    `name` is the project's name, the board's title (left out, it is the project folder's name), `project` is
    `<project>`, `transcripts` the folder of step 5, `gameRepo` the folder of your code's git repository (empty until
-   there is one), `port` a free port. Write `\\` for every `\` in a path, or use `/`. With the app from the
-   Microsoft Store, `%APPDATA%\Claude` holds the app's files only for programs the app starts (the mod, the Run
-   pane); a board you start from your own PowerShell finds them only under the package folder: set `appSessions` to
-   `%LOCALAPPDATA%\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude-code-sessions` and
-   `usageHistory` to `plan-usage-history.json` in that same `Claude` folder. →
-   `npm start` prints `Worker board: http://127.0.0.1:<your port>/`. Ctrl+C ends it. A file that is not valid JSON,
+   there is one), `port` a free port. Write `\\` for every `\` in a path, or use `/`. The Claude app's own folder
+   (its list of chats and its usage file) the board finds by itself (B135): `%APPDATA%\Claude` on Windows, else the
+   Microsoft Store app's package folder (`%LOCALAPPDATA%\Packages\Claude_...\LocalCache\Roaming\Claude`, which a board
+   started from your own PowerShell needs), `~/Library/Application Support/Claude` on a Mac; set `appSessions` and
+   `usageHistory` only when they lie elsewhere. → `npm start` prints `Worker board: http://127.0.0.1:<your port>/`
+   and, under it, which folder of the app's chats it reads. Ctrl+C ends it. A file that is not valid JSON,
    or holds a setting of the wrong kind, stops the board with one line that names the file, what is wrong and
    where (for example "not valid JSON at line 3, column 14", or `"port" must be a number above 0`).
 8. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
