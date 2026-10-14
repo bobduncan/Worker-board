@@ -293,7 +293,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .worker-icon svg { width: 27px; height: 27px; }
 .worker-icon.is-working { color: var(--working); }
 .worker-icon.is-waiting { color: var(--waiting); }
-.worker-icon.is-free { color: var(--free); }
+.worker-icon.is-free { color: #7fb0ff; }
 .worker-icon.is-suspended { color: var(--suspended); }
 .worker-icon.is-interrupted { color: var(--warn); }
 .workers-panel .pill { padding: 2px 9px; border-radius: 6px; font-size: 12.5px; font-weight: 600; background: rgba(91, 103, 121, 0.22); color: #aab4c3; box-shadow: inset 0 0 0 1px rgba(91, 103, 121, 0.5); }

@@ -25,7 +25,7 @@ test('the lanes sit in one panel with its name, the add button and the columns n
 test('each worker\'s icon takes the colour of its state, the one its pill names', () => {
   assert.match(script, /el\('span', `worker-icon is-\$\{lane\.isLeftover \? 'leftover' : lane\.state\}`\)/)
   assert.match(script, /sign\.append\(icon\('chat'\)\)/)
-  const colours = { working: 'var(--working)', waiting: 'var(--waiting)', free: 'var(--free)', suspended: 'var(--suspended)', interrupted: 'var(--warn)' }
+  const colours = { working: 'var(--working)', waiting: 'var(--waiting)', free: '#7fb0ff', suspended: 'var(--suspended)', interrupted: 'var(--warn)' }
   for (const [state, colour] of Object.entries(colours)) {
     assert.ok(style.includes(`.worker-icon.is-${state} { color: ${colour}; }`), state)
     assert.match(style, new RegExp(`\\.workers-panel \\.pill\\.is-${state} \\{[^}]*color: ${colour.replace(/[()-]/g, '\\$&')}`), state)
