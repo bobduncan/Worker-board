@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
-import { loadConfig } from './src/config.mjs'
+import { BrokenConfig, configProblem, loadConfig } from './src/config.mjs'
 import { IDEAS_FOLDER, REFERENCES_FOLDER, REFERENCE_BYTES, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
@@ -276,7 +276,12 @@ const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) 
 
 async function main(args) {
   const isDemo = args.includes('--demo')
-  const config = await loadConfig(join(HERE, 'config.json'))
+  // B128: a broken settings file stops the board with one line, instead of a board on the wrong defaults.
+  const config = await loadConfig(join(HERE, 'config.json')).catch(error => {
+    if (!(error instanceof BrokenConfig)) throw error
+    console.error(error.message)
+    process.exit(1)
+  })
   // The board in the main folder keeps the configured port; a copy in another folder has its own; `--port 4311`
   // wins over both.
   // The port of the board that records, as the file names it: a second board points the person there.
@@ -597,6 +602,9 @@ async function main(args) {
     // B142: started anew on the person's click, once the version its folder holds loads.
     restart: async () => {
       if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
+      // B128: a new start on a broken settings file would stop the board: this one keeps running instead.
+      const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, () => null)
+      if (settings !== null) return { ok: false, status: 409, why: `The settings file config.json is broken: ${settings}. Fix it first; this board keeps running.` }
       const check = await loads(join(HERE, 'server.mjs'))
       if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }
       return { ok: true, result: { at: clock() }, after: () => process.exit(START_ANEW) }

@@ -65,7 +65,7 @@ export function expandEnv(text, env) {
 export function parseConfig(text, env) {
   let raw = {}
   try {
-    const parsed = JSON.parse(text)
+    const parsed = JSON.parse(text.replace(/^\uFEFF/, ''))
     if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) raw = parsed
   } catch {
     // Not JSON: the defaults stand, and the page shows every source as unknown.
@@ -96,12 +96,53 @@ export function parseConfig(text, env) {
   return config
 }
 
+/** The place of a JSON error's position in the text: " at line 3, column 14", or "". */
+function whereIn(text, error) {
+  const at = Number(error.message.match(/position (\d+)/)?.[1])
+  if (!Number.isFinite(at)) return ''
+  const before = text.slice(0, at).split('\n')
+  return ` at line ${before.length}, column ${before.at(-1).length + 1}`
+}
+
+/**
+ * B128: what is wrong with a settings file's text, as one line, or null. A file that is no JSON, or a setting of the
+ * wrong kind, is named: the board stops on it instead of quietly running on its defaults. Settings it does not know
+ * are left alone.
+ */
+export function configProblem(fileText) {
+  const text = fileText.replace(/^\uFEFF/, '')
+  let raw
+  try {
+    raw = JSON.parse(text)
+  } catch (error) {
+    return `it is not valid JSON${whereIn(text, error)}: ${error.message.replace(/ in JSON at position \d+.*$/, '')}`
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return 'it must hold one object, { ... }'
+  const has = key => Object.hasOwn(raw, key)
+  const wrong = (key, wants) => `"${key}" must be ${wants}, not ${JSON.stringify(raw[key]).slice(0, 60)}`
+  for (const key of [...PATHS, 'usageHistory', 'advisor', 'advisorSuggestions']) if (has(key) && typeof raw[key] !== 'string') return wrong(key, 'text')
+  for (const key of NUMBERS) if (has(key) && !(Number.isFinite(raw[key]) && raw[key] > 0)) return wrong(key, 'a number above 0')
+  if (has('port') && !(Number.isInteger(raw.port) && raw.port <= 65535)) return wrong('port', 'a whole number from 1 to 65535')
+  for (const key of ['backlog', 'gamePlan', 'advisorDecisions']) if (has(key) && !(typeof raw[key] === 'string' && INSIDE.test(raw[key].trim()))) return wrong(key, 'a path inside its folder, written with /')
+  if (has('pictureRoots') && !(Array.isArray(raw.pictureRoots) && raw.pictureRoots.every(one => typeof one === 'string' && /^[\w-][\w.-]*$/.test(one)))) return wrong('pictureRoots', 'a list of plain folder names')
+  if (has('advisorReadFirst') && !(Array.isArray(raw.advisorReadFirst) && raw.advisorReadFirst.every(one => typeof one === 'string' && INSIDE.test(one)))) return wrong('advisorReadFirst', 'a list of paths inside the game, written with /')
+  if (has('morningRound') && !(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
+  if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
+  return null
+}
+
+/** A settings file the board cannot run on: its message is the one line the board says before it stops. */
+export class BrokenConfig extends Error {}
+
+/** The settings in `file`. A broken file throws `BrokenConfig`; a missing one leaves the defaults (B127 takes that). */
 export async function loadConfig(file, env = process.env) {
-  let text = ''
+  let text = null
   try {
     text = await readFile(file, 'utf8')
   } catch {
     // No config file: the defaults stand.
   }
-  return parseConfig(text, env)
+  const problem = text === null ? null : configProblem(text)
+  if (problem !== null) throw new BrokenConfig(`The worker board's settings file ${file} is broken: ${problem}. Fix it and start the board again.`)
+  return parseConfig(text ?? '', env)
 }

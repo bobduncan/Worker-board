@@ -73,9 +73,9 @@ the briefings for the main chat and the workers.
    pane); a board you start from your own PowerShell finds them only under the package folder: set `appSessions` to
    `%LOCALAPPDATA%\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude-code-sessions` and
    `usageHistory` to `plan-usage-history.json` in that same `Claude` folder. →
-   `node -e "JSON.parse(require('fs').readFileSync('config.json','utf8'))"` prints nothing (an error means a fault
-   in the file, and the board would silently take its defaults), and `npm start` prints
-   `Worker board: http://127.0.0.1:<your port>/`. Ctrl+C ends it.
+   `npm start` prints `Worker board: http://127.0.0.1:<your port>/`. Ctrl+C ends it. A file that is not valid JSON,
+   or holds a setting of the wrong kind, stops the board with one line that names the file, what is wrong and
+   where (for example "not valid JSON at line 3, column 14", or `"port" must be a number above 0`).
 8. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
    <project>\.claude\launch.json`. With `"boards": ["worker-board"]` in `list.json`, every chat in the list starts
    the board when it does not answer, within 15 seconds: no need to start it yourself, also after a restart.
@@ -167,8 +167,8 @@ project's backlog, part of B126 (the board for any project).
 
 1. `config.json` is in the repository with that project's paths. A clone started unchanged uses them, and on a PC
    without that folder the board makes it, to write `.claude\board.json` there (`server.mjs`). B127
-2. A `config.json` that is not valid JSON makes the board take its defaults without a word: port 4310 and no
-   project (`src/config.mjs`, `parseConfig`). It happened in the trial, through single backslashes. B128
+2. Done (B128): a `config.json` that is not valid JSON, or holds a setting of the wrong kind, stops the board with
+   one line saying what is wrong and where; the yellow note does not start a new version on such a file.
 3. The page's title is "Lava Tactics" (`public/index.html`, line 26), also in the demo. B129
 4. "Game - Main" stands in fixed words: `public/index.html` line 18, `public/board.js` line 561, `src/design.mjs`
    line 111. B130
