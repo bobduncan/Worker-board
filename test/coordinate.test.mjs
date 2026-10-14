@@ -78,8 +78,8 @@ test('the state holds the backlog for the tab: a step for the person names its c
 
 const activities = JSON.parse(JSON.stringify(overview(parsed)))
 
-test('the page has a third tab named Coordinate, with its filters in order', () => {
-  assert.match(page, /<button class="tab" type="button" data-tab="coordinate">Coordinate<\/button>/)
+test('the page has a third tab named Backlog (B155; it was Coordinate), with its filters in order', () => {
+  assert.match(page, /<button class="tab" type="button" data-tab="coordinate">Backlog<\/button>/)
   assert.match(page, /id="view-coordinate" hidden/)
   assert.deepEqual(JSON.parse(JSON.stringify(context.filters)), [['all', 'All'], ['progress', 'In progress'], ['queued', 'Queued'], ['you', 'For you'], ['unassigned', 'Without a worker']])
 })

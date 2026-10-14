@@ -14,7 +14,7 @@
   <nav class="tabs" aria-label="Views">
     <button class="tab is-active" type="button" data-tab="overview">Overview</button>
     <button class="tab" type="button" data-tab="advice">Advice &amp; Chat</button>
-    <button class="tab" type="button" data-tab="coordinate">Coordinate</button>
+    <button class="tab" type="button" data-tab="coordinate">Backlog</button>
     <button class="tab" type="button" data-tab="design">Design</button>
     <span class="grow"></span>
     <button class="quiet-button" id="prepare-restart" type="button" title="Before you quit Claude: Game - Main asks every working chat to stop at a safe point and writes down who was on what" hidden>Prepare restart</button>
@@ -92,6 +92,7 @@
           <input type="checkbox" id="coordinate-done"> Show finished
         </label>
       </header>
+      <section class="finished" id="finished" aria-labelledby="finished-title" hidden></section>
       <div class="coordinate-list" id="coordinate-list"></div>
     </main>
   </div>

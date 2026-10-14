@@ -7,6 +7,7 @@ import { allWords, closedForYou, forYou, inProgress, overview, parseBacklog, que
 import { pathKey } from './games.mjs'
 import { parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
+import { finishedList, reportsOf } from './finished.mjs'
 import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { approvalRoute } from './tick.mjs'
@@ -206,7 +207,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, reports: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -287,6 +288,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     suspended: paused,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).
     usage: entries === null ? [] : usageReadings([...(typeof tail.usage === 'string' ? parseTail(tail.usage, false) : []), ...entries]),
+    // B155: the steps the workers' reports to the main chat name, read from the main chat's own transcript.
+    reports: chat.isMain && scan !== null ? reportsOf(scan, prefix) : null,
   }
 }
 
@@ -466,7 +469,7 @@ function aheadOf(lane, now) {
  * `outbox` what was sent from the page and is not delivered yet (see store.mjs, `outboxNow`), and `runs` the
  * games the board started and that still run (see games.mjs).
  */
-export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, now, config }) {
+export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, now, config }) {
   const sent = Array.isArray(outbox) ? outbox : []
   const started = Array.isArray(runs) ? runs : []
   const list = parseList(textOr(raw.listText, ''))
@@ -523,7 +526,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     now,
     warnAt: config.limitWarnPercent,
   })
-  const cards = read.map(({ usage, ...lane }) => ({ ...lane, suspended: heldUntil(lane.suspended, limits, now) }))
+  const cards = read.map(({ usage, reports, ...lane }) => ({ ...lane, suspended: heldUntil(lane.suspended, limits, now) }))
 
   const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0 }
   for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
@@ -705,6 +708,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     estimateOldMs: config.estimateOldMinutes * MIN,
     maxMessageChars: config.maxMessageChars,
     counts,
+    // B155: the steps finished last, newest first, with when (and from where the board knows it) and who.
+    finished: finishedList(backlog, { reports: read.find(one => one.isMain)?.reports ?? new Map(), seen: finishedSeen ?? {}, prefix: list.prefix }),
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
     chats: lanes.map(lane => ({

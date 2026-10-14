@@ -38,6 +38,7 @@ import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
+import { seenTicks } from './src/finished.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
 import { settleByBoard } from './src/tick.mjs'
@@ -333,6 +334,9 @@ async function main(args) {
   let store
   let readRaw
   let readLines = raw => raw.historyLines ?? store.lines()
+  // B155: when the board first saw each step ticked, kept in its data folder from now on; null before its first look.
+  const FINISHED_FILE = join(HERE, 'data', 'finished.json')
+  let finishedSeen = {}
   if (isDemo) {
     const { demoSources } = await import('./fixtures/demo.mjs')
     store = memoryStore()
@@ -343,6 +347,7 @@ async function main(args) {
     readRaw = () => readSources(config, folders, undefined, branches)
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
+      finishedSeen = await readFile(FINISHED_FILE, 'utf8').then(text => JSON.parse(text), () => null)
     } else {
       // The history of the board that is running; this one records nothing and keeps what is sent in memory.
       store = memoryStore()
@@ -469,6 +474,7 @@ async function main(args) {
       runs: games.list(),
       board: { startedAt, offSince },
       seen,
+      finishedSeen: finishedSeen ?? {},
       now: clock(),
       config: { ...config, project },
     })
@@ -675,6 +681,13 @@ async function main(args) {
   if (!isDemo && historyFrom === undefined) {
     const look = () => readState().then(async state => {
       await tick(store, state, clock())
+      // B155: the steps it sees ticked for the first time, with when.
+      const done = (state.backlog ?? []).flatMap(activity => activity.steps).filter(step => step.status === 'done' && step.id !== null).map(step => step.id)
+      const next = seenTicks(finishedSeen, done, clock())
+      if (next !== finishedSeen) {
+        await writeFile(FINISHED_FILE, JSON.stringify(next))
+        finishedSeen = next
+      }
       // B124: the main chat alone in the list is asked for workers, once. Only the board that delivers asks.
       const ask = bridgeKey === null ? null : spawnWhenAlone(state, store.outbox(), store.lines())
       if (ask !== null) {
