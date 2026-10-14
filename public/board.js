@@ -2458,6 +2458,62 @@ function resizable(handle, view, name, usual) {
 resizable($('inbox-resizer'), $('view-overview'), 'for-you-width', 390)
 resizable($('talk-resizer'), $('view-advice'), 'chat-width', 500)
 
+// finished:start
+// B155: the steps finished last, newest first, at the top of the Backlog tab. The person, 2026-10-14: "i want a
+// chronological list of backlog items that were recently finish desc, so latest items first."
+
+const FINISHED_HOW = { line: 'its line in the backlog', report: 'its report to Game - Main', seen: 'the board saw it ticked', day: 'only the day is known' }
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * The rows of the list: when (the clock time today, the day and the time before today, only the day when that is
+ * all there is, "≈" when the board saw it ticked), the step's id and title, who finished it, and where the time
+ * comes from. `isRough` marks a time that is only roughly known.
+ */
+function finishedRows(list, now) {
+  const dayOf = at => `${new Date(at).getDate()} ${MONTH_NAMES[new Date(at).getMonth()]}`
+  const isToday = at => new Date(at).toDateString() === new Date(now).toDateString()
+  return list.map(one => ({
+    key: one.key,
+    code: one.id ?? '',
+    title: one.title,
+    when: one.how === 'day' ? dayOf(one.at) : `${one.how === 'seen' ? '≈ ' : ''}${isToday(one.at) ? '' : `${dayOf(one.at)} `}${clock(one.at)}`,
+    isRough: one.how === 'day' || one.how === 'seen',
+    who: one.by ?? '—',
+    how: FINISHED_HOW[one.how] ?? '',
+  }))
+}
+// finished:end
+
+/** B155: the list at the top of the Backlog tab. A click on a row opens the step's window, as the list below does. */
+function drawFinished(state) {
+  const box = $('finished')
+  box.hidden = !Array.isArray(state.finished)
+  if (box.hidden) return
+  const head = el('h2', '', 'Recently finished')
+  head.id = 'finished-title'
+  head.append(el('small', '', 'the last 20, newest first'))
+  const rows = finishedRows(state.finished, state.readAt)
+  if (rows.length === 0) return fill(box, [head, el('p', 'muted finished-none', 'No finished step has a time the board can find yet.')])
+  const list = el('ol', 'finished-list')
+  for (const row of rows) {
+    const item = el('li')
+    const button = el('button', 'finished-row')
+    button.type = 'button'
+    button.dataset.finished = row.key
+    button.title = 'Open the step'
+    button.append(el('span', `finished-when${row.isRough ? ' is-rough' : ''}`, row.when), el('span', 'finished-code', row.code), el('span', 'finished-title', row.title), el('span', 'finished-who', row.who), el('span', 'finished-how', row.how))
+    item.append(button)
+    list.append(item)
+  }
+  fill(box, [head, list])
+}
+
+$('finished').addEventListener('click', event => {
+  const row = event.target.closest('[data-finished]')
+  if (row !== null) openDetails({ step: row.dataset.finished })
+})
+
 // The Coordinate tab: the whole backlog by activity. It only shows; a click on a step opens its window.
 
 // B84: what the tab lists, worked out without the page. Kept between these two marks so a test can run it.
@@ -3147,7 +3203,7 @@ function show(tab) {
   $('view-design').hidden = tab !== 'design'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
-  if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) history.replaceState(null, '', tab === 'overview' ? location.pathname : `#${tab}`)
+  if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) history.replaceState(null, '', tab === 'overview' ? location.pathname : tab === 'coordinate' ? '#backlog' : `#${tab}`)
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
 }
 
@@ -3167,6 +3223,8 @@ function draw(state) {
   drawToday(state)
   once('needs', needsData(state), () => drawNeeds(state))
   once('coordinate', state.backlog ?? null, () => drawCoordinate(state))
+  // B155: today's times name no day, so the list is drawn anew when the day changes too.
+  once('finished', [state.finished ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
   drawDetails(state)
   openFromAddress(state)
   once('advice', state.advice, () => drawAdvice(state))
@@ -3340,5 +3398,5 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) read()
 })
 
-show(location.hash === '#advice' ? 'advice' : location.hash === '#coordinate' ? 'coordinate' : location.hash === '#design' ? 'design' : 'overview')
+show(location.hash === '#advice' ? 'advice' : location.hash === '#backlog' || location.hash === '#coordinate' ? 'coordinate' : location.hash === '#design' ? 'design' : 'overview')
 read()

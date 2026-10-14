@@ -3,7 +3,7 @@
 One page on your PC for a project in which several Claude chats work together: one main chat hands out the tasks,
 worker chats do them. The Overview shows a lane per chat (working, waiting for you, free; its task, step and time
 left; its queue), what waits for you with a form to answer it, and the day's timeline. Your answer is typed into the
-chat it is for. Further tabs: Advice & Chat (an advisor chat, optional), Coordinate (the whole backlog), Design (an
+chat it is for. Further tabs: Advice & Chat (an advisor chat, optional), Backlog (the whole backlog, with the steps finished last at its top), Design (an
 idea becomes a picture made by Codex, optional). `DESIGN.md` is the agreed design.
 
 ## What you need
