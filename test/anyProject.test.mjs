@@ -27,7 +27,6 @@ const IN_SCOPE = /^(?:server\.mjs|run-game\.mjs|config\.json|design\.json|src\/|
 /** The ties known on 2026-10-14 (main a8ea248): file, kind, how many, and the plan's part that removes them. */
 const KNOWN = [
   ['examples/main-briefing.md', 'folder', 2, 4],
-  ['examples/worker-briefing.md', 'folder', 1, 4],
 ]
 
 function tiesNow() {
