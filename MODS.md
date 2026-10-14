@@ -1,0 +1,72 @@
+# The mods: keep, make optional, or drop
+
+B204, 2026-10-14. An analysis, nothing built. The user's question: "can we deepdive first, maybe instead of all the
+mods try to remove 1 mod at a time. or for that with mod its better than without. it feels like an extra
+dependencies." The starting point is B146's estimate (about 8 to 10 hours to run the board without any mod).
+
+A mod is an add-on for the Claude app that the person installs once. Three are installed here: the Workers mod,
+the Backlog mod and the Run mod (start-app). Each one is weighed on its own below.
+
+## What a mod costs to keep
+
+The same for each of them:
+
+- **Installing on a new PC:** the mods come from a private GitHub repository, installed with the app's command-line
+  program, which is hard to find on a PC with the app from the Microsoft Store.
+- **A new version reaches a chat only when its process starts anew.** After an update every open chat runs the old
+  version until the app is quit and opened again.
+- **Another project's user needs them too**, so they are part of "the board for any project".
+
+## The Backlog mod
+
+- **What it gives:** a Backlog pane in the app, the commands /backlog and /todo, a tool chats use to tick a step,
+  and a note in every chat on how to keep the backlog.
+- **Without it:** the board does not use it at all. The board reads and ticks the backlog itself and has its own
+  Backlog tab; the chats edit the backlog file directly, as the board's job texts (`roles/main.md`,
+  `roles/worker.md`) already tell them. Lost: the pane inside the app and the two commands.
+- **Verdict: drop it from the board's setup.** It is already not needed: the README asks only for the Workers mod.
+  Whether the person keeps it for the pane is their own taste.
+- **Work:** about 15 minutes, documentation only: make sure the job texts carry everything its note said.
+
+## The Run mod (start-app)
+
+- **What it gives:** a Run pane that starts a folder's app from `.claude/launch.json` and the commands /launch,
+  /start, /stop-app.
+- **Without it:** the board does not use it. The board writes its own entry into `launch.json` for the app's
+  preview, and starts games itself (Run game). Lost: the Run pane inside the app.
+- **Verdict: drop it from the board's setup; keep it as a personal tool if wanted.** No work on the board.
+
+## The Workers mod (folder-branches)
+
+This one the board leans on. It is several things in one; each is weighed on its own.
+
+| Part | What it gives | Without it | A stand-in, and its cost | Verdict |
+|---|---|---|---|---|
+| The bridge | What you answer or type on the board (answers, Talk to Main, the restart, worker and queue buttons, the Design tab's step) is typed into the chat as your word, and wakes a chat that waits | Nothing outside the app can type into a chat or wake one | Copy the words and open the chat for you to paste them: a click more per answer, and an idle chat is not woken. About 2 to 3 h | **Keep, with the copy-and-open fallback** when no mod answers |
+| The cards | Each chat's topic, steps and times on its lane, with reminders when a time is missing | The lanes still show working, waiting or free (from the chats' transcripts), without the topic and the times | The chats write their card file themselves, told so in their job texts; no reminders. About 1 to 1.5 h | **Make optional:** the board reads both kinds of card |
+| Starting the board | The board starts with the first chat of the project | The person starts it by hand | A start script and a line in the README. About 1 h | **Make optional** |
+| Whether a chat runs | "Not running" on a lane, and the main chat starts such a chat | The board cannot tell a closed chat from an idle one | None on every system; drop the mark. About 30 min | **Keep with the mod only** |
+| Compacting a large worker | A worker is made smaller after it reports, so it does not slow down | Chats grow until the app compacts them in the middle of work | None | **Keep with the mod only** |
+| The panes (Workers, Git) | The list of chats and the branches inside the app | The board shows both | None needed | **Keep with the mod** |
+
+**Verdict: keep the Workers mod, but make the board work without it.** The bridge has no real stand-in, so with the
+mod the board stays better; without it the board still shows everything and asks the person to paste instead of
+typing for them.
+
+## The order, one piece at a time
+
+Each piece is merged on its own and changes nothing for a PC that has the mods.
+
+1. **The Backlog mod out of the setup** (about 15 minutes): the job texts carry its note; the README says it is
+   not needed.
+2. **The Run mod out of the setup** (no board work): the README says it is a personal tool.
+3. **Cards without the mod** (about 1 to 1.5 h): the board also reads a card the chat wrote itself; the job texts say
+   how. B177's first part.
+4. **Starting the board without the mod** (about 1 h): a start script and the README.
+5. **Answers without the mod** (about 2 to 3 h): when no mod takes the board's words, the board copies them and
+   opens the chat. B177's largest part.
+6. **"Not running" and compacting stay with the mod** (about 30 min): the board says what it cannot know without it.
+
+**In all:** about 5 to 6 hours of a worker's time, less than B146's 8 to 10, because the mod is kept and the board
+only learns to do without it. After step 5 a new project can run the board with no mod at all; installing the
+Workers mod then adds the bridge, the reminders and the compacting.
