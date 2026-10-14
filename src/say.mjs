@@ -49,6 +49,16 @@ const removeWords = (to, name, state) => ({
 })
 
 /**
+ * B181: the word that asks the main chat to hand out a step of the backlog that nobody has. The main chat picks the
+ * worker or what the step waits for, and writes the step's "(for ...)" note; the board writes nothing into the
+ * backlog. The title comes from the backlog: one plain line.
+ */
+const queueWords = (to, step) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'queue', about: step.id,
+  text: `queue step from the backlog\nStep: ${step.id} ${String(step.title ?? '').replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)}`,
+})
+
+/**
  * `body` is what the page posted; `state` is the board's state (its lanes, its advisor, its For you list).
  * Answers `{ ok: true, message }` with the parts to keep, or `{ ok: false, status, why }`.
  */
@@ -73,9 +83,18 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue'].includes(body.command)) return refuse(400, 'No such command.')
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+    // B181: a step of the backlog for the queue: one with an id that nobody has (not queued, not in progress, not
+    // finished, not the person's), read from the board's own state; the page names the step's id only. One ask at a
+    // time per step.
+    if (body.command === 'queue') {
+      const step = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).find(one => typeof one.id === 'string' && one.id === body.step)
+      if (step === undefined || step.status !== 'open') return refuse(409, 'That step is not open for the queue: it is queued, in progress, finished or yours.')
+      if (step.queueAsk?.isOpen === true) return refuse(409, 'The main chat was already asked to queue this step.')
+      return { ok: true, message: queueWords(body.to, step) }
+    }
     // B124: the person asks for one more worker, or for three when there is none. One ask at a time.
     if (body.command === 'spawn') {
       if (state.workers?.ask?.isOpen === true) return refuse(409, 'An earlier ask for workers is still open.')

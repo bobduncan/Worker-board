@@ -26,13 +26,15 @@ const SEEN_MS = 30_000
 const TYPED_MARK = /\n?\(typed on the worker board, \d{1,2}:\d{2}\)\s*$/
 const TALK_MESSAGES = 40
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog)\b/
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
 const SPAWN_OPEN_MS = 15 * MIN
 /** B143: an ask to remove a worker that arrived stays open this long while the worker is still in the list. */
 const REMOVE_OPEN_MS = 15 * MIN
+/** B181: an ask to queue a step that arrived stays open this long while the step still names no worker. */
+const QUEUE_OPEN_MS = HOUR
 /** B152: a removed worker's lane stays this long after its card said it left, saying so. */
 const REMOVED_SHOW_MS = 2 * MIN
 
@@ -335,12 +337,20 @@ function spawnAsk(message, workerChats, now) {
  * B143: the newest ask to remove a worker and how it fares. It is open while it is on its way, and after it arrived
  * for 15 minutes at most while the worker is still in the list: a worker that is gone has no lane to show it.
  */
-function removalAsk(message, now) {
+function removalAsk(message, now, openMs = REMOVE_OPEN_MS) {
   if (message === undefined) return null
   const isOnItsWay = message.state === 'waiting' || message.state === 'taken'
-  const isOpen = isOnItsWay || (message.state === 'delivered' && now - (message.deliveredAt ?? message.at) < REMOVE_OPEN_MS)
+  const isOpen = isOnItsWay || (message.state === 'delivered' && now - (message.deliveredAt ?? message.at) < openMs)
   return { at: message.at, state: message.state, isOpen }
 }
+
+/**
+ * B181: the newest ask to hand out a step of the backlog, for a step nobody has. Open while it is on its way, and
+ * after it arrived for an hour at most: the main chat writes the step's "(for ...)" note, and a queued step asks
+ * nothing more. After that hour, or when it did not arrive, the step can be asked again.
+ */
+const queueAsk = (step, sent, now) => (step.status !== 'open' || step.id === null ? null
+  : removalAsk(sent.findLast(message => message.command === 'queue' && message.about === step.id), now, QUEUE_OPEN_MS))
 
 /** How long the card of a chat's question stays after its answer was typed in. The page hides it sooner. */
 const ANSWER_KEPT_MS = 10 * MIN
@@ -762,6 +772,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         ...step,
         pictures: picturesOf(allWords(step)),
         needId: step.status !== 'you' ? null : step.id === null ? stepId(`${activity.name}\n${step.text}`) : `backlog:${step.id}`,
+        // B181: whether the main chat was asked to hand it out, for a step nobody has.
+        queueAsk: queueAsk(step, sent, now),
       })),
     })),
     // The open steps in the backlog that end in @you.

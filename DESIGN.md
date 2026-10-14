@@ -158,6 +158,13 @@ Since B179 the tab opens as one list unless this browser turned the checkbox off
 away and back with a click on its head (a button that says whether the list is open), also kept in this browser.
 The person, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
 default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.jpg`.
+A step nobody has (open, with an id: not queued, in progress, finished or the person's) has "Add to queue" at the end
+of its row and in its window's foot (B181; the person: "I want a button add to queue for the items on the
+backlog"). The board only asks: it types "queue step from the backlog" and "Step: <id> <title>" into the main chat,
+marked as typed on the worker board, and the main chat picks the worker or what the step waits for and writes its
+"(for ...)" note. Until the step is queued it says when it was asked, and the server refuses a second ask while the
+first is on its way or arrived less than an hour ago. On a narrow screen the button is in the window only. The
+picture: `art-inbox/worker-board/b181/2026-10-14-b181-add-to-queue.jpg`.
 
 **The Workers panel (B159).** After the picture the person agreed on the Design tab
 (`art-inbox/ideas/any-improvement-to-this/v2.png`; their words: "Any improvement to this to make it nicer. dont change

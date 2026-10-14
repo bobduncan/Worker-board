@@ -2270,11 +2270,14 @@ function drawDetails(state) {
     form.append(...optionChoices(need), ...answerPart(need, state, false))
     foot.append(form)
   }
+  // B181: a step of the Backlog tab that nobody has: "Add to queue" in its foot, as in its row.
+  const queue = need === null && subject.step !== undefined ? queuePart(subject.step, state, true) : null
+  if (queue !== null) foot.append(queue)
 
   const body = el('div', `details-body${right.children.length === 0 ? ' is-single' : ''}`)
   body.append(left, ...(right.children.length === 0 ? [] : [right]))
   // B157: a finished worker's window drawn anew keeps its details open when the person had opened them.
-  keepUnfolded(box, () => fill(box, need === null ? [head, body] : [head, body, foot]))
+  keepUnfolded(box, () => fill(box, need === null && queue === null ? [head, body] : [head, body, foot]))
   body.scrollTop = scroll
   refocus(box, focused)
 }
@@ -2324,6 +2327,9 @@ $('details').addEventListener('click', event => {
     ticked.set(tick.dataset.of, mine)
     return
   }
+  // B181: a step nobody has, asked for the queue from its window.
+  const queue = event.target.closest('[data-queue-step]')
+  if (queue !== null) return askQueue(queue)
   const copy = event.target.closest('[data-copy]')
   if (copy === null) return
   navigator.clipboard.writeText(copy.dataset.copy).then(() => { copy.textContent = 'Copied' }, () => { copy.textContent = 'Not copied' })
@@ -3116,6 +3122,43 @@ function coordinateList(activities, { filter = 'all', find = '', showDone = fals
 const STEP_STATES = { progress: 'In progress', queued: 'Queued', you: 'Needs your attention', open: 'Open', done: 'Finished' }
 let coordinateFilter = 'all'
 
+/**
+ * B181: a step nobody has (open, with an id) gets a button that asks the main chat to hand it out; once asked, it
+ * says when, until the main chat's note names a worker. The person, 2026-10-14: "I want a button add to queue for the
+ * items on the backlog." `isLong` gives the window's wording. Null for any other step.
+ */
+function queuePart(step, state, isLong) {
+  const main = state.workers?.main ?? null
+  if (step.status !== 'open' || typeof step.id !== 'string' || main === null) return null
+  const mainTitle = state.workers.mainTitle ?? main
+  const key = `queue:${step.id}`
+  const ask = step.queueAsk ?? null
+  if (ask?.isOpen === true) {
+    const where = ask.state === 'delivered' ? `in ${mainTitle}'s chat` : `on its way to ${mainTitle}`
+    const part = el('span', 'step-queue is-asked', isLong ? `Asked at ${clock(ask.at)}, ${where}: it shows as queued once its note names a worker.` : `Asked ${clock(ask.at)}`)
+    part.title = `Asked at ${clock(ask.at)} to hand it out, ${where}`
+    return part
+  }
+  const button = el('button', `step-queue${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Asking…' : 'Add to queue')
+  button.type = 'button'
+  button.dataset.queueStep = step.id
+  button.disabled = sending.has(key)
+  button.title = problems.get(key) ?? `Ask ${mainTitle} to hand it to a worker`
+  if (!isLong) return button
+  const line = el('div', 'step-queue-line')
+  line.append(button, el('span', 'muted', `${mainTitle} picks the worker, or what it waits for.`))
+  if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
+  return line
+}
+
+/** B181: the click on "Add to queue", in a row of the Backlog tab or in a step's window. */
+function askQueue(button) {
+  const main = board?.workers?.main ?? null
+  if (main === null) return
+  button.disabled = true
+  send({ to: main, command: 'queue', step: button.dataset.queueStep }, `queue:${button.dataset.queueStep}`)
+}
+
 function drawCoordinate(state) {
   const activities = state.backlog ?? []
   const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked })
@@ -3145,10 +3188,15 @@ function drawCoordinate(state) {
         el('span', 'step-worker', step.worker ?? (step.status === 'you' ? 'You' : '')),
         el('span', 'step-branch', step.branch ?? ''),
         el('span', `step-state is-${step.status}`, STEP_STATES[step.status] ?? step.status),
-        // Room for what B83 will put here (stop a task, move a queued step, take one out of a queue). Nothing yet.
+        // Room for what B83 will put here (stop a task, move a queued step, take one out of a queue). B181's "Add to
+        // queue" stands over it, beside the row's own button: a button holds no other.
         el('span', 'step-actions'),
       )
-      box.append(row)
+      const line = el('div', 'step-line')
+      line.append(row)
+      const queue = queuePart(step, state, false)
+      if (queue !== null) line.append(queue)
+      box.append(line)
     }
     return box
   })
@@ -3180,6 +3228,8 @@ $('coordinate-one').addEventListener('change', () => {
 })
 // A step for the person opens its card, with the answer; any other step opens as the step it is.
 $('coordinate-list').addEventListener('click', event => {
+  const queue = event.target.closest('[data-queue-step]')
+  if (queue !== null) return askQueue(queue)
   const row = event.target.closest('[data-open-step]')
   if (row === null || board === null) return
   const step = (board.backlog ?? []).flatMap(activity => activity.steps).find(one => one.key === row.dataset.openStep)
