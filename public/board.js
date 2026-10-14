@@ -2883,9 +2883,11 @@ function coordinateFinds(step, find) {
 /**
  * The tab's list: the activities in the order given (the person's focus first), each with the steps that pass the
  * filter and the search; finished steps only when asked for, and never under a filter but "All". An activity with no
- * step left is left out. `counts` says how many open steps each filter holds, whatever is searched for.
+ * step left is left out. `counts` says how many open steps each filter holds, whatever is searched for. B164: with
+ * `asOne`, every step that passes is in one group (`isOne`) without the activities, the highest id on top and a step
+ * from before the ids at the end, each with the name of its activity.
  */
-function coordinateList(activities, { filter = 'all', find = '', showDone = false } = {}) {
+function coordinateList(activities, { filter = 'all', find = '', showDone = false, asOne = false } = {}) {
   const counts = {}
   for (const [name] of COORDINATE_FILTERS) counts[name] = 0
   const groups = []
@@ -2901,7 +2903,14 @@ function coordinateList(activities, { filter = 'all', find = '', showDone = fals
     if (steps.length > 0) groups.push({ name: activity.name, isFocus: activity.isFocus, steps })
     shown += steps.length
   }
-  return { groups, counts, shown }
+  if (!asOne) return { groups, counts, shown }
+  // B164: "1 long list desc. so last item on the backlog first": by the id's number, a step without one at the end.
+  const number = step => (typeof step.id === 'string' ? Number(step.id.slice(1)) : -1)
+  const steps = groups.flatMap(group => group.steps.map(step => ({ ...step, activity: group.name })))
+    .map((step, index) => ({ step, index }))
+    .sort((a, b) => number(b.step) - number(a.step) || a.index - b.index)
+    .map(one => one.step)
+  return { groups: steps.length === 0 ? [] : [{ name: null, isFocus: false, isOne: true, steps }], counts, shown }
 }
 // coordinate:end
 
@@ -2910,7 +2919,7 @@ let coordinateFilter = 'all'
 
 function drawCoordinate(state) {
   const activities = state.backlog ?? []
-  const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked })
+  const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked })
   $('coordinate-count').textContent = `${list.counts.all} open step${list.counts.all === 1 ? '' : 's'}`
   fill($('coordinate-filters'), COORDINATE_FILTERS.map(([name, label]) => {
     const button = el('button', `choice${name === coordinateFilter ? ' is-chosen' : ''}`, `${label} `)
@@ -2920,8 +2929,8 @@ function drawCoordinate(state) {
     return button
   }))
   const groups = list.groups.map(group => {
-    const box = el('section', `coordinate-group${group.isFocus ? ' is-focus' : ''}`)
-    const heading = el('h2', '', group.name)
+    const box = el('section', `coordinate-group${group.isFocus ? ' is-focus' : ''}${group.isOne ? ' is-one' : ''}`)
+    const heading = el('h2', '', group.isOne ? 'Every step, newest first' : group.name)
     if (group.isFocus) heading.append(el('span', 'chip is-focus', 'Focus'))
     heading.append(el('small', '', String(group.steps.length)))
     box.append(heading)
@@ -2929,8 +2938,7 @@ function drawCoordinate(state) {
       const row = el('button', `step-row is-${step.status}`)
       row.type = 'button'
       row.dataset.openStep = step.key
-      row.title = `${step.title}
-Show the details`
+      row.title = [step.title, step.activity ?? null, 'Show the details'].filter(Boolean).join('\n')
       row.append(
         el('span', 'step-id', step.id ?? ''),
         el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),
@@ -2956,6 +2964,20 @@ $('coordinate-filters').addEventListener('click', event => {
 })
 $('coordinate-find').addEventListener('input', () => { if (board !== null) drawCoordinate(board) })
 $('coordinate-done').addEventListener('change', () => { if (board !== null) drawCoordinate(board) })
+// B164: one list or by activity, kept in this browser.
+try {
+  $('coordinate-one').checked = localStorage.getItem('backlog-one') === 'yes'
+} catch {
+  // Without storage the tab opens by activity.
+}
+$('coordinate-one').addEventListener('change', () => {
+  try {
+    localStorage.setItem('backlog-one', $('coordinate-one').checked ? 'yes' : 'no')
+  } catch {
+    // Kept for this page only.
+  }
+  if (board !== null) drawCoordinate(board)
+})
 // A step for the person opens its card, with the answer; any other step opens as the step it is.
 $('coordinate-list').addEventListener('click', event => {
   const row = event.target.closest('[data-open-step]')
