@@ -62,5 +62,29 @@ test('unticked: the list by activity, as it was', () => {
 test('the checkbox stands beside "Show finished"', () => {
   const top = html.slice(html.indexOf('class="coordinate-top"'), html.indexOf('</header>', html.indexOf('class="coordinate-top"')))
   assert.ok(top.indexOf('id="coordinate-done"') < top.indexOf('id="coordinate-one"'))
-  assert.match(top, /id="coordinate-one"> One list, newest first/)
+  assert.match(top, /id="coordinate-one" checked> One list, newest first/)
+})
+
+// B179: the user, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
+// default."
+test('one list is on unless this browser turned it off, also without storage', () => {
+  assert.match(script, /\$\('coordinate-one'\)\.checked = localStorage\.getItem\('backlog-one'\) !== 'no'/)
+  assert.match(script, /localStorage\.setItem\('backlog-one', \$\('coordinate-one'\)\.checked \? 'yes' : 'no'\)/)
+})
+
+test('"Recently finished" folds away with a click on its head, kept in this browser', () => {
+  const draw = script.slice(script.indexOf('function drawFinished('), script.indexOf("$('finished').addEventListener"))
+  // The head is a button that says whether the list is open, and names what it folds.
+  assert.match(draw, /fold\.setAttribute\('aria-expanded', String\(!finishedFolded\)\)/)
+  assert.match(draw, /fold\.setAttribute\('aria-controls', 'finished-body'\)/)
+  assert.match(draw, /list\.id = 'finished-body'\n  list\.hidden = finishedFolded/)
+  // The arrow is not read out, and a redraw keeps the keyboard on the head.
+  assert.match(draw, /arrow\.setAttribute\('aria-hidden', 'true'\)/)
+  assert.match(draw, /fill\(box, \[head, list\]\)\n  if \(wasOnHead\) fold\.focus\(\)/)
+  // Unfolded unless this browser folded it; a click turns it and keeps the choice.
+  assert.match(script, /finishedFolded = localStorage\.getItem\('finished-folded'\) === 'yes'/)
+  const click = script.slice(script.indexOf("$('finished').addEventListener"), script.indexOf("$('finished').addEventListener") + 700)
+  assert.match(click, /closest\('\[data-fold-finished\]'\)/)
+  assert.match(click, /finishedFolded = !finishedFolded/)
+  assert.match(click, /localStorage\.setItem\('finished-folded', finishedFolded \? 'yes' : 'no'\)/)
 })

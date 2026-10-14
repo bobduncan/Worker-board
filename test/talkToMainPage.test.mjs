@@ -59,9 +59,9 @@ test('the head says whom the talk is with, and whether its chat runs', () => {
   assert.deepEqual(plain(page.mainTalkView(null)), { title: 'Talk to the main chat', tab: 'Talk to Main', status: { text: 'No main chat is open', tone: 'off' } })
 })
 
-test('the right side has two tabs, "For you" with its count and "Talk to Main", and the chat\'s form', () => {
+test('the right side has two tabs, "Needs your attention" (B169; it was "For you") with its count and "Talk to Main", and the chat\'s form', () => {
   const side = html.slice(html.indexOf('<aside class="inbox"'), html.indexOf('</aside>'))
-  assert.match(side, /data-side="needs"[^>]*>For you <span class="count" id="needs-count"><\/span><\/button>/)
+  assert.match(side, /data-side="needs"[^>]*>Needs your attention <span class="count" id="needs-count"><\/span><\/button>/)
   assert.match(side, /data-side="main"[^>]*>Talk to Main<\/button>/)
   for (const id of ['side-needs', 'needs', 'side-main', 'main-messages', 'main-say', 'main-text', 'main-send', 'main-note']) assert.ok(side.includes(`id="${id}"`), id)
   // "For you" keeps everything it has today.

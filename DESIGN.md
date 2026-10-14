@@ -116,6 +116,29 @@ until the person opens it, and kept open while the window is drawn anew: the tas
 and where it stands (working), or the task as it was given, the whole answer and the closing block (finished). The
 picture: `art-inbox/worker-board/2026-10-14-b157-compact-window.png`.
 
+**The main chat's window: what you decide on (B169).** The person, 2026-10-14: "This 'for you' tab, doesnt contain
+the information i need to approve. i think it works for for workers, but not for the main chat ... also lets rename
+'For you' to 'Need your attention'", and of the mock-up "1. yes", "2. yes: A", "3. yes: everywhere". The main chat
+asks the person as part of its talk with them, not as a finished task, so its window (`mainParts`) differs from a
+worker's:
+
+- *The head* says "Main needs your answer" (also its card), not "Finished: its task".
+- *On top*, set apart: "You asked", its closing block's Prompt line, and "Where it stands", its Done line in green or
+  red.
+- *What you decide on*: its answer itself, open, drawn as in Talk to Main, without its "For you" block and its closing
+  block (`material` in `parseHandover`); it scrolls on its own when long.
+- *Needs your attention*: its questions. A question that lists its choices ("- **A:** ...") shows them under it, with
+  its advice, and gets A/B/C buttons; one whose words name them ("A, B or C?") gets the buttons alone; the window types
+  "1. A" in the answer box as it types "1. yes".
+- *Details*, folded: its closing block, and for a question it first asked in an earlier answer a button to Talk to
+  Main, which holds all its answers. The board does not guess which earlier answer that was, as the main chat words
+  a question anew each time; the main chat puts the material of each question in the answer that asks it.
+
+"For you" is "Needs your attention" everywhere on the board: the right side's tab and its panel, the Backlog tab's
+filter, a step's state and the windows. The chats keep writing their block as "> **For you**"; the board reads it
+under both names. The tab stays on one line also when the right side is at its narrowest. The picture:
+`art-inbox/worker-board/2026-10-14-b169-main-window.png`.
+
 **The Backlog tab (B155).** The tab that was called Coordinate is called Backlog (`#backlog`; `#coordinate` still
 opens it). At its top it lists the last 20 finished steps, newest first: when, the step's id and title, who finished
 it, and where the time comes from; a click opens the step's window. The person, 2026-10-14: "i want a chronological
@@ -131,6 +154,14 @@ item on the backlog first") lists every step without the activities, the highest
 before the ids at the end; the filters, the search and "Show finished" work as in the list by activity, and each
 row opens its window as there. The choice is kept in this browser. The picture:
 `art-inbox/worker-board/2026-10-14-b164-one-list.png`.
+Since B179 the tab opens as one list unless this browser turned the checkbox off, and "Recently finished" folds
+away and back with a click on its head (a button that says whether the list is open), also kept in this browser.
+The person, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
+default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.jpg`.
+Since B180 the search and the two checkboxes are one group at the end of the head, after the longer "Needs your
+attention" filter: at the board's usual width (1280 px and wider) the head is one line; narrower, the group moves to
+the next line whole, the two checkboxes side by side, never one alone. A step's state stays on one line. The picture:
+`art-inbox/worker-board/2026-10-14-b180-backlog-head.png`.
 
 **The Workers panel (B159).** After the picture the person agreed on the Design tab
 (`art-inbox/ideas/any-improvement-to-this/v2.png`; their words: "Any improvement to this to make it nicer. dont change

@@ -41,9 +41,9 @@ test('the four parts are read from an answer in the agreed form, and the closing
   assert.equal(parts.task, 'B150: give the archer a walk cycle in four directions')
   assert.equal(parts.did, 'drew the walk in 8 frames per direction;\nit is on its own branch, not merged.')
   assert.deepEqual(parts.items, [
-    { n: 1, kind: 'answer', text: 'Does the walk read well at game size? I advise yes.', links: [{ kind: 'picture', label: 'See the picture: the walk', path: 'art-inbox/units/archer/walk.png' }] },
-    { n: 2, kind: 'answer', text: 'Does it turn without a jump? I advise yes.', links: [{ kind: 'play', label: 'Play it: Crossing', branch: 'feature/archer-walk', settings: 'arena=crossing&enemies=skeletons' }] },
-    { n: 3, kind: 'do', text: 'start the app anew once.', links: [] },
+    { n: 1, kind: 'answer', text: 'Does the walk read well at game size? I advise yes.', links: [{ kind: 'picture', label: 'See the picture: the walk', path: 'art-inbox/units/archer/walk.png' }], ask: 'Does the walk read well at game size? I advise yes.', options: [], note: '' },
+    { n: 2, kind: 'answer', text: 'Does it turn without a jump? I advise yes.', links: [{ kind: 'play', label: 'Play it: Crossing', branch: 'feature/archer-walk', settings: 'arena=crossing&enemies=skeletons' }], ask: 'Does it turn without a jump?', options: [], note: 'I advise yes.' },
+    { n: 3, kind: 'do', text: 'start the app anew once.', links: [], ask: 'start the app anew once.', options: [], note: '' },
   ])
   assert.deepEqual(parts.closing, { prompt: 'B150, the walk', who: 'Studio · Worker 2', done: 'partly, waits for your look', isDone: false })
   assert.ok(parts.rest.endsWith('> 3. **Do:** start the app anew once.'))
