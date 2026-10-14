@@ -371,6 +371,47 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .inbox select { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; font-size: 14px; }
 .inbox-top { gap: 10px; }
 .inbox-top h2 { flex: 1; white-space: nowrap; }
+
+/* B161: the right side's two tabs, and the talk with the main chat (art-inbox/ideas/i-want-a-place/v2.png) */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.inbox-top h2.sr-only { flex: none; }
+.side-tabs { flex: none; display: flex; gap: 2px; padding: 10px 12px 0; border-bottom: 1px solid var(--line); }
+.side-tab { display: flex; align-items: center; gap: 8px; padding: 9px 16px 10px; border: 0; border-bottom: 3px solid transparent; border-radius: 8px 8px 0 0; background: none; color: var(--muted); font-size: 15px; font-weight: 700; cursor: pointer; }
+.side-tab:hover { color: var(--text); }
+.side-tab.is-active { color: var(--text); background: var(--panel); border-bottom-color: var(--free); }
+.side-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.side-view[hidden] { display: none; }
+.main-talk-top { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+.main-talk-icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #1f5a3a; border-radius: 9px; background: rgba(63, 210, 127, 0.08); color: var(--working); }
+.main-talk-icon svg { width: 24px; height: 24px; }
+.main-talk-names { flex: 1; min-width: 0; }
+.main-talk-names h2 { font-size: 19px; }
+.main-talk-names small { color: var(--muted); font-size: 13px; }
+.main-talk-status { display: flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; color: var(--muted); }
+.main-talk-status .dot { width: 9px; height: 9px; }
+.main-talk-status.is-on { color: var(--working); }
+.main-talk-status.is-on .dot { background: var(--working); }
+.main-talk-status.is-off { color: var(--warn); }
+.main-talk-status.is-off .dot { background: var(--warn); }
+.main-messages { gap: 14px; }
+.talk-message { display: flex; flex-direction: column; gap: 5px; }
+.talk-head { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.talk-head time { color: var(--muted); font-size: 12.5px; }
+.talk-avatar { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #1d3a6e; color: #dbe9ff; font-size: 13px; font-weight: 700; }
+.talk-avatar.is-chat { border-radius: 8px; background: rgba(63, 210, 127, 0.1); color: var(--working); }
+.talk-avatar svg { width: 19px; height: 19px; }
+.talk-bubble { margin-left: 39px; white-space: normal; }
+.talk-message.is-you .talk-bubble { background: #142443; }
+.talk-message.is-pending { opacity: 0.6; }
+.talk-words { white-space: pre-wrap; }
+.talk-words + * , .talk-quote + *, .talk-code + * { margin-top: 8px; }
+.talk-quote { margin: 0; padding: 7px 11px; border-left: 3px solid var(--waiting); border-radius: 4px; background: rgba(246, 185, 59, 0.07); white-space: pre-wrap; }
+.talk-rule { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
+.talk-code { margin: 0; padding: 7px 10px; border-radius: 6px; background: #0a0f18; font: 12.5px/1.5 Consolas, 'Cascadia Mono', monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.talk-code .is-good { color: var(--working); }
+.talk-code .is-bad { color: #ff8a8a; }
+.talk-code .is-plain { color: var(--muted); }
+.main-say button { width: auto; padding: 0 16px; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; white-space: nowrap; cursor: pointer; }
 .check input { accent-color: var(--free); width: 15px; height: 15px; margin: 0; }
 .need.is-closed { opacity: 0.6; }

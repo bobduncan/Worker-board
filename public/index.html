@@ -48,9 +48,14 @@
     </main>
 
     <div class="resizer" id="inbox-resizer" role="separator" aria-orientation="vertical" aria-label="Width of For you" tabindex="0" title="Drag to make For you wider or narrower; double-click for the usual width"></div>
-    <aside class="inbox" aria-labelledby="inbox-title">
+    <aside class="inbox" aria-label="For you, and the talk with the main chat">
+      <nav class="side-tabs" role="tablist" aria-label="The right side">
+        <button class="side-tab is-active" type="button" role="tab" data-side="needs" aria-selected="true">For you <span class="count" id="needs-count"></span></button>
+        <button class="side-tab" type="button" role="tab" data-side="main" aria-selected="false">Talk to Main</button>
+      </nav>
+      <div class="side-view" id="side-needs">
       <header class="inbox-top">
-        <h2 id="inbox-title">For you <span class="count" id="needs-count"></span></h2>
+        <h2 id="inbox-title" class="sr-only">For you</h2>
         <label class="check" title="Also show what you answered here and the steps that are ticked in the backlog">
           <input type="checkbox" id="needs-closed"> Show closed
         </label>
@@ -61,6 +66,20 @@
         </select>
       </header>
       <div class="needs" id="needs"></div>
+      </div>
+      <div class="side-view" id="side-main" hidden>
+        <header class="main-talk-top">
+          <span class="main-talk-icon" id="main-talk-icon" aria-hidden="true"></span>
+          <div class="main-talk-names"><h2 id="main-talk-title">Talk to Main</h2><small>Plan work and assign tasks</small></div>
+          <span class="main-talk-state" id="main-talk-state"></span>
+        </header>
+        <div class="messages main-messages" id="main-messages"></div>
+        <form class="say main-say" id="main-say">
+          <textarea id="main-text" rows="2" placeholder="Tell the main chat what to do next…" maxlength="2000" aria-label="Message to the main chat"></textarea>
+          <button type="submit" id="main-send">Send to Main</button>
+        </form>
+        <p class="muted say-note" id="main-note"></p>
+      </div>
     </aside>
   </div>
 

@@ -2554,6 +2554,189 @@ $('messages').addEventListener('click', event => {
   else openBubbles.delete(bubble.dataset.key)
 })
 
+// talkmain:start
+// B161: the talk with the main chat on the Overview's right side. The person, 2026-10-14: "I want a place in the
+// overview to talk to the main chat to assign new tasks", "include the 'for you' as is", "add tabs there so i can
+// swap between the two".
+
+/**
+ * An answer in its parts, so it reads as the chats write it (the project's CLAUDE.md): plain words (`text`), a quote
+ * block such as "For you" (`quote`), a rule (`rule`), and a fenced block such as the closing block (`code`), each
+ * of its lines with a `tone`: `good` for "+", `bad` for "-".
+ */
+function talkParts(text) {
+  const lines = String(text).replace(/\r/g, '').split('\n')
+  const parts = []
+  let words = []
+  const flush = () => {
+    const joined = words.join('\n').replace(/^\n+|\n+$/g, '')
+    if (joined !== '') parts.push({ kind: 'text', text: joined })
+    words = []
+  }
+  for (let at = 0; at < lines.length; at += 1) {
+    const line = lines[at]
+    const fence = line.match(/^\s*```\s*([\w-]*)\s*$/)
+    if (fence !== null) {
+      flush()
+      const code = []
+      at += 1
+      while (at < lines.length && !/^\s*```\s*$/.test(lines[at])) code.push(lines[at++])
+      parts.push({ kind: 'code', lang: fence[1], lines: code.map(one => ({ text: one, tone: one.startsWith('+') ? 'good' : one.startsWith('-') ? 'bad' : 'plain' })) })
+      continue
+    }
+    if (/^\s*>/.test(line)) {
+      flush()
+      const quoted = []
+      while (at < lines.length && /^\s*>/.test(lines[at])) quoted.push(lines[at++].replace(/^\s*> ?/, ''))
+      at -= 1
+      parts.push({ kind: 'quote', text: quoted.join('\n') })
+      continue
+    }
+    if (/^\s*-{3,}\s*$/.test(line)) {
+      flush()
+      parts.push({ kind: 'rule' })
+      continue
+    }
+    words.push(line)
+  }
+  flush()
+  return parts
+}
+
+/** The head of the talk: its title, the tab's name, and whether the main chat's chat runs. */
+function mainTalkView(talk) {
+  if (talk === null || talk === undefined) return { title: 'Talk to the main chat', tab: 'Talk to Main', status: { text: 'No main chat is open', tone: 'off' } }
+  const status = talk.isRunning === false
+    ? { text: `${talk.name}'s chat is not running: what you type waits until it runs`, tone: 'off' }
+    : talk.isRunning === null
+      ? { text: talk.name, tone: 'unknown' }
+      : talk.state === 'working'
+        ? { text: `${talk.name} is working${typeof talk.doingNow === 'string' && talk.doingNow !== '' ? `: ${talk.doingNow}` : ''}`, tone: 'on' }
+        : { text: `${talk.name} is online`, tone: 'on' }
+  return { title: `Talk to ${talk.name}`, tab: `Talk to ${talk.name}`, status }
+}
+// talkmain:end
+
+/** B161: an answer drawn in its parts (see `talkParts`). */
+function drawTalkText(node, text) {
+  node.replaceChildren(...talkParts(text).map(part => {
+    if (part.kind === 'rule') return el('hr', 'talk-rule')
+    if (part.kind === 'quote') return rich(el('blockquote', 'talk-quote'), part.text)
+    if (part.kind === 'code') {
+      const block = el('pre', 'talk-code')
+      for (const line of part.lines) block.append(el('span', `is-${line.tone}`, line.text), '\n')
+      return block
+    }
+    return rich(el('div', 'talk-words'), part.text)
+  }))
+  return node
+}
+
+/** B161: one message of the talk: who and when above, the words under it. */
+function drawTalkMessage({ key, from, who, at, text, note = null, isPending = false }) {
+  const row = el('div', `talk-message is-${from}${isPending ? ' is-pending' : ''}`)
+  const head = el('div', 'talk-head')
+  const sign = el('span', `talk-avatar is-${from}`)
+  if (from === 'chat') sign.append(icon('chat'))
+  else sign.textContent = 'U'
+  head.append(sign, el('b', '', who), el('time', '', at === null ? '' : clock(at)))
+  const bubble = el('div', 'bubble talk-bubble')
+  if (text.length > LONG_CHARS || text.split('\n').length > 14) {
+    bubble.classList.add('is-long')
+    bubble.dataset.key = key
+    if (openBubbles.has(key)) bubble.classList.add('is-open')
+  }
+  drawTalkText(bubble, text)
+  if (note !== null) bubble.append(el('small', '', note))
+  row.append(head, bubble)
+  return row
+}
+
+/** B161: the talk with the main chat, drawn anew only when what it shows has changed, so typing is left alone. */
+function drawMainTalk(state) {
+  const talk = state.mainTalk ?? null
+  const view = mainTalkView(talk)
+  $('main-tab').textContent = view.tab
+  $('main-talk-title').textContent = view.title
+  const status = el('span', `main-talk-status is-${view.status.tone}`)
+  status.append(el('span', 'dot'), view.status.text)
+  fill($('main-talk-state'), [status])
+  $('main-send').disabled = talk === null || sending.has('main-talk')
+  $('main-text').maxLength = state.maxMessageChars
+  const note = $('main-note')
+  note.classList.toggle('is-error', problems.has('main-talk'))
+  note.textContent = problems.get('main-talk') ?? 'What you send is typed into the main chat\'s chat as your own words, once it is idle.'
+
+  const box = $('main-messages')
+  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60
+  const rows = (talk?.messages ?? []).map(message => drawTalkMessage({
+    key: `main:${message.at}:${message.from}`,
+    from: message.from,
+    who: message.from === 'you' ? 'You' : talk.name,
+    at: message.at,
+    text: message.text,
+    note: message.via === 'board' ? 'typed on the board' : null,
+  }))
+  for (const typed of talk?.pending ?? []) {
+    const waits = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle' }[typed.state] ?? 'waits for its chat to take it'
+    rows.push(drawTalkMessage({ key: `main-out:${typed.id}`, from: 'you', who: 'You', at: typed.at, text: typed.text, note: waits, isPending: true }))
+  }
+  if (rows.length === 0) rows.push(el('p', 'empty', talk === null ? 'No main chat is open.' : 'Nothing said here yet. Tell the main chat what to do next.'))
+  const top = box.scrollTop
+  fill(box, rows)
+  box.scrollTop = atEnd ? box.scrollHeight : top
+}
+
+/** B161: which tab of the right side shows; kept in this browser. */
+function showSide(name) {
+  for (const tab of document.querySelectorAll('.side-tab')) {
+    tab.classList.toggle('is-active', tab.dataset.side === name)
+    tab.setAttribute('aria-selected', String(tab.dataset.side === name))
+  }
+  $('side-needs').hidden = name !== 'needs'
+  $('side-main').hidden = name !== 'main'
+  try {
+    localStorage.setItem('side-tab', name)
+  } catch {
+    // Without storage the right side opens on "For you".
+  }
+  if (name === 'main') $('main-messages').scrollTop = $('main-messages').scrollHeight
+}
+
+for (const tab of document.querySelectorAll('.side-tab')) tab.addEventListener('click', () => showSide(tab.dataset.side))
+document.querySelector('.side-tab[data-side="main"]').id = 'main-tab'
+try {
+  if (localStorage.getItem('side-tab') === 'main') showSide('main')
+} catch {
+  // Without storage the right side opens on "For you".
+}
+
+$('main-say').addEventListener('submit', async event => {
+  event.preventDefault()
+  const text = $('main-text').value.trim()
+  if (text === '' || (board?.mainTalk ?? null) === null) return
+  $('main-send').disabled = true
+  await send({ to: board.mainTalk.name, text }, 'main-talk')
+  if (!problems.has('main-talk')) $('main-text').value = ''
+  if (board !== null) drawMainTalk(board)
+})
+
+$('main-text').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault()
+    $('main-say').requestSubmit()
+  }
+})
+
+$('main-messages').addEventListener('click', event => {
+  const bubble = event.target.closest('.bubble[data-key]')
+  if (bubble === null || window.getSelection().toString() !== '') return
+  if (bubble.classList.toggle('is-open')) openBubbles.add(bubble.dataset.key)
+  else openBubbles.delete(bubble.dataset.key)
+})
+
+$('main-talk-icon').append(icon('chat'))
+
 // The right side of a tab is as wide as the person drags it
 
 /**
@@ -3435,6 +3618,7 @@ function draw(state) {
     $('advice-age').textContent = age === null ? '' : age.text
   })
   once('talk', [state.advisor, runningData(state), [...problems], [...sending]], () => drawTalk(state))
+  once('main-talk', [state.mainTalk ?? null, state.maxMessageChars, problems.get('main-talk') ?? null, sending.has('main-talk')], () => drawMainTalk(state))
   drawDesign()
 }
 
