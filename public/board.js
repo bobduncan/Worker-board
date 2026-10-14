@@ -2953,7 +2953,7 @@ function show(tab) {
   $('view-coordinate').hidden = tab !== 'coordinate'
   $('view-design').hidden = tab !== 'design'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
-  if (!location.hash.startsWith('#details=')) history.replaceState(null, '', tab === 'overview' ? location.pathname : `#${tab}`)
+  if (!location.hash.startsWith('#details=') && !location.hash.startsWith('#task=')) history.replaceState(null, '', tab === 'overview' ? location.pathname : `#${tab}`)
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
 }
 

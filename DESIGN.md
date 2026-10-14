@@ -56,6 +56,18 @@ answer in the window, with the form and the sending the cards have; a question o
 answer only in its chat, and the window says so. Once answered, the card stays while the answer is on its way and
 for a little after it was typed in, although the chat no longer waits, so you see that it arrived.
 
+**A working worker opens on a click (B151).** The person, 2026-10-14: "I want to be able to click on any worker that
+is working and in the popup show what it's original task is". A click on the lane of a worker that works (also one
+that is suspended, cut off, or between two turns) opens a window: in its head the task as its card names it; then
+the task as it was given, the main chat's hand-over as it arrived in that chat ("Task from ...", also one that came
+in the middle of a turn) or what the person typed there, with when (`taskOrigin` in `src/transcript.mjs`: the
+newest such message at or before the task's start, kept to 6000 characters); the backlog step it is on, or the
+first open one that message names; and where it stands now, its step line, its time and what it does. This is the
+one place the board shows words a person or a chat typed, on the person's own wish; the lane keeps the card's
+short task (B82), and the window of a worker that waits stays as B100 has it. The window is built from parts
+(`LANE_PARTS` in `public/board.js`, main column and side column), so a later window adds its own. `#task=<worker>`
+in the address opens it. The picture: `art-inbox/worker-board/b151/2026-10-14-b151-task-window.png`.
+
 **The Design tab's page (B99).** A fourth tab, after the person's layout A
 (`art-inbox/worker-board/design-tab/2026-10-12-design-tab-a-side-by-side.png`): three parts side by side and "Ideas
 so far" along the bottom. 1 New idea: the idea, what it is about (the kinds the board names), reference pictures of
