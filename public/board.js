@@ -6,6 +6,8 @@
 'use strict'
 
 const TOKEN = document.querySelector('meta[name="board-token"]').content
+/** B142: the version of the page as it was loaded; empty when the board did not say it. */
+const PAGE = (document.querySelector('meta[name="board-page"]')?.content ?? '').replace(/^\{\{page\}\}$/, '')
 const STATES = { working: 'Working', waiting: 'Waiting for you', free: 'Free', unknown: 'Unknown', interrupted: 'Interrupted', suspended: 'Suspended' }
 /** How often the page asks again while the board does not answer. */
 const AWAY_MS = 5000
@@ -159,11 +161,70 @@ function picture(path, caption = '') {
   return frame
 }
 
+// update:start
+// B142: the note on top when a new version of the board is there, and the version in the top bar. The person,
+// 2026-10-14: "i want the board to show a little notification on top that a new version is available and I click
+// it to start it. dont auto refresh."
+
+/**
+ * The note: its words, what a click does (`restart`: the board starts the version its folder holds; `reload`: only
+ * the page is newer and is loaded again; null: nothing to click), and its `tone`. Null when nothing is new.
+ * `loadedPage` is the page's version as it was loaded; `isStarting` and `problem` are what became of a click.
+ */
+function updateView(version, loadedPage, { isStarting = false, problem = null } = {}) {
+  if (version === undefined || version === null) return null
+  if (isStarting) return { text: 'Starting the new version of the board…', action: null, tone: 'busy' }
+  if (problem !== null) return { text: `${problem} Click to try again.`, action: 'restart', tone: 'problem' }
+  if (version.isServerNewer) {
+    return version.canRestart
+      ? { text: 'A new version of the board is available. Click to start it.', action: 'restart', tone: 'new' }
+      : { text: 'A new version of the board is available. This board cannot start itself anew: start it once from where it was started.', action: null, tone: 'new' }
+  }
+  if (loadedPage !== '' && typeof version.page === 'string' && version.page !== loadedPage) return { text: 'A new version of the page is available. Click to load it.', action: 'reload', tone: 'new' }
+  return null
+}
+
+/** Which version of the board runs, and since when: "Board 5fb7da8 · since 09:31". */
+function versionLine(version) {
+  return typeof version?.commit === 'string' && version.commit !== '' ? `Board ${version.commit} · since ${clock(version.since)}` : ''
+}
+// update:end
+
+/** The note on top (see `updateView`). */
+function drawUpdate(state) {
+  const note = $('update-note')
+  const shown = updateView(state.version, PAGE, { isStarting: sending.has('board-anew'), problem: problems.get('board-anew') ?? null })
+  note.hidden = shown === null
+  if (shown === null) return
+  note.className = `update-note is-${shown.tone}`
+  note.textContent = shown.text
+  note.disabled = shown.action === null
+}
+
+$('update-note').addEventListener('click', async () => {
+  const shown = board === null ? null : updateView(board.version, PAGE, { isStarting: sending.has('board-anew'), problem: problems.get('board-anew') ?? null })
+  if (shown === null || shown.action === null) return
+  if (shown.action === 'reload') return location.reload()
+  sending.add('board-anew')
+  problems.delete('board-anew')
+  drawUpdate(board)
+  try {
+    const answer = await fetch('/api/restart', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: '{}' })
+    if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
+    // The board ends and comes back with a new token: the page then loads itself anew (see `read`).
+  } catch (error) {
+    sending.delete('board-anew')
+    problems.set('board-anew', `Not started: ${error instanceof Error ? error.message : 'the board did not answer'}`)
+    drawUpdate(board)
+  }
+})
+
 // The top bar
 
 function drawTop(state) {
   const updated = $('updated')
   updated.textContent = `Last updated ${clock(state.readAt)}${state.isDemo ? ' · demo data' : ''}`
+  $('version').textContent = versionLine(state.version)
   updated.classList.remove('is-stale')
   fill($('counts'), ['working', 'waiting', 'free', 'suspended', 'interrupted', 'unknown']
     .filter(name => (name !== 'unknown' && name !== 'interrupted' && name !== 'suspended') || (state.counts[name] ?? 0) > 0)
@@ -2683,6 +2744,7 @@ for (const button of document.querySelectorAll('.tab')) button.addEventListener(
 function draw(state) {
   board = state
   drawTop(state)
+  drawUpdate(state)
   drawMainGame(state)
   drawLimits(state)
   drawRestart(state)

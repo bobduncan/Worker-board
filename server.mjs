@@ -19,6 +19,7 @@
 // files, and `/api/game` starts a branch's game, so both are refused unless they come from the board's own page
 // (see `mayUse` and `maySend`).
 
+import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
@@ -31,6 +32,7 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { loadConfig } from './src/config.mjs'
 import { IDEAS_FOLDER, REFERENCES_FOLDER, REFERENCE_BYTES, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver } from './src/ideas.mjs'
+import { START_ANEW, keep } from './src/keeper.mjs'
 import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
 import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
@@ -42,6 +44,7 @@ import { settleByBoard } from './src/tick.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
+import { loads, readVersion } from './src/version.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -51,6 +54,8 @@ const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
 const STATE_MS = 2_000
 const TICK_MS = 60_000
+/** B142: how long the board's look at its folder's version is kept. */
+const VERSION_MS = 30_000
 const HISTORY_BYTES = 8 * 1024 * 1024
 
 const FILES = {
@@ -139,6 +144,7 @@ export function createBoard({
   game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
 }) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
@@ -192,7 +198,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design') {
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -217,6 +223,13 @@ export function createBoard({
         const done = await design(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
+      if (pathname === '/api/restart') {
+        const done = await restart(parsed)
+        if (!done.ok) return refuse(res, done.status, done.why)
+        // B142: the answer goes out first; then the board ends, and its keeper starts it anew.
+        res.on('finish', () => done.after?.())
+        return json(res, done.result)
+      }
       const answer = await say(parsed)
       return answer.ok ? json(res, answer.message) : refuse(res, answer.status, answer.why)
     }
@@ -235,7 +248,7 @@ export function createBoard({
     }
     if (pathname === '/' || pathname === '/index.html') {
       const page = await readFile(join(publicDir, 'index.html'), 'utf8')
-      return send(res, 200, 'text/html; charset=utf-8', page.replaceAll('{{token}}', token), {
+      return send(res, 200, 'text/html; charset=utf-8', page.replaceAll('{{token}}', token).replaceAll('{{page}}', await pageVersion()), {
         'Content-Security-Policy': PAGE_RULES,
         'X-Frame-Options': 'DENY',
       })
@@ -285,7 +298,12 @@ async function main(args) {
   // The same holds for a copy in another folder than the repository's main one: a branch that is being built
   // must never take the chats away from the person's board, also not while that board is stopped.
   const isShowOnly = historyFrom !== undefined || chosen.isMain === false
-  const bridgeKey = isDemo || isShowOnly ? null : randomBytes(32).toString('hex')
+  // B142: a board its keeper started anew keeps the key it gave the chats' mod, so they reach it at once. The key
+  // goes no further than this process: what the board starts does not get it.
+  const keptKey = process.env.WORKER_BOARD_KEY ?? ''
+  delete process.env.WORKER_BOARD_KEY
+  const bridgeKey = isDemo || isShowOnly ? null : /^[0-9a-f]{64}$/.test(keptKey) ? keptKey : randomBytes(32).toString('hex')
+  if (bridgeKey !== null) process.send?.({ key: bridgeKey })
 
   // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
   const games = createGames({
@@ -350,6 +368,13 @@ async function main(args) {
     }
   }
   const offSince = Number.isFinite(lastAlive) && startedAt - lastAlive > 3 * 60_000 ? lastAlive : null
+
+  // B142: the version this board runs (the commit its folder was on when it started), and whether the folder holds
+  // a newer one. A board its keeper runs can be started anew from its page; it ends when its keeper is gone.
+  const canRestart = typeof process.send === 'function'
+  if (canRestart) process.on('disconnect', () => process.exit(0))
+  const running = (await gitRunner()(['-C', HERE, 'rev-parse', '--short', 'HEAD']))?.trim() || null
+  const versionNow = cached(() => readVersion(gitRunner(), HERE, running), VERSION_MS)
 
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
   const seen = bridgeKey === null ? null : { shown: {}, other: {} }
@@ -467,7 +492,7 @@ async function main(args) {
         missing: isDemo ? [] : await missingReferences(),
         typical: typicalSeconds(),
       })
-      return { ...state, design }
+      return { ...state, design, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart } }
     },
     design: body => designTurn(async () => {
       const state = await readState()
@@ -533,6 +558,18 @@ async function main(args) {
       const { project } = await readState()
       const found = await findPicture(project, config.pictureRoots, path)
       return found === null ? null : { type: found.type, body: await readFile(found.file) }
+    },
+    // B142: started anew on the person's click, once the version its folder holds loads.
+    restart: async () => {
+      if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
+      const check = await loads(join(HERE, 'server.mjs'))
+      if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }
+      return { ok: true, result: { at: clock() }, after: () => process.exit(START_ANEW) }
+    },
+    // The page's own version goes into the page, so it can tell when the folder holds a newer one.
+    pageVersion: async () => {
+      const { page } = await versionNow()
+      return typeof page === 'string' && /^[0-9a-f]{4,40}$/.test(page) ? page : ''
     },
     bridgeKey,
     take: async body => {
@@ -645,6 +682,29 @@ async function main(args) {
   }
 }
 
+/**
+ * B142: what was started keeps the board. It runs the board as its child, with a channel, and starts it anew when the
+ * board ends asking for that; stopping it stops the board. `--launch-entry` writes a file and ends: it needs none.
+ */
+function keepBoard(args) {
+  const keeper = keep({
+    start: key => spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...args], {
+      stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+      env: { ...process.env, WORKER_BOARD_CHILD: '1', ...(key === null ? {} : { WORKER_BOARD_KEY: key }) },
+      windowsHide: true,
+    }),
+    done: code => process.exit(code),
+  })
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(signal, () => {
+      keeper.stop()
+      process.exit(0)
+    })
+  }
+}
+
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await main(process.argv.slice(2))
+  const args = process.argv.slice(2)
+  if (process.env.WORKER_BOARD_CHILD === '1' || args.includes('--launch-entry')) await main(args)
+  else keepBoard(args)
 }

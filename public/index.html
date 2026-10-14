@@ -4,11 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="board-token" content="{{token}}">
+  <meta name="board-page" content="{{page}}">
   <title>Worker board</title>
   <link rel="stylesheet" href="/board.css">
   <script src="/board.js" defer></script>
 </head>
 <body>
+  <button class="update-note" id="update-note" type="button" hidden></button>
   <nav class="tabs" aria-label="Views">
     <button class="tab is-active" type="button" data-tab="overview">Overview</button>
     <button class="tab" type="button" data-tab="advice">Advice &amp; Chat</button>
@@ -16,6 +18,7 @@
     <button class="tab" type="button" data-tab="design">Design</button>
     <span class="grow"></span>
     <button class="quiet-button" id="prepare-restart" type="button" title="Before you quit Claude: Game - Main asks every working chat to stop at a safe point and writes down who was on what" hidden>Prepare restart</button>
+    <span class="version" id="version"></span>
     <p class="updated" id="updated">Reading…</p>
     <button class="icon-button" id="refresh" type="button" title="Read again" aria-label="Read again"></button>
   </nav>
