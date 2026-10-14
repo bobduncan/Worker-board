@@ -849,6 +849,10 @@ const REMOVE_NOTE_MS = 60 * MIN
  */
 function removalView(lane, main, now) {
   if (lane.isMain || lane.isLeftover) return { canRemove: false, reasons: [], line: null, isDisabled: true }
+  // B152: its card says it left the list of chats: the lane says so for a little while, then goes.
+  if (Number.isFinite(lane.removedAt)) {
+    return { canRemove: true, reasons: [], line: { tone: 'asked', text: `Removed at ${clock(lane.removedAt)}: it left the list of chats, and this lane goes in a moment.` }, isDisabled: true }
+  }
   const task = lane.task ?? null
   const what = task === null ? null
     : `"${task.text}"${Number.isInteger(task.step) && Number.isInteger(task.steps) ? `, step ${task.step} of ${task.steps}` : ''}`

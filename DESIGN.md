@@ -162,6 +162,12 @@ nothing queued). The pictures are in `art-inbox/worker-board/b143`.
   the worker is still in the list (`removalAsk` in `src/state.mjs`); meanwhile the control waits and the lane says
   when it asked. An ask that did not arrive, or a worker still there after that time, says so for an hour and can be
   asked again.
+- *Gone when it left the list (B152).* The person, 2026-10-14: "the removing of a worker doesnt work". The main
+  chat had taken the worker out of the list of chats, but could not close its chat (Remote Control was on for it),
+  and the board takes its lanes from the app's open chats. Now a chat whose card says `{"left": true}` has no lane
+  and is no worker for "No workers yet"; the rest of the list is made without it, so a new chat of its name is no
+  leftover. For two minutes after the card was written its lane stays and says "Removed at HH:MM", then it goes; a
+  card the board cannot date goes at once. A chat that joins again writes a new card and shows again.
 
 **The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
 more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
