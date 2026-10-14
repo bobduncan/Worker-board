@@ -127,6 +127,17 @@ the moment the board first saw the step ticked, kept in `data/finished.json` fro
 a line with only the day. A step none of these gives a time for is left out. The picture:
 `art-inbox/worker-board/b155/2026-10-14-b155-backlog-tab.png`.
 
+**The Workers panel (B159).** After the picture the person agreed on the Design tab
+(`art-inbox/ideas/any-improvement-to-this/v2.png`; their words: "Any improvement to this to make it nicer. dont change
+the style too much", "the color of the icon is corresponding with the status in the column after that", and of the
+queue "i prefer to retain that information"). The lanes sit in one panel, "Workers", with "+ Add worker" (B124) in
+its head and the columns named: Worker, Current task, Progress, Est. time, Queue. A row is slim: a chat icon in the
+colour of its state, the name and its state as a tinted label in the same colour; the task with what it does now;
+a bar of its steps with the step line (B108) under it; its time; the first queued step with the queue's length,
+why it is not started (B113) and "+N"; and "⋯", which unfolds the whole queue, the details and Remove (B143), whose
+warning still shows under the row. The other parts of the Overview are as they were. The picture:
+`art-inbox/ideas/any-improvement-to-this/2026-10-14-b159-result.png`.
+
 **The Design tab's page (B99).** A fourth tab, after the person's layout A
 (`art-inbox/worker-board/design-tab/2026-10-12-design-tab-a-side-by-side.png`): three parts side by side and "Ideas
 so far" along the bottom. 1 New idea: the idea, what it is about (the kinds the board names), reference pictures of
