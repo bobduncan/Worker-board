@@ -3145,6 +3145,8 @@ function queuePart(step, state, isLong) {
   button.dataset.queueStep = step.id
   button.disabled = sending.has(key)
   button.title = problems.get(key) ?? `Ask ${mainTitle} to hand it to a worker`
+  // Every row has one: the step it is for is in its name.
+  button.setAttribute('aria-label', `${button.textContent}: ${step.id} ${step.title}`)
   if (!isLong) return button
   const line = el('div', 'step-queue-line')
   line.append(button, el('span', 'muted', `${mainTitle} picks the worker, or what it waits for.`))
@@ -3878,8 +3880,8 @@ function draw(state) {
   drawStrips(state)
   drawToday(state)
   once('needs', needsData(state), () => drawNeeds(state))
-  // B181: also when an "Add to queue" is on its way or was refused.
-  const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:'))]
+  // B181: also when an "Add to queue" is on its way or was refused, and when the main chat it asks comes or goes.
+  const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:')), state.workers?.main ?? null]
   once('coordinate', [state.backlog ?? null, queueing], () => drawCoordinate(state))
   // B155: today's times name no day, so the list is drawn anew when the day changes too.
   once('finished', [state.finished ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
