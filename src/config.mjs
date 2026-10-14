@@ -4,6 +4,8 @@ import { constants } from 'node:fs'
 import { access, copyFile, readFile } from 'node:fs/promises'
 
 const DEFAULTS = {
+  /** B129: the project's name, the page's title; by default the project folder's name. */
+  name: '',
   project: '',
   gameRepo: '',
   appSessions: '',
@@ -83,6 +85,7 @@ export function parseConfig(text, env) {
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
   config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()
+  config.name = typeof raw.name === 'string' && raw.name.trim() !== '' ? raw.name.trim() : config.project.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
   // A shown folder is one plain folder name in the project: never a path that could lead out of it.
   if (Array.isArray(raw.pictureRoots)) config.pictureRoots = raw.pictureRoots.filter(root => typeof root === 'string' && /^[\w-][\w.-]*$/.test(root))
   // B173: the Advisor's paths stay inside the project or the game's repository.
@@ -121,7 +124,7 @@ export function configProblem(fileText) {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return 'it must hold one object, { ... }'
   const has = key => Object.hasOwn(raw, key)
   const wrong = (key, wants) => `"${key}" must be ${wants}, not ${JSON.stringify(raw[key]).slice(0, 60)}`
-  for (const key of [...PATHS, 'usageHistory', 'advisor', 'advisorSuggestions']) if (has(key) && typeof raw[key] !== 'string') return wrong(key, 'text')
+  for (const key of [...PATHS, 'name', 'usageHistory', 'advisor', 'advisorSuggestions']) if (has(key) && typeof raw[key] !== 'string') return wrong(key, 'text')
   for (const key of NUMBERS) if (has(key) && !(Number.isFinite(raw[key]) && raw[key] > 0)) return wrong(key, 'a number above 0')
   if (has('port') && !(Number.isInteger(raw.port) && raw.port <= 65535)) return wrong('port', 'a whole number from 1 to 65535')
   for (const key of ['backlog', 'gamePlan', 'advisorDecisions']) if (has(key) && !(typeof raw[key] === 'string' && INSIDE.test(raw[key].trim()))) return wrong(key, 'a path inside its folder, written with /')

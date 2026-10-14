@@ -68,7 +68,7 @@ the briefings for the main chat and the workers.
    want to look first (Ctrl+C ends it).
 7. **Its settings.** Start the board once with `npm start`: it makes `config.json` in its folder from
    `examples\config.json`, says which paths to fill in, and stops. The file stays on your PC: it is not in git. In it,
-   `project` is
+   `name` is the project's name, the board's title (left out, it is the project folder's name), `project` is
    `<project>`, `transcripts` the folder of step 5, `gameRepo` the folder of your code's git repository (empty until
    there is one), `port` a free port. Write `\\` for every `\` in a path, or use `/`. With the app from the
    Microsoft Store, `%APPDATA%\Claude` holds the app's files only for programs the app starts (the mod, the Run
@@ -171,7 +171,8 @@ project's backlog, part of B126 (the board for any project).
    start and says which paths to fill in.
 2. Done (B128): a `config.json` that is not valid JSON, or holds a setting of the wrong kind, stops the board with
    one line saying what is wrong and where; the yellow note does not start a new version on such a file.
-3. The page's title is "Lava Tactics" (`public/index.html`, line 26), also in the demo. B129
+3. Done (B129): the page and the tab show the project's own name, the setting `name` (by default the project folder's
+   name).
 4. "Game - Main" stands in fixed words: `public/index.html` line 18, `public/board.js` line 561, `src/design.mjs`
    line 111. B130
 5. Done (B131): without a right `list.json` the board guesses no prefix and no main chat; it shows no chats and
