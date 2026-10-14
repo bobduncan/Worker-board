@@ -146,7 +146,7 @@ shows: answers are given on the board in the main folder.
 
 `data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran
 and the Design tab's ideas. Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
-pictures Codex makes in the Design tab's ideas folder (`art-inbox\ideas` until B133 makes it per project), and in the backlog one thing only: the tick of a step you
+pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), and in the backlog one thing only: the tick of a step you
 approved or marked done on the board, with a line under it.
 
 ## Safety
