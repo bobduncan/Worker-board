@@ -1,6 +1,7 @@
 // The paths that differ per machine, from config.json next to the server.
 
-import { readFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { access, copyFile, readFile } from 'node:fs/promises'
 
 const DEFAULTS = {
   project: '',
@@ -129,6 +130,29 @@ export function configProblem(fileText) {
   if (has('morningRound') && !(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
   return null
+}
+
+/**
+ * B127: the settings file at a board's first start. A copy of the board carries no PC's settings: without `file`,
+ * the board makes it from `template` (examples/config.json), never over a file that is there, and says which paths to
+ * fill in. Answers that line, or null when the file was there.
+ */
+export async function firstStart(file, template) {
+  try {
+    await access(file)
+    return null
+  } catch {
+    // Not there yet: made below.
+  }
+  try {
+    await copyFile(template, file, constants.COPYFILE_EXCL)
+  } catch (error) {
+    if (error.code === 'EEXIST') return null
+    throw error
+  }
+  return `The worker board made its settings file ${file} from ${template}. Fill in "project" (your project's folder), `
+    + '"transcripts" (the folder of its chats\' transcripts) and, once there is one, "gameRepo" (the folder of its code); '
+    + 'then start the board again.'
 }
 
 /** A settings file the board cannot run on: its message is the one line the board says before it stops. */

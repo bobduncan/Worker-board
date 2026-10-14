@@ -102,3 +102,30 @@ test('B128: loading a broken settings file stops with that line; a missing one k
     && error.message === `The worker board's settings file ${file} is broken: it is not valid JSON at line 1, column 15: Expected double-quoted property name. Fix it and start the board again.`)
   assert.equal((await loadConfig(join(folder, 'none.json'), {})).port, 4310)
 })
+
+test('B127: a first start without a settings file makes it from the template, says which paths to fill in, and never writes over one', async t => {
+  const { firstStart } = await import('../src/config.mjs')
+  const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const folder = await mkdtemp(join(tmpdir(), 'worker-board-first-'))
+  t.after(() => rm(folder, { recursive: true, force: true }))
+  const [file, template] = [join(folder, 'config.json'), join(folder, 'template.json')]
+  await writeFile(template, '{ "project": "C:/Work/my-project" }\n')
+  const said = await firstStart(file, template)
+  assert.match(said, /made its settings file .*config\.json from .*template\.json\. Fill in "project" .*"transcripts" .*"gameRepo" .*then start the board again\./)
+  assert.equal(await readFile(file, 'utf8'), '{ "project": "C:/Work/my-project" }\n')
+  await writeFile(file, '{ "port": 4399 }')
+  assert.equal(await firstStart(file, template), null)
+  assert.equal(await readFile(file, 'utf8'), '{ "port": 4399 }')
+})
+
+test('B127: the settings file of one PC is not in the repository; the template is', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { dirname, join } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const tracked = execFileSync('git', ['ls-files', 'config.json', 'examples/config.json'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean)
+  assert.deepEqual(tracked, ['examples/config.json'])
+  assert.match(execFileSync('git', ['check-ignore', 'config.json'], { cwd: root, encoding: 'utf8' }), /config\.json/)
+})

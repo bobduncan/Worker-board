@@ -66,7 +66,9 @@ the briefings for the main chat and the workers.
    ```
    → the tests end with `fail 0`. `npm run demo -- --port 4311` shows the page with made-up data, if you
    want to look first (Ctrl+C ends it).
-7. **Its settings.** Write `config.json` in the board's folder after `examples\config.json`: `project` is
+7. **Its settings.** Start the board once with `npm start`: it makes `config.json` in its folder from
+   `examples\config.json`, says which paths to fill in, and stops. The file stays on your PC: it is not in git. In it,
+   `project` is
    `<project>`, `transcripts` the folder of step 5, `gameRepo` the folder of your code's git repository (empty until
    there is one), `port` a free port. Write `\\` for every `\` in a path, or use `/`. With the app from the
    Microsoft Store, `%APPDATA%\Claude` holds the app's files only for programs the app starts (the mod, the Run
@@ -165,8 +167,8 @@ following the steps above in an empty, made-up project with another prefix (Node
 11 need the app and real chats: the trial stood in for them with made-up chat files. Each point is a step on that
 project's backlog, part of B126 (the board for any project).
 
-1. `config.json` is in the repository with that project's paths. A clone started unchanged uses them, and on a PC
-   without that folder the board makes it, to write `.claude\board.json` there (`server.mjs`). B127
+1. Done (B127): `config.json` is not in the repository; a new copy makes it from `examples\config.json` at its first
+   start and says which paths to fill in.
 2. Done (B128): a `config.json` that is not valid JSON, or holds a setting of the wrong kind, stops the board with
    one line saying what is wrong and where; the yellow note does not start a new version on such a file.
 3. The page's title is "Lava Tactics" (`public/index.html`, line 26), also in the demo. B129
