@@ -68,7 +68,9 @@ Each piece is merged on its own and changes nothing for a PC that has the mods.
    how. B177's first part. Done (B210).
 4. **Starting the board without the mod** (about 1 h): a start script and the README. Done (B211).
 5. **Answers without the mod** (about 2 to 3 h): when no mod takes the board's words, the board copies them and
-   opens the chat. B177's largest part.
+   opens the chat. B177's largest part. Done (B212): the board keeps them as copied and puts them on the clipboard
+   with a bar that names the chat to paste them into; no link opens a chat of the app by itself, so the person
+   opens it.
 6. **"Not running" and compacting stay with the mod** (about 30 min): the board says what it cannot know without it.
 
 **In all:** about 5 to 6 hours of a worker's time, less than B146's 8 to 10, because the mod is kept and the board
