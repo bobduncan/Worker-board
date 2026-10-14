@@ -3,6 +3,7 @@
   "project": "C:\\Work\\my-project",
   "gameRepo": "",
   "baseBranch": "main",
+  "runGame": ["{node}", "{board}/run-game.mjs", "--folder", "{folder}", "--port", "{port}", "--idle", "{idle}", "--grace", "{grace}", "--cache", "{cache}"],
   "appSessions": "%APPDATA%\\Claude\\claude-code-sessions",
   "transcripts": "%USERPROFILE%\\.claude\\projects\\C--Work-my-project",
   "port": 4310,

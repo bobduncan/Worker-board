@@ -325,7 +325,8 @@ async function main(args) {
   // The games started for a look at a branch. Each ends by itself; the board also ends them when it is closed.
   const games = createGames({
     launch: gameLauncher({
-      runner: join(HERE, 'run-game.mjs'),
+      command: config.runGame,
+      board: HERE,
       cacheDir: join(HERE, 'data', 'game-cache'),
       idleSeconds: config.gameIdleSeconds,
       graceSeconds: config.gameOpenSeconds,
@@ -689,6 +690,8 @@ async function main(args) {
       const checked = checkGame(body, await readState())
       if (!checked.ok) return checked
       if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it starts no game.' }
+      // B197: how the game starts is the project's to say.
+      if (checked.action === 'start' && config.runGame.length === 0) return { ok: false, status: 409, why: 'The board\'s settings name no command that starts the game ("runGame"): examples/config.json has one for a Vite game.' }
       if (checked.action === 'stop') {
         games.stop(checked.path)
         readState.reset()

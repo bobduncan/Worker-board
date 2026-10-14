@@ -107,7 +107,10 @@ the briefings for the main chat and the workers.
 ## Settings
 
 `config.json`, next to `server.mjs`: `name` (the board's title), `project`, `gameRepo`, `baseBranch` (the branch the
-work is merged into, "main" unless set), `appSessions` (the app's list of chats), `transcripts`,
+work is merged into, "main" unless set), `runGame` (the command that starts a working folder's game, a list of
+words with `{folder}`, `{port}`, `{idle}`, `{grace}`, `{cache}`, `{node}` and `{board}` filled in; it prints
+`ready <port>` once the game is served and ends by itself when nobody looks; `examples\config.json` has the one for
+a Vite game, `run-game.mjs`; none unless set), `appSessions` (the app's list of chats), `transcripts`,
 `port` (4310 unless set), `refreshSeconds`, `advisor` (the name of the advisor chat, "Advisor" unless set),
 `pictureRoots` (the folders of `<project>` whose pictures the board shows, `["pictures"]` unless set; the first is
 the project's own picture folder, where the board keeps the pictures pasted into Talk to Main, under `talk`) and the times
@@ -179,9 +182,9 @@ project's backlog, part of B126 (the board for any project).
    line 111. B130
 5. Done (B131): without a right `list.json` the board guesses no prefix and no main chat; it shows no chats and
    says which file it looks for.
-6. Partly done: with `gameRepo` empty there is no game (B132): no "Run game", no "Open the game" and no play links,
-   and the board never takes its own folder for the game. The base branch is the setting `baseBranch` (B194). Still
-   built in: `run-game.mjs`, which runs only a folder with its own Vite (B197).
+6. Done: with `gameRepo` empty there is no game (B132): no "Run game", no "Open the game" and no play links, and the
+   board never takes its own folder for the game. The base branch is the setting `baseBranch` (B194), and how a game
+   starts the setting `runGame` (B197), with `run-game.mjs` (Vite) as the example.
 7. `design.json` holds Lava Tactics' words and reference pictures for all four kinds of idea, and a path that takes
    the board to be in `<project>\worker-board`. B133
 8. `transcripts` has to be looked up by hand (step 5); the board could work it out from `project`. B134

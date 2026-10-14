@@ -165,3 +165,11 @@ test('B194: the base branch is ticked by the board, and git counts the commits a
   assert.ok(asked.includes('-C /r/game rev-list --count trunk..feature/x'), asked.join('\n'))
   assert.ok(!asked.some(line => line.includes('trunk..trunk')))
 })
+
+test('B197: the game\'s start command is the setting runGame, none by default; a wrong one is named', async () => {
+  const { configProblem } = await import('../src/config.mjs')
+  assert.deepEqual(parseConfig('{}', {}).runGame, [])
+  assert.deepEqual(parseConfig('{"runGame": ["{node}", "{board}/run-game.mjs", "--port", "{port}"]}', {}).runGame, ['{node}', '{board}/run-game.mjs', '--port', '{port}'])
+  assert.equal(configProblem('{"runGame": "npm run dev"}'), '"runGame" must be a list of words, the program first, not "npm run dev"')
+  assert.equal(configProblem('{"runGame": ["node", ""]}'), '"runGame" must be a list of words, the program first, not ["node",""]')
+})
