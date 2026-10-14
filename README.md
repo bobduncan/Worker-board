@@ -18,7 +18,7 @@ idea becomes a picture made by Codex, optional). `DESIGN.md` is the agreed desig
 | What | What for |
 |---|---|
 | Windows, the Claude desktop app, signed in | The board reads the app's list of chats and their transcripts on this PC. Not tried on a Mac. |
-| Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies); git gets it and lists the working folders. |
+| Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies; `package.json` names the Node it needs and the scripts `start`, `demo` and `test`); git gets it and lists the working folders. |
 | The Workers mod `folder-branches` | Keeps each chat's card, types your answers from the board into the chats, and keeps the board running. |
 | A project folder | Holds the code's repository and the board as folders of their own. Every chat of the project is opened in the project folder itself, not in a folder inside it: the app keeps the transcripts per folder. |
 | One main chat, titled `<prefix>Main` | It hands out the work, and the board types its words (restart, resume, start a chat) into it. |
@@ -62,9 +62,9 @@ the briefings for the main chat and the workers.
    ```
    git clone https://github.com/bobduncan/Worker-board.git worker-board
    cd worker-board
-   node --test
+   npm test
    ```
-   → the tests end with `fail 0`. `node server.mjs --demo --port 4311` shows the page with made-up data, if you
+   → the tests end with `fail 0`. `npm run demo -- --port 4311` shows the page with made-up data, if you
    want to look first (Ctrl+C ends it).
 7. **Its settings.** Write `config.json` in the board's folder after `examples\config.json`: `project` is
    `<project>`, `transcripts` the folder of step 5, `gameRepo` the folder of your code's git repository (empty until
@@ -74,7 +74,7 @@ the briefings for the main chat and the workers.
    `%LOCALAPPDATA%\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude-code-sessions` and
    `usageHistory` to `plan-usage-history.json` in that same `Claude` folder. →
    `node -e "JSON.parse(require('fs').readFileSync('config.json','utf8'))"` prints nothing (an error means a fault
-   in the file, and the board would silently take its defaults), and `node server.mjs` prints
+   in the file, and the board would silently take its defaults), and `npm start` prints
    `Worker board: http://127.0.0.1:<your port>/`. Ctrl+C ends it.
 8. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
    <project>\.claude\launch.json`. With `"boards": ["worker-board"]` in `list.json`, every chat in the list starts
@@ -184,7 +184,7 @@ project's backlog, part of B126 (the board for any project).
 9. Windows only as written: `%NAME%` in paths, the app's folders under `%APPDATA%\Claude` (for the Store app
    only as the app's own programs see it; the real folder is in its package folder, step 7), backslashes in
    `src/appChats.mjs` (`folderKey`), `codex.exe` under `%LOCALAPPDATA%\OpenAI\Codex` (`src/codex.mjs`). B135
-10. No file says which Node is needed: there is no `package.json`. Tried with Node 24 only. B136
+10. Done (B136): `package.json` names Node 24 or newer, and the scripts `start`, `demo` and `test`.
 11. The page says what to do when it finds no main chat or no worker (B124), but nothing when `list.json` or the
     backlog is missing, or when `transcripts` names the wrong folder: the trial's empty project showed 0 working,
     0 waiting, 0 free and nothing else. B137

@@ -1,0 +1,13 @@
+{
+  "name": "worker-board",
+  "description": "One page on your PC for a project in which several Claude chats work together.",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "demo": "node server.mjs --demo",
+    "test": "node --test"
+  }
+}
