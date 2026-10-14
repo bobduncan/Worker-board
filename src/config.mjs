@@ -2,6 +2,7 @@
 
 import { constants } from 'node:fs'
 import { access, copyFile, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 const DEFAULTS = {
   /** B129: the project's name, the page's title; by default the project folder's name. */
@@ -77,6 +78,17 @@ const INSIDE = /^(?!.*(?:^|\/)\.\.(?:\/|$))[\w.-]+(?:\/[\w .-]+)*$/
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'morningSkipPercent']
 
+/**
+ * B134: where the app keeps the transcripts of a project's chats: the user's `.claude\projects`, in a folder named
+ * after the project's path with every character that is no letter or digit as "-" (`C:\Work\my-project` is
+ * `C--Work-my-project`, `/Users/sam/game` is `-Users-sam-game`). '' when the user's home is not known.
+ */
+export function transcriptsOf(project, env) {
+  const byUpper = new Map(Object.entries(env).map(([name, value]) => [name.toUpperCase(), value]))
+  const home = byUpper.get('USERPROFILE') ?? byUpper.get('HOME') ?? ''
+  return home === '' ? '' : join(home, '.claude', 'projects', project.replace(/[^a-zA-Z0-9]/g, '-'))
+}
+
 /** Fills `%NAME%` from the environment. Windows names have no fixed case, so the look-up ignores it. */
 export function expandEnv(text, env) {
   const byUpper = new Map(Object.entries(env).map(([name, value]) => [name.toUpperCase(), value]))
@@ -95,6 +107,9 @@ export function parseConfig(text, env) {
   for (const key of PATHS) {
     if (typeof raw[key] === 'string') config[key] = expandEnv(raw[key], env)
   }
+  // B134: the app keeps a project's transcripts in the user's .claude\projects, in a folder named after the project's
+  // path; a setting of its own still wins.
+  if (config.transcripts === '' && config.project !== '') config.transcripts = transcriptsOf(config.project, env)
   // This one has a place by default: the app's own folder.
   config.usageHistory = expandEnv(typeof raw.usageHistory === 'string' ? raw.usageHistory : DEFAULTS.usageHistory, env)
   for (const key of NUMBERS) {

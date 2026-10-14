@@ -180,3 +180,15 @@ test('B133: the Design tab\'s kinds are the project\'s file designKinds, inside 
   assert.equal(parseConfig('{"designKinds": "design/kinds.json"}', {}).designKinds, 'design/kinds.json')
   assert.equal(configProblem('{"designKinds": "../kinds.json"}'), '"designKinds" must be a path inside its folder, written with /, not "../kinds.json"')
 })
+
+test('B134: the transcripts folder is worked out from the project when not set; a setting of its own wins', async () => {
+  const { transcriptsOf } = await import('../src/config.mjs')
+  const { join } = await import('node:path')
+  const home = { USERPROFILE: 'C:/Users/sam' }
+  assert.equal(transcriptsOf(String.raw`C:\Work\my-project`, home), join('C:/Users/sam', '.claude', 'projects', 'C--Work-my-project'))
+  assert.equal(transcriptsOf('/Users/sam/my_game', { HOME: '/Users/sam' }), join('/Users/sam', '.claude', 'projects', '-Users-sam-my-game'))
+  assert.equal(transcriptsOf('C:/x', {}), '')
+  assert.equal(parseConfig(JSON.stringify({ project: String.raw`C:\Work\my-project` }), home).transcripts, join('C:/Users/sam', '.claude', 'projects', 'C--Work-my-project'))
+  assert.equal(parseConfig(JSON.stringify({ project: String.raw`C:\Work\my-project`, transcripts: String.raw`D:\elsewhere` }), home).transcripts, String.raw`D:\elsewhere`)
+  assert.equal(parseConfig('{}', home).transcripts, '')
+})

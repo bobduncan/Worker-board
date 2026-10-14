@@ -58,8 +58,9 @@ the briefings for the main chat and the workers.
 5. **The main chat.** In the Claude app, start a new chat in the folder `<project>`, name it `<prefix>Main` (the
    prefix and the main chat's name from `list.json`), and send it: "Read .claude\main-briefing.md and join the list
    of chats as the main chat." → `/workers` shows "Main" as the main chat, and `%USERPROFILE%\.claude\projects\`
-   has a folder for the project: its path with `:` and `\` as `-` (`C:\Work\my-project` becomes
-   `C--Work-my-project`).
+   has a folder for the project: its path with every character that is no letter or digit as `-`
+   (`C:\Work\my-project` becomes `C--Work-my-project`). The board finds that folder by itself (B134); set
+   `transcripts` only when it lies elsewhere.
 6. **The board.** In `<project>`:
    ```
    git clone https://github.com/bobduncan/Worker-board.git worker-board
