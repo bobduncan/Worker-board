@@ -73,7 +73,7 @@ test('both windows: the brief on top, the rest under "Details", folded until ope
   assert.ok(!/task-details'\)[^\n]*\.open = true/.test(script.slice(script.indexOf('function foldedDetails'), script.indexOf('function keepUnfolded'))), 'the details open by themselves')
   assert.match(script, /const did = plainWords\(handover\.did\)/)
   assert.match(script, /\.\.\.closingParts\(handover\.closing\),\n\s+\]\)\)/)
-  assert.match(script, /keepUnfolded\(box, \(\) => fill\(box, need === null/)
+  assert.match(script, /keepUnfolded\(box, \(\) => fill\(box, foot\.children\.length === 0/)
   assert.match(script, /keepUnfolded\(box, \(\) => fill\(box, \[detailsHead\(view/)
   assert.match(style, /\.task-brief \.brief-task \{[^}]*-webkit-line-clamp: 2/)
   assert.match(style, /\.task-brief h3 \{[^}]*font-weight: 700/)
