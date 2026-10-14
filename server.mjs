@@ -31,7 +31,7 @@ import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs
 import { findCodex, makePicture } from './src/codex.mjs'
 import { loadConfig } from './src/config.mjs'
 import { IDEAS_FOLDER, REFERENCES_FOLDER, REFERENCE_BYTES, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
-import { ideasFile, ideasOver } from './src/ideas.mjs'
+import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
 import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
 import { readHead } from './src/files.mjs'
@@ -502,7 +502,9 @@ async function main(args) {
       if (checked.action === 'make') {
         // The folders that are there already, also a copy's: a new idea gets one of its own.
         const taken = await readdir(inProject(config.project, IDEAS_FOLDER)).catch(() => [])
-        const idea = await ideas.add({ id: `i${randomBytes(6).toString('hex')}`, kind: checked.kind, text: checked.text, references: checked.references, now, taken })
+        // B156: the references move into the idea's own folder, beside its pictures.
+        const place = (paths, folder) => placeReferences(config.project, paths, folder)
+        const idea = await ideas.add({ id: `i${randomBytes(6).toString('hex')}`, kind: checked.kind, text: checked.text, references: checked.references, now, taken, place })
         startPicture(idea, idea.versions[0])
         return { ok: true, result: { idea: idea.id } }
       }

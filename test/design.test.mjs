@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { LIMITS, checkDesign, designState, inTurn, parseDesignSettings, promptFor, shortName, stepWord } from '../src/design.mjs'
-import { ideasFile, ideasOver, parseIdeas } from '../src/ideas.mjs'
+import { ideasFile, ideasOver, parseIdeas, placeReferences } from '../src/ideas.mjs'
 import { pictureKind } from '../server.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -321,4 +321,36 @@ test('the page is told before a click whether this board can ask the main chat, 
   const copy = designState({ ideas: [], settings, canMake: true, why: null, busy: null, canSend: false, whyNot: 'This board only shows.' })
   assert.deepEqual([copy.canSend, copy.whyNot], [false, 'This board only shows.'])
   assert.deepEqual(here.limits, { idea: 1500, text: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3, referenceBytes: 8 * 1024 * 1024 })
+})
+
+test('B156: an idea\'s reference pictures move into its own folder under plain names; one that cannot move stays', async t => {
+  const project = await mkdtemp(join(tmpdir(), 'board-references-test-'))
+  t.after(() => rm(project, { recursive: true, force: true }))
+  const picked = 'art-inbox/ideas/_references/0123456789abcdef.png'
+  const pasted = 'art-inbox/ideas/_references/fedcba9876543210.webp'
+  const gone = 'art-inbox/ideas/_references/00000000000000aa.jpg'
+  await mkdir(join(project, 'art-inbox', 'ideas', '_references'), { recursive: true })
+  await writeFile(join(project, ...picked.split('/')), 'a made-up picture')
+  await writeFile(join(project, ...pasted.split('/')), 'another made-up picture')
+
+  const placed = await placeReferences(project, [picked, pasted, gone], 'art-inbox/ideas/a-shop-screen')
+  assert.deepEqual(placed, ['art-inbox/ideas/a-shop-screen/reference-1.png', 'art-inbox/ideas/a-shop-screen/reference-2.webp', gone])
+  assert.equal(await readFile(join(project, 'art-inbox', 'ideas', 'a-shop-screen', 'reference-2.webp'), 'utf8'), 'another made-up picture')
+  await assert.rejects(stat(join(project, ...picked.split('/'))))
+
+  // A new idea keeps them where they were placed; without a place they stay where the page put them.
+  const ideas = ideasOver([])
+  const made = await ideas.add({ id: 'i1', kind: 'screen', text: 'A shop screen', references: [picked], now: NOW, place: async (paths, folder) => paths.map((_, n) => `${folder}/reference-${n + 1}.png`) })
+  assert.deepEqual(made.references, ['art-inbox/ideas/a-shop-screen/reference-1.png'])
+  assert.deepEqual((await ideas.add({ id: 'i2', kind: 'screen', text: 'A road', references: [picked], now: NOW })).references, [picked])
+  // A place that fails leaves them where they were, and the idea is made all the same.
+  assert.deepEqual((await ideas.add({ id: 'i3', kind: 'screen', text: 'A bridge', references: [picked], now: NOW, place: async () => { throw new Error('no disk') } })).references, [picked])
+})
+
+test('B156: a hand-changed ideas file keeps only references in the idea\'s own folder or where the page puts them', () => {
+  const text = JSON.stringify({ ideas: [{ id: 'ok', name: 'shop', kind: 'screen', text: 'A shop', createdAt: 1, folder: 'art-inbox/ideas/shop', versions: [], references: [
+    'art-inbox/ideas/shop/reference-1.png', 'art-inbox/ideas/_references/0123456789abcdef.png', 'art-inbox/ideas/other/reference-1.png',
+    'art-inbox/ideas/shop/v1.png', 'art-inbox/ideas/shop/reference-1.png/../../../secret.png', 'art-inbox/ideas/shop/reference-12.png',
+  ] }] })
+  assert.deepEqual(parseIdeas(text)[0].references, ['art-inbox/ideas/shop/reference-1.png', 'art-inbox/ideas/_references/0123456789abcdef.png'])
 })

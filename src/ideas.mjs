@@ -2,12 +2,15 @@
 // board. The file holds what the person typed for an idea and where its pictures are, nothing from a chat.
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { IDEAS_FOLDER, REFERENCES_FOLDER, shortName } from './design.mjs'
 
 const REFERENCE = new RegExp(`^${REFERENCES_FOLDER}/[a-f0-9]{16}\\.(png|jpg|webp)$`)
 const FOLDER = new RegExp(`^${IDEAS_FOLDER}/[a-z0-9][a-z0-9-]{0,40}$`)
+/** B156: a reference picture that lies in the idea's own folder, under the plain name it was given there. */
+const OWN_REFERENCE = /^reference-[1-9]\.(png|jpg|webp)$/
+const isOwnReference = (folder, path) => path.startsWith(`${folder}/`) && OWN_REFERENCE.test(path.slice(folder.length + 1))
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -28,7 +31,8 @@ export function parseIdeas(text, why = 'The board was started anew while this pi
     .map(idea => ({
       ...idea,
       createdAt: Number.isFinite(idea.createdAt) ? idea.createdAt : 0,
-      references: (Array.isArray(idea.references) ? idea.references : []).filter(path => typeof path === 'string' && REFERENCE.test(path)),
+      references: (Array.isArray(idea.references) ? idea.references : [])
+        .filter(path => typeof path === 'string' && (REFERENCE.test(path) || isOwnReference(idea.folder, path))),
       agreed: Number.isInteger(idea.agreed) ? idea.agreed : null,
       sent: isRecord(idea.sent) ? idea.sent : null,
       droppedAt: Number.isFinite(idea.droppedAt) ? idea.droppedAt : null,
@@ -64,11 +68,16 @@ export function ideasOver(ideas, write = async () => {}) {
 
   return {
     all: () => ideas,
-    /** A new idea with its first version being made. `taken` are folders that are there already, whoever made them. */
-    async add({ id, kind, text, references, now, taken = [] }) {
+    /**
+     * A new idea with its first version being made. `taken` are folders that are there already, whoever made them.
+     * `place(references, folder)` answers where the reference pictures are kept for the idea (B156: in its folder).
+     */
+    async add({ id, kind, text, references, now, taken = [], place = async paths => paths }) {
       const name = shortName(text, [...ideas.map(idea => idea.name), ...taken])
+      const folder = `${IDEAS_FOLDER}/${name}`
+      const kept = await place(references, folder).catch(() => references)
       const idea = {
-        id, name, kind, text, createdAt: now, folder: `${IDEAS_FOLDER}/${name}`, references,
+        id, name, kind, text, createdAt: now, folder, references: kept,
         versions: [{ n: 1, at: now, change: null, from: null, state: 'making', picture: null, why: null, seconds: null }],
         agreed: null, sent: null, droppedAt: null,
       }
@@ -109,6 +118,27 @@ export function ideasOver(ideas, write = async () => {}) {
 }
 
 /** The ideas over their file. The file is replaced whole, by way of a second file, so a write never leaves half of it. */
+/**
+ * B156: moves the reference pictures an idea is made with from where the page put them into the idea's own folder,
+ * as reference-1.png and so on, so they lie beside its pictures. `project` is the project's folder; a picture that
+ * cannot be moved stays where it was.
+ */
+export async function placeReferences(project, paths, folder) {
+  const placed = []
+  for (const [n, path] of paths.entries()) {
+    const to = `${folder}/reference-${n + 1}${path.slice(path.lastIndexOf('.'))}`
+    const target = join(project, ...to.split('/'))
+    try {
+      await mkdir(dirname(target), { recursive: true })
+      await rename(join(project, ...path.split('/')), target)
+      placed.push(to)
+    } catch {
+      placed.push(path)
+    }
+  }
+  return placed
+}
+
 export async function ideasFile(file) {
   let text = ''
   try {

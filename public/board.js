@@ -2575,6 +2575,21 @@ $('coordinate-list').addEventListener('click', event => {
 /** What the server holds to, as `design.limits` names it; these stand in for a board that does not say. */
 const DESIGN_LIMITS = { idea: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3, referenceBytes: 8 * 1024 * 1024 }
 const limitsOf = design => ({ ...DESIGN_LIMITS, ...(design?.limits ?? {}) })
+/** The kinds of picture the board takes as a reference. */
+const REFERENCE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+
+/**
+ * B156: what a paste on the Design tab brings: `take`, the clipboard's picture to add as a reference; `problem`, a
+ * line for the person; or `ignore`, text pasted into a text field, which stays text there. `items` are the
+ * clipboard's entries (`kind`, `type`); `isTextField` says whether it was pasted into a field.
+ */
+function pastedReference(items, isTextField) {
+  const files = Array.from(items ?? []).filter(item => item?.kind === 'file')
+  const picture = files.find(item => typeof item.type === 'string' && item.type.startsWith('image/'))
+  if (picture !== undefined) return REFERENCE_TYPES.includes(picture.type) ? { take: picture } : { problem: 'A reference is a PNG, JPEG or WebP picture.' }
+  if (isTextField) return { ignore: true }
+  return { problem: files.length > 0 ? 'Only a picture can be pasted as a reference.' : 'The clipboard holds no picture: copy one, or add one from disk.' }
+}
 
 /** "shop-screen", the folder's short name, as a name to read: "Shop screen". */
 const ideaName = idea => {
@@ -2780,7 +2795,7 @@ function drawDesignNew(design, view) {
   })
   const mostReferences = limitsOf(design).references
   once('design-references', [[...designDraft.references], mostReferences], () => {
-    const add = el('button', 'design-add-reference', 'Add a reference picture (optional)')
+    const add = el('button', 'design-add-reference', 'Add a reference picture (optional), or paste one with Ctrl+V')
     add.type = 'button'
     add.dataset.addReference = ''
     // No more than the board takes: the box to add one goes when they are there.
@@ -2985,13 +3000,10 @@ $('design-references').addEventListener('click', event => {
   drawDesign()
 })
 
-// A reference picture of the person's own goes to the board, which answers where it keeps it.
-$('design-file').addEventListener('change', async () => {
-  const file = $('design-file').files[0]
-  $('design-file').value = ''
-  if (file === undefined) return
+// A reference picture of the person's own, picked from disk or pasted, goes to the board, which answers where it keeps it.
+async function addReference(file) {
   const limits = limitsOf(designNow())
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) designProblems.make = 'A reference is a PNG, JPEG or WebP picture.'
+  if (!REFERENCE_TYPES.includes(file.type)) designProblems.make = 'A reference is a PNG, JPEG or WebP picture.'
   else if (file.size > limits.referenceBytes) designProblems.make = `That picture is too large: ${Math.floor(limits.referenceBytes / (1024 * 1024))} MB at most.`
   else if (designDraft.references.length >= limits.references) designProblems.make = `At most ${limits.references} reference pictures.`
   else {
@@ -3004,6 +3016,26 @@ $('design-file').addEventListener('change', async () => {
       designProblems.make = 'The picture was not taken: the board\'s server does not answer'
     }
   }
+  drawDesign()
+}
+
+$('design-file').addEventListener('change', () => {
+  const file = $('design-file').files[0]
+  $('design-file').value = ''
+  if (file !== undefined) addReference(file)
+})
+
+// B156: Ctrl+V on the Design tab takes the picture on the clipboard as a reference, the same as one picked from disk.
+// Text pasted into a field stays text.
+document.addEventListener('paste', event => {
+  if ($('view-design').hidden) return
+  const isTextField = event.target instanceof Element && event.target.closest('textarea, input, [contenteditable]') !== null
+  const pasted = pastedReference(event.clipboardData?.items, isTextField)
+  if (pasted.ignore === true) return
+  event.preventDefault()
+  const file = pasted.take?.getAsFile() ?? null
+  if (file !== null) return addReference(file)
+  designProblems.make = pasted.problem ?? 'The clipboard holds no picture: copy one, or add one from disk.'
   drawDesign()
 })
 

@@ -15,7 +15,7 @@ const markup = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = script.slice(script.indexOf('// design:start'), script.indexOf('// design:end'))
 const page = {}
-vm.runInNewContext(`${cut}\nObject.assign(this, { limitsOf, ideaName, ideaBadge, designView, timeTyped, makeBody, againBody, retryBody, missingOf, sendBody, firstForm, sentWords })`, page)
+vm.runInNewContext(`${cut}\nObject.assign(this, { limitsOf, ideaName, ideaBadge, designView, timeTyped, makeBody, againBody, retryBody, missingOf, sendBody, firstForm, sentWords, pastedReference })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const MIN = 60_000
@@ -174,4 +174,32 @@ test('the page writes only through the board\'s Design calls, and nothing into t
   for (const word of ['/api/say', 'backlog.md', 'localStorage']) assert.ok(!tab.includes(word), `the tab's code has "${word}"`)
   // What the person typed is kept by the page while it is open; a redraw does not put it back into the boxes.
   assert.ok(!/\$\('design-text'\)\.value = designDraft/.test(tab))
+})
+
+test('B156: a picture pasted on the Design tab is taken as a reference; text pasted into a field stays text', () => {
+  const file = type => ({ kind: 'file', type, getAsFile: () => ({ type }) })
+  const words = { kind: 'string', type: 'text/plain' }
+  // A screenshot, or a picture copied from a page (which brings its HTML along): the picture is taken.
+  assert.equal(page.pastedReference([file('image/png')], false).take.type, 'image/png')
+  assert.equal(page.pastedReference([{ kind: 'string', type: 'text/html' }, file('image/webp')], true).take.type, 'image/webp')
+  // Pasted into the idea's box, a picture is still a reference: the box takes no pictures.
+  assert.equal(page.pastedReference([file('image/jpeg')], true).take.type, 'image/jpeg')
+  // A kind of picture the board does not take, something that is no picture, or nothing: a short line says so.
+  assert.equal(page.pastedReference([file('image/gif')], false).problem, 'A reference is a PNG, JPEG or WebP picture.')
+  assert.equal(page.pastedReference([file('application/pdf')], false).problem, 'Only a picture can be pasted as a reference.')
+  assert.equal(page.pastedReference([words], false).problem, 'The clipboard holds no picture: copy one, or add one from disk.')
+  assert.equal(page.pastedReference(undefined, false).problem, 'The clipboard holds no picture: copy one, or add one from disk.')
+  // Text pasted into a field is left to the field.
+  assert.deepEqual(plain(page.pastedReference([words], true)), { ignore: true })
+  // A list the browser gives is no array: it has a length and numbered entries.
+  assert.equal(page.pastedReference({ length: 1, 0: file('image/png') }, false).take.type, 'image/png')
+})
+
+test('B156: the page listens for a paste on the Design tab, and the box to add a picture says so', () => {
+  assert.match(script, /document\.addEventListener\('paste', event => \{\n  if \(\$\('view-design'\)\.hidden\) return/)
+  // A picked file and a pasted picture take the same way to the board.
+  assert.equal(script.split('async function addReference(file)').length, 2)
+  assert.match(script, /if \(file !== undefined\) addReference\(file\)/)
+  assert.match(script, /if \(file !== null\) return addReference\(file\)/)
+  assert.match(script, /'Add a reference picture \(optional\), or paste one with Ctrl\+V'/)
 })
