@@ -396,6 +396,8 @@ function drawRestart(state) {
   const box = $('restart')
   const prepare = $('prepare-restart')
   prepare.hidden = restart === null || restart.main === null
+  // B130: the main chat by its title from the list of chats.
+  prepare.title = `Before you quit Claude: ${state.workers?.mainTitle ?? 'the main chat'} asks every working chat to stop at a safe point and writes down who was on what`
   prepare.disabled = sending.has('restart')
   if (restart === null || restart.main === null) {
     box.hidden = true
@@ -679,7 +681,7 @@ function drawLane(lane, state) {
   if (lane.isRunning === false) {
     // After a restart of the app a chat does not run until it is opened, or messaged through the app.
     const idle = el('small', 'not-running', 'not running')
-    idle.title = 'This chat\'s process is not running: nothing reaches it until its chat is opened, or Game - Main starts it.'
+    idle.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
     names.append(idle)
   }
   // B143: a worker can be removed; the main chat cannot. The board asks the main chat, which closes the worker.
@@ -1988,7 +1990,7 @@ const SHORT_TASK_CHARS = 220
 
 /**
  * B157: the task in one short sentence, for someone who forgot the context: the message's own "In short: ..." line
- * when it has one; else the sentence of its first line, without the main chat's "Task from Game - Main: B<id>, "
+ * when it has one; else the sentence of its first line, without the main chat's "Task from <main chat>: B<id>, "
  * before it and the "About <time>." after it (the person's own words stay as they are); else the backlog step's
  * title, else the card's topic. The window shows it in at most two lines; it is cut at SHORT_TASK_CHARS.
  */
@@ -3069,7 +3071,7 @@ resizable($('talk-resizer'), $('view-advice'), 'chat-width', 500)
 // B155: the steps finished last, newest first, at the top of the Backlog tab. The person, 2026-10-14: "i want a
 // chronological list of backlog items that were recently finish desc, so latest items first."
 
-const FINISHED_HOW = { line: 'its line in the backlog', report: 'its report to Game - Main', seen: 'the board saw it ticked', day: 'only the day is known' }
+const FINISHED_HOW = { line: 'its line in the backlog', report: 'its report to the main chat', seen: 'the board saw it ticked', day: 'only the day is known' }
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /**

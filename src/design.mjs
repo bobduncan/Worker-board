@@ -108,7 +108,7 @@ export function stepWord({ where, title, kind, description, requirements, folder
     requirements.length === 0 ? null : 'Requirements:',
     ...requirements.map(line => `- ${line}`),
     `Pictures: ${folder}${file}`,
-    `Worker: ${worker === null ? 'Game - Main decides' : oneLine(worker, 80)}`,
+    `Worker: ${worker === null ? 'you decide' : oneLine(worker, 80)}`,
     minutes === null ? null : `Time: about ${about(minutes)}`,
   ].filter(line => line !== null).join('\n')
 }

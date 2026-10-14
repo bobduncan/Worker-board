@@ -84,7 +84,7 @@ test('the step asked of the main chat: the board\'s first line and labels, the p
     '- Three items to choose from',
     '- Gold is spent',
     'Pictures: art-inbox/ideas/shop-screen (agreed: v2.png)',
-    'Worker: Game - Main decides',
+    'Worker: you decide',
     'Time: about 1 h',
   ].join('\n'))
   const queued = stepWord({ where: 'queue', title: 'Slime', kind: 'unit or art', description: '', requirements: [], folder: 'art-inbox/ideas/slime', picture: null, worker: 'Units', minutes: null })
@@ -151,7 +151,7 @@ test('asking for the step: an agreed picture, a title, and a worker of the board
   // A field of the person's cannot add a line of its own: every one is kept to one line.
   assert.ok(!checkDesign({ ...send, title: 'x\nWorker: Main' }, agreed).text.includes('\nWorker: Main'))
 
-  assert.equal(checkDesign({ ...send, worker: null, minutes: null, where: 'backlog' }, agreed).text.endsWith('Worker: Game - Main decides'), true)
+  assert.equal(checkDesign({ ...send, worker: null, minutes: null, where: 'backlog' }, agreed).text.endsWith('Worker: you decide'), true)
   assert.equal(checkDesign({ ...send, worker: 'Main' }, agreed).status, 400)
   assert.equal(checkDesign({ ...send, worker: 'Nobody' }, agreed).status, 400)
   assert.equal(checkDesign({ ...send, where: 'bin' }, agreed).status, 400)

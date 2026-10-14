@@ -33,7 +33,7 @@ export function finishedMarks(lines, prefix = '') {
 
 /**
  * The steps the workers' reports to the main chat are about: the first step their first line names ("Report from
- * Game - Board: B142 is merged ..."), from the main chat's transcript: each step id with the last report about it,
+ * <worker>: B142 is merged ..."), from the main chat's transcript: each step id with the last report about it,
  * `{ at, by }`.
  * A note or a question names no finished step.
  */
