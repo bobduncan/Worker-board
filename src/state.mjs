@@ -62,12 +62,13 @@ const textOr = (value, fallback) => (typeof value === 'string' ? value : fallbac
 export function heldBy({ plan, handOver, background, step, isCompleted = false, isDone = false }) {
   // A card holds the chat unless the app's own summary calls the ended turn completed: a chat that reported and
   // forgot to clear its card is done. One that asked another chat in the middle of its task still waits. B148: a
-  // chat whose last answer ends with "+ Done:   yes" is done, whatever its card says.
+  // chat whose last answer ends with "+ Done:   yes" is done, whatever its card says or what it left running in
+  // the background (a server it started); what others hold for it, a hand-over or a step's branch, still holds.
   if (plan?.task != null && !plan.task.isReported && !isDone && (!isCompleted || plan.task.asked === true)) {
     return { why: 'task', text: plan.task.asked === true ? 'Its turn has ended; it asked another chat and waits for the answer.' : 'Its turn has ended; its task is not reported yet.' }
   }
   if (handOver !== null) return { why: 'task', text: 'Its turn has ended; the task handed to it is not reported yet.' }
-  if (background > 0) return { why: 'background', text: 'Its turn has ended; background work it started is still running.' }
+  if (background > 0 && !isDone) return { why: 'background', text: 'Its turn has ended; background work it started is still running.' }
   if (step !== null) return { why: 'branch', text: `Its turn has ended; its branch ${step.branch} is still open.` }
   return null
 }

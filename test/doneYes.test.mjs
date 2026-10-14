@@ -87,7 +87,14 @@ test('a worker that works again after its "Done: yes" works, with its card', () 
   assert.deepEqual([worker.state, worker.task.text], ['working', 'Board restart for the user'])
 })
 
-test('only the card is overruled: a task the main chat handed over and that is not reported still holds the worker', () => {
+test('"Done: yes" also overrules a command it left running in the background, such as a server it started', () => {
+  const left = [...asked, step(NOW - 4 * MIN, 'Start the board', 'Bash'), { ...JSON.parse(toolResult(NOW - 4 * MIN)), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'Command running in background with ID: b1.' }] } }].map(line => (typeof line === 'string' ? line : JSON.stringify(line)))
+  assert.deepEqual([lane([...left, answer(NOW - 3 * MIN, closing(YES))], { plan: '' }).state], ['free'])
+  const partly = lane([...left, answer(NOW - 3 * MIN, closing('- Done:   partly, the board still starts'))], { plan: '' })
+  assert.deepEqual([partly.state, partly.between], ['working', 'Its turn has ended; background work it started is still running.'])
+})
+
+test('only what the chat holds itself is overruled: a task the main chat handed over and that is not reported still holds the worker', () => {
   const handed = [fromChat(NOW - 20 * MIN, 'Game - Main', 'Task from Game - Main: backlog step B12, the archer. About 1 h.'), step(NOW - 19 * MIN, 'Draw'), toolResult(NOW - 18 * MIN)]
   const worker = lane([...handed, ...asked, answer(NOW - 3 * MIN, closing(YES))], { plan: '' })
   assert.deepEqual([worker.state, worker.between], ['working', 'Its turn has ended; the task handed to it is not reported yet.'])
