@@ -8,6 +8,9 @@ import { hourEnd, hourStart } from '../src/history.mjs'
 import { buildState, chatState } from '../src/state.mjs'
 
 const MIN = 60_000
+
+/** B151: what the page gets outside the window of a working lane, which shows the task as it was given (`givenTask`). */
+const outsideWindow = state => JSON.stringify({ ...state, chats: (state.chats ?? []).map(({ givenTask, ...lane }) => lane) })
 const NOW = Date.UTC(2026, 9, 12, 8, 24)
 const PROJECT = 'C:\\game'
 const config = { ...parseConfig('{}', {}), project: PROJECT }
@@ -319,7 +322,7 @@ test('a worker that recorded nothing has a task without words, from when it was 
   })
   // A report is no task for the main chat; it works, on something it has not recorded.
   assert.deepEqual([chatNamed(state, 'Main').task.source, chatNamed(state, 'Main').task.text], ['unrecorded', ''])
-  assert.ok(!JSON.stringify(state).includes('archer') && !JSON.stringify(state).includes('knight'))
+  assert.ok(!outsideWindow(state).includes('archer') && !outsideWindow(state).includes('knight'))
 })
 
 test('a working chat that recorded no task has one without words, from when its turn started', () => {
@@ -330,7 +333,7 @@ test('a working chat that recorded no task has one without words, from when its 
     text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null,
     startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
   })
-  assert.ok(!JSON.stringify(state).includes('lava'))
+  assert.ok(!outsideWindow(state).includes('lava'))
   const main = chatNamed(build({
     apps: [app('Main')],
     tails: { Main: tail([answer(NOW - 40 * MIN, 'Done'), fromChat(NOW - 5 * MIN, 'Game - Units', 'The archer is merged.'), step(NOW - 2 * MIN, 'Read the backlog')]) },
@@ -347,7 +350,7 @@ test('what the history recorded as the start of a long turn stands when the tail
   const state = build({ apps: [app('Units')], tails: { Units: tail(remark) }, lines })
   const units = chatNamed(state, 'Units')
   assert.deepEqual([units.task.text, units.task.source, units.task.startedAt], ['', 'unrecorded', NOW - 91 * MIN])
-  assert.ok(!JSON.stringify(state).includes('lava') && !JSON.stringify(state).includes('How far'))
+  assert.ok(!outsideWindow(state).includes('lava') && !outsideWindow(state).includes('How far'))
   const fresh = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(remark) } }), 'Units')
   assert.deepEqual([fresh.task.text, fresh.task.startedAt], ['', NOW - 10 * MIN])
 })
@@ -376,7 +379,7 @@ test('a handed-over task the tail no longer holds keeps its start from the histo
   const busy = chatNamed(state, 'Units')
   assert.deepEqual([busy.task.text, busy.task.startedAt], ['', NOW - 62 * MIN])
   // The words the history kept from before are not shown, on the lane or in the day's timeline.
-  assert.ok(!JSON.stringify(state).includes('archer'))
+  assert.ok(!outsideWindow(state).includes('archer'))
   const free = chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: tail(ended) }, lines }), 'Units')
   assert.equal(free.task, null)
   // Reported, but the turn still runs: the task stands until it ends.

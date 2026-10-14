@@ -10,7 +10,7 @@ import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from
 import { mentionedPaths } from './pictures.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
-import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
+import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -174,7 +174,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -217,6 +217,12 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const isLeftBehind = plan?.task != null && !plan.task.isReported && (isDone || state === 'free')
   const task = taskOf({ chat, plan: isLeftBehind ? { ...plan, task: null } : plan, state: wasCutOff || paused !== null ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById })
   const eta = etaOf(task, state, now)
+  // B151: the message that gave it the task it is on, as it arrived, for the window a click on its lane opens; with
+  // the backlog step it is on, else the first open one that message names.
+  const isOnTask = task !== null && (state === 'working' || state === 'suspended' || state === 'interrupted')
+  const given = !isOnTask || scan === null ? null : taskOrigin(scan, main, Number.isFinite(task.startedAt) ? task.startedAt + 2 * MIN : Infinity)
+  const givenStep = given === null ? null
+    : (task.stepId === null ? null : stepById(task.stepId)) ?? (given.text.split('\n')[0].match(/\bB\d+\b/g) ?? []).map(id => stepById(id)).find(one => one !== null) ?? null
   return {
     ...base,
     state,
@@ -243,6 +249,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
     // The task a free chat's card still named: finished, not current work.
     lastTask: isLeftBehind && state === 'free' ? { text: plan.task.text } : null,
+    givenTask: given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title } },
     suspended: paused,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).
     usage: entries === null ? [] : usageReadings([...(typeof tail.usage === 'string' ? parseTail(tail.usage, false) : []), ...entries]),

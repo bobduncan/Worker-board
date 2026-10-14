@@ -392,6 +392,40 @@ export function taskStart(entries, main) {
   return handOvers(entries, main).start
 }
 
+const ORIGIN_CHARS = 6000
+
+/**
+ * B151: the message that gave a chat the task it is on, as it arrived: the main chat's hand-over ("Task from ..."),
+ * also one that arrived in the middle of a turn, or what the person typed (also through the board). The newest
+ * such message at or before `until`, when the task started as far as the board knows. `{ by: 'main' | 'you', at,
+ * text }`, the text kept to its first 6000 characters; null when the entries hold none. Only for the window the
+ * person opens on a working lane: the lane itself names the task as the chat's card does (B82).
+ */
+export function taskOrigin(entries, { mainTitle, mainSession = null }, until = Infinity) {
+  let found = null
+  const keep = (by, entry, text) => {
+    if (found === null || entry.at >= found.at) found = { by, at: entry.at, text }
+  }
+  for (const entry of entries) {
+    if (entry.isSidechain || !Number.isFinite(entry.at) || entry.at > until) continue
+    const peer = peerMessage(entry)
+    if (peer !== null) {
+      const isFromMain = peer.from !== null && (peer.from === mainTitle || peer.from === mainSession)
+      if (isFromMain && HANDS_OVER.test(peer.body)) keep('main', entry, peer.body)
+      continue
+    }
+    if (entry.type !== 'user' || hasToolResult(entry)) continue
+    const origin = entry.origin
+    const isTyped = origin === null
+      ? !entry.isMeta && !entry.isCompactSummary && !isCommandText(textOf(entry))
+      : origin.kind === 'human' || (origin.kind === 'plugin' && origin.asUser === true)
+    const words = isTyped ? typedText(entry) : ''
+    if (words !== '') keep('you', entry, words)
+  }
+  if (found === null) return null
+  return { ...found, text: found.text.length > ORIGIN_CHARS ? `${found.text.slice(0, ORIGIN_CHARS)}…` : found.text }
+}
+
 /** When the chat last finished a task: its last report to the main chat that its turn ended after. Or null. */
 export function lastFinish(entries, main) {
   return handOvers(entries, main).finishedAt

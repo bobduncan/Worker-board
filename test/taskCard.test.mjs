@@ -11,6 +11,9 @@ import { buildState } from '../src/state.mjs'
 import { parseTail, taskStart } from '../src/transcript.mjs'
 
 const MIN = 60_000
+
+/** B151: what the page gets outside the window of a working lane, which shows the task as it was given (`givenTask`). */
+const outsideWindow = state => JSON.stringify({ ...state, chats: (state.chats ?? []).map(({ givenTask, ...lane }) => lane) })
 const NOW = Date.UTC(2026, 9, 12, 15, 0)
 const PROJECT = 'C:\\game'
 const config = { ...parseConfig('{}', {}), project: PROJECT }
@@ -75,7 +78,7 @@ test('a chat that recorded nothing shows the backlog step it was handed, by the 
   // The first step it names that is open, with the backlog's own words for it and its "about 20 min".
   assert.deepEqual([task.text, task.source, task.stepId, task.stepMinutes, task.startedAt], ['B08 Portraits', 'step', 'B08', 20, NOW - 15 * MIN])
   assert.deepEqual(eta, { at: NOW + 5 * MIN, leftMs: 5 * MIN, isOverdue: false, isOwn: false, from: 'step' })
-  assert.ok(!JSON.stringify(state).includes('zebracorn'))
+  assert.ok(!outsideWindow(state).includes('zebracorn'))
 })
 
 test('a hand-over that names no open step of the backlog leaves the task without words', () => {
@@ -109,7 +112,7 @@ test('no word of a prompt or of a hand-over reaches the page, whatever the chat 
     { at: NOW - 60 * MIN, chat: 'Units', state: 'working', task: 'The quokkaberry level', step: null, steps: null, leftMs: null, startedAt: NOW - 61 * MIN, source: 'handover' },
   ]
   for (const [name, entries] of Object.entries(cases)) {
-    const text = JSON.stringify(build({ tails: { Units: tail(entries), Main: tail(running) }, lines }))
+    const text = outsideWindow(build({ tails: { Units: tail(entries), Main: tail(running) }, lines }))
     for (const word of words) assert.ok(!text.includes(word), `${name}: the page would get "${word}"`)
   }
 })

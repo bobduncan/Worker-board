@@ -940,6 +940,14 @@ $('lanes').addEventListener('click', event => {
   send({ to: board.workers.main, command: 'spawn' }, 'spawn')
 })
 
+// B151: a click on a working worker's lane (also suspended, cut off, or between two turns) opens its task as it was
+// given. The queue, the unfolded details, its step line and its remove control keep their own clicks.
+$('lanes').addEventListener('click', event => {
+  const card = event.target.closest('.lane.is-working, .lane.is-suspended, .lane.is-interrupted')
+  if (card === null || board === null || event.target.closest('.queue, .more, .step-line, .remove-button, .remove-warning') !== null) return
+  openDetails({ lane: card.dataset.lane, task: true })
+})
+
 // B100: a click on a lane that waits for the person opens what it waits for, with the form to answer it. The
 // queue and the unfolded details keep their own clicks.
 $('lanes').addEventListener('click', event => {
@@ -1647,7 +1655,91 @@ function drawReferences(shown) {
 }
 
 
-/** What the details are about: a request by its id, or a queued step by its lane and place. */
+// lanewindow:start
+const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off' }
+
+/**
+ * B151: what the window of a working worker's lane shows (also one that is suspended, cut off, or between two turns):
+ * in its head the task as its card names it; then the task as it was given (`given`: the main chat's hand-over as it
+ * arrived in that chat, or what the person typed there, with when), the backlog step that message is about, and
+ * where it stands now (`standing`: its step line, its time, what it does). Null for a lane whose window this is
+ * not: a free one, or one that waits for the person (that one opens what it waits for, B100).
+ */
+function laneWindowOf(lane, now, mainTitle) {
+  const chip = LANE_WINDOW_STATES[lane.state]
+  if (chip === undefined) return null
+  const task = lane.task ?? null
+  const given = lane.givenTask ?? null
+  const line = stepLine(lane, now)
+  const time = timeOf(lane, now)
+  return {
+    code: given?.step?.id ?? task?.stepId ?? null,
+    title: task === null || task.text === '' ? 'Task not recorded yet' : task.text,
+    chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
+    given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
+    step: given?.step ?? null,
+    standing: [
+      ...(line === null ? [] : [line.label]),
+      `${time.label === '' ? '' : `${time.label}: `}${time.main}${time.small.length > 0 ? `, ${time.small.join(', ')}` : ''}`,
+      ...(typeof lane.doingNow === 'string' && lane.doingNow !== '' ? [`Now: ${lane.doingNow}`] : []),
+      ...(typeof lane.between === 'string' && lane.between !== '' ? [`Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}`] : []),
+    ],
+  }
+}
+// lanewindow:end
+
+/**
+ * B151: the parts of a working lane's window, in order. Each takes the window's view (`laneWindowOf`) and the lane,
+ * and gives a section, or null when it has nothing to show. A later window (B149) adds its own parts here.
+ */
+const LANE_PARTS = {
+  main: [
+    view => section('Its task as it was given', view.given === null
+      ? [el('p', 'muted', 'The message that gave it this task is not in the part of its chat the board reads.')]
+      : [el('small', 'muted', view.given.from), rich(el('div', 'said-words'), view.given.text)]),
+    view => (view.step === null ? null : section('Backlog step', [el('p', '', `${view.step.id} · ${view.step.title}`)])),
+  ],
+  side: [view => section('Where it stands', view.standing.map(line => el('p', '', line)))],
+}
+
+/** The head of a window: its code and title, its chips, when it was asked, the sign of its kind, and the cross. */
+function detailsHead(view, sign, now) {
+  const head = el('header', 'details-head')
+  const names = el('div', 'details-names')
+  const heading = el('h2')
+  if (view.code !== null) heading.append(el('span', 'details-code', view.code))
+  heading.append(view.title)
+  const chips = el('p', 'details-chips')
+  for (const chip of view.chips) chips.append(el('span', `chip is-${chip.tone}`, chip.text))
+  if ((view.at ?? null) !== null) chips.append(el('span', 'chip is-time', `Asked ${ago(view.at, now)}`))
+  names.append(heading, chips)
+  const close = el('button', 'icon-button', '✕')
+  close.type = 'button'
+  close.dataset.close = ''
+  close.title = 'Close'
+  close.setAttribute('aria-label', 'Close')
+  head.append(sign, names, close)
+  return head
+}
+
+/** B151: the window of a working lane (see `laneWindowOf` and `LANE_PARTS`). */
+function drawLaneWindow(box, lane, state) {
+  const view = laneWindowOf(lane, state.readAt, state.workers?.mainTitle ?? 'the main chat')
+  const showing = JSON.stringify([detailsOf, view])
+  if (box.open && detailsShown === showing) return
+  detailsShown = showing
+  const scroll = box.querySelector('.details-body')?.scrollTop ?? 0
+  const left = el('div', 'details-main')
+  left.append(...LANE_PARTS.main.map(part => part(view, lane)).filter(part => part !== null))
+  const right = el('div', 'details-side')
+  right.append(...LANE_PARTS.side.map(part => part(view, lane)).filter(part => part !== null))
+  const body = el('div', `details-body${right.children.length === 0 ? ' is-single' : ''}`)
+  body.append(left, ...(right.children.length === 0 ? [] : [right]))
+  fill(box, [detailsHead(view, el('span', 'kind is-working', '▶'), state.readAt), body])
+  body.scrollTop = scroll
+}
+
+/** What the details are about: a request by its id, a queued step by its lane and place, or a working lane's task (B151). */
 let detailsOf = null
 let detailsShown = null
 
@@ -1661,6 +1753,11 @@ function subjectOf(state) {
     // A step of the backlog by its key (the Coordinate tab): whatever its state, with the worker it names.
     const step = (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.key === detailsOf.step)
     return step === undefined ? null : { need: null, lane: state.chats.find(one => one.name === step.worker) ?? null, place: -1, step }
+  }
+  if (detailsOf.task === true) {
+    const lane = state.chats.find(one => one.name === detailsOf.lane)
+    // A lane that stopped working has no such window: it closes.
+    return lane === undefined || laneWindowOf(lane, state.readAt, '') === null ? null : { laneTask: lane }
   }
   const lane = state.chats.find(one => one.name === detailsOf.lane)
   // A queued step is followed by its id when it has one, so the details stay on it when the queue moves.
@@ -1712,6 +1809,7 @@ function drawDetails(state) {
     detailsOf = null
     return
   }
+  if (subject.laneTask !== undefined) return drawLaneWindow(box, subject.laneTask, state)
   const { need, lane, place } = subject
   const step = subject.step ?? (need === null ? lane.queue[place] : null)
   const now = state.readAt
@@ -1727,21 +1825,7 @@ function drawDetails(state) {
     { need, step, lane: lane?.name ?? step?.worker ?? null, isStep: need !== null && isStep(need), isClosed: need !== null && isClosed(need) },
     { ask: asks => ASKS[asks] ?? 'Not sorted', kind: kind => KINDS[kind].tag },
   )
-  const head = el('header', 'details-head')
-  const names = el('div', 'details-names')
-  const heading = el('h2')
-  if (view.code !== null) heading.append(el('span', 'details-code', view.code))
-  heading.append(view.title)
-  const chips = el('p', 'details-chips')
-  for (const chip of view.chips) chips.append(el('span', `chip is-${chip.tone}`, chip.text))
-  if (view.at !== null) chips.append(el('span', 'chip is-time', `Asked ${ago(view.at, now)}`))
-  names.append(heading, chips)
-  const close = el('button', 'icon-button', '✕')
-  close.type = 'button'
-  close.dataset.close = ''
-  close.title = 'Close'
-  close.setAttribute('aria-label', 'Close')
-  head.append(el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), names, close)
+  const head = detailsHead(view, el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), now)
 
   // The left column, the wider one: what it is about and what to look at
   const notes = noteParts(view.notes)
