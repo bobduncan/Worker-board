@@ -132,6 +132,25 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
   starts a worker itself or puts up a chip for the person to click. No main chat: how to make one, with this
   project's folder and the name the list of chats gives the main chat. No word names a project.
 
+**Removing a worker (B143).** The person, 2026-10-14: "I need an option to remove a worker as well. I need a warning
+if that worker is not free." Of the mock-up: "1. yes. 2. yes" (the look, and one click for a free worker with
+nothing queued). The pictures are in `art-inbox/worker-board/b143`.
+
+- *The board only asks; the main chat removes.* The word it types into the main chat: `remove worker`, then
+  `Name: <the name in the list of chats>`, `State: <what the lane says it does>` and `Why: removed with the button`
+  (`removeWords` and `workerState` in `src/say.mjs`). The main chat stops the worker at a safe point if it works,
+  takes it out of the list, closes its chat and hands its queued steps on.
+- *The control.* "✕ Remove" under the state of every worker's lane; the main chat's lane has none, nor a leftover.
+  A worker that is free and has nothing queued is asked for on the one click.
+- *The warning.* Any other worker (working, waiting for the person, suspended, cut off, unknown, or with steps
+  queued) gets a warning under its lane first, which says what it is doing and what would stop, and names up to
+  three queued steps. "Remove anyway" asks, "Keep it" closes the warning. The server reads the worker's state itself
+  and refuses a worker that is not free unless the page says the warning was confirmed (`sure`).
+- *One ask at a time per worker.* An ask is open while it is on its way, and after it arrived for 15 minutes while
+  the worker is still in the list (`removalAsk` in `src/state.mjs`); meanwhile the control waits and the lane says
+  when it asked. An ask that did not arrive, or a worker still there after that time, says so for an hour and can be
+  asked again.
+
 **The timeline looks ahead.** It runs from two hours before now to at least six hours after it, and further when
 more is planned (`hoursBack` and `hoursAhead` in `config.json`). What was is of little use to the person; what is
 expected and queued is what they plan with.

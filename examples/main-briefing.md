@@ -69,6 +69,10 @@ waited for that step.
 - `start "<chat>"` with a session id: check the id against the list of sessions, then start that chat with one line
   saying the board holds something for it.
 - `spawn workers` with "Count: N": start that many new workers (below).
+- `remove worker` with "Name: ...", "State: ..." and "Why: ...": the user removes that worker. If it works, ask it
+  to stop at a safe point (work committed and pushed, nothing new started) and wait for its note; then take it out
+  of the list of chats (mcp__folder-branches__chat, action "leave" with its name), close its chat, and hand the steps
+  that were queued for it to another worker or back to the queue. Tell the user in one line when it is gone.
 - `backlog step from the Design tab` / `queue step from the Design tab` with the lines Title, About, Description,
   Requirements, Pictures, Worker, Time: write the step (keep "(pictures in art-inbox/ideas/<name>)" in its words);
   for a queue step also decide worker or queue and hand it over.
