@@ -4,10 +4,12 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { IDEAS_FOLDER, REFERENCES_FOLDER, shortName } from './design.mjs'
+import { ideasFolder, shortName } from './design.mjs'
 
-const REFERENCE = new RegExp(`^${REFERENCES_FOLDER}/[a-f0-9]{16}\\.(png|jpg|webp)$`)
-const FOLDER = new RegExp(`^${IDEAS_FOLDER}/[a-z0-9][a-z0-9-]{0,40}$`)
+// B198: an idea's folder and an uploaded reference lie in the ideas folder of a plain picture folder of the project:
+// the one the settings name now, or the one an earlier idea was kept in, so every idea saved so far stays readable.
+const REFERENCE = /^[\w-][\w.-]*\/ideas\/_references\/[a-f0-9]{16}\.(png|jpg|webp)$/
+const FOLDER = /^[\w-][\w.-]*\/ideas\/[a-z0-9][a-z0-9-]{0,40}$/
 /** B156: a reference picture that lies in the idea's own folder, under the plain name it was given there. */
 const OWN_REFERENCE = /^reference-[1-9]\.(png|jpg|webp)$/
 const isOwnReference = (folder, path) => path.startsWith(`${folder}/`) && OWN_REFERENCE.test(path.slice(folder.length + 1))
@@ -48,7 +50,7 @@ export function parseIdeas(text, why = 'The board was started anew while this pi
  * The ideas, with the changes the Design tab makes to them. `write(text)` keeps the file; every change is written
  * before it is answered, one write after the other.
  */
-export function ideasOver(ideas, write = async () => {}) {
+export function ideasOver(ideas, write = async () => {}, { pictures = null } = {}) {
   let saving = Promise.resolve()
   const save = () => {
     const text = `${JSON.stringify({ ideas }, null, 1)}\n`
@@ -74,7 +76,9 @@ export function ideasOver(ideas, write = async () => {}) {
      */
     async add({ id, kind, text, references, now, taken = [], place = async paths => paths }) {
       const name = shortName(text, [...ideas.map(idea => idea.name), ...taken])
-      const folder = `${IDEAS_FOLDER}/${name}`
+      // B198: a new idea goes into the ideas folder of the project's picture folder.
+      if (typeof pictures !== 'string') throw new Error('The ideas know no picture folder to keep a new idea in.')
+      const folder = `${ideasFolder(pictures)}/${name}`
       const kept = await place(references, folder).catch(() => references)
       const idea = {
         id, name, kind, text, createdAt: now, folder, references: kept,
@@ -139,7 +143,7 @@ export async function placeReferences(project, paths, folder) {
 }
 
 /** The ideas over their file. The file is replaced whole, by way of a second file, so a write never leaves half of it. */
-export async function ideasFile(file) {
+export async function ideasFile(file, { pictures = null } = {}) {
   let text = ''
   try {
     text = await readFile(file, 'utf8')
@@ -150,5 +154,5 @@ export async function ideasFile(file) {
     await mkdir(dirname(file), { recursive: true })
     await writeFile(`${file}.new`, next)
     await rename(`${file}.new`, file)
-  })
+  }, { pictures })
 }

@@ -6,10 +6,13 @@
 const refuse = (status, why) => ({ ok: false, status, why })
 
 /** The folder under the project where an idea's pictures go, so a step can name it and the board can show them. */
-export const IDEAS_FOLDER = 'art-inbox/ideas'
+/** B198: the Design tab's folder in the project's picture folder `pictures` (the first of the settings' pictureRoots). */
+export const ideasFolder = pictures => `${pictures}/ideas`
 /** Where a reference picture the person added waits until its idea is made. */
-export const REFERENCES_FOLDER = `${IDEAS_FOLDER}/_references`
-const REFERENCE = /^art-inbox\/ideas\/_references\/[a-f0-9]{16}\.(png|jpg|webp)$/
+export const referencesFolder = pictures => `${ideasFolder(pictures)}/_references`
+/** A reference picture as the upload named it: in the references folder of the picture folder `pictures`. */
+export const isUploadedReference = (path, pictures) => typeof path === 'string' && typeof pictures === 'string'
+  && path.startsWith(`${referencesFolder(pictures)}/`) && /^[a-f0-9]{16}\.(png|jpg|webp)$/.test(path.slice(referencesFolder(pictures).length + 1))
 
 export const LIMITS = { idea: 1500, change: 600, title: 160, description: 1200, requirement: 200, requirements: 12, references: 3 }
 /** A reference picture the person adds to an idea is at most this large. */
@@ -150,7 +153,7 @@ export function checkDesign(body, design) {
     if (text === '') return refuse(400, 'Type the idea.')
     if (text.length > LIMITS.idea) return refuse(413, `At most ${LIMITS.idea} characters.`)
     const references = body.references === undefined ? [] : body.references
-    if (!Array.isArray(references) || references.length > LIMITS.references || !references.every(path => typeof path === 'string' && REFERENCE.test(path))) {
+    if (!Array.isArray(references) || references.length > LIMITS.references || !references.every(path => isUploadedReference(path, design.pictures))) {
       return refuse(400, `At most ${LIMITS.references} reference pictures, added on this page.`)
     }
     // The same picture twice is one reference.

@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { BrokenConfig, configProblem, firstStart, loadConfig } from './src/config.mjs'
-import { IDEAS_FOLDER, REFERENCES_FOLDER, REFERENCE_BYTES, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
+import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
 import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
@@ -421,7 +421,9 @@ async function main(args) {
   // B133: the kinds of idea are the project's own (the setting designKinds); the demo has its made-up ones.
   const kindsFile = isDemo ? join(HERE, 'fixtures', 'demo-design.json') : config.project === '' ? null : join(config.project, ...config.designKinds.split('/'))
   const settings = parseDesignSettings(kindsFile === null ? '' : await readFile(kindsFile, 'utf8').catch(() => ''))
-  const ideas = isDemo ? ideasOver((await import('./fixtures/demo.mjs')).demoIdeas(clock())) : await ideasFile(join(HERE, 'data', 'ideas.json'))
+  // B198: new ideas go into the project's picture folder.
+  const ideas = isDemo ? ideasOver((await import('./fixtures/demo.mjs')).demoIdeas(clock()), undefined, { pictures: config.pictureRoots[0] })
+    : await ideasFile(join(HERE, 'data', 'ideas.json'), { pictures: config.pictureRoots[0] })
   const codex = isDemo ? null : await findCodex({ given: settings.codex })
   const inProject = (project, path) => join(project, ...path.split('/'))
   /** The picture being made: which idea and version, since when, and how to stop it. */
@@ -455,6 +457,7 @@ async function main(args) {
     ideas: ideas.all().map(idea => (idea.sent === null ? idea : { ...idea, sent: { ...idea.sent, state: sentNow().find(message => message.id === idea.sent.message)?.state ?? 'delivered' } })),
     maxChars: config.maxMessageChars,
     kinds: settings.kinds,
+    pictures: config.pictureRoots[0],
     canMake,
     why: whyNoPicture,
     busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
@@ -580,7 +583,7 @@ async function main(args) {
       const now = clock()
       if (checked.action === 'make') {
         // The folders that are there already, also a copy's: a new idea gets one of its own.
-        const taken = await readdir(inProject(config.project, IDEAS_FOLDER)).catch(() => [])
+        const taken = await readdir(inProject(config.project, ideasFolder(config.pictureRoots[0]))).catch(() => [])
         // B156: a reference the page still names must be there: it may have gone with an idea that was not kept.
         const gone = await Promise.all(checked.references.map(path => stat(inProject(config.project, path)).then(file => !file.isFile(), () => true)))
         if (gone.some(Boolean)) return { ok: false, status: 409, why: 'A reference picture is not there any more: take it away and add it again.' }
@@ -611,7 +614,7 @@ async function main(args) {
       const kind = pictureKind(bytes)
       if (kind === null) return { ok: false, status: 415, why: 'That is no PNG, JPEG or WebP picture.' }
       // A name of the board's own choosing: nothing of the sender's reaches the path.
-      const path = `${REFERENCES_FOLDER}/${randomBytes(8).toString('hex')}.${kind}`
+      const path = `${referencesFolder(config.pictureRoots[0])}/${randomBytes(8).toString('hex')}.${kind}`
       const file = inProject(config.project, path)
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, bytes)

@@ -187,7 +187,7 @@ project's backlog, part of B126 (the board for any project).
    board never takes its own folder for the game. The base branch is the setting `baseBranch` (B194), and how a game
    starts the setting `runGame` (B197), with `run-game.mjs` (Vite) as the example.
 7. Done (B133): the Design tab's kinds of idea and reference pictures are the project's own file (`designKinds`);
-   without one the tab says what it needs. Still fixed: its ideas folder (`art-inbox/ideas`), B198.
+   without one the tab says what it needs. Its ideas live in `ideas` in the project's picture folder (B198).
 8. `transcripts` has to be looked up by hand (step 5); the board could work it out from `project`. B134
 9. Windows only as written: `%NAME%` in paths, the app's folders under `%APPDATA%\Claude` (for the Store app
    only as the app's own programs see it; the real folder is in its package folder, step 7), backslashes in

@@ -6,7 +6,6 @@ import { readdir, realpath, stat } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 
 import { picturePath } from './asks.mjs'
-import { IDEAS_FOLDER } from './design.mjs'
 
 /** An idea's reference picture in its folder (B156). */
 const IDEA_REFERENCE = /^reference-[1-9]\.(png|jpg|webp)$/
@@ -65,7 +64,7 @@ export async function listPictures(project, roots, value, most = 6) {
     const names = (await readdir(real, { withFileTypes: true }))
       .filter(entry => entry.isFile() && picturePath(`${folder}/${entry.name}`) !== null)
       // B156: an idea's reference pictures are the person's own input, not what was made from it.
-      .filter(entry => !(folder.startsWith(`${IDEAS_FOLDER}/`) && IDEA_REFERENCE.test(entry.name)))
+      .filter(entry => !(/^[\w-][\w.-]*\/ideas\//.test(folder) && IDEA_REFERENCE.test(entry.name)))
       .map(entry => entry.name)
     const dated = await Promise.all(names.slice(0, 200).map(async name => ({ name, at: (await stat(join(real, name))).mtimeMs })))
     return dated.sort((a, b) => b.at - a.at).slice(0, most).map(({ name }) => `${folder}/${name}`)

@@ -22,7 +22,7 @@ const idea = (more = {}) => ({
   id: 'i1', name: 'shop-screen', kind: 'screen', text: 'A shop screen where I spend gold', createdAt: NOW - 20 * MIN, folder: 'art-inbox/ideas/shop-screen',
   references: [], versions: [version(1)], agreed: null, sent: null, droppedAt: null, ...more,
 })
-const design = (ideas, more = {}) => ({ ideas, kinds, canMake: true, why: null, busy: null, canSend: true, main: 'Main', workers: ['Units', 'Features'], ...more })
+const design = (ideas, more = {}) => ({ ideas, kinds, pictures: 'art-inbox', canMake: true, why: null, busy: null, canSend: true, main: 'Main', workers: ['Units', 'Features'], ...more })
 
 test('the settings: kinds with their opening words and reference pictures; what is no kind or no picture is left out', () => {
   const settings = parseDesignSettings(JSON.stringify({
@@ -173,7 +173,7 @@ test('the ideas with what was done to them, kept and there again after a new sta
   const dir = await mkdtemp(join(tmpdir(), 'board-ideas-test-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const file = join(dir, 'data', 'ideas.json')
-  const ideas = await ideasFile(file)
+  const ideas = await ideasFile(file, { pictures: 'art-inbox' })
   const made = await ideas.add({ id: 'i1', kind: 'screen', text: 'A shop screen', references: [], now: NOW })
   assert.deepEqual([made.name, made.folder, made.versions[0].state], ['a-shop-screen', 'art-inbox/ideas/a-shop-screen', 'making'])
   await ideas.finish('i1', 1, { picture: 'art-inbox/ideas/a-shop-screen/v1.png', seconds: 51 })
@@ -310,7 +310,7 @@ test('an idea that cannot be kept is not left "being made", and its folder is on
   let fails = true
   const ideas = ideasOver([], async () => {
     if (fails) throw new Error('disk full')
-  })
+  }, { pictures: 'art-inbox' })
   await assert.rejects(ideas.add({ id: 'i1', kind: 'screen', text: 'A shop screen', references: [], now: NOW }))
   assert.deepEqual(ideas.all().map(one => one.versions[0].state), ['failed'])
   fails = false
@@ -344,7 +344,7 @@ test('B156: an idea\'s reference pictures move into its own folder under plain n
   await assert.rejects(stat(join(project, ...picked.split('/'))))
 
   // A new idea keeps them where they were placed; without a place they stay where the page put them.
-  const ideas = ideasOver([])
+  const ideas = ideasOver([], undefined, { pictures: 'art-inbox' })
   const made = await ideas.add({ id: 'i1', kind: 'screen', text: 'A shop screen', references: [picked], now: NOW, place: async (paths, folder) => paths.map((_, n) => `${folder}/reference-${n + 1}.png`) })
   assert.deepEqual(made.references, ['art-inbox/ideas/a-shop-screen/reference-1.png'])
   assert.deepEqual((await ideas.add({ id: 'i2', kind: 'screen', text: 'A road', references: [picked], now: NOW })).references, [picked])
@@ -358,4 +358,17 @@ test('B156: a hand-changed ideas file keeps only references in the idea\'s own f
     'art-inbox/ideas/shop/v1.png', 'art-inbox/ideas/shop/reference-1.png/../../../secret.png', 'art-inbox/ideas/shop/reference-12.png',
   ] }] })
   assert.deepEqual(parseIdeas(text)[0].references, ['art-inbox/ideas/shop/reference-1.png', 'art-inbox/ideas/_references/0123456789abcdef.png'])
+})
+
+test('B198: new ideas go into the project\'s picture folder; ideas saved in another stay readable; an upload counts only in the folder now set', async () => {
+  const { ideasFolder, isUploadedReference, referencesFolder } = await import('../src/design.mjs')
+  assert.deepEqual([ideasFolder('shots'), referencesFolder('shots')], ['shots/ideas', 'shots/ideas/_references'])
+  const made = await ideasOver([], undefined, { pictures: 'shots' }).add({ id: 'i1', kind: 'screen', text: 'A shop screen', references: [], now: NOW })
+  assert.equal(made.folder, 'shots/ideas/a-shop-screen')
+  await assert.rejects(ideasOver([]).add({ id: 'i2', kind: 'screen', text: 'A map', references: [], now: NOW }), /no picture folder/)
+  const saved = JSON.stringify({ ideas: [{ id: 'old', name: 'map', kind: 'level', text: 'A map', createdAt: 1, folder: 'old-pictures/ideas/map', references: ['old-pictures/ideas/_references/0123456789abcdef.png'], versions: [] }] })
+  assert.deepEqual(parseIdeas(saved).map(one => [one.folder, one.references]), [['old-pictures/ideas/map', ['old-pictures/ideas/_references/0123456789abcdef.png']]])
+  assert.equal(isUploadedReference('shots/ideas/_references/0123456789abcdef.png', 'shots'), true)
+  assert.equal(isUploadedReference('old-pictures/ideas/_references/0123456789abcdef.png', 'shots'), false)
+  assert.equal(isUploadedReference('shots/ideas/_references/../x.png', 'shots'), false)
 })
