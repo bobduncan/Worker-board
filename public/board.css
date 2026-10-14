@@ -411,7 +411,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .talk-code .is-good { color: var(--working); }
 .talk-code .is-bad { color: #ff8a8a; }
 .talk-code .is-plain { color: var(--muted); }
-.main-say button { width: auto; padding: 0 16px; }
+.main-say button { width: auto; min-width: 118px; padding: 0 16px; white-space: nowrap; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; white-space: nowrap; cursor: pointer; }
 .check input { accent-color: var(--free); width: 15px; height: 15px; margin: 0; }
 .need.is-closed { opacity: 0.6; }

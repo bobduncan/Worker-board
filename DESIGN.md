@@ -138,6 +138,18 @@ why it is not started (B113) and "+N"; and "⋯", which unfolds the whole queue,
 warning still shows under the row. The other parts of the Overview are as they were. The picture:
 `art-inbox/ideas/any-improvement-to-this/2026-10-14-b159-result.png`.
 
+**Talk to Main (B161).** The person, 2026-10-14: "I want a place in the overview to talk to the main chat to assign new
+tasks", "include the 'for you' as is", "add tabs there so i can swap between the two" (the picture they agreed:
+`art-inbox/ideas/i-want-a-place/v2.png`). The Overview's right side has two tabs: "For you", as it was, with its
+count, and "Talk to Main" (the main chat's name from the list of chats), a chat with the main chat: what the person
+types is typed into the main chat as the advisor's tab does ("(typed on the worker board, HH:MM)" under it), and the
+main chat's answers show with their times. The talk holds what the person typed to the main chat, in its chat or on
+the board, and the main chat's answers; the workers' reports and what the board types for itself (its words for the
+main chat, an answer to a card) are left out. An answer reads in its parts: its "For you" block as a quote, its
+closing block line by line, "+" green and "-" red. The head says whether the main chat's chat runs. The tab that is
+open is kept in this browser. Not built: the picture's "Task proposal" card and answer buttons, which the person's
+words did not ask for. The picture: `art-inbox/ideas/i-want-a-place/2026-10-14-b161-result.png`.
+
 **The Design tab's page (B99).** A fourth tab, after the person's layout A
 (`art-inbox/worker-board/design-tab/2026-10-12-design-tab-a-side-by-side.png`): three parts side by side and "Ideas
 so far" along the bottom. 1 New idea: the idea, what it is about (the kinds the board names), reference pictures of
