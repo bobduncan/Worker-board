@@ -21,6 +21,11 @@ const ASKED = 'Asked you a question in its chat.'
 const CUT_OFF_MS = 150_000
 /** A running chat's mod asks the board every few seconds. Not heard from for this long, its process is not running. */
 const SEEN_MS = 30_000
+/** B161: the mark under a line typed on the board (bridge.mjs, `messageText`), and how many lines of the talk are kept. */
+const TYPED_MARK = /\n?\(typed on the worker board, \d{1,2}:\d{2}\)\s*$/
+const TALK_MESSAGES = 40
+/** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab)\b/
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -621,6 +626,30 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     }
   }
 
+  // B161: the person's talk with the main chat on the Overview's right side: what they typed to it, in its chat or on
+  // the board, and its answers, with their times. The workers' reports, and what the board typed for itself (its
+  // words to the main chat, an answer to a card), are left out; a line typed on the board shows without the board's
+  // mark under it.
+  let mainTalk = null
+  if (main !== undefined && !main.isLeftover) {
+    const lane = cards.find(one => one.isMain) ?? null
+    const tail = raw.tails?.[main.cliSessionId] ?? null
+    const said = tail === null || typeof tail.text !== 'string' ? [] : conversation(parseTail(tail.text, tail.isCut === true), { self: main.name, prefix: list.prefix, titles, limit: 400 })
+    const isPersons = one => one.via !== 'board' || (TYPED_MARK.test(one.text) && !BOARD_WORDS.test(one.text))
+    mainTalk = {
+      name: main.name,
+      state: lane?.state ?? 'unknown',
+      doingNow: lane?.doingNow ?? null,
+      messages: said
+        .filter(one => one.from === 'chat' || (one.from === 'you' && isPersons(one)))
+        .map(one => (one.via === 'board' ? { ...one, text: one.text.replace(TYPED_MARK, '').trim() } : one))
+        .filter(one => one.text !== '')
+        .slice(-TALK_MESSAGES),
+      // Typed here and not in its chat yet: the person's own lines, not the board's words to it.
+      pending: sent.filter(message => message.to === main.name && (message.ask ?? null) === null && (message.command ?? null) === null),
+    }
+  }
+
   /**
    * A step for the person as a card like the requests of the chats. A step says what it asks of the person
    * ("Verify:", "Decide:", "Provide:", "Do:"); the answer goes to the worker it names, else to the main chat,
@@ -762,6 +791,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       }
     })(),
     advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name) },
+    // B161: the talk with the main chat; null without a main chat.
+    mainTalk: mainTalk === null ? null : { ...mainTalk, isRunning: runningOf(mainTalk.name) },
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
     // When the advice was written: the page says how old it is.
     adviceAt: Number.isFinite(raw.adviceAt) ? raw.adviceAt : null,
