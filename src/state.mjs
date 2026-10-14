@@ -754,7 +754,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
    * it by its name. Null where that cannot be told: no chat can ask this board, or the board has only just
    * started and not every chat has asked yet.
    */
+  // B212, B213: no Workers mod has asked this board since it started (null on a board that does not deliver).
+  const isBridgeMissing = seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) ? null
+    : Object.keys(seen.shown ?? {}).length === 0 && Object.keys(seen.other ?? {}).length === 0 && now - board.startedAt >= SEEN_MS
   function runningOf(name) {
+    // B213: without a mod nobody asks, so the board cannot tell whether a chat runs: unknown, never "not running".
+    if (isBridgeMissing === true) return null
     if (seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) || now - board.startedAt < SEEN_MS) return null
     const isFresh = at => Number.isFinite(at) && now - at < SEEN_MS
     if (isFresh(seen.shown?.[name])) return true
@@ -838,6 +843,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         project: config.project,
         // B131, B137: what an empty board looks for and where, when it finds it missing.
         lookFor: lookingFor({ list, prefix, config, chats: found.filter(chat => !chat.isLeftover).length, hasBacklog: typeof raw.backlogText === 'string' }),
+        // B213: no Workers mod takes the board's words: the page says what that means.
+        withoutMod: isBridgeMissing === true,
         count: workerChats.length,
         ask: spawnAsk(sent.findLast(message => message.command === 'spawn'), workerChats, now),
       }
@@ -845,8 +852,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name) },
     // B212: no Workers mod has asked this board for its words since it started: what is sent is copied for the person
     // to paste instead (null on a board that does not deliver). `chatPrefix` makes a chat's name its title.
-    bridge: seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) ? null
-      : { isMissing: Object.keys(seen.shown ?? {}).length === 0 && Object.keys(seen.other ?? {}).length === 0 && now - board.startedAt >= SEEN_MS },
+    bridge: isBridgeMissing === null ? null : { isMissing: isBridgeMissing },
     chatPrefix: prefix,
     // B161: the talk with the main chat; null without a main chat.
     mainTalk: mainTalk === null ? null : { ...mainTalk, isRunning: runningOf(mainTalk.name) },

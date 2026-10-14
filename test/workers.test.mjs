@@ -40,11 +40,11 @@ const sent = (at, more = {}) => ({ id: `m${at}`, at, ...WORDS, count: 3, why: 'a
 // What the state says
 
 test('the state names the main chat, counts the workers, and gives what a new project needs to make its main chat', () => {
-  assert.deepEqual(build().workers, { main: 'Main', mainTitle: 'Game - Main', project: PROJECT, count: 0, ask: null, lookFor: [] })
+  assert.deepEqual(build().workers, { main: 'Main', mainTitle: 'Game - Main', project: PROJECT, count: 0, ask: null, lookFor: [], withoutMod: false })
   assert.equal(build({ chats: ['Main', 'Units', 'Worker 1'] }).workers.count, 2)
   // The advisor is talked with on its own tab: it is no worker.
   assert.equal(build({ chats: ['Main', 'Advisor'] }).workers.count, 0)
-  assert.deepEqual(build({ chats: ['Units'] }).workers, { main: null, mainTitle: 'Game - Main', project: PROJECT, count: 1, ask: null, lookFor: [] })
+  assert.deepEqual(build({ chats: ['Units'] }).workers, { main: null, mainTitle: 'Game - Main', project: PROJECT, count: 1, ask: null, lookFor: [], withoutMod: false })
   // The names come from the list of chats, whatever the project calls its chats.
   assert.equal(build({ chats: [], listText: '{"prefix":"Studio · ","main":"Lead"}' }).workers.mainTitle, 'Studio · Lead')
 })

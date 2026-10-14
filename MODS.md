@@ -72,6 +72,8 @@ Each piece is merged on its own and changes nothing for a PC that has the mods.
    with a bar that names the chat to paste them into; no link opens a chat of the app by itself, so the person
    opens it.
 6. **"Not running" and compacting stay with the mod** (about 30 min): the board says what it cannot know without it.
+   Done (B213): without a mod no chat is called "not running"; one line under the lanes says what is copied, what
+   cannot be told and what is not compacted.
 
 **In all:** about 5 to 6 hours of a worker's time, less than B146's 8 to 10, because the mod is kept and the board
 only learns to do without it. After step 5 a new project can run the board with no mod at all; installing the

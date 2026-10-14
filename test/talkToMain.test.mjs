@@ -68,7 +68,10 @@ test('what waits to be typed into the main chat shows as such; the board\'s own 
 })
 
 test('it says when the main chat\'s chat does not run, and there is no talk without a main chat', () => {
-  assert.equal(build({ running: [] }).mainTalk.isRunning, false)
+  // Another chat's mod asks the board, the main chat's does not: its chat does not run.
+  assert.equal(build({ running: ['Units'] }).mainTalk.isRunning, false)
+  // B213: no chat's mod asks at all: without the Workers mod the board cannot tell.
+  assert.equal(build({ running: [] }).mainTalk.isRunning, null)
   const raw = { listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [app('Units')], tails: {}, planLineTexts: {}, backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {} }
   assert.equal(buildState(raw, { now: NOW, config }).mainTalk, null)
 })

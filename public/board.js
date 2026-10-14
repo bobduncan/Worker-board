@@ -812,6 +812,8 @@ $('lanes').addEventListener('click', event => {
 // list of chats: no word here names a project.
 
 const COUNT_WORDS = { 2: 'two', 3: 'three' }
+/** B213: what changes when no Workers mod takes the board's words. */
+const WITHOUT_MOD = 'No Workers mod answers this board: what you send is copied for you to paste into the chat, the board cannot tell whether a chat runs, and a large worker is not compacted after its report.'
 /** "one more worker", "three workers". */
 const workersWord = count => (count === 1 ? 'one more worker' : `${COUNT_WORDS[count] ?? count} workers`)
 
@@ -824,7 +826,11 @@ const workersWord = count => (count === 1 ? 'one more worker' : `${COUNT_WORDS[c
 function workersView(workers, now) {
   if (workers === null || workers === undefined) return null
   // B131, B137: what the board looks for and did not find, with where (the paths from the settings).
-  const lookFor = (workers.lookFor ?? []).map(text => ({ tone: 'problem', text }))
+  const lookFor = [
+    ...(workers.lookFor ?? []).map(text => ({ tone: 'problem', text })),
+    // B213: what the board cannot do or know without the Workers mod, in one plain line.
+    ...(workers.withoutMod === true ? [{ tone: 'note', text: WITHOUT_MOD }] : []),
+  ]
   if (workers.main === null) {
     // Without a list of chats there is no main chat's name to give: the lines say what to make first.
     const hasList = typeof workers.mainTitle === 'string'
