@@ -213,7 +213,8 @@ const WAKE_PENDING_MS = 10 * 60_000
  */
 export function wakeFor(message, state, outbox, now, maxChars) {
   const main = state.restart?.main ?? null
-  if (main === null || message.to === main || (message.command ?? null) !== null) return null
+  // B195: of the commands, only the answer to the Advisor's recommendation goes to another chat than the main one.
+  if (main === null || message.to === main || ((message.command ?? null) !== null && message.command !== 'recommend')) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

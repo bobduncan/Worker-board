@@ -697,6 +697,7 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 }
 
 @media (max-width: 1250px) {
+  #view-advice[data-pane="chat"] > .talk { flex: none; height: 80vh; }
   body { height: auto; }
   .view { display: block; }
   .resizer { display: none; }

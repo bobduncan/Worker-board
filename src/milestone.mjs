@@ -47,13 +47,19 @@ export function parseMilestoneMap(raw) {
  */
 export function milestoneWay(map, backlog) {
   const known = new Map(backlog.activities.flatMap(activity => activity.steps).filter(step => step.id !== null).map(step => [step.id, step]))
+  // An id counts once: in the first step that names it.
+  const counted = new Set()
   const node = (title, part, isGoal) => {
-    const items = part.backlog.filter(id => known.has(id)).map(id => ({ id, title: known.get(id).title, isDone: known.get(id).isDone }))
-    const missing = [...part.missing, ...part.backlog.filter(id => !known.has(id)).map(id => `${id}, not on the backlog`)]
+    const own = [...new Set(part.backlog)].filter(id => !counted.has(id))
+    for (const id of own) counted.add(id)
+    const items = own.filter(id => known.has(id)).map(id => ({ id, title: known.get(id).title, isDone: known.get(id).isDone }))
+    const missing = [...new Set([...part.missing, ...own.filter(id => !known.has(id)).map(id => `${id}, not on the backlog`)])]
     const done = items.filter(item => item.isDone).length
     const open = items.length - done
     const left = open + missing.length
-    return { title, isGoal, items, missing, done, open, left, state: left === 0 ? 'done' : done > 0 ? 'part' : 'none' }
+    // A step with nothing listed is not started, not done.
+    const state = items.length + missing.length === 0 ? 'none' : left === 0 ? 'done' : done > 0 ? 'part' : 'none'
+    return { title, isGoal, items, missing, done, open, left, state }
   }
   const nodes = [...map.steps.map(step => node(step.title, step, false)), node(map.milestone.check || map.milestone.title, map.milestone, true)]
   const sum = pick => nodes.reduce((total, one) => total + pick(one), 0)

@@ -52,6 +52,8 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
       || ((message.state === 'expired' || message.state === 'failed') && now - message.at < shownMs)
       // An answer that was taken or typed keeps its request closed.
       || ((message.state === 'taken' || message.state === 'delivered') && isAnswer(message))
+      // B195: so does an answer to the Advisor's recommendation: it closes the recommendation.
+      || ((message.state === 'taken' || message.state === 'delivered') && message.command === 'recommend')
       // A word for the restart stays known for a while: the board says how the preparing stands.
       || (typeof message.command === 'string' && now - message.at < COMMAND_KNOWN_MS)
       // A line that was taken shows as on its way until the chat has it.

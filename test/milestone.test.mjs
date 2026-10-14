@@ -72,6 +72,15 @@ test('each step is counted against the backlog as it stands, the milestone\'s ow
   ])
   assert.deepEqual(way.nodes[1].missing, ['The outcome preview', 'B99, not on the backlog'])
   assert.deepEqual(way.totals, { done: 2, open: 3, missing: 4, left: 7 })
+  // A step with nothing listed is not done; an id counts once, in the first step that names it.
+  const odd = milestoneWay(parseMilestoneMap(JSON.stringify({ ...MAP, steps: [{ title: 'Empty' }, { title: 'Twice', backlog: ['B01', 'B01', 'B03'] }, { title: 'Again', backlog: ['B03', 'B99', 'B99'] }] })), parseBacklog(BACKLOG))
+  assert.deepEqual(odd.nodes.map(node => [node.title, node.done, node.open, node.missing, node.state]), [
+    ['Empty', 0, 0, [], 'none'],
+    ['Twice', 1, 1, [], 'part'],
+    ['Again', 0, 0, ['B99, not on the backlog'], 'none'],
+    ['Play two runs: fun?', 0, 1, [], 'none'],
+  ])
+  assert.deepEqual(odd.totals, { done: 1, open: 2, missing: 1, left: 3 })
   // A step ticked since the map was written counts as done at once.
   const later = milestoneWay(parseMilestoneMap(JSON.stringify(MAP)), parseBacklog(BACKLOG.replace('- [ ] B04', '- [x] B04')))
   assert.deepEqual([later.nodes[2].state, later.totals.left], ['done', 6])
@@ -136,6 +145,24 @@ test('an answer goes to the right chat, about the recommendation that stands, on
   assert.equal(status({ to: 'Lead', answer: 'yes', text: 'and more' }), 400)
   assert.equal(checkSay({ to: 'Lead', command: 'recommend', about: 'r1', answer: 'yes' }, build({ outbox: [said('no')] }), 2000).status, 409)
   assert.equal(checkSay({ to: 'Lead', command: 'recommend', about: 'r1', answer: 'yes' }, build({ map: null }), 2000).status, 409)
+})
+
+test('an answer stays known long after it arrived, so the recommendation is never answered twice', async () => {
+  const { outboxNow } = await import('../src/store.mjs')
+  const keep = { messageMs: 10 * MIN, answerMs: 24 * HOUR }
+  const old = said('yes', { at: NOW - 30 * HOUR, deliveredAt: NOW - 30 * HOUR })
+  assert.equal(outboxNow([old], NOW, keep).length, 1)
+  assert.equal(checkSay({ to: 'Advisor', command: 'recommend', about: 'r1', answer: 'no', reason: 'x' }, build({ outbox: [old] }), 2000).status, 409)
+})
+
+test('a "no" for an Advisor whose chat is not running wakes it through the main chat', async () => {
+  const { wakeFor } = await import('../src/say.mjs')
+  const state = build()
+  const asleep = { ...state, chats: state.chats.map(chat => (chat.name === 'Advisor' ? { ...chat, isRunning: false } : chat)), advisor: state.advisor === null ? null : { ...state.advisor, isRunning: false, appSession: 'local_Advisor' } }
+  const { message } = checkSay({ to: 'Advisor', command: 'recommend', about: 'r1', answer: 'no', reason: 'x' }, state, 2000)
+  const wake = wakeFor(message, asleep, [], NOW, 2000)
+  assert.equal(wake?.command, 'start')
+  assert.equal(wake?.about, 'Advisor')
 })
 
 // The page

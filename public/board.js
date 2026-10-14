@@ -2694,7 +2694,16 @@ function drawWay(state) {
   if (done.length > 0) line(`${done.length} done`, 'done', done.map(one => one.id).join(', '))
   if (list.children.length === 0) list.append(el('li', 'muted', 'Nothing is listed for this step yet.'))
   details.append(el('h3', '', node.title), list)
+  const active = document.activeElement
+  const onStep = box.contains(active) ? active?.dataset?.wayNode ?? null : null
+  const inReason = active?.id === 'way-reason' ? [active.selectionStart, active.selectionEnd] : null
   fill(box, [head, bar, flow, legend, details, ...recommendationPart(way.recommendation ?? null, state)])
+  if (onStep !== null) box.querySelector(`[data-way-node="${onStep}"]`)?.focus()
+  const reason = inReason === null ? null : $('way-reason')
+  if (reason !== null) {
+    reason.focus()
+    reason.setSelectionRange(...inReason)
+  }
 }
 
 /** B195: the Advisor's recommendation under the way: yes goes to the main chat, no with a reason to the Advisor. */

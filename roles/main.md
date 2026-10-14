@@ -109,6 +109,9 @@ plan's limits again with the check (the app's usage tool), so the board's limits
 - `queue step from the backlog` with "Step: B<id> <title>": decide worker or queue for that step as for any task,
   write its "(for <worker>; ...)" note on the step's line, and hand it out; the board shows the step as asked until
   that note is there.
+- `advisor recommendation: yes` with "Recommended: ..." (and "Step: B<id>" when it is on the backlog, "Why: ..."): the
+  user said yes to the Advisor's next step on its tab. Put it on the backlog when it is not there, then hand it out as
+  any task. A "no" goes to the Advisor, not to you.
 - "B<number> is approved and ticked on the worker board; ... Open steps that waited for it: ...": the board ticked the
   step itself; hand out the steps it names.
 
