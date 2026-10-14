@@ -1817,6 +1817,31 @@ function drawReferences(shown) {
 // lanewindow:start
 const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off' }
 
+const SHORT_TASK_CHARS = 220
+
+/**
+ * B157: the task in one short sentence, for someone who forgot the context: the message's own "In short: ..." line
+ * when it has one; else the sentence of its first line, without the main chat's "Task from Game - Main: B<id>, "
+ * before it and the "About <time>." after it (the person's own words stay as they are); else the backlog step's
+ * title, else the card's topic. The window shows it in at most two lines; it is cut at SHORT_TASK_CHARS.
+ */
+function shortTask(given, stepTitle = null, topic = null) {
+  const lines = String(given ?? '').replace(/\r/g, '').split('\n').map(line => line.trim()).filter(line => line !== '')
+  const inShort = lines.find(line => /^in short:/i.test(line))
+  let words = inShort === undefined ? null : inShort.replace(/^in short:\s*/i, '')
+  if (words === null && lines.length > 0) {
+    const first = lines[0]
+      .replace(/^(?:\w+\s+){0,2}tasks?\s+from\s+[^:]{1,60}:\s*/i, '')
+      .replace(/^B\d+[,:]\s+/, '')
+      .replace(/\s+about\s+[^.]{1,40}\.?\s*$/i, '')
+      .trim()
+    if (first !== '') words = first
+  }
+  const chosen = (words ?? stepTitle ?? topic ?? '').trim()
+  const capital = chosen.charAt(0).toUpperCase() + chosen.slice(1)
+  return capital.length > SHORT_TASK_CHARS ? `${capital.slice(0, SHORT_TASK_CHARS - 1).trimEnd()}…` : capital
+}
+
 /**
  * B151: what the window of a working worker's lane shows (also one that is suspended, cut off, or between two turns):
  * in its head the task as its card names it; then the task as it was given (`given`: the main chat's hand-over as it
