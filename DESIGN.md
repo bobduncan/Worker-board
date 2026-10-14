@@ -96,6 +96,26 @@ preferably as a popup in the board to verify. same with the game not a feature b
   board: `#picture=` shows the popup, `#play=` turns that tab into the game. Only a branch a working folder holds is
   started, and the start goes through the board's own page with its token, like every other.
 
+**The task windows, compact on top (B157).** The person, 2026-10-14: "this is too much details. I want clear headers
+in bold or bigger text. What was the original task. maximum 2 lines ... easily understand for people who forgotten
+the context, what the ask was and what the solution is ... a header for further details, preferably collapsible,
+collapsed by default", and of the mock-up: "I want the what I did to be non technical and highover. the detail it
+correct". Both windows of B151 and B149 open with a part set apart, a header in capitals over each row:
+
+- *The task*, at most two lines: the line "In short: ..." of the hand-over when it has one, else its first line
+  without its frame ("Task from Game - Main: B12, ..." and "About 1 h" fall away), else the step's title, else the
+  card's topic (`shortTask`).
+- In the window of a working worker, *Its plan*: its steps by name, done ones with ✓ and the current one with ▶, and
+  "Step 4 of 5 · 13 min left" (`planOf`). In the window of a finished worker, *What I did*: the plain sentences of its
+  "What I did" line (`plainWords`).
+- Plain words only: a step or a sentence with code, a file or a path, an address setting, a function or a
+  programmer's word is left out of this part (`TECHNICAL`), so it shows less rather than technical words.
+
+Then the finished worker's "For you" items, as B149 has them. Everything else is under one header, *Details*, folded
+until the person opens it, and kept open while the window is drawn anew: the task as it was given, the backlog step
+and where it stands (working), or the task as it was given, the whole answer and the closing block (finished). The
+picture: `art-inbox/worker-board/2026-10-14-b157-compact-window.png`.
+
 **The Backlog tab (B155).** The tab that was called Coordinate is called Backlog (`#backlog`; `#coordinate` still
 opens it). At its top it lists the last 20 finished steps, newest first: when, the step's id and title, who finished
 it, and where the time comes from; a click opens the step's window. The person, 2026-10-14: "i want a chronological
