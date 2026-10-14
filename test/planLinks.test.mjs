@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 
-import { insidePath, readGameFile } from '../src/gameFile.mjs'
+import { findGameFile, insidePath, readGameFile } from '../src/gameFile.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
@@ -22,9 +22,11 @@ vm.runInNewContext(`${script.slice(script.indexOf('// planlinks:start'), script.
 const target = (from, href) => JSON.parse(JSON.stringify(context.planTarget(from, href) ?? null))
 
 test('a link is read from the file it stands in: a path inside the game\'s folder, a web page, or nothing', () => {
-  assert.deepEqual(target('docs/game-plan.md', 'visual/units.md'), { path: 'docs/visual/units.md', isPicture: false })
-  assert.deepEqual(target('docs/game-plan.md', './process/done/level.md#checks'), { path: 'docs/process/done/level.md', isPicture: false })
-  assert.deepEqual(target('docs/game-plan.md', '../art/hero%20sheet.png'), { path: 'art/hero sheet.png', isPicture: true })
+  assert.deepEqual(target('docs/game-plan.md', 'visual/units.md'), { path: 'docs/visual/units.md', alt: 'visual/units.md', isPicture: false })
+  assert.deepEqual(target('docs/game-plan.md', './process/done/level.md#checks'), { path: 'docs/process/done/level.md', alt: 'process/done/level.md', isPicture: false })
+  assert.deepEqual(target('docs/game-plan.md', '../art/hero%20sheet.png'), { path: 'art/hero sheet.png', alt: null, isPicture: true })
+  // A plan may write its links from the project's folder: that reading goes along.
+  assert.deepEqual(target('docs/game-plan.md', 'game/docs/advisor/decisions.md'), { path: 'docs/game/docs/advisor/decisions.md', alt: 'game/docs/advisor/decisions.md', isPicture: false })
   assert.deepEqual(target('docs/game-plan.md', 'https://example.com/a'), { web: 'https://example.com/a' })
   // Out of the folder, a root, a drive, another kind of address, or only an anchor: no file.
   for (const href of ['../../secret.md', '/etc/passwd', 'C:/x.md', 'file:///c:/x.md', 'javascript:alert(1)', '#part-2', '..\\x.md', '%E0%A4%A']) {
@@ -51,6 +53,10 @@ test('the server shows a file inside the game\'s folder only, of a kind it knows
   // A link in the folder that leads out of it shows nothing.
   const linked = await symlink(outside, join(root, 'out'), 'junction').then(() => true, () => false)
   if (linked) assert.equal(await readGameFile(root, 'out/secret.md'), null)
+  // The project's reading of a link, when the game's has nothing; never out of the project.
+  assert.equal((await findGameFile({ gameRepo: join(root, 'docs'), project: root }, 'plan.md', null)).where, 'plan.md')
+  assert.equal((await findGameFile({ gameRepo: join(root, 'docs'), project: root }, 'docs/plan.md', 'docs/plan.md')).where, 'docs/plan.md')
+  assert.equal(await findGameFile({ gameRepo: join(root, 'docs'), project: root }, 'none.md', '../secret.md'), null)
   assert.equal(insidePath('docs/a b.md'), true)
   assert.equal(insidePath('docs/./a.md'), false)
 })
@@ -62,7 +68,8 @@ test('the page: the plan folds under its headings with their first line, and its
   assert.match(script, /fill\(box, planNodes\(state\.advice, state\.gamePlan \?\? '', true\)\)/)
   // A web page in a new tab, without the board's page as its opener; a file in the board's window.
   assert.match(script, /link\.target = '_blank'\n {4}link\.rel = 'noopener noreferrer'/)
-  assert.match(script, /fetch\(`\/api\/game-file\?path=\$\{encodeURIComponent\(path\)\}`, \{ headers: \{ 'X-Board-Token': TOKEN \} \}\)/)
+  assert.match(script, /const query = `path=\$\{encodeURIComponent\(path\)\}\$\{alt === null \? '' : `&alt=\$\{encodeURIComponent\(alt\)\}`\}`/)
+  assert.match(script, /fetch\(`\/api\/game-file\?\$\{query\}`, \{ headers: \{ 'X-Board-Token': TOKEN \} \}\)/)
   assert.match(html, /<dialog class="file-view" id="file-view"/)
   // Links in a chat's words stay words: only the plan's text gets working links.
   assert.match(script, /if \(link !== null && linker !== null\) pieces\.push\(linker\(link\[1\], link\[2\]\)\)/)

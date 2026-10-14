@@ -18,6 +18,20 @@ export const insidePath = path => typeof path === 'string' && path.length <= 300
   && /^[\w@+ .-]+(?:\/[\w@+ .-]+)*$/.test(path) && !path.split('/').some(part => part === '.' || part === '..')
 
 /**
+ * The file a link names: at `path` in the game's folder, else at `path` or `alt` in the project's folder (a plan may
+ * write its links from there, and a file found there reads its own links from there): `{ type, body, where }`,
+ * `where` saying which it was; null when none is one to show.
+ */
+export async function findGameFile({ gameRepo, project }, path, alt) {
+  for (const [root, where] of [[gameRepo, path], [project, path], [project, alt]]) {
+    if (typeof where !== 'string') continue
+    const found = await readGameFile(root, where)
+    if (found !== null) return { ...found, where }
+  }
+  return null
+}
+
+/**
  * The file at `path` in the folder `root`: `{ type, body }`, or null when it is not one to show. Its real place is
  * checked too, so a link in the folder that points out of it shows nothing.
  */

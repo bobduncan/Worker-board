@@ -2839,8 +2839,9 @@ $('advisor-way').addEventListener('input', event => {
 // planlinks:start
 /**
  * Where a link in a file of the game's folder points (`from` is that file's own path, as "docs/game-plan.md"): a
- * web page `{ web }`, or a path inside the folder `{ path, isPicture }`; null when it leads out of the folder or is
- * no path at all (an anchor, a drive, a root).
+ * web page `{ web }`, or a path inside the game's folder `{ path, alt, isPicture }`, `alt` being the same link read
+ * from the project's folder (a plan may be written that way), or null; null when it leads out of the folder or is no
+ * path at all (an anchor, a drive, a root).
  */
 function planTarget(from, href) {
   if (/^https?:\/\//i.test(href)) return { web: href }
@@ -2852,14 +2853,18 @@ function planTarget(from, href) {
   } catch {
     return null
   }
-  const parts = from.split('/').slice(0, -1)
-  for (const part of words.split('/')) {
-    if (part === '' || part === '.') continue
-    if (part !== '..') parts.push(part)
-    else if (parts.length === 0) return null
-    else parts.pop()
+  const walk = start => {
+    const parts = [...start]
+    for (const part of words.split('/')) {
+      if (part === '' || part === '.') continue
+      if (part !== '..') parts.push(part)
+      else if (parts.length === 0) return null
+      else parts.pop()
+    }
+    return parts.length === 0 ? null : parts.join('/')
   }
-  return parts.length === 0 ? null : { path: parts.join('/'), isPicture: /\.(?:png|jpe?g|webp|gif)$/i.test(parts.at(-1)) }
+  const path = walk(from.split('/').slice(0, -1))
+  return path === null ? null : { path, alt: walk([]), isPicture: /\.(?:png|jpe?g|webp|gif)$/i.test(path) }
 }
 // planlinks:end
 
@@ -2881,7 +2886,8 @@ const planLinker = from => (words, href) => {
   const button = el('button', 'plan-link', words)
   button.type = 'button'
   button.dataset.gameFile = target.path
-  button.title = `Open ${target.path}`
+  if (target.alt !== null) button.dataset.projectFile = target.alt
+  button.title = `Open ${target.alt ?? target.path}`
   return button
 }
 
@@ -2997,32 +3003,36 @@ $('advice-text').addEventListener('toggle', event => {
 }, true)
 
 /** B218: a file of the game's folder, read-only, in a window of its own; a picture in the picture popup. */
-async function openGameFile(path) {
-  const answer = await fetch(`/api/game-file?path=${encodeURIComponent(path)}`, { headers: { 'X-Board-Token': TOKEN } }).catch(() => null)
+async function openGameFile(path, alt = null) {
+  const query = `path=${encodeURIComponent(path)}${alt === null ? '' : `&alt=${encodeURIComponent(alt)}`}`
+  const answer = await fetch(`/api/game-file?${query}`, { headers: { 'X-Board-Token': TOKEN } }).catch(() => null)
+  // Where the board found it: in the game's folder, or from the project's.
+  const shown = answer?.headers.get('X-Board-File') || alt || path
   const box = $('file-view')
   const head = el('header', 'file-view-head')
   const close = el('button', 'icon-button', '✕')
   close.type = 'button'
   close.dataset.closeFile = ''
   close.setAttribute('aria-label', 'Close')
-  head.append(el('h2', '', path), close)
+  head.append(el('h2', '', shown), close)
   if (answer !== null && answer.ok && (answer.headers.get('Content-Type') ?? '').startsWith('image/')) {
     $('lightbox-picture').src = URL.createObjectURL(await answer.blob())
-    $('lightbox-caption').textContent = path
+    $('lightbox-caption').textContent = shown
     if (!$('lightbox').open) $('lightbox').showModal()
     return
   }
   const body = el('div', 'file-view-body advice')
   if (answer === null) body.append(el('p', 'problem', 'The board\'s server does not answer.'))
   else if (!answer.ok) body.append(el('p', 'problem', (await answer.text()).trim() || 'This file is not shown.'))
-  else if (/\.md$/i.test(path)) body.append(...planNodes(await answer.text(), path, false))
+  // Its own links are read from where it was found.
+  else if (/\.md$/i.test(path)) body.append(...planNodes(await answer.text(), answer.headers.get('X-Board-File') || path, false))
   else body.append(el('pre', '', await answer.text()))
   fill(box, [head, body])
   if (!box.open) box.showModal()
 }
 document.addEventListener('click', event => {
   const link = event.target.closest('[data-game-file]')
-  if (link !== null) return openGameFile(link.dataset.gameFile)
+  if (link !== null) return openGameFile(link.dataset.gameFile, link.dataset.projectFile ?? null)
   if (event.target === $('file-view') || event.target.closest('[data-close-file]') !== null) $('file-view').close()
 })
 
