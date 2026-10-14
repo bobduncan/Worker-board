@@ -345,6 +345,12 @@ its step's branch. "- Done:   no" and "- Done:   partly" keep the reading as it 
 read as finished. The demo's Cleanup is this case; the picture is
 `art-inbox/worker-board/b148/2026-10-14-b148-before-after.png`.
 
+A lane read as free, by "Done: yes" or by the app's own summary, shows no task, step or time from a card left
+behind: only one dim line, "Last task: <text>, finished" (the person, 10:14: "units worker is in an incorrect
+state", of Units shown free beside its old card's task and "22 min over its first estimate"). A chat that waits
+for the person keeps its card's task: that is the work it waits on. The picture is
+`art-inbox/worker-board/b148/2026-10-14-b148-free-lane.png`.
+
 ## Time and estimates
 
 - A task starts when it is handed over (the message from the main chat in the worker's transcript), or when its
