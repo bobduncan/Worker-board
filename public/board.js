@@ -3139,7 +3139,8 @@ function queuePart(step, state, isLong) {
     part.title = `Asked at ${clock(ask.at)} to hand it out, ${where}`
     return part
   }
-  const button = el('button', `step-queue${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Asking…' : 'Add to queue')
+  // Refused: the row says so, and why on hover; the window says why in full.
+  const button = el('button', `step-queue${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Asking…' : problems.has(key) ? 'Try again' : 'Add to queue')
   button.type = 'button'
   button.dataset.queueStep = step.id
   button.disabled = sending.has(key)
@@ -3877,7 +3878,9 @@ function draw(state) {
   drawStrips(state)
   drawToday(state)
   once('needs', needsData(state), () => drawNeeds(state))
-  once('coordinate', state.backlog ?? null, () => drawCoordinate(state))
+  // B181: also when an "Add to queue" is on its way or was refused.
+  const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:'))]
+  once('coordinate', [state.backlog ?? null, queueing], () => drawCoordinate(state))
   // B155: today's times name no day, so the list is drawn anew when the day changes too.
   once('finished', [state.finished ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
   drawDetails(state)

@@ -124,6 +124,8 @@ test('the page: the button stands beside a step\'s row, never inside it, and in 
   // The window: in its foot, which then shows also for a step without an answer.
   assert.match(script, /const queue = need === null && subject\.step !== undefined \? queuePart\(subject\.step, state, true\) : null/)
   assert.match(script, /fill\(box, need === null && queue === null \? \[head, body\] : \[head, body, foot\]\)/)
+  // The list is drawn anew when an ask is on its way or was refused, not only when the backlog changed.
+  assert.match(script, /once\('coordinate', \[state\.backlog \?\? null, queueing\], \(\) => drawCoordinate\(state\)\)/)
   // A click on it is handled before the row's own click, in the list and in the window.
   assert.equal((script.match(/const queue = event\.target\.closest\('\[data-queue-step\]'\)\n {2}if \(queue !== null\) return askQueue\(queue\)/g) ?? []).length, 2)
 })
