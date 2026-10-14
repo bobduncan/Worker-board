@@ -120,7 +120,7 @@ test('finding a step: by its id from its start, with or without the B, else by t
   assert.deepEqual([found('B14'), listOf(activities, { find: 'B14', showDone: true }).shown], [[], 1])
 })
 
-test('the tab only shows: its code has no control that changes a queue or a task', () => {
+test('the tab sends nothing itself and stops or moves no task: its controls (B181\'s queue ask, B221\'s close and delete) go through the page\'s senders', () => {
   // The Coordinate tab's code ends where the Design tab's begins.
   const [from, to] = [script.indexOf('// The Coordinate tab'), script.indexOf('// Design (B99)')]
   assert.ok(from >= 0 && to > from)

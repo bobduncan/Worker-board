@@ -1,5 +1,5 @@
-// B110: the one thing the board writes outside its own data folder: a tick in the backlog, when the person approves
-// a step whose work is merged already. No chat has to be woken for that. Everything else stays with the chats: a
+// B110: the one thing the board writes outside its own data folder: the backlog. A tick, when the person approves
+// a step whose work is merged already; B221: a step the person closes or deletes on the Backlog tab. No chat has to be woken for that. Everything else stays with the chats: a
 // rejection, an approval of work whose branch is still open, an answer to a question.
 //
 // Only the board that delivers writes (the one in the repository's main folder); a copy and the demo never do.
@@ -41,6 +41,25 @@ export function tickStep(text, id, under) {
   return { ok: true, text: out.join('') }
 }
 
+/**
+ * B221: the backlog's text without the step `id` and the lines that stand indented under it, or why nothing changes:
+ * `gone` (no such step) or `twice` (two steps have that id). Every other character stays as it is, the line ends
+ * included; a ticked step may be deleted too.
+ */
+export function deleteStep(text, id) {
+  const lines = linesOf(text)
+  const found = lines.map((line, index) => ({ index, step: line.match(STEP) })).filter(one => one.step !== null && one.step[2] === id)
+  if (found.length === 0) return { ok: false, why: 'gone' }
+  if (found.length > 1) return { ok: false, why: 'twice' }
+  const { index } = found[0]
+  let last = index
+  while (last + 1 < lines.length && /^[ \t]+\S/.test(lines[last + 1])) last += 1
+  const out = [...lines.slice(0, index), ...lines.slice(last + 1)]
+  // When the deleted lines ended the file, the line before them keeps its line end as it was: a file that ended
+  // without one now ends with one, which changes nothing a reader sees.
+  return { ok: true, text: out.join('') }
+}
+
 const pad = value => String(value).padStart(2, '0')
 
 /**
@@ -51,7 +70,7 @@ export function approvalLine(now, note = '', verdict = 'approve') {
   const at = new Date(now)
   const when = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} at ${pad(at.getHours())}:${pad(at.getMinutes())}`
   const words = String(note ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_CHARS)
-  return `${verdict === 'done' ? 'Done' : 'Approved'} by you on the worker board on ${when}${words === '' ? '.' : `: ${words}`}`
+  return `${{ done: 'Done', close: 'Closed' }[verdict] ?? 'Approved'} by you on the worker board on ${when}${words === '' ? '.' : `: ${words}`}`
 }
 
 /**
@@ -92,6 +111,14 @@ const files = { readFile, writeFile, rename, rm }
  */
 export async function writeTick(file, id, under, fs = files) {
   const added = Buffer.from(under, 'utf8').toString('latin1')
+  return rewrite(file, before => tickStep(before, id, added), fs)
+}
+
+/**
+ * B221: the backlog's file with one change made to it (`change`: the text before, as latin1, to `{ ok, text }` or
+ * `{ ok: false, why }`), read anew right before and put in its place in one move, as `writeTick` describes.
+ */
+async function rewrite(file, change, fs) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let before
     try {
@@ -99,7 +126,7 @@ export async function writeTick(file, id, under, fs = files) {
     } catch {
       return { ok: false, why: 'gone' }
     }
-    const ticked = tickStep(before, id, added)
+    const ticked = change(before)
     if (!ticked.ok) return ticked
     const beside = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
     try {
@@ -116,6 +143,35 @@ export async function writeTick(file, id, under, fs = files) {
     }
   }
   return { ok: false, why: 'write' }
+}
+
+const STEP_ID = /^B\d+$/
+const EDIT_WHY = {
+  gone: [404, 'That step is no longer on the backlog.'],
+  ticked: [409, 'That step is closed already.'],
+  twice: [409, 'Two steps have that number: change the backlog by hand.'],
+  write: [500, 'The backlog could not be written.'],
+}
+
+/**
+ * B221: the person closes or deletes a step from the Backlog tab (`body`: `{ action: 'close' | 'delete', step:
+ * 'B12', reason }`). Close ticks it and writes "Closed by you on the worker board on <date at time>" under it, with
+ * their reason when they gave one: it stays in the file as history. Delete takes the step and its lines out. Only
+ * the board that delivers writes (`canWrite`). That a worker is on the step or it is queued is said by the page
+ * before the person confirms: the board does not refuse it. Answers `{ ok: true, result }` or `{ ok: false, status, why }`.
+ */
+export async function editStep(body, { canWrite, file, now, fs = files }) {
+  if (canWrite !== true) return { ok: false, status: 409, why: 'This board only shows: close or delete on the board that delivers.' }
+  const step = typeof body?.step === 'string' ? body.step : ''
+  if (!STEP_ID.test(step)) return { ok: false, status: 400, why: 'Name the step by its number (B12).' }
+  const action = body?.action
+  if (action !== 'close' && action !== 'delete') return { ok: false, status: 400, why: 'Close or delete.' }
+  const done = action === 'close'
+    ? await writeTick(file, step, approvalLine(now, body?.reason ?? '', 'close'), fs)
+    : await rewrite(file, before => deleteStep(before, step), fs)
+  if (done.ok) return { ok: true, result: { step, action } }
+  const [status, why] = EDIT_WHY[done.why] ?? EDIT_WHY.write
+  return { ok: false, status, why }
 }
 
 /** What the person's word on a step is called in the line under it: an approval of work, or "done" for what only they could do. */

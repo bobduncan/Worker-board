@@ -817,6 +817,18 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .step-queue.is-error { border-color: var(--warn); }
 .step-queue.is-asked { border-style: dashed; background: none; color: var(--muted); cursor: default; }
 .step-queue-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+/* B221: Close and Delete on a step: over a row's right end while the pointer or the keyboard is on it, beside "Add
+   to queue" when the row has that; always in the step's window. */
+.step-line > .step-edit { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: none; gap: 6px; padding-left: 8px; background: var(--inset); }
+.step-line.has-queue > .step-edit { right: 120px; }
+.step-line:hover > .step-edit, .step-line:focus-within > .step-edit { display: flex; }
+.step-edit-button { padding: 2px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
+.step-edit-button:hover:not(:disabled), .step-edit-button:focus-visible { background: var(--inset); outline: 2px solid var(--free); outline-offset: 1px; }
+.step-edit-button.is-delete:hover:not(:disabled), .step-edit-button.is-delete:focus-visible { border-color: var(--bad, #e05a4f); color: #ffb3ab; outline-color: var(--bad, #e05a4f); }
+.step-edit-button:disabled { opacity: .6; cursor: default; }
+.step-edit-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.step-edit-line .step-edit-button { padding: 6px 14px; font-size: 14px; }
+.step-edit-line .problem { flex-basis: 100%; }
 .step-queue-line .step-queue { padding: 6px 14px; font-size: 14px; }
 .step-queue-line .problem { flex-basis: 100%; margin: 0; }
 .details-foot .step-queue.is-asked { display: block; white-space: normal; padding: 6px 12px; font-size: 14px; }
@@ -824,6 +836,7 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
   .step-row { grid-template-columns: 46px minmax(0, 1fr) 150px; }
   .step-kind, .step-worker, .step-branch, .step-actions { display: none; }
   .step-line > .step-queue { display: none; }
+  .step-line > .step-edit { display: none !important; }
 }
 
 /* B95: the time left is a lane's main figure; every figure of the column stays on one line. A worker that works

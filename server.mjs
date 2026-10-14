@@ -44,7 +44,7 @@ import { findPicture } from './src/pictures.mjs'
 import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { roundText, roundsNow } from './src/rounds.mjs'
-import { settleByBoard } from './src/tick.mjs'
+import { editStep, settleByBoard } from './src/tick.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -151,6 +151,7 @@ export function createBoard({
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
+  backlog = async () => ({ ok: false, status: 404, why: 'Not here.' }),
 }) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
@@ -204,7 +205,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart') {
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -224,6 +225,10 @@ export function createBoard({
       if (pathname === '/api/game') {
         const started = await game(parsed)
         return started.ok ? json(res, started.result) : refuse(res, started.status, started.why)
+      }
+      if (pathname === '/api/backlog') {
+        const done = await backlog(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/design') {
         const done = await design(parsed)
@@ -668,6 +673,8 @@ async function main(args) {
       const found = await findPicture(project, config.pictureRoots, path)
       return found === null ? null : { type: found.type, body: await readFile(found.file) }
     },
+    // B221: the person closes or deletes a step on the Backlog tab. Only the board that delivers writes the backlog.
+    backlog: body => editStep(body, { canWrite: !isDemo && !isShowOnly, file: join(config.project, ...config.backlog.split('/')), now: clock() }),
     // B142: started anew on the person's click, once the version its folder holds loads.
     restart: async () => {
       if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }

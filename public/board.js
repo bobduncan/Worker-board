@@ -2346,6 +2346,9 @@ function drawDetails(state) {
   // B181: a step of the Backlog tab that nobody has: "Add to queue" in its foot, as in its row.
   const queue = need === null && subject.step !== undefined ? queuePart(subject.step, state, true) : null
   if (queue !== null) foot.append(queue)
+  // B221: a step of the Backlog tab can be closed or deleted from its window.
+  const edit = subject.step !== undefined ? editPart(subject.step, true) : null
+  if (edit !== null) foot.append(edit)
 
   const body = el('div', `details-body${right.children.length === 0 ? ' is-single' : ''}`)
   body.append(left, ...(right.children.length === 0 ? [] : [right]))
@@ -2403,6 +2406,9 @@ $('details').addEventListener('click', event => {
   // B181: a step nobody has, asked for the queue from its window.
   const queue = event.target.closest('[data-queue-step]')
   if (queue !== null) return askQueue(queue)
+  // B221: a step closed or deleted from its window.
+  const edit = event.target.closest('[data-edit-step]')
+  if (edit !== null) return editStepClick(edit)
   const copy = event.target.closest('[data-copy]')
   if (copy === null) return
   navigator.clipboard.writeText(copy.dataset.copy).then(() => { copy.textContent = 'Copied' }, () => { copy.textContent = 'Not copied' })
@@ -3485,6 +3491,74 @@ function queuePart(step, state, isLong) {
   return line
 }
 
+// stepedit:start
+/**
+ * B221: what the person is told before they close or delete a step that somebody has: a worker on it, or a queue it
+ * waits in. Empty for a step nobody has. The person, 2026-10-14: "Add an item into the queue that I can delete or
+ * close items from the backlog in the backlog tab".
+ */
+function stepEditWarning(step) {
+  if (step.status === 'progress') return `${step.worker ?? 'A worker'} is working on this step now. `
+  if (step.status === 'queued') return `This step is queued for ${step.worker ?? 'a worker'}. `
+  return ''
+}
+
+/** B221: the question before a step is closed (ticked, kept in the file) or deleted (taken out with its lines). */
+function stepEditQuestion(step, action) {
+  const name = `${step.id} "${step.title}"`
+  return action === 'close'
+    ? `${stepEditWarning(step)}Close ${name}? It is ticked and stays in the backlog as history. A reason, if you want to give one:`
+    : `${stepEditWarning(step)}Delete ${name} and the lines under it from the backlog? This cannot be undone on the board.`
+}
+// stepedit:end
+
+/**
+ * B221: "Close" and "Delete" for a step with an id: Close only while it is open. `isLong` gives the window's
+ * wording, with what went wrong under the buttons. Null for a step without an id (the board cannot name it).
+ */
+function editPart(step, isLong) {
+  if (typeof step.id !== 'string' || step.id === '') return null
+  const key = `edit:${step.id}`
+  const box = el(isLong ? 'div' : 'span', isLong ? 'step-edit-line' : 'step-edit')
+  for (const [action, label] of [['close', 'Close'], ['delete', 'Delete']]) {
+    if (action === 'close' && step.status === 'done') continue
+    const button = el('button', `step-edit-button is-${action}`, sending.has(key) ? '…' : isLong ? `${label} step` : label)
+    button.type = 'button'
+    button.dataset.editStep = step.id
+    button.dataset.editAction = action
+    button.disabled = sending.has(key)
+    button.title = action === 'close' ? 'Tick it in the backlog, as history' : 'Take it and its lines out of the backlog'
+    button.setAttribute('aria-label', `${label}: ${step.id} ${step.title}`)
+    box.append(button)
+  }
+  if (isLong && problems.has(key)) box.append(el('p', 'problem', problems.get(key)))
+  if (!isLong && problems.has(key)) box.title = problems.get(key)
+  return box
+}
+
+/** B221: the click on "Close" or "Delete": the question first, then the board writes the backlog. */
+async function editStepClick(button) {
+  const step = (board?.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === button.dataset.editStep)
+  if (step === undefined) return
+  const action = button.dataset.editAction
+  let reason = ''
+  if (action === 'close') {
+    const given = window.prompt(stepEditQuestion(step, 'close'), '')
+    if (given === null) return
+    reason = given
+  } else if (!window.confirm(stepEditQuestion(step, 'delete'))) {
+    return
+  }
+  const key = `edit:${step.id}`
+  sending.add(key)
+  problems.delete(key)
+  redrawNeeds()
+  const problem = await sendBacklog({ action, step: step.id, reason })
+  sending.delete(key)
+  if (problem !== null) problems.set(key, `Not done: ${problem}`)
+  await read()
+}
+
 /** B181: the click on "Add to queue", in a row of the Backlog tab or in a step's window. */
 function askQueue(button) {
   const main = board?.workers?.main ?? null
@@ -3530,6 +3604,12 @@ function drawCoordinate(state) {
       line.append(row)
       const queue = queuePart(step, state, false)
       if (queue !== null) line.append(queue)
+      // B221: Close and Delete, shown on the row the pointer or the keyboard is on.
+      const edit = editPart(step, false)
+      if (edit !== null) {
+        line.append(edit)
+        if (queue !== null) line.classList.add('has-queue')
+      }
       box.append(line)
     }
     return box
@@ -3564,6 +3644,8 @@ $('coordinate-one').addEventListener('change', () => {
 $('coordinate-list').addEventListener('click', event => {
   const queue = event.target.closest('[data-queue-step]')
   if (queue !== null) return askQueue(queue)
+  const edit = event.target.closest('[data-edit-step]')
+  if (edit !== null) return editStepClick(edit)
   const row = event.target.closest('[data-open-step]')
   if (row === null || board === null) return
   const step = (board.backlog ?? []).flatMap(activity => activity.steps).find(one => one.key === row.dataset.openStep)
@@ -4271,6 +4353,20 @@ async function read() {
     updated.textContent = board === null ? `${away}.` : `${away}; showing what was read at ${clock(board.readAt)}.`
   }
   timer = setTimeout(read, awaySince === null ? (board?.refreshSeconds ?? 30) * 1000 : AWAY_MS)
+}
+
+/** B221: asks the board to close or delete a backlog step. Null when it did, else what went wrong. */
+async function sendBacklog(body) {
+  try {
+    const answer = await fetch('/api/backlog', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
+      body: JSON.stringify(body),
+    })
+    return answer.ok ? null : (await answer.text()).trim() || `refused (${answer.status})`
+  } catch {
+    return 'the board\'s server does not answer'
+  }
 }
 
 /** Sends an answer or a message. `id` is the request it answers, or null for the chat with the advisor. */

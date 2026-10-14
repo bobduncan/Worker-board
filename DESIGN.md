@@ -180,6 +180,15 @@ Since B180 the search and the two checkboxes are one group at the end of the hea
 attention" filter: at the board's usual width (1280 px and wider) the head is one line; narrower, the group moves to
 the next line whole, the two checkboxes side by side, never one alone. A step's state stays on one line. The picture:
 `art-inbox/worker-board/2026-10-14-b180-backlog-head.png`.
+B221 (the person: "I want ... that I can delete or close items from the backlog in the backlog tab"): every step
+with an id has "Close" and "Delete": in its window's foot, and over its row's right end while the pointer or the
+keyboard is on the row (in the window only on a narrow screen). Close is offered while the step is open: the board
+ticks it and writes "Closed by you on the worker board on <date at time>" under its lines, with the reason the
+person gave, so it stays in the backlog as history. Delete takes the step and the lines under it out of the
+backlog. Before either, the page asks once and names the step, and says so first when a worker is on the step or it
+is queued for one. The board writes only that step's lines, reads the file right before and puts the new one in its
+place in one move (`src/tick.mjs`, as for an approval's tick); only the board that delivers writes, through
+`POST /api/backlog`, which takes the board's own page alone (token, origin, JSON).
 A step nobody has (open, with an id: not queued, in progress, finished or the person's) has "Add to queue" at the end
 of its row and in its window's foot (B181; the person: "I want a button add to queue for the items on the
 backlog"). The board only asks: it types "queue step from the backlog" and "Step: <id> <title>" into the main chat,
