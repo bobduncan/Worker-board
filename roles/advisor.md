@@ -58,6 +58,12 @@ Before the main chat hands out a big step (over about an hour) or the first or s
 Answer "go", or "first do X, because ...". The main chat then asks the user: build anyway, or do X first. Small steps
 and fixes go without the check.
 
+**A feature that reaches into the game's structure.** When the user asks for a feature that changes how the game is
+built underneath (one that many parts depend on, which costs a heavy rework or brings many bugs when it is added
+late), warn before it is built, whatever its size. Say what it changes, what it costs now and what it costs later,
+and the course you advise: build it now, prepare the structure for it first, or leave it out on purpose. The game plan
+may name the user's own examples.
+
 ## Your suggestions
 
 - Each is a step in the backlog's group "Advisor suggestions":
