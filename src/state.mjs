@@ -174,7 +174,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [] }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -212,7 +212,10 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   if (state === 'waiting') needsYou = turn === 'asking' ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
 
   // A chat that was cut off, or is held by a limit, keeps the task it was on.
-  const task = taskOf({ chat, plan: isDone && plan !== null ? { ...plan, task: null } : plan, state: wasCutOff || paused !== null ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById })
+  // B148: a chat that has finished (its last answer says "Done: yes", or it is free by the app's own summary) is
+  // not on the task its card still names: that card was left behind, and the lane names it only as finished.
+  const isLeftBehind = plan?.task != null && !plan.task.isReported && (isDone || state === 'free')
+  const task = taskOf({ chat, plan: isLeftBehind ? { ...plan, task: null } : plan, state: wasCutOff || paused !== null ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById })
   const eta = etaOf(task, state, now)
   return {
     ...base,
@@ -238,6 +241,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // out work and answers the person; it has no task to time.
     isWithoutTime: state === 'working' && !chat.isMain && eta === null,
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
+    // The task a free chat's card still named: finished, not current work.
+    lastTask: isLeftBehind && state === 'free' ? { text: plan.task.text } : null,
     suspended: paused,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).
     usage: entries === null ? [] : usageReadings([...(typeof tail.usage === 'string' ? parseTail(tail.usage, false) : []), ...entries]),

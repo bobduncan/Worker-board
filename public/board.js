@@ -607,6 +607,17 @@ function folderLine(folder, now) {
   return parts.join(' · ')
 }
 
+// lanefree:start
+/**
+ * B148: the one dim line of a free lane: ready for a new task, or the task its card still named, as finished (the
+ * card was left behind). Null for a lane that is not free.
+ */
+function freeLine(lane) {
+  if (lane.state !== 'free') return null
+  return typeof lane.lastTask?.text === 'string' && lane.lastTask.text !== '' ? `Last task: ${lane.lastTask.text}, finished` : 'Ready for a new task'
+}
+// lanefree:end
+
 function drawLane(lane, state) {
   const isOpen = openLanes.has(lane.name)
   const card = el('article', `lane is-${lane.state}${lane.isLeftover ? ' is-leftover' : ''}${isOpen ? ' is-open' : ''}`)
@@ -640,7 +651,8 @@ function drawLane(lane, state) {
   const task = lane.task
   if (task === null) {
     what.append(el('p', 'task is-none', lane.state === 'working' ? 'Task not recorded yet' : 'No active task'))
-    if (lane.state === 'free') what.append(el('p', 'note', 'Ready for a new task'))
+    const free = freeLine(lane)
+    if (free !== null) what.append(el('p', 'note', free))
   } else {
     what.append(taskTitle(task))
     const steps = stepLine(lane, state.readAt)
