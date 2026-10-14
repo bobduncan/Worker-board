@@ -119,6 +119,13 @@ plan's limits again with the check (the app's usage tool), so the board's limits
 - `queue step from the backlog` with "Step: B<id> <title>": decide worker or queue for that step as for any task,
   write its "(for <worker>; ...)" note on the step's line, and hand it out; the board shows the step as asked until
   that note is there.
+- `stop task` with "Name: ...", "Task: ..." and "Why: ...": the user stops that worker's task. Ask the worker to stop
+  at a safe point (work committed and pushed, nothing new started) and to say where it left off; put its step back
+  as it now stands (open, or queued again when the user says so), and tell the user in one line.
+- `move step` with "Step: B<id> <title>", "From: ..." and "To: ...": change the step's "(for ...)" note to the new
+  worker, and tell both workers in one line each (the old one drops it from its plans, the new one gets it queued).
+- `unqueue step` with "Step: B<id> <title>" and "From: ...": take the worker's name out of the step's note, so it
+  stays on the backlog without a worker, and tell that worker in one line.
 - `advisor recommendation: yes` with "Recommended: ..." (and "Step: B<id>" when it is on the backlog, "Why: ..."): the
   user said yes to the Advisor's next step on its tab. Put it on the backlog when it is not there, then hand it out as
   any task. A "no" goes to the Advisor, not to you.

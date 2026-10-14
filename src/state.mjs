@@ -800,6 +800,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     })),
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)).map(step => ({ ...step, why: whyNot(step, null) })),
+    // B83: the newest ask to stop each worker's task, and to move or unqueue each queued step, open while on its way
+    // and for a while after it arrived, so the page asks once.
+    changeAsks: {
+      stop: Object.fromEntries(lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => [lane.name, removalAsk(sent.findLast(message => message.command === 'stop' && message.about === lane.name), now)]).filter(([, ask]) => ask !== null)),
+      steps: Object.fromEntries(lanes.flatMap(lane => lane.queue ?? []).filter(step => typeof step.id === 'string').map(step => [step.id, removalAsk(sent.findLast(message => (message.command === 'move' || message.command === 'unqueue') && message.about === step.id), now)]).filter(([, ask]) => ask !== null)),
+    },
     forYou: needsOf(asks, lanes, sent, gameOf, now, config.baseBranch),
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
     backlog: overview(backlog, { underWay: onNow }).map(activity => ({

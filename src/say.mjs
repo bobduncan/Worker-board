@@ -48,6 +48,36 @@ const removeWords = (to, name, state) => ({
   text: `remove worker\nName: ${name}\nState: ${state}\nWhy: removed with the button`,
 })
 
+/** B83: a step's id and title as the words name it: one plain line. */
+const stepLine = step => `${step.id} ${String(step.title ?? '').replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)}`
+
+/**
+ * B83: the words that ask the main chat to stop a worker's task, to move a queued step to another worker, or to take
+ * it out of its queue. The person, 2026-10-14: stop "A" (the worker reaches a safe point: work committed and pushed,
+ * nothing new started) and "A" (the main chat makes the change: it writes the backlog and tells the worker).
+ */
+const stopWords = (to, name, task) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'stop', about: name,
+  text: `stop task\nName: ${name}\nTask: ${task}\nWhy: stopped with the button`,
+})
+const moveWords = (to, step, from, target) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'move', about: step.id,
+  text: `move step\nStep: ${stepLine(step)}\nFrom: ${from}\nTo: ${target}`,
+})
+const unqueueWords = (to, step, from) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'unqueue', about: step.id,
+  text: `unqueue step\nStep: ${stepLine(step)}\nFrom: ${from}`,
+})
+
+/** B83: the worker whose queue holds the step with this id, and the step; null when no queue holds it. */
+function queuedStep(state, id) {
+  for (const lane of state.chats ?? []) {
+    const step = (lane.queue ?? []).find(one => typeof one.id === 'string' && one.id === id)
+    if (step !== undefined && !lane.isLeftover) return { lane, step }
+  }
+  return null
+}
+
 /**
  * B181: the word that asks the main chat to hand out a step of the backlog that nobody has. The main chat picks the
  * worker or what the step waits for, and writes the step's "(for ...)" note; the board writes nothing into the
@@ -108,7 +138,7 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'move', 'unqueue'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
@@ -121,6 +151,27 @@ export function checkSay(body, state, maxChars) {
       if (step === undefined || step.status !== 'open') return refuse(409, 'That step is not open for the queue: it is queued, in progress, finished or yours.')
       if (step.queueAsk?.isOpen === true) return refuse(409, 'The main chat was already asked to queue this step.')
       return { ok: true, message: queueWords(body.to, step) }
+    }
+    // B83: the person stops a worker's task (after confirming once, `sure`), moves a queued step to another worker,
+    // or takes it out of its queue. What the worker does and what the step is are read here, from the board's own
+    // state: the page names the worker, the step's id and the other worker only. One ask at a time each.
+    if (body.command === 'stop') {
+      const lane = (state.chats ?? []).find(chat => chat.name === body.chat && !chat.isLeftover && !chat.isMain)
+      if (lane === undefined) return refuse(409, 'That is no worker on the board.')
+      if (lane.task === null || lane.task === undefined || lane.state === 'free') return refuse(409, 'This worker has no task to stop.')
+      if (state.changeAsks?.stop?.[lane.name]?.isOpen === true) return refuse(409, 'An earlier ask to stop this task is still open.')
+      if (body.sure !== true) return refuse(409, 'Confirm first: the worker stops at a safe point.')
+      const task = [lane.task.stepId ?? null, lane.task.text ? `"${plainLine(lane.task.text)}"` : null].filter(Boolean).join(' ') || 'its task'
+      return { ok: true, message: stopWords(body.to, plainLine(lane.name), task) }
+    }
+    if (body.command === 'move' || body.command === 'unqueue') {
+      const found = typeof body.step === 'string' ? queuedStep(state, body.step) : null
+      if (found === null) return refuse(409, 'No worker\'s queue holds that step.')
+      if (state.changeAsks?.steps?.[found.step.id]?.isOpen === true) return refuse(409, 'An earlier ask to change this step is still open.')
+      if (body.command === 'unqueue') return { ok: true, message: unqueueWords(body.to, found.step, plainLine(found.lane.name)) }
+      const target = (state.chats ?? []).find(chat => chat.name === body.target && !chat.isLeftover && !chat.isMain)
+      if (target === undefined || target.name === found.lane.name) return refuse(409, 'Move it to another worker on the board.')
+      return { ok: true, message: moveWords(body.to, found.step, plainLine(found.lane.name), plainLine(target.name)) }
     }
     // B124: the person asks for one more worker, or for three when there is none. One ask at a time.
     if (body.command === 'spawn') {

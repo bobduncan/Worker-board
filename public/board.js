@@ -691,15 +691,18 @@ function drawLane(lane, state) {
   const removal = removalView(lane, main, state.readAt)
   const isWarned = removal.canRemove && warned.has(lane.name) && removal.reasons.length > 0 && !removal.isDisabled
   // B159: the button sits in the part a click on "⋯" unfolds, as in the agreed design.
-  let tools = null
+  const tools = []
   if (removal.canRemove && (state.workers?.main ?? null) !== null) {
     const remove = el('button', `remove-button${isWarned ? ' is-warned' : ''}`, '✕ Remove')
     remove.type = 'button'
     remove.dataset.remove = lane.name
     remove.disabled = removal.isDisabled || sending.has(`remove:${lane.name}`)
     remove.title = removal.reasons.length === 0 ? 'Asks the main chat to close this worker.' : 'This worker is not free: the board says what would stop first.'
-    tools = remove
+    tools.push(remove)
   }
+  // B83: a worker's task can be stopped from the board, after one question.
+  const stop = stopPart(lane, state)
+  if (stop !== null) tools.push(stop)
   // B159: the worker's icon takes the colour of its state.
   const sign = el('span', `worker-icon is-${lane.isLeftover ? 'leftover' : lane.state}`)
   sign.setAttribute('aria-hidden', 'true')
@@ -791,9 +794,9 @@ function drawLane(lane, state) {
   }
   if (isOpen) {
     const more = drawMore(lane, state)
-    if (tools !== null) {
+    if (tools.length > 0) {
       const bar = el('div', 'lane-tools')
-      bar.append(tools)
+      bar.append(...tools)
       more.prepend(bar)
     }
     card.append(more)
@@ -1010,6 +1013,111 @@ function drawRemoveWarning(lane, removal, main) {
 /** B143: the lanes whose warning is open. It stays in this page only. */
 const warned = new Set()
 
+/** B83: the lanes whose question "Stop its task?" is open. It stays in this page only. */
+const stopping = new Set()
+
+/**
+ * B83: "Stop its task" for a worker on a task. A first click asks once; "Stop it" asks the main chat, which has the
+ * worker stop at a safe point (the person, 2026-10-14: "1. A": work committed and pushed, nothing new started). An
+ * ask on its way says so. Nothing for the main chat, a free worker or a leftover.
+ */
+function stopPart(lane, state) {
+  if (lane.isMain || lane.isLeftover || lane.task === null || lane.state === 'free' || (state.workers?.main ?? null) === null) return null
+  const main = state.workers.mainTitle ?? state.workers.main
+  const key = `stop:${lane.name}`
+  const ask = state.changeAsks?.stop?.[lane.name] ?? null
+  if (ask?.isOpen === true) return el('span', 'stop-asked', `Asked to stop at ${clock(ask.at)}: ${main} has it stop at a safe point.`)
+  if (!stopping.has(lane.name)) {
+    const button = el('button', 'stop-button', '■ Stop its task')
+    button.type = 'button'
+    button.dataset.stop = lane.name
+    button.disabled = sending.has(key)
+    button.title = `Asks ${main} to have it stop at a safe point`
+    return button
+  }
+  const part = el('div', 'stop-confirm')
+  const sure = el('button', 'stop-button is-sure', 'Stop it')
+  sure.type = 'button'
+  sure.dataset.stopSure = lane.name
+  const keep = el('button', 'quiet-button', 'Keep going')
+  keep.type = 'button'
+  keep.dataset.stopKeep = lane.name
+  part.append(el('span', '', 'Stop its task? It finishes what runs, saves and shares its work, and starts nothing new.'), sure, keep)
+  if (problems.has(key)) part.append(el('p', 'problem', problems.get(key)))
+  return part
+}
+
+// B83: "Stop its task" opens the question; "Keep going" closes it; "Stop it" asks the main chat.
+$('lanes').addEventListener('click', event => {
+  const button = event.target.closest('[data-stop], [data-stop-sure], [data-stop-keep]')
+  if (button === null || board === null) return
+  const { stop = null, stopSure = null, stopKeep = null } = button.dataset
+  if (stop !== null || stopKeep !== null) {
+    if (stop !== null) stopping.add(stop)
+    else stopping.delete(stopKeep)
+    return drawLanes(board)
+  }
+  const main = board.workers?.main ?? null
+  if (main === null) return
+  stopping.delete(stopSure)
+  button.disabled = true
+  send({ to: main, command: 'stop', chat: stopSure, sure: true }, `stop:${stopSure}`)
+})
+
+/**
+ * B83: in the window of a step in a worker's queue: "Move to" another worker, and "Take out of the queue" (it stays on
+ * the backlog without a worker). Both ask the main chat, which writes the backlog and tells the workers (the person,
+ * 2026-10-14: "2. A"). An ask on its way says so. Nothing for a step without an id.
+ */
+function queueChangePart(lane, step, state) {
+  const main = state.workers?.main ?? null
+  if (main === null || typeof step?.id !== 'string') return null
+  const mainTitle = state.workers.mainTitle ?? main
+  const key = `change:${step.id}`
+  const part = el('div', 'queue-change')
+  const ask = state.changeAsks?.steps?.[step.id] ?? null
+  if (ask?.isOpen === true) {
+    part.append(el('span', 'muted', `Asked at ${clock(ask.at)}: ${mainTitle} makes the change and tells the workers.`))
+    return part
+  }
+  const others = (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover && one.name !== lane.name)
+  if (others.length > 0) {
+    const move = el('button', 'quiet-button', 'Move to')
+    move.type = 'button'
+    move.dataset.moveStep = step.id
+    move.disabled = sending.has(key)
+    const pick = el('select')
+    pick.dataset.moveTarget = step.id
+    pick.setAttribute('aria-label', 'The worker to move it to')
+    for (const one of others) {
+      const option = el('option', '', one.name)
+      option.value = one.name
+      pick.append(option)
+    }
+    part.append(move, pick)
+  }
+  const out = el('button', 'quiet-button', 'Take out of the queue')
+  out.type = 'button'
+  out.dataset.unqueueStep = step.id
+  out.disabled = sending.has(key)
+  out.title = 'It stays on the backlog, without a worker'
+  part.append(out, el('span', 'muted', `${mainTitle} makes the change and tells the workers.`))
+  if (problems.has(key)) part.append(el('p', 'problem', problems.get(key)))
+  return part
+}
+
+// B83: the queue's changes from a step's window.
+$('details').addEventListener('click', event => {
+  const button = event.target.closest('[data-move-step], [data-unqueue-step]')
+  const main = board?.workers?.main ?? null
+  if (button === null || main === null) return
+  const id = button.dataset.moveStep ?? button.dataset.unqueueStep
+  button.disabled = true
+  if (button.dataset.moveStep === undefined) return send({ to: main, command: 'unqueue', step: id }, `change:${id}`)
+  const target = [...$('details').querySelectorAll('[data-move-target]')].find(pick => pick.dataset.moveTarget === id)?.value ?? ''
+  return send({ to: main, command: 'move', step: id, target }, `change:${id}`)
+})
+
 // B143: "✕ Remove" asks at once for a free worker with nothing queued, else opens (or closes) the warning;
 // "Remove anyway" asks; "Keep it" closes the warning.
 $('lanes').addEventListener('click', event => {
@@ -1045,7 +1153,7 @@ $('workers-panel').addEventListener('click', event => {
 // given. The queue, the unfolded details, its step line and its remove control keep their own clicks.
 $('lanes').addEventListener('click', event => {
   const card = event.target.closest('.lane.is-working, .lane.is-suspended, .lane.is-interrupted')
-  if (card === null || board === null || event.target.closest('.queue, .more, .step-line, .remove-button, .remove-warning') !== null) return
+  if (card === null || board === null || event.target.closest('.queue, .more, .step-line, .remove-button, .remove-warning, .lane-menu') !== null) return
   openDetails({ lane: card.dataset.lane, task: true })
 })
 
@@ -1053,7 +1161,7 @@ $('lanes').addEventListener('click', event => {
 // queue and the unfolded details keep their own clicks.
 $('lanes').addEventListener('click', event => {
   const card = event.target.closest('.lane.is-waiting')
-  if (card === null || board === null || event.target.closest('.queue, .more, .remove-button, .remove-warning') !== null) return
+  if (card === null || board === null || event.target.closest('.queue, .more, .remove-button, .remove-warning, .lane-menu') !== null) return
   const id = needOfLane(board.forYou, card.dataset.lane)
   if (id !== null) openDetails({ need: id })
 })
@@ -2273,7 +2381,7 @@ function drawDetails(state) {
   const step = subject.step ?? (need === null ? lane.queue[place] : null)
   const now = state.readAt
   // Drawn again only when what it shows has changed, so reading and typing in it are left alone.
-  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state)])
+  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
@@ -2348,6 +2456,9 @@ function drawDetails(state) {
   // B181: a step of the Backlog tab that nobody has: "Add to queue" in its foot, as in its row.
   const queue = need === null && subject.step !== undefined ? queuePart(subject.step, state, true) : null
   if (queue !== null) foot.append(queue)
+  // B83: a step in a worker's queue can move to another worker, or out of the queue.
+  const change = need === null && subject.step === undefined && lane !== null && lane !== undefined ? queueChangePart(lane, step, state) : null
+  if (change !== null) foot.append(change)
   // B221: a step of the Backlog tab can be closed or deleted from its window.
   const edit = subject.step !== undefined ? editPart(subject.step, true) : null
   if (edit !== null) foot.append(edit)

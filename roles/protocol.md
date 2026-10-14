@@ -62,6 +62,9 @@ Typed by the Workers mod as the person's own words; each line below is the board
 | `remove worker` / `Name:` / `State:` / `Why:` | the person removes a worker | `src/say.mjs` (`removeWords`) |
 | `backlog step from the Design tab`, `queue step from the Design tab` | an idea of the Design tab goes on the backlog | `src/design.mjs` (`stepWord`) |
 | `queue step from the backlog` / `Step: B<id> <title>` | the person puts a step in a queue | `src/say.mjs` |
+| `stop task` / `Name:` / `Task:` / `Why:` | the person stops a worker's task (it reaches a safe point) | `src/say.mjs` (`stopWords`) |
+| `move step` / `Step: B<id> <title>` / `From:` / `To:` | the person moves a queued step to another worker | `src/say.mjs` (`moveWords`) |
+| `unqueue step` / `Step: B<id> <title>` / `From:` | the person takes a step out of a worker's queue | `src/say.mjs` (`unqueueWords`) |
 | `advisor recommendation: yes` (to the main chat) or `: no` with `Reason:` (to the Advisor) / `Recommended:` / `Step:` / `Why:` | the person answers the Advisor's recommendation on the way to the next milestone | `src/say.mjs` (`recommendWords`) |
 | `Round from the board's clock: morning` (or `weekly`), with the job and the project's settings under it | the Advisor's rounds; never the person's word | `src/rounds.mjs` |
 
