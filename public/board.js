@@ -2429,9 +2429,42 @@ function rich(node, text) {
   return node
 }
 
+// advisor:start
+// B173: the Advice & Chat tab shows the Advisor's work: its open suggestions, when its rounds come, and the game plan.
+
+/** When the board's clock starts the Advisor's rounds, and a round it left out in the last day. `clockOf(ms)` is "09:00". */
+function roundsLine(rounds, now, clockOf) {
+  if (rounds === null || rounds === undefined) return ''
+  const when = [rounds.morningRound ? `every day at ${rounds.morningRound}` : null, rounds.weeklyRound ? 'a deep one right after the weekly limit resets' : null].filter(Boolean)
+  if (when.length === 0) return 'The board\'s clock starts no rounds: the settings leave both out. Ask the Advisor in the chat.'
+  const skipped = rounds.last?.skipped ?? null
+  const left = skipped !== null && now - skipped.at < 24 * 60 * 60_000 ? ` The ${skipped.round} round at ${clockOf(skipped.at)} was left out: ${skipped.why}.` : ''
+  return `Rounds from the board's clock: ${when.join(', and ')}; or ask it in the chat.${left}`
+}
+
+/** An open suggestion as it reads on the tab: its id and title, and its lines ("Why: ...") in the order written. */
+function suggestionView(step) {
+  const lines = (step.notes ?? []).flatMap(section => [...section.lines, ...section.points].map(line => (section.title === null ? line : `${section.title}: ${line}`)))
+  return { title: [step.id, step.title].filter(Boolean).join(' '), lines }
+}
+// advisor:end
+
+function drawSuggestions(state) {
+  const list = state.suggestions ?? []
+  const group = state.rounds?.group ?? 'Advisor suggestions'
+  const head = el('h3', '', list.length === 0 ? 'Suggestions' : `Suggestions (${list.length} open)`)
+  if (list.length === 0) return fill($('advice-suggestions'), [head, el('p', 'muted', `No open suggestions. The Advisor puts them on the backlog under "${group}"; you answer them under For you.`)])
+  fill($('advice-suggestions'), [head, ...list.map(step => {
+    const view = suggestionView(step)
+    const card = el('div', 'suggestion')
+    card.append(el('b', '', view.title), ...view.lines.map(line => marked('p', '', line)))
+    return card
+  }), el('p', 'muted', 'Accept or reject each one under For you.')])
+}
+
 function drawAdvice(state) {
   const box = $('advice-text')
-  if (state.advice === null) return fill(box, [el('p', 'muted', 'No advice yet.')])
+  if (state.advice === null) return fill(box, [el('p', 'muted', `No game plan yet. The Advisor writes it with you, as ${state.gamePlan ?? 'the game plan'} in the game's repository.`)])
   const nodes = []
   let list = null
   let item = null
@@ -3729,7 +3762,10 @@ function draw(state) {
   once('finished', [state.finished ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
   drawDetails(state)
   openFromAddress(state)
-  once('advice', state.advice, () => drawAdvice(state))
+  once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))
+  once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
+  // The line about a round left out goes after a day.
+  once('advice-rounds', [state.rounds ?? null, Math.floor(state.readAt / 3_600_000)], () => { $('advice-rounds').textContent = roundsLine(state.rounds, state.readAt, clock) })
   const age = state.advice === null ? null : adviceAge(state.adviceAt ?? null, state.readAt)
   once('advice-age', age, () => {
     $('advice-age').hidden = age === null

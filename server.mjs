@@ -487,7 +487,7 @@ async function main(args) {
       config: { ...config, project },
     })
     // B173: the Advisor's rounds as the clock has them, for the Advice & Chat tab.
-    const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept }
+    const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept, group: config.advisorSuggestions }
     return { ...state, isDemo, project, rounds }
   }, STATE_MS)
 

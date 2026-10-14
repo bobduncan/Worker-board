@@ -72,6 +72,12 @@ const BACKLOG = `# Backlog
 - [ ] Lava biome (for Levels / Environment; about 1 h 30 min)
 - [ ] Level streaming (for Levels / Environment; about 2 h)
 - [ ] Decide the name of the game (for Writing; about 20 min)
+
+## Advisor suggestions
+- [ ] B30 Decide: Make a unit template before the second unit (Advisor) @you
+  Why: the archer and the knight are built in two different ways.
+  Cost: about 1 h
+  Unblocks: every next unit, built the same way.
 `
 
 const ASKS = now => [

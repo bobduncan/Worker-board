@@ -3,7 +3,7 @@
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { allWords, closedForYou, forYou, inProgress, overview, parseBacklog, queue } from './backlog.mjs'
+import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
@@ -798,7 +798,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name) },
     // B161: the talk with the main chat; null without a main chat.
     mainTalk: mainTalk === null ? null : { ...mainTalk, isRunning: runningOf(mainTalk.name) },
+    // B173: the game plan (config.gamePlan in the game's repository), and the Advisor's open suggestions: the open
+    // steps of the backlog's group for them, with their "Why:", "Cost:" and "Unblocks:" lines.
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
+    gamePlan: config.gamePlan,
+    suggestions: backlog.activities
+      .filter(activity => activity.name.trim().toLowerCase() === config.advisorSuggestions.toLowerCase())
+      .flatMap(activity => activity.steps.filter(step => !step.isDone))
+      .map(step => ({ id: step.id, title: step.title, notes: noteSections(step.notes) })),
     // When the advice was written: the page says how old it is.
     adviceAt: Number.isFinite(raw.adviceAt) ? raw.adviceAt : null,
   }

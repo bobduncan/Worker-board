@@ -64,11 +64,13 @@ async function pictureLists(config, backlogText, now) {
 /** `readFolders()` answers the working folders (see folders.mjs). */
 export async function readSources(config, readFolders, now = Date.now(), readBranches = async () => null) {
   const claude = join(config.project, '.claude')
+  // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository.
+  const plan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.gamePlan.split('/'))
   const [listText, appChatTexts, backlogText, adviceText, folders, askTexts] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     readAppChats(config.appSessions),
     readText(join(config.project, ...config.backlog.split('/'))),
-    readText(join(claude, 'advice.md')),
+    plan === null ? null : readText(plan),
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
   ])
@@ -106,7 +108,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     restartNote: await stat(join(claude, 'restart.md')).then(file => ({ at: file.mtimeMs }), () => null),
     // B110: the branches that are still there, to tell merged work from work whose branch is open.
     branches: await readBranches().catch(() => null),
-    // When the advisor last wrote its advice.
-    adviceAt: await stat(join(claude, 'advice.md')).then(file => file.mtimeMs, () => null),
+    // When the game plan was last written.
+    adviceAt: plan === null ? null : await stat(plan).then(file => file.mtimeMs, () => null),
   }
 }

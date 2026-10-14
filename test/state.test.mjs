@@ -541,6 +541,8 @@ test('the demo shows the second design: five lanes with their queues, two reques
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.kind, step.from, step.pictures]), [
     ['the jump feels right (picture in art-inbox/jump)', 'verify', 'Main', ['art-inbox/jump/jump-arc.png']],
     ['quit and reopen the app once', 'do', 'Main', []],
+    // B173: an Advisor suggestion is answered under For you; the answer goes to the main chat, which hands it out.
+    ['Make a unit template before the second unit (Advisor)', 'input', 'Main', []],
   ])
 
   assert.deepEqual([state.advisor.name, state.advisor.state, state.advisor.messages.length], ['Advisor', 'free', 4])
