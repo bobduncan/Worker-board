@@ -1921,7 +1921,7 @@ function closeDetails() {
   detailsOf = null
   detailsShown = null
   if ($('details').open) $('details').close()
-  if (location.hash.startsWith('#details=')) history.replaceState(null, '', location.pathname)
+  if (location.hash.startsWith('#details=') || location.hash.startsWith('#task=')) history.replaceState(null, '', location.pathname)
 }
 
 $('details').addEventListener('click', event => {
@@ -1960,6 +1960,13 @@ $('lanes').addEventListener('click', event => {
 
 /** `#details=B14` in the address opens the details of that step: a link to it, and what a picture of it is taken with. */
 function openFromAddress(state) {
+  // B151: `#task=Units` opens the window of that working worker's task.
+  if (location.hash.startsWith('#task=') && detailsOf === null) {
+    const name = decodeURIComponent(location.hash.slice('#task='.length))
+    const lane = state.chats.find(one => one.name === name)
+    if (lane !== undefined && laneWindowOf(lane, state.readAt, '') !== null) openDetails({ lane: name, task: true })
+    return
+  }
   if (!location.hash.startsWith('#details=') || detailsOf !== null) return
   const code = decodeURIComponent(location.hash.slice('#details='.length))
   const need = everyNeed(state).find(one => one.step === code || one.id === code)
