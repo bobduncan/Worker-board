@@ -10,6 +10,20 @@ import { listPictures } from '../src/pictures.mjs'
 import { answer, assistant, fromChat, step, tool, toolResult, typed, usageResult } from './lines.mjs'
 
 const MIN = 60_000
+const pad = value => String(value).padStart(2, '0')
+/** B155: a moment as the backlog's lines write it, this machine's date and clock. */
+const dayOf = at => `${new Date(at).getFullYear()}-${pad(new Date(at).getMonth() + 1)}-${pad(new Date(at).getDate())}`
+const clockOf2 = at => `${pad(new Date(at).getHours())}:${pad(new Date(at).getMinutes())}`
+
+/** B155: steps finished this morning, one of each kind of time: approved by the person, reported, only the day. */
+const FINISHED = now => `
+## Done this morning
+- [x] B05 Footstep sounds (for Features; about 30 min)
+  Approved by you on the worker board on ${dayOf(now - 20 * MIN)} at ${clockOf2(now - 20 * MIN)}.
+- [x] B06 Tidy the docs (for Cleanup; about 20 min)
+- [x] B07 Fog in the forest (for Levels / Environment)
+  (Done on ${dayOf(now)} by Game - Levels / Environment: merged.)
+`
 // A real folder, so the demo's pictures are served the way the real ones are.
 const PROJECT = join(dirname(fileURLToPath(import.meta.url)), 'demo-project')
 const REPO = 'C:/Demo/game-builder/game'
@@ -141,6 +155,8 @@ function transcripts(now) {
   const tail = (lines, quietMinutes) => ({ text: lines.join('\n'), isCut: false, modifiedAt: ago(quietMinutes) })
   return {
     'demo-main': tail([
+      // B155: the report that tells when B06 was finished.
+      fromChat(ago(100), 'Game - Cleanup', 'Report from Game - Cleanup: B06, the docs are tidy.'),
       // The main chat looked the limits up an hour ago: that is where the board has the reset times from.
       usageResult(ago(60), { fiveHour: { used: 61, resetsAt: resetOf(now) }, week: { used: 62, resetsAt: Math.round((now + 70 * 60 * MIN) / (60 * MIN)) * 60 * MIN } }),
       typed(ago(12), "Let's focus on player movement today. Please run the tests once it's integrated."),
@@ -273,7 +289,7 @@ export async function demoSources(now) {
       'demo-levels': plan(now, { text: 'Build first level (forest)', step: 2, steps: 6, left: 40 * MIN, isReported: false }, 6),
     },
     tails: transcripts(now),
-    backlogText: BACKLOG,
+    backlogText: BACKLOG + FINISHED(now),
     // B113: the app's usage file, three minutes old.
     usageText: `{"version":2,"samples":[{"t":${now - 3 * MIN},"org":"demo","u":{"fh":86,"sd":64}}]}`,
     adviceText: ADVICE,

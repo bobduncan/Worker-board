@@ -515,6 +515,8 @@ test('the demo shows the second design: five lanes with their queues, two reques
     ['Levels / Environment', 'working', 2],
   ])
   assert.deepEqual(state.counts, { working: 2, waiting: 1, free: 1, unknown: 0, interrupted: 0, suspended: 1 })
+  // B155: the steps finished this morning, newest first: one approved by the person, one reported, one with only the day.
+  assert.deepEqual(state.finished.map(one => [one.id, one.how, one.by]), [['B05', 'line', 'you'], ['B06', 'report', 'Cleanup'], ['B07', 'day', 'Levels / Environment']])
   // B148: Cleanup's last answer ends with "+ Done:   yes": free, although its card still names its task.
   assert.deepEqual([state.chats[3].state, state.chats[3].task], ['free', null])
   assert.equal(JSON.parse(demo.planLineTexts['demo-cleanup']).task.isReported, false)
