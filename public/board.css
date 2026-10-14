@@ -742,3 +742,19 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 @media (max-width: 1100px) {
   .design-parts { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* B157: a task window's top part, compact and set apart: what was asked and what the answer is, in plain words;
+   the rest under "Details", folded until opened. */
+.task-brief { background: #14233a; border: 1px solid #2a4a7d; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
+.task-brief h3 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #9db8e8; font-weight: 700; margin-bottom: 4px; }
+.task-brief .brief-task { font-size: 16px; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.task-brief .brief-text { font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
+.task-brief .brief-plan { font-size: 14.5px; line-height: 1.5; }
+.task-brief .brief-plan .is-done { color: var(--muted); }
+.task-brief .brief-plan .is-now { font-weight: 700; }
+.task-brief .brief-plan .is-next, .task-brief .brief-dot { color: #aab6c8; }
+.task-brief .brief-line { font-size: 14px; color: var(--muted); }
+.task-details { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.task-details > summary { font-weight: 700; font-size: 15px; cursor: pointer; }
+.task-details[open] > summary { margin-bottom: 4px; }
+.task-details > .details-part { margin-top: 12px; }

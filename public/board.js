@@ -1633,16 +1633,13 @@ function closingRows(closing) {
  */
 function handoverParts(waiting, needId) {
   const { handover, given } = waiting
-  const main = []
-  const task = [el('p', 'waiting-topic', handover.task ?? given?.text.split('\n')[0] ?? waiting.task[0])]
-  if (given !== null) {
-    task.push(el('small', 'muted', `Given by ${given.by === 'you' ? 'you' : 'the main chat'} at ${clock(given.at)}`))
-    const whole = el('details', 'handover-given')
-    whole.append(el('summary', '', 'The message as it was given'), rich(el('div', 'said-words'), given.text))
-    task.push(whole)
-  } else task.push(...waiting.task.slice(1).map(line => el('p', 'muted', line)))
-  main.push(section('Its task', task))
-  if (handover.did !== null) main.push(section('What it did', [rich(el('div', 'said-words'), handover.did)]))
+  // B157: on top, set apart: the task in at most two lines, and what it did in plain words (a technical sentence
+  // is left out there; the folded details have its whole answer).
+  const did = plainWords(handover.did)
+  const main = [briefPart([
+    ['The task', [briefTask(shortTask(handover.task ?? given?.text ?? null, null, waiting.task[0] ?? null))]],
+    ['What it did', did === '' ? [] : [el('p', 'brief-text', did)]],
+  ])]
 
   if (handover.items.length > 0) {
     const answers = itemAnswers.get(needId) ?? new Map()
@@ -1693,12 +1690,15 @@ function handoverParts(waiting, needId) {
     }
     main.push(section('For you', [list, ...(waiting.where === 'here' ? [el('p', 'muted', 'Your answers gather in the box below; change it there if you like, then send.')] : [])]))
   }
-  if (waiting.words !== '') {
-    const whole = el('details', 'handover-whole')
-    whole.append(el('summary', '', `Its whole answer${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`), rich(el('div', 'said-words'), waiting.words))
-    main.push(whole)
-  }
-  return { main, side: closingParts(handover.closing) }
+  // B157: below, folded: the message as it was given, its whole answer, its closing block.
+  main.push(foldedDetails([
+    given === null ? null : section('Its task as it was given', [
+      el('small', 'muted', `Given by ${given.by === 'you' ? 'you' : 'the main chat'} at ${clock(given.at)}`), rich(el('div', 'said-words'), given.text),
+    ]),
+    waiting.words === '' ? null : section(`Its whole answer${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`, [rich(el('div', 'said-words'), waiting.words)]),
+    ...closingParts(handover.closing),
+  ]))
+  return { main: main.filter(part => part !== null), side: [] }
 }
 
 /** B149: the closing block of a worker's answer as three lines, Done in green or red; nothing when it has none. */
@@ -1843,6 +1843,44 @@ function shortTask(given, stepTitle = null, topic = null) {
 }
 
 /**
+ * B157: what makes a sentence technical for the person: code, a file or a path, an address setting, a function, a
+ * programmer's name (snake_case, camelCase) or a programmer's word.
+ */
+const TECHNICAL = [
+  /`/, /\b[\w-]+\.(?:m?js|ts|tsx|css|html|md|json|py|png|jpe?g|webp)\b/i, /[\w.-]+[\\/][\w.-]+[\\/]?/, /[?&][\w-]+=/,
+  /\b[A-Za-z_]\w*\(/, /\b[a-z]+_[a-z][\w]*\b/, /\b[a-z]+[A-Z]\w*\b/,
+  /\b(?:commits?|branch(?:es)?|npm|regex|refactor\w*|typecheck\w*|endpoints?|api|tests?|vitest|worktree|repositor(?:y|ies)|origin|stash)\b/i,
+]
+
+/** B157: whether a piece of text is technical (see TECHNICAL). */
+const isTechnical = text => TECHNICAL.some(pattern => pattern.test(text))
+
+/**
+ * B157: the plain sentences of a worker's words, for the window's top part (the person, 2026-10-14: "non technical
+ * and highover"): a sentence that is technical is left out, so the top shows less rather than technical words; the
+ * folded details hold the whole text. Empty when nothing plain is left.
+ */
+function plainWords(text) {
+  const words = String(text ?? '').replace(/\s+/g, ' ').trim()
+  if (words === '') return ''
+  return words.split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/).filter(sentence => !isTechnical(sentence)).join(' ')
+}
+
+/**
+ * B157: a working worker's plan, in plain words: its steps by name with where each stands (`done`, `now`, `next`),
+ * the technical ones left out, and one line with the step it is on and the time left. Null when it named no steps.
+ */
+function planOf(lane, now) {
+  const line = stepLine(lane, now)
+  if (line === null) return null
+  const [at, total] = line.count.split('/')
+  return {
+    steps: line.steps.filter(step => !isTechnical(step.name)),
+    line: `${at === '–' ? `No step of ${total} yet` : `Step ${at} of ${total}`} · ${line.time}`,
+  }
+}
+
+/**
  * B151: what the window of a working worker's lane shows (also one that is suspended, cut off, or between two turns):
  * in its head the task as its card names it; then the task as it was given (`given`: the main chat's hand-over as it
  * arrived in that chat, or what the person typed there, with when), the backlog step that message is about, and
@@ -1862,6 +1900,9 @@ function laneWindowOf(lane, now, mainTitle) {
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
     given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
     step: given?.step ?? null,
+    // B157: the top part: the task in one short sentence, and its plan in plain words.
+    task: shortTask(given?.text ?? null, given?.step?.title ?? null, task === null || task.text === '' ? null : task.text),
+    plan: planOf(lane, now),
     standing: [
       ...(line === null ? [] : [line.label]),
       `${time.label === '' ? '' : `${time.label}: `}${time.main}${time.small.length > 0 ? `, ${time.small.join(', ')}` : ''}`,
@@ -1878,12 +1919,66 @@ function laneWindowOf(lane, now, mainTitle) {
  */
 const LANE_PARTS = {
   main: [
-    view => section('Its task as it was given', view.given === null
-      ? [el('p', 'muted', 'The message that gave it this task is not in the part of its chat the board reads.')]
-      : [el('small', 'muted', view.given.from), rich(el('div', 'said-words'), view.given.text)]),
-    view => (view.step === null ? null : section('Backlog step', [el('p', '', `${view.step.id} · ${view.step.title}`)])),
+    // B157: on top, set apart: the task in at most two lines, and its plan in plain words.
+    view => briefPart([['The task', [briefTask(view.task)]], ['Its plan', planNodes(view.plan)]]),
+    // B157: below, folded: the task as it was given, its backlog step, where it stands.
+    view => foldedDetails([
+      section('Its task as it was given', view.given === null
+        ? [el('p', 'muted', 'The message that gave it this task is not in the part of its chat the board reads.')]
+        : [el('small', 'muted', view.given.from), rich(el('div', 'said-words'), view.given.text)]),
+      view.step === null ? null : section('Backlog step', [el('p', '', `${view.step.id} · ${view.step.title}`)]),
+      section('Where it stands', view.standing.map(line => el('p', '', line))),
+    ]),
   ],
-  side: [view => section('Where it stands', view.standing.map(line => el('p', '', line)))],
+  side: [],
+}
+
+/** B157: the top part of a task window: under each header in capitals, its lines; set apart from the rest. */
+function briefPart(rows) {
+  const panel = el('div', 'task-brief')
+  for (const [title, nodes] of rows) {
+    if (nodes.length === 0) continue
+    const part = el('div', 'brief-part')
+    part.append(el('h3', '', title), ...nodes)
+    panel.append(part)
+  }
+  return panel
+}
+
+/** B157: the task in its two lines; a window without one says so. */
+const briefTask = task => el('p', `brief-task${task === '' ? ' muted' : ''}`, task === '' ? 'The board does not know the task yet.' : task)
+
+/** B157: a plan as one line of its steps (done ones struck through, the current one marked) and its step and time. */
+function planNodes(plan) {
+  if (plan === null) return [el('p', 'brief-line', 'It has not named its plan yet.')]
+  const nodes = []
+  if (plan.steps.length > 0) {
+    const steps = el('p', 'brief-plan')
+    plan.steps.forEach((step, index) => {
+      if (index > 0) steps.append(el('span', 'brief-dot', ' · '))
+      steps.append(el('span', `is-${step.state}`, `${step.state === 'done' ? '✓ ' : step.state === 'now' ? '▶ ' : ''}${step.name}`))
+    })
+    nodes.push(steps)
+  }
+  nodes.push(el('p', 'brief-line', plan.line))
+  return nodes
+}
+
+/** B157: the details of a task window under one header, folded until the person opens it. */
+function foldedDetails(parts) {
+  const shown = parts.filter(part => part !== null)
+  if (shown.length === 0) return null
+  const details = el('details', 'task-details')
+  details.append(el('summary', '', 'Details'), ...shown)
+  return details
+}
+
+/** B157: a window drawn anew keeps its details open when the person had opened them. */
+function keepUnfolded(box, draw) {
+  const wasOpen = box.querySelector('.task-details')?.open === true
+  draw()
+  const details = box.querySelector('.task-details')
+  if (wasOpen && details !== null) details.open = true
 }
 
 /** The head of a window: its code and title, its chips, when it was asked, the sign of its kind, and the cross. */
@@ -1919,7 +2014,7 @@ function drawLaneWindow(box, lane, state) {
   right.append(...LANE_PARTS.side.map(part => part(view, lane)).filter(part => part !== null))
   const body = el('div', `details-body${right.children.length === 0 ? ' is-single' : ''}`)
   body.append(left, ...(right.children.length === 0 ? [] : [right]))
-  fill(box, [detailsHead(view, el('span', 'kind is-working', '▶'), state.readAt), body])
+  keepUnfolded(box, () => fill(box, [detailsHead(view, el('span', 'kind is-working', '▶'), state.readAt), body]))
   body.scrollTop = scroll
 }
 
@@ -2073,7 +2168,8 @@ function drawDetails(state) {
 
   const body = el('div', `details-body${right.children.length === 0 ? ' is-single' : ''}`)
   body.append(left, ...(right.children.length === 0 ? [] : [right]))
-  fill(box, need === null ? [head, body] : [head, body, foot])
+  // B157: a finished worker's window drawn anew keeps its details open when the person had opened them.
+  keepUnfolded(box, () => fill(box, need === null ? [head, body] : [head, body, foot]))
   body.scrollTop = scroll
   refocus(box, focused)
 }
