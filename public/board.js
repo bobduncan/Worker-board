@@ -116,11 +116,13 @@ function icon(name) {
 }
 
 /** Puts text into a node, with **bold**, `code` and [words](where they point) as the only marks. */
-function mark(node, text) {
+function mark(node, text, linker = null) {
   const pieces = []
   for (const piece of text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\))/)) {
     const link = piece.match(/^\[([^\]\n]+)\]\(([^)\s]+)\)$/)
-    if (link !== null) {
+    // B218: where the text is a file of the game's, its links work (`linker` draws them).
+    if (link !== null && linker !== null) pieces.push(linker(link[1], link[2]))
+    else if (link !== null) {
       // B94: a link shows its words; where it points is the hint. The page opens nothing by it.
       const words = el('span', 'linked', link[1])
       words.title = link[2]
@@ -133,7 +135,7 @@ function mark(node, text) {
   return node
 }
 
-const marked = (tag, className, text) => mark(el(tag, className), text)
+const marked = (tag, className, text, linker = null) => mark(el(tag, className), text, linker)
 
 // Pictures: fetched from the board's own server with the token, and shown from memory
 
@@ -2569,19 +2571,19 @@ function adviceAge(at, now) {
 // rich:end
 
 /** B94: a table of the advisor's, drawn as one. */
-function drawTable({ head, rows }) {
+function drawTable({ head, rows }, linker = null) {
   const table = el('table')
   if (head !== null) {
     const top = el('thead')
     const row = el('tr')
-    for (const cell of head) row.append(marked('th', '', cell))
+    for (const cell of head) row.append(marked('th', '', cell, linker))
     top.append(row)
     table.append(top)
   }
   const body = el('tbody')
   for (const cells of rows) {
     const row = el('tr')
-    for (const cell of cells) row.append(marked('td', '', cell))
+    for (const cell of cells) row.append(marked('td', '', cell, linker))
     body.append(row)
   }
   table.append(body)
@@ -2837,15 +2839,93 @@ $('advisor-way').addEventListener('input', event => {
   if (event.target.id === 'way-reason') wayReason = event.target.value
 })
 
-function drawAdvice(state) {
-  const box = $('advice-text')
-  if (state.advice === null) return fill(box, [el('p', 'muted', `No game plan yet. The Advisor writes it with you, as ${state.gamePlan ?? 'the game plan'} in the game's repository.`)])
-  const nodes = []
+// B218: the game plan as the page draws it, its links working and its headings folding. The person, 2026-10-14:
+// "advisor game plan has links that dont work i want to be able to click them in the UI", and "adding collapsing
+// headers so this page feel more manageable". Kept between these two marks so a test can run it.
+// planlinks:start
+/**
+ * Where a link in a file of the game's folder points (`from` is that file's own path, as "docs/game-plan.md"): a
+ * web page `{ web }`, or a path inside the game's folder `{ path, alt, isPicture }`, `alt` being the same link read
+ * from the project's folder (a plan may be written that way), or null; null when it leads out of the folder or is no
+ * path at all (an anchor, a drive, a root).
+ */
+function planTarget(from, href) {
+  if (/^https?:\/\//i.test(href)) return { web: href }
+  const bare = href.replace(/[?#].*$/, '')
+  if (bare === '' || /^[a-z][\w+.-]*:/i.test(bare) || bare.startsWith('/') || bare.includes('\\')) return null
+  let words
+  try {
+    words = decodeURIComponent(bare)
+  } catch {
+    return null
+  }
+  const walk = start => {
+    const parts = [...start]
+    for (const part of words.split('/')) {
+      if (part === '' || part === '.') continue
+      if (part !== '..') parts.push(part)
+      else if (parts.length === 0) return null
+      else parts.pop()
+    }
+    return parts.length === 0 ? null : parts.join('/')
+  }
+  const path = walk(from.split('/').slice(0, -1))
+  return path === null ? null : { path, alt: walk([]), isPicture: /\.(?:png|jpe?g|webp|gif)$/i.test(path) }
+}
+// planlinks:end
+
+/** A link's words as the plan draws them: a web page opens in a new tab, a file of the game in a window here. */
+const planLinker = from => (words, href) => {
+  const target = planTarget(from, href)
+  if (target === null) {
+    const plain = el('span', 'linked', words)
+    plain.title = `${href} (not a file of the game's folder)`
+    return plain
+  }
+  if (target.web !== undefined) {
+    const link = el('a', 'plan-link', words)
+    link.href = target.web
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    return link
+  }
+  const button = el('button', 'plan-link', words)
+  button.type = 'button'
+  button.dataset.gameFile = target.path
+  if (target.alt !== null) button.dataset.projectFile = target.alt
+  button.title = `Open ${target.alt ?? target.path}`
+  return button
+}
+
+/** The parts of the plan the person unfolded, by their headings: a redraw keeps them open. */
+const planOpen = new Set()
+
+/**
+ * The text of a file of the game's folder as nodes: headings, paragraphs, lists and tables, its links working
+ * (`from` is its own path). With `fold`, every heading folds what stands under it, folded at first with its first
+ * line beside it, so the whole plan fits on a screen.
+ */
+function gameFileNodes(text, from, fold) {
+  const linker = planLinker(from)
+  const top = []
+  const stack = []
+  const add = node => (stack.length === 0 ? top.push(node) : stack.at(-1).box.append(node))
+  // A folded part shows the first line under its heading.
+  const firstLine = words => {
+    const part = stack.at(-1)
+    if (part === undefined || part.hasLine) return
+    part.hasLine = true
+    const plain = words.replace(/\*\*|`/g, '').replace(/\[([^\]\n]+)\]\([^)\s]+\)/g, '$1')
+    part.summary.append(el('small', 'plan-line', plain.length > 140 ? `${plain.slice(0, 137)}…` : plain))
+  }
   let list = null
   let item = null
   let paragraph = null
   const flush = () => {
-    if (paragraph !== null) nodes.push(marked('p', '', paragraph))
+    if (paragraph !== null) {
+      firstLine(paragraph)
+      add(marked('p', '', paragraph, linker))
+    }
     paragraph = null
   }
   const take = (line, index) => {
@@ -2860,23 +2940,37 @@ function drawAdvice(state) {
       flush()
       list = null
       item = null
-      // The panel has the title already.
-      if (!(index === 0 && heading[1] === '#')) nodes.push(marked(heading[1].length <= 2 ? 'h3' : 'h4', '', heading[2]))
+      const level = heading[1].length
+      // The panel or the window has the title already.
+      if (index === 0 && level === 1) return
+      if (!fold) return add(marked(level <= 2 ? 'h3' : 'h4', '', heading[2], linker))
+      while (stack.length > 0 && stack.at(-1).level >= level) stack.pop()
+      const key = [...stack.map(part => part.title), heading[2]].join(' / ')
+      const box = el('details', `plan-part is-level-${Math.min(level, 4)}`)
+      box.open = planOpen.has(key)
+      box.dataset.planPart = key
+      const summary = el('summary')
+      // A click on the heading folds: its words are not links.
+      summary.append(marked(level <= 2 ? 'h3' : 'h4', '', heading[2].replace(/\[([^\]\n]+)\]\([^)\s]+\)/g, '$1')))
+      box.append(summary)
+      add(box)
+      stack.push({ level, box, summary, hasLine: false, title: heading[2] })
     } else if (bullet !== null || numbered !== null) {
       flush()
       const kind = bullet !== null ? 'ul' : 'ol'
       if (list === null || list.localName !== kind) {
         list = el(kind)
         if (numbered !== null) list.start = Number(numbered[1])
-        nodes.push(list)
+        add(list)
       }
       item = { text: (bullet ?? numbered).at(-1), node: null }
-      item.node = marked('li', '', item.text)
+      item.node = marked('li', '', item.text, linker)
       list.append(item.node)
+      firstLine(item.text)
     } else if (item !== null && /^\s+\S/.test(line)) {
       // An indented line goes on with the list item above it.
       item.text = `${item.text} ${line.trim()}`
-      const again = marked('li', '', item.text)
+      const again = marked('li', '', item.text, linker)
       item.node.replaceWith(again)
       item.node = again
     } else {
@@ -2886,7 +2980,7 @@ function drawAdvice(state) {
     }
   }
   let index = 0
-  for (const part of partsOf(state.advice)) {
+  for (const part of partsOf(text)) {
     if (part.table === undefined) {
       for (const line of part.text.split('\n')) take(line, index++)
       continue
@@ -2895,11 +2989,58 @@ function drawAdvice(state) {
     list = null
     item = null
     index += 1
-    nodes.push(drawTable(part.table))
+    add(drawTable(part.table, linker))
   }
   flush()
-  fill(box, nodes)
+  return top
 }
+
+function drawAdvice(state) {
+  const box = $('advice-text')
+  if (state.advice === null) return fill(box, [el('p', 'muted', `No game plan yet. The Advisor writes it with you, as ${state.gamePlan ?? 'the game plan'} in the game's repository.`)])
+  fill(box, gameFileNodes(state.advice, state.gamePlan ?? '', true))
+}
+// The toggle of a part does not bubble: it is heard on its way down.
+$('advice-text').addEventListener('toggle', event => {
+  const part = event.target
+  if (!(part instanceof HTMLElement) || part.dataset.planPart === undefined) return
+  if (part.open) planOpen.add(part.dataset.planPart)
+  else planOpen.delete(part.dataset.planPart)
+}, true)
+
+/** B218: a file of the game's folder, read-only, in a window of its own; a picture in the picture popup. */
+async function openGameFile(path, alt = null) {
+  const query = `path=${encodeURIComponent(path)}${alt === null ? '' : `&alt=${encodeURIComponent(alt)}`}`
+  const answer = await fetch(`/api/game-file?${query}`, { headers: { 'X-Board-Token': TOKEN } }).catch(() => null)
+  // Where the board found it: in the game's folder, or from the project's.
+  const shown = answer?.headers.get('X-Board-File') || alt || path
+  const box = $('file-view')
+  const head = el('header', 'file-view-head')
+  const close = el('button', 'icon-button', '✕')
+  close.type = 'button'
+  close.dataset.closeFile = ''
+  close.setAttribute('aria-label', 'Close')
+  head.append(el('h2', '', shown), close)
+  if (answer !== null && answer.ok && (answer.headers.get('Content-Type') ?? '').startsWith('image/')) {
+    $('lightbox-picture').src = URL.createObjectURL(await answer.blob())
+    $('lightbox-caption').textContent = shown
+    if (!$('lightbox').open) $('lightbox').showModal()
+    return
+  }
+  const body = el('div', 'file-view-body advice')
+  if (answer === null) body.append(el('p', 'problem', 'The board\'s server does not answer.'))
+  else if (!answer.ok) body.append(el('p', 'problem', (await answer.text()).trim() || 'This file is not shown.'))
+  // Its own links are read from where it was found.
+  else if (/\.md$/i.test(path)) body.append(...gameFileNodes(await answer.text(), answer.headers.get('X-Board-File') || path, false))
+  else body.append(el('pre', '', await answer.text()))
+  fill(box, [head, body])
+  if (!box.open) box.showModal()
+}
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-game-file]')
+  if (link !== null) return openGameFile(link.dataset.gameFile, link.dataset.projectFile ?? null)
+  if (event.target === $('file-view') || event.target.closest('[data-close-file]') !== null) $('file-view').close()
+})
 
 // The chat with the advisor
 

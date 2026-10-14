@@ -254,6 +254,16 @@ puts it on the backlog when it is not there and hands it out; "No…" asks why a
 with the reason into the Advisor's chat. One answer per recommendation (its id); the box then says what was answered.
 The mock-up the person agreed to ("1. yes. 2. yes."): `art-inbox/worker-board/b195/2026-10-14-b195-mockup.png`.
 
+**The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
+able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".
+In the Advisor tab's Game plan part every heading folds what stands under it, folded at first with its first line
+beside it, so the plan fits on a screen; a part the person opened stays open while the page runs. Its links work: a
+web page opens in a new tab; a file opens read-only in a window of the board (`/api/game-file`, `src/gameFile.mjs`),
+read from the plan's own folder in the game, else from the project's folder (a plan may write its links that way),
+never from outside them, only text files and pictures of at most 1 MB; a picture opens in the picture popup. Links in
+a chat's words stay words. The Advisor keeps no open questions in the plan (`roles/advisor.md`). Pictures:
+`art-inbox/worker-board/b218/`.
+
 **A picture in Talk to Main (B167).** The person, 2026-10-14: "i need a change so that i can post pictures in the 'talk
 to main' chat in the worker board, from my clipboard". Ctrl+V in the talk takes the picture on the clipboard (PNG,
 JPEG or WebP, 8 MB at most) and shows it small above the box, with a × to take it away; words on the clipboard are
