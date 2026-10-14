@@ -640,7 +640,10 @@ async function main(args) {
       if (typeof checked.message.picture === 'string' && !(await stat(inProject(config.project, checked.message.picture)).then(file => file.isFile(), () => false))) {
         return { ok: false, status: 409, why: 'That picture is not there any more: paste it again.' }
       }
-      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: 'waiting' }
+      // B212: without a Workers mod nothing takes the board's words: they are kept as copied, and the page puts them on
+      // the clipboard for the person to paste into the chat, marked as typed on the board.
+      const isCopied = state.bridge?.isMissing === true
+      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: isCopied ? 'copied' : 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
       const ticked = await settle(message, state)
       if (ticked !== null) {
@@ -648,6 +651,11 @@ async function main(args) {
         return ticked
       }
       await store.say(message)
+      if (isCopied) {
+        readState.reset()
+        const paste = { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
+        return { ok: true, message: { ...message, paste } }
+      }
       // Sent to a chat that is not running: the main chat is asked to start it, so nothing waits without a word.
       const wake = wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
       if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })

@@ -54,6 +54,8 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
       || ((message.state === 'taken' || message.state === 'delivered') && isAnswer(message))
       // A word for the restart stays known for a while: the board says how the preparing stands.
       || (typeof message.command === 'string' && now - message.at < COMMAND_KNOWN_MS)
+      // B212: words copied for the person to paste, without a Workers mod: shown for a while, and an answer stays closed.
+      || (message.state === 'copied' && (isAnswer(message) || now - message.at < shownMs))
       // A line that was taken shows as on its way until the chat has it.
       || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS))
 }
