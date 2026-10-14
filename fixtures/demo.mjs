@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import { readFolders } from '../src/folders.mjs'
 import { listPictures } from '../src/pictures.mjs'
-import { answer, assistant, fromChat, step, tool, toolResult, typed, usageResult, user } from './lines.mjs'
+import { answer, assistant, fromChat, modCompaction, step, tool, toolResult, typed, usageResult, user } from './lines.mjs'
 
 const MIN = 60_000
 const pad = value => String(value).padStart(2, '0')
@@ -213,7 +213,9 @@ function transcripts(now) {
       assistant(ago(106), 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'The docs are tidy.' })]),
       toolResult(ago(106)),
       answer(ago(105), 'The docs are tidy and the report is with Game - Main.\n\n---\n\n```diff\n  Prompt: tidy the docs\n  Who:    Game - Cleanup\n+ Done:   yes\n```'),
-    ], 105),
+      // B247: the Workers mod compacted it after its report; it stays free.
+      ...modCompaction(ago(100)),
+    ], 100),
     'demo-levels': tail([
       fromChat(ago(40), 'Game - Main', 'Task from Game - Main: build the first level, a forest.'),
       step(ago(39), 'Look at the reference picture'),
@@ -304,8 +306,10 @@ export async function demoSources(now) {
       'demo-main': plan(now, { text: 'Integrate player movement', step: 4, steps: 5, left: 25 * MIN, isReported: false }, 3),
       'demo-units': plan(now, { text: 'Choose enemy approach', step: 2, steps: 4, left: 30 * MIN, isReported: false }, 103),
       'demo-features': plan(now, { text: 'Add save / load system', step: 3, steps: 5, left: 114 * MIN, isReported: false }, 9),
-      'demo-cleanup': plan(now, { text: 'Tidy the docs', step: 2, steps: 2, left: 0, isReported: false }, 105),
-      'demo-levels': plan(now, { text: 'Build first level (forest)', step: 2, steps: 6, left: 40 * MIN, isReported: false }, 6),
+      // B235: the Workers mod compacted Cleanup after its report; B247: the size after is not known yet (0).
+      'demo-cleanup': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Tidy the docs', step: 2, steps: 2, left: 0, isReported: false }, 105)), compacted: { at: now - 100 * MIN, before: 612000, after: 0 } }),
+      // ... and why it did not compact Levels / Environment.
+      'demo-levels': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Build first level (forest)', step: 2, steps: 6, left: 40 * MIN, isReported: false }, 6)), compactNote: { at: now - 30 * MIN, why: 'below the size to compact (140k of 250k tokens)' } }),
     },
     tails: transcripts(now),
     backlogText: BACKLOG + FINISHED(now),

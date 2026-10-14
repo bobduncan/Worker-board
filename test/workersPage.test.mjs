@@ -110,3 +110,36 @@ test('B213: without the Workers mod the row says plainly what the board cannot d
   assert.match(lines[0].text, /^No Workers mod answers this board: what you send is copied for you to paste into the chat, the board cannot tell whether a chat runs, and a large worker is not compacted after its report\.$/)
   assert.ok(!view({ main: 'Lead', mainTitle: 'Team - Lead', project: 'C:\p', count: 1, ask: null, lookFor: [], withoutMod: false }).lines.some(line => /Workers mod/.test(line.text)))
 })
+
+test('B235: one line under a worker\'s name says it was compacted and from what size, or why not', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const part = {}
+  vm.runInNewContext(`${script.slice(script.indexOf('// lanewindow:start'), script.indexOf('function laneWindowOf'))}\nObject.assign(this, { compactionLine })`, part)
+  const at = '16:40'
+  assert.deepEqual({ ...part.compactionLine({ kind: 'compacted', at: 1, before: 820000, after: 95000 }, () => at) }, { text: 'compacted at 16:40, from 820k to 95k tokens', isSkipped: false })
+  assert.deepEqual({ ...part.compactionLine({ kind: 'skipped', at: 1, why: 'its turn was still running' }, () => at) }, { text: 'not compacted at 16:40: its turn was still running', isSkipped: true })
+  assert.equal(part.compactionLine(null, () => at), null)
+  // B247: a size after of 0 (or none) is not known yet: only the size before is said.
+  for (const after of [0, null]) {
+    assert.deepEqual({ ...part.compactionLine({ kind: 'compacted', at: 1, before: 349824, after }, () => at) }, { text: 'compacted at 16:40, from 350k tokens', isSkipped: false })
+  }
+})
+
+test('B247: a quiet lane whose step has no answer says how long, and that it may wait for your approval in its chat', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
+  const part = { MIN: 60_000 }
+  vm.runInNewContext(`${cut('times')}\n${cut('alerts')}\nObject.assign(this, { alertsOf })`, part)
+  const now = 100 * 60_000
+  const lane = { isQuiet: true, quietMs: 34 * 60_000, isWithoutTime: false, task: null, state: 'working', unanswered: null }
+  const state = { readAt: now, estimateOldMs: 30 * 60_000 }
+  assert.deepEqual([...part.alertsOf(lane, state)], ['no sign of life for 34 min'])
+  const waits = { doing: 'Working in the browser', since: now - 42 * 60_000 }
+  assert.deepEqual([...part.alertsOf({ ...lane, unanswered: waits, doingNow: 'Working in the browser' }, state)],
+    ['no answer to it for 42 min: it may wait for your approval in its chat'])
+  // A later call than the one without an answer is what "Now:" names: the waiting one is named.
+  assert.deepEqual([...part.alertsOf({ ...lane, unanswered: waits, doingNow: 'Run the tests' }, state)],
+    ['no answer to its step "Working in the browser" for 42 min: it may wait for your approval in its chat'])
+})

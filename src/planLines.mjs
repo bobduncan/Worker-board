@@ -47,6 +47,23 @@ export function ownCard(fileText, fileAt) {
   return JSON.stringify({ ...rest, task, at: Number.isFinite(raw.at) ? raw.at : Number.isFinite(fileAt) ? fileAt : null })
 }
 
+/** A time as the mod writes it: milliseconds, or a date text. */
+const timeOf = value => (Number.isFinite(value) ? value : typeof value === 'string' && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null)
+
+/**
+ * B235: the Workers mod's word after a worker's report: it compacted the chat (`compacted`: when, and its size before
+ * and after, in tokens), or it says why it did not (`compactNote`: when, and why). Null when the card has none.
+ */
+function compactionOf(raw) {
+  const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+  const done = isRecord(raw.compacted) && timeOf(raw.compacted.at) !== null
+    ? { at: timeOf(raw.compacted.at), before: number(raw.compacted.before), after: number(raw.compacted.after) } : null
+  const note = isRecord(raw.compactNote) && timeOf(raw.compactNote.at) !== null && typeof raw.compactNote.why === 'string' && raw.compactNote.why.trim() !== ''
+    ? { at: timeOf(raw.compactNote.at), why: raw.compactNote.why.replace(/\s+/g, ' ').trim().slice(0, 200) } : null
+  if (done === null && note === null) return null
+  return note === null || (done !== null && done.at >= note.at) ? { kind: 'compacted', ...done } : { kind: 'skipped', ...note }
+}
+
 export function parsePlanLine(fileText) {
   let raw
   try {
@@ -63,6 +80,7 @@ export function parsePlanLine(fileText) {
     role: typeof raw.role === 'string' ? raw.role : null,
     state: typeof raw.state === 'string' ? raw.state : null,
     at: number(raw.at),
+    compaction: compactionOf(raw),
     task: hasTask
       ? {
           text: task.text.trim(),

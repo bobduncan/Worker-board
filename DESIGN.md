@@ -292,6 +292,8 @@ never from outside them, only text files and pictures of at most 1 MB; a picture
 a chat's words stay words. The Advisor keeps no open questions in the plan (`roles/advisor.md`). Pictures:
 `art-inbox/worker-board/b218/`.
 
+**Whether a worker was compacted (B235).** The Workers mod 0.9.0 compacts a large worker after its report and writes `compacted: { at, before, after }` on its card, or writes `compactNote: { at, why }` when it does not. The board reads the newer of the two and shows one small line under the worker's name: "compacted at 16:40, from 820k to 95k tokens" in grey, or "not compacted at 16:40: <why>" in yellow; the whole line as its tooltip. Without the mod there is no such line. The picture: `art-inbox/worker-board/b235/`.
+
 **A picture in Talk to Main (B167).** The person, 2026-10-14: "i need a change so that i can post pictures in the 'talk
 to main' chat in the worker board, from my clipboard". Ctrl+V in the talk takes the picture on the clipboard (PNG,
 JPEG or WebP, 8 MB at most) and shows it small above the box, with a × to take it away; words on the clipboard are

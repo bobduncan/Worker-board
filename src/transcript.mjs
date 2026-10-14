@@ -155,6 +155,9 @@ const lastToolUse = entry => entry.blocks.findLast(block => block.type === 'tool
 /** What a slash command leaves in the transcript. It starts no turn. */
 export const isCommandText = value => /^\s*<(local-command-[a-z]+|command-name|command-message)>/.test(value)
 
+/** B247: what a slash command leaves, with a compaction's summary: it opens no turn, also when a mod ran it. */
+export const isCommandEntry = entry => entry.isCompactSummary || isCommandText(textOf(entry))
+
 /**
  * Whether a turn is running, judged from the last entry that says something about it: `running`, `asking` (it
  * waits for an answer in its own chat), `ended`, or `unknown` when the tail has nothing to go by.
@@ -171,9 +174,11 @@ export function turnState(entries) {
     if (hasToolResult(entry)) return 'running'
     const value = textOf(entry)
     if (value.startsWith('[Request interrupted')) return 'ended'
+    // B247: a slash command opens no turn, also one a mod ran (the Workers mod's /compact after a report).
+    if (entry.isCompactSummary || isCommandText(value)) continue
     // Typed by the person, sent by another chat, or raised by the app: each starts a turn.
     if (entry.origin !== null) return 'running'
-    if (entry.isMeta || entry.isCompactSummary || isCommandText(value)) continue
+    if (entry.isMeta) continue
     return 'running'
   }
   return 'unknown'
@@ -235,14 +240,39 @@ export function doingNow(entries) {
     const entry = entries[i]
     if (entry.type !== 'assistant' || entry.isSidechain) continue
     const call = lastToolUse(entry)
-    if (call === null) continue
-    const input = call.input !== null && typeof call.input === 'object' ? call.input : {}
-    for (const said of [input.description, input.action_summary]) if (typeof said === 'string' && said.trim() !== '') return said.trim()
-    const plain = DOING.find(([pattern]) => typeof call.name === 'string' && pattern.test(call.name))?.[1] ?? 'Using a tool'
-    if (plain !== 'Reading' && plain !== 'Editing') return plain
-    return `${plain} ${typeof input.file_path === 'string' && baseName(input.file_path) !== '' ? baseName(input.file_path) : 'a file'}`
+    if (call !== null) return doingOf(call)
   }
   return null
+}
+
+/** What one tool call is for, in plain words (see `doingNow`). */
+function doingOf(call) {
+  const input = call.input !== null && typeof call.input === 'object' ? call.input : {}
+  for (const said of [input.description, input.action_summary]) if (typeof said === 'string' && said.trim() !== '') return said.trim()
+  const plain = DOING.find(([pattern]) => typeof call.name === 'string' && pattern.test(call.name))?.[1] ?? 'Using a tool'
+  if (plain !== 'Reading' && plain !== 'Editing') return plain
+  return `${plain} ${typeof input.file_path === 'string' && baseName(input.file_path) !== '' ? baseName(input.file_path) : 'a file'}`
+}
+
+/**
+ * B247: the oldest tool call of the running turn that has had no answer yet: what it is for (`doing`, as
+ * `doingNow` says it) and when it was made (`since`). A chat that waits there writes nothing: the app may wait for
+ * the person's approval of that call in the chat, or the tool hangs. Null when every call got its answer, or the
+ * turn has ended.
+ */
+export function unanswered(entries) {
+  const open = new Map()
+  for (const entry of entries) {
+    if (entry.isSidechain || entry.type === 'queued') continue
+    if (entry.type === 'assistant') {
+      if (entry.stopReason !== null && entry.stopReason !== 'tool_use') open.clear()
+      for (const block of entry.blocks) if (block.type === 'tool_use' && typeof block.id === 'string') open.set(block.id, { call: block, at: entry.at })
+      continue
+    }
+    for (const block of entry.blocks) if (block.type === 'tool_result') open.delete(block.tool_use_id)
+  }
+  const [first] = open.values()
+  return first === undefined ? null : { doing: doingOf(first.call), since: first.at }
 }
 
 const WORDS_CHARS = 6000
@@ -466,7 +496,7 @@ export function turnStart(entries, { prefix = '' } = {}) {
       hasEnd = true
       continue
     }
-    if (entry.type === 'assistant' || isOpen || hasToolResult(entry)) continue
+    if (entry.type === 'assistant' || isOpen || hasToolResult(entry) || isCommandEntry(entry)) continue
     const peer = peerMessage(entry)
     if (peer !== null) {
       const from = typeof peer.from === 'string' && !peer.from.startsWith('local_') ? peer.from : 'Another chat'

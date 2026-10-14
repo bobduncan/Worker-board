@@ -586,11 +586,16 @@ function drawEta(lane, now) {
   return box
 }
 
+// alerts:start
 /** What is wrong with a lane, when something is: shown only then. */
 function alertsOf(lane, state) {
   const alerts = []
   const task = lane.task
-  if (lane.isQuiet) alerts.push(`no sign of life for ${span(lane.quietMs)}`)
+  // B247: a quiet lane that waits on one step without an answer may wait for the person's approval in its chat.
+  const waits = lane.unanswered ?? null
+  // The step "Now:" names already is "it".
+  const step = waits === null ? null : waits.doing === lane.doingNow ? 'it' : `its step "${waits.doing}"`
+  if (lane.isQuiet) alerts.push(step === null ? `no sign of life for ${span(lane.quietMs)}` : `no answer to ${step} for ${span(state.readAt - waits.since)}: it may wait for your approval in its chat`)
   // B95: no worker works without a time; one that does is a fault to fix.
   if (lane.isWithoutTime === true) alerts.push('works without a time: its chat has to say how long it expects')
   if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
@@ -599,6 +604,7 @@ function alertsOf(lane, state) {
   }
   return alerts
 }
+// alerts:end
 
 function drawMore(lane, state) {
   const more = el('div', 'more')
@@ -685,6 +691,13 @@ function drawLane(lane, state) {
     const idle = el('small', 'not-running', 'not running')
     idle.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
     names.append(idle)
+  }
+  // B235: whether the Workers mod compacted it after its last report, or why not.
+  const compacted = compactionLine(lane.compaction ?? null, clock)
+  if (compacted !== null) {
+    const note = el('small', `compaction${compacted.isSkipped ? ' is-skipped' : ''}`, compacted.text)
+    note.title = compacted.text
+    names.append(note)
   }
   // B143: a worker can be removed; the main chat cannot. The board asks the main chat, which closes the worker.
   const main = state.workers?.mainTitle ?? 'the main chat'
@@ -2090,6 +2103,18 @@ function drawReferences(shown) {
 
 
 // lanewindow:start
+/** B235: a size in tokens, short: 820000 is "820k". */
+const tokensOf = count => (Number.isFinite(count) ? (count >= 1000 ? `${Math.round(count / 1000)}k` : String(count)) : null)
+
+/** B235: the one line on whether the Workers mod compacted a worker after its last report, or why not; null without. */
+function compactionLine(compaction, clockOf) {
+  if (compaction === null || compaction === undefined) return null
+  if (compaction.kind === 'skipped') return { text: `not compacted at ${clockOf(compaction.at)}: ${compaction.why}`, isSkipped: true }
+  // B247: an after of 0 is not known yet (the mod writes it before the size is known): only the size before is said.
+  const [before, after] = [tokensOf(compaction.before), compaction.after > 0 ? tokensOf(compaction.after) : null]
+  return { text: `compacted at ${clockOf(compaction.at)}${before === null ? '' : `, from ${before}${after === null ? '' : ` to ${after}`} tokens`}`, isSkipped: false }
+}
+
 const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off' }
 
 /**

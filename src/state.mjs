@@ -18,7 +18,7 @@ import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
-import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnStart, turnState, waitingFor } from './transcript.mjs'
+import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -226,7 +226,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, reports: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, reports: null, compaction: null, unanswered: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -303,6 +303,10 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
     // The task a free chat's card still named: finished, not current work.
     lastTask: isLeftBehind && state === 'free' ? { text: plan.task.text } : null,
+    // B235: whether the Workers mod compacted the chat after its last report, or why not.
+    compaction: plan?.compaction ?? null,
+    // B247: the step a running turn waits on without an answer; the app may wait for the person's approval of it.
+    unanswered: quietMs === null || entries === null ? null : unanswered(entries),
     givenTask: given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title } },
     suspended: paused,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).
@@ -453,7 +457,10 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main') {
         from: lane.name,
         kind: 'intervene',
         title: `No sign of life for ${Math.round(lane.quietMs / MIN)} min`,
-        text: 'Its turn is running, but it has written nothing. It may be a long build, or the app was closed in the middle of the turn. Look at its chat.',
+        text: lane.unanswered === null
+          ? 'Its turn is running, but it has written nothing. It may be a long build, or the app was closed in the middle of the turn. Look at its chat.'
+          // B247: it waits on one step that never got its answer.
+          : `Its step "${lane.unanswered.doing}" has had no answer for ${Math.round((now - lane.unanswered.since) / MIN)} min. The app may wait for your approval of it in its chat, or the tool hangs. Look at its chat.`,
         at: lane.lastActivityAt,
         ...blank,
         version: null,
