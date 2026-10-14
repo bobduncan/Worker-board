@@ -90,6 +90,10 @@ the briefings for the main chat and the workers.
   ...").
 - The head shows the plan's limits; a worker that paused for the limit shows as "Suspended" until it goes on.
 - Before you quit the app: "Prepare restart" on the board, and "Resume all" after it is open again.
+- "✕ Remove" on a worker's lane asks the main chat to close that worker; a worker that is not free gets a warning
+  first, which says what would stop.
+- When a merge changes the board, a yellow note on top of the page says a new version is available; click it and
+  the board starts the new version itself, however it was started. Nothing starts anew without your click.
 
 ## Settings
 
