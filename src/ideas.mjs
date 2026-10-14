@@ -117,7 +117,6 @@ export function ideasOver(ideas, write = async () => {}) {
   }
 }
 
-/** The ideas over their file. The file is replaced whole, by way of a second file, so a write never leaves half of it. */
 /**
  * B156: moves the reference pictures an idea is made with from where the page put them into the idea's own folder,
  * as reference-1.png and so on, so they lie beside its pictures. `project` is the project's folder; a picture that
@@ -139,6 +138,7 @@ export async function placeReferences(project, paths, folder) {
   return placed
 }
 
+/** The ideas over their file. The file is replaced whole, by way of a second file, so a write never leaves half of it. */
 export async function ideasFile(file) {
   let text = ''
   try {

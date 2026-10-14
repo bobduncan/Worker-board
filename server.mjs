@@ -502,6 +502,9 @@ async function main(args) {
       if (checked.action === 'make') {
         // The folders that are there already, also a copy's: a new idea gets one of its own.
         const taken = await readdir(inProject(config.project, IDEAS_FOLDER)).catch(() => [])
+        // B156: a reference the page still names must be there: it may have gone with an idea that was not kept.
+        const gone = await Promise.all(checked.references.map(path => stat(inProject(config.project, path)).then(file => !file.isFile(), () => true)))
+        if (gone.some(Boolean)) return { ok: false, status: 409, why: 'A reference picture is not there any more: take it away and add it again.' }
         // B156: the references move into the idea's own folder, beside its pictures.
         const place = (paths, folder) => placeReferences(config.project, paths, folder)
         const idea = await ideas.add({ id: `i${randomBytes(6).toString('hex')}`, kind: checked.kind, text: checked.text, references: checked.references, now, taken, place })

@@ -189,17 +189,24 @@ test('B156: a picture pasted on the Design tab is taken as a reference; text pas
   assert.equal(page.pastedReference([file('application/pdf')], false).problem, 'Only a picture can be pasted as a reference.')
   assert.equal(page.pastedReference([words], false).problem, 'The clipboard holds no picture: copy one, or add one from disk.')
   assert.equal(page.pastedReference(undefined, false).problem, 'The clipboard holds no picture: copy one, or add one from disk.')
-  // Text pasted into a field is left to the field.
+  // Text pasted into a field is left to the field, also when the document it came from added a picture of it.
   assert.deepEqual(plain(page.pastedReference([words], true)), { ignore: true })
+  assert.deepEqual(plain(page.pastedReference([words, { kind: 'string', type: 'text/html' }, file('image/png')], true)), { ignore: true })
+  // Outside a field the picture is what was meant.
+  assert.equal(page.pastedReference([words, file('image/png')], false).take.type, 'image/png')
   // A list the browser gives is no array: it has a length and numbered entries.
   assert.equal(page.pastedReference({ length: 1, 0: file('image/png') }, false).take.type, 'image/png')
 })
 
 test('B156: the page listens for a paste on the Design tab, and the box to add a picture says so', () => {
-  assert.match(script, /document\.addEventListener\('paste', event => \{\n  if \(\$\('view-design'\)\.hidden\) return/)
+  assert.equal(script.split("document.addEventListener('paste', event => {").length, 2)
   // A picked file and a pasted picture take the same way to the board.
   assert.equal(script.split('async function addReference(file)').length, 2)
   assert.match(script, /if \(file !== undefined\) addReference\(file\)/)
   assert.match(script, /if \(file !== null\) return addReference\(file\)/)
   assert.match(script, /'Add a reference picture \(optional\), or paste one with Ctrl\+V'/)
+  // Not while a window is open over the tab; and pictures still on their way count against the limit.
+  assert.match(script, /if \(\$\('view-design'\)\.hidden \|\| document\.querySelector\('dialog\[open\]'\) !== null\) return/)
+  assert.match(script, /designDraft\.references\.length \+ referencesOnTheWay >= limits\.references/)
+  assert.match(script, /\} finally \{\n      referencesOnTheWay -= 1/)
 })

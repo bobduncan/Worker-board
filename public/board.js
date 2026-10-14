@@ -2584,7 +2584,10 @@ const REFERENCE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
  * clipboard's entries (`kind`, `type`); `isTextField` says whether it was pasted into a field.
  */
 function pastedReference(items, isTextField) {
-  const files = Array.from(items ?? []).filter(item => item?.kind === 'file')
+  const all = Array.from(items ?? [])
+  // Text copied from a document often brings a picture of itself along: in a field, the text is what was meant.
+  if (isTextField && all.some(item => item?.type === 'text/plain')) return { ignore: true }
+  const files = all.filter(item => item?.kind === 'file')
   const picture = files.find(item => typeof item.type === 'string' && item.type.startsWith('image/'))
   if (picture !== undefined) return REFERENCE_TYPES.includes(picture.type) ? { take: picture } : { problem: 'A reference is a PNG, JPEG or WebP picture.' }
   if (isTextField) return { ignore: true }
@@ -3001,19 +3004,24 @@ $('design-references').addEventListener('click', event => {
 })
 
 // A reference picture of the person's own, picked from disk or pasted, goes to the board, which answers where it keeps it.
+// The ones still on their way count too, so two quick pastes do not get past the limit.
+let referencesOnTheWay = 0
 async function addReference(file) {
   const limits = limitsOf(designNow())
   if (!REFERENCE_TYPES.includes(file.type)) designProblems.make = 'A reference is a PNG, JPEG or WebP picture.'
   else if (file.size > limits.referenceBytes) designProblems.make = `That picture is too large: ${Math.floor(limits.referenceBytes / (1024 * 1024))} MB at most.`
-  else if (designDraft.references.length >= limits.references) designProblems.make = `At most ${limits.references} reference pictures.`
+  else if (designDraft.references.length + referencesOnTheWay >= limits.references) designProblems.make = `At most ${limits.references} reference pictures.`
   else {
     designProblems.make = null
+    referencesOnTheWay += 1
     try {
       const got = await fetch('/api/design/reference', { method: 'POST', headers: { 'Content-Type': file.type, 'X-Board-Token': TOKEN }, body: file })
       if (got.ok) designDraft.references.push((await got.json()).path)
       else designProblems.make = `The picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}`
     } catch {
       designProblems.make = 'The picture was not taken: the board\'s server does not answer'
+    } finally {
+      referencesOnTheWay -= 1
     }
   }
   drawDesign()
@@ -3028,7 +3036,8 @@ $('design-file').addEventListener('change', () => {
 // B156: Ctrl+V on the Design tab takes the picture on the clipboard as a reference, the same as one picked from disk.
 // Text pasted into a field stays text.
 document.addEventListener('paste', event => {
-  if ($('view-design').hidden) return
+  // A window open over the tab has fields of its own: a paste there is not for the new idea.
+  if ($('view-design').hidden || document.querySelector('dialog[open]') !== null) return
   const isTextField = event.target instanceof Element && event.target.closest('textarea, input, [contenteditable]') !== null
   const pasted = pastedReference(event.clipboardData?.items, isTextField)
   if (pasted.ignore === true) return

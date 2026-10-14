@@ -97,6 +97,8 @@ test('making a picture: a kind, the idea\'s words, and only references this page
   assert.deepEqual(check({ action: 'make', kind: 'screen', text: '  A shop screen  ' }), { ok: true, action: 'make', kind: 'screen', text: 'A shop screen', references: [] })
   const ref = 'art-inbox/ideas/_references/0123456789abcdef.png'
   assert.deepEqual(check({ action: 'make', kind: 'board', text: 'x', references: [ref] }).references, [ref])
+  // The same picture twice is one reference (B156: it is moved into the idea's folder once).
+  assert.deepEqual(check({ action: 'make', kind: 'board', text: 'x', references: [ref, ref] }).references, [ref])
   assert.equal(check({ action: 'make', kind: 'nope', text: 'x' }).status, 400)
   assert.equal(check({ action: 'make', kind: 'screen', text: ' ' }).status, 400)
   assert.equal(check({ action: 'make', kind: 'screen', text: 'x'.repeat(LIMITS.idea + 1) }).status, 413)
