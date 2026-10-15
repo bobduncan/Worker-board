@@ -20,8 +20,8 @@ What the board does and how it looks, part by part with screenshots: `BOARD.md`.
 | What | What for |
 |---|---|
 | Windows, the Claude desktop app, signed in | The board reads the app's list of chats and their transcripts on this PC. Not tried on a Mac. |
-| Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies; `package.json` names the Node it needs and the scripts `start`, `demo` and `test`); git gets it and lists the working folders. |
-| The Workers mod `folder-branches` (optional, `MODS.md`) | Keeps each chat's card (a chat without it can write its card itself, see `roles/worker.md`), types your answers from the board into the chats (without it the board copies them for you to paste, B212, and says under the lanes what it cannot tell, B213), and keeps the board running. |
+| Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies; `package.json` names the Node it needs and the scripts `start`, `demo`, `test` and `setup`); git gets it and lists the working folders. |
+| The Workers mod `folder-branches` (optional; the board carries it and `npm run setup` installs it, `MODS.md`) | Keeps each chat's card (a chat without it can write its card itself, see `roles/worker.md`), types your answers from the board into the chats (without it the board copies them for you to paste, B212, and says under the lanes what it cannot tell, B213), and keeps the board running. |
 | A project folder | Holds the code's repository and the board as folders of their own. Every chat of the project is opened in the project folder itself, not in a folder inside it: the app keeps the transcripts per folder. |
 | One main chat, titled `<prefix>Main` | It hands out the work, and the board types its words (restart, resume, start a chat) into it. |
 | `<project>\.claude\chats\list.json` | Names the prefix of the chats' titles and the main chat. |
@@ -39,23 +39,28 @@ the briefings for the main chat and the workers.
 "My Project - ". Each step ends with what you see when it worked.
 
 1. **Node.** Install Node 24 or newer. → `node --version` prints `v24` or higher.
-2. **The Workers mod (optional).** The board works without it (B209 to B213, `MODS.md`): start it with
-   `node start-board.mjs` (step 8), the chats keep their own cards (`roles\worker.md`), and you paste what the board
-   copies for you. With the mod the board types your answers in, wakes the chats and keeps the cards by itself.
-   To install it, copy the folder
-   `C:\Users\<you>\.claude\mods` from that PC to the same place, with its `.claude-plugin\marketplace.json` and the
-   folder `folder-branches`. The command `claude` comes with the app but is not on the PATH. In your own PowerShell,
-   with the app from the Microsoft Store, it is
-   `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude-code\<version>\<hash>\claude.exe`
-   (only the app's own shells see it as `%APPDATA%\Claude\claude-code\...`); with the app from claude.ai's own
-   installer the folder may differ. A `claude` installed apart, on the PATH, does the same. Then:
+2. **The board.** In `<project>`:
    ```
-   claude plugin marketplace add C:\Users\<you>\.claude\mods
-   claude plugin install folder-branches@my-mods --scope user
+   git clone https://github.com/bobduncan/Worker-board.git worker-board
+   cd worker-board
+   npm test
    ```
-   → `claude plugin list` shows `folder-branches@my-mods`, version 0.8.0 or later, enabled.
-3. **Start the app anew.** Quit it fully and open it again: a chat gets the mod only when its process starts, and
-   `/reload-plugins` does not do it. → a new chat has the command `/workers`.
+   → the tests end with `fail 0`. `npm run demo -- --port 4311` shows the page with made-up data, if you
+   want to look first (Ctrl+C ends it).
+3. **The Workers mod (optional).** The board carries it, in `mods\folder-branches` (B251). In the board's folder:
+   ```
+   npm run setup
+   ```
+   Setup finds the Claude app's own command-line program (the app keeps it in its own folder, not on the PATH), and
+   with it adds the board's `mods` folder to your Claude settings as a source of mods and installs the mod for you.
+   → it ends with `The Claude app's program lists it: folder-branches@worker-board, version ..., on.` and asks you to
+   quit the Claude app fully (also from the system tray) and open it again: a chat gets the mod only when its process
+   starts, and `/reload-plugins` does not do it. → a new chat has the command `/workers`. A copy of the mod that is
+   installed already, from anywhere, is recognised and left as it is ("Nothing to do"), so no second copy clashes
+   with it; `npm run setup -- --check` only says what setup would do. The board also works without the mod (B209 to
+   B213, `MODS.md`): start it with `node start-board.mjs` (step 7), the chats keep their own cards
+   (`roles\worker.md`), and you paste what the board copies for you. With the mod the board types your answers in,
+   wakes the chats and keeps the cards by itself.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `backlog.md`, `main-briefing.md` and `worker-briefing.md`; in the two briefings
    replace `<project>`, `<prefix>` and `<repository>`. For the Design tab, also `design.json` into `.claude\`, with
@@ -67,15 +72,7 @@ the briefings for the main chat and the workers.
    has a folder for the project: its path with every character that is no letter or digit as `-`
    (`C:\Work\my-project` becomes `C--Work-my-project`). The board finds that folder by itself (B134); set
    `transcripts` only when it lies elsewhere.
-6. **The board.** In `<project>`:
-   ```
-   git clone https://github.com/bobduncan/Worker-board.git worker-board
-   cd worker-board
-   npm test
-   ```
-   → the tests end with `fail 0`. `npm run demo -- --port 4311` shows the page with made-up data, if you
-   want to look first (Ctrl+C ends it).
-7. **Its settings.** Start the board once with `npm start`: it makes `config.json` in its folder from
+6. **Its settings.** Start the board once with `npm start`: it makes `config.json` in its folder from
    `examples\config.json`, says which paths to fill in, and stops. The file stays on your PC: it is not in git. In it,
    `name` is the project's name, the board's title (left out, it is the project folder's name), `project` is
    `<project>`, `transcripts` the folder of step 5, `gameRepo` the folder of your code's git repository (empty until
@@ -87,7 +84,7 @@ the briefings for the main chat and the workers.
    and, under it, which folder of the app's chats it reads. Ctrl+C ends it. A file that is not valid JSON,
    or holds a setting of the wrong kind, stops the board with one line that names the file, what is wrong and
    where (for example "not valid JSON at line 3, column 14", or `"port" must be a number above 0`).
-8. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
+7. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
    <project>\.claude\launch.json`. With `"boards": ["worker-board"]` in `list.json`, every chat in the list starts
    the board when it does not answer, within 15 seconds: no need to start it yourself, also after a restart.
    **Without the Workers mod** (B211): `node start-board.mjs` starts the board in the background when it does not run
@@ -95,12 +92,12 @@ the briefings for the main chat and the workers.
    it start with every chat of the project, copy `examples\settings.json` to `<project>\.claude\settings.json` (or add
    its hook to the one there) and put the board's folder for `<board>`: a chat that opens then starts the board,
    quietly, when it does not answer.
-9. **Open it.** Open `http://127.0.0.1:<your port>/` in a browser. → the lane "Main" comes first, under it "No
-   workers yet" (step 11); "For you" holds B1 and B2 under "From the backlog"; Main's queue holds B4, waiting for B2.
+8. **Open it.** Open `http://127.0.0.1:<your port>/` in a browser. → the lane "Main" comes first, under it "No
+   workers yet" (step 10); "For you" holds B1 and B2 under "From the backlog"; Main's queue holds B4, waiting for B2.
    Without a main chat the page says "No main chat yet" and how to make one, as step 5 does.
-10. **The way back.** Answer B2 on the board (a few lines, then send). → the card says "typed into its chat", and the
+9. **The way back.** Answer B2 on the board (a few lines, then send). → the card says "typed into its chat", and the
     main chat has your words with "(answered on the worker board, HH:MM)".
-11. **Workers.** With a main chat and no worker, the board asks the main chat for three workers by itself, once,
+10. **Workers.** With a main chat and no worker, the board asks the main chat for three workers by itself, once,
     while the main chat's chat is open (it types "spawn workers" into it); "Ask for three workers" does the same.
     The main chat starts them, or puts a chip "<prefix>Worker N" into its chat for each: click each chip, one chip
     starts one worker. → each worker shows as a lane. "+ One more worker" under the last lane asks for one more.
@@ -184,8 +181,8 @@ and kept in `data\`; it is never printed or logged.
 ## Not yet portable
 
 What still ties the board to the project it was built for (Lava Tactics) or to one PC, found on 2026-10-14 by
-following the steps above in an empty, made-up project with another prefix (Node v24.19.0). Steps 2, 3, 5, 10 and
-11 need the app and real chats: the trial stood in for them with made-up chat files. Each point is a step on that
+following the steps above in an empty, made-up project with another prefix (Node v24.19.0). Steps 3, 5, 9 and
+10 need the app and real chats: the trial stood in for them with made-up chat files. Each point is a step on that
 project's backlog, part of B126 (the board for any project).
 
 1. Done (B127): `config.json` is not in the repository; a new copy makes it from `examples\config.json` at its first
@@ -213,4 +210,6 @@ project's backlog, part of B126 (the board for any project).
     project, the backlog. Still open: a `transcripts` setting that names the wrong folder is not pointed out.
 12. Done (B138): `BRIEF.md` and `DESIGN.md` are marked as the history of the first project and point to the general
     documents (this README, `roles/`, `ANY-PROJECT-PLAN.md`, `MODS.md`).
-13. The Workers mod is on one PC only, in no repository: step 2 copies its folder by hand. B125 works on it.
+13. Done (B251): the board carries the Workers mod in `mods\`, and `npm run setup` installs it with the app's own
+    program (step 3). A project folder cannot bring it by itself: the app loads a project's mods only after a trust
+    question it never asks (`MODS.md`).

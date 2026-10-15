@@ -78,3 +78,30 @@ Each piece is merged on its own and changes nothing for a PC that has the mods.
 **In all:** about 5 to 6 hours of a worker's time, less than B146's 8 to 10, because the mod is kept and the board
 only learns to do without it. After step 5 a new project can run the board with no mod at all; installing the
 Workers mod then adds the bridge, the reminders and the compacting.
+
+## The Workers mod comes with the board (B251, 2026-10-15)
+
+The hard part of keeping the mod was installing it on a new PC: a private repository of mods, and the app's
+command-line program, which the app keeps in its own folder and does not put on the PATH. Now:
+
+- **The board carries the mod's source**, in `mods/folder-branches`, as a marketplace of one plugin named
+  `worker-board` (`mods/.claude-plugin/marketplace.json`). The mod's own tests (`hooks/*.test.ts`) run in the
+  plugin test kit, not in the board's `npm test`. Changes to the mod are made here.
+- **`npm run setup`** (`setup.mjs`, `src/setup.mjs`) finds the app's program (the newest under the app's folder, the
+  Store app's folder too, else a `claude` on the PATH), asks it which mods are installed, and then:
+  - nothing installed: adds the board's `mods` folder as a marketplace and installs the mod for the person (user
+    scope), checks that the program lists it as on, and says to quit and reopen the app;
+  - a copy that is on, from any marketplace: leaves it as it is ("Nothing to do"), because two copies of one mod
+    clash; the board's own copy, older than the board's: updates it;
+  - a copy that is off: turns it on; two copies on, or the name `worker-board` taken by another folder: changes
+    nothing and says what to do.
+  `npm run setup -- --check` only says what it would do.
+- **Tried first, and it does not work: a project that brings the mod by itself.** A project's `.claude/settings.json`
+  can name a marketplace inside the project (`extraKnownMarketplaces`, a `directory` source) and turn its plugin on
+  (`enabledPlugins`). On 2026-10-15 a throwaway project with a copy of the mod and that settings file was opened in
+  the desktop app: nothing was asked, the chat had no Workers tool and no `/workers`, and the app did not add the
+  marketplace. The project's settings were read (their "off" for the installed copy took effect). The reason, in
+  Claude Code's documentation: a plugin a project brings loads only after the trust question for that exact folder,
+  and trusting a parent folder is not enough; the desktop app does not ask it. The ways left to trust a folder (the
+  command-line program's own question, or a hand edit of a security setting) are no easier than an install.
+- The copy-and-paste way for a PC without the mod (B209 to B213) stays.
