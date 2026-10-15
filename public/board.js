@@ -3045,6 +3045,86 @@ function goalLinkChoices(goals, id, name, words) {
     return wanted.every(word => title.includes(word))
   }).map(other => ({ id: other.id, title: other.title, where: goalById(goals, other.parent)?.title ?? null }))
 }
+
+// B257: the goal tree beside the outline (spec section 2, zoom style 1): the focused goal as the frame on top, the
+// goals inside it as boxes in rows under it, joined by a trunk, a bus per row and a drop per box; a goal that is also
+// part of it as a dotted reference box; an "enables" arrow between two goals in view, or from a small ghost at the
+// right edge when its source is out of view. At the top the goals stand as boxes with no frame.
+const GOAL_BOX = { w: 150, h: 92, gap: 20, rowGap: 120, firstY: 180, topY: 24, frameH: 64, ghostW: 98, ghostH: 34 }
+
+function goalTreeLayout(goals, focusId, width) {
+  const focus = goalById(goals, focusId)
+  const frame = focus === null ? null : { id: focus.id, x: 0, y: 0, w: width, h: GOAL_BOX.frameH }
+  const seen = new Set()
+  const once = id => !seen.has(id) && seen.add(id)
+  const childIds = (focus === null ? goals.roots : focus.children).filter(id => goalById(goals, id) !== null && once(id))
+  const refIds = focus === null ? [] : goals.nodes.filter(other => other.id !== focus.id && other.alsoPartOf.includes(focus.id) && once(other.id)).map(other => other.id)
+  const perRow = Math.max(1, Math.floor((width + GOAL_BOX.gap) / (GOAL_BOX.w + GOAL_BOX.gap)))
+  const all = [...childIds.map(id => ({ id, kind: 'child' })), ...refIds.map(id => ({ id, kind: 'ref' }))]
+  const firstY = frame === null ? GOAL_BOX.topY : GOAL_BOX.firstY
+  const boxes = all.map((one, index) => {
+    const row = Math.floor(index / perRow)
+    const inRow = Math.min(perRow, all.length - row * perRow)
+    const rowWidth = inRow * GOAL_BOX.w + (inRow - 1) * GOAL_BOX.gap
+    const x = Math.round((width - rowWidth) / 2) + (index % perRow) * (GOAL_BOX.w + GOAL_BOX.gap)
+    return { ...one, x, y: firstY + row * GOAL_BOX.rowGap, w: GOAL_BOX.w, h: GOAL_BOX.h, row }
+  })
+  const lines = []
+  if (frame !== null && boxes.length > 0) {
+    const trunkX = Math.round(width / 2)
+    const lastRow = boxes.at(-1).row
+    lines.push({ x1: trunkX, y1: frame.h, x2: trunkX, y2: firstY + lastRow * GOAL_BOX.rowGap - 40 })
+    for (let row = 0; row <= lastRow; row += 1) {
+      const inRow = boxes.filter(box => box.row === row)
+      const busY = inRow[0].y - 40
+      lines.push({ x1: Math.min(inRow[0].x + GOAL_BOX.w / 2, trunkX), y1: busY, x2: Math.max(inRow.at(-1).x + GOAL_BOX.w / 2, trunkX), y2: busY })
+      for (const box of inRow) lines.push({ x1: box.x + GOAL_BOX.w / 2, y1: busY, x2: box.x + GOAL_BOX.w / 2, y2: box.y })
+    }
+  }
+  const shown = new Map(boxes.map(box => [box.id, box]))
+  if (frame !== null) shown.set(frame.id, frame)
+  const arrows = []
+  const ghosts = []
+  const walked = new Set()
+  for (const node of goals.nodes) {
+    if (walked.has(node.id)) continue
+    walked.add(node.id)
+    for (const to of node.enables) {
+      if (!shown.has(to) || to === node.id) continue
+      if (shown.has(node.id)) arrows.push({ from: node.id, to })
+      else ghosts.push({ id: node.id, title: node.title, x: width - GOAL_BOX.ghostW, y: 12 + ghosts.length * 42, w: GOAL_BOX.ghostW, h: GOAL_BOX.ghostH, arrowTo: to })
+    }
+  }
+  if (frame !== null && ghosts.length > 0) frame.w = width - GOAL_BOX.ghostW - 24
+  const bottoms = [frame === null ? 0 : frame.h, ...boxes.map(box => box.y + box.h), ...ghosts.map(ghost => ghost.y + ghost.h)]
+  return { width, height: Math.max(...bottoms) + 20, frame, boxes, lines, arrows, ghosts }
+}
+
+/** A title in at most two lines of `most` characters, cut at a space; what does not fit ends in "…". */
+function goalTitleLines(title, most) {
+  if (title.length <= most) return [title]
+  const cut = title.lastIndexOf(' ', most)
+  const shorten = words => (words.length <= most ? words : `${words.slice(0, most - 1)}…`)
+  if (cut <= 0) return [shorten(title)]
+  return [title.slice(0, cut).trimEnd(), shorten(title.slice(cut + 1).trimStart())]
+}
+
+/**
+ * Where a box dragged in the tree lands, for the point (x, y) in the tree: in the middle of a box inside it, at its
+ * left or right quarter before or after it; on the frame, last inside the goal zoomed into. `target` is null when the
+ * goal may not go there (into its own branch, onto a reference box); the whole answer is null over empty ground.
+ */
+function goalTreeDrop(goals, layout, fromId, x, y) {
+  const hit = one => x >= one.x && x <= one.x + one.w && y >= one.y && y <= one.y + one.h
+  const box = layout.boxes.find(hit)
+  if (box !== undefined) {
+    const at = (x - box.x) / box.w
+    const place = at < 0.25 ? 'before' : at > 0.75 ? 'after' : 'into'
+    return { place, over: box.id, target: box.kind === 'ref' ? null : goalDropTarget(goals, fromId, box.id, place) }
+  }
+  if (layout.frame !== null && hit(layout.frame)) return { place: 'into', over: layout.frame.id, target: goalDropTarget(goals, fromId, layout.frame.id, 'into') }
+  return null
+}
 // goals:end
 
 const GOAL_STATES = { open: 'open', now: 'in progress', done: 'done' }
