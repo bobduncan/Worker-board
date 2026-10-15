@@ -3050,7 +3050,7 @@ function goalLinkChoices(goals, id, name, words) {
 // goals inside it as boxes in rows under it, joined by a trunk, a bus per row and a drop per box; a goal that is also
 // part of it as a dotted reference box; an "enables" arrow between two goals in view, or from a small ghost at the
 // right edge when its source is out of view. At the top the goals stand as boxes with no frame.
-const GOAL_BOX = { w: 150, h: 92, gap: 20, rowGap: 120, firstY: 180, topY: 24, frameH: 64, ghostW: 98, ghostH: 34 }
+const GOAL_BOX = { w: 150, h: 92, gap: 20, rowGap: 120, firstY: 180, topY: 60, frameH: 64, ghostW: 98, ghostH: 34 }
 
 function goalTreeLayout(goals, focusId, width) {
   const focus = goalById(goals, focusId)
