@@ -3624,15 +3624,17 @@ window.addEventListener('pointermove', event => {
     press.hold = spring === null ? null : { id: spring, timer: setTimeout(() => { press.hold = null; zoomGoal(spring) }, 1000) }
   }
 })
-window.addEventListener('pointerup', () => {
+window.addEventListener('pointerup', event => {
   const press = goalsTreePress
   goalsTreePress = null
   if (press === null || !press.lifted) return
+  // Where it is let go, in the map as it is now (a spring may have zoomed since the last move).
+  const at = board?.goals ? goalsTreeDropAt(event, press.id) : null
   goalsTreeLetGo(press)
   // The click that ends a drag is no click on a box.
   goalsUi.justDragged = true
   setTimeout(() => { goalsUi.justDragged = false }, 0)
-  if (press.over?.target) goalsMove(press.id, press.over.target)
+  if (at?.target) goalsMove(press.id, at.target)
 })
 window.addEventListener('pointercancel', () => {
   if (goalsTreePress?.lifted) goalsTreeLetGo(goalsTreePress)
