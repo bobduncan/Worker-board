@@ -24,7 +24,6 @@
   "backlog": ".claude/backlog.md",
   "goals": ".claude/goals.md",
   "gamePlan": "docs/game-plan.md",
-  "milestoneMap": "docs/advisor/milestone-map.json",
   "advisorDecisions": "docs/advisor/decisions.md",
   "advisorReadFirst": [
     "docs/vision.md",

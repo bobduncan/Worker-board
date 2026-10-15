@@ -281,6 +281,12 @@ items under the row. "Yes, queue it" types "advisor recommendation: yes" with th
 puts it on the backlog when it is not there and hands it out; "No…" asks why and types "advisor recommendation: no"
 with the reason into the Advisor's chat. One answer per recommendation (its id); the box then says what was answered.
 The mock-up the person agreed to ("1. yes. 2. yes."): `art-inbox/worker-board/b195/2026-10-14-b195-mockup.png`.
+Since B260 (2026-10-15, the Advisor's check of the goal map's design: "piece 6 right after piece 1") the way is read
+from the goal map, not from the JSON: the first goal with a `From the game plan: M<n>` line that is not done; its
+sub-goals are the row, the last one the milestone's own check (its box, as the Advisor writes the map), its
+`Recommendation (R<n>):` line the recommendation. The counts are the same as the JSON gave for the same content; the
+setting `milestoneMap` and the reading of `docs/advisor/milestone-map.json` are gone (`roles/advisor.md` says how the
+Advisor keeps the way in `goals.md`). The picture: `art-inbox/board-goals/b260-next-milestone.png`.
 
 **The goal map, the outline (B255).** The person, 2026-10-15: "I dont want to be overwhelmed with too many things at
 once. so e.g. 5 milestones is plenty but i dont want to see all steps for all milestones at once, a simple counter is

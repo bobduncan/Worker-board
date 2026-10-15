@@ -3140,7 +3140,8 @@ function drawWay(state) {
   const box = $('advisor-way')
   const way = state.milestone ?? null
   if (way === null) {
-    return fill(box, [el('h2', '', 'The way to the next milestone'), el('p', 'muted', `No map yet. The Advisor draws it at its next round, in ${state.milestoneMap ?? 'its map'} in the game's repository.`)])
+    // B260: the way is the goal map's first milestone of the game plan that is not done.
+    return fill(box, [el('h2', '', 'The way to the next milestone'), el('p', 'muted', `No milestone to go to yet. The Advisor marks the game plan's milestones in the goal map (${state.goalsFile ?? '.claude/goals.md'}) at its next round.`)])
   }
   const { milestone, nodes, totals } = way
   const head = el('div', 'way-head')
@@ -5087,7 +5088,7 @@ function draw(state) {
   })
   once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))
   // B195: the way to the next milestone, also when an answer to its recommendation is on its way or refused.
-  once('way', [state.milestone ?? null, state.milestoneMap ?? null, state.workers?.main ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null], () => drawWay(state))
+  once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null], () => drawWay(state))
   once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
   // B255: the goal map's outline, when the map or the zoom changes.
   once('goals', goalsData(state), () => drawGoals(state))

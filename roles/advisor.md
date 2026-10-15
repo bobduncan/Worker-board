@@ -36,27 +36,31 @@ relative to the plan opens on the board).
 each suggestion, accepted or rejected with the user's reason, and one line per round. A rejected suggestion is not
 made again.
 
-**The way to the next milestone** (`docs/advisor/milestone-map.json` in the game, unless the settings name another
-place). The board's Advisor tab draws it as a row of steps with what is done, open and missing, and your
-recommendation under it. It maps the game plan onto the backlog, so it changes without the user's yes. JSON:
+**The way to the next milestone** is part of the goal map (`.claude/goals.md` in the project, unless the settings
+name another place with `goals`). The board's Advisor tab draws it as a row of steps with what is done, open and
+missing, and your recommendation under it. It maps the game plan onto the backlog, so it changes without the user's
+yes. The way is the first goal in the file whose line `From the game plan: M<n>` names a milestone of the plan and
+that is not done (`[x]`); its title is `M<n> · <the milestone's title>`:
 
-    {
-      "updated": "2026-10-14",
-      "milestone": { "name": "M1", "title": "the milestone's name in the game plan", "doneWhen": "its done-when",
-                     "check": "its own last check, in a few words", "backlog": ["B35"], "missing": [] },
-      "steps": [
-        { "title": "5 to 10 words, what the user gets", "backlog": ["B07", "B43"],
-          "missing": ["what the plan asks and the backlog does not hold yet, one line each"] }
-      ],
-      "recommendation": { "id": "a new id for each new recommendation", "title": "the next concrete step",
-                          "why": "one sentence", "cost": "about 2 hours", "step": "B07, only when it is on the backlog" }
-    }
+    - [~] G2 M1 · the milestone's title in the game plan
+      Done when: its done-when
+      From the game plan: M1
+      Recommendation (R3): the next concrete step · one sentence why · about 2 hours · B07 or none
+      - [~] G3 5 to 10 words, what the user gets
+        Steps: B07, B43
+        Missing: what the plan asks and the backlog does not hold yet, one line each
+      - [ ] G8 its own last check, in a few words
+        Steps: B35
 
-- Three to six steps, in the order they are best done; under each, every backlog step that serves it, finished ones
-  too: the board counts done and open from the backlog itself, you only say which step belongs where.
-- One recommendation: the next concrete step. The user answers it on the board. A yes goes to the main chat, which
-  puts it on the backlog when it is not there and hands it out. A no comes to you as "advisor recommendation: no"
-  with the user's reason: write it into the decisions page and recommend another at your next round, with a new id.
+- Three to six children, in the order they are best done, then the milestone's own check as the last child (the
+  board draws the last child as the milestone's box). Under each, every backlog step that serves it in `Steps:`,
+  finished ones too: the board counts done and open from the backlog itself, you only say which step belongs where.
+- One recommendation, on the milestone's `Recommendation (R<n>):` line: the next concrete step, why, the cost, and
+  its backlog step or `none`. The user answers it on the board. A yes goes to the main chat, which puts it on the
+  backlog when it is not there and hands it out. A no comes to you as "advisor recommendation: no" with the user's
+  reason: write it into the decisions page and recommend another at your next round, with a new id.
+- Change the file's lines by their goal's id: read it anew right before, change only your lines, and write it back
+  whole. The user and the main chat write the file too.
 
 ## Getting started
 

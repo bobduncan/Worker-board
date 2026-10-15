@@ -64,9 +64,8 @@ const DEFAULTS = {
   brainstorms: '.claude/brainstorms',
   goalAsks: '.claude/goal-asks',
   goalsHistory: '.claude/goals.history',
+  // The way to the next milestone is part of the goal map since B260 (the setting milestoneMap is gone).
   gamePlan: 'docs/game-plan.md',
-  // B195: the Advisor's map of the way to the next milestone, in the game's repository (JSON, see roles/advisor.md).
-  milestoneMap: 'docs/advisor/milestone-map.json',
   advisorDecisions: 'docs/advisor/decisions.md',
   advisorReadFirst: [],
   advisorSuggestions: 'Advisor suggestions',
@@ -83,7 +82,7 @@ const INSIDE = /^(?!.*(?:^|\/)\.\.(?:\/|$))[\w.-]+(?:\/[\w .-]+)*$/
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 // The paths inside the project or the game's repository, written with /.
-const PROJECT_PATHS = ['backlog', 'goals', 'brainstorms', 'goalAsks', 'goalsHistory', 'gamePlan', 'milestoneMap', 'advisorDecisions', 'designKinds']
+const PROJECT_PATHS = ['backlog', 'goals', 'brainstorms', 'goalAsks', 'goalsHistory', 'gamePlan', 'advisorDecisions', 'designKinds']
 const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'morningSkipPercent']
 
 /**

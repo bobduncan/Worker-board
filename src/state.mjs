@@ -13,7 +13,7 @@ import { finishedList, reportsOf } from './finished.mjs'
 import { goalCounts, parseGoals } from './goals.mjs'
 import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
-import { milestoneWay, parseMilestoneMap } from './milestone.mjs'
+import { milestoneFromGoals } from './milestone.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
@@ -603,6 +603,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const names = found.filter(chat => !isAdvisor(chat) && !chat.isLeftover).map(chat => chat.name)
 
   const backlog = parseBacklog(textOr(raw.backlogText, ''), { prefix, names })
+  // B255, B260: the goal map, read once for the Goals part and for the way to the next milestone.
+  const goalMap = typeof raw.goalsText === 'string' ? parseGoals(raw.goalsText) : null
   const folders = Array.isArray(raw.folders) ? raw.folders : null
   // The step a worker is on: the open one that names its own branch and this worker; of several, the one whose
   // branch a working folder holds.
@@ -935,26 +937,23 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       .map(step => ({ id: step.id, title: step.title, notes: noteSections(step.notes) })),
     // When the advice was written: the page says how old it is.
     adviceAt: Number.isFinite(raw.adviceAt) ? raw.adviceAt : null,
-    // B195: the way to the next milestone (config.milestoneMap in the game's repository), counted against the backlog
-    // as it stands; with the person's answer to the Advisor's recommendation once given (one that did not arrive
-    // does not count). Null without a map.
+    // B195: the way to the next milestone, counted against the backlog as it stands; with the person's answer to the
+    // Advisor's recommendation once given (one that did not arrive does not count). Since B260 it is read from the
+    // goal map (src/milestone.mjs milestoneFromGoals). Null without a goal map or a milestone of the plan in it.
     milestone: (() => {
-      const map = typeof raw.milestoneText === 'string' ? parseMilestoneMap(raw.milestoneText) : null
-      if (map === null) return null
-      const way = milestoneWay(map, backlog)
+      const way = goalMap === null ? null : milestoneFromGoals(goalMap, backlog)
+      if (way === null) return null
       const rec = way.recommendation
       if (rec === null) return way
       const said = sent.findLast(message => message.command === 'recommend' && message.about === rec.id && message.state !== 'failed' && message.state !== 'expired')
       return { ...way, recommendation: { ...rec, answer: said === undefined ? null : { answer: said.answer, at: said.at, state: said.state } } }
     })(),
-    milestoneMap: config.milestoneMap,
     // B255: the goal map (config.goals in the project, spec 2026-10-15), each node with its counters against the
     // backlog as it stands, and the problems the file has. Null without a file; `goalsFile` says where it is looked for.
     goals: (() => {
-      if (typeof raw.goalsText !== 'string') return null
-      const goals = parseGoals(raw.goalsText)
-      const counts = goalCounts(goals, backlog)
-      return { file: config.goals, roots: goals.roots, problems: goals.problems, nodes: goals.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })) }
+      if (goalMap === null) return null
+      const counts = goalCounts(goalMap, backlog)
+      return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })) }
     })(),
     goalsFile: config.goals,
   }
