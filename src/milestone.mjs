@@ -71,3 +71,32 @@ export function milestoneWay(map, backlog) {
     updated: map.updated,
   }
 }
+
+/**
+ * B260: the way from the goal map (goals.md, src/goals.mjs) instead of the Advisor's JSON: the first goal in file
+ * order that is a milestone of the game plan (a "From the game plan:" line other than "the goal") and not done. Its
+ * children are the row; the last child is the milestone's own check, drawn last as its box, as the Advisor writes the
+ * map (roles/advisor.md); the milestone's own Steps and Missing lines count in that box too. Its name is the plan's
+ * part ("M1"), its title the goal's title after "M1 · ". Null when no such goal is left.
+ */
+export function milestoneFromGoals(goals, backlog) {
+  const found = goals.nodes.find(node => goals.byId.get(node.id) === node && node.fromPlan !== null && node.fromPlan.trim().toLowerCase() !== 'the goal' && node.state !== 'done')
+  if (found === undefined) return null
+  const children = found.children.map(id => goals.byId.get(id)).filter(child => child !== undefined)
+  const check = children.at(-1) ?? null
+  const steps = children.slice(0, -1).slice(0, MOST_STEPS)
+  const map = {
+    milestone: {
+      name: text(found.fromPlan, 20),
+      title: text(found.title.replace(/^[^·]*·\s*/, ''), 80) || text(found.title, 80),
+      doneWhen: text(found.doneWhen ?? '', 240),
+      check: text(check?.title ?? found.doneWhen ?? '', 80),
+      backlog: [...found.steps, ...(check?.steps ?? [])],
+      missing: [...found.missing, ...(check?.missing ?? [])],
+    },
+    steps: steps.map(child => ({ title: text(child.title, 80), backlog: child.steps, missing: child.missing })),
+    recommendation: found.recommendation === null ? null : { ...found.recommendation },
+    updated: '',
+  }
+  return milestoneWay(map, backlog)
+}
