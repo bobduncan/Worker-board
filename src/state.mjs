@@ -10,6 +10,7 @@ import { pathKey } from './games.mjs'
 import { parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList, reportsOf } from './finished.mjs'
+import { goalCounts, parseGoals } from './goals.mjs'
 import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneWay, parseMilestoneMap } from './milestone.mjs'
@@ -947,5 +948,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       return { ...way, recommendation: { ...rec, answer: said === undefined ? null : { answer: said.answer, at: said.at, state: said.state } } }
     })(),
     milestoneMap: config.milestoneMap,
+    // B255: the goal map (config.goals in the project, spec 2026-10-15), each node with its counters against the
+    // backlog as it stands, and the problems the file has. Null without a file; `goalsFile` says where it is looked for.
+    goals: (() => {
+      if (typeof raw.goalsText !== 'string') return null
+      const goals = parseGoals(raw.goalsText)
+      const counts = goalCounts(goals, backlog)
+      return { file: config.goals, roots: goals.roots, problems: goals.problems, nodes: goals.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })) }
+    })(),
+    goalsFile: config.goals,
   }
 }

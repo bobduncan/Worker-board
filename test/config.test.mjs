@@ -72,6 +72,14 @@ test('B173: the Advisor\'s settings: paths stay inside their folder, the morning
   assert.equal(parseConfig(JSON.stringify({ morningRound: '' }), {}).morningRound, '')
 })
 
+test('B255: the goal map\'s four paths have defaults beside the backlog\'s, and stay inside the project', () => {
+  const config = parseConfig('{}', {})
+  assert.deepEqual([config.goals, config.brainstorms, config.goalAsks, config.goalsHistory],
+    ['.claude/goals.md', '.claude/brainstorms', '.claude/goal-asks', '.claude/goals.history'])
+  const set = parseConfig(JSON.stringify({ goals: 'plans/goals.md', brainstorms: '../out', goalAsks: 'C:/x', goalsHistory: 'plans/old' }), {})
+  assert.deepEqual([set.goals, set.brainstorms, set.goalAsks, set.goalsHistory], ['plans/goals.md', '.claude/brainstorms', '.claude/goal-asks', 'plans/old'])
+})
+
 test('B128: a broken settings file is named in one line: what is wrong and where; unknown settings are left alone', async () => {
   const { configProblem } = await import('../src/config.mjs')
   assert.equal(configProblem('{\n  "port": 4310\n  "project": "x"\n}'), 'it is not valid JSON at line 3, column 3: Expected \',\' or \'}\' after property value')

@@ -6,6 +6,7 @@ import { answer, assistant, fromChat, modCompaction, step, tool, toolResult, typ
 import { parseConfig } from '../src/config.mjs'
 import { hourEnd, hourStart } from '../src/history.mjs'
 import { buildState, chatState } from '../src/state.mjs'
+import { BACKLOG, GOALS } from './fixtures-goals.mjs'
 
 const MIN = 60_000
 
@@ -28,13 +29,14 @@ const ended = [typed(NOW - 20 * MIN, 'Go'), answer(NOW - 9 * MIN, 'Done')]
 // B262: a turn the person opened that has had no answer at all: a quiet one of these runs without a sign of life.
 const noAnswer = [typed(NOW - 14 * MIN, 'Go')]
 
-function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {}, runs = [], restartNote = null, board = null, seen = null }) {
+function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', goals = null, outbox = [], asks = [], folders = null, pictureLists = {}, runs = [], restartNote = null, board = null, seen = null }) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: apps,
     tails: Object.fromEntries(Object.entries(tails).map(([name, value]) => [`cli-${name}`, value])),
     planLineTexts: Object.fromEntries(Object.entries(plans).map(([name, value]) => [`cli-${name}`, value])),
     backlogText: backlog,
+    goalsText: goals,
     adviceText: null,
     folders,
     askTexts: asks.map(ask => JSON.stringify(ask)),
@@ -44,6 +46,17 @@ function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox 
   return buildState(raw, { lines, outbox, runs, board, seen, now: NOW, config })
 }
 const chatNamed = (state, name) => state.chats.find(chat => chat.name === name)
+
+test('B255: the state carries the goal map with counters and its file, or null without a file', () => {
+  const state = build({ apps: [app('Main')], backlog: BACKLOG, goals: GOALS })
+  assert.deepEqual(state.goals.roots, ['G1', 'G7'])
+  assert.deepEqual(state.goals.problems, [])
+  assert.deepEqual(state.goals.nodes.find(one => one.id === 'G2').counts, { nodes: 2, steps: 4, done: 3, open: 1, unknown: 0, missing: 1 })
+  assert.equal(state.goals.nodes.find(one => one.id === 'G9').alsoPartOf[0], 'G5')
+  assert.equal(state.goals.file, '.claude/goals.md')
+  assert.equal(build({ apps: [app('Main')], backlog: BACKLOG }).goals, null)
+  assert.equal(build({ apps: [app('Main')], backlog: BACKLOG }).goalsFile, '.claude/goals.md')
+})
 
 test('chatState: a running turn is working, whatever the app says', () => {
   assert.equal(chatState({ turn: 'running', category: 'blocked', needsAction: 'Pick one' }), 'working')

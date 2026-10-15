@@ -69,7 +69,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const plan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.gamePlan.split('/'))
   // B195: the Advisor's map of the way to the next milestone, beside the game plan.
   const map = config.gameRepo === '' ? null : join(config.gameRepo, ...config.milestoneMap.split('/'))
-  const [listText, appChatTexts, backlogText, adviceText, folders, askTexts, milestoneText] = await Promise.all([
+  const [listText, appChatTexts, backlogText, adviceText, folders, askTexts, milestoneText, goalsText] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     readAppChats(config.appSessions),
     readText(join(config.project, ...config.backlog.split('/'))),
@@ -77,6 +77,8 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
     map === null ? null : readText(map),
+    // B255: the goal map, beside the backlog.
+    readText(join(config.project, ...config.goals.split('/'))),
   ])
 
   const chats = boardChats(
@@ -112,7 +114,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   }))
 
   return {
-    listText, appChatTexts, planLineTexts, planLineAt, tails, backlogText, adviceText, folders, askTexts, milestoneText,
+    listText, appChatTexts, planLineTexts, planLineAt, tails, backlogText, adviceText, folders, askTexts, milestoneText, goalsText,
     pictureLists: await pictureLists(config, backlogText, now),
     // B113: the file the app keeps for its own usage card. The board only reads it.
     usageText: (await readTail(config.usageHistory, USAGE_BYTES))?.text ?? null,

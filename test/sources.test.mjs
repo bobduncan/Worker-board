@@ -83,6 +83,14 @@ test('readSources reads a project\'s files into the shape buildState takes, and 
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.pictures]), [['Say whether the archer is right (pictures in art-inbox/archer)', 'Art', ['art-inbox/archer/sheet.png']]])
 })
 
+test('B255: readSources reads the goal map beside the backlog, where the setting goals says', async t => {
+  const { config, put } = await project(t)
+  assert.equal((await readSources(config, async () => null, NOW)).goalsText, null)
+  await put('project/plans/goals.md', '- [ ] G1 A garden\n')
+  const raw = await readSources({ ...config, goals: 'plans/goals.md' }, async () => null, NOW)
+  assert.equal(raw.goalsText, '- [ ] G1 A garden\n')
+})
+
 test('readSources never follows a transcript name out of the transcripts folder', async t => {
   const { config } = await project(t)
   const raw = await readSources(config, async () => null, NOW)
@@ -94,7 +102,7 @@ test('readSources never follows a transcript name out of the transcripts folder'
 test('readSources gives empty sources for folders that do not exist, and survives a folders reader that fails', async () => {
   const config = { ...parseConfig('{}', {}), project: join(DATA, 'no-such-project'), appSessions: join(DATA, 'no-such-app'), transcripts: join(DATA, 'none') }
   const raw = await readSources(config, async () => { throw new Error('git is not installed') }, NOW)
-  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, planLineAt: {}, tails: {}, backlogText: null, adviceText: null, folders: null, askTexts: [], milestoneText: null, pictureLists: {}, usageText: null, restartNote: null, branches: null, adviceAt: null })
+  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, planLineAt: {}, tails: {}, backlogText: null, adviceText: null, folders: null, askTexts: [], milestoneText: null, goalsText: null, pictureLists: {}, usageText: null, restartNote: null, branches: null, adviceAt: null })
 })
 
 test('a picture is found only inside a folder the board may show, also when a path tries to leave it', async t => {

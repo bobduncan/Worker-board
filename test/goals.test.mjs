@@ -99,3 +99,11 @@ test('an id used twice, the second inside the first, is counted without going ro
   assert.deepEqual(counts.get('G2'), { nodes: 0, steps: 0, done: 0, open: 0, unknown: 0, missing: 0 })
   assert.deepEqual(counts.get('G1'), { nodes: 1, steps: 0, done: 0, open: 0, unknown: 0, missing: 0 })
 })
+
+test('the starting map in examples/ is in the form, with no problem', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const goals = parseGoals(await readFile(new URL('../examples/goals.md', import.meta.url), 'utf8'))
+  assert.deepEqual(goals.problems, [])
+  assert.deepEqual(goals.roots, ['G1', 'G6'])
+  assert.deepEqual(goals.byId.get('G7').alsoPartOf, ['G2'])
+})
