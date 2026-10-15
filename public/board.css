@@ -137,6 +137,35 @@ span.goal-fold { cursor: inherit; }
 .goal-tag { flex: none; font-size: 11px; border: 1px solid var(--line); border-radius: 9px; padding: 0 7px; color: var(--muted); white-space: nowrap; }
 .goal-tag.is-enables { border-color: #6b4a1f; color: var(--waiting); }
 .goal-meta { margin-left: auto; padding-left: 10px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* B256: editing the map: the dot as a button, the actions, the editor, a drag's marks, the goals chosen. */
+button.goal-dot { padding: 0; background-color: transparent; cursor: pointer; }
+button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a4a7d; outline: none; }
+.goal-tag.is-ask { border-color: var(--waiting); color: var(--waiting); }
+.goals-actions { display: flex; gap: 6px; }
+.goals-action, .goals-tool { padding: 3px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--inset); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.goals-action:hover, .goals-tool:hover { border-color: var(--free); }
+.goals-action:disabled { color: var(--unknown); cursor: default; border-color: var(--line); }
+.goals-tool.is-delete, .goals-tool.is-dissolve { color: var(--warn); }
+.goals-readonly { font-size: 12px; cursor: help; }
+.goals-note { margin: 8px 6px 0; padding: 6px 10px; border: 1px solid #7a3324; border-radius: 6px; color: var(--warn); font-size: 13px; }
+.goals-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.goals-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.goals-unlink { border: 0; background: none; padding: 0 2px; color: var(--muted); font: inherit; cursor: pointer; }
+.goals-unlink:hover { color: var(--warn); }
+.goals-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.goal-row .goals-editor, .goals-frame-head .goals-editor, .goals-chosen .goals-editor { margin-top: 0; }
+.goals-input { width: 100%; max-width: 640px; box-sizing: border-box; padding: 5px 8px; border: 1px solid var(--free); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.goals-choices { display: flex; flex-direction: column; gap: 2px; max-width: 640px; }
+.goals-choice { display: block; width: 100%; padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.goals-choice:hover, .goals-choice:focus-visible { border-color: var(--free); }
+.goals-chosen { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; padding: 6px 10px; border: 1px dashed var(--free); border-radius: 6px; font-size: 13px; }
+.goal-row.is-chosen { background: #1d2a3f; box-shadow: inset 3px 0 0 #8fb4ff; }
+.goal-row.is-editor { cursor: default; }
+.goal-row.is-dragging { opacity: .4; }
+.goal-row.is-before { box-shadow: inset 0 2px 0 var(--free); }
+.goal-row.is-after { box-shadow: inset 0 -2px 0 var(--free); }
+.goal-row.is-into, .goals-crumb .is-into { outline: 1px dashed var(--free); outline-offset: -1px; }
+.goal-row[draggable="true"] { cursor: grab; }
 @media (max-width: 700px) {
   .goals-head { flex-wrap: wrap; gap: 4px; }
   .goals-crumb { flex-basis: 100%; }

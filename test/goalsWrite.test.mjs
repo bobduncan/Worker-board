@@ -193,3 +193,28 @@ test('the daily copy is made once a day, and a missing file makes none', async (
   await historyCopy('C:/p/none.md', 'C:/p/h', '2026-10-16', fs)
   assert.equal('C:/p/h/2026-10-16.md' in fs.files, false)
 })
+
+test('the board takes a change to the goal map from its own page only: the token, its origin and JSON', async t => {
+  const { createBoard } = await import('../server.mjs')
+  const TOKEN = 'a'.repeat(64)
+  const asked = []
+  const server = createBoard({
+    token: TOKEN,
+    getState: async () => ({}),
+    say: async () => ({ ok: false, status: 400, why: 'No.' }),
+    goals: async body => { asked.push(body); return { ok: true, result: { id: 'G10' } } },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise(resolve => server.close(resolve)))
+  const origin = `http://127.0.0.1:${server.address().port}`
+  const good = { 'X-Board-Token': TOKEN, Origin: origin, 'Content-Type': 'application/json' }
+  const post = headers => fetch(`${origin}/api/goals`, { method: 'POST', headers, body: JSON.stringify({ command: 'add', parent: null, title: 'A pond' }) })
+  assert.equal((await post({ ...good, 'X-Board-Token': 'b'.repeat(64) })).status, 403)
+  assert.equal((await post({ ...good, Origin: 'http://evil.example' })).status, 403)
+  assert.equal((await post({ ...good, 'Content-Type': 'text/plain' })).status, 415)
+  assert.equal(asked.length, 0)
+  const answer = await post(good)
+  assert.equal(answer.status, 200)
+  assert.deepEqual(await answer.json(), { id: 'G10' })
+  assert.deepEqual(asked, [{ command: 'add', parent: null, title: 'A pond' }])
+})

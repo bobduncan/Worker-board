@@ -16,7 +16,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// goals:start'), script.indexOf('// goals:end'))}
-Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalFocusOf, goalFrameLine, goalFrameLines, goalOutlineRows, goalZoomOut, tabOfAddress })`, made)
+Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalDropTarget, goalFocusOf, goalFrameLine, goalFrameLines, goalHasOpenInside, goalKeyMove, goalLinkChoices, goalNextState, goalOutlineRows, goalPlaceAt, goalZoomOut, tabOfAddress })`, made)
 // What the page's functions answer, as this file's own objects, so deepEqual compares them by value.
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
@@ -127,4 +127,70 @@ test('the Advisor tab has the Goals part second, opened from the address, drawn 
   assert.match(script, /const ADVISOR_PANES = \['way', 'goals', 'plan', 'suggestions', 'chat'\]/)
   assert.match(script, /once\('goals', goalsData\(state\), \(\) => drawGoals\(state\)\)/)
   assert.match(script, /addEventListener\('popstate'/)
+})
+
+// B256: editing the goal map in the outline (spec 2026-10-15, section 3).
+
+test('B256: a drop lands before or after a sibling or inside a goal, never inside itself or its own branch', () => {
+  const goals = stateGoals()
+  assert.deepEqual(page.goalDropTarget(goals, 'G4', 'G6', 'before'), { parent: 'G5', index: 0 })
+  assert.deepEqual(page.goalDropTarget(goals, 'G4', 'G6', 'after'), { parent: 'G5', index: 1 })
+  assert.deepEqual(page.goalDropTarget(goals, 'G4', 'G5', 'into'), { parent: 'G5', index: 1 })
+  // Among its own siblings: before G3 is first, after G3 is where it stands.
+  assert.deepEqual(page.goalDropTarget(goals, 'G4', 'G3', 'before'), { parent: 'G2', index: 0 })
+  assert.deepEqual(page.goalDropTarget(goals, 'G7', 'G1', 'before'), { parent: null, index: 0 })
+  assert.equal(page.goalDropTarget(goals, 'G2', 'G3', 'into'), null)
+  assert.equal(page.goalDropTarget(goals, 'G2', 'G3', 'before'), null)
+  assert.equal(page.goalDropTarget(goals, 'G2', 'G2', 'into'), null)
+  assert.equal(page.goalDropTarget(goals, 'G2', 'G99', 'into'), null)
+  // On a crumb: inside that goal, last; on "Goals": the top, last.
+  assert.deepEqual(page.goalDropTarget(goals, 'G6', 'G1', 'into'), { parent: 'G1', index: 2 })
+  assert.deepEqual(page.goalDropTarget(goals, 'G6', null, 'into'), { parent: null, index: 2 })
+  // Where the pointer is on a row: its top quarter before, its bottom quarter after, else inside.
+  assert.deepEqual([2, 20, 37].map(y => page.goalPlaceAt(y, 40)), ['before', 'into', 'after'])
+})
+
+test('B256: keys move among siblings, in under the row above, and out after the parent', () => {
+  const goals = stateGoals()
+  assert.deepEqual(page.goalKeyMove(goals, 'G4', 'up'), { parent: 'G2', index: 0 })
+  assert.equal(page.goalKeyMove(goals, 'G3', 'up'), null)
+  assert.deepEqual(page.goalKeyMove(goals, 'G3', 'down'), { parent: 'G2', index: 1 })
+  assert.equal(page.goalKeyMove(goals, 'G4', 'down'), null)
+  assert.deepEqual(page.goalKeyMove(goals, 'G4', 'in'), { parent: 'G3', index: 0 })
+  assert.equal(page.goalKeyMove(goals, 'G3', 'in'), null)
+  assert.deepEqual(page.goalKeyMove(goals, 'G4', 'out'), { parent: 'G1', index: 1 })
+  assert.equal(page.goalKeyMove(goals, 'G1', 'out'), null)
+  assert.deepEqual(page.goalKeyMove(goals, 'G7', 'up'), { parent: null, index: 0 })
+})
+
+test('B256: the dot cycles open, in progress, done; done with open goals inside asks once', () => {
+  assert.deepEqual(['open', 'now', 'done'].map(page.goalNextState), ['now', 'done', 'open'])
+  const goals = stateGoals()
+  assert.equal(page.goalHasOpenInside(goals, 'G2'), true)
+  assert.equal(page.goalHasOpenInside(goals, 'G3'), false)
+  assert.equal(page.goalHasOpenInside(goals, 'G7'), true)
+  assert.equal(page.goalHasOpenInside(stateGoals('- [ ] G1 A\n  - [x] G2 B\n'), 'G1'), false)
+})
+
+test('B256: the search box offers the goals a link may point to, by words in the title', () => {
+  const goals = stateGoals()
+  const ids = (id, name, words) => page.goalLinkChoices(goals, id, name, words).map(one => one.id)
+  // Not itself, not one it links to already; for "Also part of" not its home nor a goal inside it.
+  assert.deepEqual(ids('G6', 'Enables', ''), ['G1', 'G2', 'G3', 'G4', 'G5', 'G7', 'G8', 'G9'])
+  assert.deepEqual(ids('G7', 'Enables', ''), ['G2', 'G3', 'G4', 'G5', 'G6', 'G8', 'G9'])
+  assert.deepEqual(ids('G2', 'Also part of', ''), ['G5', 'G6', 'G7', 'G8', 'G9'])
+  assert.deepEqual(ids('G6', 'Enables', 'fount'), ['G4'])
+  // Every word, in any case and order; "garden" also finds "gardener's".
+  assert.deepEqual(ids('G6', 'Enables', 'OPEN garden'), ['G5'])
+  assert.deepEqual(ids('G6', 'Enables', 'garden'), ['G1', 'G5', 'G7'])
+  assert.deepEqual(page.goalLinkChoices(goals, 'G6', 'Enables', 'spade')[0], { id: 'G8', title: 'A sharper spade', where: 'The gardener\'s tools' })
+})
+
+test('B256: the page sends a change to /api/goals and draws the file anew; the keys and the drag are wired', () => {
+  assert.match(script, /fetch\('\/api\/goals'/)
+  for (const key of ["'ArrowUp'", "'ArrowDown'", "'Tab'", "'F2'", "'Enter'", "'z'"]) assert.ok(script.includes(key), key)
+  for (const event of ["'dragstart'", "'dragover'", "'drop'", "'dragend'"]) assert.ok(script.includes(event), event)
+  assert.match(html, /id="goals-actions"/)
+  assert.match(html, /id="goals-note"/)
+  assert.match(html, /id="goals-chosen"/)
 })

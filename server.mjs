@@ -45,6 +45,7 @@ import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
+import { editGoals } from './src/goalsWrite.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -144,6 +145,7 @@ export function pictureKind(bytes) {
  *   `design(body)`     the Design tab's calls (make a picture, change it, agree, ask for the step), the same shape
  *   `reference(bytes)` keeps a reference picture the person added to an idea, the same shape
  *   `talkPicture(bytes)` keeps a picture the person pasted into Talk to Main (B167), the same shape
+ *   `goals(body)`      one change to the goal map (B256), the same shape
  */
 export function createBoard({
   token, getState, say, picture = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
@@ -153,6 +155,7 @@ export function createBoard({
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
   backlog = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  goals = async () => ({ ok: false, status: 404, why: 'Not here.' }),
 }) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
@@ -206,7 +209,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog') {
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -229,6 +232,10 @@ export function createBoard({
       }
       if (pathname === '/api/backlog') {
         const done = await backlog(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/goals') {
+        const done = await goals(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/design') {
@@ -586,7 +593,9 @@ async function main(args) {
         missing: isDemo ? [] : await missingReferences(),
         typical: typicalSeconds(),
       })
-      return { ...state, design, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart } }
+      // B256: whether the Goals part may change the map: only the board that delivers writes it.
+      const goalsEdit = { canWrite: !isDemo && !isShowOnly, whyNot: isDemo ? 'This is the demo: it changes no file.' : isShowOnly ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
+      return { ...state, design, goalsEdit, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart } }
     },
     design: body => designTurn(async () => {
       const state = await readState()
@@ -683,6 +692,18 @@ async function main(args) {
     },
     // B221: the person closes or deletes a step on the Backlog tab. Only the board that delivers writes the backlog.
     backlog: body => editStep(body, { canWrite: !isDemo && !isShowOnly, file: join(config.project, ...config.backlog.split('/')), now: clock() }),
+    // B256: the person changes the goal map on the Goals part. Only the board that delivers writes it; then the state
+    // is read anew, so the page draws the file as it now is.
+    goals: async body => {
+      const done = await editGoals(body, {
+        canWrite: !isDemo && !isShowOnly,
+        file: join(config.project, ...config.goals.split('/')),
+        historyDir: join(config.project, ...config.goalsHistory.split('/')),
+        now: clock(),
+      })
+      if (done.ok) readState.reset()
+      return done
+    },
     // B142: started anew on the person's click, once the version its folder holds loads.
     restart: async () => {
       if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
