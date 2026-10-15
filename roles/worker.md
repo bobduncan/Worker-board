@@ -28,6 +28,12 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   question, a decision), ask it in your own chat, and say in your report to the main chat in one line what you asked
   and where ("Asked the user in my chat: the picture of the new screen, B12"); the main chat then does not ask it
   again. With nothing to ask, report to the main chat only: it puts the check to the user itself.
+- Close every browser you start (B266). A browser you start for a check or a picture (a headless one, one driven over
+  CDP or by Playwright, one with a temporary profile folder) is closed in the same script that started it, also when
+  the script fails (close it in a `finally`). Before you report, look among the running browser processes for one
+  started with a temporary profile folder of yours, and close it: none of yours is left running when you report. Left
+  behind, they add up and take the computer's memory. Never close the user's own browser: it runs with the user's own
+  profile, not a temporary one.
 - Tell the main chat with SendMessage, the first line as one of: "Report from <your title>: ..." when a task is
   finished, "Note from <your title>: ..." in the middle of a task, "Question from <your title>: ...".
 - Write to the user as the project's `CLAUDE.md` says, when it has one. The board reads your answer's closing block

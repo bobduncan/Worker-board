@@ -83,6 +83,11 @@ and its folder are gone, the picture exists. A step that is finished but not tic
 saying so. Send the user the picture. Then report in a few lines, and hand out what waited for that step. Read the
 plan's limits again with the check (the app's usage tool), so the board's limits bar never stands hours old.
 
+Close the check browsers left behind (B266): at every report check, close the browsers the chats started for checks
+and pictures and left running, those started with a temporary profile folder (headless, driven over CDP or by
+Playwright), unless a worker is in a check right now. Never the user's own browser, which runs with the user's own
+profile.
+
 ## The backlog
 
 - The backlog is one file of the project (the board's setting `backlog`), shared by every chat; the person
