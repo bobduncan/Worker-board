@@ -184,6 +184,7 @@ test('B256: the search box offers the goals a link may point to, by words in the
   assert.deepEqual(ids('G6', 'Enables', 'OPEN garden'), ['G5'])
   assert.deepEqual(ids('G6', 'Enables', 'garden'), ['G1', 'G5', 'G7'])
   assert.deepEqual(page.goalLinkChoices(goals, 'G6', 'Enables', 'spade')[0], { id: 'G8', title: 'A sharper spade', where: 'The gardener\'s tools' })
+  assert.equal(page.goalLinkChoices(goals, 'G6', 'Enables', 'zebracorn')[0].where, null)
 })
 
 test('B256: the page sends a change to /api/goals and draws the file anew; the keys and the drag are wired', () => {

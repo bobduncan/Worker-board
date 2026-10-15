@@ -3016,7 +3016,8 @@ function goalHasOpenInside(goals, id) {
 
 /**
  * The goals a link from `id` may point to, whose titles hold every word typed (any case), in file order: not itself,
- * not one it names already, and for "Also part of" neither its home nor a goal inside it. `where` is the goal's home.
+ * not one it names already, and for "Also part of" neither its home nor a goal inside it. `where` is the goal's home
+ * (null at the top).
  */
 function goalLinkChoices(goals, id, name, words) {
   const node = goalById(goals, id)
@@ -3031,7 +3032,7 @@ function goalLinkChoices(goals, id, name, words) {
     if (name === 'Also part of' && (other.id === node.parent || goalInside(goals, id, other.id))) return false
     const title = other.title.toLowerCase()
     return wanted.every(word => title.includes(word))
-  }).map(other => ({ id: other.id, title: other.title, where: goalById(goals, other.parent)?.title ?? 'the top' }))
+  }).map(other => ({ id: other.id, title: other.title, where: goalById(goals, other.parent)?.title ?? null }))
 }
 // goals:end
 
@@ -3100,7 +3101,7 @@ function goalChoicesList(goals) {
   if (choices.length === 0) list.append(el('span', 'muted', 'No goal fits those words.'))
   for (const choice of choices) {
     const button = goalButton('goals-choice', '', { linkTarget: choice.id })
-    button.append(el('b', '', choice.title), el('small', 'muted', ` · in ${choice.where}`))
+    button.append(el('b', '', choice.title), el('small', 'muted', choice.where === null ? ' · at the top' : ` · in ${choice.where}`))
     list.append(button)
   }
   return list
@@ -3432,8 +3433,9 @@ $('goals-frame').addEventListener('click', event => {
       return redrawGoals()
     }
     goalsUi.confirm = null
+    // Gone from the map, deleted or dissolved: the map shows where it stood.
     return sendGoals({ command: tool, id: focus }).then(done => {
-      if (done !== null && tool === 'delete') zoomGoal(node?.parent ?? null)
+      if (done !== null) zoomGoal(node?.parent ?? null)
     })
   }
   const value = tool === 'rename' ? node?.title ?? '' : tool === 'Done when' ? node?.doneWhen ?? '' : tool === 'Why' ? node?.why ?? '' : ''
