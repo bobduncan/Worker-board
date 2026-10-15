@@ -342,10 +342,12 @@ line gets it under its heading at the first new goal. The picture: `art-inbox/bo
 left of the outline, both on the same focus; a divider sets the outline's width (kept in this browser), and the
 "Diagram" and "Outline" buttons hide either side (one always shows; kept too). The tree (svg, `goalTreeLayout`):
 the goal zoomed into as the frame on top, the goals inside it as boxes of 150 by 92 in centred rows under it, as
-many a row as fit, joined by a trunk, a bus per row and a drop per box; a box shows its state by its border (amber
-in progress, green done), its title in two lines, its steps done and missing, its state, and "+n" when goals stand
-inside it; a goal that is also part of it is a dotted box with ↗ and its home; an "enables" arrow is dashed between
-two goals in view, or comes from a small dotted ghost at the right edge when its source is out of view. At the top
+many a row as fit, joined by a trunk to the first row, a spine left of the boxes to the rows below, a bus per row and
+a drop per box, so no line runs behind a box; a box shows its state by its border (amber in progress, green done),
+its title in two lines, its steps done and missing, its state, and "+n" when goals stand inside it; a goal that is
+also part of it is a dotted box with ↗ and its home; an "enables" arrow is dashed between two goals in view, or comes
+from a small dotted ghost when its source is out of view: the ghosts keep a column of their own at the right edge,
+one per goal, at most three, then "+n more enable it". Lines and arrows take no click. At the top
 the goals stand as boxes without a frame. A click on a box glides it into the frame (250 ms; none with reduced
 motion) and zooms in; a click on the empty ground zooms out; hovering a box lights its row and the other way round.
 A box is dragged after 6 px: its middle drops into a box, its quarters at the sides before or after it, the frame
