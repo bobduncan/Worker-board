@@ -106,8 +106,10 @@ person sent was copied, and into which chat to paste it.
 
 ## Advisor (`05-advisor.png`)
 
-Four parts, chosen with buttons: **Next milestone** (the way to the next milestone, drawn from the Advisor's map in
-the game's repository; "No map yet" until there is one), **Game plan** (the game plan from the game's repository,
+Five parts, chosen with buttons: **Next milestone** (the way to the next milestone, drawn from the Advisor's map in
+the game's repository; "No map yet" until there is one), **Goals** (the project's goal map, `goals.md`, one level at
+a time: the goals with their counters of goals inside, steps done and missing lines; a click zooms into a goal, ‹, Esc
+or the crumb zooms out, ▸ folds one more level open; the focus is in the address, `#advice/goals/G2`), **Game plan** (the game plan from the game's repository,
 with when it was written; being reworked in B218 at the time of this page), **Suggestions** (the Advisor's open
 suggestions with their Why, Cost and Unblocks, and when its rounds come) and **Chat** (a chat with the Advisor, as
 "Talk to Main").

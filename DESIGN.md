@@ -282,6 +282,28 @@ puts it on the backlog when it is not there and hands it out; "No…" asks why a
 with the reason into the Advisor's chat. One answer per recommendation (its id); the box then says what was answered.
 The mock-up the person agreed to ("1. yes. 2. yes."): `art-inbox/worker-board/b195/2026-10-14-b195-mockup.png`.
 
+**The goal map, the outline (B255).** The person, 2026-10-15: "I dont want to be overwhelmed with too many things at
+once. so e.g. 5 milestones is plenty but i dont want to see all steps for all milestones at once, a simple counter is
+enough, the ability to click on a node/milestone can zoom in, and quickly zoom out seamlessly helps me maintain
+overview and control." Piece 1 of the goal map (the design and plan of 2026-10-15 in the project's `.claude/specs` and
+`.claude/plans`). The project's goals are one Markdown file in the backlog's form, `goals.md` (the setting `goals`,
+`.claude/goals.md`; `examples/goals.md` shows the form): a goal is `- [ ] G<n> <title>` (`[~]` in progress, `[x]`
+done), two spaces per level is "part of", and named lines under a goal (`Done when:`, `Steps: B37, B225`,
+`Missing:`, `Also part of: G5`, `Enables: G1`, asks, notes, the game plan's milestone and its recommendation).
+`src/goals.mjs` reads it and counts every goal over everything inside it against the backlog as it stands: the
+goals inside, the steps (each backlog id once, done or open, an id not on the backlog as unknown) and the Missing
+lines; a goal that is also part of another counts under its home only. A file with a mistake (an id twice, three
+spaces, a line under no goal) is still drawn, with the mistake named in one line above it. The Advisor tab has a new
+second part, **Goals**: one level at a time. At the top the goals stand as rows with their counters ("9 inside · 23
+steps · 16 done · 7 missing"); a click on a row zooms into it: the crumb above says where you are ("Goals › Lava
+Tactics › M1"), a frame shows the goal with its own lines folded to one ("Done when … · 1 ask pending ▸"), and the
+outline keeps the whole tree with the goal's children open and everything else folded and dimmed; ▸ folds one more
+level open without zooming. A goal that is also part of another stands under it as a grey ↗ row. ‹, Esc or a crumb
+zooms out; the focus is in the address (`#advice/goals/G2`), so a link opens the map at a goal and the browser's
+back walks the zoom. Read-only for now: the drawn tree (B257), editing (B256) and the Next milestone part from the
+map (B260) come later; the settings `brainstorms`, `goalAsks` and `goalsHistory` are there for them. Pictures on
+the real file: `art-inbox/board-goals/b255-top.png` and `b255-in-goal.png`.
+
 **The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
 able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".
 In the Advisor tab's Game plan part every heading folds what stands under it, folded at first with its first line
