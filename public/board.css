@@ -119,7 +119,7 @@ button, textarea, select { font: inherit; color: inherit; }
 /* B257: the tree left, the outline right as wide as dragged (the divider); either side can be hidden. */
 .goals-diagram { flex: 1; min-width: 0; overflow: auto; padding: 8px 6px; }
 #goals-resizer { flex: none; width: 6px; }
-.goals-outline { flex: none; width: var(--side, 440px); min-width: 0; padding: 6px 4px; }
+.goals-outline { flex: none; width: var(--side, 440px); min-width: 0; padding: 6px 4px; overflow-x: hidden; }
 .goals-split.is-outline-only .goals-diagram, .goals-split.is-outline-only #goals-resizer, .goals-split.is-diagram-only .goals-outline, .goals-split.is-diagram-only #goals-resizer { display: none; }
 .goals-split.is-outline-only .goals-outline { flex: 1; width: auto; }
 .goals-views { display: flex; gap: 4px; }
@@ -181,11 +181,12 @@ span.goal-fold { cursor: inherit; }
 .goal-dot { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--muted); flex: none; box-sizing: border-box; }
 .goal-dot.is-now { border-color: var(--waiting); background: linear-gradient(90deg, var(--waiting) 50%, transparent 50%); }
 .goal-dot.is-done { border-color: var(--working); background: var(--working); }
-.goal-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: none; padding: 0; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: inherit; }
+.goal-title { flex: 0 1 auto; min-width: min(7em, 40%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: none; padding: 0; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: inherit; }
 .goal-row.is-focus .goal-title { font-weight: 600; }
 .goal-tag { flex: none; font-size: 11px; border: 1px solid var(--line); border-radius: 9px; padding: 0 7px; color: var(--muted); white-space: nowrap; }
 .goal-tag.is-enables { border-color: #6b4a1f; color: var(--waiting); }
-.goal-meta { margin-left: auto; padding-left: 10px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* In a narrow outline the counter gives way first, the title keeps its start. */
+.goal-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-left: auto; padding-left: 10px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 /* B256: editing the map: the dot as a button, the actions, the editor, a drag's marks, the goals chosen. */
 button.goal-dot { padding: 0; background-color: transparent; cursor: pointer; }
 button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a4a7d; outline: none; }
