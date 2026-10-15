@@ -3328,7 +3328,8 @@ async function sendGoals(body) {
   goalsUi.busy = false
   if (result !== null) goalsUi.undoable = body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   redrawGoals()
-  if (result !== null) read()
+  // Changed or refused, the map is read anew: a refusal is often a change made elsewhere in between.
+  read()
   return result
 }
 
