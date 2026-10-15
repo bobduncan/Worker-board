@@ -3050,41 +3050,18 @@ function goalLinkChoices(goals, id, name, words) {
 // goals inside it as boxes in rows under it, joined by a trunk, a bus per row and a drop per box; a goal that is also
 // part of it as a dotted reference box; an "enables" arrow between two goals in view, or from a small ghost at the
 // right edge when its source is out of view. At the top the goals stand as boxes with no frame.
-const GOAL_BOX = { w: 150, h: 92, gap: 20, rowGap: 120, firstY: 180, topY: 60, frameH: 64, ghostW: 98, ghostH: 34 }
+const GOAL_BOX = { w: 150, h: 92, gap: 20, rowGap: 150, busAbove: 24, firstY: 180, topY: 60, frameH: 64, ghostW: 98, ghostH: 34, ghostsMost: 3 }
 
 function goalTreeLayout(goals, focusId, width) {
   const focus = goalById(goals, focusId)
-  const frame = focus === null ? null : { id: focus.id, x: 0, y: 0, w: width, h: GOAL_BOX.frameH }
   const seen = new Set()
   const once = id => !seen.has(id) && seen.add(id)
   const childIds = (focus === null ? goals.roots : focus.children).filter(id => goalById(goals, id) !== null && once(id))
   const refIds = focus === null ? [] : goals.nodes.filter(other => other.id !== focus.id && other.alsoPartOf.includes(focus.id) && once(other.id)).map(other => other.id)
-  const perRow = Math.max(1, Math.floor((width + GOAL_BOX.gap) / (GOAL_BOX.w + GOAL_BOX.gap)))
-  const all = [...childIds.map(id => ({ id, kind: 'child' })), ...refIds.map(id => ({ id, kind: 'ref' }))]
-  const firstY = frame === null ? GOAL_BOX.topY : GOAL_BOX.firstY
-  const boxes = all.map((one, index) => {
-    const row = Math.floor(index / perRow)
-    const inRow = Math.min(perRow, all.length - row * perRow)
-    const rowWidth = inRow * GOAL_BOX.w + (inRow - 1) * GOAL_BOX.gap
-    const x = Math.round((width - rowWidth) / 2) + (index % perRow) * (GOAL_BOX.w + GOAL_BOX.gap)
-    return { ...one, x, y: firstY + row * GOAL_BOX.rowGap, w: GOAL_BOX.w, h: GOAL_BOX.h, row }
-  })
-  const lines = []
-  if (frame !== null && boxes.length > 0) {
-    const trunkX = Math.round(width / 2)
-    const lastRow = boxes.at(-1).row
-    lines.push({ x1: trunkX, y1: frame.h, x2: trunkX, y2: firstY + lastRow * GOAL_BOX.rowGap - 40 })
-    for (let row = 0; row <= lastRow; row += 1) {
-      const inRow = boxes.filter(box => box.row === row)
-      const busY = inRow[0].y - 40
-      lines.push({ x1: Math.min(inRow[0].x + GOAL_BOX.w / 2, trunkX), y1: busY, x2: Math.max(inRow.at(-1).x + GOAL_BOX.w / 2, trunkX), y2: busY })
-      for (const box of inRow) lines.push({ x1: box.x + GOAL_BOX.w / 2, y1: busY, x2: box.x + GOAL_BOX.w / 2, y2: box.y })
-    }
-  }
-  const shown = new Map(boxes.map(box => [box.id, box]))
-  if (frame !== null) shown.set(frame.id, frame)
+  const shown = new Set([...childIds, ...refIds, ...(focus === null ? [] : [focus.id])])
+  // The arrows between goals in view, and one ghost per goal out of view that enables one in view.
   const arrows = []
-  const ghosts = []
+  const sources = new Map()
   const walked = new Set()
   for (const node of goals.nodes) {
     if (walked.has(node.id)) continue
@@ -3092,12 +3069,46 @@ function goalTreeLayout(goals, focusId, width) {
     for (const to of node.enables) {
       if (!shown.has(to) || to === node.id) continue
       if (shown.has(node.id)) arrows.push({ from: node.id, to })
-      else ghosts.push({ id: node.id, title: node.title, x: width - GOAL_BOX.ghostW, y: 12 + ghosts.length * 42, w: GOAL_BOX.ghostW, h: GOAL_BOX.ghostH, arrowTo: to })
+      else sources.set(node.id, [...(sources.get(node.id) ?? []), to])
     }
   }
-  if (frame !== null && ghosts.length > 0) frame.w = width - GOAL_BOX.ghostW - 24
-  const bottoms = [frame === null ? 0 : frame.h, ...boxes.map(box => box.y + box.h), ...ghosts.map(ghost => ghost.y + ghost.h)]
-  return { width, height: Math.max(...bottoms) + 20, frame, boxes, lines, arrows, ghosts }
+  const outside = [...sources]
+  // The ghosts keep a column of their own at the right edge; the frame and the boxes stand in what is left.
+  const area = outside.length > 0 ? width - GOAL_BOX.ghostW - 24 : width
+  const ghosts = outside.slice(0, GOAL_BOX.ghostsMost).map(([id, to], index) => ({ id, title: goalById(goals, id)?.title ?? id, x: width - GOAL_BOX.ghostW, y: 12 + index * 42, w: GOAL_BOX.ghostW, h: GOAL_BOX.ghostH, arrowTo: to }))
+  const frame = focus === null ? null : { id: focus.id, x: 0, y: 0, w: area, h: GOAL_BOX.frameH }
+  const perRow = Math.max(1, Math.floor((area + GOAL_BOX.gap) / (GOAL_BOX.w + GOAL_BOX.gap)))
+  const all = [...childIds.map(id => ({ id, kind: 'child' })), ...refIds.map(id => ({ id, kind: 'ref' }))]
+  const firstY = frame === null ? GOAL_BOX.topY : GOAL_BOX.firstY
+  const boxes = all.map((one, index) => {
+    const row = Math.floor(index / perRow)
+    const inRow = Math.min(perRow, all.length - row * perRow)
+    const rowWidth = inRow * GOAL_BOX.w + (inRow - 1) * GOAL_BOX.gap
+    const x = Math.round((area - rowWidth) / 2) + (index % perRow) * (GOAL_BOX.w + GOAL_BOX.gap)
+    return { ...one, x, y: firstY + row * GOAL_BOX.rowGap, w: GOAL_BOX.w, h: GOAL_BOX.h, row }
+  })
+  // The frame's trunk comes down to the first row's bus; a spine left of every box joins the rows below (no line runs
+  // behind a box); each row's bus reaches from the spine (or the trunk) to its last box, a drop to each box.
+  const lines = []
+  if (frame !== null && boxes.length > 0) {
+    const trunkX = Math.round(area / 2)
+    const lastRow = boxes.at(-1).row
+    const spineX = Math.max(4, Math.min(...boxes.map(box => box.x)) - 12)
+    const busOf = row => firstY + row * GOAL_BOX.rowGap - GOAL_BOX.busAbove
+    lines.push({ x1: trunkX, y1: frame.h, x2: trunkX, y2: busOf(0) })
+    if (lastRow > 0) lines.push({ x1: spineX, y1: busOf(0), x2: spineX, y2: busOf(lastRow) })
+    for (let row = 0; row <= lastRow; row += 1) {
+      const inRow = boxes.filter(box => box.row === row)
+      const centres = inRow.map(box => box.x + GOAL_BOX.w / 2)
+      const from = Math.min(centres[0], row === 0 ? trunkX : spineX, lastRow > 0 ? spineX : Infinity)
+      const to = Math.max(centres.at(-1), row === 0 ? trunkX : -Infinity)
+      lines.push({ x1: from, y1: busOf(row), x2: to, y2: busOf(row) })
+      for (const centre of centres) lines.push({ x1: centre, y1: busOf(row), x2: centre, y2: busOf(row) + GOAL_BOX.busAbove })
+    }
+  }
+  const moreGhosts = outside.length - ghosts.length
+  const bottoms = [frame === null ? 0 : frame.h, ...boxes.map(box => box.y + box.h), ...ghosts.map(ghost => ghost.y + ghost.h + (moreGhosts > 0 ? 18 : 0))]
+  return { width, height: Math.max(...bottoms) + 20, frame, boxes, lines, arrows, ghosts, moreGhosts }
 }
 
 /** A title in at most two lines of `most` characters, cut at a space; what does not fit ends in "…". */
@@ -3149,7 +3160,7 @@ const GOAL_NOTE_MS = 8000
  * done with open goals inside, for five seconds), the line after a refused change (`note`), how many of this page's
  * changes Ctrl+Z can undo, whether a change is on its way, and the goal being dragged.
  */
-const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, undoable: 0, busy: false, drag: null, menu: null, menuInto: false, justDragged: false }
+const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, undoable: 0, busy: false, drag: null, menu: null, menuInto: false, menuWords: '', justDragged: false }
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
@@ -3322,9 +3333,12 @@ function drawGoals(state) {
     fill($('goals-frame'), parts)
   }
 
-  // A redraw keeps the keyboard where it was: on the same row's arrow or title.
-  const had = document.activeElement?.closest?.('#goals-outline .goal-row') ?? null
-  const kept = had === null ? null : { goal: had.dataset.goal, isRef: had.classList.contains('is-ref'), part: document.activeElement.classList.contains('goal-fold') ? '.goal-fold' : '.goal-title' }
+  // A redraw keeps the keyboard where it was: on the same row's arrow, title or "…", in its menu, or on a box.
+  const active = document.activeElement
+  const had = active?.closest?.('#goals-outline .goal-row') ?? null
+  const kept = had === null ? null : { goal: had.dataset.goal, isRef: had.classList.contains('is-ref'), part: active.classList.contains('goal-fold') ? '.goal-fold' : active.classList.contains('goal-more') ? '.goal-more' : '.goal-title' }
+  const inMenu = active?.closest?.('.goal-menu') ? (active.id === 'goals-menu-words' ? '#goals-menu-words' : /^[a-z]+$/.test(active.dataset?.menuAction ?? '') ? `.goal-menu [data-menu-action="${active.dataset.menuAction}"]` : null) : null
+  const inTree = active?.closest?.('#goals-diagram') && /^G\d+$/.test(active.dataset?.goal ?? '') ? `#goals-diagram [data-goal="${active.dataset.goal}"]` : null
   const rows = goalOutlineRows(goals, focus?.id ?? null, goalsOpened)
   const chain = new Set(crumb.map(step => step.id).filter(id => id !== null))
   const drawn = rows.map(row => {
@@ -3381,6 +3395,8 @@ function drawGoals(state) {
   // The editor takes the keys, unless the person types somewhere else on the page.
   const typingElsewhere = document.activeElement?.closest?.('input, textarea') && !$('advisor-goals').contains(document.activeElement)
   if ($('goals-input') !== null && !typingElsewhere) $('goals-input').focus()
+  else if (inMenu !== null && document.querySelector(inMenu) !== null) document.querySelector(inMenu).focus()
+  else if (inTree !== null && document.querySelector(inTree) !== null) document.querySelector(inTree).focus()
   else if (kept !== null) {
     const row = [...$('goals-outline').querySelectorAll('.goal-row')].find(one => one.dataset.goal === kept.goal && one.classList.contains('is-ref') === kept.isRef)
     row?.querySelector(`button${kept.part}`)?.focus()
@@ -3489,8 +3505,15 @@ function drawGoalTree(state) {
     g.append(svgText(ghost.x + 8, ghost.y + 21, cut(`↗ ${ghost.title}`, 13), ''))
     svg.append(g)
     const from = { x: ghost.x, y: ghost.y + ghost.h / 2 }
-    const to = shown.has(ghost.arrowTo) ? top(ghost.arrowTo) : { x: layout.frame.x + layout.frame.w, y: Math.min(ghost.y + ghost.h / 2, layout.frame.h - 8) }
-    svg.append(goalArrow(from, to, false))
+    for (const target of ghost.arrowTo) {
+      const to = shown.has(target) ? top(target) : { x: layout.frame.x + layout.frame.w, y: Math.min(ghost.y + ghost.h / 2, layout.frame.h - 8) }
+      svg.append(goalArrow(from, to, false))
+    }
+  }
+  // More goals out of view enable these: counted under the ghosts.
+  if (layout.moreGhosts > 0) {
+    const last = layout.ghosts.at(-1)
+    svg.append(svgText(last.x + 8, last.y + last.h + 14, `+${layout.moreGhosts} more enable it`, 'goal-ghost-more'))
   }
   fill(place, [svg])
 }
@@ -3510,9 +3533,12 @@ $('goals-views').addEventListener('click', event => {
   const view = event.target.closest('[data-goals-view]')?.dataset.goalsView
   if (view === undefined) return
   // One view always shows: a click takes its own view away, or brings it back beside the other.
-  if (isPhone()) goalsViews = view === 'diagram' && goalsViews !== 'diagram' ? 'diagram' : 'outline'
-  else if (view === 'diagram') goalsViews = goalsViews === 'outline' ? 'both' : 'outline'
-  else goalsViews = goalsViews === 'diagram' ? 'both' : 'diagram'
+  if (isPhone()) setGoalsViews(view === 'diagram' && goalsViews !== 'diagram' ? 'diagram' : 'outline')
+  else if (view === 'diagram') setGoalsViews(goalsViews === 'outline' ? 'both' : 'outline')
+  else setGoalsViews(goalsViews === 'diagram' ? 'both' : 'diagram')
+})
+function setGoalsViews(views) {
+  goalsViews = views
   try {
     localStorage.setItem('goals-views', goalsViews)
   } catch {
@@ -3520,24 +3546,34 @@ $('goals-views').addEventListener('click', event => {
   }
   showGoalsViews()
   if (board !== null) drawGoalTree(board)
-})
+}
 showGoalsViews()
 resizable($('goals-resizer'), $('goals-split'), 'goals-outline-width', 440)
-// The tree is laid out for the width it has: drawn anew when that changes.
+// The tree is laid out for the width it has: drawn anew when that changes, but not while a box glides into the frame.
 new ResizeObserver(() => {
-  if (board !== null && goalsTree?.width !== Math.floor($('goals-diagram').clientWidth) - 12) drawGoalTree(board)
+  if (board !== null && !$('goals-diagram').classList.contains('is-gliding') && goalsTree?.width !== Math.floor($('goals-diagram').clientWidth) - 12) drawGoalTree(board)
 }).observe($('goals-diagram'))
 matchMedia('(max-width: 760px)').addEventListener('change', showGoalsViews)
 
 /** A click on a box: it glides into the frame, then the map zooms into it. */
 function goalsGlide(id) {
-  const svg = $('goals-diagram').querySelector('svg')
+  const place = $('goals-diagram')
+  // One glide at a time: a double-click is one zoom.
+  if (place.classList.contains('is-gliding')) return
+  const svg = place.querySelector('svg')
   const box = goalsTree?.boxes.find(one => one.id === id)
   if (!svg || !box || matchMedia('(prefers-reduced-motion: reduce)').matches) return zoomGoal(id)
   const scale = Math.min(4, goalsTree.width / box.w)
+  const from = goalsFocus
   svg.style.transform = `translate(${-box.x * scale}px, ${-box.y * scale}px) scale(${scale})`
   svg.classList.add('is-gliding')
-  setTimeout(() => zoomGoal(id), 260)
+  place.classList.add('is-gliding')
+  setTimeout(() => {
+    place.classList.remove('is-gliding')
+    // The map moved elsewhere meanwhile (Back, a crumb): that wins.
+    if (goalsFocus === from) zoomGoal(id)
+    else if (board !== null) drawGoalTree(board)
+  }, 260)
 }
 
 $('goals-diagram').addEventListener('click', event => {
@@ -3608,6 +3644,12 @@ $('goals-diagram').addEventListener('pointerdown', event => {
 window.addEventListener('pointermove', event => {
   const press = goalsTreePress
   if (press === null || !board?.goals) return
+  // Its button is up without a pointerup reaching here (a menu, another window): the drag is over, nothing moves.
+  if (event.buttons === 0) {
+    if (press.lifted) goalsTreeLetGo(press)
+    goalsTreePress = null
+    return
+  }
   if (!press.lifted) {
     if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 6) return
     press.lifted = true
@@ -3668,18 +3710,47 @@ function goalMenuRow(goals, node, depth) {
   }
   menu.append(action('Close', 'close'))
   if (goalsUi.menuInto) {
-    const list = el('div', 'goals-choices')
-    const into = goals.nodes.filter(other => other.id !== node.parent && goalDropTarget(goals, node.id, other.id, 'into') !== null)
-    if (node.parent !== null) list.append(goalButton('goals-choice', 'The top: a goal of its own', { moveInto: '' }))
-    for (const other of into.slice(0, 40)) {
-      const button = goalButton('goals-choice', '', { moveInto: other.id })
-      button.append(el('b', '', other.title), el('small', 'muted', ` · ${goalById(goals, other.parent)?.title ?? 'at the top'}`))
-      list.append(button)
-    }
-    menu.append(list)
+    const words = el('input', 'goals-input')
+    words.type = 'text'
+    words.id = 'goals-menu-words'
+    words.placeholder = 'Find the goal it goes into'
+    words.setAttribute('aria-label', 'Find the goal it goes into')
+    words.value = goalsUi.menuWords
+    menu.append(words, goalMenuChoices(goals, node))
   }
   return menu
 }
+
+/** The goals a goal may move into, whose titles hold every word typed; the first twenty. */
+function goalMenuChoices(goals, node) {
+  const list = el('div', 'goals-choices')
+  list.id = 'goals-menu-choices'
+  const wanted = goalsUi.menuWords.toLowerCase().split(/\s+/).filter(Boolean)
+  const into = goals.nodes.filter(other => other.id !== node.parent && goalDropTarget(goals, node.id, other.id, 'into') !== null && wanted.every(word => other.title.toLowerCase().includes(word)))
+  if (node.parent !== null && wanted.length === 0) list.append(goalButton('goals-choice', 'The top: a goal of its own', { moveInto: '' }))
+  for (const other of into.slice(0, 20)) {
+    const button = goalButton('goals-choice', '', { moveInto: other.id })
+    button.append(el('b', '', other.title), el('small', 'muted', ` · ${goalById(goals, other.parent)?.title ?? 'at the top'}`))
+    list.append(button)
+  }
+  if (into.length > 20) list.append(el('small', 'muted', `${into.length - 20} more: type a word of the title`))
+  if (into.length === 0 && wanted.length > 0) list.append(el('span', 'muted', 'No goal fits those words.'))
+  return list
+}
+$('goals-outline').addEventListener('input', event => {
+  if (event.target.id !== 'goals-menu-words' || !board?.goals) return
+  goalsUi.menuWords = event.target.value
+  const node = goalById(board.goals, goalsUi.menu)
+  if (node !== null) $('goals-menu-choices')?.replaceWith(goalMenuChoices(board.goals, node))
+})
+$('goals-outline').addEventListener('keydown', event => {
+  if (event.target.id !== 'goals-menu-words' || event.key !== 'Escape') return
+  event.preventDefault()
+  event.stopPropagation()
+  goalsUi.menu = null
+  goalsUi.menuInto = false
+  redrawGoals()
+})
 
 $('goals-outline').addEventListener('click', event => {
   const opener = event.target.closest('[data-goal-menu]')
@@ -3687,6 +3758,7 @@ $('goals-outline').addEventListener('click', event => {
     event.stopPropagation()
     goalsUi.menu = goalsUi.menu === opener.dataset.goalMenu ? null : opener.dataset.goalMenu
     goalsUi.menuInto = false
+    goalsUi.menuWords = ''
     return redrawGoals()
   }
   const menu = event.target.closest('.goal-menu')
@@ -3706,7 +3778,9 @@ $('goals-outline').addEventListener('click', event => {
   if (name === 'up' || name === 'down') return goalsMove(id, goalKeyMove(board.goals, id, name))
   if (name === 'into') {
     goalsUi.menuInto = !goalsUi.menuInto
-    return redrawGoals()
+    goalsUi.menuWords = ''
+    redrawGoals()
+    return $('goals-menu-words')?.focus()
   }
   if (name === 'close') {
     close()
@@ -3737,7 +3811,9 @@ $('goals-outline').addEventListener('click', event => {
     }
     goalsUi.confirm = null
     close()
-    return sendGoals({ command: name, id })
+    return sendGoals({ command: name, id }).then(done => {
+      if (done !== null && id === goalsFocus) zoomGoal(node.parent)
+    })
   }
 }, true)
 
@@ -3805,6 +3881,8 @@ async function sendGoals(body) {
 }
 
 function goalsEdit(kind, id, value = '') {
+  // The editors of a new goal and of a row's title stand in the outline: it shows again if it was hidden.
+  if (goalsViews === 'diagram' && (kind === 'add' || kind === 'sibling' || (kind === 'rename' && id !== goalsFocus))) setGoalsViews(isPhone() ? 'outline' : 'both')
   goalsUi.editing = { kind, id, value }
   goalsUi.confirm = null
   redrawGoals()
@@ -4079,6 +4157,16 @@ document.addEventListener('keydown', event => {
     return sendGoals({ command: 'undo' })
   }
   if (event.key !== 'Escape') return
+  if (goalsTreePress !== null) {
+    if (goalsTreePress.lifted) goalsTreeLetGo(goalsTreePress)
+    goalsTreePress = null
+    return
+  }
+  if (goalsUi.menu !== null) {
+    goalsUi.menu = null
+    goalsUi.menuInto = false
+    return redrawGoals()
+  }
   if (goalsUi.chosen.size > 0) {
     goalsUi.chosen.clear()
     return redrawGoals()

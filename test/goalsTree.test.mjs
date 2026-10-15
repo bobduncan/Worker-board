@@ -32,12 +32,14 @@ test('two goals stand centred in one row under the frame, with a trunk, a bus an
   assert.deepEqual(out.boxes.map(box => box.id), ['G2', 'G5'])
   assert.equal(out.boxes[0].y, 180)
   assert.equal(out.boxes[0].x + out.boxes[0].w + 20, out.boxes[1].x)
-  assert.equal(out.boxes[0].x, 540 - (out.boxes[1].x + out.boxes[1].w))
   assert.equal(out.lines.length, 1 + 1 + 2)
-  assert.deepEqual(out.ghosts.map(ghost => [ghost.id, ghost.arrowTo]), [['G7', 'G1']])
-  // The ghost stands at the right edge; the frame leaves it room.
+  assert.deepEqual(out.ghosts.map(ghost => [ghost.id, ghost.arrowTo]), [['G7', ['G1']]])
+  // The ghost stands at the right edge, in a column of its own: the frame and the boxes leave it room.
   assert.equal(out.ghosts[0].x + out.ghosts[0].w, 540)
   assert.ok(out.frame.x + out.frame.w < out.ghosts[0].x)
+  assert.ok(out.boxes.every(box => box.x + box.w <= out.ghosts[0].x - 8))
+  // The boxes stand centred in what is left.
+  assert.equal(out.boxes[0].x, out.ghosts[0].x - 24 - (out.boxes[1].x + out.boxes[1].w))
   assert.ok(out.height >= out.boxes[0].y + out.boxes[0].h)
 })
 
@@ -45,9 +47,20 @@ test('seven goals wrap into rows; a reference box stands with the goals inside; 
   const many = ['- [ ] G1 Root', ...['G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8'].map(id => `  - [ ] ${id} ${id}`)].join('\n')
   const out = page.goalTreeLayout(stateGoals(many), 'G1', 540)
   assert.deepEqual(out.boxes.map(box => box.row), [0, 0, 0, 1, 1, 1, 2])
-  assert.equal(out.boxes[3].y, 300)
-  // One bus per row, one drop per box, one trunk.
-  assert.equal(out.lines.length, 1 + 3 + 7)
+  assert.equal(out.boxes[3].y, 330)
+  // One trunk, one bus per row, one drop per box, and a spine down the left joining the rows.
+  assert.equal(out.lines.length, 1 + 3 + 7 + 1)
+  // No line runs through a box (review B257): a line may touch a box's edge, never cross its inside.
+  const inside = (line, box) => {
+    const [left, right, top, bottom] = [box.x, box.x + box.w, box.y, box.y + box.h]
+    const xs = [Math.min(line.x1, line.x2), Math.max(line.x1, line.x2)]
+    const ys = [Math.min(line.y1, line.y2), Math.max(line.y1, line.y2)]
+    return xs[1] > left && xs[0] < right && ys[1] > top && ys[0] < bottom
+  }
+  for (const width of [540, 900, 330]) {
+    const layout = page.goalTreeLayout(stateGoals(many), 'G1', width)
+    assert.deepEqual(layout.lines.flatMap(line => layout.boxes.filter(box => inside(line, box)).map(box => box.id)), [], `width ${width}`)
+  }
   const inG5 = page.goalTreeLayout(stateGoals(), 'G5', 540)
   assert.deepEqual(inG5.boxes.map(box => [box.id, box.kind]), [['G6', 'child'], ['G9', 'ref']])
   const top = page.goalTreeLayout(stateGoals(), null, 540)
@@ -94,4 +107,18 @@ test('the page draws the tree as svg beside the outline, with a divider, both vi
   assert.match(html, /data-goals-view="diagram"/)
   assert.match(html, /data-goals-view="outline"/)
   assert.match(css, /@media \(max-width: 760px\)[^}]*\.goals-split \{ flex-direction: column/)
+})
+
+test('review: one ghost per goal out of view, at most three, the rest counted', () => {
+  const text = ['- [ ] G1 Root', '  - [ ] G2 Two', '  - [ ] G3 Three',
+    ...['G4', 'G5', 'G6', 'G7', 'G8'].map(id => `- [ ] ${id} Source ${id}\n  Enables: G1`),
+    '- [ ] G9 Both', '  Enables: G2, G3'].join('\n')
+  const out = page.goalTreeLayout(stateGoals(text), 'G1', 700)
+  assert.deepEqual(out.ghosts.map(ghost => [ghost.id, ghost.arrowTo]), [['G4', ['G1']], ['G5', ['G1']], ['G6', ['G1']]])
+  assert.equal(out.moreGhosts, 3)
+  // The ghosts stack above the boxes' first row and beside them.
+  assert.ok(out.ghosts.every(ghost => ghost.y + ghost.h < out.boxes[0].y - 30))
+  const both = page.goalTreeLayout(stateGoals(text.replace(/- \[ \] G[4-8][^\n]*\n  Enables: G1\n?/g, '')), 'G1', 700)
+  assert.deepEqual(both.ghosts.map(ghost => [ghost.id, ghost.arrowTo]), [['G9', ['G2', 'G3']]])
+  assert.equal(both.moreGhosts, 0)
 })

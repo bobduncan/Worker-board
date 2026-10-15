@@ -118,7 +118,8 @@ button, textarea, select { font: inherit; color: inherit; }
 .goals-split { display: flex; min-height: 420px; }
 /* B257: the tree left, the outline right as wide as dragged (the divider); either side can be hidden. */
 .goals-diagram { flex: 1; min-width: 0; overflow: auto; padding: 8px 6px; }
-#goals-resizer { flex: none; width: 6px; }
+/* Shown at every width the two sides stand side by side (the other parts of the board hide their dividers below 1250 px). */
+#goals-resizer { display: block; flex: none; width: 6px; }
 .goals-outline { flex: none; width: var(--side, 440px); min-width: 0; padding: 6px 4px; overflow-x: hidden; }
 .goals-split.is-outline-only .goals-diagram, .goals-split.is-outline-only #goals-resizer, .goals-split.is-diagram-only .goals-outline, .goals-split.is-diagram-only #goals-resizer { display: none; }
 .goals-split.is-outline-only .goals-outline { flex: 1; width: auto; }
@@ -128,9 +129,16 @@ button, textarea, select { font: inherit; color: inherit; }
 .goal-tree { display: block; user-select: none; transform-origin: 0 0; transition: transform .25s ease, opacity .25s ease; }
 .goal-tree.is-gliding { opacity: .35; }
 .goal-tree text { font-family: inherit; fill: var(--text); }
-.goal-line { stroke: #3a4a63; stroke-width: 1.5; }
+/* Lines, arrows and their words take no click: a click there is not one on the empty ground. */
+.goal-line { stroke: #3a4a63; stroke-width: 1.5; pointer-events: none; }
+.goal-arrow-group, .goal-ghost-more { pointer-events: none; }
+.goal-ghost-more { font-size: 10.5px; fill: var(--muted) !important; }
 .goal-box, .goal-ghost, .goal-tree-frame { cursor: pointer; }
-.goal-box:focus-visible { outline: none; }
+.goal-box:focus-visible, .goal-ghost:focus-visible { outline: none; }
+.goal-box:focus-visible .goal-box-rect, .goal-ghost:focus-visible rect { stroke: #8fb4ff; stroke-width: 3; stroke-dasharray: none; }
+/* A box is dragged with a pen or a finger too, on a screen wider than a phone. */
+.goal-box { touch-action: none; }
+.goals-diagram.is-gliding { overflow: hidden; }
 .goal-box-rect { fill: #121c2c; stroke: var(--muted); stroke-width: 1.5; }
 .goal-box.is-now .goal-box-rect, .goal-tree-frame.is-now .goal-frame-rect { stroke: var(--waiting); stroke-width: 2; }
 .goal-box.is-done .goal-box-rect, .goal-tree-frame.is-done .goal-frame-rect { stroke: var(--working); }
