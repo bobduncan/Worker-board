@@ -225,6 +225,8 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
   .goals-split.is-diagram-only .goals-outline { display: none; }
   .goal-row { padding: 11px 10px; }
   .goal-more { opacity: 1; font-size: 18px; padding: 0 8px; }
+  /* The dot is drawn by its own size: the thumbs' 44 px (B208) would stretch it; on a phone the "…" marks it done. */
+  .goal-row button.goal-dot { min-height: 0; width: 14px; height: 14px; }
 }
 @media (max-width: 700px) {
   .goals-head { flex-wrap: wrap; gap: 4px; }

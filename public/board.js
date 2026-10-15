@@ -3212,6 +3212,8 @@ function goalEditorRow(goals, depth) {
 function drawGoals(state) {
   const goals = state.goals ?? null
   const canEdit = canEditGoals(state)
+  // B257: the view buttons say what shows at this width (a phone shows the outline unless the diagram is chosen).
+  showGoalsViews()
   if (goals === null || (goals.nodes.length === 0 && goals.problems.length === 0)) {
     fill($('goals-crumb'), [el('span', 'goals-here', 'Goals')])
     $('goals-count').textContent = ''
