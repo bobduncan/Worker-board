@@ -322,11 +322,16 @@ zoomed into has "+ Sub-goal", "Rename", "Done when…", "Why…", "Note…", "Al
 over the titles; a link shows with its × to take it away), and "Dissolve" (its goals lifted into its place) or
 "Delete" (only without goals inside), each asking a second click. At the top, "+ Goal". In the outline: a click on a
 row's dot steps open → in progress → done (done with open goals inside asks once); drag a row before or after another
-(a blue line), into one (a dashed outline; a folded row opens after a second) or onto a crumb; Alt+↑ / Alt+↓ move it
-among its siblings, Tab under the one above, Shift+Tab out after its parent; F2 renames; Enter adds the next goal
-after it; Ctrl-click chooses goals, then "Group under a new goal…" puts them under a new one where the first stood.
-Ctrl+Z (and "↶ Undo") undoes the last twenty changes made on the page, while the file still reads as the change left
-it. Before the first change of a day the board copies the file to `goalsHistory` (`.claude/goals.history/<date>.md`).
+(a blue line), into one (a dashed outline; a folded row opens after a second) or onto a crumb (a reference row takes
+no drop). On a row's title, as in an outliner: ↑ / ↓ walk the rows; Alt+↑ / Alt+↓ move the goal among its siblings,
+Tab or Alt+→ under the one above, Shift+Tab or Alt+← out after its parent; F2 renames; Enter adds the next goal after
+it; the row's arrow and dot keep their own keys. Ctrl-click chooses goals, then "Group under a new goal…" puts them
+under a new one where the first stood (a chosen goal inside another chosen one stays put). Ctrl+Z (and "↶ Undo")
+undoes the last twenty changes made on this page, while the file still reads as the change left it; a change that
+changes nothing is no change. A goal of the game plan keeps the plan's title and Done when and stays: no Rename,
+Done when…, Dissolve or Delete there. A link line keeps any words of its own; only the lines that name a removed goal
+change. A file that is not UTF-8 text, or indented with tabs, is not changed: the line says what to fix by hand.
+Before the first change of a day the board copies the file to `goalsHistory` (`.claude/goals.history/<date>.md`).
 Only the board that delivers writes; the demo and a show-only copy say "Read only here". A new goal takes the highest
 id in the file plus one. The picture: `art-inbox/board-goals/b256-editing.png`.
 

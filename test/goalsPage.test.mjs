@@ -16,7 +16,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// goals:start'), script.indexOf('// goals:end'))}
-Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalDropTarget, goalFocusOf, goalFrameLine, goalFrameLines, goalHasOpenInside, goalKeyMove, goalLinkChoices, goalNextState, goalOutlineRows, goalPlaceAt, goalZoomOut, tabOfAddress })`, made)
+Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalDropTarget, goalFocusOf, goalFrameLine, goalFrameLines, goalHasOpenInside, goalKeyMove, goalLinkChoices, goalNextState, goalOutlineRows, goalPlaceAt, goalTools, goalZoomOut, tabOfAddress })`, made)
 // What the page's functions answer, as this file's own objects, so deepEqual compares them by value.
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
@@ -194,4 +194,18 @@ test('B256: the page sends a change to /api/goals and draws the file anew; the k
   assert.match(html, /id="goals-actions"/)
   assert.match(html, /id="goals-note"/)
   assert.match(html, /id="goals-chosen"/)
+})
+
+test('review: a goal of the game plan keeps its title, its Done when and its place; others get every tool', () => {
+  const goals = stateGoals()
+  const kinds = id => page.goalTools(goals.nodes.find(one => one.id === id)).map(([kind]) => kind)
+  assert.deepEqual(kinds('G2'), ['add', 'Why', 'note', 'Also part of', 'Enables'])
+  assert.deepEqual(kinds('G7'), ['add', 'rename', 'Done when', 'Why', 'note', 'Also part of', 'Enables', 'dissolve'])
+  assert.deepEqual(kinds('G8').at(-1), 'delete')
+})
+
+test('review: the keys move a goal only from its title; the arrows walk the rows; a drag carries its own kind', () => {
+  assert.match(script, /event\.target\.closest\('\.goal-title'\)/)
+  assert.ok(script.includes("'ArrowRight'") && script.includes("'ArrowLeft'"))
+  assert.ok(script.includes("'application/x-goal'"))
 })

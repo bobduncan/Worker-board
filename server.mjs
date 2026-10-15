@@ -693,7 +693,7 @@ async function main(args) {
     // B221: the person closes or deletes a step on the Backlog tab. Only the board that delivers writes the backlog.
     backlog: body => editStep(body, { canWrite: !isDemo && !isShowOnly, file: join(config.project, ...config.backlog.split('/')), now: clock() }),
     // B256: the person changes the goal map on the Goals part. Only the board that delivers writes it; then the state
-    // is read anew, so the page draws the file as it now is.
+    // is read anew, so the page draws the file as it now is: also after a refusal, often a change made elsewhere.
     goals: async body => {
       const done = await editGoals(body, {
         canWrite: !isDemo && !isShowOnly,
@@ -701,7 +701,7 @@ async function main(args) {
         historyDir: join(config.project, ...config.goalsHistory.split('/')),
         now: clock(),
       })
-      if (done.ok) readState.reset()
+      readState.reset()
       return done
     },
     // B142: started anew on the person's click, once the version its folder holds loads.

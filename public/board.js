@@ -2998,6 +2998,17 @@ function goalKeyMove(goals, id, key) {
   return null
 }
 
+/**
+ * The frame's tools for a goal, as [kind, words]. A goal of the game plan ("From the game plan:") keeps the plan's
+ * title and Done when, and stays (spec section 1): no Rename, Done when…, Dissolve or Delete there.
+ */
+function goalTools(node) {
+  const isPlan = Boolean(node.fromPlan)
+  const tools = [['add', '+ Sub-goal'], ...(isPlan ? [] : [['rename', 'Rename'], ['Done when', 'Done when…']]), ['Why', 'Why…'], ['note', 'Note…'], ['Also part of', 'Also part of…'], ['Enables', 'Enables…']]
+  if (!isPlan) tools.push(node.children.length > 0 ? ['dissolve', 'Dissolve'] : ['delete', 'Delete'])
+  return tools
+}
+
 /** A click on the dot: open → in progress → done → open. */
 function goalNextState(state) { return state === 'open' ? 'now' : state === 'now' ? 'done' : 'open' }
 
@@ -3049,7 +3060,6 @@ const GOAL_EDITORS = {
   'Also part of': 'Find the goal it is also part of',
   group: 'The new goal they go under',
 }
-const GOAL_TOOLS = [['add', '+ Sub-goal'], ['rename', 'Rename'], ['Done when', 'Done when…'], ['Why', 'Why…'], ['note', 'Note…'], ['Also part of', 'Also part of…'], ['Enables', 'Enables…']]
 const GOAL_CONFIRM_MS = 5000
 const GOAL_NOTE_MS = 8000
 
@@ -3067,7 +3077,12 @@ function goalsData(state) {
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
+/** Asked and not yet answered; a second click within GOAL_CONFIRM_SLOW_MS (a double-click) is no answer. */
 const isConfirming = (kind, id) => goalsUi.confirm !== null && goalsUi.confirm.kind === kind && goalsUi.confirm.id === id
+const isConfirmed = (kind, id) => isConfirming(kind, id) && Date.now() - goalsUi.confirm.at >= GOAL_CONFIRM_SLOW_MS
+const GOAL_CONFIRM_SLOW_MS = 400
+/** B256: this page's own word, so the board undoes this page's changes and no other's. */
+const GOALS_PAGE = Math.random().toString(36).slice(2, 12).padEnd(6, '0')
 
 function goalButton(className, text, data = {}) {
   const button = el('button', className, text)
@@ -3123,11 +3138,15 @@ function drawGoals(state) {
     $('goals-problems').hidden = true
     $('goals-frame').hidden = true
     $('goals-chosen').hidden = true
-    fill($('goals-actions'), [])
-    $('goals-note').hidden = true
+    // A file without goals takes its first one here; without a file the Advisor writes it first.
+    fill($('goals-actions'), goals !== null && canEdit ? [goalButton('goals-action', '+ Goal', { goalAction: 'add' })] : [])
+    $('goals-note').hidden = goalsUi.note === null
+    $('goals-note').textContent = goalsUi.note?.text ?? ''
     fill($('goals-outline'), [el('p', 'muted goals-empty', goals === null
       ? `No goal map yet. The Advisor writes ${state.goalsFile ?? '.claude/goals.md'} with you; the board draws it here.`
-      : `${state.goalsFile ?? 'The goals file'} holds no goal yet. The Advisor writes them with you; the board draws them here.`)])
+      : `${state.goalsFile ?? 'The goals file'} holds no goal yet. The Advisor writes them with you; the board draws them here.`),
+    goals !== null && canEdit && goalsUi.editing?.kind === 'add' ? goalEditorRow(goals, 0) : null])
+    if ($('goals-input') !== null) $('goals-input').focus()
     return
   }
   const focus = goalById(goals, goalsFocus)
@@ -3205,12 +3224,14 @@ function drawGoals(state) {
         })))
       }
       const tools = el('div', 'goals-tools')
-      for (const [kind, words] of GOAL_TOOLS) tools.append(goalButton('goals-tool', words, { goalTool: kind }))
-      const hasInside = focus.children.length > 0
-      const dropKind = hasInside ? 'dissolve' : 'delete'
-      const drop = goalButton(`goals-tool is-${dropKind}`, isConfirming(dropKind, focus.id) ? (hasInside ? 'Click again to dissolve it' : 'Click again to delete it') : hasInside ? 'Dissolve' : 'Delete', { goalTool: dropKind })
-      drop.title = hasInside ? 'Lift the goals inside it into its place, and remove it' : 'Remove it and the links to it'
-      tools.append(drop)
+      for (const [kind, words] of goalTools(focus)) {
+        const isDrop = kind === 'dissolve' || kind === 'delete'
+        const tool = goalButton(`goals-tool${isDrop ? ` is-${kind}` : ''}`, isDrop && isConfirming(kind, focus.id) ? `Click again to ${kind} it` : words, { goalTool: kind })
+        if (kind === 'dissolve') tool.title = 'Lift the goals inside it into its place, and remove it'
+        if (kind === 'delete') tool.title = 'Remove it and the links to it'
+        tools.append(tool)
+      }
+      if (focus.fromPlan) tools.append(el('small', 'muted', 'Its title and Done when are the game plan\'s.'))
       parts.push(tools)
       const editing = goalsUi.editing
       if (editing !== null && editing.id === focus.id && !['rename', 'add', 'sibling', 'group'].includes(editing.kind)) parts.push(goalEditorBox(goals))
@@ -3293,12 +3314,13 @@ function goalsSay(text) {
       redrawGoals()
     }
   }, GOAL_NOTE_MS + 50)
+  redrawGoals()
 }
 
 /** Asks for a second click on the same thing within five seconds. */
 function goalsAsk(kind, id) {
   const until = Date.now() + GOAL_CONFIRM_MS
-  goalsUi.confirm = { kind, id, until }
+  goalsUi.confirm = { kind, id, until, at: Date.now() }
   setTimeout(() => {
     if (goalsUi.confirm?.until === until) {
       goalsUi.confirm = null
@@ -3318,18 +3340,20 @@ async function sendGoals(body) {
     const answer = await fetch('/api/goals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, page: GOALS_PAGE }),
     })
     if (answer.ok) result = await answer.json()
     else goalsSay(`Not changed: ${(await answer.text()).trim() || `refused (${answer.status})`}`)
   } catch {
     goalsSay('Not changed: the board\'s server does not answer.')
   }
+  // A change that changed nothing is nothing to undo.
+  if (result !== null && result.unchanged !== true) goalsUi.undoable = body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
+  // Changed or refused, the map is read anew (a refusal is often a change made elsewhere in between), and the next
+  // key works on the map as it now is.
+  await read()
   goalsUi.busy = false
-  if (result !== null) goalsUi.undoable = body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   redrawGoals()
-  // Changed or refused, the map is read anew: a refusal is often a change made elsewhere in between.
-  read()
   return result
 }
 
@@ -3384,8 +3408,9 @@ async function goalsCycle(id) {
   const node = board?.goals ? goalById(board.goals, id) : null
   if (node === null) return
   const next = goalNextState(node.state)
-  if (next === 'done' && goalHasOpenInside(board.goals, id) && !isConfirming('done', id)) {
-    goalsAsk('done', id)
+  if (next === 'done' && goalHasOpenInside(board.goals, id) && !isConfirmed('done', id)) {
+    // A double-click is not the second click it asks for.
+    if (!isConfirming('done', id)) goalsAsk('done', id)
     return redrawGoals()
   }
   goalsUi.confirm = null
@@ -3429,8 +3454,8 @@ $('goals-frame').addEventListener('click', event => {
   if (tool === undefined || focus === null) return
   const node = board?.goals ? goalById(board.goals, focus) : null
   if (tool === 'delete' || tool === 'dissolve') {
-    if (!isConfirming(tool, focus)) {
-      goalsAsk(tool, focus)
+    if (!isConfirmed(tool, focus)) {
+      if (!isConfirming(tool, focus)) goalsAsk(tool, focus)
       return redrawGoals()
     }
     goalsUi.confirm = null
@@ -3485,14 +3510,28 @@ for (const id of ['goals-frame', 'goals-outline', 'goals-chosen']) {
   })
 }
 
-// B256: keys on a row of the outline: Alt+↑/↓ move it among its siblings, Tab under the one above, Shift+Tab out;
-// F2 renames it, Enter adds the next goal after it.
+// B256: keys on a row's title in the outline, as in an outliner: ↑/↓ walk the rows; Alt+↑/↓ move the goal among its
+// siblings, Tab or Alt+→ under the one above, Shift+Tab or Alt+← out after its parent; F2 renames it, Enter adds the
+// next goal after it. The row's arrow and dot keep their own keys.
 $('goals-outline').addEventListener('keydown', event => {
-  const row = event.target.closest?.('.goal-row')
-  if (row === null || row === undefined || row.classList.contains('is-editor') || event.target.closest('.goals-editor') !== null) return
+  if (event.target.closest('.goal-title') === null) return
+  const row = event.target.closest('.goal-row')
+  if (row === null || row.classList.contains('is-editor')) return
+  if (!event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+    const titles = [...$('goals-outline').querySelectorAll('.goal-row .goal-title')]
+    const next = titles[titles.indexOf(event.target) + (event.key === 'ArrowUp' ? -1 : 1)]
+    if (next) {
+      event.preventDefault()
+      next.focus()
+    }
+    return
+  }
   if (!canEditGoals(board) || !board?.goals || row.classList.contains('is-ref')) return
   const id = row.dataset.goal
-  const key = event.altKey && event.key === 'ArrowUp' ? 'up' : event.altKey && event.key === 'ArrowDown' ? 'down' : event.key === 'Tab' && !event.altKey && !event.ctrlKey ? (event.shiftKey ? 'out' : 'in') : null
+  const key = event.altKey && event.key === 'ArrowUp' ? 'up'
+    : event.altKey && event.key === 'ArrowDown' ? 'down'
+      : (event.altKey && event.key === 'ArrowRight') || (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.shiftKey) ? 'in'
+        : (event.altKey && event.key === 'ArrowLeft') || (event.key === 'Tab' && event.shiftKey && !event.altKey && !event.ctrlKey) ? 'out' : null
   if (key !== null) {
     const target = goalKeyMove(board.goals, id, key)
     if (target === null) return
@@ -3501,6 +3540,8 @@ $('goals-outline').addEventListener('keydown', event => {
   }
   if (event.key === 'F2') {
     event.preventDefault()
+    // The game plan's own goals keep their title.
+    if (goalById(board.goals, id)?.fromPlan) return goalsSay('Its title is the game plan\'s: change it through the plan.')
     return goalsEdit('rename', id, goalById(board.goals, id)?.title ?? '')
   }
   if (event.key === 'Enter' && !event.ctrlKey && !event.altKey && !event.shiftKey) {
@@ -3514,12 +3555,14 @@ let goalsHover = null
 function goalsClearMarks() {
   for (const marked of document.querySelectorAll('.goal-row.is-before, .goal-row.is-after, .goal-row.is-into, .goals-crumb .is-into')) marked.classList.remove('is-before', 'is-after', 'is-into')
 }
+/** Where a drop would land, or null: only a goal dragged on this page counts, never a file or words from elsewhere. */
 function goalsDropAt(event) {
-  if (goalsUi.drag === null || !board?.goals) return null
+  if (goalsUi.drag === null || !board?.goals || !event.dataTransfer?.types.includes('application/x-goal')) return null
   const crumb = event.target.closest?.('.goals-crumb [data-goal]')
   if (crumb) return { mark: crumb, place: 'into', target: goalDropTarget(board.goals, goalsUi.drag, crumb.dataset.goal === '' ? null : crumb.dataset.goal, 'into') }
   const row = event.target.closest?.('.goal-row')
-  if (!row || row.classList.contains('is-editor')) return null
+  // A reference row stands away from its goal's home: a drop there would land somewhere else than it shows.
+  if (!row || row.classList.contains('is-editor') || row.classList.contains('is-ref')) return null
   const box = row.getBoundingClientRect()
   const place = goalPlaceAt(event.clientY - box.top, box.height)
   return { mark: row, place, target: goalDropTarget(board.goals, goalsUi.drag, row.dataset.goal, place) }
@@ -3529,6 +3572,7 @@ $('goals-outline').addEventListener('dragstart', event => {
   if (!row || !row.draggable) return
   goalsUi.drag = row.dataset.goal
   event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('application/x-goal', row.dataset.goal)
   event.dataTransfer.setData('text/plain', row.dataset.goal)
   row.classList.add('is-dragging')
 })
@@ -3536,17 +3580,18 @@ for (const id of ['goals-outline', 'goals-crumb']) {
   $(id).addEventListener('dragover', event => {
     const at = goalsDropAt(event)
     goalsClearMarks()
+    // Held over a folded row, inside it, for a second: the row opens, to drop deeper. Anywhere else the wait ends.
+    const fold = at?.target ? at.mark.querySelector?.('button.goal-fold[aria-expanded="false"]') : null
+    const over = at?.place === 'into' && fold ? at.mark.dataset.goal : null
+    if (goalsHover !== null && goalsHover.id !== over) {
+      clearTimeout(goalsHover.timer)
+      goalsHover = null
+    }
     if (at === null || at.target === null) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     at.mark.classList.add(`is-${at.place}`)
-    // Held over a folded row, inside it, for a second: the row opens, to drop deeper.
-    const fold = at.mark.querySelector?.('button.goal-fold[aria-expanded="false"]')
-    if (at.place === 'into' && fold && goalsHover?.id !== at.mark.dataset.goal) {
-      clearTimeout(goalsHover?.timer)
-      const over = at.mark.dataset.goal
-      goalsHover = { id: over, timer: setTimeout(() => { goalsOpened.add(over); redrawGoals() }, 1000) }
-    }
+    if (over !== null && goalsHover === null) goalsHover = { id: over, timer: setTimeout(() => { goalsOpened.add(over); redrawGoals() }, 1000) }
   })
   $(id).addEventListener('drop', event => {
     const at = goalsDropAt(event)
@@ -3568,9 +3613,13 @@ function goalsEndDrag() {
   goalsClearMarks()
   for (const row of document.querySelectorAll('.goal-row.is-dragging')) row.classList.remove('is-dragging')
 }
-document.addEventListener('dragend', () => {
-  if (goalsUi.drag !== null) goalsEndDrag()
-})
+// The dragged row may have been drawn anew (a folded row opened), so its own dragend never comes: a drop anywhere
+// ends the drag too.
+for (const name of ['dragend', 'drop']) {
+  document.addEventListener(name, () => {
+    if (goalsUi.drag !== null) goalsEndDrag()
+  })
+}
 
 // Esc zooms out one level while the map is on screen and nothing else (a window, a text box) has the key.
 // B256: Ctrl+Z there undoes the last change made on this page.
