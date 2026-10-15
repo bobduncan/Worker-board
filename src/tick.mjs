@@ -202,7 +202,7 @@ export async function writeTick(file, id, under, fs = files) {
  * B221: the backlog's file with one change made to it (`change`: the text before, as latin1, to `{ ok, text }` or
  * `{ ok: false, why }`), read anew right before and put in its place in one move, as `writeTick` describes.
  */
-async function rewrite(file, change, fs) {
+export async function rewrite(file, change, fs) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let before
     try {
