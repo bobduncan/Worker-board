@@ -100,7 +100,7 @@ export function renameGoal(text, id, title) {
 }
 
 export function setGoalState(text, id, state) {
-  if (STATE_MARK[state] === undefined) return refuse('form')
+  if (typeof state !== 'string' || !Object.hasOwn(STATE_MARK, state)) return refuse('form')
   const file = split(text)
   const found = blockOf(file.lines, id)
   if (!found.ok) return found
@@ -137,6 +137,21 @@ export function addGoalNote(text, id, note) {
 
 export const setGoalSteps = (text, id, ids) => setGoalLine(text, id, 'Steps', [...new Set(ids.filter(one => /^B\d+$/.test(one)))].join(', '))
 
+/** A link line's value of ids alone ("G1, G7"): rewritten as ids; one with words of its own keeps them. */
+const ONLY_IDS = /^[\s,]*(?:G\d+[\s,]*)*$/
+const idsIn = value => value.match(/\bG\d+\b/g) ?? []
+
+/** The value with `target` added; words in it stay, the id goes at its end. */
+function valueWith(value, target) {
+  if (idsIn(value).includes(target)) return value.trim()
+  return ONLY_IDS.test(value) ? [...idsIn(value), target].join(', ') : `${value.trim().replace(/,\s*$/, '')}, ${target}`
+}
+
+/** The value without `target`; words in it stay. '' when nothing is left. */
+function valueWithout(value, target) {
+  if (ONLY_IDS.test(value)) return idsIn(value).filter(one => one !== target).join(', ')
+  return value.replace(new RegExp(`\\b${target}\\b\\s*,?\\s*`), '').replace(/^[\s,]+|[\s,]+$/g, '')
+}
 /**
  * `Enables: G7` or `Also part of: G5`, one line per name with the targets in it. A goal is no target of its own: not
  * itself, and for "Also part of" not its home nor a goal inside it.
@@ -151,9 +166,7 @@ export function addGoalLink(text, id, name, target) {
   if (name === 'Also part of' && (homeOf(file.lines, found.start) === target || (other.start > found.start && other.start < found.end))) return refuse('target')
   const at = ownLines(file.lines, found).find(index => file.lines[index].trimStart().startsWith(`${name}:`))
   if (at === undefined) return appendOwnLine(text, id, `${name}: ${target}`)
-  const ids = file.lines[at].slice(file.lines[at].indexOf(':') + 1).match(/\bG\d+\b/g) ?? []
-  if (!ids.includes(target)) ids.push(target)
-  file.lines[at] = `${' '.repeat(found.depth + 2)}${name}: ${ids.join(', ')}`
+  file.lines[at] = `${' '.repeat(found.depth + 2)}${name}: ${valueWith(file.lines[at].slice(file.lines[at].indexOf(':') + 1), target)}`
   return { ok: true, text: join(file) }
 }
 
@@ -164,9 +177,9 @@ export function removeGoalLink(text, id, name, target) {
   if (!found.ok) return found
   const at = ownLines(file.lines, found).find(index => file.lines[index].trimStart().startsWith(`${name}:`))
   if (at === undefined) return { ok: true, text }
-  const ids = (file.lines[at].slice(file.lines[at].indexOf(':') + 1).match(/\bG\d+\b/g) ?? []).filter(one => one !== target)
-  if (ids.length === 0) file.lines.splice(at, 1)
-  else file.lines[at] = `${' '.repeat(found.depth + 2)}${name}: ${ids.join(', ')}`
+  const left = valueWithout(file.lines[at].slice(file.lines[at].indexOf(':') + 1), target)
+  if (left === '') file.lines.splice(at, 1)
+  else file.lines[at] = `${' '.repeat(found.depth + 2)}${name}: ${left}`
   return { ok: true, text: join(file) }
 }
 
@@ -212,8 +225,19 @@ export function moveGoal(text, id, { parent = null, index = 0 }) {
   return { ok: true, text: join({ ...file, lines: rest }) }
 }
 
-/** A new goal where the first of `ids` stood, with them inside it in their order. */
-export function groupGoals(text, ids, { title, id }) {
+/** A new goal where the first of `ids` stood, with them inside it in their order; one inside another chosen stays put. */
+export function groupGoals(text, chosen, { title, id }) {
+  const tree = parseGoals(text)
+  const isInsideChosen = one => {
+    const seen = new Set()
+    for (let up = tree.byId.get(one)?.parent ?? null; up !== null && !seen.has(up); up = tree.byId.get(up)?.parent ?? null) {
+      if (chosen.includes(up)) return true
+      seen.add(up)
+    }
+    return false
+  }
+  const ids = chosen.filter(one => !isInsideChosen(one))
+  if (ids.length === 0) return refuse('form')
   const file = split(text)
   const first = blockOf(file.lines, ids[0])
   if (!first.ok) return first
@@ -229,14 +253,14 @@ export function groupGoals(text, ids, { title, id }) {
   return out
 }
 
-/** `Enables:` and `Also part of:` lines without the id; a line left empty goes. */
+/** `Enables:` and `Also part of:` lines that name the id, without it; a line left empty goes; every other line stays. */
 function dropReferences(text, id) {
   const file = split(text)
   file.lines = file.lines.flatMap(line => {
-    const named = line.match(/^( *)(Enables|Also part of):\s*(.*)$/)
-    if (named === null) return [line]
-    const ids = (named[3].match(/\bG\d+\b/g) ?? []).filter(one => one !== id)
-    return ids.length === 0 ? [] : [`${named[1]}${named[2]}: ${ids.join(', ')}`]
+    const named = line.match(/^( *)(Enables|Also part of):(.*)$/)
+    if (named === null || !idsIn(named[3]).includes(id)) return [line]
+    const left = valueWithout(named[3], id)
+    return left === '' ? [] : [`${named[1]}${named[2]}: ${left}`]
   })
   return join(file)
 }
@@ -282,16 +306,27 @@ const WHY = {
   cycle: [409, 'A goal cannot be moved into itself.'],
   children: [409, 'It has goals inside: dissolve it first.'],
   form: [400, 'Not a change the board knows.'],
+  plan: [409, "That is the game plan's own line: change it through the plan."],
+  encoding: [409, 'The map is not UTF-8 text: change it by hand first.'],
+  tabs: [409, 'The map has lines indented with tabs: make them two spaces per level by hand first.'],
   write: [500, 'The goal map could not be written.'],
 }
 
-/** The changes of this process, newest last: the file, its text before and after (as read, latin1). At most twenty. */
+/** What the game plan owns on a goal marked "From the game plan:" (spec section 1): its title, its Done when, and that it is there. */
+const PLAN_OWNS = body => ['rename', 'delete', 'dissolve'].includes(body.command) || (body.command === 'line' && body.name === 'Done when')
+
+/**
+ * The changes made from each page (spec section 3: "the last twenty changes made in this page"), newest last: the
+ * file, the page, its text before and after (as read, latin1). At most twenty per page.
+ */
 const undone = []
 const UNDO_MOST = 20
 
 const readText = (fs, file) => fs.readFile(file).then(bytes => bytes.toString('latin1'), () => null)
 const isId = value => typeof value === 'string' && /^G\d+$/.test(value)
 const isParent = value => value === null || value === undefined || isId(value)
+/** The page a change came from: its own word, so each page undoes its own changes. */
+const pageOf = body => (typeof body.page === 'string' && /^[0-9a-z]{4,40}$/.test(body.page) ? body.page : '')
 
 /** The change a body asks for, on the file's text (UTF-8); `made` hears the id of a goal it makes. */
 function changeFor(body, made) {
@@ -333,7 +368,7 @@ export async function editGoals(body, { canWrite, file, historyDir, now, fs = fi
   if (canWrite !== true) return { ok: false, status: 403, why: 'This board only shows: change the goal map on the board that delivers.' }
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return { ok: false, status: 400, why: 'Not a change.' }
   if (body.command === 'undo') {
-    const last = undone.findLast(one => one.file === file)
+    const last = undone.findLast(one => one.file === file && one.page === pageOf(body))
     if (last === undefined) return { ok: false, status: 409, why: 'Nothing to undo.' }
     if (await readText(fs, file) !== last.after) return { ok: false, status: 409, why: 'The map changed since: nothing undone.' }
     const put = await rewrite(file, before => (before === last.after ? { ok: true, text: last.before } : refuse('changed')), fs)
@@ -349,18 +384,29 @@ export async function editGoals(body, { canWrite, file, historyDir, now, fs = fi
   let after = null
   await historyCopy(file, historyDir, dayOf(now), fs)
   // The goal functions work on the file's UTF-8; the file is read and written as its bytes (latin1), as the ticks are.
+  // A file that is not UTF-8, or indented with tabs, is not changed: its lines could not all come back as they were.
   const written = await rewrite(file, latin => {
-    const done = change(Buffer.from(latin, 'latin1').toString('utf8'))
+    const text = Buffer.from(latin, 'latin1').toString('utf8')
+    if (Buffer.from(text, 'utf8').toString('latin1') !== latin) return refuse('encoding')
+    if (/^ *\t/m.test(text)) return refuse('tabs')
+    const node = isId(body.id) ? parseGoals(text).byId.get(body.id) : undefined
+    if (node?.fromPlan && PLAN_OWNS(body)) return refuse('plan')
+    const done = change(text)
     if (!done.ok) return done
+    const next = Buffer.from(done.text, 'utf8').toString('latin1')
+    // Nothing changed: no write, and nothing for undo.
+    if (next === latin) return refuse('same')
     before = latin
-    after = Buffer.from(done.text, 'utf8').toString('latin1')
+    after = next
     return { ok: true, text: after }
   }, fs)
+  if (!written.ok && written.why === 'same') return { ok: true, result: { unchanged: true } }
   if (!written.ok) {
     const [status, why] = WHY[written.why] ?? WHY.write
     return { ok: false, status, why }
   }
-  undone.push({ file, before, after })
-  if (undone.length > UNDO_MOST) undone.shift()
+  undone.push({ file, page: pageOf(body), before, after })
+  const mine = undone.filter(one => one.file === file && one.page === pageOf(body))
+  if (mine.length > UNDO_MOST) undone.splice(undone.indexOf(mine[0]), 1)
   return { ok: true, result: newId === null ? {} : { id: newId } }
 }

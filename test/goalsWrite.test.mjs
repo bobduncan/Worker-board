@@ -218,3 +218,68 @@ test('the board takes a change to the goal map from its own page only: the token
   assert.deepEqual(await answer.json(), { id: 'G10' })
   assert.deepEqual(asked, [{ command: 'add', parent: null, title: 'A pond' }])
 })
+
+// B256, the independent review's findings.
+
+test('review: a delete or dissolve changes only the link lines that name the goal, and keeps their other words', () => {
+  const text = GOALS.replace("  Enables: G1\n", "  Enables: G1 because the tools come first\n").replace('    Also part of: G5\n', '    Also part of: G5\n    Enables: nothing yet\n')
+  const gone = deleteGoal(text, 'G8')
+  assert.equal(gone.text, text.replace('  - [x] G8 A sharper spade\n    Steps: B06\n', ''))
+  const dissolved = dissolveGoal(text, 'G5')
+  assert.ok(dissolved.text.includes('    Enables: nothing yet\n'))
+  assert.ok(dissolved.text.includes('  Enables: G1 because the tools come first\n'))
+  assert.equal(parseGoals(dissolved.text).byId.get('G9').alsoPartOf.length, 0)
+  const unlinked = removeGoalLink(text, 'G7', 'Enables', 'G1')
+  assert.ok(unlinked.text.includes('  Enables: because the tools come first\n'))
+  assert.ok(addGoalLink(text, 'G7', 'Enables', 'G2').text.includes('  Enables: G1 because the tools come first, G2\n'))
+})
+
+test('review: a state is one of the three, never a word the object knows', () => {
+  for (const state of ['constructor', 'toString', '__proto__']) assert.equal(setGoalState(GOALS, 'G5', state).why, 'form')
+})
+
+test('review: grouping a goal with one inside it keeps the inner one where it is', () => {
+  const grouped = groupGoals(GOALS, ['G2', 'G3'], { title: 'Season', id: 'G10' })
+  const goals = parseGoals(grouped.text)
+  assert.deepEqual(goals.byId.get('G10').children, ['G2'])
+  assert.deepEqual(goals.byId.get('G2').children, ['G3', 'G4'])
+  assert.deepEqual(parseGoals(groupGoals(GOALS, ['G3', 'G2'], { title: 'Season', id: 'G10' }).text).byId.get('G10').children, ['G2'])
+})
+
+test('review: the handler refuses a file that is not UTF-8 or indented with tabs, and the plan\'s own lines', async () => {
+  const bytes = Buffer.concat([Buffer.from(GOALS.replace('Benches', 'Bench'), 'utf8'), Buffer.from([0x0a, 0xe9, 0x0a])]).toString('latin1')
+  const fs = fakeFs({ 'C:/p/goals.md': bytes })
+  const odd = await editGoals({ command: 'rename', id: 'G3', title: 'x' }, at(fs))
+  assert.deepEqual([odd.ok, odd.status], [false, 409])
+  assert.equal(fs.files['C:/p/goals.md'], bytes)
+  const tabs = fakeFs({ 'C:/p/goals.md': latin(GOALS.replace('    - [ ] G6', '\t\t- [ ] G6')) })
+  assert.equal((await editGoals({ command: 'rename', id: 'G3', title: 'x' }, at(tabs))).status, 409)
+  const plan = fakeFs({ 'C:/p/goals.md': latin(GOALS) })
+  for (const body of [{ command: 'rename', id: 'G2', title: 'x' }, { command: 'delete', id: 'G5' }, { command: 'dissolve', id: 'G2' }, { command: 'line', id: 'G2', name: 'Done when', value: 'x' }]) {
+    assert.equal((await editGoals(body, at(plan))).status, 409, body.command)
+  }
+  assert.equal(plan.files['C:/p/goals.md'], latin(GOALS))
+  assert.equal((await editGoals({ command: 'line', id: 'G2', name: 'Why', value: 'the plan says so' }, at(plan))).ok, true)
+})
+
+test('review: a change that changes nothing is no change: the file stays, and undo goes to the change before', async () => {
+  const fs = fakeFs({ 'C:/p/same.md': latin(GOALS) })
+  const options = at(fs, { file: 'C:/p/same.md' })
+  await editGoals({ command: 'rename', id: 'G3', title: 'One', page: 'pagea1' }, options)
+  const same = await editGoals({ command: 'rename', id: 'G3', title: 'One', page: 'pagea1' }, options)
+  assert.deepEqual([same.ok, same.result], [true, { unchanged: true }])
+  assert.equal((await editGoals({ command: 'undo', page: 'pagea1' }, options)).ok, true)
+  assert.equal(fs.files['C:/p/same.md'], latin(GOALS))
+})
+
+test('review: undo is the page\'s own: another page\'s changes are not undone from here', async () => {
+  const fs = fakeFs({ 'C:/p/pages.md': latin(GOALS) })
+  const options = at(fs, { file: 'C:/p/pages.md' })
+  await editGoals({ command: 'rename', id: 'G3', title: 'Mine', page: 'pagea1' }, options)
+  await editGoals({ command: 'rename', id: 'G4', title: 'Theirs', page: 'pageb2' }, options)
+  assert.equal((await editGoals({ command: 'undo', page: 'pagea1' }, options)).status, 409, 'the other page changed the file since')
+  assert.equal((await editGoals({ command: 'undo', page: 'pageb2' }, options)).ok, true)
+  assert.equal((await editGoals({ command: 'undo', page: 'pagea1' }, options)).ok, true)
+  assert.equal(fs.files['C:/p/pages.md'], latin(GOALS))
+  assert.equal((await editGoals({ command: 'undo', page: 'pagec3' }, options)).status, 409)
+})
