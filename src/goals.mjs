@@ -116,3 +116,50 @@ const highest = (values, prefix) => values.reduce((most, value) => Math.max(most
 
 export const nextGoalId = goals => `G${highest(goals.nodes.map(one => one.id), 'G') + 1}`
 export const nextAskId = goals => `A${highest(goals.nodes.flatMap(one => one.asks.map(ask => ask.id)), 'A') + 1}`
+
+/** Done or open per backlog id; an id the backlog does not hold is absent. */
+function stepStates(backlog) {
+  const states = new Map()
+  for (const activity of backlog?.activities ?? []) for (const step of activity.steps) if (step.id !== null) states.set(step.id, step.isDone ? 'done' : 'open')
+  return states
+}
+
+/**
+ * Each node's counters over its subtree by home position (`children`; an "Also part of" counts under its home only):
+ * the nodes inside, the steps (each backlog id once per node, even when two children name it) done, open or unknown
+ * (not on the backlog), and the Missing lines. An id used twice is walked once, so a file with that mistake cannot
+ * send the count round in circles.
+ */
+export function goalCounts(goals, backlog) {
+  const states = stepStates(backlog)
+  const counts = new Map()
+  const seen = new Set()
+  const gather = id => {
+    const one = goals.byId.get(id)
+    if (one === undefined || seen.has(id)) return null
+    seen.add(id)
+    const steps = new Set(one.steps)
+    let nodes = 0
+    let missing = one.missing.length
+    for (const child of one.children) {
+      const inner = gather(child)
+      if (inner === null) continue
+      nodes += 1 + inner.nodes
+      missing += inner.missing
+      for (const step of inner.steps) steps.add(step)
+    }
+    let done = 0
+    let open = 0
+    let unknown = 0
+    for (const step of steps) {
+      const state = states.get(step)
+      if (state === 'done') done += 1
+      else if (state === 'open') open += 1
+      else unknown += 1
+    }
+    counts.set(id, { nodes, steps: steps.size, done, open, unknown, missing })
+    return { nodes, missing, steps }
+  }
+  for (const root of goals.roots) gather(root)
+  return counts
+}

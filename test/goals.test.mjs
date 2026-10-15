@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { parseGoals, nextAskId, nextGoalId } from '../src/goals.mjs'
-import { GOALS } from './fixtures-goals.mjs'
+import { parseBacklog } from '../src/backlog.mjs'
+import { goalCounts, parseGoals, nextAskId, nextGoalId } from '../src/goals.mjs'
+import { BACKLOG, GOALS } from './fixtures-goals.mjs'
 
 test('a goals file becomes nodes with id, state, depth, parent and children, in file order', () => {
   const goals = parseGoals(GOALS)
@@ -75,4 +76,26 @@ test('a named line in a form the map does not know is kept as a note, never a cr
   assert.equal(one.recommendation, null)
   assert.deepEqual(one.asks, [])
   assert.deepEqual(one.notes, ['Recommendation: no id here', 'Ask: no id either', 'Answer: to nothing', 'Read: never'])
+})
+
+test('a node counts the nodes and the steps inside it once each, done, open, unknown and missing (Review Focus 3)', () => {
+  const counts = goalCounts(parseGoals(GOALS), parseBacklog(BACKLOG))
+  // G2 holds G3 (B01, B02) and G4 (B03, B04): four steps, three done, one missing line.
+  assert.deepEqual(counts.get('G2'), { nodes: 2, steps: 4, done: 3, open: 1, unknown: 0, missing: 1 })
+  // G1 holds G2's four and G6's B04, B05: B04 is counted once over the whole of G1.
+  assert.deepEqual(counts.get('G1'), { nodes: 5, steps: 5, done: 3, open: 2, unknown: 0, missing: 1 })
+  // G9's home is G7; it is also part of G5, but counts under its home only.
+  assert.deepEqual(counts.get('G7'), { nodes: 2, steps: 2, done: 1, open: 1, unknown: 0, missing: 0 })
+  assert.deepEqual(counts.get('G5'), { nodes: 1, steps: 2, done: 1, open: 1, unknown: 0, missing: 0 })
+  // A step that is not on the backlog is unknown, not open.
+  const odd = goalCounts(parseGoals('- [ ] G1 A\n  Steps: B99\n'), parseBacklog(BACKLOG))
+  assert.deepEqual(odd.get('G1'), { nodes: 0, steps: 1, done: 0, open: 0, unknown: 1, missing: 0 })
+})
+
+test('an id used twice, the second inside the first, is counted without going round in circles', () => {
+  const goals = parseGoals('- [ ] G1 One\n  - [ ] G2 Two\n    - [ ] G1 One again\n      Steps: B01\n')
+  assert.deepEqual(goals.problems, ['line 3: the id G1 is used twice'])
+  const counts = goalCounts(goals, parseBacklog(BACKLOG))
+  assert.deepEqual(counts.get('G2'), { nodes: 0, steps: 0, done: 0, open: 0, unknown: 0, missing: 0 })
+  assert.deepEqual(counts.get('G1'), { nodes: 1, steps: 0, done: 0, open: 0, unknown: 0, missing: 0 })
 })
