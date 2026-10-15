@@ -3149,11 +3149,11 @@ const GOAL_NOTE_MS = 8000
  * done with open goals inside, for five seconds), the line after a refused change (`note`), how many of this page's
  * changes Ctrl+Z can undo, whether a change is on its way, and the goal being dragged.
  */
-const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, undoable: 0, busy: false, drag: null }
+const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, undoable: 0, busy: false, drag: null, menu: null, menuInto: false, justDragged: false }
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
-  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy]
+  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews]
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
@@ -3227,6 +3227,7 @@ function drawGoals(state) {
       : `${state.goalsFile ?? 'The goals file'} holds no goal yet. The Advisor writes them with you; the board draws them here.`),
     goals !== null && canEdit && goalsUi.editing?.kind === 'add' ? goalEditorRow(goals, 0) : null])
     if ($('goals-input') !== null) $('goals-input').focus()
+    drawGoalTree(state)
     return
   }
   const focus = goalById(goals, goalsFocus)
@@ -3344,7 +3345,14 @@ function drawGoals(state) {
       title.title = row.isRef ? 'Its home is elsewhere: zoom into it there' : 'Zoom in · Enter adds the next goal · F2 renames · drag to move'
     }
     const asks = isConfirming('done', row.id) ? [el('span', 'goal-tag is-ask', 'goals inside are open: click the dot again to mark it done')] : []
+    // B257: the row's "…": every change without dragging.
+    const more = canEdit && !row.isRef ? goalButton('goal-more', '…', { goalMenu: row.id }) : null
+    if (more !== null) {
+      more.setAttribute('aria-label', `More for ${row.title}`)
+      more.setAttribute('aria-expanded', String(goalsUi.menu === row.id))
+    }
     line.append(fold, dot, title, ...row.tags.map(tag => el('span', `goal-tag${tag.startsWith('enables') ? ' is-enables' : ''}`, tag)), ...asks, el('span', 'goal-meta', row.counter))
+    if (more !== null) line.append(more)
     // B256: rows move by dragging, all but the references and the path down to the focus.
     if (canEdit && !row.isRef && !chain.has(row.id)) line.draggable = true
     return line
@@ -3360,7 +3368,14 @@ function drawGoals(state) {
       drawn.splice(at, 0, goalEditorRow(goals, editing.kind === 'add' && editing.id !== null ? depth + 1 : depth))
     }
   }
+  // B257: the open "…" menu stands right under its row.
+  if (canEdit && goalsUi.menu !== null) {
+    const at = drawn.findIndex(line => line.dataset.goal === goalsUi.menu && !line.classList.contains('is-ref'))
+    const node = goalById(goals, goalsUi.menu)
+    if (at >= 0 && node !== null) drawn.splice(at + 1, 0, goalMenuRow(goals, node, rows.find(row => row.id === node.id && !row.isRef)?.depth ?? 0))
+  }
   fill($('goals-outline'), drawn)
+  drawGoalTree(state)
   // The editor takes the keys, unless the person types somewhere else on the page.
   const typingElsewhere = document.activeElement?.closest?.('input, textarea') && !$('advisor-goals').contains(document.activeElement)
   if ($('goals-input') !== null && !typingElsewhere) $('goals-input').focus()
@@ -3373,6 +3388,354 @@ function drawGoals(state) {
 function redrawGoals() {
   if (board !== null && board !== undefined) once('goals', goalsData(board), () => drawGoals(board))
 }
+
+// B257: the goal tree, drawn as svg from goalTreeLayout. The person, 2026-10-15: "like a diagram of nodes what is a
+// part of what", in zoom style 1 ("I like style 1"): the clicked box glides into the frame.
+/** Which views the Goals part shows: both, the diagram alone or the outline alone; kept in this browser. */
+let goalsViews = 'both'
+try {
+  const kept = localStorage.getItem('goals-views')
+  if (['both', 'diagram', 'outline'].includes(kept)) goalsViews = kept
+} catch {
+  // Without storage both views show after each reload.
+}
+/** The tree as drawn last, for the drag's hit test. */
+let goalsTree = null
+const isPhone = () => matchMedia('(max-width: 760px)').matches
+
+function svgEl(tag, attrs = {}, className = '') {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', tag)
+  for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, String(value))
+  if (className !== '') node.setAttribute('class', className)
+  return node
+}
+function svgText(x, y, words, className) {
+  const text = svgEl('text', { x, y }, className)
+  text.textContent = words
+  return text
+}
+const cut = (words, most) => (words.length <= most ? words : `${words.slice(0, most - 1)}…`)
+
+function goalBoxGroup(goals, box) {
+  const node = goalById(goals, box.id)
+  const counts = node.counts
+  const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${node.title}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
+  g.append(svgEl('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: 8 }, 'goal-box-rect'))
+  const title = svgEl('text', { x: box.x + 10, y: box.y + 21 }, 'goal-box-title')
+  goalTitleLines(box.kind === 'ref' ? `↗ ${node.title}` : node.title, 21).forEach((line, index) => {
+    const span = svgEl('tspan', index === 0 ? {} : { x: box.x + 10, dy: 15 })
+    span.textContent = line
+    title.append(span)
+  })
+  g.append(title)
+  const steps = counts === null || counts === undefined || counts.steps === 0 ? (counts?.nodes > 0 ? `${counts.nodes} inside` : 'no steps yet') : `${counts.steps} step${counts.steps === 1 ? '' : 's'} · ${counts.done} done`
+  g.append(svgText(box.x + 10, box.y + 56, steps, 'goal-box-meta'))
+  if (counts?.missing > 0) g.append(svgText(box.x + 10, box.y + 70, `${counts.missing} missing`, 'goal-box-meta'))
+  g.append(svgText(box.x + 10, box.y + 84, box.kind === 'ref' ? cut(`home: ${goalById(goals, node.parent)?.title ?? 'the top'}`, 22) : GOAL_STATES[node.state], 'goal-box-state'))
+  // "+n": goals inside, a click away.
+  if (box.kind === 'child' && node.children.length > 0) {
+    g.append(svgEl('rect', { x: box.x + box.w - 36, y: box.y + box.h - 24, width: 28, height: 16, rx: 8 }, 'goal-badge'))
+    g.append(svgText(box.x + box.w - 30, box.y + box.h - 12, `+${node.children.length}`, 'goal-badge-text'))
+  }
+  return g
+}
+
+/** One arrow from a point to another, dashed, with its head and a word on it. */
+function goalArrow(from, to, isCurved) {
+  const g = svgEl('g', {}, 'goal-arrow-group')
+  const lift = Math.min(from.y, to.y) - 36
+  const path = isCurved ? `M ${from.x} ${from.y} C ${from.x} ${lift} ${to.x} ${lift} ${to.x} ${to.y}` : `M ${from.x} ${from.y} L ${to.x} ${to.y}`
+  g.append(svgEl('path', { d: path, 'marker-end': 'url(#goal-arrow)' }, 'goal-arrow'))
+  g.append(svgText((from.x + to.x) / 2 - 18, isCurved ? lift + 22 : (from.y + to.y) / 2 - 4, 'enables', 'goal-arrow-label'))
+  return g
+}
+
+function drawGoalTree(state) {
+  const place = $('goals-diagram')
+  const goals = state?.goals ?? null
+  const width = Math.floor(place.clientWidth) - 12
+  if (goals === null || goals.nodes.length === 0 || width < 160) {
+    goalsTree = null
+    return fill(place, [])
+  }
+  const focus = goalById(goals, goalsFocus)
+  const layout = goalTreeLayout(goals, focus?.id ?? null, width)
+  goalsTree = layout
+  const svg = svgEl('svg', { viewBox: `0 0 ${layout.width} ${layout.height}`, width: layout.width, height: layout.height, role: 'group', 'aria-label': focus === null ? 'Your goals' : `Inside ${focus.title}` }, 'goal-tree')
+  const defs = svgEl('defs')
+  const marker = svgEl('marker', { id: 'goal-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' })
+  marker.append(svgEl('path', { d: 'M 0 0 L 10 5 L 0 10 z' }, 'goal-arrow-head'))
+  defs.append(marker)
+  svg.append(defs)
+  if (layout.frame !== null) {
+    const frame = layout.frame
+    const g = svgEl('g', { 'data-goal': frame.id }, `goal-tree-frame is-${focus.state}`)
+    g.append(svgEl('rect', { x: frame.x, y: frame.y, width: frame.w, height: frame.h, rx: 10 }, 'goal-frame-rect'))
+    g.append(svgText(14, 26, cut(focus.title, Math.floor(frame.w / 9)), 'goal-frame-title'))
+    g.append(svgText(14, 48, cut(`${GOAL_STATES[focus.state]} · ${goalCounter(focus.counts)}`, Math.floor(frame.w / 7)), 'goal-frame-meta'))
+    svg.append(g)
+  }
+  for (const line of layout.lines) svg.append(svgEl('line', { x1: line.x1, y1: line.y1, x2: line.x2, y2: line.y2 }, 'goal-line'))
+  for (const box of layout.boxes) svg.append(goalBoxGroup(goals, box))
+  // Where an arrow starts and ends: a box's top middle, the frame's bottom middle (or its right side for a ghost).
+  const shown = new Map(layout.boxes.map(box => [box.id, box]))
+  const top = id => (shown.has(id) ? { x: shown.get(id).x + shown.get(id).w / 2, y: shown.get(id).y } : { x: layout.frame.x + layout.frame.w / 2, y: layout.frame.h })
+  for (const arrow of layout.arrows) svg.append(goalArrow(top(arrow.from), top(arrow.to), shown.has(arrow.to)))
+  for (const ghost of layout.ghosts) {
+    const g = svgEl('g', { 'data-goal': ghost.id, tabindex: 0, role: 'button', 'aria-label': `${ghost.title} enables this: go there` }, 'goal-ghost')
+    g.append(svgEl('rect', { x: ghost.x, y: ghost.y, width: ghost.w, height: ghost.h, rx: 6 }))
+    g.append(svgText(ghost.x + 8, ghost.y + 21, cut(`↗ ${ghost.title}`, 13), ''))
+    svg.append(g)
+    const from = { x: ghost.x, y: ghost.y + ghost.h / 2 }
+    const to = shown.has(ghost.arrowTo) ? top(ghost.arrowTo) : { x: layout.frame.x + layout.frame.w, y: Math.min(ghost.y + ghost.h / 2, layout.frame.h - 8) }
+    svg.append(goalArrow(from, to, false))
+  }
+  fill(place, [svg])
+}
+
+/** The views as chosen: the split's classes and the buttons' state. */
+function showGoalsViews() {
+  const split = $('goals-split')
+  split.classList.toggle('is-diagram-only', goalsViews === 'diagram')
+  split.classList.toggle('is-outline-only', goalsViews === 'outline')
+  const diagram = $('goals-views').querySelector('[data-goals-view="diagram"]')
+  const outline = $('goals-views').querySelector('[data-goals-view="outline"]')
+  // On a phone the outline shows unless the diagram is chosen alone.
+  diagram.setAttribute('aria-pressed', String(isPhone() ? goalsViews === 'diagram' : goalsViews !== 'outline'))
+  outline.setAttribute('aria-pressed', String(goalsViews !== 'diagram'))
+}
+$('goals-views').addEventListener('click', event => {
+  const view = event.target.closest('[data-goals-view]')?.dataset.goalsView
+  if (view === undefined) return
+  // One view always shows: a click takes its own view away, or brings it back beside the other.
+  if (isPhone()) goalsViews = view === 'diagram' && goalsViews !== 'diagram' ? 'diagram' : 'outline'
+  else if (view === 'diagram') goalsViews = goalsViews === 'outline' ? 'both' : 'outline'
+  else goalsViews = goalsViews === 'diagram' ? 'both' : 'diagram'
+  try {
+    localStorage.setItem('goals-views', goalsViews)
+  } catch {
+    // Kept for this page only.
+  }
+  showGoalsViews()
+  if (board !== null) drawGoalTree(board)
+})
+showGoalsViews()
+resizable($('goals-resizer'), $('goals-split'), 'goals-outline-width', 440)
+// The tree is laid out for the width it has: drawn anew when that changes.
+new ResizeObserver(() => {
+  if (board !== null && goalsTree?.width !== Math.floor($('goals-diagram').clientWidth) - 12) drawGoalTree(board)
+}).observe($('goals-diagram'))
+matchMedia('(max-width: 760px)').addEventListener('change', showGoalsViews)
+
+/** A click on a box: it glides into the frame, then the map zooms into it. */
+function goalsGlide(id) {
+  const svg = $('goals-diagram').querySelector('svg')
+  const box = goalsTree?.boxes.find(one => one.id === id)
+  if (!svg || !box || matchMedia('(prefers-reduced-motion: reduce)').matches) return zoomGoal(id)
+  const scale = Math.min(4, goalsTree.width / box.w)
+  svg.style.transform = `translate(${-box.x * scale}px, ${-box.y * scale}px) scale(${scale})`
+  svg.classList.add('is-gliding')
+  setTimeout(() => zoomGoal(id), 260)
+}
+
+$('goals-diagram').addEventListener('click', event => {
+  if (goalsUi.justDragged || board?.goals === undefined) return
+  const hit = event.target.closest('[data-goal]')
+  // The empty ground zooms out one level.
+  if (hit === null) {
+    if (goalsFocus !== null && event.target.closest('svg') !== null) zoomGoal(goalZoomOut(board.goals, goalsFocus))
+    return
+  }
+  if (hit.classList.contains('goal-tree-frame')) return
+  if ((event.ctrlKey || event.metaKey) && canEditGoals(board) && hit.classList.contains('is-child')) {
+    if (goalsUi.chosen.has(hit.dataset.goal)) goalsUi.chosen.delete(hit.dataset.goal)
+    else goalsUi.chosen.add(hit.dataset.goal)
+    return redrawGoals()
+  }
+  if (hit.classList.contains('goal-ghost')) return zoomGoal(hit.dataset.goal)
+  goalsGlide(hit.dataset.goal)
+})
+$('goals-diagram').addEventListener('keydown', event => {
+  const hit = event.target.closest?.('[data-goal]')
+  if (hit === null || hit === undefined || (event.key !== 'Enter' && event.key !== ' ')) return
+  event.preventDefault()
+  if (hit.classList.contains('goal-ghost')) zoomGoal(hit.dataset.goal)
+  else if (!hit.classList.contains('goal-tree-frame')) goalsGlide(hit.dataset.goal)
+})
+// Both views point at the same goal: hovering a box lights its row, and the other way round.
+function goalsHoverSync(id) {
+  for (const lit of document.querySelectorAll('#advisor-goals .is-hover')) lit.classList.remove('is-hover')
+  if (id) for (const one of document.querySelectorAll(`#goals-outline .goal-row[data-goal="${id}"], #goals-diagram [data-goal="${id}"]`)) one.classList.add('is-hover')
+}
+for (const [id, pick] of [['goals-diagram', '[data-goal]'], ['goals-outline', '.goal-row']]) {
+  $(id).addEventListener('mouseover', event => goalsHoverSync(event.target.closest?.(pick)?.dataset.goal ?? null))
+  $(id).addEventListener('mouseleave', () => goalsHoverSync(null))
+}
+
+// B257: dragging a box in the tree: after 6 px it lifts and a label follows the pointer; its middle drops into a box,
+// its sides before or after it, the frame last inside the goal zoomed into, a crumb into that goal; held over a box's
+// middle for a second, the map zooms into it and the drag goes on there. Not on a phone (the "…" menu there).
+let goalsTreePress = null
+function goalsTreeDropAt(event, fromId) {
+  const under = document.elementFromPoint(event.clientX, event.clientY)
+  const crumb = under?.closest?.('.goals-crumb [data-goal]')
+  if (crumb) return { kind: 'crumb', mark: crumb, place: 'into', over: crumb.dataset.goal || null, target: goalDropTarget(board.goals, fromId, crumb.dataset.goal === '' ? null : crumb.dataset.goal, 'into') }
+  const svg = $('goals-diagram').querySelector('svg')
+  if (!svg || goalsTree === null || !svg.contains(under)) return null
+  const rect = svg.getBoundingClientRect()
+  const drop = goalTreeDrop(board.goals, goalsTree, fromId, (event.clientX - rect.left) * (goalsTree.width / rect.width), (event.clientY - rect.top) * (goalsTree.height / rect.height))
+  if (drop === null) return null
+  return { ...drop, kind: drop.over === goalsTree.frame?.id ? 'frame' : 'box', mark: svg.querySelector(`[data-goal="${drop.over}"]`) }
+}
+function goalsTreeMark(at) {
+  for (const marked of document.querySelectorAll('#goals-diagram .is-into, #goals-diagram .is-before, #goals-diagram .is-after, .goals-crumb .is-into')) marked.classList.remove('is-into', 'is-before', 'is-after')
+  if (at?.target && at.mark) at.mark.classList.add(`is-${at.place}`)
+}
+function goalsTreeLetGo(press) {
+  clearTimeout(press.hold?.timer)
+  press.follower?.remove()
+  goalsTreeMark(null)
+  for (const lifted of document.querySelectorAll('#goals-diagram .is-lift')) lifted.classList.remove('is-lift')
+}
+$('goals-diagram').addEventListener('pointerdown', event => {
+  if (event.button !== 0 || !canEditGoals(board) || isPhone()) return
+  const hit = event.target.closest('g.goal-box.is-child')
+  if (hit === null) return
+  goalsTreePress = { id: hit.dataset.goal, x: event.clientX, y: event.clientY, lifted: false, follower: null, over: null, hold: null }
+})
+window.addEventListener('pointermove', event => {
+  const press = goalsTreePress
+  if (press === null || !board?.goals) return
+  if (!press.lifted) {
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 6) return
+    press.lifted = true
+    press.follower = el('div', 'goal-tree-follower', goalById(board.goals, press.id)?.title ?? press.id)
+    document.body.append(press.follower)
+  }
+  document.querySelector(`#goals-diagram [data-goal="${press.id}"]`)?.classList.add('is-lift')
+  press.follower.style.left = `${event.clientX + 12}px`
+  press.follower.style.top = `${event.clientY + 10}px`
+  const at = goalsTreeDropAt(event, press.id)
+  goalsTreeMark(at)
+  press.over = at
+  const spring = at?.kind === 'box' && at.place === 'into' && at.target !== null ? at.over : null
+  if (press.hold?.id !== spring) {
+    clearTimeout(press.hold?.timer)
+    press.hold = spring === null ? null : { id: spring, timer: setTimeout(() => { press.hold = null; zoomGoal(spring) }, 1000) }
+  }
+})
+window.addEventListener('pointerup', () => {
+  const press = goalsTreePress
+  goalsTreePress = null
+  if (press === null || !press.lifted) return
+  goalsTreeLetGo(press)
+  // The click that ends a drag is no click on a box.
+  goalsUi.justDragged = true
+  setTimeout(() => { goalsUi.justDragged = false }, 0)
+  if (press.over?.target) goalsMove(press.id, press.over.target)
+})
+window.addEventListener('pointercancel', () => {
+  if (goalsTreePress?.lifted) goalsTreeLetGo(goalsTreePress)
+  goalsTreePress = null
+})
+
+// B257: a row's "…" menu: move up, down or into another goal, link it, mark it done, rename, dissolve or delete it,
+// without dragging (the phone's way; spec section 3). Brainstorm and asks join it with B259 and B258.
+function goalMenuRow(goals, node, depth) {
+  const menu = el('div', `goal-menu goal-depth-${Math.min(depth + 1, 8)}`)
+  menu.dataset.menuOf = node.id
+  const action = (words, name, isOff = false) => {
+    const button = goalButton('goals-tool', words, { menuAction: name })
+    button.disabled = isOff
+    return button
+  }
+  const isPlan = Boolean(node.fromPlan)
+  menu.append(
+    action('Move up', 'up', goalKeyMove(goals, node.id, 'up') === null),
+    action('Move down', 'down', goalKeyMove(goals, node.id, 'down') === null),
+    action(goalsUi.menuInto ? 'Move into… ▾' : 'Move into…', 'into'),
+    action('Also part of…', 'link'),
+  )
+  if (node.state !== 'done') menu.append(action(isConfirming('done', node.id) ? 'Goals inside are open: again to mark done' : 'Mark done', 'done'))
+  if (!isPlan) {
+    menu.append(action('Rename', 'rename'))
+    const kind = node.children.length > 0 ? 'dissolve' : 'delete'
+    menu.append(action(isConfirming(kind, node.id) ? `Again to ${kind} it` : kind === 'dissolve' ? 'Dissolve' : 'Delete', kind))
+  }
+  menu.append(action('Close', 'close'))
+  if (goalsUi.menuInto) {
+    const list = el('div', 'goals-choices')
+    const into = goals.nodes.filter(other => other.id !== node.parent && goalDropTarget(goals, node.id, other.id, 'into') !== null)
+    if (node.parent !== null) list.append(goalButton('goals-choice', 'The top: a goal of its own', { moveInto: '' }))
+    for (const other of into.slice(0, 40)) {
+      const button = goalButton('goals-choice', '', { moveInto: other.id })
+      button.append(el('b', '', other.title), el('small', 'muted', ` · ${goalById(goals, other.parent)?.title ?? 'at the top'}`))
+      list.append(button)
+    }
+    menu.append(list)
+  }
+  return menu
+}
+
+$('goals-outline').addEventListener('click', event => {
+  const opener = event.target.closest('[data-goal-menu]')
+  if (opener !== null) {
+    event.stopPropagation()
+    goalsUi.menu = goalsUi.menu === opener.dataset.goalMenu ? null : opener.dataset.goalMenu
+    goalsUi.menuInto = false
+    return redrawGoals()
+  }
+  const menu = event.target.closest('.goal-menu')
+  if (menu === null || !board?.goals) return
+  event.stopPropagation()
+  const id = menu.dataset.menuOf
+  const node = goalById(board.goals, id)
+  const into = event.target.closest('[data-move-into]')
+  const close = () => { goalsUi.menu = null; goalsUi.menuInto = false }
+  if (into !== null) {
+    const parent = into.dataset.moveInto === '' ? null : into.dataset.moveInto
+    close()
+    return goalsMove(id, goalDropTarget(board.goals, id, parent, 'into'))
+  }
+  const name = event.target.closest('[data-menu-action]')?.dataset.menuAction
+  if (name === undefined || node === null) return
+  if (name === 'up' || name === 'down') return goalsMove(id, goalKeyMove(board.goals, id, name))
+  if (name === 'into') {
+    goalsUi.menuInto = !goalsUi.menuInto
+    return redrawGoals()
+  }
+  if (name === 'close') {
+    close()
+    return redrawGoals()
+  }
+  if (name === 'link') {
+    close()
+    zoomGoal(id)
+    return goalsEdit('Also part of', id)
+  }
+  if (name === 'rename') {
+    close()
+    return goalsEdit('rename', id, node.title)
+  }
+  if (name === 'done') {
+    if (goalHasOpenInside(board.goals, id) && !isConfirmed('done', id)) {
+      if (!isConfirming('done', id)) goalsAsk('done', id)
+      return redrawGoals()
+    }
+    goalsUi.confirm = null
+    close()
+    return sendGoals({ command: 'state', id, state: 'done' })
+  }
+  if (name === 'delete' || name === 'dissolve') {
+    if (!isConfirmed(name, id)) {
+      if (!isConfirming(name, id)) goalsAsk(name, id)
+      return redrawGoals()
+    }
+    goalsUi.confirm = null
+    close()
+    return sendGoals({ command: name, id })
+  }
+}, true)
 
 /** Zoom to a node (null: the top); the browser's back zooms back. */
 function zoomGoal(id) {
