@@ -36,7 +36,7 @@ test('the page has the Design tab after the person\'s layout: three parts side b
   assert.ok(at('What is it about?') > at('id="design-text"'))
   assert.match(style, /\.design-parts\s*\{[^}]*grid-template-columns:\s*minmax\([^;]+minmax\([^;]+minmax\(/)
   // The tab opens by its address, and is drawn with every reading of the state.
-  assert.match(script, /location\.hash === '#design' \? 'design'/)
+  assert.match(script, /if \(hash === '#design'\) return 'design'/)
   assert.match(script, /\$\('view-design'\)\.hidden = tab !== 'design'/)
   assert.match(script, /\n {2}drawDesign\(\)\n\}/)
 })

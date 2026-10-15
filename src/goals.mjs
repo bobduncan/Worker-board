@@ -9,6 +9,9 @@ const ASK_HEAD = /^Ask \((A\d+), ([^)]+)\):\s*(.*)$/
 const ANSWER_HEAD = /^Answer \(([^,]+), ([^)]+)\):\s*(.*)$/
 const RECOMMENDATION = /^Recommendation \((R\d+)\):\s*(.*)$/
 const IDS = /\bG\d+\b/g
+// A line that starts like a goal; one that is not in GOAL_LINE's form is named as a problem.
+const GOAL_LIKE = /^ *- \[[^\]]*\]/
+const NOT_A_GOAL = 'is not a goal in the form "- [ ] G<n> <title>"'
 
 const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
@@ -74,8 +77,9 @@ function takeLine(target, text) {
 /**
  * goals.md as nodes in file order, with `byId`, the top goals (`roots`) and the problems the file has, each named
  * once with its line ("line 4: the id G3 is used twice"). A broken file is still a map: a node with a duplicate id
- * stays in `nodes` (the first keeps the id in `byId`), an odd indentation is read as the nearest level. A line at the
- * margin that is not a goal is the file's own words (its rules on top) and belongs to no goal.
+ * stays in `nodes` (the first keeps the id in `byId`, the tree and the counts), an odd indentation is read as the
+ * nearest level, a tab as two spaces. A named line belongs to the goal one level less indented than it, also after
+ * that goal's children. A line at the margin that is not a goal is the file's own words (its rules on top).
  */
 export function parseGoals(text) {
   const nodes = []
@@ -83,29 +87,37 @@ export function parseGoals(text) {
   const roots = []
   const problems = []
   const stack = []  // the open nodes, one per depth
-  ;(text ?? '').split('\n').forEach((raw, index) => {
-    const line = raw.replace(/\r$/, '')
+  ;(text ?? '').replace(/^﻿/, '').split('\n').forEach((raw, index) => {
+    let line = raw.replace(/\r$/, '')
     if (line.trim() === '' || line.startsWith('#')) return
+    if (/^ *\t/.test(line)) {
+      problems.push(`line ${index + 1}: indented with a tab, not two spaces per level`)
+      line = line.replace(/^[ \t]+/, lead => lead.replace(/\t/g, '  '))
+    }
     const goal = line.match(GOAL_LINE)
     if (goal !== null) {
       const spaces = goal[1].length
       if (spaces % 2 !== 0) problems.push(`line ${index + 1}: indentation is not a multiple of two spaces`)
       const depth = Math.min(Math.floor(spaces / 2), stack.length)
       const made = node(goal[3], goal[4], STATES[goal[2]], depth, index + 1)
-      if (byId.has(made.id)) problems.push(`line ${index + 1}: the id ${made.id} is used twice`)
+      const isTwice = byId.has(made.id)
+      if (isTwice) problems.push(`line ${index + 1}: the id ${made.id} is used twice`)
       stack.length = depth
       const parent = stack.at(-1) ?? null
       made.parent = parent === null ? null : parent.id
-      if (parent === null) roots.push(made.id)
-      else parent.children.push(made.id)
+      // The second of an id stays out of the tree: the first is the one the counts and the outline walk.
+      if (!isTwice && parent === null) roots.push(made.id)
+      else if (!isTwice) parent.children.push(made.id)
       stack.push(made)
       nodes.push(made)
-      if (!byId.has(made.id)) byId.set(made.id, made)
+      if (!isTwice) byId.set(made.id, made)
       return
     }
+    if (GOAL_LIKE.test(line)) return problems.push(`line ${index + 1}: ${NOT_A_GOAL}`)
     if (!/^\s/.test(line)) return
-    // An indented line belongs to the nearest goal above, whatever its depth, so nothing is lost.
-    const owner = stack.at(-1)
+    // An indented line belongs to the deepest open goal less indented than it, so nothing is lost.
+    const indent = line.length - line.trimStart().length
+    const owner = stack.findLast(open => open.depth * 2 < indent)
     if (owner === undefined) return problems.push(`line ${index + 1}: a line under no goal`)
     takeLine(owner, line.trim())
   })

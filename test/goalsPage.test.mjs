@@ -16,7 +16,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// goals:start'), script.indexOf('// goals:end'))}
-Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalFocusOf, goalFrameLine, goalFrameLines, goalOutlineRows })`, made)
+Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalFocusOf, goalFrameLine, goalFrameLines, goalOutlineRows, goalZoomOut, tabOfAddress })`, made)
 // What the page's functions answer, as this file's own objects, so deepEqual compares them by value.
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
@@ -96,6 +96,29 @@ test('the focus lives in the address: #advice/goals is the top, #advice/goals/G4
   assert.equal(page.goalFocusOf('#advice/goals/G4'), 'G4')
   assert.equal(page.goalFocusOf('#advice'), undefined)
   assert.equal(page.goalFocusOf('#advice/goals/<b>'), undefined)
+})
+
+test('review: a reference row never folds, the focus and its ancestors keep their ▾ without a button, the focus is marked once', () => {
+  const text = GOALS.replace('    Steps: B07\n', '    Steps: B07\n    - [ ] G10 A finer net\n')
+  const inG5 = page.goalOutlineRows(stateGoals(text), 'G5', new Set(['G9']))
+  const ref = inG5.find(row => row.id === 'G9' && row.isRef)
+  assert.deepEqual([ref.fold, ref.foldable], [null, false])
+  assert.equal(inG5.some(row => row.id === 'G10'), false)
+  assert.deepEqual(inG5.filter(row => ['G1', 'G5'].includes(row.id)).map(row => [row.fold, row.foldable]), [['open', false], ['open', false]])
+  assert.deepEqual(inG5.filter(row => row.id === 'G7').map(row => [row.fold, row.foldable]), [['closed', true]])
+  // Zoomed into G9 at its home, with G5 opened: its reference row under G5 is not a second focus.
+  const inG9 = page.goalOutlineRows(stateGoals(text), 'G9', new Set(['G1', 'G5']))
+  assert.deepEqual(inG9.filter(row => row.isFocus).map(row => [row.id, row.isRef]), [['G9', false]])
+  assert.deepEqual(inG9.filter(row => row.id === 'G9').map(row => row.isRef), [true, false])
+})
+
+test('review: Esc and ‹ go one level up, the top from a top goal; the address names the tab, the old ones unchanged', () => {
+  assert.equal(page.goalZoomOut(stateGoals(), 'G4'), 'G2')
+  assert.equal(page.goalZoomOut(stateGoals(), 'G1'), null)
+  assert.equal(page.goalZoomOut(stateGoals(), 'G99'), null)
+  assert.deepEqual(['', '#advice', '#advice/goals', '#advice/goals/G2', '#backlog', '#coordinate', '#design', '#details=B14', '#play=main'].map(page.tabOfAddress),
+    ['overview', 'advice', 'advice', 'advice', 'coordinate', 'coordinate', 'design', null, null])
+  assert.match(script, /show\(tabOfAddress\(location\.hash\) \?\? 'overview'\)/)
 })
 
 test('the Advisor tab has the Goals part second, opened from the address, drawn when the map or the zoom changes', () => {

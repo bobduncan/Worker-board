@@ -51,7 +51,7 @@ test('the tab is called Backlog, opens at #backlog (and still at #coordinate), a
   assert.match(html, /data-tab="coordinate">Backlog</)
   assert.ok(html.indexOf('id="finished"') > html.indexOf('class="coordinate-top"') && html.indexOf('id="finished"') < html.indexOf('id="coordinate-list"'))
   assert.match(script, /'#backlog'/)
-  assert.match(script, /location\.hash === '#backlog' \|\| location\.hash === '#coordinate'/)
+  assert.match(script, /if \(hash === '#backlog' \|\| hash === '#coordinate'\) return 'coordinate'/)
   assert.ok(style.includes('.finished-row'))
   assert.ok(!/\bCoordinate\b/.test(readme), 'the README names the tab Backlog')
 })

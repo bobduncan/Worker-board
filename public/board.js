@@ -2901,8 +2901,9 @@ function goalTags(goals, node, isRef) {
 /**
  * The outline's rows: the whole tree. The focus's ancestors stand open; the focus's children show, folded; every other
  * node is folded unless `opened` holds it (a ▸ the person opened). Outside the focus everything is dimmed (nothing at
- * the top). A node that is also part of an open node stands under it as a reference row. An id used twice is walked
- * once, so a broken file cannot send the outline round in circles.
+ * the top). A node that is also part of an open node stands under it as a reference row, which never folds open (its
+ * click zooms into it at its home). An id used twice is walked once, so a broken file cannot send the outline round in
+ * circles. `foldable` says whether a ▸/▾ does something: the focus and its ancestors stay open while zoomed there.
  */
 function goalOutlineRows(goals, focusId, opened) {
   const focus = goalById(goals, focusId) === null ? null : focusId
@@ -2913,12 +2914,12 @@ function goalOutlineRows(goals, focusId, opened) {
     const node = goalById(goals, id)
     if (node === null || (!isRef && walked.has(id))) return
     if (!isRef) walked.add(id)
-    const isFocus = id === focus
+    const isFocus = !isRef && id === focus
     const lit = inFocus || isFocus
     const isOpen = !isRef && (chain.has(id) || opened.has(id))
     const refs = isRef ? [] : goals.nodes.filter(other => other.id !== id && other.alsoPartOf.includes(id))
-    const hasInside = node.children.length > 0 || refs.length > 0
-    rows.push({ id, depth, title: node.title, state: node.state, counter: goalCounter(node.counts), tags: goalTags(goals, node, isRef), isFocus, isDim: focus !== null && !lit, isRef, fold: hasInside ? (isOpen ? 'open' : 'closed') : null })
+    const hasInside = !isRef && (node.children.length > 0 || refs.length > 0)
+    rows.push({ id, depth, title: node.title, state: node.state, counter: goalCounter(node.counts), tags: goalTags(goals, node, isRef), isFocus, isDim: focus !== null && !lit, isRef, fold: hasInside ? (isOpen ? 'open' : 'closed') : null, foldable: hasInside && !chain.has(id) })
     if (!isOpen) return
     for (const child of node.children) walk(child, depth + 1, false, lit)
     for (const other of refs) walk(other.id, depth + 1, true, lit)
@@ -2934,6 +2935,21 @@ function goalFocusOf(hash) {
   const found = /^#advice\/goals(?:\/(G\d+))?$/.exec(hash)
   return found === null ? undefined : found[1] ?? null
 }
+
+/** Where Esc and ‹ go from a focus: one level up, the top from a top goal. */
+function goalZoomOut(goals, focusId) {
+  const crumb = goalCrumb(goals, focusId)
+  return crumb.length > 2 ? crumb.at(-2).id : null
+}
+
+/** The tab an address names, for the first look and the browser's back and forward; null for a link to something else. */
+function tabOfAddress(hash) {
+  if (hash === '' || hash === '#') return 'overview'
+  if (hash === '#advice' || goalFocusOf(hash) !== undefined) return 'advice'
+  if (hash === '#backlog' || hash === '#coordinate') return 'coordinate'
+  if (hash === '#design') return 'design'
+  return null
+}
 // goals:end
 
 const GOAL_STATES = { open: 'open', now: 'in progress', done: 'done' }
@@ -2948,6 +2964,14 @@ function drawGoals(state) {
     $('goals-problems').hidden = true
     $('goals-frame').hidden = true
     fill($('goals-outline'), [el('p', 'muted goals-empty', `No goal map yet. The Advisor writes ${state.goalsFile ?? '.claude/goals.md'} with you; the board draws it here.`)])
+    return
+  }
+  if (goals.nodes.length === 0 && goals.problems.length === 0) {
+    fill($('goals-crumb'), [el('span', 'goals-here', 'Goals')])
+    $('goals-count').textContent = ''
+    $('goals-problems').hidden = true
+    $('goals-frame').hidden = true
+    fill($('goals-outline'), [el('p', 'muted goals-empty', `${state.goalsFile ?? 'The goals file'} holds no goal yet. The Advisor writes them with you; the board draws them here.`)])
     return
   }
   const focus = goalById(goals, goalsFocus)
@@ -2988,11 +3012,15 @@ function drawGoals(state) {
     fill($('goals-frame'), [head, summary, goalsLinesOpen && lines.length > 0 ? fill(el('ul', 'goals-frame-lines'), lines.map(line => el('li', '', line))) : null])
   }
 
+  // A redraw keeps the keyboard where it was: on the same row's arrow or title.
+  const had = document.activeElement?.closest?.('#goals-outline .goal-row') ?? null
+  const kept = had === null ? null : { goal: had.dataset.goal, isRef: had.classList.contains('is-ref'), part: document.activeElement.classList.contains('goal-fold') ? '.goal-fold' : '.goal-title' }
   fill($('goals-outline'), goalOutlineRows(goals, focus?.id ?? null, goalsOpened).map(row => {
     const line = el('div', `goal-row goal-depth-${Math.min(row.depth, 8)}${row.isFocus ? ' is-focus' : ''}${row.isDim ? ' is-dim' : ''}${row.isRef ? ' is-ref' : ''}`)
     line.dataset.goal = row.id
-    const fold = row.fold === null ? el('span', 'goal-fold') : el('button', 'goal-fold', row.fold === 'open' ? '▾' : '▸')
-    if (row.fold !== null) {
+    const mark = row.fold === null ? '' : row.fold === 'open' ? '▾' : '▸'
+    const fold = row.foldable ? el('button', 'goal-fold', mark) : el('span', 'goal-fold', mark)
+    if (row.foldable) {
       fold.type = 'button'
       fold.setAttribute('aria-label', row.fold === 'open' ? `Fold ${row.title}` : `Unfold ${row.title}`)
       fold.setAttribute('aria-expanded', String(row.fold === 'open'))
@@ -3003,6 +3031,10 @@ function drawGoals(state) {
     line.append(fold, el('span', `goal-dot is-${row.state}`), title, ...row.tags.map(tag => el('span', `goal-tag${tag.startsWith('enables') ? ' is-enables' : ''}`, tag)), el('span', 'goal-meta', row.counter))
     return line
   }))
+  if (kept !== null) {
+    const row = [...$('goals-outline').querySelectorAll('.goal-row')].find(one => one.dataset.goal === kept.goal && one.classList.contains('is-ref') === kept.isRef)
+    row?.querySelector(`button${kept.part}`)?.focus()
+  }
 }
 
 function redrawGoals() {
@@ -3042,13 +3074,18 @@ $('goals-outline').addEventListener('click', event => {
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape' || $('view-advice').hidden || $('view-advice').dataset.pane !== 'goals' || goalsFocus === null) return
   if (document.querySelector('dialog[open]') !== null || event.target.closest?.('input, textarea, select, [contenteditable]')) return
-  const crumb = board?.goals ? goalCrumb(board.goals, goalsFocus) : [{ id: null }]
-  zoomGoal(crumb.length > 2 ? crumb.at(-2).id : null)
+  zoomGoal(board?.goals ? goalZoomOut(board.goals, goalsFocus) : null)
 })
-// The browser's back and forward walk the zoom.
+// The browser's back and forward walk the zoom, and the tabs a goal was left for.
 window.addEventListener('popstate', () => {
   const focus = goalFocusOf(location.hash)
-  if (focus === undefined) return
+  if (focus === undefined) {
+    const tab = tabOfAddress(location.hash)
+    if (tab === null) return
+    show(tab)
+    if (tab === 'advice' && $('view-advice').dataset.pane === 'goals') showAdvisorPane('way')
+    return
+  }
   goalsFocus = focus
   goalsOpened.clear()
   goalsLinesOpen = false
@@ -5005,7 +5042,12 @@ function show(tab) {
   $('view-design').hidden = tab !== 'design'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
-  if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) history.replaceState(null, '', tab === 'overview' ? location.pathname : tab === 'coordinate' ? '#backlog' : tab === 'advice' ? adviceAddress() : `#${tab}`)
+  if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) {
+    const address = tab === 'overview' ? location.pathname : tab === 'coordinate' ? '#backlog' : tab === 'advice' ? adviceAddress() : `#${tab}`
+    // B255: leaving the goal map for another tab keeps its place in the browser's history: Back returns to the goal.
+    if (goalFocusOf(location.hash) !== undefined && tab !== 'advice') history.pushState(null, '', address)
+    else history.replaceState(null, '', address)
+  }
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
 }
 
@@ -5279,5 +5321,5 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) read()
 })
 
-show(location.hash === '#advice' || goalFocusOf(location.hash) !== undefined ? 'advice' : location.hash === '#backlog' || location.hash === '#coordinate' ? 'coordinate' : location.hash === '#design' ? 'design' : 'overview')
+show(tabOfAddress(location.hash) ?? 'overview')
 read()

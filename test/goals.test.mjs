@@ -107,3 +107,33 @@ test('the starting map in examples/ is in the form, with no problem', async () =
   assert.deepEqual(goals.roots, ['G1', 'G6'])
   assert.deepEqual(goals.byId.get('G7').alsoPartOf, ['G2'])
 })
+
+test('review: a file as editors save it reads the same: a byte-order mark, Windows line ends, tabs named once', () => {
+  assert.deepEqual(parseGoals('﻿- [ ] G1 A\n').roots, ['G1'])
+  assert.deepEqual(parseGoals('- [ ] G1 A\r\n  Steps: B01\r\n').byId.get('G1').steps, ['B01'])
+  const tabbed = parseGoals('- [ ] G1 A\n\t- [ ] G2 B\n\t\tSteps: B01\n')
+  assert.deepEqual(tabbed.problems, ['line 2: indented with a tab, not two spaces per level', 'line 3: indented with a tab, not two spaces per level'])
+  assert.equal(tabbed.byId.get('G2').parent, 'G1')
+  assert.deepEqual(tabbed.byId.get('G2').steps, ['B01'])
+})
+
+test('review: a line that looks like a goal but is not in the form is named, never lost into a note', () => {
+  const goals = parseGoals(['- [ ] G1 One', '  - [ ] G2: colon', '  - [ ] g3 small', '  - [ ] G4', '- [?] G5 odd box'].join('\n'))
+  const form = 'is not a goal in the form "- [ ] G<n> <title>"'
+  assert.deepEqual(goals.problems, [`line 2: ${form}`, `line 3: ${form}`, `line 4: ${form}`, `line 5: ${form}`])
+  assert.deepEqual(goals.byId.get('G1').notes, [])
+  assert.deepEqual(goals.roots, ['G1'])
+})
+
+test('review: a named line belongs to the goal one level less indented, also after that goal\'s children', () => {
+  const goals = parseGoals('- [ ] G1 A\n  - [ ] G2 B\n    Steps: B02\n  Steps: B01\n')
+  assert.deepEqual(goals.byId.get('G1').steps, ['B01'])
+  assert.deepEqual(goals.byId.get('G2').steps, ['B02'])
+})
+
+test('review: an id used twice stands once among the top goals; an empty file is an empty map', () => {
+  assert.deepEqual(parseGoals('- [ ] G1 One\n- [ ] G1 Two\n').roots, ['G1'])
+  assert.deepEqual(parseGoals('- [ ] G1 One\n  - [ ] G2 Two\n  - [ ] G2 Again\n').byId.get('G1').children, ['G2'])
+  const empty = parseGoals('# Goals\n\nRules: none yet.\n')
+  assert.deepEqual([empty.nodes, empty.roots, empty.problems], [[], [], []])
+})
