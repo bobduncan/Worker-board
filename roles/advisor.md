@@ -66,6 +66,9 @@ yes. The plan's own goal carries `From the game plan: the goal`; the way is the 
   another at your next round, with a new id.
 - Change the file's lines by their goal's id: read it anew right before, change only your lines, and write it back
   whole. The user and the main chat write the file too.
+- An id is never used again, also after its goal is gone: a new goal takes the number after the highest of the file's
+  ids and of its head line `Last id: G<n>` (under the file's heading), and you raise that line to the new id; asks
+  the same with `Last ask: A<n>`. Write the line when the file has none yet.
 
 ## Getting started
 

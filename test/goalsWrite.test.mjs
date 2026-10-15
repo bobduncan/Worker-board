@@ -283,3 +283,18 @@ test('review: undo is the page\'s own: another page\'s changes are not undone fr
   assert.equal(fs.files['C:/p/pages.md'], latin(GOALS))
   assert.equal((await editGoals({ command: 'undo', page: 'pagec3' }, options)).status, 409)
 })
+
+test('B257: every new goal raises the head line, so a deleted goal\'s id never comes back', async () => {
+  const fs = fakeFs({ 'C:/p/ids.md': latin(GOALS) })
+  const options = at(fs, { file: 'C:/p/ids.md' })
+  assert.deepEqual((await editGoals({ command: 'add', parent: 'G5', title: 'Lanterns' }, options)).result, { id: 'G10' })
+  assert.ok(fs.files['C:/p/ids.md'].startsWith('# Goals\nLast id: G10\n\n- [~] G1 Zebracorn Garden'))
+  await editGoals({ command: 'delete', id: 'G10' }, options)
+  assert.deepEqual((await editGoals({ command: 'add', parent: null, title: 'A pond' }, options)).result, { id: 'G11' })
+  assert.deepEqual((await editGoals({ command: 'group', ids: ['G3'], title: 'Paths' }, options)).result, { id: 'G12' })
+  assert.equal(fs.files['C:/p/ids.md'].split('\n').filter(line => line.startsWith('Last id:')).join(), 'Last id: G12')
+  // A file without a heading gets the line on top.
+  const bare = fakeFs({ 'C:/p/bare.md': latin('- [ ] G1 One\n') })
+  await editGoals({ command: 'add', parent: null, title: 'Two' }, at(bare, { file: 'C:/p/bare.md' }))
+  assert.equal(bare.files['C:/p/bare.md'], 'Last id: G2\n- [ ] G1 One\n- [ ] G2 Two\n')
+})

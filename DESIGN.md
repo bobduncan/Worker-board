@@ -332,8 +332,10 @@ changes nothing is no change. A goal of the game plan keeps the plan's title and
 Done when…, Dissolve or Delete there. A link line keeps any words of its own; only the lines that name a removed goal
 change. A file that is not UTF-8 text, or indented with tabs, is not changed: the line says what to fix by hand.
 Before the first change of a day the board copies the file to `goalsHistory` (`.claude/goals.history/<date>.md`).
-Only the board that delivers writes; the demo and a show-only copy say "Read only here". A new goal takes the highest
-id in the file plus one. The picture: `art-inbox/board-goals/b256-editing.png`.
+Only the board that delivers writes; the demo and a show-only copy say "Read only here". An id is never used again
+(B257, Game - Main's word for the spec's rule): the file keeps a head line "Last id: G<n>" (and "Last ask: A<n>"), a
+new goal takes one more than the highest of it and the file's ids, and every new goal raises it; a file without the
+line gets it under its heading at the first new goal. The picture: `art-inbox/board-goals/b256-editing.png`.
 
 **The goal tree and the phone (B257).** The person, 2026-10-15: "like a diagram of nodes what is a part of what",
 "I like style 1", and "for phone im okay with a simplified solution like B outline". The Goals part shows the tree

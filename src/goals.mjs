@@ -12,6 +12,7 @@ const IDS = /\bG\d+\b/g
 // A line that starts like a goal; one that is not in GOAL_LINE's form is named as a problem.
 const GOAL_LIKE = /^ *- \[[^\]]*\]/
 const NOT_A_GOAL = 'is not a goal in the form "- [ ] G<n> <title>"'
+export const LAST_LINE = /^Last (id|ask):\s*[GA](\d+)\s*$/
 
 const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
@@ -87,6 +88,9 @@ export function parseGoals(text) {
   const roots = []
   const problems = []
   const stack = []  // the open nodes, one per depth
+  // The head lines that keep an id from ever coming back: "Last id: G<n>", "Last ask: A<n>".
+  let lastGoal = 0
+  let lastAsk = 0
   ;(text ?? '').replace(/^﻿/, '').split('\n').forEach((raw, index) => {
     let line = raw.replace(/\r$/, '')
     if (line.trim() === '' || line.startsWith('#')) return
@@ -114,6 +118,12 @@ export function parseGoals(text) {
       return
     }
     if (GOAL_LIKE.test(line)) return problems.push(`line ${index + 1}: ${NOT_A_GOAL}`)
+    const head = line.match(LAST_LINE)
+    if (head !== null) {
+      if (head[1] === 'id') lastGoal = Math.max(lastGoal, Number(head[2]))
+      else lastAsk = Math.max(lastAsk, Number(head[2]))
+      return
+    }
     if (!/^\s/.test(line)) return
     // An indented line belongs to the deepest open goal less indented than it, so nothing is lost.
     const indent = line.length - line.trimStart().length
@@ -121,13 +131,17 @@ export function parseGoals(text) {
     if (owner === undefined) return problems.push(`line ${index + 1}: a line under no goal`)
     takeLine(owner, line.trim())
   })
-  return { nodes, byId, roots, problems }
+  return { nodes, byId, roots, problems, lastGoal, lastAsk }
 }
 
 const highest = (values, prefix) => values.reduce((most, value) => Math.max(most, Number(value.slice(prefix.length))), 0)
 
-export const nextGoalId = goals => `G${highest(goals.nodes.map(one => one.id), 'G') + 1}`
-export const nextAskId = goals => `A${highest(goals.nodes.flatMap(one => one.asks.map(ask => ask.id)), 'A') + 1}`
+/**
+ * The id a new goal or ask takes: one more than the highest in the file and than its head line ("Last id: G<n>",
+ * "Last ask: A<n>"), which every new one raises, so an id is never used again, also after its goal is deleted.
+ */
+export const nextGoalId = goals => `G${Math.max(highest(goals.nodes.map(one => one.id), 'G'), goals.lastGoal ?? 0) + 1}`
+export const nextAskId = goals => `A${Math.max(highest(goals.nodes.flatMap(one => one.asks.map(ask => ask.id)), 'A'), goals.lastAsk ?? 0) + 1}`
 
 /** Done or open per backlog id; an id the backlog does not hold is absent. */
 function stepStates(backlog) {

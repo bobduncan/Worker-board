@@ -1,7 +1,8 @@
 # Goals
+Last id: G7
 
 Rules: a goal is one line "- [ ] G<n> <title>" ([ ] open, [~] in progress, [x] done); its id never changes and is
-never reused; two spaces of indentation per level is "part of"; the lines under a goal, one level deeper, are
+never reused (a new goal takes the number after "Last id:" and raises it); two spaces of indentation per level is "part of"; the lines under a goal, one level deeper, are
 "Done when:", "Why:", "Enables: G<n>", "Also part of: G<n>", "Steps: B<n>, B<n>" (the backlog's steps that serve it),
 "Missing: <one line>", "Note:" and "From the game plan: <part>". The board's Goals part draws this file.
 

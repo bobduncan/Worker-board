@@ -5,7 +5,7 @@
 // not inside a child's block.
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
-import { GOAL_LINE, nextGoalId, parseGoals } from './goals.mjs'
+import { GOAL_LINE, LAST_LINE, nextGoalId, parseGoals } from './goals.mjs'
 import { rewrite } from './tick.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access }
@@ -328,6 +328,27 @@ const isParent = value => value === null || value === undefined || isId(value)
 /** The page a change came from: its own word, so each page undoes its own changes. */
 const pageOf = body => (typeof body.page === 'string' && /^[0-9a-z]{4,40}$/.test(body.page) ? body.page : '')
 
+/**
+ * B257: the head line that keeps an id from coming back ("Last id: G12", or "Last ask: A3" for an ask), raised to
+ * `id` when it is lower: in place where it stands, else right under the file's first heading, else on top.
+ */
+export function raiseLastLine(text, id) {
+  const [, letter, number] = id.match(/^([GA])(\d+)$/)
+  const name = letter === 'G' ? 'id' : 'ask'
+  const file = split(text)
+  const at = file.lines.findIndex(line => (line.match(LAST_LINE)?.[1] ?? null) === name)
+  if (at >= 0) {
+    if (Number(file.lines[at].match(LAST_LINE)[2]) >= Number(number)) return text
+    file.lines[at] = `Last ${name}: ${id}`
+    return join(file)
+  }
+  const firstGoal = file.lines.findIndex(line => GOAL_LINE.test(line))
+  const heading = file.lines.findIndex(line => line.startsWith('# '))
+  file.lines.splice(heading >= 0 && (firstGoal < 0 || heading < firstGoal) ? heading + 1 : 0, 0, `Last ${name}: ${id}`)
+  return join(file)
+}
+const withLastLine = (done, id) => (done.ok ? { ok: true, text: raiseLastLine(done.text, id) } : done)
+
 /** The change a body asks for, on the file's text (UTF-8); `made` hears the id of a goal it makes. */
 function changeFor(body, made) {
   const id = body.id
@@ -335,7 +356,7 @@ function changeFor(body, made) {
     case 'add': return text => {
       const next = nextGoalId(parseGoals(text))
       made(next)
-      return isParent(body.parent) && isParent(body.after) ? addGoal(text, { parent: body.parent ?? null, after: body.after ?? null, title: oneLine(body.title, 120) || 'New goal', id: next }) : refuse('form')
+      return isParent(body.parent) && isParent(body.after) ? withLastLine(addGoal(text, { parent: body.parent ?? null, after: body.after ?? null, title: oneLine(body.title, 120) || 'New goal', id: next }), next) : refuse('form')
     }
     case 'rename': return text => renameGoal(text, id, body.title)
     case 'state': return text => setGoalState(text, id, body.state)
@@ -349,7 +370,7 @@ function changeFor(body, made) {
       if (!Array.isArray(body.ids) || body.ids.length === 0 || !body.ids.every(isId)) return refuse('form')
       const next = nextGoalId(parseGoals(text))
       made(next)
-      return groupGoals(text, [...new Set(body.ids)], { title: oneLine(body.title, 120) || 'New goal', id: next })
+      return withLastLine(groupGoals(text, [...new Set(body.ids)], { title: oneLine(body.title, 120) || 'New goal', id: next }), next)
     }
     case 'dissolve': return text => dissolveGoal(text, id)
     case 'delete': return text => deleteGoal(text, id)

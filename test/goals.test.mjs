@@ -137,3 +137,13 @@ test('review: an id used twice stands once among the top goals; an empty file is
   const empty = parseGoals('# Goals\n\nRules: none yet.\n')
   assert.deepEqual([empty.nodes, empty.roots, empty.problems], [[], [], []])
 })
+
+test('an id is never used again: the head line "Last id:" counts beside the highest id in the file, "Last ask:" too', () => {
+  const kept = parseGoals(['# Goals', 'Last id: G20', 'Last ask: A7', '', GOALS].join('\n'))
+  assert.equal(nextGoalId(kept), 'G21')
+  assert.equal(nextAskId(kept), 'A8')
+  assert.deepEqual(kept.problems, [])
+  // A head line below the highest id in the file: the file's id wins. No line: the highest id plus one.
+  assert.equal(nextGoalId(parseGoals('Last id: G2\n- [ ] G5 Five\n')), 'G6')
+  assert.equal(nextGoalId(parseGoals(GOALS)), 'G10')
+})
