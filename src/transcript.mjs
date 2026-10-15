@@ -39,7 +39,7 @@ export async function readTail(path, maxBytes = TAIL_BYTES) {
  */
 const TASK_MARKS = [
   'cross-session-message', '"SendMessage"', '"kind":"human"', '"kind":"plugin"', '"stop_reason":"end_turn"',
-  '[Request interrupted',
+  '[Request interrupted', '"subtype":"compact_boundary"',
 ]
 const DEEP_BYTES = 24 * 1024 * 1024
 const NEWLINE = 10
@@ -97,8 +97,9 @@ function blocksOf(content) {
 }
 
 /**
- * The user and assistant entries of a tail, in the file's order, and the messages of other chats that arrived in
- * the middle of a turn (`type: 'queued'`). Lines that do not parse are skipped.
+ * The user and assistant entries of a tail, in the file's order, the messages of other chats that arrived in the
+ * middle of a turn (`type: 'queued'`), and B262 the app's marks of a compaction (`type: 'compaction'`, with its
+ * `trigger`: `manual` for a /compact, `auto` when the app compacted by itself). Lines that do not parse are skipped.
  */
 export function parseTail(text, isCut) {
   const lines = text.split('\n')
@@ -114,6 +115,14 @@ export function parseTail(text, isCut) {
     }
     if (entry === null || typeof entry !== 'object') continue
     const at = Date.parse(entry.timestamp)
+    if (entry.type === 'system' && entry.subtype === 'compact_boundary') {
+      const trigger = entry.compactMetadata?.trigger
+      entries.push({
+        type: 'compaction', at: Number.isNaN(at) ? null : at, isMeta: true, isSidechain: entry.isSidechain === true,
+        isCompactSummary: false, origin: null, stopReason: null, trigger: typeof trigger === 'string' ? trigger : null, blocks: [],
+      })
+      continue
+    }
     if (entry.type === 'attachment') {
       // A message from another chat that arrives while a turn runs is no user entry: the app keeps it with the
       // turn, as a queued command. It opens no turn and ends none, but it can hand over a task (`queued`).
@@ -159,29 +168,53 @@ export const isCommandText = value => /^\s*<(local-command-[a-z]+|command-name|c
 export const isCommandEntry = entry => entry.isCompactSummary || isCommandText(textOf(entry))
 
 /**
- * Whether a turn is running, judged from the last entry that says something about it: `running`, `asking` (it
- * waits for an answer in its own chat), `ended`, or `unknown` when the tail has nothing to go by.
+ * The last entry that says something about the turn: what it says (`turn`), when it was written (`at`), and how a
+ * turn that ended there ended (`how`: `answer`, `stopped`, `compaction`), or `result` for a tool's answer.
  */
-export function turnState(entries) {
+function lastWord(entries) {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]
     if (entry.isSidechain || entry.type === 'queued') continue
+    const word = (turn, how = null) => ({ turn, at: entry.at, how })
+    // B262: a compaction ends the turn before it. A /compact runs only between two turns (the Workers mod's after
+    // a report); when the app compacts in the middle of a turn, the turn goes on at once after it. After a /compact
+    // the app writes an older stretch of the chat again just before its mark: what stands before it is not now.
+    if (entry.type === 'compaction') return word('ended', 'compaction')
     if (entry.type === 'assistant') {
-      if (entry.stopReason !== null && entry.stopReason !== 'tool_use') return 'ended'
+      if (entry.stopReason !== null && entry.stopReason !== 'tool_use') return word('ended', 'answer')
       const call = lastToolUse(entry)
-      return call !== null && ASKING_TOOLS.has(call.name) ? 'asking' : 'running'
+      return word(call !== null && ASKING_TOOLS.has(call.name) ? 'asking' : 'running')
     }
-    if (hasToolResult(entry)) return 'running'
+    if (hasToolResult(entry)) return word('running', 'result')
     const value = textOf(entry)
-    if (value.startsWith('[Request interrupted')) return 'ended'
+    if (value.startsWith('[Request interrupted')) return word('ended', 'stopped')
+    if (entry.isCompactSummary) return word('ended', 'compaction')
     // B247: a slash command opens no turn, also one a mod ran (the Workers mod's /compact after a report).
-    if (entry.isCompactSummary || isCommandText(value)) continue
+    if (isCommandText(value)) continue
     // Typed by the person, sent by another chat, or raised by the app: each starts a turn.
-    if (entry.origin !== null) return 'running'
+    if (entry.origin !== null) return word('running')
     if (entry.isMeta) continue
-    return 'running'
+    return word('running')
   }
-  return 'unknown'
+  return { turn: 'unknown', at: null, how: null }
+}
+
+/**
+ * Whether a turn is running, judged from the last entry that says something about it: `running`, `asking` (it
+ * waits for an answer in its own chat), `ended`, or `unknown` when the tail has nothing to go by.
+ */
+export const turnState = entries => lastWord(entries).turn
+
+/**
+ * B262: how the last turn ended, as far as the transcript tells: `{ at, how }` with `how` `answer` (its closing
+ * answer), `stopped` (the person stopped it), `compaction`, or `silent`: its last entry is a tool's answer, every
+ * call has its answer, and nothing came after. A silent turn may still go on (the chat thinks), or have ended
+ * without a closing message: the app's own word, or a long quiet, tells which. Null for a turn that runs.
+ */
+export function turnEnded(entries) {
+  const { turn, at, how } = lastWord(entries)
+  if (turn === 'ended') return { at, how }
+  return how === 'result' && unanswered(entries) === null ? { at, how: 'silent' } : null
 }
 
 /** The words of a tool's result, whether it came as text or as blocks. */
@@ -264,6 +297,8 @@ export function unanswered(entries) {
   const open = new Map()
   for (const entry of entries) {
     if (entry.isSidechain || entry.type === 'queued') continue
+    // B262: what stands before a compaction is over.
+    if (entry.type === 'compaction') open.clear()
     if (entry.type === 'assistant') {
       if (entry.stopReason !== null && entry.stopReason !== 'tool_use') open.clear()
       for (const block of entry.blocks) if (block.type === 'tool_use' && typeof block.id === 'string') open.set(block.id, { call: block, at: entry.at })
@@ -378,11 +413,15 @@ const isReportTo = (entry, mains) =>
   && entry.blocks.some(block => block.type === 'tool_use' && (block.name === 'SendMessage' || /(?:^|__)send_message$/.test(block.name ?? ''))
     && ((block.name === 'SendMessage' && mains.includes(block.input?.to)) || /^\s*Report from\b/.test(sentWords(block.input))))
 
-/** An entry after which no turn is running: the answer that ends it, or the app's mark that the person stopped it. */
+/**
+ * An entry after which no turn is running: the answer that ends it, the app's mark that the person stopped it, or
+ * B262 a /compact (it runs only between two turns; the app's own compaction in the middle of a turn ends nothing).
+ */
 export const endsTurn = entry =>
-  entry.type === 'assistant'
-    ? entry.stopReason !== null && entry.stopReason !== 'tool_use'
-    : !hasToolResult(entry) && textOf(entry).startsWith('[Request interrupted')
+  entry.type === 'compaction' ? entry.trigger !== 'auto'
+    : entry.type === 'assistant'
+      ? entry.stopReason !== null && entry.stopReason !== 'tool_use'
+      : !hasToolResult(entry) && textOf(entry).startsWith('[Request interrupted')
 
 /**
  * Walks the entries and keeps the task the main chat handed over. A task is finished when the chat has sent a

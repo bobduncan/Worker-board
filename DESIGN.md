@@ -631,6 +631,33 @@ state", of Units shown free beside its old card's task and "22 min over its firs
 for the person keeps its card's task: that is the work it waits on. The picture is
 `art-inbox/worker-board/b148/2026-10-14-b148-free-lane.png`.
 
+## A turn that ended without a closing message (B262)
+
+The person, 2026-10-15: "this is out of sync. what is the root of this problem and how do we prevent this. it seems
+to happen often that the worker board has old status." A worker had ended its turn and been compacted by the
+Workers mod, and the board still showed it working, "no sign of life for 47 min". The root: after a /compact the
+app writes an older stretch of the chat again at the end of its transcript, just before its compaction mark (in that
+case 4 MB of it, more than the board reads), and that stretch ended in a tool's answer, which the board read as a
+turn that runs. How the board reads a turn's end since then (`settleTurn` in `src/state.mjs`, `turnEnded` in
+`src/transcript.mjs`):
+
+- A compaction ends the turn before it: the app's mark (`system` `compact_boundary`) or its summary. A /compact runs
+  only between two turns; the app's own compaction in the middle of a turn (`trigger: auto`) is followed at once by
+  the turn's next entries, so it ends nothing for the readers of a task.
+- The app's own state decides where the board has it: the app writes its summary of a turn (`postTurnSummary`) when
+  the turn ends, and clears it, saving the file at once, when the next turn starts (its code, 2026-10-15). A current
+  summary therefore says the turn has ended, whatever the transcript's last entry is. Its absence says nothing: the
+  summary comes a moment after a turn, and some chats get none.
+- Without the app's word, a turn whose last entry is a tool's answer, with every call answered, ended without a
+  closing message once nothing was written for longer than `quietMinutes`. Before that it may still be thinking. A
+  chat its card shows as cut off (see `isCutOff`) stays cut off.
+- A task reported in a turn that ended this way is finished, as after a closing answer.
+- "No sign of life" is left for a turn that truly runs: a step without an answer (B247) or a prompt without one.
+
+A free lane says what the board knows and from where: "Ready for a new task · idle since 20:53, from the app", or
+"turn ended without a closing message at 20:26, from the transcript". The demo's Audio is this case; the picture is
+in `art-inbox/worker-board/b262/`.
+
 ## Time and estimates
 
 - A task starts when it is handed over (the message from the main chat in the worker's transcript), or when its

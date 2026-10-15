@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { answer, assistant, fromChat, line, modCompaction, slashCommand, step, text, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
-import { conversation, doingNow, lastFinish, markedIn, parseTail, taskStart, turnStart, turnState, unanswered } from '../src/transcript.mjs'
+import { answer, assistant, autoCompaction, fromChat, line, modCompaction, slashCommand, step, text, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
+import { conversation, doingNow, lastFinish, markedIn, parseTail, taskStart, turnEnded, turnStart, turnState, unanswered } from '../src/transcript.mjs'
 
 const T = Date.UTC(2026, 9, 12, 8, 0)
 const min = n => T + n * 60_000
@@ -66,6 +66,45 @@ test('turnState: a slash command after the end of a turn starts no turn', () => 
 
 test('B247: turnState: a /compact a mod ran after the end of a turn starts no turn', () => {
   assert.equal(turnState(entries([typed(min(0), 'Go'), answer(min(1), 'Done'), ...modCompaction(min(2))])), 'ended')
+})
+
+// B262: a worker that reported, recorded its card and wrapped up, whose last answer never reached the board's piece:
+// after a /compact the app writes an older stretch of the chat again just before its mark, so the piece ends in the
+// tools' answers, then the compaction.
+const reportedAndCompacted = [
+  assistant(min(26), 'tool_use', [tool('SendMessage', { to: 'Main', message: 'Report from Worker: a made-up step done.' })]),
+  assistant(min(26), 'tool_use', [tool('mcp__a-mod__chat', { action: 'done' })]),
+  assistant(min(26), 'tool_use', [tool('mcp__an-app__wrap_up', { recap: 'A made-up recap.' })]),
+  toolResult(min(27)), toolResult(min(27)), toolResult(min(27)),
+  ...modCompaction(min(53)),
+]
+
+test('B262: turnState: a compaction ends the turn before it, also one that ends in a tool\'s answer', () => {
+  assert.equal(turnState(entries(reportedAndCompacted)), 'ended')
+  assert.deepEqual(turnEnded(entries(reportedAndCompacted)), { at: min(53), how: 'compaction' })
+  // A /compact ends the turn for the readers of a task too: a report before it is the end of that task.
+  assert.equal(lastFinish(entries(reportedAndCompacted), { mainTitle: 'Main' }), min(26))
+})
+
+test('B262: turnState: the app\'s own compaction in the middle of a turn ends nothing: the turn goes on after it', () => {
+  const going = [typed(min(0), 'Go'), step(min(1), 'Run the tests'), toolResult(min(2)), ...autoCompaction(min(3)), step(min(4), 'Run the tests again')]
+  assert.equal(turnState(entries(going)), 'running')
+  assert.equal(turnState(entries([...going, toolResult(min(5))])), 'running')
+  assert.equal(turnEnded(entries(going)), null)
+  // What opened the turn still holds it.
+  assert.equal(turnStart(entries(going)).isOpen, true)
+})
+
+test('B262: turnEnded: a closing answer after a wrap-up ends the turn; a tool\'s last answer may have ended it without one', () => {
+  const wrapUp = [typed(min(0), 'Go'), assistant(min(1), 'tool_use', [tool('mcp__an-app__wrap_up', { recap: 'A made-up recap.' })]), toolResult(min(2))]
+  assert.equal(turnState(entries([...wrapUp, answer(min(3), 'Done')])), 'ended')
+  assert.deepEqual(turnEnded(entries([...wrapUp, answer(min(3), 'Done')])), { at: min(3), how: 'answer' })
+  // Without the closing answer the transcript cannot tell: the turn may go on, or have ended without a word.
+  assert.equal(turnState(entries(wrapUp)), 'running')
+  assert.deepEqual(turnEnded(entries(wrapUp)), { at: min(2), how: 'silent' })
+  // A step still without its answer is a turn that runs.
+  assert.equal(turnEnded(entries([typed(min(0), 'Go'), step(min(1), 'Run the tests')])), null)
+  assert.equal(turnEnded(entries([typed(min(0), 'Go')])), null)
 })
 
 test('turnState: a turn the person interrupted has ended', () => {

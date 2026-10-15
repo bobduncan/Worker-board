@@ -669,11 +669,17 @@ function folderLine(folder, now) {
 // lanefree:start
 /**
  * B148: the one dim line of a free lane: ready for a new task, or the task its card still named, as finished (the
- * card was left behind). Null for a lane that is not free.
+ * card was left behind). Null for a lane that is not free. B262: with since when it is idle and who says so, the
+ * app or its transcript; a turn whose last entry was a tool's answer ended without a closing message. `clock` writes
+ * a time as the page does.
  */
-function freeLine(lane) {
+function freeLine(lane, clock = null) {
   if (lane.state !== 'free') return null
-  return typeof lane.lastTask?.text === 'string' && lane.lastTask.text !== '' ? `Last task: ${lane.lastTask.text}, finished` : 'Ready for a new task'
+  const ready = typeof lane.lastTask?.text === 'string' && lane.lastTask.text !== '' ? `Last task: ${lane.lastTask.text}, finished` : 'Ready for a new task'
+  const idle = lane.idle ?? null
+  if (idle === null || !Number.isFinite(idle.since) || clock === null) return ready
+  const when = idle.isSilent ? `turn ended without a closing message at ${clock(idle.since)}` : `idle since ${clock(idle.since)}`
+  return `${ready} · ${when}, from ${idle.from === 'app' ? 'the app' : 'the transcript'}`
 }
 // lanefree:end
 
@@ -726,7 +732,7 @@ function drawLane(lane, state) {
   const task = lane.task
   if (task === null) {
     what.append(el('p', 'task is-none', lane.state === 'working' ? 'Task not recorded yet' : 'No active task'))
-    const free = freeLine(lane)
+    const free = freeLine(lane, clock)
     if (free !== null) what.append(el('p', 'note', free))
   } else {
     what.append(taskTitle(lane))

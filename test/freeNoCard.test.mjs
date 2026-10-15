@@ -77,3 +77,15 @@ test('a free lane says it is ready, or names the task it left behind as finished
   assert.equal(page.freeLine({ state: 'free', lastTask: { text: 'Record the warrior verdict' } }), 'Last task: Record the warrior verdict, finished')
   for (const state of ['working', 'waiting', 'suspended', 'interrupted', 'unknown']) assert.equal(page.freeLine({ state, lastTask: null }), null, state)
 })
+
+test('B262: a free lane says since when it is idle, and whether the app or its transcript says so', () => {
+  const clock = at => `${String(new Date(at).getUTCHours()).padStart(2, '0')}:${String(new Date(at).getUTCMinutes()).padStart(2, '0')}`
+  const at = Date.UTC(2026, 9, 15, 20, 26)
+  assert.equal(page.freeLine({ state: 'free', lastTask: null, idle: { since: at, from: 'app', isSilent: false } }, clock), 'Ready for a new task · idle since 20:26, from the app')
+  assert.equal(page.freeLine({ state: 'free', lastTask: null, idle: { since: at, from: 'transcript', isSilent: false } }, clock), 'Ready for a new task · idle since 20:26, from the transcript')
+  assert.equal(page.freeLine({ state: 'free', lastTask: { text: 'Record the verdict' }, idle: { since: at, from: 'transcript', isSilent: true } }, clock),
+    'Last task: Record the verdict, finished · turn ended without a closing message at 20:26, from the transcript')
+  // Without a time, or without a clock, the line stays as it was.
+  assert.equal(page.freeLine({ state: 'free', lastTask: null, idle: { since: null, from: 'app', isSilent: false } }, clock), 'Ready for a new task')
+  assert.equal(page.freeLine({ state: 'free', lastTask: null, idle: { since: at, from: 'app', isSilent: false } }), 'Ready for a new task')
+})

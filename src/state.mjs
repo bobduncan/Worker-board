@@ -18,7 +18,7 @@ import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
-import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
+import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -85,6 +85,34 @@ export function chatState({ turn, category, needsAction }) {
   if (turn === 'asking') return 'waiting'
   if (turn !== 'ended') return 'unknown'
   return category === 'blocked' || (typeof needsAction === 'string' && needsAction.trim() !== '') ? 'waiting' : 'free'
+}
+
+/**
+ * B262: the turn as the board takes it (`turn`), and for a turn that has ended since when and from where the board
+ * knows it (`idle`: `{ since, from, isSilent }`, `from` `app` or `transcript`; null for a turn that runs). The app
+ * writes its summary of a turn when the turn ends and clears it when the next one starts: a current summary says
+ * the turn has ended, whatever the transcript's last entry is. Without it the transcript decides; a turn whose last
+ * entry is a tool's answer (`end.how` `silent`) that wrote nothing for longer than the quiet limit ended without a
+ * closing message, unless its card says it was cut off (`isCut`, see `isCutOff`). A question asked in the chat stays
+ * a question.
+ */
+export function settleTurn({ turn, end, isAppEnded, isCut = false, writtenAt, now, quietLimitMs }) {
+  const isSilent = end?.how === 'silent'
+  if (turn === 'running' && isAppEnded) return { turn: 'ended', idle: { since: end?.at ?? writtenAt, from: 'app', isSilent } }
+  if (turn === 'running' && isSilent && !isCut && writtenAt !== null && now - writtenAt > quietLimitMs) {
+    return { turn: 'ended', idle: { since: end.at, from: 'transcript', isSilent } }
+  }
+  if (turn === 'ended') return { turn, idle: { since: end?.at ?? null, from: isAppEnded ? 'app' : 'transcript', isSilent: false } }
+  return { turn, idle: null }
+}
+
+/**
+ * B262: a hand-over still open, or null when the chat reported after it and its turn has ended since: a turn the
+ * board took as ended (the app's word, a long quiet) has no closing entry that marks the task finished.
+ */
+function reportedOrOpen(handOver, turn, scan, main) {
+  if (handOver === null || turn !== 'ended') return handOver
+  return (lastReport(scan, main) ?? -Infinity) >= handOver.at ? null : handOver
 }
 
 const textOr = (value, fallback) => (typeof value === 'string' ? value : fallback)
@@ -226,19 +254,25 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, reports: null, compaction: null, unanswered: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, reports: null, compaction: null, unanswered: null, idle: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
   const entries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
-  const turn = entries === null ? null : turnState(entries)
   const summary = chat.summary?.isCurrent === true ? chat.summary : null
+  const lastWriteAt = Number.isFinite(tail?.modifiedAt) ? tail.modifiedAt : null
   const plan = parsePlanLine(textOr(raw.planLineTexts?.[chat.cliSessionId], ''))
+  const turnStartedAt = entries === null ? null : turnStart(entries, { prefix })?.at ?? null
+  // B262: the app's summary of the last turn, when it has one, says the turn has ended; else the transcript decides.
+  const said = entries === null ? null : turnState(entries)
+  const { turn, idle } = entries === null ? { turn: null, idle: null } : settleTurn({
+    turn: said, end: turnEnded(entries), isAppEnded: summary !== null, writtenAt: lastWriteAt, now, quietLimitMs: config.quietMinutes * MIN,
+    isCut: isCutOff({ turn: said, plan, lastWriteAt, turnStartedAt, now }),
+  })
   // The longer look back is a few minutes old, so the tail follows it: the newest hand-over or report wins.
   const scan = typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries
   const step = stepOf(chat.name)
-  const lastWriteAt = Number.isFinite(tail?.modifiedAt) ? tail.modifiedAt : null
-  const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt: entries === null ? null : turnStart(entries, { prefix })?.at ?? null, now })
+  const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
   const ended = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
   // B148: its last answer ends with "+ Done:   yes": it has finished, and a card it forgot to clear holds nothing.
@@ -247,7 +281,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     plan, step,
     isCompleted: summary?.category === 'completed',
     isDone,
-    handOver: chat.isMain || scan === null ? null : taskStart(scan, main),
+    handOver: chat.isMain || scan === null ? null : reportedOrOpen(taskStart(scan, main), turn, scan, main),
     background: entries === null ? 0 : backgroundRunning(entries),
   })
   // B113: held by a limit of the plan. The app stopped it there, or the worker told the main chat that it paused
@@ -307,6 +341,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     compaction: plan?.compaction ?? null,
     // B247: the step a running turn waits on without an answer; the app may wait for the person's approval of it.
     unanswered: quietMs === null || entries === null ? null : unanswered(entries),
+    // B262: since when its turn has ended, and whether the app or its transcript says so.
+    idle,
     givenTask: given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title } },
     suspended: paused,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).

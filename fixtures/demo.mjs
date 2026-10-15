@@ -38,6 +38,8 @@ const CHATS = [
   { name: 'Cleanup', id: 'demo-cleanup' },
   { name: 'Levels / Environment', id: 'demo-levels' },
   { name: 'Advisor', id: 'demo-advisor', summary: ['completed', 'advice written', ''] },
+  // B262: its turn ended in a tool's answer, without a closing message, and the app has no summary of it.
+  { name: 'Audio', id: 'demo-audio' },
 ]
 
 const BACKLOG = `# Backlog
@@ -230,6 +232,15 @@ function transcripts(now) {
       typed(ago(20), 'Can Features start the main menu while the save system is still in review?'),
       answer(ago(19), 'Yes, if it does not touch the save files: the main menu only reads whether a save exists. I would let it start once its tests pass.'),
     ], 19),
+    'demo-audio': tail([
+      fromChat(ago(70), 'Game - Main', 'Task from Game - Main: add the menu sounds.'),
+      step(ago(69), 'List the sound files'),
+      toolResult(ago(68)),
+      // B262: it reported with a tool and wrote no closing message. Nothing came after for longer than the quiet
+      // limit: its turn has ended, and the task with it.
+      assistant(ago(26), 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Report from Game - Audio: the menu sounds are in.' })]),
+      toolResult(ago(26)),
+    ], 26),
   }
 }
 
@@ -283,6 +294,11 @@ function history(now) {
     line(86, 'Levels / Environment', 'free'),
     line(40, 'Levels / Environment', 'working', 'Build first level (forest)', { step: 1, steps: 6, leftMs: 150 * MIN }),
     line(22, 'Levels / Environment', 'working', 'Build first level (forest)', { step: 2, steps: 6, leftMs: 120 * MIN }),
+
+    // B262: its turn ended 26 minutes ago without a closing message; the board saw it once the quiet limit passed.
+    line(262, 'Audio', 'free'),
+    line(70, 'Audio', 'working'),
+    line(16, 'Audio', 'free'),
   ]
   return lines.sort((a, b) => a.at - b.at)
 }

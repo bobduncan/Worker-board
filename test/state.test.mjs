@@ -25,6 +25,8 @@ const tail = (lines, quietMinutes = 0) => ({ text: lines.join('\n'), isCut: fals
 const planLine = task => JSON.stringify({ name: 'x', role: 'worker', state: 'working', task, at: NOW - 3 * MIN })
 const running = [typed(NOW - 20 * MIN, 'Go'), step(NOW - 2 * MIN, 'Run the tests'), toolResult(NOW - MIN)]
 const ended = [typed(NOW - 20 * MIN, 'Go'), answer(NOW - 9 * MIN, 'Done')]
+// B262: a turn the person opened that has had no answer at all: a quiet one of these runs without a sign of life.
+const noAnswer = [typed(NOW - 14 * MIN, 'Go')]
 
 function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', outbox = [], asks = [], folders = null, pictureLists = {}, runs = [], restartNote = null, board = null, seen = null }) {
   const raw = {
@@ -159,7 +161,7 @@ test('a request shows the answer that was sent for it, until it is delivered or 
 })
 
 test('a running turn without a sign of life is raised for you, and cannot be answered on the board', () => {
-  const state = build({ apps: [app('Units')], tails: { Units: tail(running, 14) } })
+  const state = build({ apps: [app('Units')], tails: { Units: tail(noAnswer, 14) } })
   assert.deepEqual(state.forYou.map(need => [need.id, need.kind, need.title, need.canAnswer]), [['quiet:Units', 'intervene', 'No sign of life for 14 min', false]])
 })
 
@@ -178,9 +180,53 @@ test('B247: a quiet chat whose step has no answer names that step, and that it m
   const [need] = state.forYou
   assert.equal(need.title, 'No sign of life for 30 min')
   assert.equal(need.text, 'Its step "Working in the browser" has had no answer for 30 min. The app may wait for your approval of it in its chat, or the tool hangs. Look at its chat.')
-  // A running turn whose last step got its answer keeps the plain words.
-  assert.match(build({ apps: [app('Units')], tails: { Units: tail(running, 14) } }).forYou[0].text, /^Its turn is running, but it has written nothing\./)
-  assert.equal(chatNamed(build({ apps: [app('Units')], tails: { Units: tail(running, 14) } }), 'Units').unanswered, null)
+  // A running turn without a step that waits keeps the plain words.
+  assert.match(build({ apps: [app('Units')], tails: { Units: tail(noAnswer, 14) } }).forYou[0].text, /^Its turn is running, but it has written nothing\./)
+  assert.equal(chatNamed(build({ apps: [app('Units')], tails: { Units: tail(noAnswer, 14) } }), 'Units').unanswered, null)
+})
+
+// B262: a worker that reported and wrapped up, then compacted by a mod. The board's piece of it ends in the tools'
+// answers (the app writes an older stretch again before its mark), then the compaction.
+const compactedAfterTools = tail([step(NOW - 27 * MIN, 'Report'), toolResult(NOW - 27 * MIN), ...modCompaction(NOW - 8 * MIN)], 8)
+
+test('B262: a worker compacted after a turn that ended in a tool\'s answer is idle: from the app, else from the transcript', () => {
+  const byApp = chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: compactedAfterTools } }), 'Units')
+  assert.deepEqual([byApp.state, byApp.isQuiet, byApp.doingNow, byApp.idle], ['free', false, null, { since: NOW - 8 * MIN, from: 'app', isSilent: false }])
+  const byTranscript = chatNamed(build({ apps: [app('Units')], tails: { Units: compactedAfterTools } }), 'Units')
+  assert.deepEqual([byTranscript.state, byTranscript.idle], ['free', { since: NOW - 8 * MIN, from: 'transcript', isSilent: false }])
+})
+
+test('B262: a turn whose last entry is a tool\'s answer, quiet for longer than quietMinutes, ended without a closing message', () => {
+  const silent = [typed(NOW - 20 * MIN, 'Go'), step(NOW - 15 * MIN, 'Run the tests'), toolResult(NOW - 14 * MIN)]
+  const state = build({ apps: [app('Units')], tails: { Units: tail(silent, 14) } })
+  const units = chatNamed(state, 'Units')
+  assert.deepEqual([units.state, units.quietMs, units.isQuiet, units.idle], ['free', null, false, { since: NOW - 14 * MIN, from: 'transcript', isSilent: true }])
+  assert.deepEqual(state.forYou, [])
+  // Not that long yet: it may still be thinking.
+  const soon = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(silent, 5) } }), 'Units')
+  assert.deepEqual([soon.state, soon.idle], ['working', null])
+  // A task handed to it and not reported keeps it working, between two turns.
+  const handedOver = [fromChat(NOW - 20 * MIN, 'Game - Main', 'Task from Game - Main: build the archer.'), ...silent.slice(1)]
+  const held = chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail(handedOver, 14) } }), 'Units')
+  assert.deepEqual([held.state, held.between], ['working', 'Its turn has ended; the task handed to it is not reported yet.'])
+  // One it reported in that turn is finished: by the long quiet, or at once by the app's word.
+  const reported = [...handedOver, assistant(NOW - 14 * MIN, 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Report from Game - Units: the archer is built.' })]), toolResult(NOW - 14 * MIN)]
+  assert.equal(chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail(reported, 14) } }), 'Units').state, 'free')
+  assert.equal(chatNamed(build({ apps: [app('Main'), app('Units', summary('completed'))], tails: { Units: tail(reported, 1) } }), 'Units').state, 'free')
+  assert.equal(chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail(reported, 1) } }), 'Units').state, 'working')
+})
+
+test('B262: the app\'s own word that a turn has ended decides, before the transcript has been quiet long', () => {
+  // The app writes its summary when a turn ends, and clears it when the next one starts.
+  const units = chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: tail(running, 1) } }), 'Units')
+  assert.deepEqual([units.state, units.idle], ['free', { since: NOW - MIN, from: 'app', isSilent: true }])
+  // A turn with its closing answer: the app says so too.
+  assert.deepEqual(chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: tail(ended, 9) } }), 'Units').idle, { since: NOW - 9 * MIN, from: 'app', isSilent: false })
+  // Without the app's summary the transcript decides: a turn that runs has no idle line.
+  assert.equal(chatNamed(build({ apps: [app('Units')], tails: { Units: tail(running, 1) } }), 'Units').idle, null)
+  // A question asked in its chat still waits for you.
+  const asked = [typed(NOW - 20 * MIN, 'Go'), assistant(NOW - 4 * MIN, 'tool_use', [tool('AskUserQuestion', {})])]
+  assert.equal(chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: tail(asked, 4) } }), 'Units').state, 'waiting')
 })
 
 test('a working chat with an estimate has a time it expects to be done, and its queue is planned after it', () => {
@@ -325,7 +371,7 @@ test('a summary the app wrote about an older answer is not used', () => {
 })
 
 test('a running turn that wrote nothing for more than ten minutes is quiet', () => {
-  const units = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(running, 14) } }), 'Units')
+  const units = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(noAnswer, 14) } }), 'Units')
   assert.equal(units.state, 'working')
   assert.equal(units.quietMs, 14 * MIN)
   assert.equal(units.isQuiet, true)
@@ -526,7 +572,7 @@ test('sources that are missing or broken give an empty board, never an error', (
   assert.doesNotThrow(() => buildState({ appChatTexts: ['{', 'null', '5'], tails: { x: { text: '{', isCut: true, modifiedAt: 1 } }, backlogText: 5 }, { now: NOW, config }))
 })
 
-test('the demo shows the second design: five lanes with their queues, two requests, and the advisor', async () => {
+test('the demo shows the second design: six lanes with their queues, two requests, and the advisor', async () => {
   const demo = await demoSources(NOW)
   const state = buildState(demo, { lines: demo.historyLines, now: NOW, config: { ...config, project: demo.project } })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.state, chat.queue.length]), [
@@ -535,19 +581,22 @@ test('the demo shows the second design: five lanes with their queues, two reques
     ['Features', 'suspended', 3],
     ['Cleanup', 'free', 1],
     ['Levels / Environment', 'working', 2],
+    // B262: its turn ended without a closing message.
+    ['Audio', 'free', 0],
   ])
-  assert.deepEqual(state.counts, { working: 2, waiting: 1, free: 1, unknown: 0, interrupted: 0, suspended: 1 })
+  assert.deepEqual(state.counts, { working: 2, waiting: 1, free: 2, unknown: 0, interrupted: 0, suspended: 1 })
+  assert.deepEqual(state.chats[5].idle, { since: NOW - 26 * MIN, from: 'transcript', isSilent: true })
   // B155: the steps finished this morning, newest first: one approved by the person, one reported, one with only the day.
   assert.deepEqual(state.finished.map(one => [one.id, one.how, one.by]), [['B05', 'line', 'you'], ['B06', 'report', 'Cleanup'], ['B07', 'day', 'Levels / Environment']])
   // B148: Cleanup's last answer ends with "+ Done:   yes": free, although its card still names its task.
   assert.deepEqual([state.chats[3].state, state.chats[3].task], ['free', null])
   assert.equal(JSON.parse(demo.planLineTexts['demo-cleanup']).task.isReported, false)
-  assert.deepEqual(state.chats.map(chat => (chat.eta === null ? null : Math.round(chat.eta.leftMs / MIN))), [22, null, null, null, 34])
+  assert.deepEqual(state.chats.map(chat => (chat.eta === null ? null : Math.round(chat.eta.leftMs / MIN))), [22, null, null, null, 34, null])
   // B113: the limits, a worker that paused for the limit, and why each first queued step is not started.
   assert.deepEqual([state.limits.fiveHour.used, state.limits.fiveHour.level, Math.round((state.limits.fiveHour.resetsAt - NOW) / MIN), state.limits.week.used], [86, 'warn', 52, 64])
   assert.deepEqual([state.chats[2].suspended.by, Math.round((state.chats[2].suspended.until - NOW) / MIN), state.chats[2].task.text], ['note', 52, 'Add save / load system'])
-  assert.deepEqual(state.chats.map(chat => chat.queue[0].why.reason), ['busy', 'after', 'suspended', 'handout', 'busy'])
-  assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], ['cleanup'], ['levels']])
+  assert.deepEqual(state.chats.map(chat => chat.queue[0]?.why.reason ?? null), ['busy', 'after', 'suspended', 'handout', 'busy', null])
+  assert.deepEqual(state.chats.map(chat => chat.folders.map(folder => folder.name)), [[], ['units'], ['features'], ['cleanup'], ['levels'], []])
   assert.deepEqual(state.otherFolders.map(folder => folder.name), [])
   assert.deepEqual(state.unassigned.map(step => step.title), ['Decide the name of the game'])
 
