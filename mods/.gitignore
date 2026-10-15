@@ -1,0 +1,3 @@
+# Written by the engine when a mod loads: the API types for the editor, made anew on every PC.
+**/.claude-plugin/types/
+node_modules/

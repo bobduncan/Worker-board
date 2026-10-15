@@ -1,0 +1,12 @@
+{
+  "name": "worker-board",
+  "description": "The Workers mod, carried by the worker board: `npm run setup` in the board's folder installs it.",
+  "owner": { "name": "worker board" },
+  "plugins": [
+    {
+      "name": "folder-branches",
+      "source": "./folder-branches",
+      "description": "The Workers mod: each chat's card, your answers from the worker board typed into the chats, the board kept running, a large worker compacted after it reports; the Workers and Git panes."
+    }
+  ]
+}

@@ -21,8 +21,11 @@ const KINDS = {
   folder: /art-inbox/g,
 }
 
-/** What the board is made of: its code, its page, its job texts, its examples and settings. Tests and samples are not. */
-const IN_SCOPE = /^(?:server\.mjs|run-game\.mjs|config\.json|design\.json|src\/|public\/|roles\/|examples\/)/
+/**
+ * What the board is made of: its code, its page, its job texts, its examples and settings, and (B251) its setup and the
+ * Workers mod it carries. Tests and samples are not.
+ */
+const IN_SCOPE = /^(?:server\.mjs|run-game\.mjs|setup\.mjs|start-board\.mjs|config\.json|design\.json|src\/|public\/|roles\/|examples\/|mods\/(?!.*\.test\.tsx?$))/
 
 /** The ties known on 2026-10-14 (main a8ea248): file, kind, how many, and the plan's part that removes them. */
 // Empty since B202 (2026-10-14): every known tie is gone. It stays empty.

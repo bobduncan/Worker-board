@@ -27,6 +27,10 @@ titles, both from the list of chats.
 - Write to the user as the project's `CLAUDE.md` says, when it has one.
 - Every question carries its own material in the same answer: the board shows only that answer. A question that
   stays open is asked again with what is needed to decide it, never as a bare "still open".
+- Whoever asks the user asks once (B261). What a worker asked the user in its own chat (its report says what and
+  where) is not repeated in your "For you": your answer confirms the merge and hands out the next step, with at most
+  one plain line ("Worker 2 has a question for you in its chat"). Your "For you" holds only your own questions and the
+  checks of a worker that reported only to you.
 
 ## A task comes in: worker or queue
 
