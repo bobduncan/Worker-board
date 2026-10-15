@@ -2817,15 +2817,258 @@ function drawSuggestions(state) {
   }), el('p', 'muted', 'Accept or reject each one under For you.')])
 }
 
+// B255: the goal map's outline in the Advisor tab's Goals part (spec 2026-10-15, section 2). The person, 2026-10-15:
+// "I dont want to be overwhelmed with too many things at once ... a simple counter is enough, the ability to click on
+// a node/milestone can zoom in, and quickly zoom out seamlessly". One level at a time: the focused node and its
+// children, with counters; the rest folded and dimmed. The focus is in the address (#advice/goals/G12).
+let goalsFocus = null
+/** The rows whose ▸ the person opened, one level more without zooming; a zoom folds them again. */
+const goalsOpened = new Set()
+let goalsLinesOpen = false
+
+// goals:start
+// Worked out without the page, so the tests can run it. `goals` is state.goals: { roots, nodes (each with counts), problems }.
+function goalById(goals, id) { return id === null ? null : goals.nodes.find(one => one.id === id) ?? null }
+
+/** Goals › the focus's ancestors › the focus; an unknown focus is the top. */
+function goalCrumb(goals, focusId) {
+  const chain = []
+  const seen = new Set()
+  for (let node = goalById(goals, focusId); node !== null && !seen.has(node.id); node = goalById(goals, node.parent)) {
+    seen.add(node.id)
+    chain.unshift({ id: node.id, title: node.title })
+  }
+  return [{ id: null, title: 'Goals' }, ...chain]
+}
+
+/** "2 inside · 4 steps · 3 done · 1 missing"; "no steps yet" when there is nothing to count. */
+function goalCounter(counts) {
+  if (counts === undefined || counts === null) return ''
+  const parts = []
+  if (counts.nodes > 0) parts.push(`${counts.nodes} inside`)
+  if (counts.steps > 0) parts.push(`${counts.steps} step${counts.steps === 1 ? '' : 's'}`, `${counts.done} done`)
+  if (counts.missing > 0) parts.push(`${counts.missing} missing`)
+  if (counts.unknown > 0) parts.push(`${counts.unknown} unknown`)
+  return parts.length === 0 ? 'no steps yet' : parts.join(' · ')
+}
+
+/** A node's own lines folded to one: "Done when: … · 1 ask pending · 1 note · 1 missing" ("" when it has none of these). */
+function goalFrameLine(node) {
+  const parts = []
+  if (node.doneWhen) parts.push(`Done when: ${node.doneWhen}`)
+  const pending = node.asks.filter(ask => ask.answer === null).length
+  if (pending > 0) parts.push(`${pending} ask${pending === 1 ? '' : 's'} pending`)
+  const notes = node.notes.filter(line => line.startsWith('Note')).length
+  if (notes > 0) parts.push(`${notes} note${notes === 1 ? '' : 's'}`)
+  if (node.missing.length > 0) parts.push(`${node.missing.length} missing`)
+  return parts.join(' · ')
+}
+
+/** A node's own lines unfolded, as the file names them; another goal by its title and id. */
+function goalFrameLines(goals, node) {
+  const named = id => { const other = goalById(goals, id); return other === null ? id : `${other.title} (${id})` }
+  const lines = []
+  if (node.doneWhen) lines.push(`Done when: ${node.doneWhen}`)
+  if (node.why) lines.push(`Why: ${node.why}`)
+  if (node.fromPlan) lines.push(`From the game plan: ${node.fromPlan}`)
+  if (node.enables.length > 0) lines.push(`Enables: ${node.enables.map(named).join(', ')}`)
+  if (node.alsoPartOf.length > 0) lines.push(`Also part of: ${node.alsoPartOf.map(named).join(', ')}`)
+  if (node.steps.length > 0) lines.push(`Steps: ${node.steps.join(', ')}`)
+  for (const line of node.missing) lines.push(`Missing: ${line}`)
+  if (node.recommendation) {
+    const rec = node.recommendation
+    lines.push(`Recommendation (${rec.id}): ${[rec.title, rec.why, rec.cost, rec.step ?? 'none'].filter(Boolean).join(' · ')}`)
+  }
+  if (node.brainstorm) lines.push(`Brainstorm: ${node.brainstorm.path} (${node.brainstorm.state})`)
+  for (const ask of node.asks) {
+    lines.push(`Ask (${ask.id}, ${ask.at}): ${ask.text}`)
+    if (ask.answer) lines.push(`Answer (${ask.answer.at}, ${ask.answer.by}): ${ask.answer.text}`)
+    if (ask.answer?.more) lines.push(`More: ${ask.answer.more}`)
+  }
+  lines.push(...node.notes)
+  return lines
+}
+
+function goalTags(goals, node, isRef) {
+  const tags = []
+  if (isRef) tags.push(`also here · home: ${goalById(goals, node.parent)?.title ?? 'the top'}`)
+  else for (const id of node.alsoPartOf) tags.push(`also under ${goalById(goals, id)?.title ?? id}`)
+  for (const id of node.enables) tags.push(`enables → ${goalById(goals, id)?.title ?? id}`)
+  if (node.brainstorm?.state === 'running') tags.push('brainstorm')
+  return tags
+}
+
+/**
+ * The outline's rows: the whole tree. The focus's ancestors stand open; the focus's children show, folded; every other
+ * node is folded unless `opened` holds it (a ▸ the person opened). Outside the focus everything is dimmed (nothing at
+ * the top). A node that is also part of an open node stands under it as a reference row. An id used twice is walked
+ * once, so a broken file cannot send the outline round in circles.
+ */
+function goalOutlineRows(goals, focusId, opened) {
+  const focus = goalById(goals, focusId) === null ? null : focusId
+  const chain = new Set(goalCrumb(goals, focus).map(one => one.id).filter(id => id !== null))
+  const rows = []
+  const walked = new Set()
+  const walk = (id, depth, isRef, inFocus) => {
+    const node = goalById(goals, id)
+    if (node === null || (!isRef && walked.has(id))) return
+    if (!isRef) walked.add(id)
+    const isFocus = id === focus
+    const lit = inFocus || isFocus
+    const isOpen = !isRef && (chain.has(id) || opened.has(id))
+    const refs = isRef ? [] : goals.nodes.filter(other => other.id !== id && other.alsoPartOf.includes(id))
+    const hasInside = node.children.length > 0 || refs.length > 0
+    rows.push({ id, depth, title: node.title, state: node.state, counter: goalCounter(node.counts), tags: goalTags(goals, node, isRef), isFocus, isDim: focus !== null && !lit, isRef, fold: hasInside ? (isOpen ? 'open' : 'closed') : null })
+    if (!isOpen) return
+    for (const child of node.children) walk(child, depth + 1, false, lit)
+    for (const other of refs) walk(other.id, depth + 1, true, lit)
+  }
+  for (const root of goals.roots) walk(root, 0, false, focus === null)
+  return rows
+}
+
+function goalAddress(focusId) { return focusId === null ? '#advice/goals' : `#advice/goals/${focusId}` }
+
+/** The focus an address names: null for the top, undefined when the address is not the map's. */
+function goalFocusOf(hash) {
+  const found = /^#advice\/goals(?:\/(G\d+))?$/.exec(hash)
+  return found === null ? undefined : found[1] ?? null
+}
+// goals:end
+
+const GOAL_STATES = { open: 'open', now: 'in progress', done: 'done' }
+
+function goalsData(state) { return [state.goals ?? null, state.goalsFile ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen] }
+
+function drawGoals(state) {
+  const goals = state.goals ?? null
+  if (goals === null) {
+    fill($('goals-crumb'), [el('span', 'goals-here', 'Goals')])
+    $('goals-count').textContent = ''
+    $('goals-problems').hidden = true
+    $('goals-frame').hidden = true
+    fill($('goals-outline'), [el('p', 'muted goals-empty', `No goal map yet. The Advisor writes ${state.goalsFile ?? '.claude/goals.md'} with you; the board draws it here.`)])
+    return
+  }
+  const focus = goalById(goals, goalsFocus)
+  const crumb = goalCrumb(goals, focus?.id ?? null)
+  const back = el('button', 'goals-back', '‹')
+  back.type = 'button'
+  back.title = 'Zoom out one level (Esc)'
+  back.disabled = focus === null
+  if (focus !== null) back.dataset.goal = crumb.at(-2).id ?? ''
+  fill($('goals-crumb'), [back, ...crumb.flatMap((step, place) => {
+    const isHere = place === crumb.length - 1
+    const part = isHere ? el('span', 'goals-here', step.title) : el('button', 'goals-link', step.title)
+    if (!isHere) {
+      part.type = 'button'
+      part.dataset.goal = step.id ?? ''
+    }
+    return place === 0 ? [part] : [el('span', 'goals-sep', '›'), part]
+  })])
+  $('goals-count').textContent = focus === null ? `${goals.roots.length} goal${goals.roots.length === 1 ? '' : 's'}` : goalCounter(focus.counts)
+  $('goals-problems').hidden = goals.problems.length === 0
+  $('goals-problems').textContent = goals.problems.length === 0 ? '' : `${state.goalsFile ?? 'The goals file'} has a mistake, drawn as well as it goes: ${goals.problems.join(' · ')}`
+
+  $('goals-frame').hidden = focus === null
+  if (focus !== null) {
+    const head = el('div', 'goals-frame-head')
+    head.append(el('span', `goal-dot is-${focus.state}`), el('b', 'goals-frame-title', focus.title), el('span', `goals-frame-state is-${focus.state}`, GOAL_STATES[focus.state] ?? focus.state))
+    const lines = goalFrameLines(goals, focus)
+    const summary = el('div', 'goals-frame-line')
+    // Unfolded, the lines say it all: the folded line goes.
+    if (!goalsLinesOpen || lines.length === 0) summary.append(el('span', '', goalFrameLine(focus)))
+    if (lines.length > 0) {
+      const toggle = el('button', 'goals-lines', goalsLinesOpen ? 'fold ▾' : `${lines.length} line${lines.length === 1 ? '' : 's'} ▸`)
+      toggle.type = 'button'
+      toggle.id = 'goals-lines'
+      toggle.setAttribute('aria-expanded', String(goalsLinesOpen))
+      summary.append(toggle)
+    }
+    fill($('goals-frame'), [head, summary, goalsLinesOpen && lines.length > 0 ? fill(el('ul', 'goals-frame-lines'), lines.map(line => el('li', '', line))) : null])
+  }
+
+  fill($('goals-outline'), goalOutlineRows(goals, focus?.id ?? null, goalsOpened).map(row => {
+    const line = el('div', `goal-row goal-depth-${Math.min(row.depth, 8)}${row.isFocus ? ' is-focus' : ''}${row.isDim ? ' is-dim' : ''}${row.isRef ? ' is-ref' : ''}`)
+    line.dataset.goal = row.id
+    const fold = row.fold === null ? el('span', 'goal-fold') : el('button', 'goal-fold', row.fold === 'open' ? '▾' : '▸')
+    if (row.fold !== null) {
+      fold.type = 'button'
+      fold.setAttribute('aria-label', row.fold === 'open' ? `Fold ${row.title}` : `Unfold ${row.title}`)
+      fold.setAttribute('aria-expanded', String(row.fold === 'open'))
+    }
+    const title = el('button', 'goal-title', row.isRef ? `↗ ${row.title}` : row.title)
+    title.type = 'button'
+    title.title = row.isRef ? 'Its home is elsewhere: zoom into it there' : 'Zoom in'
+    line.append(fold, el('span', `goal-dot is-${row.state}`), title, ...row.tags.map(tag => el('span', `goal-tag${tag.startsWith('enables') ? ' is-enables' : ''}`, tag)), el('span', 'goal-meta', row.counter))
+    return line
+  }))
+}
+
+function redrawGoals() {
+  if (board !== null && board !== undefined) once('goals', goalsData(board), () => drawGoals(board))
+}
+
+/** Zoom to a node (null: the top); the browser's back zooms back. */
+function zoomGoal(id) {
+  goalsFocus = id
+  goalsOpened.clear()
+  goalsLinesOpen = false
+  if (location.hash !== goalAddress(id)) history.pushState(null, '', goalAddress(id))
+  redrawGoals()
+}
+
+$('goals-crumb').addEventListener('click', event => {
+  const link = event.target.closest('[data-goal]')
+  if (link !== null && !link.disabled) zoomGoal(link.dataset.goal === '' ? null : link.dataset.goal)
+})
+$('goals-frame').addEventListener('click', event => {
+  if (event.target.closest('#goals-lines') === null) return
+  goalsLinesOpen = !goalsLinesOpen
+  redrawGoals()
+})
+$('goals-outline').addEventListener('click', event => {
+  const row = event.target.closest('.goal-row')
+  if (row === null) return
+  if (event.target.closest('button.goal-fold') !== null) {
+    if (goalsOpened.has(row.dataset.goal)) goalsOpened.delete(row.dataset.goal)
+    else goalsOpened.add(row.dataset.goal)
+    return redrawGoals()
+  }
+  if (row.classList.contains('is-focus')) return
+  zoomGoal(row.dataset.goal)
+})
+// Esc zooms out one level while the map is on screen and nothing else (a window, a text box) has the key.
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || $('view-advice').hidden || $('view-advice').dataset.pane !== 'goals' || goalsFocus === null) return
+  if (document.querySelector('dialog[open]') !== null || event.target.closest?.('input, textarea, select, [contenteditable]')) return
+  const crumb = board?.goals ? goalCrumb(board.goals, goalsFocus) : [{ id: null }]
+  zoomGoal(crumb.length > 2 ? crumb.at(-2).id : null)
+})
+// The browser's back and forward walk the zoom.
+window.addEventListener('popstate', () => {
+  const focus = goalFocusOf(location.hash)
+  if (focus === undefined) return
+  goalsFocus = focus
+  goalsOpened.clear()
+  goalsLinesOpen = false
+  show('advice')
+  showAdvisorPane('goals')
+  redrawGoals()
+})
+
 // B195: the Advisor's tab in four parts: the way to the next milestone first, then the game plan, the suggestions and
 // the chat. The person, 2026-10-14: the details go to "different tabs and the main tab only shows some visual
 // simplistic flow"; the chat is one of those parts, not a tab of the board's own ("i Do not want a 5th tab").
-const ADVISOR_PANES = ['way', 'plan', 'suggestions', 'chat']
+// B255: the goal map is the second part.
+const ADVISOR_PANES = ['way', 'goals', 'plan', 'suggestions', 'chat']
 function showAdvisorPane(name) {
   const pane = ADVISOR_PANES.includes(name) ? name : 'way'
   $('view-advice').dataset.pane = pane
   for (const button of $('advisor-tabs').querySelectorAll('[data-advisor-pane]')) button.setAttribute('aria-pressed', String(button.dataset.advisorPane === pane))
   if (pane === 'chat') $('messages').scrollTop = $('messages').scrollHeight
+  // B255: the address says which part is open on the Advisor tab, and where in the map.
+  if (!$('view-advice').hidden) history.replaceState(null, '', adviceAddress())
   try {
     localStorage.setItem('advisor-pane', pane)
   } catch {
@@ -2843,7 +3086,10 @@ $('advisor-tabs').addEventListener('click', event => {
   } catch {
     // Without storage the tab opens on the way.
   }
-  showAdvisorPane(saved)
+  // B255: a link to the map (#advice/goals/G12) opens it at that goal.
+  const linked = goalFocusOf(location.hash)
+  if (linked !== undefined) goalsFocus = linked
+  showAdvisorPane(linked === undefined ? saved : 'goals')
 }
 
 // B195: the way to the next milestone, as the Advisor maps it (src/milestone.mjs): a row of steps, the one picked
@@ -4748,6 +4994,9 @@ for (const [id, where] of [['design-backlog', 'backlog'], ['design-queue', 'queu
 
 // Tabs
 
+/** The Advisor tab's address: the map's with its focus when the Goals part is open. */
+function adviceAddress() { return $('view-advice').dataset.pane === 'goals' ? goalAddress(goalsFocus) : '#advice' }
+
 function show(tab) {
   for (const button of document.querySelectorAll('.tab')) button.classList.toggle('is-active', button.dataset.tab === tab)
   $('view-overview').hidden = tab !== 'overview'
@@ -4756,7 +5005,7 @@ function show(tab) {
   $('view-design').hidden = tab !== 'design'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
-  if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) history.replaceState(null, '', tab === 'overview' ? location.pathname : tab === 'coordinate' ? '#backlog' : `#${tab}`)
+  if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) history.replaceState(null, '', tab === 'overview' ? location.pathname : tab === 'coordinate' ? '#backlog' : tab === 'advice' ? adviceAddress() : `#${tab}`)
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
 }
 
@@ -4798,6 +5047,8 @@ function draw(state) {
   // B195: the way to the next milestone, also when an answer to its recommendation is on its way or refused.
   once('way', [state.milestone ?? null, state.milestoneMap ?? null, state.workers?.main ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null], () => drawWay(state))
   once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
+  // B255: the goal map's outline, when the map or the zoom changes.
+  once('goals', goalsData(state), () => drawGoals(state))
   // The line about a round left out goes after a day.
   once('advice-rounds', [state.rounds ?? null, Math.floor(state.readAt / 3_600_000)], () => { $('advice-rounds').textContent = roundsLine(state.rounds, state.readAt, clock) })
   const age = state.advice === null ? null : adviceAge(state.adviceAt ?? null, state.readAt)
@@ -5028,5 +5279,5 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) read()
 })
 
-show(location.hash === '#advice' ? 'advice' : location.hash === '#backlog' || location.hash === '#coordinate' ? 'coordinate' : location.hash === '#design' ? 'design' : 'overview')
+show(location.hash === '#advice' || goalFocusOf(location.hash) !== undefined ? 'advice' : location.hash === '#backlog' || location.hash === '#coordinate' ? 'coordinate' : location.hash === '#design' ? 'design' : 'overview')
 read()

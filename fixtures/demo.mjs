@@ -303,6 +303,44 @@ function history(now) {
   return lines.sort((a, b) => a.at - b.at)
 }
 
+/** B255: the demo's goal map, in the form of goals.md, its steps on the demo's backlog. */
+const GOALS = now => `# Goals
+
+Rules: a goal is one line "- [ ] G<n> <title>"; two spaces of indentation per level is "part of".
+
+- [~] G1 The forest game
+  Done when: a friend plays the first level from start to end
+  From the game plan: the goal
+  - [~] G2 M1 · Moving feels good
+    Done when: running and jumping feel right on the first level
+    From the game plan: M1
+    Recommendation (R1): Tune the jump before the enemies · the jump is the first thing a player feels · about 1 h · B03
+    - [x] G3 Footsteps and fog
+      Steps: B05, B07
+    - [~] G4 The jump
+      Steps: B03, B11
+      Missing: a test level with gaps of every width
+    - [ ] G5 Enemies that chase
+      Missing: the enemies' pathfinding as a step
+  - [ ] G6 M2 · A level to finish
+    From the game plan: M2
+    - [ ] G7 The menus
+      Steps: B12
+      Ask (A1, ${dayOf(now)} 09:10): which menu does a player open first?
+    - [ ] G8 The forest level
+      Missing: the level's map
+  - [ ] G9 M3+ · More levels
+    From the game plan: M3+
+- [~] G10 The team's tools
+  Enables: G1
+  Why: less time lost on the work around the game
+  - [x] G11 Tidy docs
+    Steps: B06
+  - [ ] G12 A unit template
+    Also part of: G6
+    Steps: B30
+`
+
 /** The demo's sources as they stand at `now`, in the shape `readSources` gives for the real files. */
 /** When the demo's requests were filed: fixed at the first look, as a real request is filed once. */
 let filedFrom = null
@@ -330,6 +368,7 @@ export async function demoSources(now) {
     },
     tails: transcripts(now),
     backlogText: BACKLOG + FINISHED(now),
+    goalsText: GOALS(now),
     // B113: the app's usage file, three minutes old.
     usageText: `{"version":2,"samples":[{"t":${now - 3 * MIN},"org":"demo","u":{"fh":86,"sd":64}}]}`,
     adviceText: ADVICE,

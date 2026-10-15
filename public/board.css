@@ -83,8 +83,8 @@ button, textarea, select { font: inherit; color: inherit; }
 #view-advice { --side: 500px; }
 /* B195: the Advisor's tab shows one of its four parts at a time, under their buttons; the chat is one of them. */
 #view-advice { display: flex; flex-direction: column; }
-#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
-#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
+#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
+#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 #view-advice[data-pane="chat"] > .talk { display: flex; flex: 1; width: min(900px, calc(100% - 36px)); }
 #view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
 .advisor-tabs { display: flex; gap: 8px; padding: 14px 18px 0; flex: none; }
@@ -93,6 +93,57 @@ button, textarea, select { font: inherit; color: inherit; }
 .advisor-tabs button:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
 .advisor-tabs small { color: var(--muted); margin-left: 4px; }
 .advisor-way { margin: 14px 18px 16px; max-width: 1240px; }
+/* B255: the goal map's outline (spec 2026-10-15): one level at a time, the rest folded and dimmed. */
+.advisor-goals { margin: 14px 18px 16px; max-width: 1240px; }
+.goals-head { display: flex; align-items: center; gap: 12px; padding: 4px 6px 10px; border-bottom: 1px solid var(--line); }
+.goals-crumb { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; }
+.goals-back { width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--inset); color: var(--text); font: inherit; cursor: pointer; }
+.goals-back:disabled { color: var(--unknown); cursor: default; }
+.goals-link { border: 0; background: none; padding: 0; color: #8fb4ff; font: inherit; cursor: pointer; }
+.goals-link:hover { text-decoration: underline; }
+.goals-sep { color: var(--unknown); }
+.goals-here { font-weight: 600; }
+.goals-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.goals-problems { margin: 10px 6px 0; padding: 6px 10px; border: 1px solid #6b4a1f; border-radius: 6px; color: var(--waiting); font-size: 13px; }
+.goals-frame { margin: 12px 0 4px; padding: 10px 14px; border: 2px solid var(--waiting); border-radius: 8px; background: var(--inset); }
+.goals-frame-head { display: flex; align-items: center; gap: 10px; }
+.goals-frame-title { font-size: 16px; }
+.goals-frame-state { font-size: 12px; color: var(--muted); }
+.goals-frame-state.is-now { color: var(--waiting); }
+.goals-frame-state.is-done { color: var(--working); }
+.goals-frame-line { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; color: var(--muted); font-size: 13px; }
+.goals-lines { border: 0; background: none; padding: 0; color: #8fb4ff; font: inherit; cursor: pointer; }
+.goals-frame-lines { margin: 8px 0 0; padding-left: 18px; color: var(--text); font-size: 13px; }
+.goals-frame-lines li { margin: 2px 0; overflow-wrap: anywhere; }
+.goals-split { display: flex; min-height: 420px; }
+.goals-outline { flex: 1; min-width: 0; padding: 6px 4px; }
+.goals-empty { padding: 12px 6px; }
+.goal-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.goal-row:hover { background: var(--panel); }
+.goal-row.is-focus { background: #16294a; box-shadow: inset 3px 0 0 var(--free); cursor: default; }
+.goal-row.is-dim { opacity: .45; }
+.goal-row.is-ref { opacity: .7; }
+.goal-row.is-ref .goal-title { font-style: italic; }
+.goal-depth-1 { padding-left: 28px; } .goal-depth-2 { padding-left: 48px; } .goal-depth-3 { padding-left: 68px; } .goal-depth-4 { padding-left: 88px; }
+.goal-depth-5 { padding-left: 108px; } .goal-depth-6 { padding-left: 128px; } .goal-depth-7 { padding-left: 148px; } .goal-depth-8 { padding-left: 168px; }
+.goal-fold { width: 18px; flex: none; border: 0; background: none; padding: 0; color: #8fb4ff; font-size: 14px; line-height: 1; cursor: pointer; }
+.goal-fold:hover { color: var(--text); }
+span.goal-fold { cursor: inherit; }
+.goal-dot { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--muted); flex: none; box-sizing: border-box; }
+.goal-dot.is-now { border-color: var(--waiting); background: linear-gradient(90deg, var(--waiting) 50%, transparent 50%); }
+.goal-dot.is-done { border-color: var(--working); background: var(--working); }
+.goal-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: none; padding: 0; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: inherit; }
+.goal-row.is-focus .goal-title { font-weight: 600; }
+.goal-tag { flex: none; font-size: 11px; border: 1px solid var(--line); border-radius: 9px; padding: 0 7px; color: var(--muted); white-space: nowrap; }
+.goal-tag.is-enables { border-color: #6b4a1f; color: var(--waiting); }
+.goal-meta { margin-left: auto; padding-left: 10px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+@media (max-width: 700px) {
+  .goal-row { flex-wrap: wrap; }
+  .goal-title { flex: 1 1 60%; white-space: normal; }
+  .goal-meta { margin-left: 24px; padding-left: 0; flex-basis: 100%; }
+  .goal-depth-1 { padding-left: 18px; } .goal-depth-2 { padding-left: 30px; } .goal-depth-3 { padding-left: 42px; }
+  .goal-depth-4, .goal-depth-5, .goal-depth-6, .goal-depth-7, .goal-depth-8 { padding-left: 54px; }
+}
 .way-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; }
 .way-head h2 { font-size: 22px; }
 .way-kicker { display: block; color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; }
