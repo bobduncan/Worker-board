@@ -3148,6 +3148,11 @@ function drawWay(state) {
   const named = el('div')
   named.append(el('small', 'way-kicker', milestone.name === '' ? 'Next milestone' : `Next milestone · ${milestone.name}`), el('h2', '', milestone.title))
   if (milestone.doneWhen !== '') named.append(el('p', 'muted', `Done when: ${milestone.doneWhen}`))
+  // B260: a milestone of the plan without sub-goals in the goal map yet has no way to draw.
+  if (way.isMapped === false) {
+    head.append(named)
+    return fill(box, [head, el('p', 'muted', `Its way is not mapped yet: the Advisor adds its steps as sub-goals in the goal map (${state.goalsFile ?? '.claude/goals.md'}) at its next round.`), ...recommendationPart(way.recommendation ?? null, state)])
+  }
   const total = el('div', 'way-total')
   total.append(el('b', '', `${totals.left} to go`), el('span', 'muted', `${totals.done} done · ${totals.open} on the backlog · ${totals.missing} not on it yet`))
   head.append(named, total)

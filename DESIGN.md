@@ -282,9 +282,12 @@ puts it on the backlog when it is not there and hands it out; "No…" asks why a
 with the reason into the Advisor's chat. One answer per recommendation (its id); the box then says what was answered.
 The mock-up the person agreed to ("1. yes. 2. yes."): `art-inbox/worker-board/b195/2026-10-14-b195-mockup.png`.
 Since B260 (2026-10-15, the Advisor's check of the goal map's design: "piece 6 right after piece 1") the way is read
-from the goal map, not from the JSON: the first goal with a `From the game plan: M<n>` line that is not done; its
-sub-goals are the row, the last one the milestone's own check (its box, as the Advisor writes the map), its
-`Recommendation (R<n>):` line the recommendation. The counts are the same as the JSON gave for the same content; the
+from the goal map, not from the JSON: the first goal with a `From the game plan: M<n>` line that is not done; every
+sub-goal is a box of the row, counted over everything inside it (a sub-goal ticked by hand with nothing listed is
+done), the milestone itself the last box (⚑, its Done when with its own Steps and Missing lines), its
+`Recommendation (R<n>):` line the recommendation (none without a title). A milestone without sub-goals says its way
+is not mapped yet. Which box is the milestone's never depends on a sub-goal's place, so adding one on the board
+(B256) cannot turn it into the milestone. The counts are the same as the JSON gave for the same content; the
 setting `milestoneMap` and the reading of `docs/advisor/milestone-map.json` are gone (`roles/advisor.md` says how the
 Advisor keeps the way in `goals.md`). The picture: `art-inbox/board-goals/b260-next-milestone.png`.
 

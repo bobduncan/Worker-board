@@ -107,8 +107,8 @@ person sent was copied, and into which chat to paste it.
 ## Advisor (`05-advisor.png`)
 
 Five parts, chosen with buttons: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
-milestone of the game plan in it that is not done, its sub-goals as the row, the last one the milestone's own check;
-"No milestone to go to yet" until there is one), **Goals** (the project's goal map, `goals.md`, one level at
+milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the
+last box; "No milestone to go to yet" until there is one, "not mapped yet" while it has no sub-goals), **Goals** (the project's goal map, `goals.md`, one level at
 a time: the goals with their counters of goals inside, steps done and missing lines; a click zooms into a goal, ‹, Esc
 or the crumb zooms out, ▸ folds one more level open; the focus is in the address, `#advice/goals/G2`), **Game plan** (the game plan from the game's repository,
 with when it was written; being reworked in B218 at the time of this page), **Suggestions** (the Advisor's open

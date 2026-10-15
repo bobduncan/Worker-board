@@ -45,8 +45,8 @@ const MAP = {
   updated: '',
 }
 
-// B260: the same way in the goal map, as the Advisor writes it there (roles/advisor.md): the milestone's children are
-// the steps, the last one its own check.
+// B260: the same way in the goal map, as the Advisor writes it there (roles/advisor.md): the milestone's sub-goals
+// are the steps.
 const GOALS = [
   '- [~] G1 The game',
   '  From the game plan: the goal',
@@ -123,8 +123,11 @@ test('the state holds the way from the goal map, the map\'s path, and the answer
   const state = build()
   assert.equal(state.goalsFile, '.claude/goals.md')
   assert.equal('milestoneMap' in state, false)
-  // B260: the same way as the Advisor's JSON gave for the same content.
-  assert.deepEqual(state.milestone.nodes, milestoneWay(MAP, parseBacklog(BACKLOG)).nodes)
+  // B260: the same way as the Advisor's JSON gave for the same content: every sub-goal a step, the milestone's box its
+  // Done when.
+  const asJson = { ...MAP, milestone: { ...MAP.milestone, check: MAP.milestone.doneWhen, backlog: [] }, steps: [...MAP.steps, { title: 'Play two runs: fun?', backlog: ['B05'], missing: [] }] }
+  assert.deepEqual(state.milestone.nodes, milestoneWay(asJson, parseBacklog(BACKLOG)).nodes)
+  assert.equal(state.milestone.isMapped, true)
   assert.equal(state.milestone.totals.left, 7)
   assert.equal(state.milestone.recommendation.answer, null)
   assert.deepEqual(build({ outbox: [said('yes')] }).milestone.recommendation.answer, { answer: 'yes', at: NOW - MIN, state: 'delivered' })
