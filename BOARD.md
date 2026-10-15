@@ -113,7 +113,9 @@ a time: the goals with their counters of goals inside, steps done and missing li
 or the crumb zooms out, ▸ folds one more level open; the focus is in the address, `#advice/goals/G2`; every change
 is written to the file at once: the frame's buttons add, rename, set Done when, Why, notes and links, dissolve or
 delete; a row's dot changes its state; drag a row, or Alt+↑/↓, Tab and Shift+Tab, to move it; Ctrl-click several and
-group them under a new goal; Ctrl+Z undoes), **Game plan** (the game plan from the game's repository,
+group them under a new goal; Ctrl+Z undoes; the tree beside the outline shows the same level as boxes under the goal
+zoomed into, "Diagram" and "Outline" hide either side, a click on a box zooms in, dragging a box moves it; on a phone
+the outline alone and a "…" menu on every row), **Game plan** (the game plan from the game's repository,
 with when it was written; being reworked in B218 at the time of this page), **Suggestions** (the Advisor's open
 suggestions with their Why, Cost and Unblocks, and when its rounds come) and **Chat** (a chat with the Advisor, as
 "Talk to Main").

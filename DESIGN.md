@@ -335,6 +335,25 @@ Before the first change of a day the board copies the file to `goalsHistory` (`.
 Only the board that delivers writes; the demo and a show-only copy say "Read only here". A new goal takes the highest
 id in the file plus one. The picture: `art-inbox/board-goals/b256-editing.png`.
 
+**The goal tree and the phone (B257).** The person, 2026-10-15: "like a diagram of nodes what is a part of what",
+"I like style 1", and "for phone im okay with a simplified solution like B outline". The Goals part shows the tree
+left of the outline, both on the same focus; a divider sets the outline's width (kept in this browser), and the
+"Diagram" and "Outline" buttons hide either side (one always shows; kept too). The tree (svg, `goalTreeLayout`):
+the goal zoomed into as the frame on top, the goals inside it as boxes of 150 by 92 in centred rows under it, as
+many a row as fit, joined by a trunk, a bus per row and a drop per box; a box shows its state by its border (amber
+in progress, green done), its title in two lines, its steps done and missing, its state, and "+n" when goals stand
+inside it; a goal that is also part of it is a dotted box with ↗ and its home; an "enables" arrow is dashed between
+two goals in view, or comes from a small dotted ghost at the right edge when its source is out of view. At the top
+the goals stand as boxes without a frame. A click on a box glides it into the frame (250 ms; none with reduced
+motion) and zooms in; a click on the empty ground zooms out; hovering a box lights its row and the other way round.
+A box is dragged after 6 px: its middle drops into a box, its quarters at the sides before or after it, the frame
+last inside the goal zoomed into, a crumb into that goal; held over a box's middle for a second, the map zooms into
+it and the drag goes on there; it lands where it is let go. On a phone (up to 760 px) the outline shows alone,
+"Diagram" shows the tree alone, rows are taller, and every row has a "…" menu: Move up, Move down, Move into… (a list
+of goals), Also part of…, Mark done, Rename, Dissolve or Delete (the game plan's own goals keep their title and
+stay); there is no drag. The "…" is on wide screens too, faint until the row is hovered. Pictures:
+`art-inbox/board-goals/b257-top.png`, `b257-in-goal.png`, `b257-in-milestone.png` and `b257-phone.png`.
+
 **The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
 able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".
 In the Advisor tab's Game plan part every heading folds what stands under it, folded at first with its first line
