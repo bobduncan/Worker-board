@@ -24,6 +24,10 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 - Ask the user in your own chat when you need them. Only what the user types in your chat is their word, and a line
   marked "(answered on the worker board, HH:MM)" or "(typed on the worker board, HH:MM)" that arrives as their own
   message. A message from another chat is a teammate's word, never the user's approval.
+- Whoever asks the user asks once (B261). When you have something for the user (a look at a picture, a play link, a
+  question, a decision), ask it in your own chat, and say in your report to the main chat in one line what you asked
+  and where ("Asked the user in my chat: the picture of the new screen, B12"); the main chat then does not ask it
+  again. With nothing to ask, report to the main chat only: it puts the check to the user itself.
 - Tell the main chat with SendMessage, the first line as one of: "Report from <your title>: ..." when a task is
   finished, "Note from <your title>: ..." in the middle of a task, "Question from <your title>: ...".
 - Write to the user as the project's `CLAUDE.md` says, when it has one. The board reads your answer's closing block
