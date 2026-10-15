@@ -110,7 +110,10 @@ Five parts, chosen with buttons: **Next milestone** (the way to the next milesto
 milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the
 last box; "No milestone to go to yet" until there is one, "not mapped yet" while it has no sub-goals), **Goals** (the project's goal map, `goals.md`, one level at
 a time: the goals with their counters of goals inside, steps done and missing lines; a click zooms into a goal, ‹, Esc
-or the crumb zooms out, ▸ folds one more level open; the focus is in the address, `#advice/goals/G2`), **Game plan** (the game plan from the game's repository,
+or the crumb zooms out, ▸ folds one more level open; the focus is in the address, `#advice/goals/G2`; every change
+is written to the file at once: the frame's buttons add, rename, set Done when, Why, notes and links, dissolve or
+delete; a row's dot changes its state; drag a row, or Alt+↑/↓, Tab and Shift+Tab, to move it; Ctrl-click several and
+group them under a new goal; Ctrl+Z undoes), **Game plan** (the game plan from the game's repository,
 with when it was written; being reworked in B218 at the time of this page), **Suggestions** (the Advisor's open
 suggestions with their Why, Cost and Unblocks, and when its rounds come) and **Chat** (a chat with the Advisor, as
 "Talk to Main").

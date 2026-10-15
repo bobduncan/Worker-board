@@ -313,6 +313,23 @@ back walks the zoom. Read-only for now: the drawn tree (B257), editing (B256) an
 map (B260) come later; the settings `brainstorms`, `goalAsks` and `goalsHistory` are there for them. Pictures on
 the real file: `art-inbox/board-goals/b255-top.png` and `b255-in-goal.png`.
 
+**Editing the goal map (B256).** The person, 2026-10-15: "what is really important for me is the ability to quickly
+reorder things and to abstract things away, and change abstraction level." The Goals part changes `goals.md` at once,
+one change at a time, by the goal's id (`src/goalsWrite.mjs`): the file is read anew right before, the change made on
+it, written beside and put in place (the ticks' `rewrite`), so another writer's lines in between stay; a goal that is
+gone in between refuses the change with a line under the crumb, and the map is read anew. The frame of the goal
+zoomed into has "+ Sub-goal", "Rename", "Done when…", "Why…", "Note…", "Also part of…" and "Enables…" (a search box
+over the titles; a link shows with its × to take it away), and "Dissolve" (its goals lifted into its place) or
+"Delete" (only without goals inside), each asking a second click. At the top, "+ Goal". In the outline: a click on a
+row's dot steps open → in progress → done (done with open goals inside asks once); drag a row before or after another
+(a blue line), into one (a dashed outline; a folded row opens after a second) or onto a crumb; Alt+↑ / Alt+↓ move it
+among its siblings, Tab under the one above, Shift+Tab out after its parent; F2 renames; Enter adds the next goal
+after it; Ctrl-click chooses goals, then "Group under a new goal…" puts them under a new one where the first stood.
+Ctrl+Z (and "↶ Undo") undoes the last twenty changes made on the page, while the file still reads as the change left
+it. Before the first change of a day the board copies the file to `goalsHistory` (`.claude/goals.history/<date>.md`).
+Only the board that delivers writes; the demo and a show-only copy say "Read only here". A new goal takes the highest
+id in the file plus one. The picture: `art-inbox/board-goals/b256-editing.png`.
+
 **The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
 able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".
 In the Advisor tab's Game plan part every heading folds what stands under it, folded at first with its first line
