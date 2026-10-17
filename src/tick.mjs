@@ -84,7 +84,8 @@ function refineBlock(lines, id) {
   let part = null
   for (let index = block.head + 1; index < block.end; index += 1) {
     const line = lines[index].trim()
-    const named = line.match(/^(Problem|Goal|Questions|Feedback):/)
+    // B293: the parts of the newer form too, so a point under "What we build:" is never taken for a question.
+    const named = line.match(/^(Problem|Goal|Questions|Feedback|Summary|Picture|Part of|Size|What we build|Not in it):/)
     if (named !== null) {
       part = named[1]
       if (part === 'Feedback') block.feedback = index

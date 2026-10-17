@@ -113,19 +113,44 @@ may name the user's own examples.
 
 The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in
 a step's window: it is their word. Read the step and the lines under it in the backlog, and what it touches, then
-write its refine block under the step's other lines (before a closing line in brackets), the only change you make:
+write its refine block under the step's other lines (before a closing line in brackets), the only change you make.
+
+A refined step is one compact description (B293, the user's yes of 2026-10-17: "the goal is to have 1 fully
+comprehensive description that is compact with pictures and summary. that doesnt read like it was in progress
+text"). While questions are open, the block reads:
 
     Refined (round <n>, by <your title>, <YYYY-MM-DD HH:MM>):
-    Problem: <the problem the step solves, in one to three lines; leave the line out when it has none>
-    Goal: <what the user has when it is done, in one to three lines>
+    Summary: <one or two plain lines for the user: what they get; no file names>
+    Picture: <a picture's path under the pictures folder> (<what it shows, in a few words>)
+    Part of: <its goal and milestone on the goal map, for example G9 M2 · the milestone's title>
+    Size: about <time>
     Questions:
-    - <a question the step needs answered before it is picked up, with your advice>
+    - <one line, answered with yes or no> Advised: yes, <the reason in a few words>
 
-- From round 2 on the user's answers stand behind their questions (` Answer: ...`) and their feedback under
-  `Feedback:` (`- Round <n>: ...`). Rewrite Problem and Goal on them; keep every answered question with its answer and
-  every feedback line as it is; drop questions that are settled, add the new ones; write the new round in the first
-  line. Never change the step's title or its other lines.
-- At most five questions, only what changes the work. None left: write `Questions:` with `- None: ready to pick up.`
+Once every question is answered, it reads:
+
+    Refined (<YYYY-MM-DD HH:MM>; ready):
+    Summary: ...
+    Picture: ...
+    Part of: ...
+    Size: ...
+    What we build:
+    - <a short point, with every decision folded in>
+    - Not in it: <what is left out, and why in a few words>
+
+- **Picture**: what we build, in most cases: a mock-up, the options side by side, or a sketch of the flow; make one
+  when there is none yet. Left out only when there is nothing to see: `Picture: none (<why, in a few words>)`.
+- **Part of**: a step that fits no goal gets the goal you propose for it.
+- **Size**: about 4 hours at most; a bigger step gets a question whether to cut it, with the cut you advise. No other
+  step on the backlog or in a queue may do the same work: ask about it when one does.
+- **Questions**: at most five, only what changes the work, each one line with `Advised: yes` or `Advised: no` and its
+  reason. The board shows them with Yes and No; "Take the advice" answers every open one with your advice.
+- From round 2 on the user's answers stand behind their questions (` Answer: yes`, or their own words) and their
+  feedback under `Feedback:` (`- Round <n>: ...`). When none is left open and nothing new follows from them, write the
+  ready form: fold every answer and the feedback into "What we build", and drop the questions, the feedback and the
+  round. When an answer raises a new question, write one more short round with only that question, and keep what is
+  settled under "What we build" already. A block in the older form (`Problem:`, `Goal:`) gets this form at its next
+  round. Never change the step's title or its other lines: the technical detail (Requirements, Touches) stays there.
 - Ask nothing in your chat about it: the user answers in the step's window. Your turn ends when the block is written.
 
 ## Your suggestions

@@ -46,6 +46,7 @@ time. Every name, path and word of a project comes from its settings or its own 
 | `(branch <name>)` at the very end | the step is in progress on that branch | `src/backlog.mjs` |
 | Indented lines under a step; `Requirements:`, `Context:` ... as sections | the step's details | `src/backlog.mjs` (`noteSections`) |
 | `Refined (round <n>, by <name>, <date time>; accepted <date time>):` under a step, then `Problem:`, `Goal:`, `Questions:` (a point per question, ` Answer: ...` behind it once answered), `Feedback:` (`- Round <n>: ...`) | B233: a step's refine block; the Advisor writes it, the board adds the person's answers, feedback and "accepted"; any other named line or a line in brackets ends it | `src/backlog.mjs` (`refinedOf`), `src/tick.mjs` (`answerRefine`, `acceptRefine`) |
+| In the same block: `Summary:`, `Picture: <path> (<what it shows>)` or `Picture: none (<why>)`, `Part of:`, `Size:`, questions as `- <question> Advised: yes|no, <why>`; once answered `Refined (<date time>; ready):` with `What we build:` (points, `- Not in it: ...`) and no questions | B293: a refined step as one compact description: while refining, one-line questions with Yes / No and "Take the advice"; once ready, the step's description with a Ready chip | `src/backlog.mjs` (`refinedOf`), `public/board.js` (`refinePart`, `refinedChips`) |
 | The group named by the setting `advisorSuggestions` | the Advisor's open suggestions on its tab | `src/state.mjs` |
 
 ## What the board types into a chat

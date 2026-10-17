@@ -411,15 +411,19 @@ const queueAsk = (step, sent, now) => (step.status !== 'open' || step.id === nul
 
 /**
  * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
- * step's refine block shows the round it asked for, for half an hour at most.
+ * step's refine block shows the round it asked for, for half an hour at most. B293: a ready block names no round
+ * ("Refined (<date time>; ready):"): one written in a minute after the ask's answers it too.
  */
-function refineAsk(step, sent, now) {
+export function refineAsk(step, sent, now) {
   if (step.id === null) return null
   const message = sent.findLast(one => one.command === 'refine' && one.about === step.id)
   const ask = removalAsk(message, now, REFINE_OPEN_MS)
   if (ask === null) return null
   const round = Number.isInteger(message.round) ? message.round : 1
-  return { ...ask, round, isOpen: ask.isOpen && (step.refined?.round ?? 0) < round }
+  const written = String(step.refined?.at ?? '').match(/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)$/)
+  const writtenAt = written === null ? null : new Date(+written[1], written[2] - 1, +written[3], +written[4], +written[5]).getTime()
+  const isWritten = (step.refined?.round ?? 0) >= round || (writtenAt !== null && writtenAt > Math.floor(message.at / 60_000) * 60_000)
+  return { ...ask, round, isOpen: ask.isOpen && !isWritten }
 }
 
 /**

@@ -1773,11 +1773,13 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
   const checklist = [...(need?.checks ?? []), ...notes.filter(isChecklist).flatMap(part => [...part.lines, ...part.points])]
   const rest = notes.filter(part => !isChecklist(part))
   if (need === null) {
+    const refined = refinedChips(step.refined ?? null)
     return {
       code: step.id ?? null,
       title: step.title,
       chips: [
-        { text: 'Step', tone: 'kind' },
+        // B293: a step refined in the newer form says its goal, its size, and its questions or Ready, in place of "Step".
+        ...(refined ?? [{ text: 'Step', tone: 'kind' }]),
         // Where the step itself stands, when the backlog says so: worked on, or ticked.
         ...(step.status === 'progress' ? [{ text: 'In progress', tone: 'plain' }] : step.status === 'done' ? [{ text: 'Finished', tone: 'plain' }] : []),
         ...(lane === null ? [] : [{ text: `For: ${lane}`, tone: 'to' }]),
@@ -1798,6 +1800,23 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
   if (isStep && need.from !== null && need.from !== undefined && need.isClosed !== true) chips.push({ text: ticks ?? `Answer goes to: ${need.from}`, tone: 'to' })
   // `hasNotes`: something is written under the step, wherever the window shows it (B94).
   return { code: need.step ?? null, title: need.title, chips, at: need.at ?? null, checklist, notes: rest, hasNotes: notes.length > 0 }
+}
+
+/** B293: a size as a chip says it: "about 3-4 hours" is "about 3–4 h". */
+const sizeText = size => String(size).replace(/(\d)\s*-\s*(\d)/g, '$1–$2').replace(/\bhours?\b/gi, 'h').replace(/\bminutes?\b/gi, 'min').trim()
+
+/**
+ * B293: the chips of a step refined in the newer form (a summary, its goal or its size, or ready): its goal, its
+ * size, and the questions that wait for the person, or Ready. Null for a step refined in the older form, or not.
+ */
+function refinedChips(refined) {
+  if (refined === null || !(refined.ready || refined.summary !== '' || refined.partOf !== '' || refined.size !== '')) return null
+  const open = refined.questions.filter(one => one.answer === null).length
+  return [
+    ...(refined.partOf === '' ? [] : [{ text: refined.partOf, tone: 'goal' }]),
+    ...(refined.size === '' ? [] : [{ text: sizeText(refined.size), tone: 'plain' }]),
+    ...(refined.ready ? [{ text: 'Ready', tone: 'ready' }] : open > 0 ? [{ text: `${open} question${open === 1 ? '' : 's'} for you`, tone: 'wait' }] : []),
+  ]
 }
 // window:end
 
@@ -2512,14 +2531,21 @@ function drawDetails(state) {
   if (waitingShown !== null) left.append(...waitingShown.main)
   // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
   // has them on the right.
-  if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section('Description', described))
-  else if (!view.hasNotes) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
-  // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback.
+  // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback. B293: once ready
+  // it is the step's description, first; the step's own lines follow as its notes.
   const refine = subject.step !== undefined ? refinePart(subject.step, state) : null
-  if (refine !== null) left.append(refine)
+  const isReady = refine?.classList.contains('is-ready') === true
+  // A refine with a summary describes the step: no "nothing more is written" above it.
+  const isSummed = isReady || (subject.step?.refined?.summary ?? '') !== ''
+  if (isReady) left.append(refine)
+  if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section(isReady ? 'Notes' : 'Description', described))
+  else if (!view.hasNotes && !isSummed) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
+  if (refine !== null && !isReady) left.append(refine)
   left.append(...notes.named)
   if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
-  const shown = need === null ? step.pictures.map(path => ({ path, caption: '' })) : [
+  // B293: the refine's picture shows in it, not a second time here.
+  const refinedPicture = refine === null ? null : subject.step?.refined?.picture?.path ?? null
+  const shown = need === null ? step.pictures.filter(path => path !== refinedPicture).map(path => ({ path, caption: '' })) : [
     ...need.options.filter(option => option.picture !== null).map(option => ({ path: option.picture, caption: `${option.label}${option.isRecommended ? ' (recommended)' : ''}` })),
     ...need.pictures.map(path => ({ path, caption: '' })),
   ]
@@ -2565,7 +2591,7 @@ function drawDetails(state) {
   // B83: a step in a worker's queue can move to another worker, or out of the queue.
   const change = need === null && subject.step === undefined && lane !== null && lane !== undefined ? queueChangePart(lane, step, state) : null
   if (change !== null) foot.append(change)
-  // B233: Refine, and Accept as refined.
+  // B233: Refine; B293: Send answers and Take the advice, or Refine again.
   const refineFoot = subject.step !== undefined ? refineButtons(subject.step, state) : null
   if (refineFoot !== null) foot.append(refineFoot)
   // B221: a step of the Backlog tab can be closed or deleted from its window.
@@ -5355,21 +5381,63 @@ function refineView(step, advisor) {
   const refined = step.refined ?? null
   const ask = step.refineAsk?.isOpen === true ? step.refineAsk : null
   const meta = refined === null ? '' : [`round ${refined.round}`, refined.by === null ? null : `by ${refined.by}`, refined.at].filter(Boolean).join(' · ')
+  const open = refined === null ? [] : refined.questions.filter(one => one.answer === null)
+  const isReady = refined?.ready === true
   return {
     refined,
     meta,
     isAccepted: refined?.accepted != null,
-    open: refined === null ? 0 : refined.questions.filter(one => one.answer === null).length,
+    open: open.length,
+    // B293: the newer form (a summary, its goal or its size, or ready) is drawn as in the picture; the older one as before.
+    isNewForm: refined !== null && (isReady || refined.summary !== '' || refined.partOf !== '' || refined.size !== ''),
+    isReady,
     // While the Advisor works on it, nothing more is sent.
     working: ask === null ? null : { at: ask.at, round: ask.round, isDelivered: ask.state === 'delivered' },
     canAsk: advisor !== null && ask === null,
+    // B293: "Take the advice", in place of "Accept as refined": while a question with advice is open.
+    canTakeAdvice: advisor !== null && ask === null && !isReady && open.some(one => one.advice !== null),
     why: advisor === null ? 'The board has no Advisor to refine it.' : null,
   }
 }
+
+/**
+ * B293: the answers "Take the advice" writes: for every open question the person's pick when they made one, else
+ * the Advisor's advice; for an answered one only a new pick. `picks` are by the question's place (from 0);
+ * `missing` are the numbers (from 1) of open questions with neither, which the person answers first.
+ */
+function adviceAnswers(refined, picks) {
+  const answers = []
+  const missing = []
+  refined.questions.forEach((one, index) => {
+    const pick = String(picks[index] ?? '').trim()
+    if (pick !== '') answers.push({ index, answer: pick })
+    else if (one.answer !== null) { /* answered already, and left as it is */ } else if (one.advice !== null) answers.push({ index, answer: one.advice })
+    else missing.push(index + 1)
+  })
+  return { answers, missing }
+}
 // refine:end
 
-/** B233: the Refine part of a step's window, left under its description; null when the step cannot be refined. */
+/** B293: an element holding the given nodes. */
+function holding(tag, className, ...children) {
+  const node = el(tag, className)
+  node.append(...children)
+  return node
+}
+
+/**
+ * B233: the Refine part of a step's window, left under its description; null when the step cannot be refined.
+ * B293: in the newer form, while refining, a box as in the picture the person approved (of the two stages):
+ * the summary, the picture, and one line per question with the advice and Yes / No; once ready, the step's
+ * description itself (`is-ready`): the summary, the picture and what we build, with no box, no rounds and no questions.
+ */
 function refinePart(step, state) {
+  // A ready description stays, also once the step is finished.
+  if (step.refined?.ready === true) {
+    const box = el('section', 'details-part refined is-ready')
+    box.append(...refinedParts(step.refined))
+    return box
+  }
   const advisor = state.advisor?.name ?? null
   const view = refineView(step, advisor)
   if (view === null) return null
@@ -5378,14 +5446,70 @@ function refinePart(step, state) {
   if (view.refined === null) {
     box.append(heading)
     heading.textContent = 'Refine'
-    box.append(el('p', 'muted', `Not refined yet. ${advisor ?? 'The Advisor'} says the problem this step solves, or its goal, and asks what it needs to know before it is picked up. Your answers and feedback are kept under the step.`))
+    box.append(el('p', 'muted', `Not refined yet. ${advisor ?? 'The Advisor'} sums up what you get, with a picture, its goal and its size, and asks what it needs to know before it is picked up. Your answers are folded into one description under the step.`))
   } else {
-    heading.append(el('small', '', `${view.meta}${view.isAccepted ? ' · accepted' : ''}`))
-    box.append(heading)
     const { refined } = view
-    if (refined.problem !== '') box.append(el('span', 'refine-tag', 'Problem'), el('p', '', refined.problem))
-    if (refined.goal !== '') box.append(el('span', 'refine-tag', 'Goal'), el('p', '', refined.goal))
-    refined.questions.forEach((one, index) => {
+    // The older form keeps its heading with the round; the newer one shows no rounds.
+    if (!view.isNewForm) {
+      heading.append(el('small', '', `${view.meta}${view.isAccepted ? ' · accepted' : ''}`))
+      box.append(heading)
+    }
+    box.append(...refinedParts(refined))
+    if (refined.questions.length > 0) box.append(refineQuestions(step, refined, view))
+    if (refined.feedback.length > 0) {
+      box.append(el('span', 'refine-tag', 'Your feedback so far'), listOf(refined.feedback))
+    }
+    const feedback = el('textarea', 'refine-field')
+    feedback.rows = view.isNewForm ? 1 : 2
+    feedback.dataset.refineField = `${step.id}:feedback`
+    feedback.placeholder = 'Feedback: anything the Advisor got wrong or missed…'
+    feedback.value = drafts.get(`refine:${step.id}:feedback`) ?? ''
+    feedback.setAttribute('aria-label', 'Feedback to the Advisor')
+    if (!view.isNewForm) box.append(el('span', 'refine-tag', 'Feedback'))
+    box.append(feedback)
+  }
+  if (view.working !== null) {
+    box.append(el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'}. It shows here once written.`))
+  }
+  return box
+}
+
+/** B293: the parts of a refine block that describe the step: summary, picture, problem and goal (the older form), what we build. */
+function refinedParts(refined) {
+  const parts = []
+  if (refined.summary !== '') parts.push(holding('div', 'refined-summary', el('span', 'refine-tag', 'Summary'), el('p', '', refined.summary)))
+  if (refined.picture !== null) {
+    const { path, caption } = refined.picture
+    const row = el('div', 'refined-picture')
+    const open = el('button', 'refined-open', 'Open the picture ↗')
+    open.type = 'button'
+    open.dataset.zoom = path
+    open.dataset.caption = caption
+    row.append(picture(path, caption), holding('div', '', el('span', 'refine-tag', 'Picture'), el('p', '', caption === '' ? path.split('/').pop() : caption), open))
+    parts.push(row)
+  } else if (refined.pictureNote !== '') {
+    parts.push(holding('div', 'refined-nopicture', el('span', 'refine-tag', 'Picture'), el('p', 'muted', `None: ${refined.pictureNote}`)))
+  }
+  if (refined.problem !== '') parts.push(el('span', 'refine-tag', 'Problem'), el('p', '', refined.problem))
+  if (refined.goal !== '') parts.push(el('span', 'refine-tag', 'Goal'), el('p', '', refined.goal))
+  if (refined.build.length > 0) {
+    const list = el('ul', 'refined-build')
+    for (const point of refined.build) list.append(el('li', /^Not in it\b/i.test(point) ? 'is-not' : '', point))
+    parts.push(holding('div', '', el('span', 'refine-tag', 'What we build'), list))
+  }
+  return parts
+}
+
+/**
+ * B293: the questions, one line each: its number, the question, the advice (its reason on hover) and Yes / No, the
+ * person's pick or answer pressed. A question without advice (the older form) keeps a field for the person's words.
+ */
+function refineQuestions(step, refined, view) {
+  const box = el('div', 'refine-questions')
+  box.append(el('span', 'refine-tag', `Questions · ${refined.questions.length}`))
+  refined.questions.forEach((one, index) => {
+    const key = `refine:${step.id}:${index}`
+    if (one.advice === null) {
       const part = el('div', 'refine-question')
       part.append(el('span', 'refine-tag', `Question ${index + 1}`), el('p', '', one.text))
       if (one.answer !== null) part.append(el('p', 'refine-answer', `Your answer: ${one.answer}`))
@@ -5393,57 +5517,74 @@ function refinePart(step, state) {
       field.rows = 1
       field.dataset.refineField = `${step.id}:${index}`
       field.placeholder = one.answer === null ? 'Your answer…' : 'Change your answer…'
-      field.value = drafts.get(`refine:${step.id}:${index}`) ?? ''
+      field.value = drafts.get(key) ?? ''
       field.setAttribute('aria-label', `Answer to question ${index + 1}`)
       part.append(field)
       box.append(part)
-    })
-    if (refined.feedback.length > 0) {
-      box.append(el('span', 'refine-tag', 'Your feedback so far'), listOf(refined.feedback))
+      return
     }
-    const feedback = el('textarea', 'refine-field')
-    feedback.rows = 2
-    feedback.dataset.refineField = `${step.id}:feedback`
-    feedback.placeholder = 'Feedback: anything the Advisor got wrong or missed…'
-    feedback.value = drafts.get(`refine:${step.id}:feedback`) ?? ''
-    feedback.setAttribute('aria-label', 'Feedback to the Advisor')
-    box.append(el('span', 'refine-tag', 'Feedback'), feedback)
-  }
-  if (view.working !== null) {
-    box.append(el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'} (round ${view.working.round}). It shows here once written.`))
-  }
+    const line = el('div', `refine-q${one.answer === null ? '' : ' is-answered'}`)
+    const advice = el('span', 'refine-advice', `advised: ${one.advice}`)
+    if (one.why !== '') advice.title = one.why
+    const pick = String(drafts.get(key) ?? one.answer ?? '').trim().toLowerCase()
+    const choices = el('span', 'refine-picks')
+    // What is written already: a pick taken back shows it again.
+    choices.dataset.answer = String(one.answer ?? '').trim().toLowerCase()
+    for (const value of ['yes', 'no']) {
+      const button = el('button', 'refine-pick', value === 'yes' ? 'Yes' : 'No')
+      button.type = 'button'
+      button.dataset.refinePick = `${step.id}:${index}`
+      button.dataset.value = value
+      button.setAttribute('aria-pressed', String(pick === value))
+      button.setAttribute('aria-label', `${value === 'yes' ? 'Yes' : 'No'} to question ${index + 1}`)
+      button.disabled = view.working !== null
+      choices.append(button)
+    }
+    line.append(el('span', 'refine-n', String(index + 1)), el('span', 'refine-text', one.text), advice, choices)
+    // An answer in words of its own, not a yes or a no, shows under its question.
+    if (one.answer !== null && !/^(yes|no)$/i.test(one.answer)) line.append(el('p', 'refine-answer', `Your answer: ${one.answer}`))
+    box.append(line)
+  })
   return box
 }
 
-/** B233: the buttons of the Refine part, in the window's foot: refine (again, with the answers), and accept. */
+/**
+ * B233: the buttons of the Refine part, in the window's foot. B293: "Send answers" and "Take the advice" while it is
+ * refined (in place of "Send answers · refine again" and "Accept as refined"), "Refine again" once it is ready.
+ */
 function refineButtons(step, state) {
   const view = refineView(step, state.advisor?.name ?? null)
   if (view === null) return null
   const key = `refine:${step.id}`
   const line = el('div', 'refine-line')
-  const ask = el('button', `refine-button${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Sending…' : view.refined === null ? 'Refine' : 'Send answers · refine again')
+  const words = view.refined === null ? 'Refine' : view.isReady ? 'Refine again' : 'Send answers'
+  const ask = el('button', `refine-button${view.isReady ? ' is-quiet' : ''}${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Sending…' : words)
   ask.type = 'button'
   ask.dataset.refineStep = step.id
   ask.dataset.refineAction = 'ask'
   ask.disabled = sending.has(key) || !view.canAsk
-  ask.title = view.why ?? (view.working !== null ? 'The Advisor is on it' : 'Your answers and feedback are written under the step, then the Advisor refines it again')
+  ask.title = view.why ?? (view.working !== null ? 'The Advisor is on it'
+    : view.refined === null ? 'The Advisor sums it up and asks what it needs to know'
+      : view.isReady ? 'The Advisor checks it again against the backlog and the goals'
+        : 'Your answers and feedback are written under the step, then the Advisor folds them into the description')
   line.append(ask)
-  if (view.refined !== null && !view.isAccepted) {
-    const accept = el('button', 'refine-accept', 'Accept as refined')
-    accept.type = 'button'
-    accept.dataset.refineStep = step.id
-    accept.dataset.refineAction = 'accept'
-    accept.disabled = sending.has(key) || view.working !== null
-    accept.title = view.open > 0 ? `${view.open} question${view.open === 1 ? ' is' : 's are'} still open` : 'Mark it as refined: ready to be picked up'
-    line.append(accept)
+  if (view.refined !== null && !view.isReady && view.refined.questions.some(one => one.advice !== null)) {
+    const advice = el('button', 'refine-advice-all', 'Take the advice')
+    advice.type = 'button'
+    advice.dataset.refineStep = step.id
+    advice.dataset.refineAction = 'advice'
+    advice.disabled = sending.has(key) || !view.canTakeAdvice
+    advice.title = view.canTakeAdvice ? 'The advice becomes your answer for every open question you did not answer yourself' : view.why ?? 'No question is open'
+    line.append(advice)
   }
   if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
   return line
 }
 
 /**
- * B233: the click on "Refine" (or "Send answers · refine again"): the answers and feedback typed are written under
- * the step first, then the Advisor is asked; "Accept as refined" only marks the block.
+ * B233: the click on "Refine", "Send answers" or "Refine again": the answers and feedback given are written under
+ * the step first, then the Advisor is asked. B293: "Take the advice" writes the advice as the answer to every open
+ * question the person did not answer, then asks the same way.
  */
 async function refineClick(button) {
   const step = (board?.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === button.dataset.refineStep)
@@ -5451,31 +5592,50 @@ async function refineClick(button) {
   if (step === undefined) return
   const key = `refine:${step.id}`
   const fields = [...drafts.keys()].filter(name => name.startsWith(`${key}:`))
-  const answers = fields.filter(name => /:\d+$/.test(name)).map(name => ({ index: Number(name.split(':').pop()), answer: drafts.get(name) })).filter(one => one.answer.trim() !== '')
+  const picks = Object.fromEntries(fields.filter(name => /:\d+$/.test(name)).map(name => [Number(name.split(':').pop()), drafts.get(name)]))
   const feedback = drafts.get(`${key}:feedback`) ?? ''
-  sending.add(key)
+  let answers = Object.entries(picks).map(([index, answer]) => ({ index: Number(index), answer })).filter(one => one.answer.trim() !== '')
   problems.delete(key)
+  if (button.dataset.refineAction === 'advice') {
+    const taken = adviceAnswers(step.refined, picks)
+    if (taken.missing.length > 0) {
+      problems.set(key, `Question ${taken.missing.join(' and ')} has no advice: answer ${taken.missing.length === 1 ? 'it' : 'them'} first.`)
+      return redrawNeeds()
+    }
+    answers = taken.answers
+  }
+  sending.add(key)
   redrawNeeds()
   let problem = null
-  if (button.dataset.refineAction === 'accept') {
-    problem = await sendBacklog({ action: 'refine-accept', step: step.id })
-  } else {
-    if (answers.length > 0 || feedback.trim() !== '') problem = await sendBacklog({ action: 'refine-answer', step: step.id, answers, feedback })
-    if (problem === null) {
-      for (const name of fields) drafts.delete(name)
-      sending.delete(key)
-      return send({ to: advisor, command: 'refine', step: step.id }, key)
-    }
+  if (answers.length > 0 || feedback.trim() !== '') problem = await sendBacklog({ action: 'refine-answer', step: step.id, answers, feedback })
+  if (problem === null) {
+    for (const name of fields) drafts.delete(name)
+    sending.delete(key)
+    return send({ to: advisor, command: 'refine', step: step.id }, key)
   }
   sending.delete(key)
-  if (problem !== null) problems.set(key, `Not done: ${problem}`)
+  problems.set(key, `Not done: ${problem}`)
   await read()
 }
 
 $('details').addEventListener('click', event => {
+  // B293: Yes or No to a question: kept as the person's pick until they send it; a second click takes it back to
+  // what is written already, if anything (a written answer is changed, never taken away).
+  const pick = event.target.closest('[data-refine-pick]')
+  if (pick !== null && !pick.disabled) {
+    const key = `refine:${pick.dataset.refinePick}`
+    const written = pick.parentElement.dataset.answer ?? ''
+    const isPressed = pick.getAttribute('aria-pressed') === 'true'
+    const shown = isPressed ? written : pick.dataset.value
+    if (shown === written) drafts.delete(key)
+    else drafts.set(key, shown)
+    for (const one of pick.parentElement.querySelectorAll('[data-refine-pick]')) one.setAttribute('aria-pressed', String(one.dataset.value === shown))
+    return
+  }
   const button = event.target.closest('[data-refine-step]')
   if (button !== null && !button.disabled) refineClick(button)
 })
+
 $('details').addEventListener('input', event => {
   const name = event.target.dataset?.refineField
   if (name !== undefined) drafts.set(`refine:${name}`, event.target.value)

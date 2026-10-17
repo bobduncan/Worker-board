@@ -237,6 +237,23 @@ the block's first line. The board writes only that block, as for Close (`src/tic
 the board that delivers). While a round is asked and not written yet (on its way, or arrived less than half an hour
 ago), the window says so and the server refuses a second ask.
 
+**A refined step is one compact description (B293).** The person approved what "refined" means on 2026-10-17 (the
+project's spec of that day): "after the questions are answered i want them processes in the new design and i dont want
+to see them anymore. the goal is to have 1 fully comprehensive description that is compact with pictures and summary.
+that doesnt read like it was in progress text." The block now holds "Summary:", "Picture:" (a path and in brackets what
+it shows, or "none (why)"), "Part of:" (its goal and milestone) and "Size:", and while refining one-line questions
+with " Advised: yes|no, <why>" behind them. Once every answer is folded in, the Advisor writes it as "Refined (<date
+time>; ready):" with "What we build:" (points; "Not in it: ..." among them) and no questions, feedback or round
+(roles/advisor.md). The window's head shows the goal, the size and "N questions for you" or a green "Ready" in place of
+"Step". While refining, the box shows the summary, the picture as a thumbnail with "Open the picture ↗", and a line
+per question: the advice (its reason on hover) and Yes / No; a pick is kept until it is sent, a second click takes it
+back. "Send answers" writes the picks and the feedback and asks the next round; "Take the advice" (in place of "Accept
+as refined") writes the advice as the answer to every open question the person did not pick, and says which question
+has none to take. Once ready, the description stands first in the window, with no box, and the step's own lines follow
+as its "Notes"; its foot has "Refine again". A ready block names no round, so a refine ask counts as written once a
+block is written in a minute after it (`refineAsk`). Blocks in the older form (Problem, Goal, questions with a field)
+still show as before; the server still writes "accepted" for them, though no button asks it any more.
+
 **Stop, move or take out of the queue (B83).** The person, 2026-10-14, of the two choices: "1. A" (stop lets the worker
 reach a safe point: work committed and pushed, nothing new started) and "2. A" (the main chat makes the change). A
 worker's "⋯" menu has "■ Stop its task" for a worker on a task; it asks once ("Stop its task? It finishes what runs,

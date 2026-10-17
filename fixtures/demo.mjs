@@ -64,18 +64,31 @@ const BACKLOG = `# Backlog
   - Works for the player and for enemies
   - The jump keeps its own timing
   Context: the jump arc is in art-inbox/jump. Keep the blend under a tenth of a second.
+  Refined (2026-10-14 18:40; ready):
+  Summary: A change of speed flows from walk to run to jump, with no visible snap.
+  Picture: art-inbox/jump/jump-arc.png (the jump's arc, which keeps its own timing)
+  Part of: G2 M1 · A first playable build
+  Size: about 40 min
+  What we build:
+  - Walk, run and jump blend into each other in under a tenth of a second.
+  - The same blend for the player and for enemies.
+  - The jump keeps its own timing; only its start and its landing blend.
+  - Not in it: blending of attacks; they come with the attack patterns.
 - [ ] Review the merge order (for Main; about 15 min)
 - [ ] Plan the next milestone (for Main; about 30 min)
 - [ ] Enemy abilities (for Units; after the pathfinding choice; about 30 min)
 - [ ] Enemy attack patterns (for Units; about 1 h)
 - [ ] Main menu (for Features; after save / load merges; about 1 h)
 - [ ] B12 Settings screen (for Features; about 45 min)
-  Refined (round 1, by Advisor, 2026-10-14 18:52):
-  Problem: Players cannot turn the music down or change the keys, so some stop playing.
-  Goal: One screen for sound, keys and display, reachable from the menu and the pause screen.
+  Refined (round 2, by Advisor, 2026-10-14 18:52):
+  Summary: One screen to turn the music down and change the keys, from the menu and from the pause screen.
+  Picture: art-inbox/settings/settings-screen.png (the screen with its tabs; Save keeps what you set)
+  Part of: G2 M1 · A first playable build
+  Size: about 45 min
   Questions:
-  - Should the keys be changeable, or only shown? Answer: changeable
-  - Does it save per player, or once for the computer?
+  - Can the keys be changed, not only shown? Advised: yes, players asked for it Answer: yes
+  - Saved once for the computer, not per player? Advised: yes, one player per computer so far
+  - A display tab now, though it has nothing to set yet? Advised: no, it waits for the window sizes
 - [ ] Controller support (for Features; about 2 h)
 - [ ] Remove unused assets (for Cleanup; about 20 min)
 - [ ] Lava biome (for Levels / Environment; about 1 h 30 min)

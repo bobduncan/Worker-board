@@ -46,11 +46,14 @@ function memoryFile(text) {
 
 test('the refine block is read apart from the step\'s other lines, which end it', () => {
   const step = parseBacklog(BACKLOG).activities[0].steps[0]
+  // B293: the parts of the newer form stay empty for a block in this older form.
   assert.deepEqual(refinedOf(step.notes), {
-    round: 1, by: 'Oracle', at: '2026-10-14 18:52', accepted: null,
+    round: 1, by: 'Oracle', at: '2026-10-14 18:52', accepted: null, ready: false,
+    summary: '', picture: null, pictureNote: '', partOf: '', size: '',
     problem: 'The zebracorn hums, but nobody can tell the tune.',
     goal: 'One song the herd knows by heart.',
-    questions: [{ text: 'Which song?', answer: null }, { text: 'At dawn only?', answer: 'yes' }],
+    build: [],
+    questions: [{ text: 'Which song?', answer: null, advice: null, why: '' }, { text: 'At dawn only?', answer: 'yes', advice: null, why: '' }],
     feedback: [],
   })
   assert.deepEqual(withoutRefined(step.notes), ['Requirements:', '- a song at dawn', 'Context: asked by the herd.'])

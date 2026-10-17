@@ -151,9 +151,17 @@ export function noteSections(notes) {
  * "Problem:", "Goal:", "Questions:" (points, each with " Answer: ..." once the person answered) and "Feedback:"
  * (points, "Round 1: ..."). The brackets of its first line say the round, who refined it and when, and
  * "accepted <when>" once the person accepted it. Any other named line, or a line in brackets, ends the block.
+ *
+ * B293, what "refined" means (the person's yes of 2026-10-17): "Summary:", "Picture:" (a path and in brackets what
+ * it shows, or "none (why)"), "Part of:" (its goal), "Size:", and questions of one line with " Advised: yes|no, why"
+ * behind them. Once every answer is folded in, the head reads "Refined (<date time>; ready):" and the block holds
+ * "What we build:" (points, "Not in it: ..." among them) in place of the questions. Problem and Goal still read.
  */
 export const REFINED_HEAD = /^Refined\s*(?:\(([^)]*)\))?\s*:\s*$/
-const REFINED_PARTS = { Problem: 'problem', Goal: 'goal', Questions: 'questions', Feedback: 'feedback' }
+const REFINED_PARTS = {
+  Problem: 'problem', Goal: 'goal', Questions: 'questions', Feedback: 'feedback',
+  Summary: 'summary', Picture: 'picture', 'Part of': 'partOf', Size: 'size', 'What we build': 'build', 'Not in it': 'not',
+}
 const NAMED = /^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/
 
 /** Where the refine block stands in a step's notes: `[start, end)` as indexes of `notes`, or null when it has none. */
@@ -183,31 +191,67 @@ export function refinedOf(notes) {
     by: head.match(/\bby\s+([^,;]+)/i)?.[1].trim() ?? null,
     at: head.match(/\d{4}-\d\d-\d\d[ T]\d\d:\d\d/)?.[0] ?? null,
     accepted: head.match(/\baccepted\b\s*([^,;]*)/i)?.[1].trim() ?? null,
+    // B293: written once every answer is folded in.
+    ready: head.split(/[;,]/).some(part => part.trim().toLowerCase() === 'ready'),
+    summary: '',
+    picture: null,
+    pictureNote: '',
+    partOf: '',
+    size: '',
     problem: '',
     goal: '',
+    build: [],
     questions: [],
     feedback: [],
   }
   if (refined.accepted !== null && refined.accepted === '') refined.accepted = 'yes'
+  // The picture's line is read whole once the block is read: it may go on over a second line.
+  let picture = ''
   let part = null
   for (const note of notes.slice(span[0] + 1, span[1])) {
     const line = note.trim()
     const named = line.match(NAMED)
     if (named !== null && REFINED_PARTS[named[1]] !== undefined) {
       part = REFINED_PARTS[named[1]]
-      if (named[2] !== '') addRefined(refined, part, named[2])
+      // "Not in it: ..." written as a line of its own is one more point of what we build.
+      if (part === 'not') {
+        refined.build.push(line)
+        part = 'build'
+      } else if (part === 'picture') picture = joined(picture, named[2])
+      else if (named[2] !== '') addRefined(refined, part, named[2], false)
       continue
     }
-    if (part !== null) addRefined(refined, part, line)
+    if (part === 'picture') picture = joined(picture, line)
+    else if (part !== null) addRefined(refined, part, line, true)
   }
+  if (picture !== '') Object.assign(refined, pictureOf(picture))
   return refined
 }
 
-function addRefined(refined, part, line) {
+const joined = (before, words) => (before === '' ? words : words === '' ? before : `${before} ${words}`)
+
+/**
+ * B293: a refine block's picture line: `{ picture: { path, caption } }` for a picture file with what it shows in
+ * brackets, or `{ picture: null, pictureNote }` with why there is none ("none (a rule only; nothing to see)").
+ */
+function pictureOf(words) {
+  const file = words.match(/^(\S+\.(?:png|jpe?g|gif|webp))(?=\s|$)\s*(.*)$/i)
+  const inBrackets = text => text.replace(/^\((.*)\)\.?$/, '$1').trim()
+  if (file !== null) return { picture: { path: file[1], caption: inBrackets(file[2].trim()) }, pictureNote: '' }
+  return { picture: null, pictureNote: inBrackets(words.replace(/^none\b[\s:,;.-]*/i, '').trim()) }
+}
+
+/** `isMore`: a line under the part's name, which goes on with the part's last words when it is no point of its own. */
+function addRefined(refined, part, line, isMore) {
   const point = line.match(/^[-*]\s+(.*)$/)
   const words = point === null ? line : point[1]
-  if (part === 'problem' || part === 'goal') {
-    refined[part] = refined[part] === '' ? words : `${refined[part]} ${words}`
+  if (part === 'problem' || part === 'goal' || part === 'summary' || part === 'partOf' || part === 'size') {
+    refined[part] = joined(refined[part], words)
+    return
+  }
+  if (part === 'build') {
+    if (point === null && isMore && refined.build.length > 0) refined.build[refined.build.length - 1] = joined(refined.build.at(-1), words)
+    else refined.build.push(words)
     return
   }
   if (part === 'feedback') {
@@ -216,9 +260,14 @@ function addRefined(refined, part, line) {
   }
   // "None: ready to pick up." says no question is left: it is none.
   if (/^None\b/i.test(words)) return
-  // A question's answer stands behind " Answer: " on its own line.
+  // A question's answer stands behind " Answer: " on its own line; B293: the advice, " Advised: yes|no, why", before it.
   const at = words.search(/\sAnswer:\s/)
-  refined.questions.push(at < 0 ? { text: words, answer: null } : { text: words.slice(0, at).trim(), answer: words.slice(at).replace(/^\s*Answer:\s*/, '').trim() })
+  const asked = at < 0 ? words : words.slice(0, at).trim()
+  const answer = at < 0 ? null : words.slice(at).replace(/^\s*Answer:\s*/, '').trim()
+  const advised = asked.match(/^(.*?)\s+Advised:\s*(yes|no)\b[\s,;:.-]*(.*)$/i)
+  refined.questions.push(advised === null
+    ? { text: asked, answer, advice: null, why: '' }
+    : { text: advised[1].trim(), answer, advice: advised[2].toLowerCase(), why: advised[3].trim() })
 }
 
 /** B233: a step's notes without its refine block, which the step's window shows apart. */
