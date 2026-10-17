@@ -10,7 +10,7 @@ import test from 'node:test'
 
 import { answer, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { isRefined, newSince, refineStateOf, refineWhenDue } from '../src/refineGate.mjs'
+import { firstLook, isRefined, refineStateOf, refineWhenDue } from '../src/refineGate.mjs'
 import { checkSay } from '../src/say.mjs'
 import { buildState } from '../src/state.mjs'
 
@@ -176,9 +176,11 @@ test('a queued step that was refined because it was queued is said to the main c
   assert.equal(refineWhenDue(build({ backlogText: refinedQueued }), [], { since: 30 }).notice, null)
 })
 
-test('where refining began: the highest step on the backlog when the board first looks', () => {
-  assert.equal(newSince(null, build()), 20)
-  assert.equal(newSince(12, build()), 12)
+test('where refining began: the highest step on the backlog, and the steps queued then unrefined, which go as before', () => {
+  assert.deepEqual(firstLook(null, build()), { since: 20, queuedBefore: ['B15'] })
+  assert.deepEqual(firstLook({ since: 12, queuedBefore: ['B9'] }, build()), { since: 12, queuedBefore: ['B9'] })
+  // B15 was queued before: the board does not refine it for its queue, nor tell the main chat about it.
+  assert.equal(refineWhenDue(build(), [], { since: 30, queuedBefore: ['B15'] }).refine, null)
 })
 
 test('the Advisor\'s newer form (Summary, Picture, Part of, Size) keeps its questions in the block', () => {

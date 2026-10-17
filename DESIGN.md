@@ -242,7 +242,9 @@ step with a block, which waits for the person's answers. "Add to queue" on a ste
 board ("Refine, then queue") and goes to the main chat by itself once the step is refined; it is dropped when the step
 is finished, queued or gone. A step the main chat queued before it was refined is said to it once it is
 (`step refined`, Step, For), so it hands the step out then (roles/main.md, point 0). Old steps are refined when they
-are about to be queued, not all at once. Without a Workers mod nothing of this runs.
+are about to be queued, not all at once; the steps that were queued already at the first look go as before (kept
+with `since` as `queuedBefore`), so a board that starts refining does not send the whole queue to the Advisor.
+Without a Workers mod nothing of this runs.
 
 **Stop, move or take out of the queue (B83).** The person, 2026-10-14, of the two choices: "1. A" (stop lets the worker
 reach a safe point: work committed and pushed, nothing new started) and "2. A" (the main chat makes the change). A

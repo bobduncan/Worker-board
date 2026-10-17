@@ -13,13 +13,20 @@ export { isRefined, refineStateOf } from './backlog.mjs'
 const numberOf = id => Number(String(id).slice(1))
 
 /**
- * The highest step number at or below which steps count as old: `kept` (what the board wrote down at its first look
- * with refining), else the highest step on the backlog now, finished ones too; 0 for an empty backlog.
+ * What the board writes down at its first look with refining, or what it wrote then (`kept`): `since`, the highest
+ * step number on the backlog, finished ones too (a step above it is new; 0 for an empty backlog), and
+ * `queuedBefore`, the steps that were queued then without being refined: they go as before (roles/main.md, point 0).
  */
-export function newSince(kept, state) {
-  if (Number.isInteger(kept)) return kept
-  const ids = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string').map(step => numberOf(step.id))
-  return ids.length === 0 ? 0 : Math.max(...ids)
+export function firstLook(kept, state) {
+  if (kept !== null && kept !== undefined && Number.isInteger(kept.since)) {
+    return { since: kept.since, queuedBefore: Array.isArray(kept.queuedBefore) ? kept.queuedBefore : [] }
+  }
+  const steps = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string')
+  const ids = steps.map(step => numberOf(step.id))
+  return {
+    since: ids.length === 0 ? 0 : Math.max(...ids),
+    queuedBefore: steps.filter(step => step.status === 'queued' && !isRefined(step.refined)).map(step => step.id),
+  }
 }
 
 /** Whether the Advisor was asked to refine this step and the ask did not fail to arrive. */
@@ -31,11 +38,12 @@ const wasAsked = (outbox, id) => outbox.some(message => message.command === 'ref
  * - `drop`: the held asks whose step is no longer open for a queue (finished, queued, in progress, gone);
  * - `refine`: one ask to the Advisor, or null: only while no refine is open (the person's neither), the first step
  *   without a refine block and never asked of the Advisor, by `why`: `queue` (the person asked to queue it), `queued`
- *   (the main chat queued it), then `new` (a step above `since`, never the person's, finished or in progress);
+ *   (the main chat queued it; not one of `queuedBefore`), then `new` (a step above `since`, never the person's,
+ *   finished or in progress);
  * - `notice`: one word to the main chat, or null: a step it queued unrefined (refined because queued) is refined now.
  * `outbox` is everything the board sent, also long ago.
  */
-export function refineWhenDue(state, outbox, { since }) {
+export function refineWhenDue(state, outbox, { since, queuedBefore = [] }) {
   const steps = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string')
   const byId = new Map(steps.map(step => [step.id, step]))
   const held = outbox.filter(message => message.command === 'queue' && message.state === 'held')
@@ -61,7 +69,7 @@ export function refineWhenDue(state, outbox, { since }) {
     const needs = step => (step.refined ?? null) === null && !wasAsked(outbox, step.id)
     const order = [
       ['queue', step => waiting.has(step.id)],
-      ['queued', step => step.status === 'queued'],
+      ['queued', step => step.status === 'queued' && !queuedBefore.includes(step.id)],
       ['new', step => (step.status === 'open' || step.status === 'queued') && numberOf(step.id) > since],
     ]
     for (const [why, wants] of order) {

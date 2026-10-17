@@ -40,7 +40,9 @@ You decide this, not the user. For every task:
    step is handed out only once it is refined, that is when its refine block leaves no question open (every one
    answered, `- None: ready to pick up.`, or accepted). You may write the queue note of a step that is not refined
    yet: the board then sends it to the Advisor, and types `step refined` to you once it is. Hand it out then, not
-   before. The board refines a new step once by itself; you never ask the Advisor for it.
+   before. The board refines a new step once by itself; you never ask the Advisor for it. The steps that were queued
+   already when the board began refining go as before (the board keeps their list in its `data/refine-gate.json`;
+   your briefing names them).
 
 1. Needs: does it need the result of an open step, or a choice of the user? Then it queues behind that step.
 2. Touches: name the parts it changes. Compare with what every running task changes: for each branch that is not

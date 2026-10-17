@@ -43,7 +43,7 @@ import { freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
-import { newSince, refineWhenDue } from './src/refineGate.mjs'
+import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
@@ -379,8 +379,8 @@ async function main(args) {
   // B173: what the clock of the Advisor's rounds wrote down; null before its first look.
   const ROUNDS_FILE = join(HERE, 'data', 'rounds.json')
   let roundsKept = null
-  // B285: the highest step that was on the backlog when the board began refining steps by itself: a step above it is
-  // new and gets one refine. Null before its first look.
+  // B285: what the board wrote down when it began refining steps by itself (refineGate.mjs `firstLook`): the highest
+  // step then, above which a step is new and gets one refine, and the steps queued then unrefined. Null before.
   const REFINE_FILE = join(HERE, 'data', 'refine-gate.json')
   let refineKept = null
   // B185: how long the tasks really took, read from the workers' transcripts and kept in the data folder, with the
@@ -406,7 +406,7 @@ async function main(args) {
       store = await fileStore(join(HERE, 'data'), clock())
       finishedSeen = await readFile(FINISHED_FILE, 'utf8').then(text => JSON.parse(text), () => null)
       roundsKept = await readFile(ROUNDS_FILE, 'utf8').then(text => JSON.parse(text), () => null)
-      refineKept = await readFile(REFINE_FILE, 'utf8').then(text => JSON.parse(text).since, () => null)
+      refineKept = await readFile(REFINE_FILE, 'utf8').then(text => JSON.parse(text), () => null)
       taskTimes = await readFile(TASK_TIMES_FILE, 'utf8').then(text => JSON.parse(text), () => null) ?? taskTimes
     } else {
       // The history of the board that is running; this one records nothing and keeps what is sent in memory.
@@ -868,12 +868,12 @@ async function main(args) {
       // queued unrefined is refined. Only the board that delivers.
       if (bridgeKey !== null && state.bridge?.isMissing !== true) {
         const now = clock()
-        const since = newSince(refineKept, state)
-        if (since !== refineKept) {
-          await writeFile(REFINE_FILE, JSON.stringify({ since }))
-          refineKept = since
+        const begun = firstLook(refineKept, state)
+        if (refineKept === null || refineKept.since !== begun.since) {
+          await writeFile(REFINE_FILE, JSON.stringify(begun))
+          refineKept = begun
         }
-        const due = refineWhenDue(state, store.outbox(), { since })
+        const due = refineWhenDue(state, store.outbox(), begun)
         for (const id of due.release) await store.update(id, { state: 'waiting', at: now, releasedAt: now })
         for (const id of due.drop) await store.update(id, { state: 'dropped' })
         for (const words of [due.refine, due.notice]) {
