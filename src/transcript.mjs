@@ -366,14 +366,24 @@ export function finishedBetween(entries, from, to) {
 
 /** An answer that ended a turn with the closing block's last line "+ Done:   yes". */
 function isDoneAnswer(last) {
-  if (last === undefined || !endsTurn(last) || (last.error ?? null) !== null) return false
+  return /^\+\s*Done:\s*yes\b/i.test(closingDone(last) ?? '')
+}
+
+/** B292: whether the chat's last answer closed with "- Done:   partly" or "- Done:   no": its task is left open. */
+export function saysUnfinished(entries) {
+  return /^-\s*Done:\s*(?:partly|no)\b/i.test(closingDone(entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)) ?? '')
+}
+
+/** The last line of the closing block an answer that ended a turn ends with ("+ Done:   yes"), or null. */
+function closingDone(last) {
+  if (last === undefined || !endsTurn(last) || (last.error ?? null) !== null) return null
   const words = textOf(last).replace(/\r\n/g, '\n').trimEnd()
   const at = words.lastIndexOf(CLOSING)
-  if (at === -1 || !words.endsWith('\n```')) return false
+  if (at === -1 || !words.endsWith('\n```')) return null
   const block = words.slice(at + CLOSING.length, -'\n```'.length)
-  if (block.includes('```')) return false
+  if (block.includes('```')) return null
   const lines = block.split('\n').map(line => line.trim()).filter(line => line !== '')
-  return /^\+\s*Done:\s*yes\b/i.test(lines.at(-1) ?? '')
+  return lines.at(-1) ?? null
 }
 
 /** The inside of the tag a message from another chat is wrapped in, with who it says it is from. */

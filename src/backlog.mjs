@@ -38,6 +38,25 @@ export function aboutMinutes(text) {
   return null
 }
 
+/**
+ * B292: the notes in brackets at the end of a step's words, peeled off from the last: the main chat's "(for <chat>;
+ * after B12; about 1 h)", "(later; not handed out)", "(not handed out; after today; ...)", a chat's name, where its
+ * pictures are. A note may hold brackets of its own, one level deep
+ * ("after the archer (branch x) merges"). `rest` is what stands before them; words that are nothing but brackets keep
+ * them, as there is no other title.
+ */
+function closingNotes(body) {
+  const notes = []
+  let rest = body
+  for (;;) {
+    const found = rest.match(/\s*\(((?:[^()]|\([^()]*\))*)\)\s*$/)
+    if (found === null || rest.slice(0, found.index).trim() === '') break
+    notes.unshift(found[1])
+    rest = rest.slice(0, found.index)
+  }
+  return { rest, notes }
+}
+
 export function parseStep(isDone, rest, { prefix, names }) {
   const isYou = /(^|\s)@you\s*$/.test(rest)
   // A step starts with its id ("B14"): the person names a step by it, and it never changes.
@@ -47,18 +66,17 @@ export function parseStep(isDone, rest, { prefix, names }) {
   // A step in progress names its branch at its very end, after the note of who it is for: "(branch feature/x)".
   const own = text.match(/\s*\(branch\s+([\w./-]+)\)\s*$/)
   const body = own === null ? text : text.slice(0, own.index)
-  // The note the main chat writes on a queued step: "(for Units; after <condition>; about 40 min)". The condition
-  // may hold brackets of its own, as in "after the archer (branch x) merges".
-  const spec = body.match(/\s*\((for (?:[^()]|\([^()]*\))*)\)\s*$/)
+  // The notes at its end (closingNotes): the main chat's on a queued step says who it is for, after what and how long
+  // ("(for Units; after <condition>; about 40 min)"); B292: whatever a note starts with, it is no part of the title,
+  // and its parts are read from every note, the first of each kind counting.
+  const { rest: titled, notes } = closingNotes(body)
   let forWhom = null
   let after = null
   let minutes = null
-  if (spec !== null) {
-    for (const part of spec[1].split(';').map(piece => piece.trim())) {
-      if (/^for\s+/i.test(part)) forWhom = part.replace(/^for\s+/i, '').trim()
-      else if (/^after\s+/i.test(part)) after = part.replace(/^after\s+/i, '').trim()
-      else minutes ??= minutesOf(part)
-    }
+  for (const part of notes.flatMap(note => note.split(';')).map(piece => piece.trim())) {
+    if (/^for\s+/i.test(part)) forWhom ??= part.replace(/^for\s+/i, '').trim()
+    else if (/^after\s+/i.test(part)) after ??= part.replace(/^after\s+/i, '').trim()
+    else minutes ??= minutesOf(part)
   }
 
   // After its id, a step for the person says what it asks of them: "Verify:", "Decide:", "Provide:" or "Do:".
@@ -67,7 +85,7 @@ export function parseStep(isDone, rest, { prefix, names }) {
   return {
     id: lead === null ? null : lead[1],
     text,
-    title: (spec === null ? body : body.slice(0, spec.index)).slice(asks === null ? 0 : asks[0].length).trim(),
+    title: titled.slice(asks === null ? 0 : asks[0].length).trim(),
     asks: asks === null ? null : asks[1].toLowerCase(),
     isDone,
     isYou,

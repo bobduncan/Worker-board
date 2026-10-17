@@ -1138,6 +1138,20 @@ Safety, because what arrives is typed into a chat that can change files:
 - What remains: any program running as the person on this PC could type through it. Such a program can already
   change the files the chats read.
 
+## A step's title without its note (B292)
+
+The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont
+understand why this is happening." Every note in brackets at the end of a step's line is no part of its title on the
+board, whatever it starts with: the main chat's "(for Units; after B12; about 1 h)", "(later; not handed out)",
+"(not handed out; after today; ...)", a chat's name, where its pictures are; two in a row too ( in
+). Their parts are still read from every note: who it is for, after what, how long; the step's
+words keep the notes, so what reads them (a step held back, the pictures it points to) finds them. The work store
+keeps the titles it migrated with their notes ( in  reads only "(for ...)" as
+fields), so the line it writes back still says the same step; a lane named after such a title, or after a card
+named so, drops the note ( in board.js). Of two steps the store holds in progress for one worker, its
+lane shows the one its card names, else the one it took last, never one it was taken off. And a worker whose last
+answer closed "- Done:   partly" or "no" is between two turns, not free, whatever the app calls its turn.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

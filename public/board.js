@@ -2340,10 +2340,24 @@ const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interru
 function laneTaskOf(lane) {
   const task = lane.task ?? null
   const code = lane.givenTask?.step?.id ?? task?.stepId ?? null
-  // B299: a step of the store is named by its title as the store holds it, never by the card's short topic.
-  if (typeof task?.title === 'string' && task.title !== '') return { code, text: task.title }
+  // B299: a step of the store is named by its title as the store holds it, never by the card's short topic. B292:
+  // without the note in brackets a migrated title, or a card named after one, may have brought along.
+  if (typeof task?.title === 'string' && task.title !== '') return { code, text: withoutNote(task.title) }
   if (task === null || (task.text ?? '') === '') return { code, text: null }
-  return { code, text: code === null ? task.text : task.text.replace(new RegExp(`^${code}[:,]?\\s+`), '') }
+  return { code, text: withoutNote(code === null ? task.text : task.text.replace(new RegExp(`^${code}[:,]?\\s+`), '')) }
+}
+
+/**
+ * B292: words without the notes in brackets at their end ("See tall walls (not handed out; after today)"), one level of
+ * brackets inside a note; words that are nothing but brackets keep them. As the board's reading of a step does.
+ */
+function withoutNote(words) {
+  let rest = String(words)
+  for (;;) {
+    const found = rest.match(/\s*\((?:[^()]|\([^()]*\))*\)\s*$/)
+    if (found === null || rest.slice(0, found.index).trim() === '') return rest.trim()
+    rest = rest.slice(0, found.index)
+  }
 }
 
 const SHORT_TASK_CHARS = 220
