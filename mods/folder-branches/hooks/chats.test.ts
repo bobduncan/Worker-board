@@ -430,7 +430,10 @@ describe('B298: the instructions of the person, as the chat is told of them', ()
     expect(isFiled('Make it blue', { kind: 'composer' })).toBe(true)
     expect(isFiled('/compact', { kind: 'composer' })).toBe(false)
     expect(isFiled('  ', { kind: 'composer' })).toBe(false)
-    for (const kind of ['plugin', 'bridge', 'sdk', 'peer', undefined]) expect(isFiled('Make it blue', { kind })).toBe(false)
+    for (const kind of ['plugin', 'peer', 'task-notification', undefined]) expect(isFiled('Make it blue', { kind })).toBe(false)
+    for (const kind of ['bridge', 'sdk']) expect(isFiled('Make it blue', { kind })).toBe(true)
+    expect(isFiled('Queue the menu [I18]', { kind: 'composer' })).toBe(false)
+    expect(isFiled('x\n(typed on the worker board, 11:05)', { kind: 'composer' })).toBe(false)
   })
 
   test('the lines: new ones, turns, and several at once', () => {

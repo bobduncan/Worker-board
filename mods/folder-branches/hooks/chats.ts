@@ -538,12 +538,20 @@ export function workCard(chat: ChatFile, action: string, input: WorkCardInput): 
 export type OpenInstruction = { id: string; turns: number }
 
 /**
- * B298: whether a prompt is filed on the worker board as the person's instruction: only what they typed in this chat's
- * own box (`composer`), never what the board or another chat brought in (it carries its id already, or is no word of
- * theirs), and never a slash command.
+ * B298: where the person's own typing comes from: this chat's box (`composer`), Remote Control on a phone or the web
+ * (`bridge`), and the desktop app, whose chats run on the SDK (`sdk`). A line the board typed comes as `plugin`.
+ */
+const TYPED_BY_PERSON: readonly string[] = ['composer', 'bridge', 'sdk']
+/** B298: a line the board typed, also pasted by hand: its id at its end, or the board's mark. */
+const FROM_BOARD = /\[I\d+\]\s*$|\((?:typed|answered) on the worker board\b/
+
+/**
+ * B298: whether a prompt is filed on the worker board as the person's instruction: only what they typed themselves,
+ * never what the board or another chat brought in (a board line carries its id already, also when pasted by hand),
+ * and never a slash command.
  */
 export function isFiled(text: unknown, origin: { kind?: string } | undefined): boolean {
-  return origin?.kind === 'composer' && typeof text === 'string' && text.trim() !== '' && !text.trimStart().startsWith('/')
+  return TYPED_BY_PERSON.includes(origin?.kind ?? '') && typeof text === 'string' && text.trim() !== '' && !text.trimStart().startsWith('/') && !FROM_BOARD.test(text)
 }
 
 /** B298: the open instructions as the board's answer gives them (`open`); null when the answer has none. */
@@ -593,13 +601,16 @@ export function formQuestions(input: unknown): FormQuestion[] {
   })
 }
 
-/** B299: what the person chose in the app's form for a question, from the tool's result (`answers` by question); '' for none. */
+/**
+ * B299: what the person gave in the app's form for a question, from the tool's result: their choice (`answers` by
+ * question), else their own words (`response`); '' for neither.
+ */
 export function formAnswer(result: unknown, question: string): string {
-  const answers = typeof result === 'object' && result !== null ? (result as { answers?: unknown }).answers : undefined
-  if (typeof answers !== 'object' || answers === null) return ''
-  const given = (answers as Record<string, unknown>)[question]
-  if (Array.isArray(given)) return given.filter(one => typeof one === 'string').join(', ')
-  return typeof given === 'string' ? given : ''
+  const read = typeof result === 'object' && result !== null ? result as { answers?: unknown; response?: unknown } : {}
+  const given = typeof read.answers === 'object' && read.answers !== null ? (read.answers as Record<string, unknown>)[question] : undefined
+  if (Array.isArray(given) && given.some(one => typeof one === 'string')) return given.filter(one => typeof one === 'string').join(', ')
+  if (typeof given === 'string' && given.trim() !== '') return given
+  return typeof read.response === 'string' ? read.response.trim() : ''
 }
 
 /** B299: the step a chat's card names first ("B12 Give the golem ..."), for an ask under it; null when none. */
