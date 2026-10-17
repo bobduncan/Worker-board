@@ -469,6 +469,48 @@ line under Needs your attention, "Answers to your asks", with "Read it →" (the
 and counts in its number. An ask and its read mark are messages, not edits: the page's undo leaves them alone. The
 picture: `art-inbox/board-goals/b258-ask.png`.
 
+**The brainstorm on the board (B259).** The person, 2026-10-15: "I dont like the brainstorming part of the worker
+board. i still rely on explicity the brainstorm skill to help me think, ask questions with prompts that i can not do
+in the UI", and of where it lives "B" (its own part, `where-brainstorm.png`); what it produces "C" (goals for the map,
+steps for the backlog the person ticks, and a note under the goal); where the questions come from: one thread file per
+brainstorm, written by the Advisor, shown and answered by the board, never an AI call of the board's (spec 2026-10-15,
+section 5). The **thread** is `<brainstorms>/<yyyy-mm-dd>-<title's words>.md` (setting `brainstorms`,
+`.claude/brainstorms`): the head the board writes (`# Brainstorm:`, `Goal: G<id> <title>` or `Goal: new`,
+`Started: <date time> · State: running`, `Opening:`), the Advisor's context head under it, its questions
+(`## Q<n> (HH:MM)`, the question, `Why:`, `- A: … (advised)`, `Picture:`), the board's `Answer (HH:MM): A — <words>`
+(or `Other — <words>`, `skipped`, `back to Q<m>`) under each, and at the end the Advisor's `## Proposal (HH:MM)`
+(`Decided:`, `Goals:` "- [ ] <title> — under G<id> or top — Done when: …", `Steps:` "- [ ] <title> — <worker> —
+about <time>", `Note:`; a changed one under a new heading, the last counts) and the board's
+`Created (HH:MM): <goals>; <n> steps asked of the main chat; left out: <titles>` (`src/brainstorm.mjs`, read and
+written line by line, as the map is). The **Brainstorm part** is the Advisor tab's third: at the left
+"+ New brainstorm… (about a goal, or free)" and the brainstorms, running ("question 3 waits for you", "with the
+Advisor", "proposal to tick") and done ("→ G10, 2 steps", "discarded"); at the right the chosen one's card: what it
+is about (a link into the map), the open question with its why, its options as buttons with the advised one marked,
+"Other" for the person's own words (also as words with a chosen option), the picture of every option, Answer, Skip,
+Back (asks the question before again) and "Enough, wrap up", the earlier questions and answers folded, and the
+thread file in the board's file window. While the Advisor has the turn the card says what it does: "The Advisor is
+thinking…", "The Advisor is on: <its card's line>" when it works on something else, or that its chat is not running
+and the main chat starts it (Review Focus 4); no fixed time limit. The proposal shows what was decided, the goals
+and the steps with a tick each (all ticked at first), the note, and "Create what's ticked", "Change…" (the person's
+words to the Advisor) and, under the card, "Discard" (a second click). **Create** (`POST /api/brainstorm` `create`,
+the thread's length as read: a thread that changed since is refused; a second Create, also at the same moment, is
+refused, Review Focus 5) writes the ticked goals into the map (under the goal the Advisor named, else the thread's
+goal, or at the top), each with its Done when, the note under the thread's goal (or the first goal made) as
+`Note (brainstorm <date>): …`, and `Brainstorm: <path> (done)`, then the thread's Created line and state done; the
+page then types one `backlog step from the goal map` per ticked step into the main chat (Title, Goal: the first goal
+made or the thread's, Description: the brainstorm and its note, Time, Worker; `goal-step`, built from the thread as
+the board read it), which writes the step and adds its id to the goal's `Steps:` line (roles/main.md, "A step from
+the goal map"). A start writes `Brainstorm: <path> (running)` under its goal, so the outline tags it; one brainstorm
+runs on a goal at a time ("Brainstorm this" on a goal with one running opens it). The words to the Advisor
+(`brainstorm`, `brainstorm answer`, `brainstorm wrap up`, `brainstorm change`) are each made from the thread after the
+board's own write, so one is typed only when the thread is where it says (no second `brainstorm` for a thread the
+Advisor has; an answer only once written); a chat that is not running is started through the main chat.
+"Brainstorm this" stands in a goal's frame, its "…" menu and under an ask's answer (the answer becomes the opening).
+Needs your attention lists a question waiting and a proposal to tick under "Brainstorms", with the way to it, and
+counts them; so does the part's button. The Advisor's job: roles/advisor.md, "A brainstorm". On a phone the list
+stands above the card, and the Advisor tab's buttons wrap. Pictures: `art-inbox/board-goals/b259-card.png` and
+`b259-proposal.png`.
+
 **The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
 able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".
 In the Advisor tab's Game plan part every heading folds what stands under it, folded at first with its first line

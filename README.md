@@ -145,8 +145,8 @@ in `src/config.mjs`. `designKinds` (`.claude/design.json` unless set): the proje
 idea, and its reference pictures; `examples\design.json` shows one. `goals` (`.claude/goals.md` unless set): the
 project's goal map, which the Advisor tab's Goals part draws and, on the board that delivers, changes; `examples\goals.md` shows its form.
 `brainstorms`, `goalAsks` and `goalsHistory` (`.claude/brainstorms`, `.claude/goal-asks`, `.claude/goals.history`
-unless set) are the folders for the map's brainstorms (which come later), the Advisor's long answers to the asks on it
-(its "More:" lines point there) and its daily copy.
+unless set) are the folders for the map's brainstorms (one thread file each, which the Advisor tab's Brainstorm part
+shows and answers), the Advisor's long answers to the asks on it (its "More:" lines point there) and its daily copy.
 `work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own
 (a copy tried beside your board gives it a folder outside the project, and only then writes one). The store is
 required: without it the board shows no work and says on top what to run.

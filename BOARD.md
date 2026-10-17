@@ -114,7 +114,7 @@ person sent was copied, and into which chat to paste it.
 
 ## Advisor (`05-advisor.png`)
 
-Five parts, chosen with buttons: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
+Seven parts, chosen with buttons: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
 milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the
 last box; "No milestone to go to yet" until there is one, "not mapped yet" while it has no sub-goals), **Goals** (the project's goal map, `goals.md`, one level at
 a time: the goals with their counters of goals inside, steps done and missing lines; a click zooms into a goal, ‹, Esc
@@ -126,10 +126,17 @@ zoomed into, "Diagram" and "Outline" hide either side, a click on a box zooms in
 the outline alone and a "…" menu on every row; "Ask the Advisor…" in the frame or a row's menu asks the Advisor a
 question about that goal, with pictures pasted or picked: the ask stands under the goal, violet, until the Advisor's
 answer comes there, with its pictures and "More ↗" for its whole page; "Make a step from this", "Ask again" and
-"Done" (read) under it; an answer not read is also a line under Needs your attention), **Game plan** (the game plan from the game's repository,
-with when it was written; being reworked in B218 at the time of this page), **Suggestions** (the Advisor's open
-suggestions with their Why, Cost and Unblocks, and when its rounds come) and **Chat** (a chat with the Advisor, as
-"Talk to Main").
+"Done" (read) under it; an answer not read is also a line under Needs your attention), **Brainstorm** (think something
+through with the Advisor, one question at a time: "+ New brainstorm…" or "Brainstorm this" on a goal starts one with
+your opening words; the Advisor's question comes as a card with its options, the advised one marked, your own words
+under "Other" and a picture when it is visual; Answer, Skip, Back, "Enough, wrap up"; while the Advisor thinks the
+card says so, or what keeps it; at the end a proposal: what was decided, new goals for the map and steps for the
+backlog, each with a tick, and a note; "Create what's ticked" puts the goals into the map and asks the main chat for
+each step; "Change…" asks the Advisor for another proposal; the list at the left holds every brainstorm, running and
+done, with what became of it; a question or a proposal waiting is also a line under Needs your attention),
+**Game plan** (the game plan from the game's repository, with when it was written; being reworked in B218 at the time
+of this page), **Suggestions** (the Advisor's open suggestions with their Why, Cost and Unblocks, and when its rounds
+come), **Refine** (the steps by where their refine stands) and **Chat** (a chat with the Advisor, as "Talk to Main").
 
 ## Backlog (`06-backlog.png`)
 

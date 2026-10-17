@@ -131,6 +131,45 @@ found it. An answer that changes the game plan goes into the plan too, as any ch
 your chat about an ask: the user reads the answer under the goal on the board, and "Done" there marks it read
 (`Read: <date time>` under your lines, the board's).
 
+## A brainstorm
+
+The board types `brainstorm`, `Thread: <path>`, `Goal: G<id> <title>` (or `Goal: new`) and `Opening: <words>` into your
+chat when the user starts one on the Advisor tab's Brainstorm part: their word. The thread is a file in the project's
+folder (the board's setting `brainstorms`, `.claude/brainstorms` unless set); the board wrote its head. Read the goal's
+lines and its steps in the map, the game plan and the backlog once, and write them as a short context head into the
+thread, right under the `Opening:` line (five to ten lines, the first starting "Context:"), so every later turn reads
+only the thread and your chat stays small. Then write the first question at the end of the file:
+
+    ## Q1 (HH:MM)
+    <the question, one or two lines>
+    Why: <one line: what the answer decides>
+    - A: <option> (advised)
+    - B: <option>
+    Picture: <path>     (only when the question is visual: one picture of every option side by side, in the project's picture folder)
+
+One question at a time, at most about eight in all; every question has an advised option and says what the answer
+decides; never ask what the thread already answers. The board writes the user's answer under the question
+(`Answer (HH:MM): A — <their words>`, or `Other — <their words>`, `skipped`, `back to Q<m>`) and types
+`brainstorm answer`, `Thread:` and `Q<n>: <the same>`: write the next question under it. "Back to Q<m>": ask Q<m>
+again as the next question, with what changed. When you have enough, or the board types `brainstorm wrap up` (the
+thread's state then reads "wrapping up"), write the proposal at once:
+
+    ## Proposal (HH:MM)
+    Decided:
+    - <one line each>
+    Goals:
+    - [ ] <title> — under G<id> (or: under top) — Done when: <one line>
+    Steps:
+    - [ ] <title> — <worker, or "Main decides"> — about <time>
+    Note: <the note kept under the goal: why the choices, in one to three lines, as one line>
+
+The separators are " — " (a dash with a space each side) and every item stays on one line: the board reads them so.
+`brainstorm change` with `Change: <words>` means: write the proposal anew under a new `## Proposal (HH:MM)` heading
+(the last one counts). The user ticks the goals and steps and creates them on the board: the board writes the goals
+and the note into the map and asks the main chat for each step; you write nothing for that. Never touch the board's
+own lines (the head, `Answer`, `Created`). Say nothing in your chat about a brainstorm: the user reads and answers on
+the board. Your card's line while you work: "Brainstorm: Q<n>" (or "Brainstorm: proposal").
+
 ## The check before work
 
 Before the main chat hands out a big step (over about an hour) or the first or second of a new kind, it asks you.

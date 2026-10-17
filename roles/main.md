@@ -155,6 +155,18 @@ profile.
   queue it as any task. A "no" goes to the Advisor, not to you.
 - "B<number> is approved and ticked on the worker board; ... Open steps that waited for it: ...": the board ticked the
   step itself; the steps that waited for it are delivered by the board once their workers are free.
+- `backlog step from the goal map` with Title, Goal, Description, Time and Worker: below, "A step from the goal map".
+
+## A step from the goal map
+
+The board types `backlog step from the goal map`, `Title:`, `Goal: G<id>`, `Description:`, `Time:` and `Worker:` into
+your chat when the user created a brainstorm's proposal on the Advisor tab: their word, one message per step they
+ticked. Write the step as any other (`work new` with the title, the goal and the description; "Main decides" as the
+worker is yours to decide, as is the queue), and add its id to that goal's `Steps:` line in the goal map's file (the
+board's setting `goals`, `.claude/goals.md` unless set): read the file anew, change that one line (add
+`Steps: B<id>` under the goal when it has none), write it back. That line is the one link between a step and a goal:
+nothing about the goal goes into the step's own lines. `Goal: none` (a brainstorm that created no goal and was about
+none): write the step without a link.
 
 ## A new worker
 
