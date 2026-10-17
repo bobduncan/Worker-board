@@ -7,7 +7,7 @@ import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue } from './backlog.mjs'
 import { pathKey } from './games.mjs'
-import { parseHandover } from './handover.mjs'
+import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList, reportsOf } from './finished.mjs'
 import { goalCounts, parseGoals } from './goals.mjs'
@@ -275,11 +275,16 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const step = stepOf(chat.name)
   const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
-  const ended = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
+  // B290: the app counts the main chat as waiting after every answer; it waits for the person only when its last answer
+  // ends with a "For you" block (or it asked with the app's question form, `turn` asking). Else it is free: idle, and
+  // not held by its own card either, as the main chat reports to nobody.
+  const appState = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
+  const asksNothing = chat.isMain && appState === 'waiting' && turn === 'ended' && entries !== null && !asksAtEnd(waitingFor(entries)?.words ?? '')
+  const ended = asksNothing ? 'free' : appState
   // B148: its last answer ends with "+ Done:   yes": it has finished, and a card it forgot to clear holds nothing.
   const isDone = turn === 'ended' && entries !== null && saysDone(entries)
   const held = wasCutOff || ended !== 'free' ? null : heldBy({
-    plan, step,
+    plan: asksNothing ? null : plan, step,
     isCompleted: summary?.category === 'completed',
     isDone,
     handOver: chat.isMain || scan === null ? null : reportedOrOpen(taskStart(scan, main), turn, scan, main),
