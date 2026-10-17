@@ -1082,7 +1082,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       if (goalMap === null) return null
       const counts = goalCounts(goalMap, backlog)
       // B289: with the open steps no goal names.
-      return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })), unlinked: unlinkedSteps(goalMap, backlog) }
+      return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })), unlinked: unlinkedSteps(goalMap, backlog, config.advisorSuggestions) }
     })(),
     goalsFile: config.goals,
   }

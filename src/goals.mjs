@@ -153,12 +153,12 @@ function stepStates(backlog) {
 /**
  * B289: the open steps of the backlog that no goal's "Steps:" line names, in the backlog's order, `{ id, title }`:
  * what the Advisor still has to link to a goal. A step without an id cannot be named in a goal, and the Advisor's own
- * suggestions (its group "Advisor suggestions") are not work yet.
+ * suggestions (its group, the setting `advisorSuggestions`) are not work yet.
  */
-export function unlinkedSteps(goals, backlog) {
+export function unlinkedSteps(goals, backlog, suggestions = 'Advisor suggestions') {
   const named = new Set(goals.nodes.flatMap(node => node.steps))
   const seen = new Set()
-  return (backlog?.activities ?? []).filter(activity => !/^advisor suggestions$/i.test(activity.name ?? ''))
+  return (backlog?.activities ?? []).filter(activity => (activity.name ?? '').trim().toLowerCase() !== suggestions.toLowerCase())
     .flatMap(activity => activity.steps)
     .filter(step => {
       if (step.isDone || step.id === null || named.has(step.id) || seen.has(step.id)) return false

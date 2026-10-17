@@ -41,10 +41,14 @@ test('the open steps that no goal names, in the backlog\'s order, each with its 
   // A step named under any goal counts, also one under a goal that is part of another, or named twice.
   const named = GOALS.replace('    Steps: B07', '    Steps: B07, B08, B11')
   assert.deepEqual(unlinkedSteps(parseGoals(named), parseBacklog(MORE)), [])
+  // The group of the Advisor's suggestions is a setting: a project may name it otherwise.
+  const renamed = MORE.replace('## Advisor suggestions', '## Ideas from the Advisor')
+  assert.deepEqual(unlinkedSteps(parseGoals(named), parseBacklog(renamed), 'Ideas from the Advisor'), [])
+  assert.deepEqual(unlinkedSteps(parseGoals(named), parseBacklog(renamed)).map(step => step.id), ['B10'])
 })
 
 test('the state carries them with the goal map', () => {
-  assert.ok(/unlinked: unlinkedSteps\(goalMap, backlog\)/.test(state))
+  assert.ok(/unlinked: unlinkedSteps\(goalMap, backlog, config\.advisorSuggestions\)/.test(state))
 })
 
 const goals = {}
