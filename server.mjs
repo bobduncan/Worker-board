@@ -703,7 +703,12 @@ async function main(args) {
       return found === null ? null : { type: found.type, body: await readFile(found.file) }
     },
     // B221: the person closes or deletes a step on the Backlog tab. Only the board that delivers writes the backlog.
-    backlog: body => editStep(body, { canWrite: !isDemo && !isShowOnly, file: join(config.project, ...config.backlog.split('/')), now: clock() }),
+    // B285: the state is read anew after a change, so an ask made next (Send answers · refine again) knows the block.
+    backlog: async body => {
+      const done = await editStep(body, { canWrite: !isDemo && !isShowOnly, file: join(config.project, ...config.backlog.split('/')), now: clock() })
+      readState.reset()
+      return done
+    },
     // B256: the person changes the goal map on the Goals part. Only the board that delivers writes it; then the state
     // is read anew, so the page draws the file as it now is: also after a refusal, often a change made elsewhere.
     goals: async body => {
@@ -869,11 +874,11 @@ async function main(args) {
       if (bridgeKey !== null && state.bridge?.isMissing !== true) {
         const now = clock()
         const begun = firstLook(refineKept, state)
-        if (refineKept === null || refineKept.since !== begun.since) {
-          await writeFile(REFINE_FILE, JSON.stringify(begun))
-          refineKept = begun
+        const due = begun === null ? { release: [], drop: [], refine: null, notice: null, kept: null } : refineWhenDue(state, sentNow(), begun, now)
+        if (due.kept !== null && JSON.stringify(due.kept) !== JSON.stringify(refineKept)) {
+          await writeFile(REFINE_FILE, JSON.stringify(due.kept))
+          refineKept = due.kept
         }
-        const due = refineWhenDue(state, store.outbox(), begun)
         for (const id of due.release) await store.update(id, { state: 'waiting', at: now, releasedAt: now })
         for (const id of due.drop) await store.update(id, { state: 'dropped' })
         for (const words of [due.refine, due.notice]) {

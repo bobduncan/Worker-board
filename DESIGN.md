@@ -239,12 +239,14 @@ block).
 At every look the board that delivers does by itself (`src/refineGate.mjs`), only while no refine is open, the person's
 neither: it sends one step to the Advisor in the Refine button's words, first a step the person asked to queue, then
 a step the main chat queued before it was refined, then a new step (above the highest one on the backlog at its first
-look, kept in `data/refine-gate.json`) once, then any step whose answers wait to be folded in (once since its block
-was written); never the person's steps, finished ones or steps in progress, and never a block with questions open,
-which waits for the person's answers. "Add to queue" on a step that is not refined is held on the
+look, kept in `data/refine-gate.json`), each until it is ready: once with no block, and once more each time its block
+stands answered and not ready (an ask remembers the block it was about, `before`); never the person's steps, finished
+ones or steps in progress, and never a block with questions open, which waits for the person's answers. The board's
+own asks stop at three per step that arrived and three that did not, with 15 minutes after one that did not. "Add to queue" on a step that is not refined is held on the
 board ("Refine, then queue") and goes to the main chat by itself once the step is refined; it is dropped when the step
-is finished, queued or gone. A step the main chat queued before it was refined is said to it once it is
-(`step refined`, Step, For), so it hands the step out then (roles/main.md, point 0). Old steps are refined when they
+is finished, queued or gone. Without an Advisor nothing is held. A step the main chat queued before it was refined is said to it once it is
+(`step refined`, Step, For; the board keeps the steps it saw queued while not refined), so it hands the step out then
+(roles/main.md, point 0). Old steps are refined when they
 are about to be queued, not all at once; the steps that were queued already at the first look go as before (kept
 with `since` as `queuedBefore`), so a board that starts refining does not send the whole queue to the Advisor.
 Without a Workers mod nothing of this runs.

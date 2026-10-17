@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue, refinedAt, refineStateOf } from './backlog.mjs'
+import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue, refinedAt, refinedKey, refineStateOf } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
@@ -419,9 +419,12 @@ function refineAsk(step, sent, now) {
   const ask = removalAsk(message, now, REFINE_OPEN_MS)
   if (ask === null) return null
   const round = Number.isInteger(message.round) ? message.round : 1
-  // B285: the newer form's head names no round: a block written since the ask (to the minute) answers it too.
+  // B285: the newer form's head names no round: a block that changed since the ask (`before`, its key then) answers it
+  // too; an ask from before that key, a block written since it (to the minute).
   const written = refinedAt(step.refined)
-  const isWritten = (step.refined?.round ?? 0) >= round || (written !== null && written >= Math.floor(message.at / MIN) * MIN)
+  const isWritten = (step.refined?.round ?? 0) >= round || (message.before !== undefined
+    ? refinedKey(step.refined) !== message.before
+    : written !== null && written >= Math.floor(message.at / MIN) * MIN)
   return { ...ask, round, isOpen: ask.isOpen && !isWritten }
 }
 

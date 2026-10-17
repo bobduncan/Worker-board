@@ -2,7 +2,7 @@
 // person's own words, so it must be addressed to a chat on the board and, when it answers a request, fit that
 // request: a verdict for work to verify, "done" for something only the person can do, words for a question.
 
-import { isRefined } from './backlog.mjs'
+import { isRefined, refinedKey } from './backlog.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
@@ -116,10 +116,8 @@ function refineCheck(body, state) {
   const step = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).find(one => typeof one.id === 'string' && one.id === body.step)
   if (step === undefined || step.status === 'done') return refuse(409, 'That step is not on the backlog, or it is finished.')
   if (step.refineAsk?.isOpen === true) return refuse(409, 'The Advisor is refining this step already.')
-  // B285: a queued step the person refines before it was refined is said to the main chat once it is, as when the
-  // board refines it (refineGate.mjs `notice`).
-  const why = step.status === 'queued' && !isRefined(step.refined) ? { why: 'queued' } : {}
-  return { ok: true, message: { ...refineWords(body.to, step, (step.refined?.round ?? 0) + 1), ...why } }
+  // B285: the ask remembers the block it is about, so a block that changed since answers it (state.mjs `refineAsk`).
+  return { ok: true, message: { ...refineWords(body.to, step, (step.refined?.round ?? 0) + 1), before: refinedKey(step.refined) } }
 }
 
 /**
@@ -187,8 +185,9 @@ export function checkSay(body, state, maxChars) {
       if (step === undefined || step.status !== 'open') return refuse(409, 'That step is not open for the queue: it is queued, in progress, finished or yours.')
       if (step.queueAsk?.isOpen === true) return refuse(409, 'The main chat was already asked to queue this step.')
       // B285: a step goes into a queue only once refined: the ask waits on the board (`held`) while the Advisor
-      // refines it, and goes to the main chat by itself once it is (refineGate.mjs).
-      return { ok: true, message: { ...queueWords(body.to, step), ...(isRefined(step.refined) ? {} : { held: true }) } }
+      // refines it, and goes to the main chat by itself once it is (refineGate.mjs). Without an Advisor, as before.
+      const holds = (state.advisor ?? null) !== null && !isRefined(step.refined)
+      return { ok: true, message: { ...queueWords(body.to, step), ...(holds ? { held: true } : {}) } }
     }
     // B83: the person stops a worker's task (after confirming once, `sure`), moves a queued step to another worker,
     // or takes it out of its queue. What the worker does and what the step is are read here, from the board's own

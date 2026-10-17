@@ -257,6 +257,17 @@ export function refineStateOf(step) {
 }
 
 /**
+ * B285: a short key of a refine block as it stands (its round, head, parts, questions with their answers, feedback),
+ * null for none: an ask remembers the block it was made about, and a block that changed since answers it.
+ */
+export function refinedKey(refined) {
+  if (refined === null || refined === undefined) return null
+  let hash = 0x811c9dc5
+  for (const char of JSON.stringify(refined)) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0
+  return hash.toString(36)
+}
+
+/**
  * B285: when the block's head says it was written (its date and time, on this PC's clock), in ms; null when it does
  * not say.
  */

@@ -37,7 +37,8 @@ const TAKEN_SHOWN_MS = 10 * 60_000
  * so nothing typed long ago turns up in a chat; an answer to a request waits for its chat much longer (`answerMs`).
  */
 // A step asked of the main chat from the Design tab waits as long as an answer does: the main chat may be closed.
-export const isLate = (message, now, keep) => now - message.at > (isAnswer(message) || message.command === 'step' ? keep.answerMs : keep.messageMs)
+// B285: so does the word that a step the main chat queued is refined: it waits until the main chat takes it.
+export const isLate = (message, now, keep) => now - message.at > (isAnswer(message) || message.command === 'step' || message.command === 'refined' ? keep.answerMs : keep.messageMs)
 
 /**
  * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never

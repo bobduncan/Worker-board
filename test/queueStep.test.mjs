@@ -60,10 +60,10 @@ const stepOf = (state, id) => state.backlog.flatMap(activity => activity.steps).
 // The word the board types into the main chat
 
 test('a step nobody has is asked for in the board\'s own words, its title on one plain line', () => {
-  // B285: B10 is not refined yet, so the ask is held on the board until it is (test/refineGate.test.mjs).
+  // B285: this board has no Advisor, so nothing is held for a refine (test/refineGate.test.mjs).
   assert.deepEqual(checkSay({ to: 'Lead', command: 'queue', step: 'B10' }, build(), 2000), {
     ok: true,
-    message: { ...WORDS, about: 'B10', text: 'queue step from the backlog\nStep: B10 Paste pictures into the talk', held: true },
+    message: { ...WORDS, about: 'B10', text: 'queue step from the backlog\nStep: B10 Paste pictures into the talk' },
   })
 })
 

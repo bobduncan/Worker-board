@@ -74,17 +74,19 @@ const app = name => JSON.stringify({
 const rested = { text: [typed(NOW - 30 * MIN, 'Zebracorn'), answer(NOW - 29 * MIN, 'Done.')].join('\n'), isCut: false, modifiedAt: NOW }
 
 /** The board with the main chat, a worker and the Advisor at rest, this backlog, and what was sent. */
-function build({ outbox = [], backlogText = BACKLOG } = {}) {
+function build({ outbox = [], backlogText = BACKLOG, chats = CHATS } = {}) {
   const raw = {
     listText: LIST,
-    appChatTexts: CHATS.map(app),
-    tails: Object.fromEntries(CHATS.map(name => [`cli-${name}`, rested])),
+    appChatTexts: chats.map(app),
+    tails: Object.fromEntries(chats.map(name => [`cli-${name}`, rested])),
     planLineTexts: {}, backlogText, adviceText: null, folders: null, askTexts: [], pictureLists: {},
   }
-  const seen = { shown: Object.fromEntries(CHATS.map(name => [name, NOW - 5000])), other: {} }
+  const seen = { shown: Object.fromEntries(chats.map(name => [name, NOW - 5000])), other: {} }
   return buildState(raw, { lines: [], outbox, runs: [], board: { startedAt: NOW - 10 * MIN, offSince: null }, seen, now: NOW, config })
 }
 
+/** What the board keeps between looks (refineGate.mjs `firstLook`). */
+const gate = (since, queuedBefore = [], waiting = []) => ({ since, queuedBefore, waiting })
 const stepOf = (state, id) => state.backlog.flatMap(activity => activity.steps).find(step => step.id === id)
 const BASE = { ask: null, step: null, title: null, version: null, verdict: null }
 const refineSent = (at, about, more = {}) => ({ id: `r${at}${about}`, at, ...BASE, to: 'Advisor', command: 'refine', about, round: 1, text: `refine step\nStep: ${about}\nRound: 1`, state: 'delivered', deliveredAt: at + 5000, ...more })
@@ -173,11 +175,11 @@ test('the person\'s queue ask for a step that is not refined is held on the boar
 
 test('a held queue ask goes to the main chat once its step is ready, and is dropped when the step left the backlog', () => {
   const held = queueHeld(NOW - 20 * MIN, 'B10')
-  assert.deepEqual(refineWhenDue(build({ backlogText: withBlock('B10', ready), outbox: [held] }), [held], { since: 20 }).release, [held.id])
+  assert.deepEqual(refineWhenDue(build({ backlogText: withBlock('B10', ready), outbox: [held] }), [held], gate(20), NOW).release, [held.id])
   // Not ready yet: it waits.
-  assert.deepEqual(refineWhenDue(build({ outbox: [held] }), [held], { since: 20 }).release, [])
+  assert.deepEqual(refineWhenDue(build({ outbox: [held] }), [held], gate(20), NOW).release, [])
   // Ticked, or gone from the backlog: nothing left to queue.
-  assert.deepEqual(refineWhenDue(build({ backlogText: ticked('B10'), outbox: [held] }), [held], { since: 20 }).drop, [held.id])
+  assert.deepEqual(refineWhenDue(build({ backlogText: ticked('B10'), outbox: [held] }), [held], gate(20), NOW).drop, [held.id])
 })
 
 test('a held ask stays known on the board, however long the refine takes', () => {
@@ -190,77 +192,112 @@ test('a held ask stays known on the board, however long the refine takes', () =>
 
 test('a step the person asked to queue is refined first, before a queued one and a new one', () => {
   const held = queueHeld(NOW - MIN, 'B10')
-  const due = refineWhenDue(build({ outbox: [held] }), [held], { since: 15 })
+  const due = refineWhenDue(build({ outbox: [held] }), [held], gate(15), NOW)
   assert.deepEqual([due.refine?.about, due.refine?.why, due.refine?.to], ['B10', 'queue', 'Advisor'])
   assert.equal(due.refine?.text, 'refine step\nStep: B10 Teach the zebracorn to sing\nRound: 1')
 })
 
 test('a step the main chat queued before it was refined is refined next', () => {
-  const due = refineWhenDue(build(), [], { since: 30 })
+  const due = refineWhenDue(build(), [], gate(30), NOW)
   assert.deepEqual([due.refine?.about, due.refine?.why], ['B15', 'queued'])
 })
 
 test('a new step gets one refine: once asked, never again by itself; an old step only when it is about to be queued', () => {
   const quiet = ticked('B11', 'B12', 'B14', 'B15')
   // B20 is new (above B19, the highest step the board saw when refining began); B10 is old.
-  assert.equal(refineWhenDue(build({ backlogText: quiet }), [], { since: 19 }).refine?.about, 'B20')
+  assert.equal(refineWhenDue(build({ backlogText: quiet }), [], gate(19), NOW).refine?.about, 'B20')
   const asked = refineSent(NOW - 2 * HOUR, 'B20')
-  assert.equal(refineWhenDue(build({ backlogText: quiet, outbox: [asked] }), [asked], { since: 19 }).refine, null)
+  assert.equal(refineWhenDue(build({ backlogText: quiet, outbox: [asked] }), [asked], gate(19), NOW).refine, null)
   // One that did not arrive is asked again.
   const failed = refineSent(NOW - 2 * HOUR, 'B20', { state: 'failed' })
-  assert.equal(refineWhenDue(build({ backlogText: quiet, outbox: [failed] }), [failed], { since: 19 }).refine?.about, 'B20')
-})
-
-test('answers not folded in yet go to the Advisor once more, once; a block with questions open waits for the person', () => {
-  const only = ticked('B12', 'B13', 'B14', 'B15')
-  const due = refineWhenDue(build({ backlogText: only }), [], { since: 30 })
-  assert.deepEqual([due.refine?.about, due.refine?.why, due.refine?.round], ['B11', 'answered', 2])
-  assert.equal(due.refine?.text, "refine step\nStep: B11 Paint the narwhal bridge\nRound: 2\nThe answers and feedback are written in the step's refine block.")
-  // Asked since the block was written: not again, also once the ask is no longer open.
-  const asked = refineSent(NOW - 3 * HOUR, 'B11', { round: 2 })
-  assert.equal(refineWhenDue(build({ backlogText: only, outbox: [asked] }), [asked], { since: 30 }).refine, null)
-  // The older "None" and "accepted" blocks are folded in too; open questions are not.
-  assert.equal(refineWhenDue(build({ backlogText: ticked('B11', 'B13', 'B14', 'B15') }), [], { since: 30 }).refine?.about, 'B12')
-  assert.equal(refineWhenDue(build({ backlogText: ticked('B11', 'B12', 'B13', 'B15') }), [], { since: 30 }).refine?.about, 'B14')
-  assert.equal(refineWhenDue(build({ backlogText: ticked('B11', 'B12', 'B14', 'B15') }), [], { since: 30 }).refine, null)
+  assert.equal(refineWhenDue(build({ backlogText: quiet, outbox: [failed] }), [failed], gate(19), NOW).refine?.about, 'B20')
 })
 
 test('one at a time: nothing new goes to the Advisor while a refine is open, the person\'s too', () => {
   const open = refineSent(NOW - 2 * MIN, 'B13', { state: 'taken', deliveredAt: undefined, round: 2 })
-  assert.equal(refineWhenDue(build({ outbox: [open] }), [open], { since: 15 }).refine, null)
+  assert.equal(refineWhenDue(build({ outbox: [open] }), [open], gate(15), NOW).refine, null)
 })
 
 test('never the person\'s steps, finished ones or steps in progress', () => {
   // Each time only that step is left open, and every step counts as new.
   for (const id of ['B16', 'B17', 'B18']) {
     const text = BACKLOG.replace(/- \[ \] (B1[0-9]|B20)\b/g, (whole, sid) => (sid === id ? whole : `- [x] ${sid}`))
-    assert.equal(refineWhenDue(build({ backlogText: text }), [], { since: 0 }).refine, null, id)
+    assert.equal(refineWhenDue(build({ backlogText: text }), [], gate(0), NOW).refine, null, id)
   }
 })
 
-test('a queued step that was refined because it was queued is said to the main chat once, to hand it out', () => {
+test('answers not folded in yet go to the Advisor once more, once per block; questions open wait for the person', () => {
+  const only = ticked('B12', 'B13', 'B14', 'B15', 'B20')
+  // B11 is new here (since 10): its answered block is folded in.
+  const due = refineWhenDue(build({ backlogText: only }), [], gate(10), NOW)
+  assert.deepEqual([due.refine?.about, due.refine?.why, due.refine?.round, due.refine?.board], ['B11', 'new', 2, true])
+  assert.equal(due.refine?.text, "refine step\nStep: B11 Paint the narwhal bridge\nRound: 2\nThe answers and feedback are written in the step's refine block.")
+  // Asked about this very block: not again, also once the ask is no longer open; an older ask made after it counts too.
+  const asked = { ...refineSent(NOW - 3 * HOUR, 'B11', { round: 2 }), board: true, before: due.refine.before }
+  assert.equal(refineWhenDue(build({ backlogText: only, outbox: [asked] }), [asked], gate(10), NOW).refine, null)
+  const earlier = refineSent(NOW - 3 * HOUR, 'B11', { round: 2 })
+  assert.equal(refineWhenDue(build({ backlogText: only, outbox: [earlier] }), [earlier], gate(10), NOW).refine, null)
+  // Open questions wait for the person.
+  assert.equal(refineWhenDue(build({ backlogText: ticked('B11', 'B12', 'B14', 'B15', 'B20') }), [], gate(10), NOW).refine, null)
+  // An old step's answered block waits until the step is about to be queued.
+  assert.equal(refineWhenDue(build({ backlogText: only }), [], gate(30), NOW).refine, null)
+})
+
+test('the board stops after three asks that arrived, and after three that did not; after one that did not, it waits', () => {
+  const quiet = ticked('B11', 'B12', 'B14', 'B15')
+  const tries = (n, more) => Array.from({ length: n }, (_, k) => ({ ...refineSent(NOW - (5 - k) * HOUR, 'B20', more), id: `t${k}`, board: true, before: `x${k}` }))
+  assert.equal(refineWhenDue(build({ backlogText: quiet }), tries(2), gate(19), NOW).refine?.about, 'B20')
+  assert.equal(refineWhenDue(build({ backlogText: quiet }), tries(3), gate(19), NOW).refine, null)
+  assert.equal(refineWhenDue(build({ backlogText: quiet }), tries(3, { state: 'expired' }), gate(19), NOW).refine, null)
+  const lost = { ...refineSent(NOW - 5 * MIN, 'B20', { state: 'expired' }), board: true }
+  assert.equal(refineWhenDue(build({ backlogText: quiet }), [lost], gate(19), NOW).refine, null)
+  assert.equal(refineWhenDue(build({ backlogText: quiet }), [{ ...lost, at: NOW - 20 * MIN }], gate(19), NOW).refine?.about, 'B20')
+})
+
+test('without an Advisor nothing is held: a queue ask goes as before, and one held earlier goes now', () => {
+  const alone = build({ chats: ['Lead', 'Worker 1'] })
+  assert.equal(checkSay({ to: 'Lead', command: 'queue', step: 'B10' }, alone, 2000).message.held, undefined)
+  const held = queueHeld(NOW - MIN, 'B10')
+  const due = refineWhenDue(build({ chats: ['Lead', 'Worker 1'], outbox: [held] }), [held], gate(20), NOW)
+  assert.deepEqual([due.release, due.refine], [[held.id], null])
+})
+
+test('a step the main chat queued while not refined is said to it once it is refined, also when another ask refined it', () => {
+  // The first look sees B15 queued and not refined, and keeps it.
+  const first = refineWhenDue(build(), [], gate(30), NOW)
+  assert.deepEqual(first.kept.waiting, ['B15'])
+  assert.equal(first.notice, null)
   const readyQueued = withBlock('B15', ready)
-  const asked = refineSent(NOW - 20 * MIN, 'B15', { why: 'queued' })
-  const due = refineWhenDue(build({ backlogText: readyQueued, outbox: [asked] }), [asked], { since: 30 })
+  const due = refineWhenDue(build({ backlogText: readyQueued }), [], first.kept, NOW)
   assert.deepEqual([due.notice?.to, due.notice?.command], ['Lead', 'refined'])
   assert.equal(due.notice?.text, 'step refined\nStep: B15 Tune the star harp\nFor: Worker 1')
-  const told = { ...due.notice, id: 'n1', at: NOW - MIN, state: 'delivered' }
-  assert.equal(refineWhenDue(build({ backlogText: readyQueued, outbox: [asked, told] }), [asked, told], { since: 30 }).notice, null)
-  // A queued step that was ready before it was queued was handed out as usual: nothing to say.
-  assert.equal(refineWhenDue(build({ backlogText: readyQueued }), [], { since: 30 }).notice, null)
+  assert.deepEqual(due.kept.waiting, [])
+  assert.equal(refineWhenDue(build({ backlogText: readyQueued }), [], due.kept, NOW).notice, null)
+  // A step that was ready when it was queued was handed out as usual: nothing to say.
+  assert.equal(refineWhenDue(build({ backlogText: readyQueued }), [], gate(30), NOW).notice, null)
+  // The word waits for the main chat as long as an answer does.
+  const told = { ...due.notice, id: 'n1', at: NOW - 3 * HOUR, state: 'waiting' }
+  assert.deepEqual(outboxNow([told], NOW, { messageMs: 10 * MIN, answerMs: 48 * HOUR }).map(one => one.state), ['waiting'])
 })
 
-test('the person refining a queued step before it was refined counts as the board\'s: the main chat hears once it is', () => {
-  const checked = checkSay({ to: 'Advisor', command: 'refine', step: 'B15' }, build(), 2000)
-  assert.deepEqual([checked.ok, checked.message.why], [true, 'queued'])
-  assert.equal(checkSay({ to: 'Advisor', command: 'refine', step: 'B10' }, build(), 2000).message.why, undefined)
+test('the person\'s Refine remembers the block it is about, and a block that changed since answers it', () => {
+  const checked = checkSay({ to: 'Advisor', command: 'refine', step: 'B13' }, build(), 2000)
+  assert.equal(typeof checked.message.before, 'string')
+  const asked = { ...refineSent(NOW - 2 * MIN, 'B13', { round: 2 }), before: checked.message.before }
+  assert.equal(stepOf(build({ outbox: [asked] }), 'B13').refineAsk.isOpen, true)
+  const changed = withBlock('B13', older(['How much? Answer: a lot', 'At noon? Answer: yes']))
+  assert.equal(stepOf(build({ backlogText: changed, outbox: [asked] }), 'B13').refineAsk.isOpen, false)
 })
 
-test('where refining began: the highest step on the backlog, and the steps queued then unrefined, which go as before', () => {
-  assert.deepEqual(firstLook(null, build()), { since: 20, queuedBefore: ['B15'] })
-  assert.deepEqual(firstLook({ since: 12, queuedBefore: ['B9'] }, build()), { since: 12, queuedBefore: ['B9'] })
-  // B15 was queued before: the board does not refine it for its queue, nor tell the main chat about it.
-  assert.equal(refineWhenDue(build({ backlogText: ticked('B11', 'B12', 'B14') }), [], { since: 30, queuedBefore: ['B15'] }).refine, null)
+test('where refining began: the highest step, and the steps queued then unrefined, which go as before; not before the backlog is read', () => {
+  assert.deepEqual(firstLook(null, build()), { since: 20, queuedBefore: ['B15'], waiting: [] })
+  assert.deepEqual(firstLook({ since: 12, queuedBefore: ['B9'] }, build()), { since: 12, queuedBefore: ['B9'], waiting: [] })
+  // A file without the steps queued before is made anew; an empty backlog (not read yet) makes nothing.
+  assert.deepEqual(firstLook({ since: 12 }, build()), { since: 20, queuedBefore: ['B15'], waiting: [] })
+  assert.equal(firstLook(null, build({ backlogText: '' })), null)
+  // B15 was queued before: the board does not refine it for its queue, nor keep it to tell the main chat about it.
+  const due = refineWhenDue(build({ backlogText: ticked('B11', 'B12', 'B14') }), [], gate(30, ['B15']), NOW)
+  assert.deepEqual([due.refine, due.kept.waiting], [null, []])
 })
 
 test('the page: a held ask says the Advisor refines it first; the button says so for a step not refined yet', async () => {
