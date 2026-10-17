@@ -454,7 +454,9 @@ while the map is drawn anew; Esc or Cancel closes the box. Send writes `Ask (A<n
 the goal (`POST /api/goals` `ask`; the next ask id, kept from coming back by the head line "Last ask: A<n>"), then
 types `ask from the goal map`, `Goal: G<id> <title>`, `Ask (A<n>): <question>` and `Pictures: <paths>` into the
 Advisor's chat (`goal-ask`, `src/say.mjs`, to the Advisor only; a chat that is not running is started through the
-main chat, as any word to it). The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
+main chat, as any word to it). Only an ask that stands under that goal, not answered yet, is typed, in the map's own
+words; when the words do not reach the Advisor, the box keeps the ask with its words fixed and "Send again" types it
+again, never a second ask (the review of B258). The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
 (roles/advisor.md, "Asks from the goal map"; the page in `goalAsks`, `.claude/goal-asks`, beside the threads, not in
 the game). The frame shows each ask as a violet block: the question with its id, time and "waiting for the Advisor",
 or the answer with the pictures it names and "More ↗" (the page in the board's file window, from the project's
