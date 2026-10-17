@@ -26,25 +26,47 @@ const hashOf = text => createHash('sha1').update(text).digest('hex')
  * truth is never written over by a shadow. `work` is `readStore`'s answer with `ok: true` and `lastWrite`, or
  * `{ ok: false, why }` when the store cannot be read.
  */
-export function shadowKeeper({ dir, canWrite, clock = Date.now, fs, rereadMs = REREAD_MS }) {
+export function shadowKeeper({ dir, canWrite, clock = Date.now, fs, rereadMs = REREAD_MS, readBacklog = null }) {
   let hash = null
   let kept = null
   let readAt = 0
   let lastWrite = null
-  return async backlogText => {
+  // B296 review: one write at a time. `wanted` is the newest text given and not written yet; `writing` the write
+  // that runs. A refresh that comes while one runs leaves its text and waits for that write.
+  let wanted = null
+  let writing = null
+  const writeOne = async text => {
     const now = clock()
+    const truth = await readTruth(dir, fs)
+    if (truth.truth === 'store') {
+      lastWrite = { at: now, files: 0, problems: ['The store says it is the truth: a shadow does not write over it.'] }
+      return
+    }
+    const done = await writeStore(dir, migrateBacklog(text, { now }), fs, { now })
+    lastWrite = { at: now, files: done.written.length, problems: done.problems }
+    // Only what was written counts as written: a write that failed is tried again at the next refresh.
+    if (done.problems.every(line => NOT_WRITTEN.test(line))) hash = hashOf(text)
+  }
+  const flush = async () => {
+    while (wanted !== null) {
+      const given = wanted
+      wanted = null
+      // The backlog read anew right before the write, when the board gives a way to: an older text that arrived late
+      // never wins over the file as it is.
+      const text = readBacklog === null ? given : await readBacklog().then(read => (typeof read === 'string' ? read : given), () => given)
+      if (hashOf(text) === hash) continue
+      await writeOne(text)
+      kept = null
+    }
+  }
+  return async backlogText => {
     try {
-      if (canWrite && typeof backlogText === 'string' && hashOf(backlogText) !== hash) {
-        const truth = await readTruth(dir, fs)
-        if (truth.truth === 'store') lastWrite = { at: now, files: 0, problems: ['The store says it is the truth: a shadow does not write over it.'] }
-        else {
-          const done = await writeStore(dir, migrateBacklog(backlogText, { now }), fs, { now })
-          lastWrite = { at: now, files: done.written.length, problems: done.problems }
-          // A write that failed is tried again at the next refresh.
-          if (done.problems.every(line => NOT_WRITTEN.test(line))) hash = hashOf(backlogText)
-        }
-        kept = null
-      }
+      if (canWrite && typeof backlogText === 'string' && hashOf(backlogText) !== hash) wanted = backlogText
+      if (wanted !== null) writing ??= flush().finally(() => {
+        writing = null
+      })
+      if (writing !== null) await writing
+      const now = clock()
       if (kept === null || now - readAt >= rereadMs) {
         kept = await readStore(dir, fs)
         readAt = now
@@ -57,13 +79,16 @@ export function shadowKeeper({ dir, canWrite, clock = Date.now, fs, rereadMs = R
   }
 }
 
-/** How many steps read differently in two backlogs (an activity more or less counts its steps). */
+/** How many steps and activities read differently in two backlogs (an activity more or less counts its steps too). */
 export function differences(a, b) {
   const steps = backlog => backlog.activities.flatMap(activity => activity.steps.map(step => ({ activity: activity.name, isFocus: activity.isFocus, ...step })))
   const [left, right] = [steps(a), steps(b)]
   let count = Math.abs(left.length - right.length)
   for (let at = 0; at < Math.min(left.length, right.length); at += 1) if (!isDeepStrictEqual(left[at], right[at])) count += 1
-  if (count === 0 && !isDeepStrictEqual(a.activities.map(one => one.name), b.activities.map(one => one.name))) count = 1
+  // B296 review: and each activity whose name or focus reads differently, also one without steps.
+  const heads = backlog => backlog.activities.map(one => [one.name, one.isFocus])
+  const [up, down] = [heads(a), heads(b)]
+  for (let at = 0; at < Math.max(up.length, down.length); at += 1) if (!isDeepStrictEqual(up[at], down[at])) count += 1
   return count
 }
 

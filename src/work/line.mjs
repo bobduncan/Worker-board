@@ -9,7 +9,7 @@ const NO_NAMES = { prefix: '', names: [] }
 export const ASKS_TO = { verify: 'look', decide: 'decide', provide: 'provide', do: 'do' }
 export const ASKS_FROM = { look: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
 /** A step without an id on the backlog gets one of these in the store; it stands on no backlog line. */
-export const isLegacyId = id => /^L\d+$/.test(id ?? '')
+export const isLegacyId = id => /^L-[0-9a-f]{8}$/.test(id ?? '')
 
 /**
  * What a step's line (after its tick) says, as fields: `{ id, asks, title, isYou, owner, after, estimate, branch,

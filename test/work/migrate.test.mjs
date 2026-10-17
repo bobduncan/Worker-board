@@ -53,8 +53,9 @@ test('a branch, a held-back step, a step without an id and an odd line keep what
   assert.equal(get('B20', 'Queue note'), 'for Board; with B19; about 30 min')
   assert.equal(get('B05', 'Queue note'), 'for Board; now; about 30 min')
   assert.equal(get('B23', 'Line'), 'B23 verify: a lower-case ask  with two spaces @you')
-  assert.deepEqual([get('L1', 'Title'), get('L1', 'State')], ['Get a review of the architecture', 'done'])
-  assert.deepEqual([get('L2', 'Kind'), get('L2', 'Asks'), get('L2', 'State')], ['ask', 'decide', 'answered'])
+  const [first, second] = migrated.activities[1].steps.filter(id => id.startsWith('L-'))
+  assert.deepEqual([get(first, 'Title'), get(first, 'State')], ['Get a review of the architecture', 'done'])
+  assert.deepEqual([get(second, 'Kind'), get(second, 'Asks'), get(second, 'State')], ['ask', 'decide', 'answered'])
 })
 
 test('a ready refine block fills Summary, Picture and What we build; an open one sets Refined: open', () => {
@@ -91,6 +92,7 @@ test('the activity notes and the lines between steps are kept with their place',
 test('an id that stands twice is kept under a name of its own and named as a problem', () => {
   const twice = migrateBacklog('## A\n- [ ] B1 One\n- [ ] B1 Two\n', { now: NOW })
   assert.equal(twice.items.size, 2)
-  assert.equal(valueOf(twice.items.get('L1'), 'Line'), 'B1 Two')
-  assert.deepEqual(twice.problems, ['B1 stands twice on the backlog (line 3): the second is kept as L1'])
+  const kept = [...twice.items.keys()].find(id => id.startsWith('L-'))
+  assert.equal(valueOf(twice.items.get(kept), 'Line'), 'B1 Two')
+  assert.deepEqual(twice.problems, [`B1 stands twice on the backlog (line 3): the second is kept as ${kept}`])
 })
