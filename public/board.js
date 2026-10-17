@@ -1681,8 +1681,18 @@ function takeAnswers(box) {
     const text = (drafts.get(id) ?? '').trim()
     if (verdict === 'reject' && text === '') return fail(id, 'Say why you reject it: the worker needs to know what to change.')
     if (verdict === null && text === '') return fail(id, 'This needs your words.')
+    // B269: a No needs the person's words: the calm window shows the question that lacks them.
+    const lacking = verdict === null ? calmLacking(id) : -1
+    if (lacking >= 0) {
+      calmAt.set(id, lacking)
+      return fail(id, 'Say in the note why No: the chat needs to know what to change.')
+    }
     openForms.delete(id)
-    send({ to: need.from, ask: id, verdict, text }, id)
+    const isCalmSend = card.classList.contains('calm-answer')
+    send({ to: need.from, ask: id, verdict, text }, id).then(() => {
+      // B269: sent from the calm window, it closes; the card on the right says where the answer is.
+      if (isCalmSend && !problems.has(id) && detailsOf?.need === id) closeDetails()
+    })
   })
 }
 
@@ -1854,6 +1864,89 @@ function closingRows(closing) {
 }
 // waiting:end
 
+// calm:start
+/**
+ * B269: the person, 2026-10-15: "This input needed screen is too cluttered with too much information. this new image
+ * makes it less chaotic ... i want it even more spacious then the image". A chat that asks in the agreed form (the
+ * items of its "Needs your attention" block) gets one calm window: the step in one line on top, one question at a
+ * time as its title, its choices as large cards with the advised one marked, everything else folded behind one
+ * line, an optional note, and one Send. Whether a waiting chat's window is drawn that way: while the answer can be
+ * given here and the chat asked something.
+ */
+const isCalm = waiting => waiting !== null && waiting !== undefined && waiting.where === 'here' && (waiting.handover?.items.length ?? 0) > 0
+
+/** B169: words with a capital first letter, as a line of the window starts. */
+const capitalized = text => text.charAt(0).toUpperCase() + text.slice(1)
+
+/**
+ * B269: a question's words split into the question itself, the window's title (up to its first "?", else its first
+ * sentence), and the rest: the why and the advice, under it. Words that would make too long a title stay whole.
+ */
+function splitAsk(words) {
+  const text = String(words ?? '').replace(/\s+/g, ' ').trim()
+  const mark = text.search(/\?(?=\s|$)/)
+  const at = mark >= 0 ? mark : text.search(/[.!](?=\s+[A-Z0-9"“])/)
+  if (at < 0 || at > 280) return { question: text, rest: '' }
+  return { question: text.slice(0, at + 1), rest: text.slice(at + 1).trim() }
+}
+
+/**
+ * B269: what the chat advises for a question: a choice it marks "(advised)" or "(recommended)", else the one its
+ * words name ("I advise yes", "I advise B"): 'yes', 'no' or the choice's letter; null when it advises nothing.
+ */
+function advisedOf(item) {
+  const marked = (item.options ?? []).find(option => /\((?:advised|recommended)\)/i.test(option.text ?? ''))
+  if (marked !== undefined) return marked.key
+  const said = `${item.ask ?? ''} ${item.note ?? ''}`.match(/\b[Aa]dvises?:?\s+(?:([Yy]es|[Nn]o)\b|([A-H])\b)/)
+  return said === null ? null : said[1] !== undefined ? said[1].toLowerCase() : said[2]
+}
+
+/**
+ * B269: the cards of a question: the choices it lists, each with its words (a short head before a colon is the
+ * card's title), else Yes and No, else Done for a Do. `verdict` is what the window types for it ("1. B", "2. yes",
+ * "3. done"); `isAdvised` marks the one the chat advises.
+ */
+function cardsOf(item) {
+  const advised = advisedOf(item)
+  const choice = option => {
+    const words = String(option.text ?? '').replace(/\s*\((?:advised|recommended)\)/i, '').trim()
+    const parts = words.match(/^(.{1,60}?)(?::\s+|\s+[—–]\s+)(.+)$/)
+    return { verdict: option.key, key: option.key, title: parts === null ? (words === '' ? option.key : words) : parts[1], text: parts === null ? '' : parts[2] }
+  }
+  const cards = (item.options ?? []).length > 0 ? item.options.map(choice)
+    : item.kind === 'do' ? [{ verdict: 'done', key: null, title: 'Done', text: '' }]
+      : [{ verdict: 'yes', key: null, title: 'Yes', text: '' }, { verdict: 'no', key: null, title: 'No', text: 'Say in the note what to change.' }]
+  return cards.map(card => ({ ...card, key: card.key === card.title ? null : card.key, isAdvised: card.verdict === advised }))
+}
+
+/** B269: the place of the first question whose No still lacks the person's words, or -1. */
+function wordsMissing(items, answers) {
+  return items.findIndex(item => {
+    const given = answers.get(item.n)
+    return given?.verdict === 'no' && String(given.words ?? '').trim() === ''
+  })
+}
+
+/**
+ * B269: the step in a few words, for the line on top: the main chat's what the person asked (its Prompt) and how far
+ * it is (its Done, "yes" said as "Done"); a finished worker's task and what it did. `tone` colours the second line.
+ */
+function standingOf(waiting) {
+  const handover = waiting.handover
+  if (waiting.isMain) {
+    const closing = handover?.closing ?? null
+    const done = String(closing?.done ?? '')
+    const said = closing?.isDone === true ? done.replace(/^yes\b[,:;.]?\s*/i, '') : done
+    return {
+      line: capitalized(String(closing?.prompt ?? '')),
+      more: closing?.isDone === true && said === '' ? 'Done' : capitalized(said),
+      tone: closing?.isDone === true ? 'good' : closing?.isDone === false ? 'bad' : '',
+    }
+  }
+  return { line: shortTask(handover?.task ?? waiting.given?.text ?? null, null, waiting.task[0] ?? null), more: plainWords(handover?.did), tone: '' }
+}
+// calm:end
+
 /**
  * B149: the parts of a finished worker's window when its answer has the agreed form: its task as it was given,
  * what it did, and what it needs from the person, numbered, each with its links and its own answer; its whole
@@ -1916,9 +2009,6 @@ function mainParts(waiting, needId) {
   return { main, side: [] }
 }
 
-/** B169: words with a capital first letter, as a line of the window starts. */
-const capitalized = text => text.charAt(0).toUpperCase() + text.slice(1)
-
 /**
  * B149: the items of a "For you" block, numbered, each with its links and its own answer: Yes or No, Done, or (B169,
  * the main chat's window, `withChoices`) the choices it lists, shown under its question with its advice.
@@ -1943,23 +2033,7 @@ function itemsPart(items, waiting, needId, withChoices = false) {
       li.append(listed)
     }
     if (withChoices && (item.note ?? '') !== '') li.append(el('p', 'handover-note', item.note))
-    // B132: a project without a game has nothing to play: its play links are left out.
-    for (const link of item.links.filter(one => one.kind === 'picture' || board?.hasGame !== false)) {
-      const open = el('button', 'handover-link', link.kind === 'picture' ? link.label : `▶  ${link.label}`)
-      open.type = 'button'
-      if (link.kind === 'picture') {
-        open.dataset.zoom = link.path
-        open.dataset.caption = link.label
-        open.title = `Opens the picture here: ${link.path}`
-      } else {
-        open.dataset.play = link.branch
-        open.dataset.settings = link.settings
-        open.disabled = starting.has(`play:${link.branch}`)
-        open.title = 'Starts the game with this work in a new tab, where the change shows. It stops by itself after you close the tab.'
-      }
-      li.append(open)
-      if (link.kind === 'play' && problems.has(`play:${link.branch}`)) li.append(el('p', 'problem', problems.get(`play:${link.branch}`)))
-    }
+    li.append(...linkButtons(item))
     if (waiting.where === 'here') {
       const mine = answers.get(item.n) ?? { verdict: null, words: '' }
       const row = el('div', 'handover-answer')
@@ -1984,6 +2058,29 @@ function itemsPart(items, waiting, needId, withChoices = false) {
   }
   // B169: the person, 2026-10-14: "lets rename 'For you' to 'Need your attention'", and "everywhere".
   return section('Needs your attention', [list, ...(waiting.where === 'here' ? [el('p', 'muted', 'Your answers gather in the box below; change it there if you like, then send.')] : [])])
+}
+
+/** B149: the links of an item as buttons: a picture opens here, "Play it" starts the game in a new tab. */
+function linkButtons(item) {
+  const nodes = []
+  // B132: a project without a game has nothing to play: its play links are left out.
+  for (const link of item.links.filter(one => one.kind === 'picture' || board?.hasGame !== false)) {
+    const open = el('button', 'handover-link', link.kind === 'picture' ? link.label : `▶  ${link.label}`)
+    open.type = 'button'
+    if (link.kind === 'picture') {
+      open.dataset.zoom = link.path
+      open.dataset.caption = link.label
+      open.title = `Opens the picture here: ${link.path}`
+    } else {
+      open.dataset.play = link.branch
+      open.dataset.settings = link.settings
+      open.disabled = starting.has(`play:${link.branch}`)
+      open.title = 'Starts the game with this work in a new tab, where the change shows. It stops by itself after you close the tab.'
+    }
+    nodes.push(open)
+    if (link.kind === 'play' && problems.has(`play:${link.branch}`)) nodes.push(el('p', 'problem', problems.get(`play:${link.branch}`)))
+  }
+  return nodes
 }
 
 /** B149: the closing block of a worker's answer as three lines, Done in green or red; nothing when it has none. */
@@ -2016,6 +2113,14 @@ $('details').addEventListener('click', event => {
     showSide(side.dataset.showSide)
     return
   }
+  // B269: Back and Next in the calm window.
+  const go = event.target.closest('[data-calm-go]')
+  if (go !== null && detailsOf?.need !== undefined) {
+    calmAt.set(detailsOf.need, Number(go.dataset.calmGo))
+    detailsShown = null
+    drawDetails(board)
+    return
+  }
   const pick = event.target.closest('[data-item-verdict]')
   if (pick === null || detailsOf?.need === undefined) return
   const n = Number(pick.closest('[data-item]').dataset.item)
@@ -2027,8 +2132,10 @@ $('details').addEventListener('click', event => {
   itemAnswers.set(detailsOf.need, answers)
   for (const other of pick.parentElement.querySelectorAll('[data-item-verdict]')) {
     other.classList.toggle('is-chosen', other.dataset.itemVerdict === verdict)
-    other.setAttribute('aria-pressed', String(other.dataset.itemVerdict === verdict))
+    other.setAttribute(other.getAttribute('role') === 'radio' ? 'aria-checked' : 'aria-pressed', String(other.dataset.itemVerdict === verdict))
   }
+  const label = pick.closest('[data-item]').querySelector('.calm-note-label')
+  if (label !== null) label.textContent = noteLabel(verdict)
   gatherAnswers($('details'), detailsOf.need)
 })
 
@@ -2347,6 +2454,185 @@ function detailsHead(view, sign, now) {
   return head
 }
 
+// calmwindow:start
+/** B269: which question of a calm window is on screen, per window; it stays in this page only. */
+const calmAt = new Map()
+
+/** B269: what stands over the note: optional, except for a No, which needs the person's words. */
+const noteLabel = verdict => (verdict === 'no' ? 'Add a note (needed for No)' : 'Add a note (optional)')
+
+/** B269: the place of the first question of a calm window whose No lacks words, or -1. */
+function calmLacking(id) {
+  const need = findNeed(id)
+  const waiting = need === undefined ? null : waitingOf(need, Date.now())
+  return isCalm(waiting) ? wordsMissing(waiting.handover.items, itemAnswers.get(id) ?? new Map()) : -1
+}
+
+/**
+ * B269: what the calm window folds behind one line: the main chat's whole answer, drawn as in Talk to Main, its
+ * closing block and the way to Talk to Main; a worker's task as it was given, what it did, its whole answer and its
+ * closing block. Nothing the person needs is lost: it is one click away.
+ */
+function calmContext(waiting) {
+  const handover = waiting.handover
+  const at = waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`
+  if (waiting.isMain) {
+    const material = handover.material ?? waiting.words
+    const talk = board?.mainTalk?.name ?? 'Main'
+    const open = el('button', 'link-button', `Open Talk to ${talk}`)
+    open.type = 'button'
+    open.dataset.showSide = 'main'
+    return [
+      material === '' ? null : section(`Its answer${at}`, [drawTalkText(el('div', 'main-material'), material)]),
+      ...closingParts(handover.closing),
+      section('Asked before', [el('p', 'muted', 'A question it first asked in an earlier answer: all its answers are in the talk with it.'), open]),
+    ].filter(part => part !== null)
+  }
+  const given = waiting.given
+  return [
+    given === null ? null : section('Its task as it was given', [
+      el('small', 'muted', `Given by ${given.by === 'you' ? 'you' : 'the main chat'} at ${clock(given.at)}`), rich(el('div', 'said-words'), given.text),
+    ]),
+    handover.did === null ? null : section('What I did', [el('p', '', handover.did)]),
+    waiting.words === '' ? null : section(`Its whole answer${at}`, [rich(el('div', 'said-words'), waiting.words)]),
+    ...closingParts(handover.closing),
+  ].filter(part => part !== null)
+}
+
+/** B269: the calm window of a chat that asks in the agreed form (see `isCalm`). */
+function drawCalm(box, need, waiting, view, now) {
+  const items = waiting.handover.items
+  const at = Math.max(0, Math.min(calmAt.get(need.id) ?? 0, items.length - 1))
+  const item = items[at]
+  const mine = (itemAnswers.get(need.id) ?? new Map()).get(item.n) ?? { verdict: null, words: '' }
+  const typing = box.contains(document.activeElement) && document.activeElement.matches('[data-item-words]')
+  const wasAt = box.dataset.calmAt === `${need.id}#${at}`
+  const scroll = wasAt ? box.querySelector('.details-body')?.scrollTop ?? 0 : 0
+
+  // The head: who asks and since when; nothing else.
+  const head = el('header', 'details-head calm-head')
+  const names = el('div', 'details-names')
+  names.append(el('h2', '', view.title), el('p', 'calm-sub', [KINDS[need.kind].tag, view.at === null ? null : `Asked ${ago(view.at, now)}`].filter(Boolean).join(' · ')))
+  const close = el('button', 'icon-button', '✕')
+  close.type = 'button'
+  close.dataset.close = ''
+  close.title = 'Close'
+  close.setAttribute('aria-label', 'Close')
+  head.append(el('span', `kind is-${need.kind}`, KINDS[need.kind].sign), names, close)
+
+  const main = el('div', 'details-main calm-main')
+  // The step in one line, how far it is under it; a click opens the folded context.
+  const standing = standingOf(waiting)
+  if (standing.line !== '' || standing.more !== '') {
+    const step = el('button', 'calm-step')
+    step.type = 'button'
+    step.dataset.calmContext = ''
+    step.title = 'Shows the context and the whole answer'
+    const words = el('span', 'calm-step-words')
+    if (standing.line !== '') words.append(el('span', 'calm-step-line', standing.line))
+    if (standing.more !== '') words.append(el('span', `calm-step-more${standing.tone === '' ? '' : ` is-${standing.tone}`}`, standing.more))
+    step.append(el('span', 'calm-step-sign', '≡'), words, el('span', 'calm-chevron', '›'))
+    main.append(step)
+  }
+
+  // The question: its title, the why and the advice under it, its links.
+  const part = el('div', 'calm-item')
+  part.dataset.item = String(item.n)
+  const ask = el('div', 'calm-ask')
+  if (items.length > 1) ask.append(el('p', 'calm-count', `Question ${at + 1} of ${items.length}`))
+  const { question, rest } = splitAsk(item.ask ?? item.text)
+  ask.append(el('h3', 'calm-question', capitalized(question)))
+  const why = [rest, item.note ?? ''].filter(words => words !== '').join(' ')
+  if (why !== '') ask.append(el('p', 'calm-why', why))
+  const links = linkButtons(item)
+  if (links.length > 0) {
+    const row = el('div', 'calm-links')
+    row.append(...links)
+    ask.append(row)
+  }
+
+  // The answers as large cards; the advised one says so.
+  const cards = el('div', 'calm-cards')
+  cards.setAttribute('role', 'radiogroup')
+  cards.setAttribute('aria-label', `Your answer to question ${at + 1}`)
+  for (const card of cardsOf(item)) {
+    const pick = el('button', `calm-card${mine.verdict === card.verdict ? ' is-chosen' : ''}`)
+    pick.type = 'button'
+    pick.dataset.itemVerdict = card.verdict
+    pick.setAttribute('role', 'radio')
+    pick.setAttribute('aria-checked', String(mine.verdict === card.verdict))
+    const title = el('span', 'calm-card-title')
+    title.append(el('span', '', card.title))
+    if (card.isAdvised) title.append(el('span', 'calm-advised', 'Recommended'))
+    const words = el('span', 'calm-card-words')
+    words.append(title)
+    if (card.text !== '') words.append(el('span', 'calm-card-text', capitalized(card.text)))
+    pick.append(el('span', 'calm-dot'), words)
+    cards.append(pick)
+  }
+
+  // Everything else, folded behind one line.
+  const context = el('details', 'task-details calm-context')
+  context.append(el('summary', '', 'View context and the whole answer'), ...calmContext(waiting))
+
+  const note = el('label', 'calm-note')
+  const area = el('textarea')
+  area.rows = 3
+  area.maxLength = 500
+  area.value = mine.words
+  area.placeholder = 'Your thoughts, questions or context…'
+  area.dataset.itemWords = ''
+  note.append(el('span', 'calm-note-label', noteLabel(mine.verdict)), area)
+  part.append(ask, cards, context, note)
+  main.append(part)
+
+  // The foot: Cancel, Back and Next between the questions, one Send at the end.
+  const foot = el('footer', 'details-foot calm-foot')
+  const form = el('div', `need is-${need.kind} calm-answer`)
+  form.dataset.id = need.id
+  if (problems.has(need.id)) form.append(el('p', 'problem', problems.get(need.id)))
+  const buttons = el('div', 'calm-buttons')
+  const button = (label, className) => {
+    const node = el('button', `button ${className}`, label)
+    node.type = 'button'
+    return node
+  }
+  const cancel = button('Cancel', 'is-quiet')
+  cancel.dataset.close = ''
+  cancel.title = 'Closes the window; your answers stay here until you send them.'
+  buttons.append(cancel)
+  if (at > 0) {
+    const back = button('Back', 'is-quiet')
+    back.dataset.calmGo = String(at - 1)
+    buttons.append(back)
+  }
+  if (at < items.length - 1) {
+    const next = button('Next', 'is-next')
+    next.dataset.calmGo = String(at + 1)
+    buttons.append(next)
+  } else {
+    const node = button(items.length > 1 ? 'Send answers' : 'Send answer', 'is-send')
+    node.dataset.send = ''
+    node.disabled = sending.has(need.id)
+    node.title = `Goes to ${need.from}`
+    buttons.append(node)
+  }
+  form.append(buttons)
+  foot.append(form)
+
+  const body = el('div', 'details-body is-single calm-body')
+  body.append(main)
+  box.classList.add('is-calm')
+  box.dataset.calmAt = `${need.id}#${at}`
+  keepUnfolded(box, () => fill(box, [head, body, foot]))
+  body.scrollTop = scroll
+  if (typing) {
+    area.focus()
+    area.setSelectionRange(area.value.length, area.value.length)
+  }
+}
+// calmwindow:end
+
 /** B151: the window of a working lane (see `laneWindowOf` and `LANE_PARTS`). */
 function drawLaneWindow(box, lane, state) {
   const view = laneWindowOf(lane, state.readAt, state.workers?.mainTitle ?? 'the main chat')
@@ -2360,6 +2646,7 @@ function drawLaneWindow(box, lane, state) {
   right.append(...LANE_PARTS.side.map(part => part(view, lane)).filter(part => part !== null))
   const body = el('div', `details-body${right.children.length === 0 ? ' is-single' : ''}`)
   body.append(left, ...(right.children.length === 0 ? [] : [right]))
+  box.classList.remove('is-calm')
   keepUnfolded(box, () => fill(box, [detailsHead(view, el('span', 'kind is-working', '▶'), state.readAt), body]))
   body.scrollTop = scroll
 }
@@ -2452,6 +2739,11 @@ function drawDetails(state) {
     { need, step, lane: lane?.name ?? step?.worker ?? null, isStep: need !== null && isStep(need), isClosed: need !== null && isClosed(need) },
     { ask: asks => ASKS[asks] ?? 'Not sorted', kind: kind => KINDS[kind].tag },
   )
+  // B100: a worker that waits: its task in a few lines, then what it wants, in place of a description.
+  const waiting = waitingOf(need, now)
+  // B269: a chat that asks in the agreed form gets the calm window.
+  if (isCalm(waiting)) return drawCalm(box, need, waiting, view, now)
+  box.classList.remove('is-calm')
   const head = detailsHead(view, el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), now)
 
   // The left column, the wider one: what it is about and what to look at
@@ -2463,8 +2755,6 @@ function drawDetails(state) {
   const full = need !== null && isStep(need) && typeof need.words === 'string' && need.words !== need.title ? [el('p', '', need.words)] : []
   const described = [...words, ...full, ...notes.lead]
   const left = el('div', 'details-main')
-  // B100: a worker that waits: its task in a few lines, then what it wants, in place of a description.
-  const waiting = waitingOf(need, now)
   const waitingShown = waiting === null ? null : waitingParts(waiting, need.id)
   if (waitingShown !== null) left.append(...waitingShown.main)
   // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
@@ -2585,6 +2875,16 @@ $('details').addEventListener('click', event => {
     if (tick.checked) mine.add(Number(tick.dataset.tick))
     else mine.delete(Number(tick.dataset.tick))
     ticked.set(tick.dataset.of, mine)
+    return
+  }
+  // B269: the step line on top of the calm window opens what is folded.
+  const context = event.target.closest('[data-calm-context]')
+  if (context !== null) {
+    const fold = $('details').querySelector('.calm-context')
+    if (fold !== null) {
+      fold.open = true
+      fold.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    }
     return
   }
   // B181: a step nobody has, asked for the queue from its window.
