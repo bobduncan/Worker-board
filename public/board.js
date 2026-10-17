@@ -3084,23 +3084,39 @@ const REFINE_GROUPS = [
   ['ready', 'Ready'],
 ]
 
+/** The work store's states of a step a chat holds (src/work/api.mjs HELD): not for a chat to take, whatever the line says. */
+const REFINE_HELD = ['taken', 'in progress', 'waiting on you', 'review']
+
 /** The open and queued steps with an id of the backlog's activities, by refine state, in the backlog's order. */
 function refineGroups(activities) {
   const steps = (activities ?? []).flatMap(activity => (activity.steps ?? [])
-    .filter(step => typeof step.id === 'string' && (step.status === 'open' || step.status === 'queued'))
+    .filter(step => typeof step.id === 'string' && (step.status === 'open' || step.status === 'queued') && !REFINE_HELD.includes(step.flow?.state))
     .map(step => ({ state: step.refineState ?? 'none', row: { key: step.key, id: step.id, title: step.title, activity: activity.name } })))
   return REFINE_GROUPS.map(([state, title]) => ({ state, title, steps: steps.filter(one => one.state === state).map(one => one.row) }))
 }
+
+/** The count on the Refine button: the steps whose answers wait for the person; '' for none. */
+function refineCount(groups) {
+  const waiting = groups.find(group => group.state === 'answers')?.steps.length ?? 0
+  return waiting === 0 ? '' : String(waiting)
+}
+
+/** Whether a group stands open: as the person left it, else open when it holds a few steps. */
+function refineIsOpen(group, left) {
+  return left.has(group.state) ? left.get(group.state) : group.steps.length > 0 && group.steps.length <= 12
+}
 // refinelist:end
 
+/** The groups the person opened or closed, by state, so a redraw keeps them so. */
+const refineLeft = new Map()
+
 /** Fills the Refine part: a group per state with its count, a row per step; the count of answers waiting on its button. */
-function drawRefineList(state) {
-  const groups = refineGroups(state.backlog)
-  const waiting = groups.find(group => group.state === 'answers')?.steps.length ?? 0
-  $('advisor-refine-count').textContent = waiting === 0 ? '' : String(waiting)
+function drawRefineList(groups) {
+  $('advisor-refine-count').textContent = refineCount(groups)
   const parts = groups.map(group => {
     const part = el('details', 'refine-group')
-    part.open = group.steps.length > 0 && group.steps.length <= 12
+    part.open = refineIsOpen(group, refineLeft)
+    part.addEventListener('toggle', () => refineLeft.set(group.state, part.open))
     part.append(el('summary', '', `${group.title} (${group.steps.length})`))
     if (group.steps.length === 0) {
       part.append(el('p', 'muted', 'None.'))
@@ -4605,7 +4621,7 @@ window.addEventListener('popstate', () => {
   redrawGoals()
 })
 
-// B195: the Advisor's tab in four parts: the way to the next milestone first, then the game plan, the suggestions and
+// B195: the Advisor's tab in parts: the way to the next milestone first, then the game plan, the suggestions and
 // the chat. The person, 2026-10-14: the details go to "different tabs and the main tab only shows some visual
 // simplistic flow"; the chat is one of those parts, not a tab of the board's own ("i Do not want a 5th tab").
 // B255: the goal map is the second part.
@@ -6651,8 +6667,9 @@ function draw(state) {
   // B195: the way to the next milestone, also when an answer to its recommendation is on its way or refused.
   once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null], () => drawWay(state))
   once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
-  // B286: the steps by where their refine stands.
-  once('refine-list', [state.backlog ?? null], () => drawRefineList(state))
+  // B286: the steps by where their refine stands, drawn anew only when the list changes.
+  const refining = refineGroups(state.backlog)
+  once('refine-list', refining, () => drawRefineList(refining))
   // B255: the goal map's outline, when the map or the zoom changes.
   once('goals', goalsData(state), () => drawGoals(state))
   // The line about a round left out goes after a day.
