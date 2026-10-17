@@ -140,10 +140,13 @@ the information i need to approve. i think it works for for workers, but not for
 asks the person as part of its talk with them, not as a finished task, so its window (`mainParts`) differs from a
 worker's:
 
-- *When* (B290): only when its last answer asks something in a "For you" block, or it asked with the app's question
-  form. The app counts the main chat as waiting after every answer; a plain report asks nothing, stands nowhere under
-  Needs your attention, and the main chat's lane is not "Waiting for you" for it (the person, 2026-10-17: "I dont see a
-  question. or its not clear what you want").
+- *When* (B290): only when its last answer ends with a "For you" block (`asksAtEnd`: after it only a rule and the
+  closing block; a title written a little off still counts), or it asked with the app's question form. The app counts
+  the main chat as waiting after every answer; a plain report asks nothing, stands nowhere under Needs your attention,
+  and the main chat is free, not "Waiting for you" and not held by its own card (the person, 2026-10-17: "I dont see a
+  question. or its not clear what you want"). A block quoted earlier in an answer is someone else's: the questions are
+  the last block's. A question it asked before and did not ask again in its last answer stands no longer: the main chat
+  asks an open question anew in each answer.
 - *The head* says "Main needs your answer" (also its card), not "Finished: its task".
 - *On top*, set apart: "You asked", its closing block's Prompt line, and "Where it stands", its Done line in green or
   red.

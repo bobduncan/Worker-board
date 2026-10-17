@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { answer, assistant, text, tool, typed } from '../fixtures/lines.mjs'
+import { asksAtEnd } from '../src/handover.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from '../src/state.mjs'
 
@@ -23,12 +24,13 @@ const app = (name, isBlocked) => JSON.stringify({
 })
 const tail = lines => ({ text: lines.join('\n'), isCut: false, modifiedAt: NOW })
 
-function build(lead) {
+function build(lead, { card = null, digger = 'Which bed first, A or B?' } = {}) {
   const raw = {
     listText: '{"prefix":"Garden · ","main":"Lead"}',
     appChatTexts: [app('Lead', true), app('Digger', true)],
-    tails: { 'cli-Lead': tail(lead), 'cli-Digger': tail([typed(NOW - 30 * MIN, 'Dig'), answer(NOW - 20 * MIN, 'Which bed first, A or B?')]) },
-    planLineTexts: {}, backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {},
+    tails: { 'cli-Lead': tail(lead), 'cli-Digger': tail([typed(NOW - 30 * MIN, 'Dig'), answer(NOW - 20 * MIN, digger)]) },
+    planLineTexts: card === null ? {} : { 'cli-Lead': JSON.stringify({ name: 'x', role: 'main', state: 'working', task: { text: card, isReported: false }, at: NOW - 30 * MIN }) },
+    backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {},
   }
   return buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config })
 }
@@ -55,8 +57,25 @@ const ASKS = [
 test('a plain report of the main chat asks nothing: not under Needs your attention, and the main chat does not wait for you', () => {
   const state = build([typed(NOW - 20 * MIN, 'How is the hedge?'), answer(NOW - 10 * MIN, REPORT)])
   assert.equal(mainNeed(state), null)
-  assert.notEqual(lead(state).state, 'waiting')
+  assert.equal(lead(state).state, 'free')
+  assert.equal(state.mainTalk.state, 'free')
   assert.equal(state.counts.waiting, 1, 'only the worker waits')
+  // Its own card, kept after an answer that is partly done, does not make it look busy: it reports to nobody.
+  const partly = REPORT.replace('+ Done:   yes', '- Done:   partly, the pond is next')
+  const kept = build([typed(NOW - 20 * MIN, 'How is the hedge?'), answer(NOW - 10 * MIN, partly)], { card: 'Plant the hedge' })
+  assert.deepEqual([lead(kept).state, kept.mainTalk.state, mainNeed(kept)], ['free', 'free', null])
+})
+
+test('a "For you" block quoted earlier in a plain report asks nothing; one written a little off at the end still asks', () => {
+  const quoted = ['Digger asked:', '', '> **For you**', '> 1. **Answer:** Bed A or B?', '', 'You answered A; it is planted.', '', '---', '', '```diff', '  Prompt: the beds', '  Who:    Garden · Lead', '+ Done:   yes', '```'].join('\n')
+  assert.equal(asksAtEnd(quoted), false)
+  assert.equal(mainNeed(build([typed(NOW - 20 * MIN, 'Beds?'), answer(NOW - 10 * MIN, quoted)])), null)
+  const slip = 'The hedge is planted.\n\n> **For you:**\n> 1. Answer: pond next?\n\n---\n\n```diff\n  Prompt: x\n- Done:   partly\n```'
+  assert.equal(asksAtEnd(slip), true)
+  assert.notEqual(mainNeed(build([typed(NOW - 20 * MIN, 'Next?'), answer(NOW - 10 * MIN, slip)])), null)
+  // Its own block after a quoted one: the questions are its own.
+  const both = ['Digger asked:', '', '> **For you**', '> 1. **Answer:** Bed A or B?', '', 'Planted A.', '', '> **For you**', '> 1. **Answer:** Pond next? I advise yes.'].join('\n')
+  assert.deepEqual(mainNeed(build([typed(NOW - 20 * MIN, 'Beds?'), answer(NOW - 10 * MIN, both)])).waits.handover.items.map(item => item.ask), ['Pond next? I advise yes.'])
 })
 
 test('a "For you" block at the end of its answer stands there, with that block\'s items as the questions', () => {
@@ -76,4 +95,6 @@ test('a question in the app\'s own form is a question too, answered in its chat'
 test('a worker that waits is shown as before, with or without a "For you" block', () => {
   const state = build([typed(NOW - 20 * MIN, 'How is the hedge?'), answer(NOW - 10 * MIN, REPORT)])
   assert.equal(state.forYou.find(one => one.from === 'Digger')?.title, 'Needs your decision')
+  const finished = build([typed(NOW - 20 * MIN, 'How is the hedge?'), answer(NOW - 10 * MIN, REPORT)], { digger: '**Task:** dig the beds\n**What I did:** dug them.\n\n> **For you**\n> 1. **Answer:** Deep enough?' })
+  assert.equal(finished.forYou.find(one => one.from === 'Digger')?.title, 'Finished: dig the beds')
 })
