@@ -50,8 +50,10 @@ You decide this, not the user. For every task:
    Overlap means it queues behind that task.
 3. No overlap: a free worker takes it; a worker that did such work before comes first. No worker free and fewer at
    work than the project allows (four unless its briefing says otherwise): start a new worker (below).
-4. Write it down: the step in the backlog gets "Touches: ..." and its queue note, and you tell the user in one line
-   per task: started on whom, a new worker, or queued behind which step and why.
+4. Write it down with the work tool: `work queue B<id>` with `for`, `after` and `about` (the step's "Touches: ..."
+   stands in its text, written with `work new`), and tell the user in one line per task: started on whom, a new worker,
+   or queued behind which step and why. The flow file says who moves a step and when; the board refuses a queue the
+   flow does not allow and says why.
 
 ## The Advisor (its job: `advisor.md` beside this file)
 
@@ -68,6 +70,8 @@ You decide this, not the user. For every task:
 
 ## The hand-over
 
+- The step is the task: queue it with `work queue` first. The worker reads it with `work next`, so your message only
+  names it; never retype the step's text.
 - Send it with SendMessage to the worker's session id (`local_...`, from the app's list of sessions), never to its
   name: an id also starts a chat that is not running.
 - First line: "Task from <main>: B<id>, <the task in one sentence>. About N minutes." Second line, always: "In short:
@@ -86,33 +90,32 @@ You decide this, not the user. For every task:
 
 ## A report comes in
 
-Check it once yourself before you tell the user: the base branch equals the remote, the step is ticked, the branch
-and its folder are gone, the picture exists. A step that is finished but not ticked, you tick at once with a line
-saying so. Send the user the picture. Then report in a few lines, and hand out what waited for that step. Read the
-plan's limits again with the check (the app's usage tool), so the board's limits bar never stands hours old.
+The worker reported with `work report`: the board checks the base branch against its remote and that the branch is
+gone, and writes the outcome in the step's History (`work list`, or the step's window). Check the picture exists and
+the branch's folder is gone; a step whose check failed you tell the worker about with `work note`. Send the user the
+picture. Then report in a few lines, and hand out what waited for that step. Read the plan's limits again with the check (the app's usage tool), so the board's limits bar never stands hours old.
 
 Close the check browsers left behind (B266): at every report check, close the browsers the chats started for checks
 and pictures and left running, those started with a temporary profile folder (headless, driven over CDP or by
 Playwright), unless a worker is in a check right now. Never the user's own browser, which runs with the user's own
 profile.
 
-## The backlog
+## The work
 
-- The backlog is one file of the project (the board's setting `backlog`), shared by every chat; the person
-  follows it on the board. An activity is a "## " heading, "#focus" after it marks the person's main focus; a step
-  is a "- [ ] B<number> ..." line, ticked "- [x]" when done; "@you" at its end marks a step only the person can do
-  (the marks: `protocol.md`). Edit the file itself; no tool is needed.
-- The next id is the highest in the file plus one, read right before writing; an id is never used twice. A new step
-  goes under the activity it belongs to. Never delete or reword a step, and never change the focus, unless the user
-  asks.
+- The work stands in the board's work store, one record per step (`protocol.md`, "The work store"); you change it
+  only with the work tool: `work new` (title, activity, goal, text) for a step, `work queue`, `work block`, `work
+  drop`, `work close` for an instruction of the user's that is done. The backlog file is the board's view of the
+  store: read it, never edit it.
+- The board gives the ids; an id is never used twice. A new step goes under the activity it belongs to. Never drop
+  or reword a step, and never change the focus, unless the user asks.
 - A step's title: 5 to 10 words of your own, starting with a verb, saying what the user gets; never the user's
   request read back. Their words go under it (description, "Context:").
-- A step for the user starts after its id with "Verify:", "Decide:", "Provide:" or "Do:" and ends with "@you"; it
-  names its pictures folder and the worker. A Verify step to be checked before its merge names its branch.
+- What only the user can do is an ask under its step: `work ask` with `kind` decide, look, provide or do; it names
+  its pictures, and the block it answers goes into your answer.
 - A step's time: before you give a new step or hand-over its time, read the board's task times (`data/task-times.md`
   in the board's folder) and use the typical time of its kind; a kind with fewer than 5 tasks there is still a guess.
-- A queued step ends with "(for <worker>; now | after B<number>; about <time>)". Under a step: one line of
-  description, "Requirements:" with "- " points, "Touches: ...", and "Context: ..." with the user's words.
+- A step's text (`work new`, `text`): one line of description, "Requirements:" with "- " points, "Touches: ...",
+  and "Context: ..." with the user's words.
 - A step from the Design tab keeps "(pictures in <picture folder>/ideas/<name>)" in its title line.
 
 ## Words the board types into you
