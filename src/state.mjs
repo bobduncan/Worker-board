@@ -410,27 +410,28 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     usage: entries === null ? [] : usageReadings([...(typeof tail.usage === 'string' ? parseTail(tail.usage, false) : []), ...entries]),
     // B301: its last answer asks the person in a "For you" block, and the store holds no ask of it since that turn
     // began: shown as a warning under Needs your attention, never read as a question.
-    unfiled: unfiledAsk(entries, turn, waits, chat.name, prefix),
+    unfiled: unfiledAsk(entries, scan, turn, waits, chat.name, prefix),
   }
 }
 
 /**
  * B301: a chat that wrote questions in its chat but filed no ask: its turn has ended with an answer whose last part is
- * a "For you" block (handover.mjs, `asksAtEnd`), it holds no open ask, and no ask of its own was filed or answered
- * since the turn that answer ends began. `{ at, words }` (the answer, for the window), or null. A question asked with
- * the app's own form is filed by the Workers mod, so it is not this.
+ * a "For you" block (handover.mjs, `asksAtEnd`), and no ask of its own was filed since the turn that answer ends
+ * began (an ask of an earlier turn, open or not, does not count). The turn's start is looked for in `scan` (the tail
+ * and the longer look back); when it cannot be found the board warns all the same and says so (`isStartUnknown`).
+ * `{ at, words, isStartUnknown }` (the answer, for the window), or null. A question asked with the app's own form is
+ * filed by the Workers mod, so it is not this.
  */
-function unfiledAsk(entries, turn, waits, name, prefix) {
+function unfiledAsk(entries, scan, turn, waits, name, prefix) {
   if (entries === null || turn !== 'ended') return null
   const said = waitingFor(entries)
   if (said === null || !asksAtEnd(said.words)) return null
-  const key = name.toLowerCase()
-  if (waits.open.has(key)) return null
-  const opened = turnStart(entries, { prefix })?.at ?? 0
-  const filed = waits.asked.get(key) ?? -Infinity
-  // An ask's Since is written to the minute.
+  const opened = turnStart(scan ?? entries, { prefix })?.at ?? null
+  if (opened === null) return { at: said.at, words: said.words, isStartUnknown: true }
+  const filed = waits.filed.get(name.toLowerCase()) ?? -Infinity
+  // An ask's time is written to the minute.
   if (filed >= Math.floor(opened / MIN) * MIN) return null
-  return { at: said.at, words: said.words }
+  return { at: said.at, words: said.words, isStartUnknown: false }
 }
 
 /**
@@ -587,7 +588,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       from: lane.name,
       kind: 'unfiled',
       title: `${lane.name} wrote questions in its chat but filed no ask`,
-      text: 'Its last answer ends with a "For you" block, and the work store holds no ask of it since that turn began. The board does not read questions from a chat: answer them in its chat, or ask it to file them with work ask.',
+      text: `Its last answer ends with a "For you" block, and the work store holds no ask of it since that turn began${lane.unfiled.isStartUnknown ? ' (the board could not tell when this turn began, so it warns all the same)' : ''}. The board does not read questions from a chat: answer them in its chat, or ask it to file them with work ask.`,
       at: lane.unfiled.at,
       ...blank,
       version: null,

@@ -88,9 +88,9 @@ test('B301: a "For you" block in its last answer without an ask is a warning tha
   // An ask filed in that turn and answered since is filed: no warning.
   const answered = build({ advisor: [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, FOR_YOU)], asked: NOW - 13 * MIN })
   assert.equal(advisorNeeds(answered).some(one => one.kind === 'unfiled'), false)
-  // One filed earlier and still open stands: the block may repeat it, so no warning beside it.
+  // Review: one filed before that turn began does not count for it, also while it is still open.
   const earlier = build({ advisor: [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, FOR_YOU)], asked: NOW - 90 * MIN })
-  assert.deepEqual(advisorNeeds(earlier).map(one => one.kind), ['input'])
+  assert.deepEqual(advisorNeeds(earlier).map(one => one.kind).sort(), ['input', 'unfiled'])
 })
 
 test('nothing for the person: an Advisor that is free without a "For you" block, or that works', () => {

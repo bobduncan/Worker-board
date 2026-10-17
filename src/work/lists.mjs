@@ -39,24 +39,24 @@ const asksOfStore = work => itemsOf(work).filter(item => valueOf(item, 'Kind') =
 
 /**
  * B299: who waits for the person by the store: the chats (by plain name, lower case) with an open blocking ask, and
- * those with an open ask of the app's question form. B301: `asked`, per chat the newest Since of an ask of its own
- * (open, answered or withdrawn), and `open`, the chats with an open ask: a chat that wrote questions in its chat after
+ * those with an open ask of the app's question form. B301: `filed`, per chat when it last filed an ask of its own
+ * (its first History line, else its Since): a chat that wrote questions in its chat after
  * that filed none. Empty when the store cannot be read: no chat waits by a chat's words instead.
  */
 export function storeWaits(work, prefix = '') {
   const own = asksOfStore(work).filter(item => valueOf(item, 'Owner') !== null)
   const open = own.filter(item => valueOf(item, 'State') === 'open')
-  const asked = new Map()
+  const filed = new Map()
   for (const item of own) {
     const name = plainName(valueOf(item, 'Owner'), prefix)
-    const since = sinceMs(valueOf(item, 'Since'))
-    if (Number.isFinite(since)) asked.set(name, Math.max(asked.get(name) ?? -Infinity, since))
+    const first = (item.sections.get('History') ?? [])[0]?.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s/)?.[1]
+    const at = sinceMs(first ?? valueOf(item, 'Since'))
+    if (Number.isFinite(at)) filed.set(name, Math.max(filed.get(name) ?? -Infinity, at))
   }
   return {
     blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes').map(item => plainName(valueOf(item, 'Owner'), prefix))),
     form: new Set(open.filter(item => valueOf(item, 'Via') === 'form').map(item => plainName(valueOf(item, 'Owner'), prefix))),
-    open: new Set(open.map(item => plainName(valueOf(item, 'Owner'), prefix))),
-    asked,
+    filed,
   }
 }
 

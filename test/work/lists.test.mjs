@@ -38,11 +38,11 @@ async function garden() {
   const ctx = at => ({ dir, now: at, prefix: 'Garden · ', roleOf: chat => ({ Lead: 'main', Digger: 'worker' })[chat] ?? null, freeChats: new Set(['Digger']), boardUrl: 'http://127.0.0.1:4310' })
   const digger = (body, at = NOW - 40 * MIN) => workApi({ chat: 'Digger', ...body }, ctx(at))
   const person = (body, at = NOW) => workApi(body, { ...ctx(at), as: 'person' })
-  const build = async (words, outbox = []) => {
+  const build = async (words, outbox = [], diggerTail = tail(words)) => {
     const work = { ok: true, dir, ...(await readStore(dir)) }
     const raw = {
       listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead'), app('Digger')],
-      tails: { 'cli-Digger': tail(words) }, planLineTexts: {}, backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {},
+      tails: { 'cli-Digger': diggerTail }, planLineTexts: {}, backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {},
       work,
     }
     return buildState(raw, { lines: [], outbox, runs: [], board: null, seen: null, now: NOW, config })
@@ -88,14 +88,18 @@ test('B301: a "For you" block without an ask makes the chat wait no more, and st
   }
 })
 
-test('B301: an ask filed in the turn that wrote the block, or one still open, leaves no warning; one closed before that turn does', async () => {
+test('B301: an ask filed in the turn that wrote the block leaves no warning; one filed before that turn, open or closed, does not count', async () => {
   const before = await garden()
   const within = await garden()
+  const stale = await garden()
   try {
     // Filed and withdrawn before the turn that wrote the block began (it began 30 minutes ago).
     await before.digger({ action: 'ask', kind: 'decide', text: 'Box or yew?' }, NOW - 40 * MIN)
     await before.digger({ action: 'withdraw', id: 'Q1', why: 'not needed' }, NOW - 35 * MIN)
     assert.equal((await before.build(ASKS)).forYou.filter(one => one.kind === 'unfiled').length, 1)
+    // Review: an ask of an earlier turn, still open, does not keep the warning quiet.
+    await stale.digger({ action: 'ask', kind: 'look', text: 'Is the old hedge right?' }, NOW - 90 * MIN)
+    assert.equal((await stale.build(ASKS)).forYou.filter(one => one.kind === 'unfiled').length, 1)
     // Filed in that turn and answered since: it was filed.
     await within.digger({ action: 'ask', kind: 'decide', text: 'Box or yew?' }, NOW - 25 * MIN)
     await within.person({ action: 'answer', id: 'Q1', text: 'yew' }, NOW - 22 * MIN)
@@ -103,6 +107,23 @@ test('B301: an ask filed in the turn that wrote the block, or one still open, le
   } finally {
     await rm(before.dir, { recursive: true, force: true })
     await rm(within.dir, { recursive: true, force: true })
+    await rm(stale.dir, { recursive: true, force: true })
+  }
+})
+
+test('review: the turn\'s start is found in the longer look back; when it cannot be found the board warns and says so', async () => {
+  const garden1 = await garden()
+  try {
+    await garden1.digger({ action: 'ask', kind: 'decide', text: 'Box or yew?' }, NOW - 90 * MIN)
+    // The turn began two hours ago, before the tail: the longer look back holds its opening.
+    const long = { text: answer(NOW - 20 * MIN, ASKS), isCut: false, modifiedAt: NOW - 20 * MIN, earlier: typed(NOW - 120 * MIN, 'Plant it') }
+    assert.equal((await garden1.build(ASKS, [], long)).forYou.filter(one => one.kind === 'unfiled').length, 0, 'the ask was filed in that turn')
+    // Nothing tells when the turn began: the board does not guess quiet, it warns and says why.
+    const unknown = { text: answer(NOW - 20 * MIN, ASKS), isCut: false, modifiedAt: NOW - 20 * MIN }
+    const [warning] = (await garden1.build(ASKS, [], unknown)).forYou.filter(one => one.kind === 'unfiled')
+    assert.match(warning.text, /could not tell when this turn began/)
+  } finally {
+    await rm(garden1.dir, { recursive: true, force: true })
   }
 })
 
