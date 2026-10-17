@@ -139,26 +139,11 @@ unless set) are the folders for the map's brainstorms, the long answers to its a
 
 One file per step in the `work` folder, with its state, its owner, what it waits for and its history, and
 `flow.json` for the order of states (the default is `examples\work\flow.json`; `examples\work` shows three items).
-Until the cutover it is a shadow of the backlog: at every refresh the board that delivers copies the backlog into it
-when the backlog changed, and the Backlog tab says in one line whether the store reads back as the same backlog
+For now it is a shadow of the backlog: at every refresh the board that delivers copies the backlog into it when the
+backlog changed, and the Backlog tab says in one line whether the store reads back as the same backlog
 ("Store: shadow · 370 items · in step with the backlog"); a step's window shows where the step stands in the flow.
-To look at what the store would hold without the board:
+You and the chats go on editing the backlog. To look at what the store would hold without the board:
 `node tools/migrate-backlog.mjs --backlog <project>\.claude\backlog.md --work <an empty folder> --dry-run`.
-
-**The cutover** makes the store the truth: `node tools/migrate-backlog.mjs --backlog <project>\.claude\backlog.md
---work <project>\.claude\work --cutover` (first with `--dry-run`: it prints the steps in flight and each chat's card
-beside the store's state of its step). From then on the chats work the store with the Workers mod's `work` tool
-(`roles\protocol.md`, "The work store"), the board checks every change against `flow.json`, and it writes
-`backlog.md` from the store as a view after every change; nobody edits it. The old file stays as
-`backlog.before-store.md`. The mod needs version 0.10.0 or newer for the tool: run `npm run setup` and start the
-chats anew.
-The cutover is refused until the board lists the store's asks so you can answer them (B299) and the running board has
-this version. A hand edit of `backlog.md` after it is kept beside it as `backlog.edited-<date>-<time>.md`, and the
-board says so on its top line.
-
-**Undo the cutover by hand**, with the board stopped: set `<work>	ruth.json` to `{"truth":"shadow"}`, copy
-`backlog.before-store.md` back over `backlog.md` (what the store learned since is in its items' History, to carry over
-by hand), and start the board: the store is a shadow of the backlog again and the chats edit the backlog as before.
 
 `<project>\.claude\chats\list.json`: `prefix` and `main` (the main chat's title is the two together), `boards` (the
 launch entries the mod keeps running) and `compactAbove` (a worker larger than this many tokens is compacted after
@@ -192,8 +177,7 @@ shows: answers are given on the board in the main folder.
 and the Design tab's ideas. Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
 pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), and in the backlog one thing only: the tick of a step you
 approved or marked done on the board, with a line under it. And the work store (`work`, `.claude\work` unless set):
-one file per step, kept as a shadow of the backlog by the board that delivers until the cutover, and after it the
-truth, with `backlog.md` written from it as a view (see "The work store" below).
+one file per step, kept as a shadow of the backlog by the board that delivers (see "The work store" below).
 
 ## Safety
 

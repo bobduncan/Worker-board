@@ -130,11 +130,8 @@ The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your 
 a step's window: it is their word. It also types it by itself, one step at a time (B285, the user: every step is
 refined before it goes into a queue): once for every new step, for a step about to be queued (the user asked to queue
 it, or the main chat queued it before it was refined), and once more when the user's answers wait to be folded in.
-Do the same for those. Read the step (`work list`, its record in the work store) and what it touches, then write its
-refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
-`size` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
-writes the block in the form below; `refined` folds the questions away and moves a new step to refined, as the flow
-file says. What a refined step
+Do the same for those. Read the step and the lines under it in the backlog, and what it touches, then write its refine
+block under the step's other lines (before a closing line in brackets), the only change you make. What a refined step
 is, as the user approved it on 2026-10-17 ("1 fully comprehensive description that is compact with pictures and
 summary. that doesnt read like it was in progress text"), in two stages:
 
@@ -172,8 +169,8 @@ the feedback. It reads as the finished description, not as a talk:
 
 ## Your suggestions
 
-- Each is a step in the activity of your suggestions, made with `work new` (a short title, 5 to 10 words, starting
-  with a verb; its text three lines: `Why: ...`, `Cost: about <time>`, `Unblocks: ...`), and the user's yes or no is
-  asked under it with `work ask`, `kind` decide. The board gives the id.
+- Each is a step in the backlog's group "Advisor suggestions":
+  `- [ ] B<n> Decide: <a short title, 5 to 10 words, starting with a verb> (Advisor) @you`, with three lines under it:
+  `Why: ...`, `Cost: about <time>`, `Unblocks: ...`. Take the next free id: the highest on the backlog plus one.
 - At most 5 are open at a time; a round with more to say keeps the rest for later.
 - Accepted: the main chat hands it out as a normal step. Rejected: write the user's reason in the decisions page.
