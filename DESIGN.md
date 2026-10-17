@@ -174,6 +174,20 @@ through the main chat:
   chat does not ask it again (B261). The Advisor stays off the lanes. The pictures:
   `art-inbox/worker-board/b275/2026-10-17-b275-advisor-under-attention.png` and `...-advisor-window.png`.
 
+**The Advisor on the Overview (B280).** The person, 2026-10-17: "i want to see what you are doing in the worker board
+so I dont stop your current task ... show the advisor in the workers tab on the overview but distinct from the
+workers". Under the workers stands one card for the Advisor, set apart by a line, its own label ("Advisor · advises on
+what to do next; takes no tasks"), a teal accent and a light for its sign:
+
+- *How it stands*: Working, Needs your answer (B275), Idle, Not running, or Cut off and Suspended as a worker's.
+- *Its task* as its own card names it, with "Now:", its step as a count ("2 of 3") and its time left; idle, since when.
+- *What waits for it*: what was sent to it and is not in its chat yet, counted by kind ("2 waiting for it: 1 refine, 1
+  message"; rounds of the clock too), else "Nothing waits for it".
+- No queue, no "⋯", no Remove or Stop: it takes no tasks. A click, or Enter, opens its chat on the Advisor tab.
+
+On the Advisor tab, while it works, "Working: <its topic>" stands right above the typing box, with "What you type waits
+until it is done". The pictures: `art-inbox/worker-board/b280/` (the card, the tab, a phone).
+
 **The Backlog tab (B155).** The tab that was called Coordinate is called Backlog (`#backlog`; `#coordinate` still
 opens it). At its top it lists the last 20 finished steps, newest first: when, the step's id and title, who finished
 it, and where the time comes from; a click opens the step's window. The person, 2026-10-14: "i want a chronological
