@@ -210,20 +210,73 @@ const isFolder = path => stat(path).then(info => info.isDirectory(), () => false
  * Windows: `%APPDATA%\Claude`, which the Microsoft Store app shows only to programs it starts itself; a board started
  * elsewhere finds the Store app's real folder, `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`. A Mac:
  * `~/Library/Application Support/Claude`. Linux: `~/.config/Claude`.
+ *
+ * B273: on 2026-10-17 the Store app moved its folder to `%LOCALAPPDATA%\Claude-Data\<id>`; the folder it left keeps
+ * only a marker, `.user-data-left.<id>`. A marker is followed before the folder that holds it, and every folder in
+ * Claude-Data is looked at after the usual places.
  */
 export async function appFolder(env, platform = process.platform, { list = readdir, there = isFolder } = {}) {
   const byUpper = new Map(Object.entries(env).map(([name, value]) => [name.toUpperCase(), value]))
   const [roaming, local, home] = ['APPDATA', 'LOCALAPPDATA', 'HOME'].map(name => byUpper.get(name) ?? '')
   const places = []
   if (platform === 'win32') {
-    if (roaming !== '') places.push(join(roaming, 'Claude'))
+    const usual = []
+    if (roaming !== '') usual.push(join(roaming, 'Claude'))
     if (local !== '') {
       const packages = await list(join(local, 'Packages')).catch(() => [])
-      for (const name of packages.filter(one => /^Claude_/i.test(one))) places.push(join(local, 'Packages', name, 'LocalCache', 'Roaming', 'Claude'))
+      for (const name of packages.filter(one => /^Claude_/i.test(one))) usual.push(join(local, 'Packages', name, 'LocalCache', 'Roaming', 'Claude'))
     }
+    const moved = local === '' ? null : join(local, 'Claude-Data')
+    for (const place of usual) {
+      if (moved !== null) {
+        const markers = (await list(place).catch(() => [])).map(name => String(name).match(/^\.user-data-left\.([\w-][\w.-]*)$/)?.[1] ?? null)
+        for (const id of markers.filter(one => one !== null && !one.includes('..'))) places.push(join(moved, id))
+      }
+      places.push(place)
+    }
+    if (moved !== null) for (const name of await list(moved).catch(() => [])) places.push(join(moved, String(name)))
   } else if (home !== '') places.push(platform === 'darwin' ? join(home, 'Library', 'Application Support', 'Claude') : join(home, '.config', 'Claude'))
-  for (const place of places) if (await there(join(place, 'claude-code-sessions'))) return place
+  for (const place of new Set(places)) if (await there(join(place, 'claude-code-sessions'))) return place
   return null
+}
+
+/**
+ * B273: whether a folder (`isFolder` true) or any file is still there for following the app: only "not there"
+ * counts as gone, so a drive that answers late or a refused look never moves the board away from a good folder.
+ */
+const isNotThere = error => error?.code === 'ENOENT' || error?.code === 'ENOTDIR'
+const stillFolder = path => stat(path).then(info => info.isDirectory(), error => !isNotThere(error))
+const exists = path => stat(path).then(() => true, error => !isNotThere(error))
+/** B273: how long the board waits before it searches again for an app folder it did not find. */
+const SEARCH_AGAIN_MS = 60_000
+
+/**
+ * B273: when the list of chats the board reads is gone, it searches for the app's folder again and follows it: the
+ * list of chats, and the usage file when that is gone too (a usage file of the person's own that is still there
+ * stays). `config.appMoved` says from where to where and when, for the page; `to` is null when nothing was found,
+ * and then it looks again a minute later. True when it followed.
+ */
+export async function followApp(config, env = process.env, platform = process.platform, { there = stillFolder, exists: has = exists, find = appFolder, now = Date.now() } = {}) {
+  if (config.appSessions !== '' && await there(config.appSessions)) {
+    // Back where it was: a note that it was found nowhere is no longer true.
+    if (config.appMoved?.to === null) delete config.appMoved
+    return false
+  }
+  if (typeof config.appSearchedAt === 'number' && now - config.appSearchedAt < SEARCH_AGAIN_MS) return false
+  config.appSearchedAt = now
+  const found = await find(env, platform)
+  const sessions = found === null ? null : join(found, 'claude-code-sessions')
+  if (sessions === config.appSessions) return false
+  if (sessions === null) {
+    if (config.appSessions !== '' && config.appMoved?.to !== null) config.appMoved = { from: config.appSessions, to: null, at: now }
+    return false
+  }
+  const from = config.appSessions
+  config.appSessions = sessions
+  if (!(await has(config.usageHistory))) config.usageHistory = join(found, 'plan-usage-history.json')
+  config.appFolder = found
+  if (from !== '') config.appMoved = { from, to: found, at: now }
+  return true
 }
 
 /** A settings file the board cannot run on: its message is the one line the board says before it stops. */
@@ -256,5 +309,7 @@ export async function loadConfig(file, env = process.env, platform = process.pla
       config.appFolder = found
     }
   }
+  // B273: a setting that points at a folder that is gone: the search, as when the app moves while the board runs.
+  if (isSet('appSessions')) await followApp(config, env, platform)
   return config
 }

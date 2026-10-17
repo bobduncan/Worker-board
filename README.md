@@ -80,8 +80,10 @@ the briefings for the main chat and the workers.
    (its list of chats and its usage file) the board finds by itself (B135): `%APPDATA%\Claude` on Windows, else the
    Microsoft Store app's package folder (`%LOCALAPPDATA%\Packages\Claude_...\LocalCache\Roaming\Claude`, which a board
    started from your own PowerShell needs), `~/Library/Application Support/Claude` on a Mac; set `appSessions` and
-   `usageHistory` only when they lie elsewhere. → `npm start` prints `Worker board: http://127.0.0.1:<your port>/`
-   and, under it, which folder of the app's chats it reads. Ctrl+C ends it. A file that is not valid JSON,
+   `usageHistory` only when they lie elsewhere. When the app moves its folder (B273: the Store app moved it to
+   `%LOCALAPPDATA%\Claude-Data\<id>` and left a marker `.user-data-left.<id>` behind), the board follows it, also
+   while it runs and when a setting names a folder that is gone, and says on top of the page where it found it.
+   → `npm start` prints `Worker board: http://127.0.0.1:<your port>/` and, under it, which folder of the app's chats it reads. Ctrl+C ends it. A file that is not valid JSON,
    or holds a setting of the wrong kind, stops the board with one line that names the file, what is wrong and
    where (for example "not valid JSON at line 3, column 14", or `"port" must be a number above 0`).
 7. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in

@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
-import { BrokenConfig, configProblem, firstStart, loadConfig } from './src/config.mjs'
+import { BrokenConfig, configProblem, firstStart, followApp, loadConfig } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
@@ -392,7 +392,11 @@ async function main(args) {
   } else {
     folders = hasGame ? cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS) : async () => null
     branches = cached(() => branchesNow(), FOLDERS_MS)
-    readRaw = () => readSources(config, folders, undefined, branches)
+    readRaw = async () => {
+      // B273: the app may move its folder while the board runs: the board follows it.
+      await followApp(config, process.env, process.platform).catch(() => false)
+      return readSources(config, folders, undefined, branches)
+    }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
       finishedSeen = await readFile(FINISHED_FILE, 'utf8').then(text => JSON.parse(text), () => null)
@@ -539,7 +543,8 @@ async function main(args) {
     // B173: the Advisor's rounds as the clock has them, for the Advice & Chat tab.
     const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept, group: config.advisorSuggestions }
     // B132: whether the project has a game to run; the demo has its made-up one.
-    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame }
+    // B273: where the board found the app's folder after the app moved it, for the note on top.
+    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null }
   }, STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read

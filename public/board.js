@@ -195,6 +195,29 @@ function versionLine(version) {
 }
 // update:end
 
+// appnote:start
+/**
+ * B273: the note on top when the Claude app moved its folder while the board ran or since its settings were written
+ * (`appMoved`: from where, to where, when): where the board found it, or that it found it nowhere. Null: no note.
+ */
+function appNote(moved, clockOf) {
+  if (moved === null || moved === undefined) return null
+  if (moved.to === null) {
+    return { tone: 'problem', text: `The Claude app's list of chats is gone from ${moved.from} (${clockOf(moved.at)}), and the board found it nowhere else: it shows no chats. Set "appSessions" in the board's config.json to the app's folder.` }
+  }
+  return { tone: 'info', text: `The Claude app's folder moved: found it at ${moved.to} (${clockOf(moved.at)}). The board reads the chats from there, no longer from ${moved.from}.` }
+}
+// appnote:end
+
+function drawAppNote(state) {
+  const shown = appNote(state.appMoved ?? null, clock)
+  const note = $('app-note')
+  note.hidden = shown === null
+  if (shown === null) return
+  note.className = `app-note is-${shown.tone}`
+  note.textContent = shown.text
+}
+
 /** The note on top (see `updateView`). */
 function drawUpdate(state) {
   const note = $('update-note')
@@ -6170,6 +6193,7 @@ function draw(state) {
   board = state
   drawTop(state)
   drawUpdate(state)
+  drawAppNote(state)
   drawMainGame(state)
   drawLimits(state)
   drawRestart(state)

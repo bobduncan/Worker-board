@@ -44,6 +44,9 @@ button, textarea, select { font: inherit; color: inherit; }
 .update-note:disabled { cursor: default; }
 .update-note.is-busy { opacity: 0.85; }
 .update-note.is-problem { background: var(--warn); color: var(--ink); }
+/* B273: the app moved its folder: where the board found it (blue), or that it found it nowhere (orange). */
+.app-note { flex: none; padding: 7px 18px; border-bottom: 1px solid #2f5fb3; background: #13254a; color: #cfe0ff; font-size: 14px; text-align: center; overflow-wrap: anywhere; }
+.app-note.is-problem { border-color: var(--warn); background: #3a1d14; color: #ffd2c4; }
 .version { color: var(--muted); font-size: 13px; white-space: nowrap; }
 
 /* Tabs and the top bar */
