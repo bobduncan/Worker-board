@@ -48,10 +48,11 @@ test('the cutover dry run prints the table and every card beside its step, and w
   const { root, claude, backlog, work } = await project()
   try {
     const dry = command('--backlog', backlog, '--work', work, '--cutover', '--dry-run')
-    // Review 1 and 7: until the board answers the store's asks and runs this version, the cutover is refused.
-    assert.equal(BOARD_ANSWERS_ASKS, false)
+    // Review 1 and 7: until the board answers the store's asks and runs this version, the cutover is refused. B299: the
+    // board answers them now (Needs your attention, POST /api/work answer); it still has to run this version.
+    assert.equal(BOARD_ANSWERS_ASKS, true)
     assert.equal(dry.status, 1, dry.stdout + dry.stderr)
-    assert.match(dry.stdout, /^Would refuse: the board cannot answer the store's asks yet \(BOARD_ANSWERS_ASKS in src\/work\/api\.mjs is false\)\.$/m)
+    assert.doesNotMatch(dry.stdout, /the board cannot answer the store's asks yet/)
     assert.match(dry.stdout, /^Would refuse: no board runs \(no board\.json beside the backlog\): start the board with this version first\.$/m)
     assert.match(dry.stdout, /^Steps: 19 on the backlog, 19 in the store$/m)
     assert.match(dry.stdout, /^The view reads back as the same items: yes$/m)

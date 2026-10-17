@@ -21,7 +21,7 @@ export const NOT_TRUTH = 'The store is not the truth yet: the cutover has not ru
  * B297, review 1: whether the board lists the store's asks and lets the person answer them (Needs your attention, built
  * in B299). Until it does, a blocking ask would strand its step, so the cutover is refused. B299 sets it true.
  */
-export const BOARD_ANSWERS_ASKS = false
+export const BOARD_ANSWERS_ASKS = true
 const READS = new Set(['next', 'list'])
 const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */

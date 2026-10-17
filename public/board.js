@@ -1596,6 +1596,81 @@ function listBox(title, lines) {
   return box
 }
 
+// storeasks:start
+/** B299: what an ask of the work store says of itself (`Q<n>`): its own kind, what it blocks, the app's form. */
+const STORE_ASKS = { decide: 'Decide', look: 'Look', provide: 'Provide', do: 'Do' }
+function storeAskParts(need) {
+  if (need.workId === undefined) return null
+  const blocks = need.blocks.length > 0
+    ? `blocks ${need.blocks.map(one => `${one.step}${one.owner === null ? '' : ` · ${one.owner} waits`}`).join(', ')}`
+    : need.of === null ? null : `on ${need.of}${need.ofTitle === null ? '' : ` ${need.ofTitle}`}`
+  return {
+    id: need.workId,
+    tag: `${STORE_ASKS[need.asks] ?? 'Decide'}${need.isRefine ? ' · refine' : ''}`,
+    blocks,
+    form: need.isForm ? 'Asked with the app\'s question form: answer it in its chat.' : null,
+    play: need.play === null ? null : `/#play=${need.play}`,
+  }
+}
+
+/** B299: the Information list: notes and reports, unread first, one line each; read ones fade. */
+function informationRows(list) {
+  return (list ?? []).map(one => ({
+    id: one.id, text: one.text, isRead: one.isRead,
+    head: `${one.from ?? 'the board'}${one.to === 'main' ? ' → Main' : ''}${one.about === null ? '' : ` · ${one.about}`}`,
+    at: one.since,
+  }))
+}
+// storeasks:end
+
+/** B299: the parts of a store ask's card under its head: what it blocks, the app's form, its play link. */
+function storeAskLines(need) {
+  const parts = storeAskParts(need)
+  if (parts === null) return []
+  const out = []
+  if (parts.blocks !== null) out.push(el('p', `ask-blocks${need.blocking ? ' is-blocking' : ''}`, parts.blocks))
+  if (parts.form !== null) out.push(el('p', 'muted', parts.form))
+  if (parts.play !== null) {
+    const link = el('a', 'run')
+    link.href = parts.play
+    link.target = '_blank'
+    link.rel = 'noreferrer noopener'
+    link.append(icon('open'), 'Play it')
+    out.push(link)
+  }
+  return out
+}
+
+/** B299: the part "Information" under Needs your attention: what the chats told the person; "Read" puts it away. */
+function drawInformation(state) {
+  const rows = informationRows(state.information)
+  if (rows.length === 0) return null
+  const unread = rows.filter(row => !row.isRead).length
+  const part = el('section', 'information')
+  const head = el('h3', '', 'Information')
+  head.append(el('small', 'muted', unread === 0 ? 'all read' : `${unread} new`))
+  part.append(head)
+  for (const row of rows) {
+    if (row.isRead && !showsClosed()) continue
+    const line = el('div', `info${row.isRead ? ' is-read' : ''}`)
+    line.dataset.info = row.id
+    const words = el('p', '')
+    words.append(el('b', '', row.head), ' ', row.text)
+    line.append(words, el('small', 'muted', row.at === null ? row.id : `${row.id} · ${ago(row.at, state.readAt)}`))
+    if (!row.isRead) {
+      const read = el('button', 'choice', sending.has(`read:${row.id}`) ? 'Reading…' : 'Read')
+      read.type = 'button'
+      read.dataset.read = row.id
+      read.disabled = sending.has(`read:${row.id}`)
+      line.append(read)
+    }
+    const problem = problems.get(`read:${row.id}`)
+    if (problem !== undefined) line.append(el('p', 'problem', problem))
+    part.append(line)
+  }
+  return part
+}
+
 function drawNeed(need, state) {
   const kind = KINDS[need.kind]
   const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${isClosed(need) ? ' is-closed' : isAnswered(need) ? ' is-answered' : ''}`)
@@ -1606,9 +1681,9 @@ function drawNeed(need, state) {
   head.title = 'Show the details'
   const top = el('header', 'need-top')
   if (isStep(need)) top.append(el('span', 'kind', kind.sign), need.step === null ? '' : el('b', '', need.step), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
-  else top.append(el('span', 'kind', kind.sign), el('b', '', need.from), el('span', 'tag', kind.tag), since(need.at, state.readAt))
+  else top.append(el('span', 'kind', kind.sign), el('b', '', need.from ?? 'the board'), el('span', 'tag', storeAskParts(need)?.tag ?? kind.tag), since(need.at, state.readAt))
   head.append(top, el('h4', '', need.title))
-  card.append(head)
+  card.append(head, ...storeAskLines(need))
   if (need.text !== '') card.append(el('p', '', need.text))
   card.append(...optionParts(need))
 
@@ -1721,10 +1796,12 @@ function drawInstructions(state) {
   return part
 }
 
-// B298: the main chat's name over its instructions opens the talk with it.
+// B298: the main chat's name over its instructions opens the talk with it. B299: "Read" puts a note away.
 $('needs').addEventListener('click', event => {
   const side = event.target.closest('.instructions [data-show-side]')
   if (side !== null) showSide(side.dataset.showSide)
+  const read = event.target.closest('[data-read]')
+  if (read !== null) sendWork({ action: 'read', id: read.dataset.read }, `read:${read.dataset.read}`)
 })
 
 function drawNeeds(state) {
@@ -1737,7 +1814,7 @@ function drawNeeds(state) {
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   const cards = ordered(showsClosed() ? state.forYou : open).map(need => drawNeed(need, state))
   const none = open.length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
-  fill(box, [none, ...cards, drawLegacy(state), drawInstructions(state)])
+  fill(box, [none, ...cards, drawLegacy(state), drawInformation(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
 }
@@ -1745,7 +1822,7 @@ function drawNeeds(state) {
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
 // A card is closed two minutes after its answer was typed: the minute is part of what is drawn.
-const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, state.instructions ?? [], showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
+const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
@@ -1797,6 +1874,8 @@ function takeAnswers(box) {
     if (verdict === 'reject' && text === '') return fail(id, 'Say why you reject it: the worker needs to know what to change.')
     if (verdict === null && text === '') return fail(id, 'This needs your words.')
     openForms.delete(id)
+    // B299: an ask of the work store is answered in the store; the board wakes the chat that asked.
+    if (need.workId !== undefined) return sendWork({ action: 'answer', id: need.workId, verdict, text }, id)
     send({ to: need.from, ask: id, verdict, text }, id)
   })
 }
@@ -1907,6 +1986,28 @@ function flowStripOf(flow) {
     next: flow.next.map(move => `${move.to}, by ${move.by.join(' or ')}${move.when === null ? '' : ` when ${move.when}`}`),
   }
 }
+
+// item:start
+/**
+ * B299: the parts of a step's window once the store is the truth, in their order: the Summary on top, the picture, the
+ * goal chip, the flow strip, What we build, then Requirements and Touches folded, History last. `item` is the state's
+ * `item` of the step; only the parts it has.
+ */
+function itemPartsOf(item, hasFlow) {
+  if (item === null || item === undefined) return []
+  const parts = [
+    item.summary.length > 0 ? { key: 'summary', title: 'Summary', lines: item.summary, isFolded: false } : null,
+    item.picture !== null ? { key: 'picture', title: 'Picture', lines: [item.picture], isFolded: false } : null,
+    item.goal !== null ? { key: 'goal', title: 'Goal', lines: [item.goal], isFolded: false } : null,
+    hasFlow ? { key: 'flow', title: 'Flow', lines: [], isFolded: false } : null,
+    item.what.length > 0 ? { key: 'what', title: 'What we build', lines: item.what, isFolded: false } : null,
+    item.requirements.length > 0 ? { key: 'requirements', title: 'Requirements', lines: item.requirements, isFolded: true } : null,
+    item.touches.length > 0 ? { key: 'touches', title: 'Touches', lines: item.touches, isFolded: true } : null,
+    item.history.length > 0 ? { key: 'history', title: 'History', lines: item.history, isFolded: false } : null,
+  ]
+  return parts.filter(part => part !== null)
+}
+// item:end
 // window:end
 
 // waiting:start
@@ -2310,6 +2411,8 @@ const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interru
 function laneTaskOf(lane) {
   const task = lane.task ?? null
   const code = lane.givenTask?.step?.id ?? task?.stepId ?? null
+  // B299: a step of the store is named by its title as the store holds it, never by the card's short topic.
+  if (typeof task?.title === 'string' && task.title !== '') return { code, text: task.title }
   if (task === null || (task.text ?? '') === '') return { code, text: null }
   return { code, text: code === null ? task.text : task.text.replace(new RegExp(`^${code}[:,]?\\s+`), '') }
 }
@@ -2669,11 +2772,17 @@ function drawDetails(state) {
   if (waitingShown !== null) left.append(...waitingShown.main)
   // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
   // has them on the right.
-  if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section('Description', described))
-  else if (!view.hasNotes) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
   // B296: where the step stands in the flow (flow.json), from the work store.
   const strip = flowStripOf(flowFor(subject.step ?? step ?? null, need, state))
-  if (strip !== null) left.append(flowPart(strip))
+  // B299: once the store is the truth, a step's window shows its item: Summary, picture, goal, the strip, What we
+  // build, Requirements and Touches folded; its History comes last.
+  const itemParts = need === null ? itemPartsOf(itemFor(subject.step ?? step ?? null, state), strip !== null) : []
+  if (itemParts.length > 0) left.append(...itemParts.filter(part => part.key !== 'history').map(part => itemPart(part, strip)))
+  else {
+    if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section('Description', described))
+    else if (!view.hasNotes) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
+    if (strip !== null) left.append(flowPart(strip))
+  }
   // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback.
   const refine = subject.step !== undefined ? refinePart(subject.step, state) : null
   if (refine !== null) left.append(refine)
@@ -2684,6 +2793,8 @@ function drawDetails(state) {
     ...need.pictures.map(path => ({ path, caption: '' })),
   ]
   if (shown.length > 0) left.append(section('References', drawReferences(shown)))
+  const history = itemParts.find(part => part.key === 'history')
+  if (history !== undefined) left.append(itemPart(history, strip))
 
   // The right column: where its files lie, and what to check. Only what the step really has.
   const right = el('div', 'details-side')
@@ -2743,6 +2854,27 @@ function drawDetails(state) {
     field.focus()
     field.setSelectionRange(field.value.length, field.value.length)
   }
+}
+
+/** B299: a step's item as the store holds it, for its window: from the Backlog tab's step, else found by its id. */
+function itemFor(step, state) {
+  if (step === null || step === undefined) return null
+  if (step.item !== undefined) return step.item
+  return (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id !== null && one.id === step.id)?.item ?? null
+}
+
+/** B299: one part of a step's item in its window (see itemPartsOf). */
+function itemPart(part, strip) {
+  if (part.key === 'flow') return flowPart(strip)
+  if (part.key === 'picture') return section('Picture', drawReferences([{ path: part.lines[0], caption: '' }]))
+  if (part.key === 'goal') return el('p', 'chip is-goal', `Goal: ${part.lines[0]}`)
+  if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
+  if (part.isFolded) {
+    const box = el('details', 'item-fold')
+    box.append(el('summary', '', `${part.title} (${part.lines.length})`), listOf(part.lines))
+    return box
+  }
+  return section(part.title, [listOf(part.lines)])
 }
 
 function listOf(lines) {
@@ -6634,6 +6766,34 @@ async function send(message, id) {
   }
   await read()
   if (id === null) $('messages').scrollTop = $('messages').scrollHeight
+}
+
+/**
+ * B299: one action of the person on the work store (POST /api/work: the token, the origin, JSON): an answer to an
+ * ask, a note read. Its problem shows where `key` says, as for `send`.
+ */
+async function sendWork(body, key) {
+  sending.add(key)
+  problems.delete(key)
+  redrawNeeds()
+  let problem = null
+  try {
+    const answer = await fetch('/api/work', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
+      body: JSON.stringify(body),
+    })
+    if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
+    else showPaste((await answer.json().catch(() => null))?.paste ?? null)
+  } catch {
+    problem = 'the board\'s server does not answer'
+  }
+  sending.delete(key)
+  if (problem === null) {
+    drafts.delete(key)
+    chosen.delete(key)
+  } else problems.set(key, `Not sent: ${problem}`)
+  await read()
 }
 
 // paste:start

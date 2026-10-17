@@ -20,7 +20,7 @@ import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { informationOf, instructionsOf, storeNeeds, storeWaits } from './work/lists.mjs'
-import { flowOfStep, shadowBacklog } from './work/shadow.mjs'
+import { flowOfStep, itemOfStep, shadowBacklog } from './work/shadow.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -782,7 +782,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     now,
     warnAt: config.limitWarnPercent,
   })
-  const cards = read.map(({ usage, reports, ...lane }) => ({ ...lane, suspended: heldUntil(lane.suspended, limits, now) }))
+  // B299: once the store is the truth, a lane on a step of the store shows the step's title as the store holds it.
+  const titleOf = id => (waits === null || typeof id !== 'string' ? null : raw.work.items.get(id)?.head.get('Title') ?? null)
+  const cards = read.map(({ usage, reports, ...lane }) => ({
+    ...lane,
+    suspended: heldUntil(lane.suspended, limits, now),
+    task: lane.task === null || titleOf(lane.task.stepId) === null ? lane.task : { ...lane.task, title: titleOf(lane.task.stepId) },
+  }))
 
   const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0 }
   for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
@@ -1050,6 +1056,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           refineState: refineStateOf({ refined: step.refined, refineAsk: asked }),
           // B296: where it stands in the flow (flow.json), for the strip in its window; null without the store.
           flow: flowOfStep(workShown, step.key),
+          // B299: the step as the store holds it, for its window, once the store is the truth; else null.
+          item: itemOfStep(workShown, step.key),
         }
       }),
     })),

@@ -1008,6 +1008,36 @@ that without a word, and the page, the state and the chats are as before.
   part "Open instructions", per chat: the missed ones first, in red with their turns, then the open ones, then the
   ones closed within a day, grey, with "→ <Closed as>". The main chat's name opens the talk with it.
 
+## The work store, increment 4 (B299): asks by kind, the three lists
+
+As increment 3: every change below acts only once truth.json says "store". While it says "shadow", the board reads the
+chats' answers for questions and waiting exactly as before (tests run both).
+
+- **Asks** (`api.mjs`): `ask` answers the "For you" block in the project's form: one numbered item, "**Answer:**"
+  (decide, look) or "**Do:**" (provide, do), the options with the advice (`advice`: "A thin or B thick; I advise B"),
+  the id, kind and step ("Q4, look, blocks B1"), and a link per picture and play that opens the board
+  (`http://127.0.0.1:<port>/#picture=<path>`, `#play=<branch>&<settings>`). An ask may stand alone (no `of`): the
+  Workers mod files each question of the app's question form (AskUserQuestion) as a decide ask, `Via: form`, under the
+  card's step when the board takes it there; the person answers those in the chat, and the mod then sends
+  `answered-in-chat` (or `withdraw` when the form closed without an answer). `answer` (the person) names the ask's own
+  id, so an answer given after the chat moved on answers that ask and no later one; a look takes approve or reject
+  (with words), a do takes done; the answer says whom to wake (`wake`). `read` puts a note away.
+- **Refine questions are asks**: `refine` makes one decide ask per question under the step (`Via: refine`, Owner the
+  Advisor), and withdraws the open ones of an earlier round; `refined` is refused while one is open, naming it; the
+  answers given in the step's window (`refine-answer`) answer the matching asks, `refine-accept` answers the rest.
+- **The lists** (`work/lists.mjs`, `state.mjs`): Needs your attention takes the store's open asks (and the ones
+  answered within ten minutes, until their answer has arrived) as cards: the ask's kind, what it blocks and who waits
+  ("blocks B1 · Board waits"), the options with the advised one marked, pictures, a Play link; answered through
+  `POST /api/work` `answer` (the page's `sendWork`), after which the board types into the chat that asked
+  `(answered on the worker board, HH:MM) Q12 "<title>": <answer>` (`say.mjs`, `answerWords`). **Information** lists the
+  notes and reports, unread first, each with **Read**. A chat waits for the person only when it asked with the app's
+  question form or holds an open blocking ask: its answers are no longer read for "For you" blocks (the main chat's and
+  the Advisor's neither), and a chat's own card stands only for an app form the mod could not file.
+  `BOARD_ANSWERS_ASKS` is true: the cutover no longer waits for this.
+- **The step window** (`itemOfStep`, the page's `itemPartsOf`): a step of the store shows its item: Summary on top, the
+  picture, the goal chip, the flow strip, What we build, then Requirements and Touches folded, History last. A lane
+  names its step by the store's title, not the card's short topic.
+
 ## The bridge
 
 1. The person types on the board. The page sends it to the server, which keeps it as "waiting".

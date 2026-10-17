@@ -122,6 +122,32 @@ export function shadowBacklog(work, fromText, rules) {
   return { backlog: count === 0 || work.truth === 'store' ? fromStore : fromText, store: { mode: work.truth, ok: true, items: work.items.size, differences: count, problems: unique, why: null, failed: false, ...(kept === null ? {} : { kept }) } }
 }
 
+/** B299: a step's lines that start "Touches:" (under Context, or a Touches section), each path once. */
+function touchesLines(item) {
+  const own = (item.sections.get('Touches') ?? []).map(one => one.replace(/^\s*[-*]\s+/, '').trim()).filter(Boolean)
+  const said = (item.sections.get('Context') ?? []).flatMap(one => one.trim().match(/^Touches:\s*(.+)$/)?.[1] ?? [])
+  return [...new Set([...own, ...said])]
+}
+
+/**
+ * B299: a step of the store as its window shows it once the store is the truth: `{ id, title, summary, picture, goal,
+ * what, requirements, touches, history }` (lines as written), or null (no store, a shadow, no such item). `key` as
+ * for `flowOfStep`.
+ */
+export function itemOfStep(work, key) {
+  if (work === undefined || work === null || work.ok !== true || work.truth !== 'store') return null
+  const place = String(key).match(/^(\d+):(\d+)$/)
+  const id = place === null ? key : work.activities[Number(place[1])]?.steps?.[Number(place[2])]
+  const item = id === undefined ? undefined : work.items.get(id)
+  if (item === undefined) return null
+  const section = name => (item.sections.get(name) ?? []).map(one => one.trim()).filter(Boolean)
+  return {
+    id, title: valueOf(item, 'Title'), summary: section('Summary'), picture: section('Picture')[0] ?? null, goal: valueOf(item, 'Goal'),
+    what: section('What we build').map(one => one.replace(/^[-*]\s+/, '')), requirements: section('Requirements').map(one => one.replace(/^[-*]\s+/, '')),
+    touches: touchesLines(item), history: section('History').map(one => one.replace(/^[-*]\s+/, '')),
+  }
+}
+
 /**
  * Where a step of the Backlog tab stands in the flow: `{ states, state, next }` for the strip in its window, or null.
  * `key` is the step's key on the tab: its id, or "<activity's place>:<step's place>" for a step without one.

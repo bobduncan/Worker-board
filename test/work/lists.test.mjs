@@ -130,3 +130,14 @@ test('a question of the app\'s form stands as a card that is answered in its cha
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('a lane on a step of the store carries the step\'s title as the store holds it', async () => {
+  const { dir, digger: takes, build } = await garden()
+  try {
+    await takes({ action: 'take', id: 'B1', branch: 'b1-hedge' })
+    const lane = digger(await build(PLAIN))
+    assert.deepEqual([lane.task?.stepId, lane.task?.title], ['B1', 'Plant the hedge'])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

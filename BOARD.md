@@ -88,7 +88,10 @@ person sent was copied, and into which chat to paste it.
   the words, pictures to look at, choices with the recommended one marked, how to play the change, and the answer:
   a text field and **Send**, or **Approve** / **Reject** with a reason, or **Done**. A card shows where its answer is
   (waiting for its chat, handed over, typed in, copied to paste). **Show closed** shows answered ones; the steps
-  from the backlog fold under "From the backlog".
+  from the backlog fold under "From the backlog". Once the work store is the truth (B298, B299): the store's asks are
+  the cards (Decide, Look, Provide or Do, "blocks B1 · Board waits", a **Play it** link), answered into the store;
+  under them **Information** (notes and reports, each with **Read**) and **Open instructions** (the person's words
+  per chat: missed ones red, closed ones grey with what came of them).
 - **The side, "Talk to Main"** (`02-talk-to-main.png`): the person's talk with the main chat: what they typed (also
   in the chat itself) and its answers with times, the main chat's "For you" block and closing block drawn as such;
   lines on their way marked so. A box with **Send to Main**; Ctrl+V adds a picture, shown small until it is sent.

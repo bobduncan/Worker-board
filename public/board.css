@@ -745,6 +745,20 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .legacy { border: 1px dashed var(--line); border-radius: 9px; padding: 10px 12px; }
 .legacy summary { cursor: pointer; font-weight: 600; }
 .legacy summary small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+/* B299: a step's item in its window: the goal chip, Requirements and Touches folded. */
+.chip.is-goal { display: inline-block; margin: 0 0 8px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; }
+.item-fold { margin: 6px 0; }
+.item-fold summary { cursor: pointer; font-weight: 600; }
+/* B299: a store ask's card says what it blocks; Information lists what the chats told the person. */
+.ask-blocks { font-size: 12.5px; color: var(--muted); margin: 0; }
+.ask-blocks.is-blocking { color: var(--warn); }
+.information { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.information h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.info { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; margin: 6px 0; font-size: 13px; }
+.info p { margin: 0; }
+.info small { grid-column: 1; }
+.info button { grid-column: 2; grid-row: 1 / span 2; }
+.info.is-read { opacity: .6; }
 /* B298: the person's words filed as instructions, per chat: missed ones red, closed ones grey. */
 .instructions { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
 .instructions h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
