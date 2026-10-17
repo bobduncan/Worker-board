@@ -971,6 +971,16 @@ refresh that the store says the same.
   otherwise, and refuses a store that is the truth already or a backlog that changed while it ran. It prints the steps
   in flight (id, state, owner, branch) and each chat card with a task beside the store's state of the step it names,
   "<- check" where they disagree. The dry run prints the same and writes nothing.
+- **The review's findings** (before any cutover): the chat that asked may `withdraw` its ask (the step goes on; a
+  report from waiting on you is refused until then); `take` claims a step in progress that names nobody ("claimed"),
+  and the cutover's table marks such steps; the person's close is `done` from any state (flow.json: `* → done` by the
+  person), dropped only through `drop`; `answer` and `withdraw` write the step first and put it back when the ask
+  cannot be written (500, nothing changed); a chat asks only under its own step or one nobody holds (Main and the
+  person under any). The cutover reads the store back after writing it and stays a shadow on any difference, writes
+  the view from the store it checked, and refuses while `BOARD_ANSWERS_ASKS` (`src/work/api.mjs`, set by B299 once the
+  board lists and answers the store's asks) is false or the board in `board.json` does not answer `/api/bridge/work`.
+  The view keeps the hash of what it wrote (`<work>/view.json`): a backlog.md edited by hand since is kept beside it
+  as `backlog.edited-<date>-<time>.md` before the view is written, and the board's top line names it while it is there.
 
 ## The bridge
 
