@@ -311,3 +311,19 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   const checked = checkSay({ to: main, command: 'start', chat: message.to }, state, maxChars)
   return checked.ok ? checked.message : null
 }
+
+/**
+ * B298: a line the person typed on the board to a chat is filed as an instruction before it is kept for delivery, and
+ * carries its id at its end ("Make it blue [I17]"), so the chat closes the one it was given. `file(body)` is the work
+ * API as the person. An answer to a request and the board's own words are no instruction; when nothing is filed (the
+ * store is not the truth yet, or the board only shows), the line goes as it is.
+ */
+export async function withInstruction(message, file) {
+  if ((message.ask ?? null) !== null || (message.command ?? null) !== null) return message
+  const words = String(message.text ?? '').trim()
+  const text = words !== '' ? words : typeof message.picture === 'string' ? `(a picture: ${message.picture})` : ''
+  if (text === '') return message
+  const filed = await Promise.resolve().then(() => file({ action: 'instruction', chat: message.to, text })).catch(() => null)
+  if (filed?.ok !== true || typeof filed.result?.id !== 'string') return message
+  return { ...message, text: `${words}${words === '' ? '' : ' '}[${filed.result.id}]`, instruction: filed.result.id }
+}

@@ -42,7 +42,7 @@ import { parseHistory } from './src/history.mjs'
 import { seenTicks } from './src/finished.mjs'
 import { freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
-import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
+import { checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { roundText, roundsNow } from './src/rounds.mjs'
@@ -745,13 +745,15 @@ async function main(args) {
       // the clipboard for the person to paste into the chat, marked as typed on the board.
       const isCopied = state.bridge?.isMissing === true
       // B285: a queue ask for a step that is not refined yet waits on the board until it is (refineGate.mjs).
-      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
+      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
       const ticked = await settle(message, state)
       if (ticked !== null) {
         readState.reset()
         return ticked
       }
+      // B298: once the store is the truth, a line to a chat is filed as an instruction first and carries its id.
+      message = await withInstruction(message, body => workAction(body, 'person'))
       await store.say(message)
       if (isCopied) {
         readState.reset()
