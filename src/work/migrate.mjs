@@ -1,0 +1,184 @@
+// B296: today's backlog text → items of the work store and its activities (spec 2026-10-17, section 9). Pure: no
+// file is read or written here. Every step line becomes an item; every other line is kept with its place, so the
+// adapter gives back what `parseBacklog` reads and, later, the view gives back the file.
+//
+// A step's line is kept as fields (Title, Owner, Blocked by or Waits for, Estimate, Branch, Asks, State). When the
+// line the fields give back would read differently, the head keeps what the backlog wrote: `Queue note` (the words in
+// "(for ...)" when they say more than who, after what and about how long) or, rarely, `Line` (the whole line). The
+// adapter uses those only while they still say what the fields say, so the fields always win.
+
+import { isHeldBack, parseStep, refinedOf, refinedSpan } from '../backlog.mjs'
+import { ASKS_TO, lineFields, sameStep, stepRest } from './line.mjs'
+
+const STEP = /^- \[( |x|X)\]\s+(.*)$/
+const HEADING = /^##\s+(.+)$/
+const NAMED = /^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/
+const NO_NAMES = { prefix: '', names: [] }
+/** Where a step's refine block stood among its lines: the block itself is under `## Refined`. */
+export const REFINED_MARK = '  (the refine block stands under ## Refined)'
+/** A condition of only ids ("B12", "B12 and B13", "B12, B13") blocks on those steps; any other is a text to wait for. */
+const ONLY_IDS = /^B\d+(?:(?:\s*,\s*|\s+and\s+)B\d+)*$/
+const DONE_ON = /\bDone on (\d{4}-\d\d-\d\d)(?: at (?:about )?(\d\d:\d\d))? by ([^:;,.()]+?)\s*[:;,.)]/
+
+const pad = number => String(number).padStart(2, '0')
+/** A time in ms as "2026-10-17 11:05" on this PC's clock. */
+export function stamp(ms) {
+  const at = new Date(ms)
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+}
+
+/** The pictures a step's line names: "(pictures in <folder>)" or "picture <file>". */
+function picturesOf(text) {
+  return text.match(/\(pictures? in ([^)]+)\)/)?.[1].trim() ?? text.match(/\bpicture\s+([\w./-]+\.(?:png|jpe?g|webp))/i)?.[1] ?? null
+}
+
+/** The sections a refine block's lines fill: Summary, Picture and What we build, each from its named line on. */
+function refinedParts(block) {
+  const parts = new Map()
+  let current = null
+  for (const raw of block) {
+    const line = raw.trim()
+    const named = line.match(NAMED)
+    if (named !== null) {
+      current = ['Summary', 'Picture', 'What we build'].includes(named[1]) ? named[1] : null
+      if (current !== null) {
+        parts.set(current, [])
+        if (named[2] !== '') parts.get(current).push(named[2])
+      }
+      continue
+    }
+    if (current !== null) parts.get(current).push(line)
+  }
+  return parts
+}
+
+/** One step: its line's words and its indented lines → an item `{ head, sections, problem: null }`. */
+function stepItem({ id, isDone, rest, raw, activity, now }) {
+  const fields = lineFields(rest)
+  const notes = raw.map(line => line.trim())
+  const refined = refinedOf(notes)
+  const step = parseStep(isDone, rest, NO_NAMES)
+  const kind = fields.isYou ? 'ask' : 'step'
+  const state = isDone ? (fields.isYou ? 'answered' : 'done')
+    : fields.isYou ? 'open'
+      : fields.branch !== null ? 'in progress'
+        : isHeldBack(step) ? 'new'
+          : fields.owner !== null ? 'queued'
+            : refined?.ready === true ? 'refined' : 'new'
+  const head = new Map([['Id', id], ['Kind', kind], ['Title', fields.title], ['State', state]])
+  const set = (key, value) => {
+    if (value !== null && value !== undefined && value !== '') head.set(key, value)
+  }
+  set('Owner', fields.owner)
+  set('Activity', activity)
+  if (fields.after !== null) set(ONLY_IDS.test(fields.after) ? 'Blocked by' : 'Waits for', fields.after)
+  head.set('Since', stamp(now))
+  set('Estimate', fields.estimate)
+  set('Branch', fields.branch)
+  set('Pictures', picturesOf(step.text))
+  if (refined !== null) head.set('Refined', refined.ready ? 'ready' : 'open')
+  if (fields.asks !== null) head.set('Asks', ASKS_TO[fields.asks])
+
+  const sections = new Map()
+  const span = refinedSpan(notes)
+  if (span !== null) {
+    const block = raw.slice(span[0], span[1])
+    for (const [name, lines] of refinedParts(block)) sections.set(name, lines)
+    sections.set('Refined', block)
+  }
+  const context = span === null ? [...raw] : [...raw.slice(0, span[0]), REFINED_MARK, ...raw.slice(span[1])]
+  if (context.length > 0) sections.set('Context', context)
+  const history = notes.flatMap(note => {
+    const done = note.match(DONE_ON)
+    return done === null ? [] : [`- ${done[1]}${done[2] === undefined ? '' : ` ${done[2]}`} ${done[3].trim()}: done`]
+  })
+  sections.set('History', [...history, `- ${stamp(now)} server: migrated from the backlog`])
+  const item = { head, sections, problem: null }
+  // A line the fields do not give back as the backlog wrote it keeps the backlog's words: the queue note, else the line.
+  if (!sameStep(stepRest(item), rest)) {
+    if (fields.note !== null) head.set('Queue note', fields.note)
+    if (!sameStep(stepRest(item), rest)) {
+      head.delete('Queue note')
+      head.set('Line', rest.trim())
+    }
+  }
+  return item
+}
+
+/**
+ * The backlog's text → `{ items: Map<id, item>, activities, preamble, counts, problems }`. `activities` holds per
+ * `## ` heading its name, focus, the ids of its steps in order, its notes (the lines before its first step) and its
+ * loose lines (`{ after: <id>, line }`: lines between steps that belong to none). A step without an id gets `L<n>`;
+ * an id that stands twice keeps its first item and the second gets `L<n>` with its line kept, named in `problems`.
+ * `now` (ms) is the items' Since and their first History line.
+ */
+export function migrateBacklog(text, { now = Date.now() } = {}) {
+  const items = new Map()
+  const activities = []
+  const preamble = []
+  const problems = []
+  let activity = null
+  let current = null
+  let lastId = null
+  let legacy = 0
+  const counts = { steps: 0, open: 0, done: 0, you: 0 }
+  const finish = () => {
+    if (current === null) return
+    const item = stepItem({ ...current, now })
+    items.set(current.id, item)
+    current = null
+  }
+  const lines = String(text).replace(/^\uFEFF/, '').split('\n').map(line => line.replace(/\r$/, ''))
+  lines.forEach((line, index) => {
+    const heading = line.match(HEADING)
+    if (heading !== null) {
+      finish()
+      const isFocus = /(^|\s)#focus(\s|$)/.test(heading[1])
+      const name = heading[1].replace(/(^|\s)#focus(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim()
+      activity = { name, isFocus, steps: [], notes: [], loose: [] }
+      if (line !== `## ${name}${isFocus ? ' #focus' : ''}`) activity.heading = line
+      activities.push(activity)
+      lastId = null
+      return
+    }
+    const found = line.match(STEP)
+    if (found !== null && activity !== null) {
+      finish()
+      const rest = found[2]
+      const fields = lineFields(rest)
+      let id = fields.id
+      if (id === null || activities.some(one => one.steps.includes(id))) {
+        legacy += 1
+        if (id !== null) problems.push(`${id} stands twice on the backlog (line ${index + 1}): the second is kept as L${legacy}`)
+        id = `L${legacy}`
+      }
+      const isDone = found[1] !== ' '
+      current = { id, isDone, rest, raw: [], activity: activity.name }
+      activity.steps.push(id)
+      lastId = id
+      counts.steps += 1
+      if (isDone) counts.done += 1
+      else counts.open += 1
+      if (!isDone && fields.isYou) counts.you += 1
+      return
+    }
+    if (current !== null && /^\s+\S/.test(line)) {
+      current.raw.push(line)
+      return
+    }
+    if (line.trim() === '') {
+      if (activity === null && preamble.length > 0) preamble.push(line)
+      return
+    }
+    finish()
+    if (activity === null) {
+      if (found !== null) problems.push(`line ${index + 1}: a step before the first heading is no step; it stays in the head of the file`)
+      preamble.push(line)
+    } else if (lastId === null) activity.notes.push(line)
+    else activity.loose.push({ after: lastId, line })
+  })
+  finish()
+  while (preamble.length > 0 && preamble.at(-1).trim() === '') preamble.pop()
+
+  return { items, activities, preamble, counts, problems }
+}
