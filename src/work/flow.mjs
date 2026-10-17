@@ -12,6 +12,7 @@ export const DEFAULT_FLOW = {
     moves: [
       { from: 'new', to: 'refined', by: 'advisor', when: 'refined is ready' },
       { from: 'refined', to: 'queued', by: 'main', sets: ['Owner', 'Blocked by', 'Estimate'], when: 'Touches overlaps no taken step' },
+      { from: 'refined', to: 'queued', by: 'server', when: 'a queue was asked before its refine' },
       { from: 'queued', to: 'taken', by: 'server', when: 'Blocked by all done and Owner free', then: 'wake Owner' },
       { from: 'queued', to: 'refined', by: ['main', 'person'] },
       { from: 'queued', to: 'new', by: ['main', 'person'] },
@@ -19,6 +20,7 @@ export const DEFAULT_FLOW = {
       { from: 'in progress', to: 'waiting on you', by: 'worker', when: 'an ask with Blocking yes is open' },
       { from: 'waiting on you', to: 'in progress', by: 'server', when: 'its asks are answered', then: 'wake Owner' },
       { from: 'in progress', to: 'review', by: 'worker', then: 'check: base equals remote, branch gone, result named' },
+      { from: 'review', to: 'review', by: ['worker', 'main'], then: 'check: base equals remote, branch gone, result named' },
       { from: '*', to: 'done', by: 'person' },
       { from: 'review', to: 'done', by: 'server', when: 'the check passed and no ask of kind look is open' },
       { from: '*', to: 'dropped', by: ['person', 'main'] },
@@ -75,11 +77,14 @@ export function mayMove(flow, item, to, by, ctx = {}) {
   const id = valueOf(item, 'Id') ?? '?'
   const kind = valueOf(item, 'Kind') ?? 'step'
   const from = valueOf(item, 'State')
-  const moves = (flow[kind]?.moves ?? []).filter(move => (move.from === from || move.from === '*') && move.to === to && to !== from)
+  // B304: a move to the state it is in is made only when the flow names it so (review → review: reported again).
+  const moves = (flow[kind]?.moves ?? []).filter(move => move.to === to && (to === from ? move.from === from : move.from === from || move.from === '*'))
   if (moves.length === 0) return { ok: false, why: `${id}: no move from ${from} to ${to} (flow.json)` }
   const mine = moves.filter(move => byList(move.by).includes(by))
   if (mine.length === 0) {
-    const who = [...new Set(moves.flatMap(move => byList(move.by)))].join(' or ')
+    // B303: the board's own moves are named only when nobody else may make that move.
+    const all = [...new Set(moves.flatMap(move => byList(move.by)))]
+    const who = (all.some(one => one !== 'server') ? all.filter(one => one !== 'server') : all).join(' or ')
     return { ok: false, why: `${id}: only ${who} ${VERBS[to] ?? `moves to ${to}`} a ${kind} (flow.json)` }
   }
   const held = mine.find(move => move.when === undefined || GUARDS[move.when]?.(item, ctx) === true)

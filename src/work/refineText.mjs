@@ -28,14 +28,16 @@ function refineBlock(lines, id) {
   let part = null
   for (let index = block.head + 1; index < block.end; index += 1) {
     const line = lines[index].trim()
-    const named = line.match(/^(Problem|Goal|Questions|Feedback):/)
+    // B293: the parts of the newer form too, so a point under "What we build:" is never taken for a question.
+    const named = line.match(/^(Problem|Goal|Questions|Feedback|Summary|Picture|Part of|Size|What we build|Not in it):/)
     if (named !== null) {
       part = named[1]
       if (part === 'Feedback') block.feedback = index
       continue
     }
-    // Counted as `refinedOf` counts them: "None: ..." is no question.
-    if (part === 'Questions' && /^[-*]\s+/.test(line) && !/^[-*]\s+None\b/i.test(line)) block.questions.push(index)
+    // Counted as `refinedOf` counts them: every line under "Questions:", with its point or without; "None: ..." is no
+    // question.
+    if (part === 'Questions' && line !== '' && !/^(?:[-*]\s+)?None\b/i.test(line)) block.questions.push(index)
     if (part === 'Feedback') block.feedback = index
   }
   return { ok: true, block }

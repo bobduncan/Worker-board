@@ -46,7 +46,7 @@ import { findPicture } from './src/pictures.mjs'
 import { answerWords, checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
-import { roundText, roundsNow } from './src/rounds.mjs'
+import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
 import { readSources } from './src/sources.mjs'
@@ -408,7 +408,7 @@ async function main(args) {
     }
   }
   const workReads = new Set(['next', 'list'])
-  /** One action on the store; after a change the board reads it anew, and after a report it runs its own check. */
+  /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${homePort}/` }
@@ -418,9 +418,10 @@ async function main(args) {
       readState.reset()
     }
     if (done.ok && done.result.check !== undefined) {
-      const { id, branch, result } = done.result.check
+      const { id, branch, result, merged } = done.result.check
+      // B304: the repositories the board knows; the check finds the one the step's work is in among them.
       const repos = [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
-      void reportCheck({ branch, result, repos, run: gitRunner() })
+      void reportCheck({ id, branch, result, merged, repos, run: gitRunner() })
         .then(async outcome => workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' }))
         .then(() => {
           work.reset?.()
@@ -748,7 +749,12 @@ async function main(args) {
       // the clipboard for the person to paste into the chat, marked as typed on the board.
       const isCopied = state.bridge?.isMissing === true
       // B285: a queue ask for a step that is not refined yet waits on the board until it is (refineGate.mjs).
-      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
+      // B288: the words of a re-check of the goals name the board's folder and the project's settings. A second ask
+      // made before the first was written down (a double click) finds the first in the store and is refused.
+      const isRound = message => message.to === checked.message.to && (message.command === 'round' || message.command === 'recheck') && (message.state === 'waiting' || message.state === 'taken')
+      if (checked.message.command === 'recheck' && store.outbox().some(isRound)) return { ok: false, status: 409, why: 'A round runs: wait until the Advisor has finished it.' }
+      const words = checked.message.command === 'recheck' ? { text: recheckText({ board: HERE, config }) } : {}
+      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, ...words, state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
       const ticked = await settle(message, state)
       if (ticked !== null) {
@@ -962,7 +968,8 @@ async function main(args) {
       }
       // B173: the Advisor's rounds, typed into its chat on the board's clock. Only the board that delivers, and only
       // while there is an Advisor; a chat that is not running is started through the main chat, as for a message.
-      if (bridgeKey !== null && (state.advisor ?? null) !== null) {
+      // B288: not while a round runs (one the person asked for a moment ago): the clock's comes at a later look.
+      if (bridgeKey !== null && (state.advisor ?? null) !== null && state.advisor.roundRuns !== true) {
         const now = clock()
         const week = state.limits?.week ?? null
         const next = roundsNow({

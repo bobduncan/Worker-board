@@ -272,5 +272,6 @@ test('a step\'s window says "nothing more is written" only when nothing is', () 
   // Its lines are its checklist and its context: they stand on the right, and the left does not deny them.
   const written = queued([{ title: 'Requirements', lines: [], points: ['tab by tab'] }, { title: 'Context', lines: ['the worker\'s side'], points: [] }])
   assert.deepEqual([written.hasNotes, written.checklist, written.notes.length], [true, ['tab by tab'], 1])
-  assert.match(script, /else if \(!view\.hasNotes\) left\.append\(section\('Description'/)
+  // B293: nor does a refine with a summary, which describes the step itself.
+  assert.match(script, /else if \(!view\.hasNotes && !isSummed\) left\.append\(section\('Description'/)
 })

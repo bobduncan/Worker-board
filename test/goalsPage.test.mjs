@@ -123,9 +123,9 @@ test('review: Esc and ‹ go one level up, the top from a top goal; the address 
 })
 
 test('the Advisor tab has the Goals part second, opened from the address, drawn when the map or the zoom changes', () => {
-  assert.deepEqual([...html.matchAll(/data-advisor-pane="([a-z]+)"/g)].map(match => match[1]), ['way', 'goals', 'plan', 'suggestions', 'chat'])
+  assert.deepEqual([...html.matchAll(/data-advisor-pane="([a-z]+)"/g)].map(match => match[1]), ['way', 'goals', 'plan', 'suggestions', 'refine', 'chat'])
   assert.match(html, /<section class="panel advisor-goals" id="advisor-goals"/)
-  assert.match(script, /const ADVISOR_PANES = \['way', 'goals', 'plan', 'suggestions', 'chat'\]/)
+  assert.match(script, /const ADVISOR_PANES = \['way', 'goals', 'plan', 'suggestions', 'refine', 'chat'\]/)
   assert.match(script, /once\('goals', goalsData\(state\), \(\) => drawGoals\(state\)\)/)
   assert.match(script, /addEventListener\('popstate'/)
 })

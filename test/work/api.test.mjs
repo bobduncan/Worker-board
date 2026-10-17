@@ -162,7 +162,7 @@ test('report moves to review and records "check pending"; the board\'s check clo
     assert.equal((await board({ action: 'report', id: 'B1' })).status, 400)
     const reported = await board({ action: 'report', id: 'B1', result: 'The strip shows on the board.', merged: 'abc1234' })
     assert.equal(reported.ok, true, reported.why)
-    assert.deepEqual(reported.result.check, { id: 'B1', branch: 'b1-strip', result: 'The strip shows on the board.' })
+    assert.deepEqual(reported.result.check, { id: 'B1', branch: 'b1-strip', result: 'The strip shows on the board.', merged: 'abc1234' })
     assert.equal(await state(dir, 'B1'), 'review')
     assert.equal((await history(dir, 'B1')).at(-1), '- 2026-10-17 11:06 server: check pending')
     assert.equal((await item(dir, 'B1')).sections.get('Context').at(-1), '  Reported by Board on 2026-10-17 at 11:06: The strip shows on the board. (merged abc1234)')
@@ -183,11 +183,12 @@ test('report moves to review and records "check pending"; the board\'s check clo
   }
 })
 
-test('queue by a worker is refused by the flow; Main queues a refined step, not a new one', async () => {
+test('queue by a worker is refused by the flow; Main queues a refined step, and a new one once it is refined (B303)', async () => {
   const { dir, board, main } = await fresh()
   try {
     assert.deepEqual(await board({ action: 'queue', id: 'B5', for: 'Support' }), { ok: false, status: 409, why: 'B5: only main queues a step (flow.json)' })
-    assert.equal((await main({ action: 'queue', id: 'B7', for: 'Support' })).why, 'B7: no move from new to queued (flow.json)')
+    assert.equal((await main({ action: 'queue', id: 'B7', for: 'Support' })).result.text, 'B7 is not refined yet: the Advisor refines it first, then the board queues it for Support by itself.')
+    assert.equal(await state(dir, 'B7'), 'new')
     const queued = await main({ action: 'queue', id: 'B5', for: 'Support', after: 'B4', about: '1 h' })
     assert.equal(queued.ok, true, queued.why)
     const five = await item(dir, 'B5')

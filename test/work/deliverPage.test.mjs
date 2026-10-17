@@ -30,6 +30,14 @@ test('a stuck lane gets its line and the button that asks the main chat to start
   assert.deepEqual(plain(page.laneFlags({ name: 'Digger' }, null)), [])
 })
 
+test('B304: a failed check gets the person\'s "Check again", with or without a main chat', () => {
+  const lane = { name: 'Lamplighter', flags: [{ kind: 'check failed', id: 'B1', text: 'B1: the board\'s check failed: could not tell which repository B1\'s work is in', button: null }] }
+  const again = { text: 'B1: the board\'s check failed: could not tell which repository B1\'s work is in', tone: 'problem', button: { label: 'Check again', recheck: 'B1' } }
+  assert.deepEqual(plain(page.laneFlags(lane, { main: 'Keeper', starting: [] })), [again])
+  assert.deepEqual(plain(page.laneFlags(lane, null)), [again])
+  assert.deepEqual(plain(page.laneFlags({ ...lane, name: 'Keeper' }, { main: 'Keeper' }))[0].button, again.button)
+})
+
 test('the reconciler\'s lines stand on top, naming the folder and the file; a store that cannot be read still comes first', () => {
   assert.deepEqual(plain(page.storeNote({ ok: true, dir: 'C:/garden/.claude/work' }, ['B10.md: line 3 is no head line'])), { tone: 'problem', text: 'The work store C:/garden/.claude/work: B10.md: line 3 is no head line. Such an item is shown as it is and not moved: fix the file by hand.' })
   // B301: no store, or one that cannot be read: its line, whatever else there is.

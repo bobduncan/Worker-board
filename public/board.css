@@ -85,13 +85,26 @@ button, textarea, select { font: inherit; color: inherit; }
 /* The right side of each tab is as wide as the person drags it: the script sets --side and remembers it. */
 .view { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 7px var(--side, 390px); }
 #view-advice { --side: 500px; }
-/* B195: the Advisor's tab shows one of its four parts at a time, under their buttons; the chat is one of them. */
+/* B195: the Advisor's tab shows one of its parts at a time, under their buttons; the chat is one of them. */
 #view-advice { display: flex; flex-direction: column; }
-#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
-#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
+#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advisor-refine, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
+#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="refine"] > .advisor-refine, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 #view-advice[data-pane="chat"] > .talk { display: flex; flex: 1; width: min(900px, calc(100% - 36px)); }
 #view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
 .advisor-tabs { display: flex; gap: 8px; padding: 14px 18px 0; flex: none; }
+/* B288: "Re-check the goals now" in the Next milestone part's head. */
+.way-recheck-line { margin-top: 8px; }
+.way-recheck { align-self: flex-start; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.way-recheck:disabled { opacity: 0.55; cursor: default; }
+.way-recheck.is-error { border-color: #b4553c; }
+/* B286: the Refine part: the steps by where their refine stands, a row each that opens the step's window. */
+.advisor-refine { margin: 14px 18px 16px; max-width: 1240px; }
+.refine-group > summary { cursor: pointer; font-weight: 600; margin: 12px 0 4px; }
+.refine-rows { list-style: none; padding: 0; margin: 0 0 8px; }
+.refine-row { display: flex; gap: 8px; align-items: baseline; width: 100%; padding: 6px 4px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.refine-row:hover, .refine-row:focus-visible { background: #16294a; }
+.refine-row span { min-width: 0; overflow-wrap: anywhere; }
+.refine-row small { margin-left: auto; flex: none; }
 .advisor-tabs button { padding: 6px 14px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
 .advisor-tabs button[aria-pressed="true"] { color: var(--text); border-color: var(--free); background: #16294a; font-weight: 600; }
 .advisor-tabs button:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
@@ -1106,11 +1119,45 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .refine-field:focus { outline: 2px solid var(--free); outline-offset: 0; }
 .refine-working { margin-top: 10px; color: var(--waiting) !important; }
 .refine-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
-.refine-button, .refine-accept { padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--inset); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.refine-button, .refine-advice-all { padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--inset); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .refine-button { background: #1d4fd8; border-color: #1d4fd8; color: #fff; }
+.refine-button.is-quiet { background: var(--inset); border-color: var(--line); color: var(--text); }
 .refine-button.is-error { background: var(--panel); border-color: var(--warn); color: var(--warn); }
-.refine-button:disabled, .refine-accept:disabled { opacity: .55; cursor: default; }
+.refine-button:disabled, .refine-advice-all:disabled { opacity: .55; cursor: default; }
 .refine-line .problem { flex-basis: 100%; margin: 0; }
+/* B293: a refined step as one compact description (the picture the person approved). While refining: the
+   summary, the picture and one line per question with the advice and Yes / No, in the box above; once ready the same
+   parts without the box, with what we build. The head's chips: its goal, its size, and the questions or Ready. */
+.details-chips .chip.is-goal { background: #1b2a14; border-color: #3d6b2a; color: #bfe6a8; font-weight: 600; }
+.details-chips .chip.is-wait { background: #33280f; border-color: #7a5a1c; color: #f6d38b; font-weight: 600; }
+.details-chips .chip.is-ready { background: #103020; border-color: #25774a; color: #8be3b0; font-weight: 600; }
+.details-part.refine, .details-part.refined.is-ready { display: flex; flex-direction: column; gap: 10px; }
+.details-part.refine > *, .details-part.refined > * { margin: 0; flex-shrink: 0; }
+.details-part.refined .refine-tag, .details-part.refine > div > .refine-tag { margin-top: 0; margin-bottom: 2px; }
+.refined-summary p { font-size: 16px; line-height: 1.4; color: var(--text); }
+.refined-picture { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.refined-picture .picture { flex: 0 0 auto; width: 250px; max-width: 100%; }
+.refined-picture .picture img { aspect-ratio: auto; width: 100%; max-height: 180px; object-fit: contain; }
+.refined-picture > div { flex: 1 1 200px; min-width: 0; }
+.refined-picture p { font-size: 13px; }
+.refined-open { margin-top: 6px; padding: 0; border: 0; background: none; color: #7fb0ff; font: inherit; font-size: 12.5px; cursor: pointer; }
+.refined-open:hover { text-decoration: underline; }
+.details-part ul.refined-build { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.refined-build li { position: relative; padding-left: 16px; color: #d6deea; }
+.refined-build li::before { content: ""; position: absolute; left: 2px; top: .6em; width: 6px; height: 6px; border-radius: 50%; background: #7fb0ff; }
+.refined-build li.is-not { color: var(--muted); }
+.refined-build li.is-not::before { background: var(--muted); }
+.refine-questions { display: flex; flex-direction: column; gap: 7px; }
+.refine-q { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; border-top: 1px solid var(--line); padding-top: 7px; }
+.refine-n { width: 14px; color: var(--muted); }
+.refine-text { flex: 1 1 220px; min-width: 0; }
+.refine-advice { font-size: 12px; color: var(--working); white-space: nowrap; }
+.refine-advice[title] { cursor: help; }
+.refine-picks { display: flex; gap: 4px; }
+.refine-pick { padding: 2px 11px; border-radius: 6px; border: 1px solid var(--line); background: var(--inset); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.refine-pick[aria-pressed="true"] { background: #1d4fd8; border-color: #1d4fd8; color: #fff; font-weight: 600; }
+.refine-pick:disabled { opacity: .55; cursor: default; }
+.refine-q .refine-answer { flex-basis: 100%; margin: 0 0 0 24px; font-size: 13px; }
 @media (max-width: 900px) {
   .step-row { grid-template-columns: 46px minmax(0, 1fr) 150px; }
   .step-kind, .step-worker, .step-branch, .step-actions { display: none; }

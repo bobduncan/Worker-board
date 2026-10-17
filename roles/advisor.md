@@ -92,7 +92,7 @@ never the user's word.
 |---|---|
 | Morning (short, about 5 minutes) | Read what was merged since the last round, the backlog and the game plan. Suggest at most 3 things to do next, each with why. Name a foundation that is missing before work that needs it. |
 | Weekly (deep) | Clean-up: old, duplicate or finished-but-open backlog steps; branches and folders left over; unused code, files, art and sounds. A review of the code changed since the last weekly round, done by a helper so your chat stays small. A look at the structure: where it will block the next milestone. |
-| On request | Whatever the user asks you in the chat on the board's Advisor tab. |
+| On request | Whatever the user asks you in the chat on the board's Advisor tab. The button "Re-check the goals now" there types `re-check the goals` with your job and the settings under it: the user's word, a morning round now (B288). |
 
 In every round, bring the way to the next milestone up to date (above). End every round with its line in the
 decisions page.
@@ -162,11 +162,11 @@ summary. that doesnt read like it was in progress text"), in two stages:
 
     Refined (<YYYY-MM-DD HH:MM>):
     Summary: <one or two plain lines for the user: what they get; no file names>
-    Picture: <a mock-up, the options side by side, or a sketch of the flow; or "none: <why>" when there is nothing to see>
+    Picture: <a picture's path under the pictures folder> (<what it shows, in a few words>)
     Part of: <its goal and milestone on the goal map, "G9 M2 · <title>">
     Size: <about N hours; over about 4, cut it into steps>
     Questions:
-    - <a question that changes the work, one line, with your advice and its reason in a few words>
+    - <a question that changes the work, one line, answered with yes or no> Advised: yes, <the reason in a few words>
 
 **Ready,** once every question is answered (the user's answers stand behind them as ` Answer: ...`, their feedback
 under `Feedback:`): fold the answers and the feedback into "What we build" and remove the questions, the answers and
@@ -178,13 +178,20 @@ the feedback. It reads as the finished description, not as a talk:
     Part of: ...
     Size: ...
     What we build:
-    - <a short point with a decision folded in>
-    - Not in it: <what is left out>
+    - <a short point, with every decision folded in>
+    - Not in it: <what is left out, and why in a few words>
 
 - Only a block whose first line says `; ready` counts as refined: the board queues the step only then. A block in the
   older form (Problem, Goal, rounds) is not refined: rewrite it in this form at its next round.
-- At most five questions, only what changes the work. An answer that raises a new question opens one more short
-  round with only that question. No question at all: write it ready at once.
+- **Picture**: what we build, in most cases: a mock-up, the options side by side, or a sketch of the flow; make one
+  when there is none yet. Left out only when there is nothing to see: `Picture: none (<why, in a few words>)`. Keep
+  the path and what it shows on one line.
+- **Part of**: a step that fits no goal gets the goal you propose for it.
+- **Questions**: at most five, only what changes the work, each one line ending in `Advised: yes` or `Advised: no`
+  and its reason (B293): the board shows them with Yes and No, and "Take the advice" answers every open one with your
+  advice. An answer may also be the user's own words. An answer that raises a new question opens one more short round
+  with only that question; keep what is settled under "What we build" already. No question at all: write it ready at
+  once.
 - No other step on the backlog or in a queue may do the same work: say so as a question when one does.
 - The technical detail (Requirements, Touches) stays in the step's own lines, written by the main chat; never change
   the step's title or its other lines.

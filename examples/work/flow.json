@@ -4,6 +4,7 @@
     "moves": [
       { "from": "new", "to": "refined", "by": "advisor", "when": "refined is ready" },
       { "from": "refined", "to": "queued", "by": "main", "sets": ["Owner", "Blocked by", "Estimate"], "when": "Touches overlaps no taken step" },
+      { "from": "refined", "to": "queued", "by": "server", "when": "a queue was asked before its refine" },
       { "from": "queued", "to": "taken", "by": "server", "when": "Blocked by all done and Owner free", "then": "wake Owner" },
       { "from": "queued", "to": "refined", "by": ["main", "person"] },
       { "from": "queued", "to": "new", "by": ["main", "person"] },
@@ -11,6 +12,7 @@
       { "from": "in progress", "to": "waiting on you", "by": "worker", "when": "an ask with Blocking yes is open" },
       { "from": "waiting on you", "to": "in progress", "by": "server", "when": "its asks are answered", "then": "wake Owner" },
       { "from": "in progress", "to": "review", "by": "worker", "then": "check: base equals remote, branch gone, result named" },
+      { "from": "review", "to": "review", "by": ["worker", "main"], "then": "check: base equals remote, branch gone, result named" },
       { "from": "*", "to": "done", "by": "person" },
       { "from": "review", "to": "done", "by": "server", "when": "the check passed and no ask of kind look is open" },
       { "from": "*", "to": "dropped", "by": ["person", "main"] }

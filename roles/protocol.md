@@ -42,9 +42,9 @@ tool; the board checks every call against the flow file and refuses, in one line
 tool answers with the record: work from it, not from a message.
 
 - **An item** is `<work>/<id>.md`: a head of `Key: value` lines up to the first blank line (`Id`, `Kind`, `Title`,
-  `State`, `Owner`, `Activity`, `Goal`, `Blocked by`, `Waits for`, `Since`, `Estimate`, `Branch`, ...), then `## `
-  sections (`Summary`, `What we build`, `Context`, `History`, ...). Steps are `B<n>`, asks for the person `Q<n>`,
-  instructions `I<n>`, notes `N<n>`; the board gives the ids, and an id never comes back.
+  `State`, `Owner`, `Activity`, `Goal`, `Blocked by`, `Waits for`, `Since`, `Estimate`, `Branch`, `Queue when refined`,
+  ...), then `## ` sections (`Summary`, `What we build`, `Context`, `History`, ...). Steps are `B<n>`, asks for the
+  person `Q<n>`, instructions `I<n>`, notes `N<n>`; the board gives the ids, and an id never comes back.
 - **The flow file** (`<work>/flow.json`, the default `examples/work/flow.json`) holds the states of a step and who moves
   it from one to the next, and when. It, not a job text, says who moves an item and when; the person may change it.
 - **History**: every change writes one line, `- <date time> <who>: <what>`.
@@ -57,10 +57,11 @@ tool answers with the record: work from it, not from a message.
 | `work ask` (`of`, `kind` decide, look, provide or do, `blocking`, `text`, `options`, `pictures`, `play`) | any chat | something only the person can do, `Q<n>` under the step; blocking moves the step to waiting on you. It answers the "For you" block for your answer |
 | `work withdraw Q<id>` (`why`) | the chat that asked | the ask is withdrawn; a step that waited only on it goes on. A step waiting on you is reported only after its asks are answered or withdrawn |
 | `work note` (`to` you or main, `text`, `of`) | any chat | information, never a question: `N<n>` |
-| `work report B<id>` (`result`, `merged`) | a worker | in progress to review; the board checks the base branch against its remote and that the branch is gone, writes it in History, and tells the main chat. The only way a step ends: the worker's card clears when its turn ends |
+| `work report B<id>` (`result`, `merged`) | a worker | in progress to review; the board checks the repository the step's work is in (the one holding the `merged` commit, else the one that has or had the branch; none to tell is a failed check): its base branch against its remote and that the branch is gone, writes it in History, and tells the main chat. A report from review (the owner, worker or main chat, after a fix) runs the check again (B304; the flow's move review → review). The only way a step ends: the worker's card clears when its turn ends |
+| `recheck B<id>` (the page's "Check again") | the person | a step in review whose check failed: the board runs its check again with what the last report said (B304) |
 | `work block` / `unblock B<id>` (`on`) | the main chat, a worker | what the step waits on (`Blocked by`) |
 | `work new` (`title`, `activity`, `goal`, `text`) | the main chat, a worker, the Advisor | a new step `B<n>`, state new |
-| `work queue B<id>` (`for`, `after`, `about`) | the main chat | a refined step into a worker's queue |
+| `work queue B<id>` (`for`, `after`, `about`) | the main chat | a refined step into a worker's queue; a step not refined yet keeps the wish (`Queue when refined:`), and the board queues it by itself once it is refined |
 | `work requeue B<id>` (`for`) | the main chat, the person ("Move to") | a queued step to another worker's queue; the board delivers it anew |
 | `work unqueue B<id>` | the main chat, the person ("Take out of the queue") | a queued step out of its queue: refined (or new), without a worker |
 | `work close I<id>` (`as`) | any chat | an instruction is done, and what came of it |
@@ -90,6 +91,7 @@ what to run.
 | Indented lines under a step; `Requirements:`, `Context:` ... as sections | the step's details | `src/backlog.mjs` (`noteSections`) |
 | `Refined (round <n>, by <name>, <date time>; accepted <date time>):` under a step, then `Problem:`, `Goal:`, `Questions:` (a point per question, ` Answer: ...` behind it once answered), `Feedback:` (`- Round <n>: ...`) | B233: a step's refine block; the Advisor writes it, the board adds the person's answers, feedback and "accepted"; any other named line or a line in brackets ends it, but `Summary:`, `Picture:`, `Part of:`, `Size:` and `What we build:` stay in it (B285) | `src/backlog.mjs` (`refinedOf`), `src/work/refineText.mjs` (`answerRefine`, `acceptRefine`), through the work API |
 | `Refined (<date time>; ready):`, then `Summary:`, `Picture:`, `Part of:`, `Size:`, `What we build:` (while refining `Questions:` instead of `What we build:`) | B285: the approved form of a refine block (roles/advisor.md); only a head with `; ready` makes the step refined, so it may go into a queue; until then the board refines it first, and once more to fold answers in | `src/backlog.mjs` (`isRefined`, `refineStateOf`), `src/refineGate.mjs` |
+| In the same block: `Summary:`, `Picture: <path> (<what it shows>)` or `Picture: none (<why>)`, `Part of:`, `Size:`, questions as `- <question> Advised: yes|no, <why>`; once answered `Refined (<date time>; ready):` with `What we build:` (points, `- Not in it: ...`) and no questions | B293: a refined step as one compact description: while refining, one-line questions with Yes / No and "Take the advice"; once ready, the step's description with a Ready chip | `src/backlog.mjs` (`refinedOf`), `public/board.js` (`refinePart`, `refinedChips`) |
 | The group named by the setting `advisorSuggestions` | the Advisor's open suggestions on its tab | `src/state.mjs` |
 
 ## What the board types into a chat
@@ -114,6 +116,7 @@ Typed by the Workers mod as the person's own words; each line below is the board
 | `advisor recommendation: yes` (to the main chat) or `: no` with `Reason:` (to the Advisor) / `Recommended:` / `Step:` / `Why:` | the person answers the Advisor's recommendation on the way to the next milestone | `src/say.mjs` (`recommendWords`) |
 | `refine step` / `Step: B<id> <title>` / `Round: <n>` (to the Advisor) | the person asks the Advisor to refine a step (round 1), or again after their answers and feedback, which stand in the step's refine block already; the board sends it by itself too, one at a time: for a new step once, for a step about to be queued, and once more to fold answers in (B285) | `src/say.mjs` (`refineWords`), `src/refineGate.mjs` |
 | `ask from the goal map` / `Goal: G<id> <title>` / `Ask (A<n>): <question>` / `Pictures: <paths in the project>` (to the Advisor) | B258: the person asks the Advisor about a goal of the map; the board wrote `Ask (A<n>, <date time>): <question>` under the goal first, and the Advisor writes `Answer (<date time>, <title>): ...` and `More: <page>` under it; the board writes `Read: <date time>` when the person marks the answer read (roles/advisor.md, "Asks from the goal map") | `src/say.mjs` (`goalAskCheck`), `src/goalsWrite.mjs` (`addGoalAsk`, `markAskRead`) |
+| `re-check the goals`, with the job and the project's settings under it (to the Advisor) | B288: the person asks for a round now, with the Advisor tab's button; off while a round runs | `src/rounds.mjs` (`recheckText`), `src/say.mjs` |
 | `Round from the board's clock: morning` (or `weekly`), with the job and the project's settings under it | the Advisor's rounds; never the person's word | `src/rounds.mjs` |
 
 The board leaves its own lines out of the talk it shows (`src/state.mjs`, `BOARD_WORDS`, `isClockLine`).

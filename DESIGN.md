@@ -241,6 +241,30 @@ the block's first line. The board writes only that block, as for Close (`src/tic
 the board that delivers). While a round is asked and not written yet (on its way, or arrived less than half an hour
 ago), the window says so and the server refuses a second ask.
 
+**A refined step is one compact description (B293).** The person approved what "refined" means on 2026-10-17 (the
+project's spec of that day): "after the questions are answered i want them processes in the new design and i dont want
+to see them anymore. the goal is to have 1 fully comprehensive description that is compact with pictures and summary.
+that doesnt read like it was in progress text." The block now holds "Summary:", "Picture:" (a path and in brackets what
+it shows, or "none (why)"), "Part of:" (its goal and milestone) and "Size:", and while refining one-line questions
+with " Advised: yes|no, <why>" behind them. Once every answer is folded in, the Advisor writes it as "Refined (<date
+time>; ready):" with "What we build:" (points; "Not in it: ..." among them) and no questions, feedback or round
+(roles/advisor.md). The window's head shows the goal, the size and "N questions for you" or a green "Ready" in place of
+"Step". While refining, the box shows the summary, the picture as a thumbnail with "Open the picture ↗", and a line
+per question: the advice (its reason on hover) and Yes / No; a pick is kept until it is sent, a second click takes it
+back. "Send answers" writes the picks and the feedback and asks the next round; "Take the advice" (in place of "Accept
+as refined") writes the advice as the answer to every open question the person did not pick, and says which question
+has none to take. Once ready, the description stands first in the window, with no box, and the step's own lines follow
+as its "Notes"; its foot has "Refine again". A ready block names no round: a refine ask counts as written once the
+block changed since the ask (B285, `refineAsk`). Blocks in the older form (Problem, Goal, questions with a field)
+still show as before; the server still writes "accepted" for them, though no button asks it any more. The window of a
+step in a worker's queue shows the same description to read (its questions are answered from the Backlog tab), and
+a finished step keeps its description without questions. A ready step refined again tells the Advisor to check it
+against the backlog and the goals, since no new answers stand in it. With the work store, the step's window shows the
+store's item (Summary, the picture as the same thumbnail, What we build with "Not in it" greyed) and the refine part
+under it holds only the questions; the goal shows once, as the head's chip. A refine question answered under Needs
+your attention is written into the block too (`withRefineAnswer`), and the lines the store adds under a step go above
+the block, never into it; lines added after a block before this, and a lone bracketed line at its end, end it.
+
 **Refined before a queue (B285).** The person, on goal G17 (2026-10-17): "every item on the backlog automatically Before
 it gets put in the queue. if main wants to put it in the queue automatically/directly, refine it first". A step is
 refined when the first line of its block says "; ready" (the person approved what "refined" means on 2026-10-17: one
@@ -940,9 +964,11 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   taken, the chat to in progress, with its branch; a step another holds is refused naming the holder), `step` (one
   History line; the mod writes the card), `ask` (a `Q<n>` under a step, answered with the "For you" block; a blocking
   one moves the step to waiting on you), `note` (an `N<n>` to the person or Main), `report` (in progress → review,
-  "check pending", a note to Main), `block`/`unblock`, `new`, `queue`, `close` (an instruction), `drop`, `refine` and
+  "check pending", a note to Main; B304: from review, by the flow's move review → review, the check runs again),
+  `block`/`unblock`, `new`, `queue`, `close` (an instruction), `drop`, `refine` and
   `refined` (the Advisor's block in today's form). The person, on the page: `answer`, `tick` (close, approve, done: a
-  step in review is done, any other dropped; an ask answered), `delete`, `refine-answer`, `refine-accept`. The board:
+  step in review is done, any other dropped; an ask answered), `delete`, `refine-answer`, `refine-accept`, `recheck`
+  (B304: "Check again" on a step in review whose check failed). The board:
   `check`. Every move asks the flow (`mayMove`) and writes `<from> → <to>` in History; a file whose head is broken is
   refused with its line, never moved. B301: a store folder that is not there or cannot be read is refused with 503
   and the board's line for it (`work/read.mjs`, `storeFault`); a file that changed meanwhile is 409, one that cannot be
@@ -956,9 +982,14 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
 - **The routes**: `POST /api/work` for the page (the token, the origin, JSON, as `/api/backlog`) and `POST
   /api/bridge/work` for the Workers mod (the key, and only the chat and session the board shows, as `/api/bridge/take`).
   Roles come from the list of chats (the main chat, the Advisor, the workers); free chats from the lanes; `overlaps`
-  from the steps' "Touches:" lines. After a report the board runs its own check (`src/work/check.mjs`: each
-  repository's base equals its remote, the branch is gone, a result is named) and writes it to History; a passed
-  check closes the step by the default flow. The board that delivers writes backlog.md; a copy with a store of its own
+  from the steps' "Touches:" lines. After a report the board runs its own check (`src/work/check.mjs`) and writes it
+  to History; a passed check closes the step by the default flow. B304: it checks the one repository the step's work
+  is in, among those the board knows (the game's, `gameRepo`, and the board's own folder): the one that holds the
+  reported merged commit, else the one that has, or had by its reflog or its remote, the step's branch. There its
+  base equals its remote, the branch is gone (also from the remote), and a result is named; the lines name the
+  repository by its folder's last part. When no repository can be told, the check fails with "could not tell which
+  repository B<id>'s work is in", never a silent pass. A failed check runs again on the person's "Check again" (the
+  lane's flag, `recheck`) or the owner's report from review. The board that delivers writes backlog.md; a copy with a store of its own
   writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
   view".
 - **The board's own writers** (`src/tick.mjs`): closing, deleting, the person's refine answers and the board's tick of
@@ -1051,7 +1082,7 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   flagged after `GRACE_MS` (10 min, from the later of its Since and the chat's last activity) with the button
   "Start <chat>". An open blocking ask older than `ASK_MS` (60 min) is marked old and stands first under Needs your
   attention; nothing is sent again. Open instructions are B298's list (no flag). A step in review whose last check
-  failed is flagged on its Owner's lane, and the Owner is told once. A broken file, an id twice or a state the flow
+  failed is flagged on its Owner's lane with the button "Check again" (B304), and the Owner is told once. A broken file, an id twice or a state the flow
   does not know make one line on top (`workFlags`, in the store note) and are not moved or delivered. A card that names
   a step the store does not hold taken, in progress or waiting for that chat is flagged ("Units' card says B281 but
   B281 is queued"). The flow's other moves by the server whose guard holds are made (a review closed once its check
@@ -1137,6 +1168,27 @@ and does not pretend.
 - **The demo and the tests** make their stores in memory from their backlog texts (`storeFromText`;
   `test/withStore.mjs`), as `--make-store` would.
 
+## A queue asked before the refine (B303)
+
+Seen live on 2026-10-17: the main chat made a step with `work new`, queued it at once and got "no move from new to
+queued"; the refine gate sent the step to the Advisor, but the queue was lost, and once refined nobody queued it.
+
+- **The wish is kept** (`src/work/api.mjs`, `queue`): a `queue` the flow refuses only because the step is not refined
+  yet (it is new; the one who asks could queue it once it is refined, and the flow lets the board queue it then) is
+  not refused: the step gets the head line `Queue when refined: for <chat>; after <...>; about <...>` and the History
+  line "queue asked before its refine: ...", and the answer says "B302 is not refined yet: the Advisor refines it
+  first, then the board queues it for Board by itself." Every other refusal stays one: a worker, a step done or
+  queued, a bad `about`, a flow without the board's move below.
+- **The refine gate** (`src/refineGate.mjs`) counts such a step as one the main chat queued: it sends it to the
+  Advisor in that turn (a new step and an old one alike); the step's window item carries `queueWhenRefined`.
+- **Once refined** (the Advisor's `refined`, or a refine the person's answers or accept leave ready) the board queues
+  it by itself, as the server, with what was asked: Owner, Blocked by or Waits for, Estimate; the wish goes; History
+  "server: refined → queued" and "server: queued for Board; ... (asked by Main before its refine)". The flow's move
+  for it: `{ "from": "refined", "to": "queued", "by": "server", "when": "a queue was asked before its refine" }`
+  (the guard in `guards.mjs`), in the default flow and `examples/work/flow.json`. When the flow did not let it at
+  the refine, the reconciler names the move later and `advance` carries the wish out the same way.
+- **A refusal's "only ... may"** names the server only when nobody else makes that move ("only main queues a step").
+
 ## The bridge
 
 1. The person types on the board. The page sends it to the server, which keeps it as "waiting".
@@ -1159,6 +1211,20 @@ Safety, because what arrives is typed into a chat that can change files:
   teammate's report and never counts as the person's word.
 - What remains: any program running as the person on this PC could type through it. Such a program can already
   change the files the chats read.
+
+## A step's title without its note (B292)
+
+The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont
+understand why this is happening." Every note in brackets at the end of a step's line is no part of its title on the
+board, whatever it starts with: the main chat's "(for Units; after B12; about 1 h)", "(later; not handed out)",
+"(not handed out; after today; ...)", a chat's name, where its pictures are; two in a row too (`closingNotes` in
+`src/backlog.mjs`). Their parts are still read from every note: who it is for, after what, how long; the step's
+words keep the notes, so what reads them (a step held back, the pictures it points to) finds them. The work store
+keeps the titles it migrated with their notes (`lineFields` in `src/work/line.mjs` reads only "(for ...)" as
+fields), so the line it writes back still says the same step; a lane named after such a title, or after a card
+named so, drops the note (`withoutNote` in board.js). Of two steps the store holds in progress for one worker, its
+lane shows the one its card names, else the one it took last, never one it was taken off. And a worker whose last
+answer closed "- Done:   partly" or "no" is between two turns, not free, whatever the app calls its turn.
 
 ## What it does not do
 
