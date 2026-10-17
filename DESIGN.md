@@ -504,7 +504,14 @@ the goal map"). A start writes `Brainstorm: <path> (running)` under its goal, so
 runs on a goal at a time ("Brainstorm this" on a goal with one running opens it). The words to the Advisor
 (`brainstorm`, `brainstorm answer`, `brainstorm wrap up`, `brainstorm change`) are each made from the thread after the
 board's own write, so one is typed only when the thread is where it says (no second `brainstorm` for a thread the
-Advisor has; an answer only once written); a chat that is not running is started through the main chat.
+Advisor has; an answer only once written); a chat that is not running is started through the main chat. When
+nothing comes back, "Type it to the Advisor again" beside the waiting line types the word the brainstorm waits on once
+more; a step the main chat could not be asked for after Create is asked again with "Ask the main chat again for N
+steps". The review of B259 also made the head's lines count once (a "Goal:" in the Advisor's context is context), a
+question asked again under its number take its answer, a question like "Lanterns: where?" stay a question, a Done when
+with " — " in it and "under G6 (words)" read, a left-out title compared as the Created line keeps it (its own " · " as
+" - "), two starts on one goal at once make one thread, a question left open while it wraps up wait for nobody, and
+lines the board cannot read show on the card.
 "Brainstorm this" stands in a goal's frame, its "…" menu and under an ask's answer (the answer becomes the opening).
 Needs your attention lists a question waiting and a proposal to tick under "Brainstorms", with the way to it, and
 counts them; so does the part's button. The Advisor's job: roles/advisor.md, "A brainstorm". On a phone the list

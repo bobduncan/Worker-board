@@ -45,19 +45,20 @@ function answerOf(at, value) {
   return key === null ? null : { at, key: key[1], words: (key[2] ?? '').trim() }
 }
 
-/** "under G6" → "G6"; "under top" → null. */
+/** "under G6" → "G6" (words after the id, "under G6 (benches)", are the Advisor's own); "under top" → null. */
 const underOf = part => {
-  const found = part.match(/^under (G\d+|top)$/)
+  const found = part.trim().match(/^under (G\d+|top)\b/)
   return found === null ? undefined : found[1] === 'top' ? null : found[1]
 }
 
+/** "<title> — under G6 — Done when: <…>": the first part that starts "Done when:" ends the title, and may hold the separator itself. */
 function goalItem(value) {
   const parts = value.split(PART)
-  if (parts.length < 3) return null
-  const doneWhen = parts.at(-1).match(/^Done when:\s*(.*)$/)
-  const under = underOf(parts.at(-2))
-  if (doneWhen === null || under === undefined) return null
-  return { title: parts.slice(0, -2).join(PART).trim(), under, doneWhen: doneWhen[1].trim() }
+  const at = parts.findIndex((part, index) => index >= 2 && /^Done when:/.test(part.trim()))
+  if (at < 0) return null
+  const under = underOf(parts[at - 1])
+  if (under === undefined) return null
+  return { title: parts.slice(0, at - 1).join(PART).trim(), under, doneWhen: parts.slice(at).join(PART).trim().replace(/^Done when:\s*/, '') }
 }
 
 function stepItem(value) {
@@ -82,6 +83,12 @@ function createdOf(at, value) {
 }
 
 /**
+ * A title as the Created line keeps it among what was left out: one line, its own " · " (the separator there) as " - ".
+ * Whether an item was left out is asked with this on both sides.
+ */
+export const leftOutKey = title => oneLine(title, 2000).replace(/ · /g, ' - ')
+
+/**
  * A thread as the board shows it: its head (title, goal or null for a free one, when it started, its state, the
  * person's opening words, the Advisor's context lines), its questions in order (each with its text, why, options, the
  * advised one marked, its picture and the person's answer or null), the last proposal (a changed proposal stands under
@@ -93,6 +100,8 @@ export function parseThread(text) {
   let question = null
   let proposal = null
   let list = null
+  // The head's own lines count once: a "Goal:" in the Advisor's context under them is context.
+  const seen = new Set()
   const odd = (index, line) => thread.problems.push(`line ${index + 1}: ${line.slice(0, 80)}`)
   split(text).lines.forEach((raw, index) => {
     const line = raw.trim()
@@ -116,10 +125,11 @@ export function parseThread(text) {
       const title = line.match(HEAD_TITLE)
       const goal = line.match(HEAD_GOAL)
       const started = line.match(HEAD_STARTED)
-      if (title !== null && thread.title === null) thread.title = title[1].trim()
-      else if (goal !== null) thread.goal = goal[1] === undefined ? null : { id: goal[1], title: goal[2].trim() }
-      else if (started !== null) [thread.started, thread.state] = [started[1], started[2]]
-      else if (line.startsWith('Opening:')) thread.opening = line.slice('Opening:'.length).trim()
+      const once = name => !seen.has(name) && seen.add(name)
+      if (title !== null && once('title')) thread.title = title[1].trim()
+      else if (goal !== null && once('goal')) thread.goal = goal[1] === undefined ? null : { id: goal[1], title: goal[2].trim() }
+      else if (started !== null && once('started')) [thread.started, thread.state] = [started[1], started[2]]
+      else if (line.startsWith('Opening:') && once('opening')) thread.opening = line.slice('Opening:'.length).trim()
       // What the Advisor writes under the opening: its short context head ("Context:" first), read as it is.
       else thread.context.push(line)
       return
@@ -128,8 +138,8 @@ export function parseThread(text) {
       const option = line.match(OPTION)
       const answer = line.match(ANSWER)
       const isNamed = option !== null || answer !== null || line.startsWith('Why:') || line.startsWith('Picture:')
-      // Before anything named, a line is the question's (one or two lines).
-      if (!isNamed && question.why === null && question.options.length === 0 && question.picture === null && question.answer === null && !/^[A-Z][A-Za-z ]*:\s/.test(line)) {
+      // Before anything named, a line is the question's (one or two lines), also one like "Lanterns: where?".
+      if (!isNamed && question.why === null && question.options.length === 0 && question.picture === null && question.answer === null) {
         question.text = question.text === '' ? line : `${question.text} ${line}`
       } else if (line.startsWith('Why:')) question.why = line.slice(4).trim()
       else if (line.startsWith('Picture:')) question.picture = line.slice(8).trim()
@@ -178,7 +188,8 @@ function lastFilled(lines, section) {
  */
 export function answerQuestion(text, n, answer) {
   const thread = parseThread(text)
-  const question = thread.questions.find(one => one.n === n)
+  // A question asked again under its number: the last of that number is the one asked now.
+  const question = thread.questions.findLast(one => one.n === n)
   if (question === undefined) return refuse('none')
   if (question.answer !== null) return refuse('answered')
   if (question !== thread.questions.at(-1) || thread.proposal !== null) return refuse('none')
@@ -194,7 +205,7 @@ export function answerQuestion(text, n, answer) {
     value = words === '' ? answer.key : `${answer.key} — ${words}`
   }
   const file = split(text)
-  const section = sections(file.lines).find(one => QUESTION.test(one.line) && Number(one.line.match(QUESTION)[1]) === n)
+  const section = sections(file.lines).findLast(one => QUESTION.test(one.line) && Number(one.line.match(QUESTION)[1]) === n)
   const at = lastFilled(file.lines, section) + 1
   file.lines.splice(at, 0, `Answer (${oneLine(answer.at, 40)}): ${value}`)
   if (at + 1 >= file.lines.length || file.lines[at + 1].trim() !== '') file.lines.splice(at + 1, 0, '')
@@ -222,7 +233,7 @@ export function markCreated(text, { at, goals = [], steps = [], asked = 0, leftO
   if (thread.proposal.created !== null) return refuse('twice')
   const goalPart = goals.length > 0 ? goals.join(', ') : 'no goals'
   const stepPart = steps.length > 0 ? steps.join(', ') : asked > 0 ? `${asked} step${asked === 1 ? '' : 's'} asked of the main chat` : 'no steps'
-  const left = leftOut.length > 0 ? leftOut.map(title => oneLine(title, 160)).join(' · ') : 'nothing'
+  const left = leftOut.length > 0 ? leftOut.map(leftOutKey).join(' · ') : 'nothing'
   const file = split(text)
   const last = sections(file.lines).filter(one => PROPOSAL.test(one.line)).at(-1)
   file.lines.splice(lastFilled(file.lines, last) + 1, 0, `Created (${oneLine(at, 40)}): ${goalPart}; ${stepPart}; left out: ${left}`)
@@ -278,7 +289,8 @@ export function brainstormsState(texts, folder) {
 export function brainstormNeeds(threads) {
   return (threads ?? []).filter(thread => thread.state === 'running' || thread.state === 'wrapping up').flatMap(thread => {
     if (thread.proposal !== null) return thread.proposal.created === null ? [{ kind: 'brainstorm', what: 'proposal', path: thread.path, title: thread.title, text: 'Its proposal waits for you to tick and create it.' }] : []
-    if (thread.latest !== null && thread.latest.answer === null) return [{ kind: 'brainstorm', what: 'question', path: thread.path, title: thread.title, text: thread.latest.text }]
+    // While it wraps up, the Advisor writes the proposal: the question left open waits for nobody.
+    if (thread.state === 'running' && thread.latest !== null && thread.latest.answer === null) return [{ kind: 'brainstorm', what: 'question', path: thread.path, title: thread.title, text: thread.latest.text }]
     return []
   })
 }
@@ -327,6 +339,8 @@ function nameOf(path, folder) {
 
 /** A Create under way, by its file: a second one at the same time is refused (Review Focus 5). */
 const creating = new Set()
+/** A start under way, by its goal: a second one at the same time is refused, as one after it would be. */
+const starting = new Set()
 
 /**
  * One change to a brainstorm from the page (POST /api/brainstorm), on the board that delivers only (`canWrite`):
@@ -393,6 +407,16 @@ async function startThread(body, { base, folder, goalsAt, now, fs }) {
   if (title === '' || opening === '') return failed('words')
   const goalId = body.goal ?? null
   if (goalId !== null && !(typeof goalId === 'string' && /^G\d+$/.test(goalId))) return failed('form')
+  if (goalId !== null && starting.has(goalId)) return failed('running')
+  if (goalId !== null) starting.add(goalId)
+  try {
+    return await makeThread({ title, opening, goalId, base, folder, goalsAt, now, fs })
+  } finally {
+    starting.delete(goalId)
+  }
+}
+
+async function makeThread({ title, opening, goalId, base, folder, goalsAt, now, fs }) {
   const names = (await fs.readdir(base).catch(() => [])).filter(name => /\.md$/.test(name))
   let goal = null
   if (goalId !== null) {

@@ -231,3 +231,20 @@ test('a created step goes to the main chat in the Design tab\'s form, with the g
   const asleep = { ...created, chats: [{ name: 'Main', isMain: true, isRunning: true }], advisor: { name: 'Oracle', isRunning: false } }
   assert.equal(wakeFor({ to: 'Oracle', command: 'brainstorm-answer' }, asleep, [], 1_000_000, 2000).about, 'Oracle')
 })
+
+test('review B259: two starts on one goal at the same moment make one thread; a question left open while it wraps up waits for nobody', async () => {
+  const fs = fakeFs({ 'C:/p/goals.md': latin(GOALS) })
+  const both = await Promise.all(['Lanterns', 'Lights'].map(title => editThread({ command: 'start', title, goal: 'G5', opening: 'Where?' }, options(fs))))
+  assert.deepEqual(both.map(one => one.ok).sort(), [false, true])
+  assert.equal(Object.keys(fs.files).filter(path => path.startsWith(`${DIR}/`)).length, 1)
+  const wrapping = brainstormsState([thread('b/x.md', RUNNING.replace('State: running', 'State: wrapping up'))], 'b').threads
+  assert.deepEqual(brainstormNeeds(wrapping), [])
+})
+
+test('review B259: a step left out is never asked of the main chat, also when its title holds the Created line\'s separator', () => {
+  const odd = DONE.replace('- [ ] Score the benches against the picture — Advisor — about 1 h', '- [ ] Score · rank the benches — Advisor — about 1 h')
+    .replace('2 steps asked of the main chat; left out: nothing', '1 step asked of the main chat; left out: Score - rank the benches')
+  const state = sayState([thread(P, odd)])
+  assert.equal(checkSay({ to: 'Main', command: 'goal-step', thread: P, step: 1 }, state, 2000).status, 409)
+  assert.equal(checkSay({ to: 'Main', command: 'goal-step', thread: P, step: 0 }, state, 2000).ok, true)
+})

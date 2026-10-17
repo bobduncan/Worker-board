@@ -79,6 +79,11 @@ test('the proposal shows every goal and step ticked unless the person took the t
   assert.equal(done.created, 'Created at 21:25: G10 · 1 step asked of the main chat · left out: Place the lanterns')
   assert.equal(done.canCreate, false)
   assert.deepEqual(done.steps.map(step => step.ticked), [true, false])
+  // Review B259: a proposal the Advisor wrote anew after Create, on a thread that is done, creates nothing more.
+  assert.equal(page.proposalView(one(`${HEAD}${Q1}Answer (21:02): B\n${PROPOSAL}`.replace('State: running', 'State: done')), []).canCreate, false)
+  // A left-out title with the Created line's separator in it reads back as left out.
+  const dotted = one(`${HEAD}${Q1}Answer (21:02): B\n${PROPOSAL.replace('Place the lanterns', 'Place · light the lanterns')}Created (21:25): G10; 1 step asked of the main chat; left out: Place - light the lanterns\n`.replace('State: running', 'State: done'))
+  assert.deepEqual(page.proposalView(dotted, []).steps.map(step => step.ticked), [true, false])
 })
 
 test('the list holds the running brainstorms, then the ones done, each with what it stands at or what came of it', () => {

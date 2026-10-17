@@ -3,6 +3,7 @@
 // request: a verdict for work to verify, "done" for something only the person can do, words for a question.
 
 import { isRefined, refinedKey } from './backlog.mjs'
+import { leftOutKey } from './brainstorm.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 
@@ -182,7 +183,7 @@ function goalStepCheck(body, state, text) {
   const created = thread?.proposal?.created ?? null
   if (created === null) return refuse(409, 'Only a created proposal asks for its steps.')
   const step = Number.isInteger(body.step) ? thread.proposal.steps[body.step] : undefined
-  if (step === undefined || created.leftOut.includes(step.title)) return refuse(409, 'That step is not one the proposal created.')
+  if (step === undefined || created.leftOut.includes(leftOutKey(step.title))) return refuse(409, 'That step is not one the proposal created.')
   const note = thread.proposal.note ? `: ${sayLine(thread.proposal.note)}` : ''
   return { ok: true, message: {
     to: body.to, ask: null, step: null, title: null, version: null, verdict: null, command: 'goal-step', about: `${thread.path}#${body.step}`,

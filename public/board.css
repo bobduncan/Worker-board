@@ -329,10 +329,12 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-gap { flex: 1; }
 .brainstorm-waiting { margin: 12px 0 0; color: var(--ask); font-size: 13.5px; }
 .brainstorm-waiting.is-off { color: var(--warn); }
+.brainstorm-waiting .goals-lines { font-size: 12.5px; }
+.brainstorm-problems { margin: 10px 0 0; color: var(--waiting); font-size: 12.5px; overflow-wrap: anywhere; }
 .brainstorm-proposal h4 { margin: 12px 0 0; font-size: 15px; }
 .brainstorm-proposal h5 { margin: 12px 0 4px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .brainstorm-decided { margin: 0; padding: 6px 10px 6px 26px; border-left: 3px solid var(--waiting); background: var(--panel); font-size: 13.5px; }
-.brainstorm-tick { display: flex; align-items: baseline; gap: 8px; margin: 4px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 13.5px; }
+.brainstorm-tick { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 4px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 13.5px; }
 .brainstorm-tick small { margin-left: auto; text-align: right; font-size: 12px; }
 .brainstorm-tick.is-off > span { color: var(--muted); text-decoration: line-through; }
 .brainstorm-note-kept { margin: 0; padding: 4px 10px; border-left: 3px solid var(--waiting); font-size: 13.5px; }

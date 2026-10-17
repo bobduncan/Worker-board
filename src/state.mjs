@@ -48,7 +48,7 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined|ask from the goal map|brainstorm|backlog step from the goal map)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined|ask from the goal map|backlog step from the goal map)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'unreported']
 /** How long a window of the 5-hour limit lasts. */

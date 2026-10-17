@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { answerQuestion, markCreated, newThread, parseThread, setThreadState, threadSlug } from '../src/brainstorm.mjs'
+import { answerQuestion, leftOutKey, markCreated, newThread, parseThread, setThreadState, threadSlug } from '../src/brainstorm.mjs'
 
 const THREAD = [
   '# Brainstorm: The reference look on every map',
@@ -120,4 +120,31 @@ test('a thread with a line the form does not know names it as a problem and keep
   assert.equal(thread.problems.length, 1)
   assert.match(thread.problems[0], /^line 9: /)
   assert.equal(parseThread('').title, null)
+})
+
+test('review B259: the head counts once, a question asked again under its number takes its answer, "Word: …" is a question', () => {
+  // A "Goal:" in the Advisor's context is context, not the thread's goal.
+  const context = THREAD.replace('not just look like it.\n', 'not just look like it.\nContext: G6 serves Goal: G2 M1 · The paths are fun\nGoal: G2 M1 · The paths are fun\n')
+  assert.deepEqual(parseThread(context).goal, { id: 'G6', title: 'Benches that match the picture' })
+  assert.equal(parseThread(context).context.length, 2)
+  // Back to Q1: the Advisor asks Q1 again; the open one is the last of that number.
+  const again = `${answerQuestion(THREAD, 2, { at: '19:45', back: 1 }).text}## Q1 (19:46)\nWhich benches count, now?\n- A: all of them (advised)\n- B: the ones by the gate\n`
+  const answered = answerQuestion(again, 1, { at: '19:47', key: 'B', words: '' })
+  assert.equal(answered.ok, true)
+  assert.ok(answered.text.endsWith('- B: the ones by the gate\nAnswer (19:47): B\n\n'))
+  assert.deepEqual(parseThread(answered.text).questions.map(one => [one.n, one.answer?.key ?? one.answer?.back ?? null]), [[1, 'A'], [2, 1], [1, 'B']])
+  // A question that reads like a named line is still the question.
+  const named = parseThread('# Brainstorm: L\nGoal: new\nStarted: 2026-10-15 21:00 · State: running\nOpening: x\n\n## Q1 (21:01)\nLanterns: where do they go?\n- A: the gate (advised)\n')
+  assert.equal(named.questions[0].text, 'Lanterns: where do they go?')
+  assert.deepEqual(named.problems, [])
+})
+
+test('review B259: a Done when with the separator in it, words after the goal\'s id, and a left-out title with " · " survive', () => {
+  const odd = PROPOSAL.replace('- [ ] Benches by the gate like the picture — under G6 — Done when: the judges give 75', '- [ ] Benches by the gate — under G6 (the benches) — Done when: the judges give 75 — three judges')
+    .replace('- [ ] Score the benches against the picture — Advisor — about 1 h', '- [ ] Score · and rank the benches — Advisor — about 1 h')
+  const thread = parseThread(odd)
+  assert.deepEqual(thread.proposal.goals, [{ title: 'Benches by the gate', under: 'G6', doneWhen: 'the judges give 75 — three judges' }])
+  assert.deepEqual(thread.problems, [])
+  const created = markCreated(odd, { at: '20:01', goals: [], steps: [], asked: 1, leftOut: ['Score · and rank the benches'] })
+  assert.deepEqual(parseThread(created.text).proposal.created.leftOut, [leftOutKey('Score · and rank the benches')])
 })
