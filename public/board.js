@@ -4656,7 +4656,7 @@ document.addEventListener('click', event => {
 
 // The chat with the advisor
 
-function drawMessage({ key, kind, time, who, text, note = null }) {
+function drawMessage({ key, kind, time, who, text, picture: shown = null, note = null }) {
   const row = el('div', `message ${kind}`)
   const bubble = el('div', 'bubble')
   if (text.length > LONG_CHARS || text.split('\n').length > 12) {
@@ -4665,6 +4665,12 @@ function drawMessage({ key, kind, time, who, text, note = null }) {
     if (openBubbles.has(key)) bubble.classList.add('is-open')
   }
   rich(bubble, text)
+  // B282: a picture pasted with it, small; a click opens it large.
+  if (shown !== null) {
+    const frame = picture(shown)
+    frame.classList.add('talk-picture')
+    bubble.append(frame)
+  }
   if (note !== null) bubble.append(el('small', '', note))
   row.append(el('time', '', time), el('span', 'speaker', who), bubble)
   return row
@@ -4683,7 +4689,10 @@ function drawTalk(state) {
   ])
   $('say-send').disabled = advisor === null
   $('say-text').maxLength = state.maxMessageChars
-  if (!$('say-note').classList.contains('is-error')) $('say-note').textContent = UNDELIVERED
+  // B282: why a send or a paste did not go, else where what is sent goes.
+  const sayProblem = problems.get('talk') ?? pictureSlots.advisor.problem
+  $('say-note').classList.toggle('is-error', sayProblem !== null)
+  $('say-note').textContent = sayProblem ?? UNDELIVERED
 
   const rows = advisor === null ? [] : advisor.messages.map(message => drawMessage({
     key: `${message.at}:${message.from}`,
@@ -4691,11 +4700,12 @@ function drawTalk(state) {
     time: message.at === null ? '' : clock(message.at),
     who: message.who,
     text: message.text,
+    picture: message.picture ?? null,
     note: message.via === 'board' ? 'typed on the board' : null,
   }))
   for (const typed of advisor?.pending ?? []) {
     const note = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle', copied: 'copied for you to paste into its chat' }[typed.state] ?? 'waits for its chat to take it'
-    rows.push(drawMessage({ key: `out:${typed.id}`, kind: 'is-you is-pending', time: clock(typed.at), who: 'You', text: typed.text, note }))
+    rows.push(drawMessage({ key: `out:${typed.id}`, kind: 'is-you is-pending', time: clock(typed.at), who: 'You', text: typed.text, picture: typed.picture ?? null, note }))
   }
   if (advisor !== null && advisor.state === 'working') {
     const status = el('div', 'message is-status')
@@ -4849,8 +4859,8 @@ function drawMainTalk(state) {
   $('main-send').disabled = talk === null || sending.has('main-talk')
   $('main-text').maxLength = state.maxMessageChars
   const note = $('main-note')
-  note.classList.toggle('is-error', problems.has('main-talk') || talkPasteProblem !== null)
-  note.textContent = problems.get('main-talk') ?? talkPasteProblem ?? 'What you send is typed into the main chat\'s chat as your own words, once it is idle.'
+  note.classList.toggle('is-error', problems.has('main-talk') || pictureSlots.main.problem !== null)
+  note.textContent = problems.get('main-talk') ?? pictureSlots.main.problem ?? 'What you send is typed into the main chat\'s chat as your own words, once it is idle.'
 
   const box = $('main-messages')
   const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60
@@ -4899,17 +4909,22 @@ try {
 
 // B167: the picture pasted for the next message, shown small above the words until it is sent or taken away. The
 // board keeps it only once it is sent; what it answered is remembered, so a second try does not keep it twice.
-let talkPicture = null
-let talkPasteProblem = null
+// B282: one slot per typing box, Talk to Main's and the Advisor's, served by the same code: where it shows (`box`),
+// the words it goes with (`text`), the key of a failed send (`key`), the picture, why a paste was not taken, and how
+// the box's talk is drawn again.
+const pictureSlots = {
+  main: { box: 'main-picture', text: 'main-text', key: 'main-talk', picture: null, problem: null, redraw: () => board !== null && drawMainTalk(board) },
+  advisor: { box: 'say-picture', text: 'say-text', key: 'talk', picture: null, problem: null, redraw: () => board !== null && drawTalk(board) },
+}
 
-function setTalkPicture(file) {
-  if (talkPicture !== null) URL.revokeObjectURL(talkPicture.url)
-  talkPicture = file === null ? null : { file, url: URL.createObjectURL(file), path: null }
-  const box = $('main-picture')
-  box.hidden = talkPicture === null
-  if (talkPicture === null) return box.replaceChildren()
+function setSlotPicture(slot, file) {
+  if (slot.picture !== null) URL.revokeObjectURL(slot.picture.url)
+  slot.picture = file === null ? null : { file, url: URL.createObjectURL(file), path: null }
+  const box = $(slot.box)
+  box.hidden = slot.picture === null
+  if (slot.picture === null) return box.replaceChildren()
   const image = el('img')
-  image.src = talkPicture.url
+  image.src = slot.picture.url
   image.alt = 'The picture to send'
   const remove = el('button', 'main-picture-remove', '×')
   remove.type = 'button'
@@ -4921,61 +4936,69 @@ function setTalkPicture(file) {
 }
 
 /** The board keeps the picture and answers its path; null, with the reason shown, when it did not. */
-async function keepTalkPicture() {
-  if (talkPicture.path !== null) return talkPicture.path
+async function keepSlotPicture(slot) {
+  if (slot.picture.path !== null) return slot.picture.path
   try {
-    const got = await fetch('/api/talk/picture', { method: 'POST', headers: { 'Content-Type': talkPicture.file.type, 'X-Board-Token': TOKEN }, body: talkPicture.file })
-    if (got.ok) return (talkPicture.path = (await got.json()).path)
-    problems.set('main-talk', `Not sent: the picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}`)
+    const got = await fetch('/api/talk/picture', { method: 'POST', headers: { 'Content-Type': slot.picture.file.type, 'X-Board-Token': TOKEN }, body: slot.picture.file })
+    if (got.ok) return (slot.picture.path = (await got.json()).path)
+    problems.set(slot.key, `Not sent: the picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}`)
   } catch {
-    problems.set('main-talk', 'Not sent: the board\'s server does not answer')
+    problems.set(slot.key, 'Not sent: the board\'s server does not answer')
   }
   return null
 }
 
-$('main-say').addEventListener('submit', async event => {
-  event.preventDefault()
-  const text = $('main-text').value.trim()
-  if ((text === '' && talkPicture === null) || (board?.mainTalk ?? null) === null || sending.has('main-talk')) return
-  $('main-send').disabled = true
-  talkPasteProblem = null
-  problems.delete('main-talk')
-  sending.add('main-talk')
-  const picture = talkPicture === null ? null : await keepTalkPicture()
-  sending.delete('main-talk')
-  if (talkPicture === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk')
-  if (!problems.has('main-talk')) {
-    $('main-text').value = ''
-    setTalkPicture(null)
-  }
-  if (board !== null) drawMainTalk(board)
-})
-
-// Ctrl+V in the talk: a picture on the clipboard is shown small, to send with the words; anything else that is no
-// picture gets a short line. Words are pasted as words.
-$('main-say').addEventListener('paste', event => {
+/**
+ * Ctrl+V in a typing box: a picture on the clipboard is shown small, to send with the words; anything else that is no
+ * picture gets a short line. Words are pasted as words.
+ */
+function pasteInto(slot, event) {
   const pasted = pastedTalk(event.clipboardData?.items)
   if (pasted.ignore === true) return
   event.preventDefault()
   const file = pasted.take?.getAsFile() ?? null
-  talkPasteProblem = file === null ? pasted.problem ?? 'The clipboard holds no picture.'
+  slot.problem = file === null ? pasted.problem ?? 'The clipboard holds no picture.'
     : file.size > TALK_BYTES ? `That picture is too large: ${TALK_BYTES / (1024 * 1024)} MB at most.` : null
-  if (talkPasteProblem === null) {
-    problems.delete('main-talk')
-    setTalkPicture(file)
+  if (slot.problem === null) {
+    problems.delete(slot.key)
+    setSlotPicture(slot, file)
   }
-  if (board !== null) drawMainTalk(board)
-})
+  slot.redraw()
+}
 
-$('main-picture').addEventListener('click', event => {
-  if (event.target.closest('.main-picture-remove') === null) return
-  setTalkPicture(null)
-  $('main-text').focus()
-})
+/** A typing box takes a pasted picture, lets it be taken away again, and forgets why a paste failed once typed in. */
+function wirePictureSlot(slot, form) {
+  $(form).addEventListener('paste', event => pasteInto(slot, event))
+  $(slot.box).addEventListener('click', event => {
+    if (event.target.closest('.main-picture-remove') === null) return
+    setSlotPicture(slot, null)
+    $(slot.text).focus()
+  })
+  $(slot.text).addEventListener('input', () => {
+    if (slot.problem === null) return
+    slot.problem = null
+    slot.redraw()
+  })
+}
+wirePictureSlot(pictureSlots.main, 'main-say')
+wirePictureSlot(pictureSlots.advisor, 'say')
 
-$('main-text').addEventListener('input', () => {
-  if (talkPasteProblem === null) return
-  talkPasteProblem = null
+$('main-say').addEventListener('submit', async event => {
+  event.preventDefault()
+  const slot = pictureSlots.main
+  const text = $('main-text').value.trim()
+  if ((text === '' && slot.picture === null) || (board?.mainTalk ?? null) === null || sending.has('main-talk')) return
+  $('main-send').disabled = true
+  slot.problem = null
+  problems.delete('main-talk')
+  sending.add('main-talk')
+  const picture = slot.picture === null ? null : await keepSlotPicture(slot)
+  sending.delete('main-talk')
+  if (slot.picture === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk')
+  if (!problems.has('main-talk')) {
+    $('main-text').value = ''
+    setSlotPicture(slot, null)
+  }
   if (board !== null) drawMainTalk(board)
 })
 
@@ -6448,10 +6471,20 @@ async function game(id, action) {
   await read()
 }
 
-$('say').addEventListener('submit', event => {
+$('say').addEventListener('submit', async event => {
   event.preventDefault()
+  // B282: with the picture pasted for it, which the board keeps first, as in Talk to Main.
+  const slot = pictureSlots.advisor
   const text = $('say-text').value.trim()
-  if (text !== '' && board?.advisor) send({ to: board.advisor.name, text }, null)
+  if ((text === '' && slot.picture === null) || !board?.advisor || sending.has('talk')) return
+  slot.problem = null
+  problems.delete('talk')
+  sending.add('talk')
+  const picture = slot.picture === null ? null : await keepSlotPicture(slot)
+  sending.delete('talk')
+  if (slot.picture !== null && picture === null) return slot.redraw()
+  await send({ to: board.advisor.name, text, ...(picture === null ? {} : { picture }) }, null)
+  if (!problems.has('talk')) setSlotPicture(slot, null)
 })
 
 $('say-text').addEventListener('keydown', event => {

@@ -656,8 +656,8 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .main-picture[hidden] { display: none; }
 .main-picture-frame { position: relative; display: inline-block; vertical-align: top; }
 .main-picture img { display: block; max-width: 160px; max-height: 96px; border: 1px solid var(--line); border-radius: 7px; background: #0a0f18; }
-.main-say .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
-.main-say .main-picture-remove:hover { border-color: #ff8a8a; color: #ff8a8a; }
+.say .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
+.say .main-picture-remove:hover { border-color: #ff8a8a; color: #ff8a8a; }
 .talk-picture { display: block; width: auto; max-width: 240px; margin-top: 8px; }
 .talk-picture img { width: auto; max-width: 100%; max-height: 180px; aspect-ratio: auto; object-fit: contain; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; white-space: nowrap; cursor: pointer; }
@@ -774,7 +774,7 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .bubble small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
 .message.is-pending { opacity: 0.55; }
 .message.is-status .bubble { background: none; color: var(--muted); padding-left: 0; font-style: italic; }
-.say { display: flex; gap: 8px; margin: 10px 14px 0; }
+.say { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 14px 0; }
 .say textarea { flex: 1; min-width: 0; resize: none; background: var(--panel); }
 .say textarea:focus { border-color: #2f5fb3; }
 .say button { flex: none; width: 78px; border: 0; border-radius: 7px; background: var(--free); color: #fff; font-weight: 700; cursor: pointer; }

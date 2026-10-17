@@ -773,7 +773,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         ? []
         : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix, titles })
           // B173: a round the board's clock typed is the clock's, not the person's.
-          .filter(message => !(message.from === 'you' && isClockLine(message.text))),
+          .filter(message => !(message.from === 'you' && isClockLine(message.text)))
+          // B282: a line typed on the board shows its words and the picture pasted with it apart, as in Talk to Main.
+          .map(one => (one.via === 'board' ? { ...one, ...splitPicture(one.text.replace(TYPED_MARK, '').trim(), config.pictureRoots[0]) } : one)),
       // Typed on the board to the advisor and not in its chat yet.
       pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null && (message.command ?? null) === null),
     }
