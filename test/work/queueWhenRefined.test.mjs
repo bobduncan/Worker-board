@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { refineWhenDue } from '../../src/refineGate.mjs'
+import { storeLine } from '../../src/work/adapter.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { DEFAULT_FLOW, parseFlow } from '../../src/work/flow.mjs'
 import { valueOf } from '../../src/work/item.mjs'
@@ -116,6 +117,7 @@ test('the wish shows in the backlog view, comes back from it, and the refine gat
   const text = BACKLOG.replace('- [ ] B3 Tie the kite string', '- [ ] B3 Tie the kite string\n  [store] Queue when refined: for Kite; about 1 h')
   const work = storeFromText(text, { now: NOW })
   assert.equal(valueOf(work.items.get('B3'), 'Queue when refined'), 'for Kite; about 1 h')
+  assert.equal(storeLine(work.items.get('B3'), 'Kite work'), '  [store] Queue when refined: for Kite; about 1 h')
   assert.equal(itemOfStep(work, 'B3').queueWhenRefined, 'for Kite; about 1 h')
   // An old step (not above the first look) the main chat asked to queue: refined first, as a step it queued.
   const step = { id: 'B3', text: 'Tie the kite string', title: 'Tie the kite string', status: 'open', refined: null, worker: null, item: itemOfStep(work, 'B3') }

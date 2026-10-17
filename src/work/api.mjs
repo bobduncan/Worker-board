@@ -573,22 +573,66 @@ async function queue(body, w) {
   if (!found.ok) return found
   const owner = line(body.for, 80)
   if (owner === '') return refuse(400, 'Name the chat it is for in "for".')
+  if (owner.includes(';')) return refuse(400, '"for" holds no ";".')
   const after = line(body.after, 200).replace(/^after\s+/i, '')
   if (after.includes(';')) return refuse(400, '"after" holds no ";".')
   const about = line(body.about, 40).replace(/^about\s+/i, '')
   if (about !== '' && minutesOf(`about ${about}`) === null) return refuse(400, '"about" is a time such as "1 h" or "40 min".')
+  const words = [`for ${owner}`, after === '' ? null : `after ${after}`, about === '' ? null : `about ${about}`].filter(Boolean).join('; ')
   const moved = move(found.item, 'queued', w.role, w)
-  if (!moved.ok) return moved
-  const item = moved.item
+  if (!moved.ok) {
+    if (!queuesOnceRefined(found.item, words, w)) return moved
+    // B303: not refined yet: the wish is kept on the step; the refine gate sends it to the Advisor, and once it is
+    // refined the board queues it by itself (`queueAsked`).
+    const id = valueOf(found.item, 'Id')
+    const next = ordered(said(put(copy(found.item), 'Queue when refined', words), w, `${QUEUE_ASKED}: ${words}`))
+    const done = await save(next, found.text, w)
+    return done.ok ? changed(next, `${id} is not refined yet: the Advisor refines it first, then the board queues it for ${owner} by itself.`, { queueWhenRefined: words }) : done
+  }
+  const next = ordered(said(queuedAs(moved.item, { owner, after, about }), w, `queued ${words}`))
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next) : done
+}
+
+/** Owner, Blocked by or Waits for, Estimate of a step queued now; the backlog's queue note and a kept wish go. */
+function queuedAs(item, { owner, after, about }) {
   put(item, 'Owner', owner)
   put(item, 'Blocked by', ONLY_IDS.test(after) ? after : null)
   put(item, 'Waits for', after !== '' && !ONLY_IDS.test(after) ? after : null)
   put(item, 'Estimate', about)
   item.head.delete('Queue note')
-  const words = [`for ${owner}`, after === '' ? null : `after ${after}`, about === '' ? null : `about ${about}`].filter(Boolean).join('; ')
-  const next = ordered(said(item, w, `queued ${words}`))
-  const done = await save(next, found.text, w)
-  return done.ok ? changed(next) : done
+  item.head.delete('Queue when refined')
+  return item
+}
+
+/** B303: the History words of a queue asked before the step's refine; the board's own queue names who asked by them. */
+const QUEUE_ASKED = 'queue asked before its refine'
+
+/**
+ * B303: whether a queue the flow refuses now is refused only because the step is not refined yet: it is new, the one
+ * who asks could queue it once it is refined, and the flow lets the board queue it then with this wish kept.
+ */
+function queuesOnceRefined(item, words, w) {
+  if (stateOf(item) !== 'new') return false
+  const refined = put(put(copy(item), 'State', 'refined'), 'Queue when refined', words)
+  const ctx = flowCtx(w, [refined])
+  return mayMove(w.store.flow, refined, 'queued', w.role, ctx).ok && mayMove(w.store.flow, refined, 'queued', 'server', ctx).ok
+}
+
+/**
+ * B303: a refined step whose queue was asked before its refine: the board queues it by itself, as the server, with
+ * what was asked, and the wish goes. `item` as it is about to be written; it is answered as it was when the flow does
+ * not let the board queue it (the reconciler names the move again later).
+ */
+function queueAsked(item, w) {
+  const wish = valueOf(item, 'Queue when refined')
+  if (wish === null || stateOf(item) !== 'refined') return item
+  const moved = move(item, 'queued', 'server', w, flowCtx(w, [item]))
+  if (!moved.ok) return item
+  const part = name => wish.split(';').map(one => one.trim()).find(one => one.startsWith(`${name} `))?.slice(name.length + 1).trim() ?? ''
+  const asker = (item.sections.get('History') ?? []).findLast(one => one.includes(`: ${QUEUE_ASKED}`))?.match(/^- \S+ \S+ (.+?): /)?.[1] ?? null
+  const by = asker === null ? '' : ` (asked by ${asker === 'person' ? 'you' : asker} before its refine)`
+  return ordered(appendHistory(queuedAs(moved.item, { owner: part('for'), after: part('after'), about: part('about') }), 'server', `queued ${wish}${by}`, w.now))
 }
 
 /**
@@ -834,6 +878,7 @@ async function refined(body, w) {
     if (!moved.ok) return moved
     next = moved.item
   }
+  next = queueAsked(next, w)
   const done = await save(next, found.text, w)
   return done.ok ? changed(next) : done
 }
@@ -944,7 +989,8 @@ async function refineText(body, w) {
     else item.sections.delete(name)
   }
   put(item, 'Refined', valueOf(back, 'Refined'))
-  const next = said(item, w, w.action === 'refine-accept' ? 'accepted the refine' : 'answered the refine questions')
+  // B303: a step refined by now whose queue was asked before: the board queues it.
+  const next = queueAsked(said(item, w, w.action === 'refine-accept' ? 'accepted the refine' : 'answered the refine questions'), w)
   const done = await save(next, found.text, w)
   if (!done.ok) return done
   // B299: the refine's asks follow: each question answered here is answered; accepting answers the rest.
@@ -983,7 +1029,15 @@ function pull(body, w) {
 async function advance(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
-  const moved = move(found.item, line(body.to, 40), 'server', w)
+  const to = line(body.to, 40)
+  // B303: the queue asked before the refine, with what was asked (the flow's move by the server).
+  if (to === 'queued' && stateOf(found.item) === 'refined' && valueOf(found.item, 'Queue when refined') !== null) {
+    const next = queueAsked(found.item, w)
+    if (stateOf(next) !== 'queued') return refuse(409, mayMove(w.store.flow, found.item, 'queued', 'server', flowCtx(w, [found.item])).why ?? `${valueOf(found.item, 'Id')}: not queued.`)
+    const done = await save(next, found.text, w)
+    return done.ok ? changed(next) : done
+  }
+  const moved = move(found.item, to, 'server', w)
   if (!moved.ok) return moved
   const done = await save(ordered(moved.item), found.text, w)
   return done.ok ? changed(ordered(moved.item)) : done

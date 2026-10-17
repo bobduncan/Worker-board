@@ -116,6 +116,8 @@ export function itemOfStep(work, key) {
     id, title: valueOf(item, 'Title'), summary: section('Summary'), picture: section('Picture')[0] ?? null, goal: valueOf(item, 'Goal'),
     what: section('What we build').map(one => one.replace(/^[-*]\s+/, '')), requirements: section('Requirements').map(one => one.replace(/^[-*]\s+/, '')),
     touches: touchesLines(item), history: section('History').map(one => one.replace(/^[-*]\s+/, '')),
+    // B303: the queue the main chat asked before the step's refine, or null.
+    queueWhenRefined: valueOf(item, 'Queue when refined'),
   }
 }
 

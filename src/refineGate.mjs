@@ -2,7 +2,8 @@
 // The person, on goal G17: "every item on the backlog automatically Before it gets put in the queue. if main wants to
 // put it in the queue automatically/directly, refine it first". The board sends a step to the Advisor by itself, one
 // at a time and in the words of the Refine button: a step the person asked to queue, a step the main chat queued before
-// it was refined, and a new step, each until it is refined (answers folded in once more). Old steps are refined when
+// it was refined (or asked to queue before it, B303: the store's "Queue when refined"), and a new step, each until it
+// is refined (answers folded in once more). Old steps are refined when
 // they are about to be queued, not all at once. What "refined" means is backlog.mjs `isRefined`: a head that says
 // "; ready" (approved by the person on 2026-10-17).
 
@@ -101,7 +102,8 @@ export function refineWhenDue(state, outbox, kept, now) {
     const isOpen = step => step.status === 'open' || step.status === 'queued'
     const order = [
       ['queue', step => held.has(step.id)],
-      ['queued', step => step.status === 'queued' && !kept.queuedBefore.includes(step.id)],
+      // B303: a step the main chat asked to queue before its refine ("Queue when refined") counts as one it queued.
+      ['queued', step => (step.status === 'queued' && !kept.queuedBefore.includes(step.id)) || (step.status === 'open' && (step.item?.queueWhenRefined ?? null) !== null)],
       ['new', step => isOpen(step) && numberOf(step.id) > kept.since],
     ]
     for (const [why, wants] of order) {
