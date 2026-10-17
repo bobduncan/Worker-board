@@ -11,6 +11,8 @@ const isOpen = ask => valueOf(ask, 'State') === 'open'
 
 export const GUARDS = {
   'refined is ready': item => valueOf(item, 'Refined') === 'ready',
+  // B303: the main chat (or the person) asked to queue it before its refine: the board queues it once it is refined.
+  'a queue was asked before its refine': item => valueOf(item, 'Queue when refined') !== null,
   'Touches overlaps no taken step': (item, ctx) => (ctx.overlaps?.(item) ?? null) === null,
   'Blocked by all done and Owner free': (item, ctx) => {
     const done = idsIn(valueOf(item, 'Blocked by')).every(id => {

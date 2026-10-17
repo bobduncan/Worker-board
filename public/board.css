@@ -84,13 +84,21 @@ button, textarea, select { font: inherit; color: inherit; }
 /* The right side of each tab is as wide as the person drags it: the script sets --side and remembers it. */
 .view { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 7px var(--side, 390px); }
 #view-advice { --side: 500px; }
-/* B195: the Advisor's tab shows one of its four parts at a time, under their buttons; the chat is one of them. */
+/* B195: the Advisor's tab shows one of its parts at a time, under their buttons; the chat is one of them. */
 #view-advice { display: flex; flex-direction: column; }
-#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
-#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
+#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advisor-refine, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
+#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="refine"] > .advisor-refine, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 #view-advice[data-pane="chat"] > .talk { display: flex; flex: 1; width: min(900px, calc(100% - 36px)); }
 #view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
 .advisor-tabs { display: flex; gap: 8px; padding: 14px 18px 0; flex: none; }
+/* B286: the Refine part: the steps by where their refine stands, a row each that opens the step's window. */
+.advisor-refine { margin: 14px 18px 16px; max-width: 1240px; }
+.refine-group > summary { cursor: pointer; font-weight: 600; margin: 12px 0 4px; }
+.refine-rows { list-style: none; padding: 0; margin: 0 0 8px; }
+.refine-row { display: flex; gap: 8px; align-items: baseline; width: 100%; padding: 6px 4px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.refine-row:hover, .refine-row:focus-visible { background: #16294a; }
+.refine-row span { min-width: 0; overflow-wrap: anywhere; }
+.refine-row small { margin-left: auto; flex: none; }
 .advisor-tabs button { padding: 6px 14px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
 .advisor-tabs button[aria-pressed="true"] { color: var(--text); border-color: var(--free); background: #16294a; font-weight: 600; }
 .advisor-tabs button:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
