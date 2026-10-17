@@ -897,8 +897,10 @@ refresh that the store says the same.
   whole line); the adapter uses them only while they still say what the fields say, so a changed field wins. The
   indented lines go verbatim under `## Context`; a refine block goes whole under `## Refined` (a mark in Context
   says where it stood), and its Summary, Picture and What we build lines are also copied into sections of those
-  names; "Done on ... by ..." lines also become `## History` lines. A step without an id gets `L<n>`; an id twice
-  keeps its first item, and the second gets `L<n>` with its line, named as a problem. `activities.json` keeps the
+  names; "Done on ... by ..." lines also become `## History` lines. A step without an id gets `L-<8 hex>`, a hash of
+  its activity and its line's words, so it keeps its id when steps come or go around it (a second step with the
+  same words gets the next of a row); an id twice keeps its first item, and the second gets such an id with its
+  line, named as a problem. `activities.json` keeps the
   activities in order with their steps, their notes (the lines under a heading before its first step), the loose
   lines between steps and the head of the file. Nothing is dropped: the store written back as text equals the
   backlog line for line, blank lines aside.
@@ -907,11 +909,15 @@ refresh that the store says the same.
   of line, and on the real one when `BOARD_PARITY_BACKLOG` names it (skipped otherwise; no chat's words come into
   the repository).
 - **The store on disk** (`src/work/store.mjs`): `readStore`, `writeItem` (read anew, written beside, put in place;
-  refused when the file changed since it was read), `nextId` (above `last-ids.json` and every file: an id never comes
-  back), `appendHistory`, `writeStore` (only the files whose text changed; a step that left the backlog keeps its
-  file and is named as a problem, never deleted), `truth.json` (`shadow` here).
+  refused when the file changed since it was read), `nextId` (above `last-ids.json`, read value by value so a broken
+  file still counts, every file and every id being given: one at a time per folder in the process, and claimed with an
+  `<id>.claim` file that only one process can create; an id never comes back), `appendHistory`, `writeStore` (only
+  the files whose text changed; Since and History carried only within one step; a step with an id that left the
+  backlog keeps its file and is named as a problem, never deleted; an id-less step's file, only ever a copy of its
+  line, goes with it; `last-ids.json` never lowered), `truth.json` (`shadow` here).
 - **The shadow** (`src/work/shadow.mjs`): at every refresh the server migrates the backlog's text into the store
-  when its hash changed. An item keeps its `Since` and History while its state stays; a state that changed gets a
+  when its hash changed, one write at a time: a refresh that comes during a write leaves its text, the newest is
+  written next, and the backlog is read anew right before each write. An item keeps its `Since` and History while its state stays; a state that changed gets a
   History line "queued → done (the backlog says so)". The store is read again after a write, else every 30 s. The
   state takes its backlog from the store while it reads back as the same backlog, else from the file; a store that
   cannot be read puts one line on top of the board. Only the board that delivers writes the store; a copy writes

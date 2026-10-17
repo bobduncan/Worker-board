@@ -375,7 +375,13 @@ async function main(args) {
   // give it a store folder of its own outside the project, so a copy never writes the project's store. Every board
   // reads it.
   const canWriteWork = !isDemo && config.project !== '' && (!isShowOnly || isOwnWork(config))
-  const work = isDemo || config.project === '' ? async () => undefined : shadowKeeper({ dir: workFolder(config), canWrite: canWriteWork, clock })
+  const work = isDemo || config.project === '' ? async () => undefined : shadowKeeper({
+    dir: workFolder(config),
+    canWrite: canWriteWork,
+    clock,
+    // The backlog read anew right before each write, so a refresh's older text never wins (B296 review).
+    readBacklog: () => readFile(join(config.project, ...config.backlog.split('/')), 'utf8'),
+  })
 
   let store
   let readRaw

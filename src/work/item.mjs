@@ -75,7 +75,8 @@ export function serializeItem({ head, sections = new Map() }) {
 }
 
 const DATE = /^\d{4}-\d\d-\d\d(?: \d\d:\d\d)?$/
-const ID = /^[A-Z]\d+$/
+// B296: `L-<8 hex>` is a step the backlog gave no id (migrate.mjs `legacyId`).
+const ID = /^(?:[A-Z]\d+|L-[0-9a-f]{8})$/
 
 /** What is wrong with a head for its kind, as one line naming the key, or null when it is fine. */
 export function validateHead(head, kind = head.get('Kind')) {

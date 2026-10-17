@@ -6,15 +6,18 @@
 
 import { randomBytes } from 'node:crypto'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { storeProblems } from './adapter.mjs'
 import { DEFAULT_FLOW, parseFlow } from './flow.mjs'
 import { parseItem, serializeItem, validateHead, valueOf } from './item.mjs'
+import { isLegacyId } from './line.mjs'
 import { stamp } from './migrate.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, readdir }
-const ITEM_FILE = /^([A-Z]\d+)\.md$/
+const ITEM_FILE = /^([A-Z]\d+|L-[0-9a-f]{8})\.md$/
+const CLAIM_FILE = /^([A-Z]\d+)\.claim$/
+const NUMBERED = /^[A-Z]\d+$/
 const MIGRATED = /server: migrated from the backlog$/
 
 const readOr = (fs, file, fallback) => fs.readFile(file, 'utf8').then(text => text, () => fallback)
@@ -97,22 +100,59 @@ export async function writeItem(dir, item, fs = files, { expected } = {}) {
 
 const highestOf = (ids, letter) => Math.max(0, ...ids.map(id => id.match(new RegExp(`^${letter}(\\d+)$`))?.[1]).filter(Boolean).map(Number))
 
-/** The next id of a letter ("B" → "B296"): above last-ids.json and above every file, never one that was given. */
-export async function nextId(dir, letter, fs = files) {
+/**
+ * B296 review: the highest id per letter last-ids.json gives, read value by value, so a file that broke halfway still
+ * gives what it holds and no id comes back.
+ */
+export function readLastIds(text) {
+  const last = {}
+  for (const found of String(text ?? '').matchAll(/"([A-Z])"\s*:\s*(\d+)/g)) last[found[1]] = Math.max(last[found[1]] ?? 0, Number(found[2]))
+  return last
+}
+
+/** The two lists of ids together, each letter at the higher of the two. */
+const higher = (a, b) => Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map(letter => [letter, Math.max(a[letter] ?? 0, b[letter] ?? 0)]))
+
+/** One turn per folder in this process, so two asks for an id never read last-ids.json at the same moment. */
+const turns = new Map()
+
+/**
+ * The next id of a letter ("B" → "B296"): above last-ids.json, every item file and every id being given right now,
+ * never one that was given. Within this process one at a time per folder; across processes the id is claimed by
+ * creating `<id>.claim` (only one can), and last-ids.json is written before the claim goes.
+ */
+export function nextId(dir, letter, fs = files) {
+  const key = resolve(dir)
+  const turn = (turns.get(key) ?? Promise.resolve()).then(() => claimId(dir, letter, fs))
+  turns.set(key, turn.catch(() => {}))
+  return turn
+}
+
+async function claimId(dir, letter, fs) {
   await fs.mkdir(dir, { recursive: true })
   const file = join(dir, 'last-ids.json')
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const before = await readOr(fs, file, null)
-    let last = {}
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const names = await fs.readdir(dir)
+    const last = readLastIds(await readOr(fs, file, null))
+    const onDisk = names.map(name => name.match(ITEM_FILE)?.[1] ?? name.match(CLAIM_FILE)?.[1]).filter(Boolean)
+    const next = Math.max(last[letter] ?? 0, highestOf(onDisk, letter)) + 1
+    const claim = join(dir, `${letter}${next}.claim`)
     try {
-      last = JSON.parse(before ?? '{}') ?? {}
-    } catch {
-      last = {}
+      await fs.writeFile(claim, '', { flag: 'wx' })
+    } catch (error) {
+      if (error.code === 'EEXIST') continue
+      throw error
     }
-    const onDisk = (await fs.readdir(dir)).map(name => name.match(ITEM_FILE)?.[1]).filter(Boolean)
-    const next = Math.max(Number(last[letter]) || 0, highestOf(onDisk, letter)) + 1
-    const done = await putInPlace(file, `${JSON.stringify({ ...last, [letter]: next })}\n`, fs, before)
-    if (done.ok) return `${letter}${next}`
+    try {
+      // Another process may have given it since the read above: it writes last-ids.json before its claim goes.
+      const before = await readOr(fs, file, null)
+      const now = readLastIds(before)
+      if ((now[letter] ?? 0) >= next) continue
+      const done = await putInPlace(file, `${JSON.stringify(higher(now, { [letter]: next }))}\n`, fs, before)
+      if (done.ok) return `${letter}${next}`
+    } finally {
+      await fs.rm(claim, { force: true }).catch(() => {})
+    }
   }
   throw new Error('last-ids.json could not be written')
 }
@@ -146,6 +186,9 @@ export async function writeTruth(dir, { truth, since }, fs = files) {
 function carried(item, before, now) {
   if (before === null) return item
   const old = parseItem(before)
+  // Only ever within one step: a file that holds another step (or another line, for a step without an id) is not
+  // carried over.
+  if (valueOf(old, 'Id') !== valueOf(item, 'Id') || (isLegacyId(valueOf(item, 'Id')) && old.head.get('Title') !== item.head.get('Title'))) return item
   const head = new Map(item.head)
   const oldState = valueOf(old, 'State')
   const state = valueOf(item, 'State')
@@ -161,7 +204,8 @@ function carried(item, before, now) {
 
 /**
  * The shadow's whole write of a migrated backlog (`{ items, activities, preamble }` of migrateBacklog): only the files
- * whose text changed; an item file whose step left the backlog stays and is named in `problems`. Raises last-ids.json
+ * whose text changed; an item file whose step left the backlog stays and is named in `problems`, except a step
+ * without an id, whose file goes (it only held a copy of its line). Raises last-ids.json, never lowering it,
  * to the highest id per letter and writes truth.json as a shadow when it is not there. `{ written, problems }`.
  */
 export async function writeStore(dir, { items, activities, preamble = [] }, fs = files, { now = Date.now() } = {}) {
@@ -178,16 +222,17 @@ export async function writeStore(dir, { items, activities, preamble = [] }, fs =
   }
   const listed = await putInPlace(join(dir, 'activities.json'), `${JSON.stringify({ preamble, activities }, null, 1)}\n`, fs)
   if (listed.changed) written.push('activities.json')
-  const onDisk = (await fs.readdir(dir)).map(name => name.match(ITEM_FILE)?.[1]).filter(Boolean)
-  const lastText = await readOr(fs, join(dir, 'last-ids.json'), null)
-  let last = {}
-  try {
-    last = JSON.parse(lastText ?? '{}') ?? {}
-  } catch {
-    last = {}
+  // A step without an id whose line left the backlog: its file only ever held a copy of that line, so it goes. A file
+  // with an id given by the backlog or the store is never removed.
+  for (const name of await fs.readdir(dir)) {
+    const id = name.match(ITEM_FILE)?.[1]
+    if (id !== undefined && isLegacyId(id) && !items.has(id)) await fs.rm(join(dir, name), { force: true })
   }
-  const raised = { ...last }
-  for (const letter of new Set(onDisk.map(id => id[0]).filter(letter => letter !== 'L'))) raised[letter] = Math.max(Number(last[letter]) || 0, highestOf(onDisk, letter))
+  const onDisk = (await fs.readdir(dir)).map(name => name.match(ITEM_FILE)?.[1]).filter(Boolean)
+  // last-ids.json only grows: the higher of what it holds (value by value) and the files.
+  const lastText = await readOr(fs, join(dir, 'last-ids.json'), null)
+  const numbered = onDisk.filter(id => NUMBERED.test(id))
+  const raised = higher(readLastIds(lastText), Object.fromEntries([...new Set(numbered.map(id => id[0]))].map(letter => [letter, highestOf(numbered, letter)])))
   const lastDone = await putInPlace(join(dir, 'last-ids.json'), `${JSON.stringify(raised)}\n`, fs, lastText)
   if (lastDone.changed) written.push('last-ids.json')
   if (await readOr(fs, join(dir, 'truth.json'), null) === null) {

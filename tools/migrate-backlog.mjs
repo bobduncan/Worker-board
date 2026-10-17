@@ -15,6 +15,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { parseBacklog } from '../src/backlog.mjs'
 import { storeAsBacklog } from '../src/work/adapter.mjs'
 import { valueOf } from '../src/work/item.mjs'
+import { isLegacyId } from '../src/work/line.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { writeStore } from '../src/work/store.mjs'
 
@@ -52,7 +53,7 @@ export async function run(args, log = console.log) {
   log(`Steps: ${before} on the backlog, ${counts.steps} in the store${before === counts.steps ? '' : ' (NOT the same)'}`)
   log(`Open: ${counts.open} · done: ${counts.done} · for you (open): ${counts.you}`)
   const kept = [...items.values()]
-  log(`Kept as the backlog wrote them: ${kept.filter(item => item.head.has('Queue note')).length} queue notes, ${kept.filter(item => item.head.has('Line')).length} whole lines; ${kept.filter(item => /^L\d+$/.test(valueOf(item, 'Id'))).length} steps without an id (L<n>)`)
+  log(`Kept as the backlog wrote them: ${kept.filter(item => item.head.has('Queue note')).length} queue notes, ${kept.filter(item => item.head.has('Line')).length} whole lines; ${kept.filter(item => isLegacyId(valueOf(item, 'Id'))).length} steps without an id (L-<hash>)`)
   log(`Problems: ${problems.length}`)
   for (const line of problems) log(`  ${line}`)
   const same = isDeepStrictEqual(storeAsBacklog(items, migrated.activities), parseBacklog(text))
