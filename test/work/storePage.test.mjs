@@ -22,10 +22,10 @@ const plain = value => JSON.parse(JSON.stringify(value))
 
 const ask = { id: 'work:Q4', workId: 'Q4', asks: 'look', of: 'B1', ofTitle: 'Draw the strip', blocking: true, blocks: [{ step: 'B1', owner: 'Board' }], isForm: false, isRefine: false, play: 'b1-strip&screen=shop' }
 
-test('a store ask\'s card: its own kind, what it blocks and who waits, the app\'s form, its play link', () => {
-  assert.deepEqual(plain(page.storeAskParts(ask)), { id: 'Q4', tag: 'Look', blocks: 'blocks B1 · Board waits', form: null, play: '/#play=b1-strip&screen=shop' })
-  assert.deepEqual(plain(page.storeAskParts({ ...ask, asks: 'decide', blocking: false, blocks: [], isRefine: true, play: null })), { id: 'Q4', tag: 'Decide · refine', blocks: 'on B1 Draw the strip', form: null, play: null })
-  assert.equal(page.storeAskParts({ ...ask, of: null, blocks: [], isForm: true }).form, 'Asked with the app\'s question form: answer it in its chat.')
+test('a store ask\'s card: its own kind, what it blocks and who waits, its play link', () => {
+  assert.deepEqual(plain(page.storeAskParts(ask)), { id: 'Q4', tag: 'Look', blocks: 'blocks B1 · Board waits', play: '/#play=b1-strip&screen=shop' })
+  assert.deepEqual(plain(page.storeAskParts({ ...ask, asks: 'decide', blocking: false, blocks: [], isRefine: true, play: null })), { id: 'Q4', tag: 'Decide · refine', blocks: 'on B1 Draw the strip', play: null })
+  assert.equal(page.storeAskParts({ ...ask, of: null, blocks: [], isForm: true }).blocks, null)
   assert.equal(page.storeAskParts({ id: 'chat:Board:5' }), null)
 })
 

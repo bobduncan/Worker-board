@@ -1597,7 +1597,7 @@ function listBox(title, lines) {
 }
 
 // storeasks:start
-/** B299: what an ask of the work store says of itself (`Q<n>`): its own kind, what it blocks, the app's form. */
+/** B299: what an ask of the work store says of itself (`Q<n>`): its own kind, what it blocks, its play link. */
 const STORE_ASKS = { decide: 'Decide', look: 'Look', provide: 'Provide', do: 'Do' }
 function storeAskParts(need) {
   if (need.workId === undefined) return null
@@ -1608,7 +1608,6 @@ function storeAskParts(need) {
     id: need.workId,
     tag: `${STORE_ASKS[need.asks] ?? 'Decide'}${need.isRefine ? ' · refine' : ''}`,
     blocks,
-    form: need.isForm ? 'Asked with the app\'s question form: answer it in its chat.' : null,
     play: need.play === null ? null : `/#play=${need.play}`,
   }
 }
@@ -1623,13 +1622,13 @@ function informationRows(list) {
 }
 // storeasks:end
 
-/** B299: the parts of a store ask's card under its head: what it blocks, the app's form, its play link. */
+/** B299: the parts of a store ask's card under its head: what it blocks, its play link (one of the app's form says
+ * "Answer in its chat" in its answer part). */
 function storeAskLines(need) {
   const parts = storeAskParts(need)
   if (parts === null) return []
   const out = []
   if (parts.blocks !== null) out.push(el('p', `ask-blocks${need.blocking ? ' is-blocking' : ''}`, parts.blocks))
-  if (parts.form !== null) out.push(el('p', 'muted', parts.form))
   if (parts.play !== null) {
     const link = el('a', 'run')
     link.href = parts.play
@@ -2758,7 +2757,9 @@ function drawDetails(state) {
   const head = detailsHead(view, el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), now)
 
   // The left column, the wider one: what it is about and what to look at
-  const notes = noteParts(view.notes)
+  // B299: a step of the store shows its Touches in the item's folded part, not a second time among the notes.
+  const itemNow = need === null ? itemFor(subject.step ?? step ?? null, state) : null
+  const notes = noteParts((itemNow?.touches.length ?? 0) > 0 ? view.notes.filter(note => note.title !== 'Touches') : view.notes)
   // A request a chat filed has its own text. A step of the backlog is one line, which is the title above; what
   // describes it further are the lines written under it.
   const words = need !== null && !isStep(need) && need.text !== '' ? [el('p', '', need.text)] : []
@@ -2776,7 +2777,7 @@ function drawDetails(state) {
   const strip = flowStripOf(flowFor(subject.step ?? step ?? null, need, state))
   // B299: once the store is the truth, a step's window shows its item: Summary, picture, goal, the strip, What we
   // build, Requirements and Touches folded; its History comes last.
-  const itemParts = need === null ? itemPartsOf(itemFor(subject.step ?? step ?? null, state), strip !== null) : []
+  const itemParts = itemPartsOf(itemNow, strip !== null)
   if (itemParts.length > 0) left.append(...itemParts.filter(part => part.key !== 'history').map(part => itemPart(part, strip)))
   else {
     if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section('Description', described))
