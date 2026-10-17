@@ -533,3 +533,46 @@ export function workCard(chat: ChatFile, action: string, input: WorkCardInput): 
   if (planned.chat === undefined || input.step === undefined) return planned
   return withStep(planned.chat, { step: input.step })
 }
+
+/** B298: an instruction of the person's that is still open, as the worker board answers it: its id and the turns it missed. */
+export type OpenInstruction = { id: string; turns: number }
+
+/**
+ * B298: whether a prompt is filed on the worker board as the person's instruction: only what they typed in this chat's
+ * own box (`composer`), never what the board or another chat brought in (it carries its id already, or is no word of
+ * theirs), and never a slash command.
+ */
+export function isFiled(text: unknown, origin: { kind?: string } | undefined): boolean {
+  return origin?.kind === 'composer' && typeof text === 'string' && text.trim() !== '' && !text.trimStart().startsWith('/')
+}
+
+/** B298: the open instructions as the board's answer gives them (`open`); null when the answer has none. */
+export function openFrom(answer: unknown): OpenInstruction[] | null {
+  if (typeof answer !== 'object' || answer === null || !Array.isArray((answer as { open?: unknown }).open)) return null
+  return ((answer as { open: unknown[] }).open)
+    .filter((one): one is { id: string; turns?: unknown } => typeof one === 'object' && one !== null && typeof (one as { id?: unknown }).id === 'string')
+    .map(one => ({ id: one.id, turns: typeof one.turns === 'number' && one.turns > 0 ? Math.floor(one.turns) : 0 }))
+}
+
+const andList = (ids: readonly string[]): string => (ids.length <= 1 ? ids.join('') : `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`)
+
+/** B298: the section of the composed prompt that names the open instructions: "Open instructions: I17 (new), I15 (2 turns)". */
+export function instructionsLine(open: readonly OpenInstruction[]): string | null {
+  if (open.length === 0) return null
+  const each = open.map(one => `${one.id} (${one.turns === 0 ? 'new' : `${one.turns} turn${one.turns === 1 ? '' : 's'}`})`)
+  return `Open instructions: ${each.join(', ')}. These are the person's words to you, filed on the worker board; close each with `
+    + 'the work tool, "close" with "id" and "as" (what came of it), once it is done. A turn that ends with one still open marks it missed there.'
+}
+
+/**
+ * B298: what the chat is told with the results of a batch of tool calls when the person's words were filed: "Recorded as
+ * I17; close it with work close I17 --as ...", and the ones earlier turns left open. Null when there is nothing to say.
+ */
+export function recordedLine(filed: readonly string[], missed: readonly OpenInstruction[]): string | null {
+  const parts: string[] = []
+  if (filed.length === 1) parts.push(`Recorded as ${filed[0]}; close it with work close ${filed[0]} --as "what came of it" once it is done.`)
+  if (filed.length > 1) parts.push(`Recorded as ${andList(filed)}; close each with work close <id> --as "what came of it" once it is done.`)
+  const left = missed.filter(one => one.turns > 0 && !filed.includes(one.id))
+  if (left.length > 0) parts.push(`Still open from earlier turns: ${left.map(one => `${one.id} (missed ${one.turns} turn${one.turns === 1 ? '' : 's'})`).join(', ')}.`)
+  return parts.length === 0 ? null : parts.join(' ')
+}

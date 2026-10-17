@@ -4,7 +4,7 @@ import type { ChatFile, ChatTask } from '../types'
 import {
   LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactWhy, handOver, sentKind, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
-  withSend, withState, withStep, workCard,
+  withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, recordedLine,
 } from './chats'
 
 const MIN = 60000
@@ -422,5 +422,24 @@ describe('B297: the work tool keeps the card', () => {
     // Without a task on the card, a plan names the step by its id.
     expect(workCard(units, 'step', { id: 'B12', steps: 4 }).chat?.task?.text).toBe('B12')
     expect(workCard(units, 'next', {}).chat).toBeUndefined()
+  })
+})
+
+describe('B298: the instructions of the person, as the chat is told of them', () => {
+  test('only what the person typed in the own box of the chat is filed, never a slash command or what the board typed', () => {
+    expect(isFiled('Make it blue', { kind: 'composer' })).toBe(true)
+    expect(isFiled('/compact', { kind: 'composer' })).toBe(false)
+    expect(isFiled('  ', { kind: 'composer' })).toBe(false)
+    for (const kind of ['plugin', 'bridge', 'sdk', 'peer', undefined]) expect(isFiled('Make it blue', { kind })).toBe(false)
+  })
+
+  test('the lines: new ones, turns, and several at once', () => {
+    expect(instructionsLine([])).toBeNull()
+    expect(instructionsLine([{ id: 'I17', turns: 0 }, { id: 'I15', turns: 1 }])).toStartWith('Open instructions: I17 (new), I15 (1 turn).')
+    expect(recordedLine([], [])).toBeNull()
+    expect(recordedLine(['I3', 'I4', 'I5'], [{ id: 'I3', turns: 0 }])).toBe('Recorded as I3, I4 and I5; close each with work close <id> --as "what came of it" once it is done.')
+    expect(recordedLine([], [{ id: 'I1', turns: 1 }, { id: 'I2', turns: 0 }])).toBe('Still open from earlier turns: I1 (missed 1 turn).')
+    expect(openFrom({ open: [{ id: 'I1', turns: 2 }, { id: 3 }, 'x', { id: 'I2' }] })).toEqual([{ id: 'I1', turns: 2 }, { id: 'I2', turns: 0 }])
+    expect(openFrom({ text: 'no list' })).toBeNull()
   })
 })
