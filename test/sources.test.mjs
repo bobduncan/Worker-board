@@ -8,7 +8,7 @@ import { answer, fromChat, step, typed, usageResult } from '../fixtures/lines.mj
 import { parseConfig } from '../src/config.mjs'
 import { readHead } from '../src/files.mjs'
 import { findPicture, listPictures, mentionedPaths } from '../src/pictures.mjs'
-import { oneAtATime, readSources } from '../src/sources.mjs'
+import { oneAtATime, readSources, readThreads } from '../src/sources.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { storeKeeper } from '../src/work/read.mjs'
 import { writeStore } from '../src/work/store.mjs'
@@ -108,7 +108,7 @@ test('readSources never follows a transcript name out of the transcripts folder'
 test('readSources gives empty sources for folders that do not exist, and survives a folders reader that fails', async () => {
   const config = { ...parseConfig('{}', {}), project: join(DATA, 'no-such-project'), appSessions: join(DATA, 'no-such-app'), transcripts: join(DATA, 'none') }
   const raw = await readSources(config, async () => { throw new Error('git is not installed') }, NOW)
-  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, planLineAt: {}, tails: {}, adviceText: null, folders: null, askTexts: [], goalsText: null, pictureLists: {}, work: undefined, usageText: null, restartNote: null, branches: null, adviceAt: null })
+  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, planLineAt: {}, tails: {}, adviceText: null, folders: null, askTexts: [], goalsText: null, threadTexts: [], pictureLists: {}, work: undefined, usageText: null, restartNote: null, branches: null, adviceAt: null })
 })
 
 test('a picture is found only inside a folder the board may show, also when a path tries to leave it', async t => {
@@ -187,4 +187,19 @@ test('B156: a step that names an idea\'s folder shows the pictures made, not the
   assert.deepEqual(await listPictures(config.project, ['art-inbox'], 'art-inbox/ideas/shop'), ['art-inbox/ideas/shop/v1.png'])
   // Outside the ideas folder such a name is a picture like any other.
   assert.ok((await listPictures(config.project, ['art-inbox'], 'art-inbox/archer')).includes('art-inbox/archer/reference-1.png'))
+})
+
+test('B259: the brainstorms are read from their folder, newest first, the board\'s own names only', async t => {
+  await mkdir(DATA, { recursive: true })
+  const root = await mkdtemp(join(DATA, 'test-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const folder = join(root, '.claude', 'brainstorms')
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, '2026-10-14-older.md'), '# Brainstorm: Older\n')
+  await new Promise(done => setTimeout(done, 30))
+  await writeFile(join(folder, '2026-10-15-newer.md'), '# Brainstorm: Newer\n')
+  await writeFile(join(folder, 'Notes.txt'), 'not a thread')
+  const threads = await readThreads(root, '.claude/brainstorms')
+  assert.deepEqual(threads.map(one => [one.path, one.text]), [['.claude/brainstorms/2026-10-15-newer.md', '# Brainstorm: Newer\n'], ['.claude/brainstorms/2026-10-14-older.md', '# Brainstorm: Older\n']])
+  assert.deepEqual(await readThreads(root, '.claude/none'), [])
 })

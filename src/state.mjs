@@ -11,6 +11,7 @@ import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
+import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
@@ -47,7 +48,7 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined|ask from the goal map)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined|ask from the goal map|brainstorm|backlog step from the goal map)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'unreported']
 /** How long a window of the 5-hour limit lasts. */
@@ -732,6 +733,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const workOk = shown.store?.ok === true
   // B255, B260: the goal map, read once for the Goals part and for the way to the next milestone.
   const goalMap = typeof raw.goalsText === 'string' ? parseGoals(raw.goalsText) : null
+  // B259: the brainstorms' threads (config.brainstorms in the project), newest first.
+  const brainstorms = brainstormsState(raw.threadTexts ?? [], config.brainstorms)
   const folders = Array.isArray(raw.folders) ? raw.folders : null
   // An open step by its id, for a hand-over or a chat's own record that names one (not a step for the person).
   // With `whose`, only a step of that worker or of nobody.
@@ -1164,5 +1167,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     goalAsks: goalMap === null ? [] : goalAskList(goalMap),
     goalAskNeeds: goalMap === null ? [] : goalAskNeeds(goalMap),
     goalAsksFolder: config.goalAsks,
+    // B259: the brainstorms, and what they wait for from the person: a question to answer, a proposal to create.
+    brainstorms,
+    brainstormNeeds: brainstormNeeds(brainstorms.threads),
   }
 }

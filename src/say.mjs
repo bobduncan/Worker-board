@@ -130,6 +130,66 @@ function goalAskCheck(body, state) {
   return { ok: true, message: { to: body.to, ask: null, step: null, title: null, version: null, verdict: null, command: 'goal-ask', goal: goal.id, about: body.ask, pictures, text: lines.join('\n') } }
 }
 
+/** B259: the brainstorm a word is about, as the board reads it (state.brainstorms); the page names its path only. */
+const threadIn = (state, path) => (state.brainstorms?.threads ?? []).find(one => one.path === path)
+const sayLine = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+
+/**
+ * B259: the words of a brainstorm to the Advisor (spec 2026-10-15, section 5), each made from the thread as the board
+ * read it after its own write, so one is typed only when the thread is where it says: `brainstorm` for a thread the
+ * Advisor has not taken yet (no question, no proposal: no second word for the same thread, Review Focus 4);
+ * `brainstorm answer` for the last question once the board wrote its answer; `brainstorm wrap up` once marked so;
+ * `brainstorm change` for a proposal not created yet, with the person's words.
+ */
+function brainstormCheck(body, state) {
+  const advisor = state.advisor?.name ?? null
+  if (advisor === null || body.to !== advisor) return refuse(400, 'A brainstorm goes to the Advisor.')
+  if ((body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+  const thread = threadIn(state, body.thread)
+  if (thread === undefined) return refuse(409, 'That brainstorm is not on the board.')
+  const isOver = thread.state === 'done' || thread.state === 'discarded'
+  const words = text => ({ ok: true, message: { to: advisor, ask: null, step: null, title: null, version: null, verdict: null, command: body.command, about: thread.path, text } })
+  const head = `Thread: ${thread.path}`
+  if (body.command === 'brainstorm') {
+    if (thread.state !== 'running' || thread.questions > 0 || thread.proposal !== null) return refuse(409, 'The Advisor has this brainstorm already.')
+    return words(`brainstorm\n${head}\nGoal: ${thread.goal === null ? 'new' : `${thread.goal.id} ${plainLine(thread.goal.title)}`}\nOpening: ${sayLine(thread.opening)}`)
+  }
+  if (body.command === 'brainstorm-answer') {
+    const latest = thread.latest
+    if (isOver || thread.proposal !== null || latest === null || latest.n !== body.n || latest.answer === null) return refuse(409, 'That is not the answer the brainstorm waits for.')
+    const answer = latest.answer
+    const value = answer.skipped === true ? 'skipped' : Number.isInteger(answer.back) ? `back to Q${answer.back}` : answer.words === '' ? answer.key : `${answer.key} — ${answer.words}`
+    return words(`brainstorm answer\n${head}\nQ${latest.n}: ${value}`)
+  }
+  if (body.command === 'brainstorm-wrap') {
+    if (thread.state !== 'wrapping up') return refuse(409, 'Wrap the brainstorm up on the board first.')
+    return words(`brainstorm wrap up\n${head}`)
+  }
+  if (isOver || thread.proposal === null || thread.proposal.created !== null) return refuse(409, 'No proposal of this brainstorm waits for a change.')
+  const change = sayLine(body.text)
+  if (change === '') return refuse(400, 'Say what to change.')
+  return words(`brainstorm change\n${head}\nChange: ${change}`)
+}
+
+/**
+ * B259: a step of a created proposal, to the main chat in the Design tab's form (one message per step): the goal it
+ * serves is the first goal the brainstorm made, else the goal it was about. Only a ticked step of a created proposal.
+ */
+function goalStepCheck(body, state, text) {
+  if (body.to !== state.restart?.main) return refuse(400, 'A step from the goal map goes to the main chat.')
+  if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+  const thread = threadIn(state, body.thread)
+  const created = thread?.proposal?.created ?? null
+  if (created === null) return refuse(409, 'Only a created proposal asks for its steps.')
+  const step = Number.isInteger(body.step) ? thread.proposal.steps[body.step] : undefined
+  if (step === undefined || created.leftOut.includes(step.title)) return refuse(409, 'That step is not one the proposal created.')
+  const note = thread.proposal.note ? `: ${sayLine(thread.proposal.note)}` : ''
+  return { ok: true, message: {
+    to: body.to, ask: null, step: null, title: null, version: null, verdict: null, command: 'goal-step', about: `${thread.path}#${body.step}`,
+    text: ['backlog step from the goal map', `Title: ${sayLine(step.title)}`, `Goal: ${created.goals[0] ?? thread.goal?.id ?? 'none'}`, `Description: from the brainstorm "${plainLine(thread.title)}" (${thread.path})${note}`, `Time: ${sayLine(step.cost)}`, `Worker: ${sayLine(step.worker)}`].join('\n'),
+  } }
+}
+
 /**
  * B195: the person's answer to the Advisor's recommendation on the way to the next milestone. Yes goes to the main
  * chat, which puts the step on the backlog when it is not there and hands it out; no goes to the Advisor with the
@@ -180,12 +240,15 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
     // B233, B258: the commands that go to the Advisor only.
     if (body.command === 'refine') return refineCheck(body, state)
     if (body.command === 'goal-ask') return goalAskCheck(body, state)
+    // B259: the words of a brainstorm (to the Advisor), and a step it created (to the main chat).
+    if (body.command.startsWith('brainstorm')) return brainstormCheck(body, state)
+    if (body.command === 'goal-step') return goalStepCheck(body, state, text)
     // B288: the person asks the Advisor for a round now, off while one runs. The server writes its words
     // (rounds.mjs recheckText), which need the board's folder and the project's settings.
     if (body.command === 'recheck') {
@@ -314,8 +377,8 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   const main = state.restart?.main ?? null
   // B195, B233: of the commands, only the answer to the Advisor's recommendation, a refine and (B300) the work store's
   // line to a chat go to another chat than the main one.
-  // B288: and a re-check of the goals, asked of the Advisor; B258: and an ask from the goal map.
-  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work', 'recheck', 'goal-ask'].includes(message.command))) return null
+  // B288: and a re-check of the goals, asked of the Advisor; B258: and an ask from the goal map; B259: and the words of a brainstorm.
+  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change'].includes(message.command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

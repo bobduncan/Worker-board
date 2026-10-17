@@ -1,7 +1,7 @@
 // Reads the real files into texts, in the shape `buildState` takes. Everything outside this folder is read-only
 // for the board, and a file that is missing or cannot be read comes back as null: the page shows it as unknown.
 
-import { stat } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mjs'
@@ -24,6 +24,23 @@ const MOST_FOLDERS = 40
 const USAGE_BYTES = 64 * 1024
 
 const readText = async file => (await readHead(file, TEXT_BYTES))?.text ?? null
+
+/** B259: a thread of a brainstorm is read up to this; the board keeps the newest this many. */
+const THREAD_BYTES = 64 * 1024
+const MOST_THREADS = 50
+
+/**
+ * B259: the brainstorms' threads in the folder `folder` (the setting, inside the project), newest first, at most 50:
+ * `{ path, text, at }`, the path as the setting names it. A folder that is not there holds none.
+ */
+export async function readThreads(project, folder) {
+  const dir = join(project, ...folder.split('/'))
+  const names = (await readdir(dir).catch(() => [])).filter(name => /^[a-z0-9][a-z0-9-]*\.md$/.test(name))
+  const found = await Promise.all(names.map(async name => ({ name, at: await stat(join(dir, name)).then(file => file.mtimeMs, () => null) })))
+  const newest = found.filter(one => one.at !== null).sort((a, b) => b.at - a.at || b.name.localeCompare(a.name)).slice(0, MOST_THREADS)
+  const read = await Promise.all(newest.map(async one => ({ path: `${folder}/${one.name}`, text: (await readHead(join(dir, one.name), THREAD_BYTES))?.text ?? null, at: one.at })))
+  return read.filter(one => one.text !== null)
+}
 
 /**
  * Keeps each file's answer for `ttlMs` and lets one read run at a time, so the chats' look-backs (24 MB each)
@@ -71,7 +88,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const claude = join(config.project, '.claude')
   // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository.
   const plan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.gamePlan.split('/'))
-  const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work] = await Promise.all([
+  const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work, threadTexts] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     readAppChats(config.appSessions),
     plan === null ? null : readText(plan),
@@ -80,6 +97,8 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     // B255: the goal map, beside the backlog; since B260 also the way to the next milestone.
     readText(join(config.project, ...config.goals.split('/'))),
     readWork(),
+    // B259: the brainstorms' threads.
+    readThreads(config.project, config.brainstorms),
   ])
 
   const chats = boardChats(
@@ -115,7 +134,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   }))
 
   return {
-    listText, appChatTexts, planLineTexts, planLineAt, tails, adviceText, folders, askTexts, goalsText,
+    listText, appChatTexts, planLineTexts, planLineAt, tails, adviceText, folders, askTexts, goalsText, threadTexts,
     pictureLists: await pictureLists(config, work, now),
     // B296, B301: the work store as it was read: the one source of the work.
     work,

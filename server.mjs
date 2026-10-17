@@ -48,6 +48,7 @@ import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
+import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
@@ -166,6 +167,7 @@ export function createBoard({
   restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
   backlog = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   goals = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  brainstorm = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
 }) {
@@ -221,7 +223,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/work') {
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/brainstorm' || pathname === '/api/work') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -252,6 +254,10 @@ export function createBoard({
       }
       if (pathname === '/api/goals') {
         const done = await goals(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/brainstorm') {
+        const done = await brainstorm(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/design') {
@@ -796,6 +802,20 @@ async function main(args) {
       const done = await editGoals(body, {
         canWrite: !isDemo && !isShowOnly,
         file: join(config.project, ...config.goals.split('/')),
+        historyDir: join(config.project, ...config.goalsHistory.split('/')),
+        now: clock(),
+      })
+      readState.reset()
+      return done
+    },
+    // B259: the person's brainstorm on the Brainstorm part: its thread, and on Create the goal map. Only the board that
+    // delivers writes; then the state is read anew.
+    brainstorm: async body => {
+      const done = await editThread(body, {
+        canWrite: !isDemo && !isShowOnly,
+        dir: join(config.project, ...config.brainstorms.split('/')),
+        folder: config.brainstorms,
+        goalsFile: join(config.project, ...config.goals.split('/')),
         historyDir: join(config.project, ...config.goalsHistory.split('/')),
         now: clock(),
       })

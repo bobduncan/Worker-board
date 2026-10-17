@@ -217,6 +217,12 @@ export function markAskRead(text, id, askId, at) {
   return { ok: true, text: join(file) }
 }
 
+/** B259: what a brainstorm decided, under the goal it was about: `Note (brainstorm <date>): <the note>`, after its own lines. */
+export function addBrainstormNote(text, id, date, note) {
+  const words = oneLine(note, 600)
+  return words === '' ? refuse('form') : appendOwnLine(text, id, `Note (brainstorm ${date}): ${words}`)
+}
+
 export const setGoalSteps = (text, id, ids) => setGoalLine(text, id, 'Steps', [...new Set(ids.filter(one => /^B\d+$/.test(one)))].join(', '))
 
 /** A link line's value of ids alone ("G1, G7"): rewritten as ids; one with words of its own keeps them. */
@@ -473,6 +479,23 @@ function changeFor(body, made, now) {
     case 'read': return text => (isAskId(body.ask) ? markAskRead(text, id, body.ask, minuteOf(now)) : refuse('form'))
     default: return null
   }
+}
+
+/**
+ * B259: one change to the goal map from elsewhere on the board (a brainstorm's Create): `change(text)` on the file's
+ * UTF-8 text, to `{ ok, text }` or `{ ok: false, why }`. Read, checked and written as a change of the Goals part (a file
+ * that is not UTF-8 or is indented with tabs is not changed), with the daily copy before; no undo. Answers what
+ * `rewrite` answers, `why` also `encoding` or `tabs`.
+ */
+export async function changeGoalsFile(change, { file, historyDir, now, fs = files }) {
+  await historyCopy(file, historyDir, dayOf(now), fs)
+  return rewrite(file, latin => {
+    const text = Buffer.from(latin, 'latin1').toString('utf8')
+    if (Buffer.from(text, 'utf8').toString('latin1') !== latin) return refuse('encoding')
+    if (/^ *\t/m.test(text)) return refuse('tabs')
+    const done = change(text)
+    return done.ok ? { ok: true, text: Buffer.from(done.text, 'utf8').toString('latin1') } : done
+  }, fs)
 }
 
 /**
