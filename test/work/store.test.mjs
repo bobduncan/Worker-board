@@ -124,6 +124,8 @@ test('the example store reads without a problem and gives a backlog back', async
     '',
     '## The board #focus',
     '- [ ] B12 Show the state of each step as a strip (for Board; about 2 h) (branch b12-state-strip)',
+    // B297: what the line cannot say stands in one line of the store's own.
+    '  [store] Goal: G4 · Refined: ready',
     '  Touches: public/board.js, src/state.mjs',
     '- [ ] B13 Count the items of the store on the Backlog tab (for Board; after B12; about 30 min)',
     "  One line under the tab's head: how many items, and whether the store says what the backlog says.",

@@ -5,7 +5,7 @@
 import { parseBacklog } from '../backlog.mjs'
 import { valueOf } from './item.mjs'
 import { stepRest } from './line.mjs'
-import { REFINED_MARK } from './migrate.mjs'
+import { REFINED_MARK, STORE_SEPARATOR, stepItem } from './migrate.mjs'
 
 const indented = line => (/^\s/.test(line) ? line : `  ${line}`)
 
@@ -17,10 +17,28 @@ export function stepNotes(item) {
   return lines.filter(line => line.trim() !== '').map(indented)
 }
 
-/** A step's line on the backlog, ticked when its item is done (a step `done`, an ask `answered`). */
+/** B297: the states that stand ticked on the backlog: a step done or dropped, an ask answered. */
+const TICKED = ['done', 'answered', 'dropped']
+/** A step's line on the backlog, ticked when its item is done (a step `done` or `dropped`, an ask `answered`). */
 export function stepLine(item) {
-  const isDone = ['done', 'answered'].includes(valueOf(item, 'State'))
-  return `- [${isDone ? 'x' : ' '}] ${stepRest(item)}`
+  return `- [${TICKED.includes(valueOf(item, 'State')) ? 'x' : ' '}] ${stepRest(item)}`
+}
+
+/** Keys the line and its lines give back by themselves, or that the view does not carry. */
+const NOT_MARKED = new Set(['Id', 'Since', 'Queue note', 'Line', 'Activity'])
+const none = value => (value === undefined || value === '' || value === '-' ? null : value)
+
+/**
+ * B297: the line under a step with what its line and lines cannot say, as the store holds it ("  [store] State: taken
+ * · Goal: G17", '-' for none), or null when they say it all. The migration reads it back (migrate.mjs, STORE_LINE).
+ * A store migrated from the backlog never needs one: what it holds came from the lines.
+ */
+export function storeLine(item, activity = null) {
+  const read = stepItem({ id: valueOf(item, 'Id') ?? 'L0', isDone: TICKED.includes(valueOf(item, 'State')), rest: stepRest(item), raw: stepNotes(item), activity, now: 0 })
+  const keys = [...new Set([...item.head.keys(), ...read.head.keys()])].filter(key => !NOT_MARKED.has(key))
+  const differ = keys.filter(key => none(item.head.get(key)) !== none(read.head.get(key)))
+  if (differ.length === 0) return null
+  return `  [store] ${differ.map(key => `${key}: ${(none(item.head.get(key)) ?? '-').replaceAll(STORE_SEPARATOR, ' - ')}`).join(STORE_SEPARATOR)}`
 }
 
 /**
@@ -37,7 +55,10 @@ export function backlogText(items, activities, preamble = []) {
     const loose = activity.loose ?? []
     for (const id of activity.steps ?? []) {
       const item = items.get(id)
-      if (item !== undefined) lines.push(stepLine(item), ...stepNotes(item))
+      if (item !== undefined) {
+        const mark = storeLine(item, activity.name)
+        lines.push(stepLine(item), ...(mark === null ? [] : [mark]), ...stepNotes(item))
+      }
       lines.push(...loose.filter(one => one.after === id).map(one => one.line))
     }
     lines.push(...loose.filter(one => !(activity.steps ?? []).includes(one.after)).map(one => one.line))

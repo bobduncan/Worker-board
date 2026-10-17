@@ -198,3 +198,29 @@ export async function writeStore(dir, { items, activities, preamble = [] }, fs =
   problems.push(...storeProblems(held, activities).filter(line => /no longer on the backlog$/.test(line)))
   return { written, problems }
 }
+
+/** B297: an item's file as it is now: `{ text, item }`, or null when there is none. */
+export async function readItemFile(dir, id, fs = files) {
+  const text = await readOr(fs, join(dir, `${id}.md`), null)
+  return text === null ? null : { text, item: parseItem(text) }
+}
+
+/** B297: activities.json's text as it is now, or null. */
+export const readActivitiesText = (dir, fs = files) => readOr(fs, join(dir, 'activities.json'), null)
+
+/** B297: the activities and the head of the backlog, as writeStore writes them; with `expected` only while the file holds it. */
+export async function writeActivities(dir, { preamble = [], activities }, fs = files, { expected } = {}) {
+  return putInPlace(join(dir, 'activities.json'), `${JSON.stringify({ preamble, activities }, null, 1)}\n`, fs, expected)
+}
+
+/** B297: takes an item's file away, only while it holds `expected`. Its id is never given again (last-ids.json). */
+export async function removeItem(dir, id, fs = files, { expected } = {}) {
+  const file = join(dir, `${id}.md`)
+  if (expected !== undefined && await readOr(fs, file, null) !== expected) return { ok: false, why: `${id}.md changed in the meantime` }
+  try {
+    await fs.rm(file)
+    return { ok: true, changed: true }
+  } catch (error) {
+    return { ok: false, why: `${id}.md could not be removed: ${error.code ?? error.message}` }
+  }
+}
