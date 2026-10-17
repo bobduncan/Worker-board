@@ -2226,9 +2226,25 @@ function shortTask(given, stepTitle = null, topic = null) {
       .trim()
     if (first !== '') words = first
   }
-  const chosen = (words ?? stepTitle ?? topic ?? '').trim()
+  return twoLines(words ?? stepTitle ?? topic ?? '')
+}
+
+/** A task's words for the window's two lines: with a capital, cut at SHORT_TASK_CHARS. */
+function twoLines(words) {
+  const chosen = String(words).trim()
   const capital = chosen.charAt(0).toUpperCase() + chosen.slice(1)
   return capital.length > SHORT_TASK_CHARS ? `${capital.slice(0, SHORT_TASK_CHARS - 1).trimEnd()}…` : capital
+}
+
+/**
+ * B281: what the backlog step a task is about is, in at most two lines: the hand-over's "In short: ..." line, else
+ * the step's own first line in the backlog (`step.about`), else as shortTask finds it in the message. The person,
+ * 2026-10-17: "I want the task to be clear, recap the original task briefly".
+ */
+function stepTask(given, step, topic = null) {
+  const hasShort = String(given ?? '').split('\n').some(line => /^in short:/i.test(line.trim()))
+  if (!hasShort && typeof step.about === 'string' && step.about.trim() !== '') return twoLines(step.about)
+  return shortTask(given, step.title, topic)
 }
 
 /**
@@ -2289,8 +2305,13 @@ function laneWindowOf(lane, now, mainTitle) {
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
     given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
     step: given?.step ?? null,
-    // B157: the top part: the task in one short sentence, and its plan in plain words.
-    task: shortTask(given?.text ?? null, given?.step?.title ?? null, task === null || task.text === '' ? null : task.text),
+    // B157: the top part: the task in one short sentence, and its plan in plain words. B281: for a backlog step, the
+    // step's id and title above it, and what the step is; the person's feedback the worker is on as a part apart.
+    taskHead: (given?.step ?? null) === null ? null : `${given.step.id} · ${given.step.title}`,
+    task: (given?.step ?? null) === null
+      ? shortTask(given?.text ?? null, null, task === null || task.text === '' ? null : task.text)
+      : stepTask(given.text, given.step, task === null || task.text === '' ? null : task.text),
+    feedback: (lane.feedback ?? null) === null ? null : { title: `Now on your feedback (${clock(lane.feedback.at)})`, text: lane.feedback.text },
     plan: planOf(lane, now),
     standing: [
       ...(line === null ? [] : [line.label]),
@@ -2308,8 +2329,9 @@ function laneWindowOf(lane, now, mainTitle) {
  */
 const LANE_PARTS = {
   main: [
-    // B157: on top, set apart: the task in at most two lines, and its plan in plain words.
-    view => briefPart([['The task', [briefTask(view.task)]], ['Its plan', planNodes(view.plan)]]),
+    // B157: on top, set apart: the task in at most two lines, and its plan in plain words. B281: the step it is on,
+    // and the person's feedback it is on now in a part of its own.
+    view => briefPart([['The task', taskNodes(view)], [view.feedback?.title ?? '', feedbackNodes(view.feedback)], ['Its plan', planNodes(view.plan)]]),
     // B157: below, folded: the task as it was given, its backlog step, where it stands.
     view => foldedDetails([
       section('Its task as it was given', view.given === null
@@ -2336,6 +2358,12 @@ function briefPart(rows) {
 
 /** B157: the task in its two lines; a window without one says so. */
 const briefTask = task => el('p', `brief-task${task === '' ? ' muted' : ''}`, task === '' ? 'The board does not know the task yet.' : task)
+
+/** B281: a working worker's task: the backlog step it is on ("B231 · title"), then what it is in two lines. */
+const taskNodes = view => [...(view.taskHead === null ? [] : [el('p', 'brief-head', view.taskHead)]), briefTask(view.task)]
+
+/** B281: the person's feedback the worker is on, in at most two lines; nothing when it is on none. */
+const feedbackNodes = feedback => (feedback === null ? [] : [el('p', 'brief-feedback', feedback.text)])
 
 /** B157: a plan as one line of its steps (done ones struck through, the current one marked) and its step and time. */
 function planNodes(plan) {

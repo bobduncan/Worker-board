@@ -67,7 +67,7 @@ test('its plan: the steps by name with where each stands, the technical ones lef
 })
 
 test('both windows: the brief on top, the rest under "Details", folded until opened, kept open when drawn anew', () => {
-  assert.match(script, /main: \[\n\s+\/\/ B157: on top[^\n]*\n\s+view => briefPart\(\[\['The task', \[briefTask\(view\.task\)\]\], \['Its plan', planNodes\(view\.plan\)\]\]\),\n\s+\/\/ B157: below, folded[^\n]*\n\s+view => foldedDetails\(\[/)
+  assert.match(script, /main: \[\n\s+\/\/ B157: on top[^\n]*\n[^\n]*\n\s+view => briefPart\(\[\['The task', taskNodes\(view\)\], \[view\.feedback\?\.title \?\? '', feedbackNodes\(view\.feedback\)\], \['Its plan', planNodes\(view\.plan\)\]\]\),\n\s+\/\/ B157: below, folded[^\n]*\n\s+view => foldedDetails\(\[/)
   assert.match(script, /  side: \[\],\n\}/)
   assert.match(script, /const details = el\('details', 'task-details'\)\n\s+details\.append\(el\('summary', '', 'Details'\), \.\.\.shown\)/)
   assert.ok(!/task-details'\)[^\n]*\.open = true/.test(script.slice(script.indexOf('function foldedDetails'), script.indexOf('function keepUnfolded'))), 'the details open by themselves')

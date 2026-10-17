@@ -31,6 +31,10 @@ const SEEN_MS = 30_000
 /** B161: the mark under a line typed on the board (bridge.mjs, `messageText`), and how many lines of the talk are kept. */
 const TYPED_MARK = /\n?\(typed on the worker board, \d{1,2}:\d{2}\)\s*$/
 const TALK_MESSAGES = 40
+/** B281: the mark before an answer given on the board (bridge.mjs, `messageText`): the board's, not the person's words. */
+const ANSWERED_MARK = /^\(answered on the worker board, \d{1,2}:\d{2}\)\s*/
+/** B281: how much of the person's feedback a task window gets: one line. */
+const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
 const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step)\b/
 /** How long a window of the 5-hour limit lasts. */
@@ -147,6 +151,33 @@ export function heldBy({ plan, handOver, background, step, isCompleted = false, 
  * A chat that recorded its task is on a step too (`stepId`): the one that names its branch, else the open one
  * of its own (or of nobody) that its record names by id, else the one handed to it.
  */
+/** B281: a note line about who has a step or how far it is: not what the step is. */
+const STEP_STATUS = /^(?:handed (?:to|over)|in progress|done on|approved|refined|picked up|paused|moved|was:)/i
+
+/**
+ * B281: what a backlog step is, in a line: the first line of its notes that is not about who has it or how far it is,
+ * nor a bare head ("Requirements:"); a point's dash left off. Null when its notes have none.
+ */
+function aboutLine(notes = []) {
+  for (const note of notes) {
+    const line = String(note).trim().replace(/^[-*]\s+/, '')
+    if (line === '' || STEP_STATUS.test(line) || /^[A-Z][A-Za-z /]{1,28}:$/.test(line)) continue
+    return line
+  }
+  return null
+}
+
+/**
+ * B281: the person's feedback in one line: the board's marks around an answer or a line typed there left off, a
+ * picture's place, and the lines joined with " · "; at most FEEDBACK_CHARS.
+ */
+function feedbackLine(words) {
+  const lines = String(words ?? '').replace(TYPED_MARK, '').replace(ANSWERED_MARK, '').split('\n')
+    .map(line => line.trim()).filter(line => line !== '' && line !== '[picture]')
+  const one = lines.join(' · ').replace(/\s+/g, ' ')
+  return one.length > FEEDBACK_CHARS ? `${one.slice(0, FEEDBACK_CHARS - 1).trimEnd()}…` : one
+}
+
 function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, step = null, stepById = () => null }) {
   // `scan` holds the entries that can start or end a task: the tail, after a longer look back when there is one.
   const handOver = chat.isMain || scan === null ? null : taskStart(scan, main)
@@ -255,7 +286,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, reports: null, compaction: null, unanswered: null, idle: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, reports: null, compaction: null, unanswered: null, idle: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -307,9 +338,18 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // B151: the message that gave it the task it is on, as it arrived, for the window a click on its lane opens; with
   // the backlog step it is on, else the first open one that message names.
   const isOnTask = task !== null && (state === 'working' || state === 'suspended' || state === 'interrupted')
-  const given = !isOnTask || scan === null ? null : taskOrigin(scan, main, Number.isFinite(task.startedAt) ? task.startedAt + 2 * MIN : Infinity)
+  // B281: while the main chat's hand-over is open it is the task, also when the person's words came after it and the
+  // chat named its task anew for them (B231's window showed those words as its task).
+  const openHandOver = !isOnTask || scan === null || chat.isMain ? null : taskStart(scan, main)
+  const until = openHandOver?.at ?? (Number.isFinite(task?.startedAt) ? task.startedAt + 2 * MIN : Infinity)
+  const given = !isOnTask || scan === null ? null : taskOrigin(scan, main, until)
   const givenStep = given === null ? null
     : (task.stepId === null ? null : stepById(task.stepId)) ?? (given.text.split('\n')[0].match(/\bB\d+\b/g) ?? []).map(id => stepById(id)).find(one => one !== null) ?? null
+  // B281: the person's words that opened its turn after it was given the task: the feedback it is on now.
+  const opening = !isOnTask || scan === null ? null : turnStart(scan, { prefix })
+  const after = given?.at ?? task?.startedAt ?? Infinity
+  // Only a sure opening: words the tail cannot see the turn before of may be a remark in the middle of a turn.
+  const feedback = opening?.by === 'you' && opening.isSure && opening.at > after ? { at: opening.at, text: feedbackLine(opening.words ?? opening.title) } : null
   return {
     ...base,
     state,
@@ -344,7 +384,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     unanswered: quietMs === null || entries === null ? null : unanswered(entries),
     // B262: since when its turn has ended, and whether the app or its transcript says so.
     idle,
-    givenTask: given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title } },
+    givenTask: given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title, about: givenStep.about ?? null } },
+    feedback,
     suspended: paused,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).
     usage: entries === null ? [] : usageReadings([...(typeof tail.usage === 'string' ? parseTail(tail.usage, false) : []), ...entries]),
@@ -664,7 +705,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const openSteps = backlog.activities.flatMap(activity => activity.steps).filter(one => !one.isDone && !one.isYou && one.id !== null)
   const stepById = (id, whose = null) => {
     const one = openSteps.find(found => found.id === id && (whose === null || found.worker === null || found.worker === whose))
-    return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch }
+    return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch, about: aboutLine(one.notes) }
   }
   const read = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf, stepById }))
   const advisorCard = advisorChat === undefined ? null : card(advisorChat, raw, context)

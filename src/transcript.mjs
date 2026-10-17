@@ -556,7 +556,8 @@ export function turnStart(entries, { prefix = '' } = {}) {
     }
     // A message that starts with a picture is named after its words.
     const words = value.split('\n').filter(line => line.trim() !== '[picture]').join('\n').trim()
-    opening = { at: entry.at, by: 'you', title: words === '' ? 'A picture' : titleOf(words), isSure: hasEnd }
+    // B281: with the words themselves, for a window that shows the person's feedback the chat is on.
+    opening = { at: entry.at, by: 'you', title: words === '' ? 'A picture' : titleOf(words), words, isSure: hasEnd }
     isOpen = true
   }
   return opening === null ? null : { ...opening, isOpen }
