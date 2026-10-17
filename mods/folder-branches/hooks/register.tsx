@@ -1094,14 +1094,17 @@ export const register: Register = on => {
         // B298: a turn that answered has ended: the board marks the instructions filed before it and still open as missed.
         if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
           isTurnEndTold = true
-          await workQuietly($, { action: 'turn-ended', since: turnStartedAt })
-          // B300: a worker that holds nothing pulls, once per turn: when a step queued for it may be taken now, the board
-          // puts its line ("work: B286 is yours; run work next") into the outbox once, and it is typed here at once.
-          // While the store is not the truth the board refuses, and nothing happens.
-          if (await withinTime($, holdsNothing($)) === true) {
-            const pulled = await workQuietly($, { action: 'pull' })
-            if (typeof pulled?.text === 'string' && pulled.text !== '') await withinTime($, takeFromBoard($))
-          }
+          const since = turnStartedAt
+          // B300: a worker that holds nothing pulls with the same call, once per turn: when a step queued for it may be
+          // taken now, the board puts its line ("work: B286 is yours; run work next") into the outbox once, and it is
+          // typed here at once. All of it holds the turn's end 1.5 s at most; while the store is not the truth the board
+          // refuses, and the mod asks again only after five minutes.
+          await withinTime($, (async () => {
+            const pulls = await holdsNothing($)
+            const ended = await workQuietly($, { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}) })
+            const line = (ended?.pull as { text?: unknown } | undefined)?.text
+            if (typeof line === 'string' && line !== '') await takeFromBoard($)
+          })())
         }
         turnStartedAt = null
       } else {

@@ -1236,8 +1236,8 @@ describe('B298: the person\'s words are filed on the worker board as instruction
     w.workAnswer = { status: 200, text: JSON.stringify({ missed: ['I15'], open: [{ id: 'I15', turns: 3 }] }) }
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await $.turn.complete({ ...ENDED, turnId: 't1' })
-    // B300: a free worker pulls its next step after it, once.
-    expect(sent(w)).toEqual([{ action: 'turn-ended', since: started, chat: 'Units', session: 'units' }, { action: 'pull', chat: 'Units', session: 'units' }])
+    // B300: a free worker pulls its next step with the same call, once.
+    expect(sent(w)).toEqual([{ action: 'turn-ended', since: started, pull: true, chat: 'Units', session: 'units' }])
     // The next prompt names it as missed.
     w.workAnswer = { status: 200, text: JSON.stringify({ id: 'I16', open: [{ id: 'I15', turns: 3 }, { id: 'I16', turns: 0 }] }) }
     await $.prompt.submit({ text: 'go on', ...ASKED } as never)
@@ -1279,12 +1279,10 @@ describe('B298: the person\'s words are filed on the worker board as instruction
     await $.turn.start({ text: 'go', turnId: 't1' })
     const ended = $.turn.complete({ ...ENDED, turnId: 't1' })
     await settle()
-    await clock.advance(1500)
-    // B300: then the free worker's pull, held a moment and a half at most too.
-    await settle()
+    // B300: the turn's end with the free worker's pull is one call, held a moment and a half at most in all.
     await clock.advance(1500)
     await ended
-    expect(sent(w).map(one => one.action)).toEqual(['instruction', 'turn-ended', 'pull'])
+    expect(sent(w).map(one => one.action)).toEqual(['instruction', 'turn-ended'])
   })
 
   test('a chat started anew asks once for its open instructions, so its first turn names them', async ($, on) => {
@@ -1314,10 +1312,10 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     await $.turn.start({ text: 'go', turnId: 't1' })
-    w.workAnswers = [{ status: 200, text: JSON.stringify({ missed: [], open: [] }) }, { status: 200, text: JSON.stringify({ text: LINE, id: 'B286', wake: { to: 'Units', id: 'B286' } }) }]
+    w.workAnswer = { status: 200, text: JSON.stringify({ missed: [], open: [], pull: { text: LINE, id: 'B286', wake: { to: 'Units', id: 'B286' } } }) }
     w.waiting = [{ id: 'w1', text: LINE }]
     await $.turn.complete({ ...ENDED, turnId: 't1' })
-    expect(sent(w).map(one => one.action)).toEqual(['turn-ended', 'pull'])
+    expect(sent(w).map(one => [one.action, one.pull ?? null])).toEqual([['turn-ended', true]])
     expect(w.typedIn).toEqual([`plugin:as the person:${LINE}`])
   })
 
@@ -1332,7 +1330,23 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
     await $.turn.start({ text: 'go', turnId: 't2' })
     await $.turn.complete({ ...ENDED, turnId: 't2', reason: 'aborted', isAborted: true })
     // A chat in the list at its start asks once for its open instructions ("next"); no pull follows either turn.
-    expect(sent(w).map(one => one.action)).toEqual(['next', 'turn-ended'])
+    expect(sent(w).map(one => [one.action, one.pull ?? null])).toEqual([['next', null], ['turn-ended', null]])
+  })
+
+  test('in shadow the turn’s end asks the board once in five minutes, pull and all', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.workAnswer = { status: 409, text: 'The store is not the truth yet: the cutover has not run' }
+    for (const turn of ['t1', 't2', 't3']) {
+      await $.turn.start({ text: 'go', turnId: turn })
+      await clock.advance(60_000)
+      await $.turn.complete({ ...ENDED, turnId: turn })
+    }
+    expect(w.worked.length).toBe(1)
+    expect(w.typedIn).toEqual([])
   })
 
   test('the main chat does not pull', async ($, on) => {
@@ -1343,7 +1357,7 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
     await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Main' })
     await $.turn.start({ text: 'go', turnId: 't1' })
     await $.turn.complete({ ...ENDED, turnId: 't1' })
-    expect(sent(w).map(one => one.action)).toEqual(['turn-ended'])
+    expect(sent(w).map(one => [one.action, one.pull ?? null])).toEqual([['turn-ended', null]])
   })
 
   test('a free worker whose pull brings nothing takes nothing', async ($, on) => {
@@ -1353,10 +1367,10 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     await $.turn.start({ text: 'go', turnId: 't1' })
-    w.workAnswer = { status: 200, text: JSON.stringify({ text: '', id: null, wake: null }) }
+    w.workAnswer = { status: 200, text: JSON.stringify({ missed: [], open: [], pull: { text: '', id: null, wake: null } }) }
     const takes = w.fetched.length
     await $.turn.complete({ ...ENDED, turnId: 't1' })
-    expect(sent(w).map(one => one.action)).toEqual(['turn-ended', 'pull'])
+    expect(sent(w).map(one => [one.action, one.pull ?? null])).toEqual([['turn-ended', true]])
     expect(w.fetched.length).toBe(takes)
     expect(w.typedIn).toEqual([])
   })
