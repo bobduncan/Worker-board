@@ -43,6 +43,7 @@ import { freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
+import { newSince, refineWhenDue } from './src/refineGate.mjs'
 import { roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
@@ -378,6 +379,10 @@ async function main(args) {
   // B173: what the clock of the Advisor's rounds wrote down; null before its first look.
   const ROUNDS_FILE = join(HERE, 'data', 'rounds.json')
   let roundsKept = null
+  // B285: the highest step that was on the backlog when the board began refining steps by itself: a step above it is
+  // new and gets one refine. Null before its first look.
+  const REFINE_FILE = join(HERE, 'data', 'refine-gate.json')
+  let refineKept = null
   // B185: how long the tasks really took, read from the workers' transcripts and kept in the data folder, with the
   // list the chats read when they give a time. A board that shows another's history starts from that one's file
   // and measures in memory only.
@@ -401,6 +406,7 @@ async function main(args) {
       store = await fileStore(join(HERE, 'data'), clock())
       finishedSeen = await readFile(FINISHED_FILE, 'utf8').then(text => JSON.parse(text), () => null)
       roundsKept = await readFile(ROUNDS_FILE, 'utf8').then(text => JSON.parse(text), () => null)
+      refineKept = await readFile(REFINE_FILE, 'utf8').then(text => JSON.parse(text).since, () => null)
       taskTimes = await readFile(TASK_TIMES_FILE, 'utf8').then(text => JSON.parse(text), () => null) ?? taskTimes
     } else {
       // The history of the board that is running; this one records nothing and keeps what is sent in memory.
@@ -669,7 +675,8 @@ async function main(args) {
       // B212: without a Workers mod nothing takes the board's words: they are kept as copied, and the page puts them on
       // the clipboard for the person to paste into the chat, marked as typed on the board.
       const isCopied = state.bridge?.isMissing === true
-      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: isCopied ? 'copied' : 'waiting' }
+      // B285: a queue ask for a step that is not refined yet waits on the board until it is (refineGate.mjs).
+      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
       const ticked = await settle(message, state)
       if (ticked !== null) {
@@ -683,7 +690,7 @@ async function main(args) {
         return { ok: true, message: { ...message, paste } }
       }
       // Sent to a chat that is not running: the main chat is asked to start it, so nothing waits without a word.
-      const wake = wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+      const wake = message.state === 'held' ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
       if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
       // What was sent shows at once.
       readState.reset()
@@ -855,6 +862,28 @@ async function main(args) {
           await writeFile(ROUNDS_FILE, JSON.stringify(next.kept))
           roundsKept = next.kept
         }
+      }
+      // B285: steps are refined before they go into a queue. The board sends a step to the Advisor by itself, one at a
+      // time; lets a held queue ask go to the main chat once its step is refined; and tells the main chat when a step it
+      // queued unrefined is refined. Only the board that delivers.
+      if (bridgeKey !== null && state.bridge?.isMissing !== true) {
+        const now = clock()
+        const since = newSince(refineKept, state)
+        if (since !== refineKept) {
+          await writeFile(REFINE_FILE, JSON.stringify({ since }))
+          refineKept = since
+        }
+        const due = refineWhenDue(state, store.outbox(), { since })
+        for (const id of due.release) await store.update(id, { state: 'waiting', at: now, releasedAt: now })
+        for (const id of due.drop) await store.update(id, { state: 'dropped' })
+        for (const words of [due.refine, due.notice]) {
+          if (words === null) continue
+          const message = { id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' }
+          await store.say(message)
+          const wake = wakeFor(message, state, store.outbox(), now, config.maxMessageChars)
+          if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })
+        }
+        if (due.release.length + due.drop.length > 0 || due.refine !== null || due.notice !== null) readState.reset()
       }
       // B124: the main chat alone in the list is asked for workers, once. Only the board that delivers asks.
       const ask = bridgeKey === null ? null : spawnWhenAlone(state, store.outbox(), store.lines())

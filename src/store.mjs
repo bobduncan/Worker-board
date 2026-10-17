@@ -48,6 +48,8 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
   return messages
     .map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
     .filter(message => message.state === 'waiting'
+      // B285: a queue ask held on the board until its step is refined stays known as long as it is held.
+      || message.state === 'held'
       // What did not arrive is shown for a while.
       || ((message.state === 'expired' || message.state === 'failed') && now - message.at < shownMs)
       // An answer that was taken or typed keeps its request closed.
@@ -107,6 +109,14 @@ function storeOver(lines, messages, alive, write) {
         throw error
       }
       return taken.map(message => ({ ...message }))
+    },
+    /** B285: changes a message the board holds (a held queue ask let go or dropped), written down like the others. */
+    async update(id, fields) {
+      const message = messages.find(one => one.id === id)
+      if (message === undefined) return false
+      Object.assign(message, fields)
+      await write.outbox([{ id, ...fields }])
+      return true
     },
     /** What the mod says became of the messages a chat took: typed into the chat, or not. */
     async settle(to, { typed = [], failed = [] }, now) {

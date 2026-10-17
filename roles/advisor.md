@@ -112,7 +112,11 @@ may name the user's own examples.
 ## Refine a step
 
 The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in
-a step's window: it is their word. Read the step and the lines under it in the backlog, and what it touches, then
+a step's window: it is their word. It also types round 1 by itself, one step at a time (B285, the user's wish that
+every step is refined before it goes into a queue): once for every new step, and for a step that is about to be
+queued (the user asked to queue it, or the main chat queued it before it was refined). Do the same for those.
+A step is refined, and may be queued, when its block leaves no question open: every one answered,
+`- None: ready to pick up.`, or accepted by the user. Read the step and the lines under it in the backlog, and what it touches, then
 write its refine block under the step's other lines (before a closing line in brackets), the only change you make:
 
     Refined (round <n>, by <your title>, <YYYY-MM-DD HH:MM>):

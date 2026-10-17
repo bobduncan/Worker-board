@@ -230,6 +230,20 @@ the block's first line. The board writes only that block, as for Close (`src/tic
 the board that delivers). While a round is asked and not written yet (on its way, or arrived less than half an hour
 ago), the window says so and the server refuses a second ask.
 
+**Refined before a queue (B285).** The person, on goal G17 (2026-10-17): "every item on the backlog automatically Before
+it gets put in the queue. if main wants to put it in the queue automatically/directly, refine it first". A step is
+refined when its block leaves no question open: every one answered, "None: ready to pick up.", or accepted
+(`src/backlog.mjs`, `isRefined`; the Advisor's newer lines Summary, Picture, Part of and Size stay inside the block).
+At every look the board that delivers does by itself (`src/refineGate.mjs`), only while no refine is open, the person's
+neither: it sends one step to the Advisor in the Refine button's words, first a step the person asked to queue, then
+a step the main chat queued before it was refined, then a new step (above the highest one on the backlog at its first
+look, kept in `data/refine-gate.json`) once; never the person's steps, finished ones or steps in progress, and never a
+step with a block, which waits for the person's answers. "Add to queue" on a step that is not refined is held on the
+board ("Refine, then queue") and goes to the main chat by itself once the step is refined; it is dropped when the step
+is finished, queued or gone. A step the main chat queued before it was refined is said to it once it is
+(`step refined`, Step, For), so it hands the step out then (roles/main.md, point 0). Old steps are refined when they
+are about to be queued, not all at once. Without a Workers mod nothing of this runs.
+
 **Stop, move or take out of the queue (B83).** The person, 2026-10-14, of the two choices: "1. A" (stop lets the worker
 reach a safe point: work committed and pushed, nothing new started) and "2. A" (the main chat makes the change). A
 worker's "⋯" menu has "■ Stop its task" for a worker on a task; it asks once ("Stop its task? It finishes what runs,

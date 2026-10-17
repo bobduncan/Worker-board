@@ -154,6 +154,11 @@ export function noteSections(notes) {
  */
 export const REFINED_HEAD = /^Refined\s*(?:\(([^)]*)\))?\s*:\s*$/
 const REFINED_PARTS = { Problem: 'problem', Goal: 'goal', Questions: 'questions', Feedback: 'feedback' }
+/**
+ * B285: the lines of the Advisor's newer form (the draft of what "refined" means: a summary, a picture, its goal and
+ * its size) stand in the block too, so the questions under them stay in it; the board does not show them yet.
+ */
+const REFINED_KEPT = new Set(['Summary', 'Picture', 'Part of', 'Size'])
 const NAMED = /^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/
 
 /** Where the refine block stands in a step's notes: `[start, end)` as indexes of `notes`, or null when it has none. */
@@ -164,7 +169,7 @@ export function refinedSpan(notes) {
   while (end < notes.length) {
     const line = notes[end].trim()
     const named = line.match(NAMED)
-    if ((named !== null && REFINED_PARTS[named[1]] === undefined) || line.startsWith('(') || REFINED_HEAD.test(line)) break
+    if ((named !== null && REFINED_PARTS[named[1]] === undefined && !REFINED_KEPT.has(named[1])) || line.startsWith('(') || REFINED_HEAD.test(line)) break
     end += 1
   }
   return [start, end]
@@ -193,6 +198,10 @@ export function refinedOf(notes) {
   for (const note of notes.slice(span[0] + 1, span[1])) {
     const line = note.trim()
     const named = line.match(NAMED)
+    if (named !== null && REFINED_KEPT.has(named[1])) {
+      part = null
+      continue
+    }
     if (named !== null && REFINED_PARTS[named[1]] !== undefined) {
       part = REFINED_PARTS[named[1]]
       if (named[2] !== '') addRefined(refined, part, named[2])
@@ -219,6 +228,27 @@ function addRefined(refined, part, line) {
   // A question's answer stands behind " Answer: " on its own line.
   const at = words.search(/\sAnswer:\s/)
   refined.questions.push(at < 0 ? { text: words, answer: null } : { text: words.slice(0, at).trim(), answer: words.slice(at).replace(/^\s*Answer:\s*/, '').trim() })
+}
+
+/**
+ * B285: whether a refine block leaves no question open, so the step may go into a queue: every question answered,
+ * none left ("None: ready to pick up."), or the person accepted it. A step without a block is not refined.
+ */
+export function isRefined(refined) {
+  return refined !== null && refined !== undefined && (refined.accepted !== null || refined.questions.every(question => question.answer !== null))
+}
+
+/**
+ * B285, B286: where a step stands in its refine: `none` (no block), `asking` (the Advisor works on it: `refineAsk`
+ * is open), `answers` (questions wait for the person's answers), `answered` (every question answered, the next round
+ * may still come) or `ready` (none left, or accepted). `step` holds `refined` and `refineAsk`.
+ */
+export function refineStateOf(step) {
+  if (step.refineAsk?.isOpen === true) return 'asking'
+  const refined = step.refined ?? null
+  if (refined === null) return 'none'
+  if (refined.accepted !== null || refined.questions.length === 0) return 'ready'
+  return refined.questions.every(question => question.answer !== null) ? 'answered' : 'answers'
 }
 
 /** B233: a step's notes without its refine block, which the step's window shows apart. */

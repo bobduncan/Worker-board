@@ -45,7 +45,8 @@ time. Every name, path and word of a project comes from its settings or its own 
 | `later`, `not handed out`, `not queued` in brackets | held back: in no queue | `src/backlog.mjs` (`isHeldBack`) |
 | `(branch <name>)` at the very end | the step is in progress on that branch | `src/backlog.mjs` |
 | Indented lines under a step; `Requirements:`, `Context:` ... as sections | the step's details | `src/backlog.mjs` (`noteSections`) |
-| `Refined (round <n>, by <name>, <date time>; accepted <date time>):` under a step, then `Problem:`, `Goal:`, `Questions:` (a point per question, ` Answer: ...` behind it once answered), `Feedback:` (`- Round <n>: ...`) | B233: a step's refine block; the Advisor writes it, the board adds the person's answers, feedback and "accepted"; any other named line or a line in brackets ends it | `src/backlog.mjs` (`refinedOf`), `src/tick.mjs` (`answerRefine`, `acceptRefine`) |
+| `Refined (round <n>, by <name>, <date time>; accepted <date time>):` under a step, then `Problem:`, `Goal:`, `Questions:` (a point per question, ` Answer: ...` behind it once answered), `Feedback:` (`- Round <n>: ...`) | B233: a step's refine block; the Advisor writes it, the board adds the person's answers, feedback and "accepted"; any other named line or a line in brackets ends it, but `Summary:`, `Picture:`, `Part of:` and `Size:` stay in it (B285) | `src/backlog.mjs` (`refinedOf`), `src/tick.mjs` (`answerRefine`, `acceptRefine`) |
+| A refine block with no question open: every one answered, `- None: ready to pick up.`, or accepted | B285: the step is refined and may go into a queue; until then the board refines it first | `src/backlog.mjs` (`isRefined`, `refineStateOf`), `src/refineGate.mjs` |
 | The group named by the setting `advisorSuggestions` | the Advisor's open suggestions on its tab | `src/state.mjs` |
 
 ## What the board types into a chat
@@ -62,12 +63,13 @@ Typed by the Workers mod as the person's own words; each line below is the board
 | `spawn workers` / `Count:` / `Why:` | the main chat is asked for workers | `src/say.mjs` (`spawnWords`) |
 | `remove worker` / `Name:` / `State:` / `Why:` | the person removes a worker | `src/say.mjs` (`removeWords`) |
 | `backlog step from the Design tab`, `queue step from the Design tab` | an idea of the Design tab goes on the backlog | `src/design.mjs` (`stepWord`) |
-| `queue step from the backlog` / `Step: B<id> <title>` | the person puts a step in a queue | `src/say.mjs` |
+| `queue step from the backlog` / `Step: B<id> <title>` | the person puts a step in a queue; for a step not refined yet the board holds it until the step is (B285) | `src/say.mjs`, `src/refineGate.mjs` |
+| `step refined` / `Step: B<id> <title>` / `For: <worker>` (to the main chat) | B285: a step the main chat queued before it was refined is refined now: hand it out | `src/say.mjs` (`refinedWords`), `src/refineGate.mjs` |
 | `stop task` / `Name:` / `Task:` / `Why:` | the person stops a worker's task (it reaches a safe point) | `src/say.mjs` (`stopWords`) |
 | `move step` / `Step: B<id> <title>` / `From:` / `To:` | the person moves a queued step to another worker | `src/say.mjs` (`moveWords`) |
 | `unqueue step` / `Step: B<id> <title>` / `From:` | the person takes a step out of a worker's queue | `src/say.mjs` (`unqueueWords`) |
 | `advisor recommendation: yes` (to the main chat) or `: no` with `Reason:` (to the Advisor) / `Recommended:` / `Step:` / `Why:` | the person answers the Advisor's recommendation on the way to the next milestone | `src/say.mjs` (`recommendWords`) |
-| `refine step` / `Step: B<id> <title>` / `Round: <n>` (to the Advisor) | the person asks the Advisor to refine a step (round 1), or again after their answers and feedback, which stand in the step's refine block already | `src/say.mjs` (`refineWords`) |
+| `refine step` / `Step: B<id> <title>` / `Round: <n>` (to the Advisor) | the person asks the Advisor to refine a step (round 1), or again after their answers and feedback, which stand in the step's refine block already; the board sends round 1 by itself too, one at a time, for a new step once and for a step about to be queued (B285) | `src/say.mjs` (`refineWords`), `src/refineGate.mjs` |
 | `Round from the board's clock: morning` (or `weekly`), with the job and the project's settings under it | the Advisor's rounds; never the person's word | `src/rounds.mjs` |
 
 The board leaves its own lines out of the talk it shows (`src/state.mjs`, `BOARD_WORDS`, `isClockLine`).

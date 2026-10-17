@@ -5227,6 +5227,12 @@ function queuePart(step, state, isLong) {
   const mainTitle = state.workers.mainTitle ?? main
   const key = `queue:${step.id}`
   const ask = step.queueAsk ?? null
+  // B285: a step goes into a queue only once refined; until then the ask waits on the board.
+  if (ask?.isOpen === true && ask.state === 'held') {
+    const part = el('span', 'step-queue is-asked', isLong ? `Asked at ${clock(ask.at)}: the Advisor refines it first, then it goes to ${mainTitle} by itself.` : `Refine, then queue`)
+    part.title = `Asked at ${clock(ask.at)}: refined first, then handed to ${mainTitle}`
+    return part
+  }
   if (ask?.isOpen === true) {
     const where = ask.state === 'delivered' ? `in ${mainTitle}'s chat` : `on its way to ${mainTitle}`
     const part = el('span', 'step-queue is-asked', isLong ? `Asked at ${clock(ask.at)}, ${where}: it shows as queued once its note names a worker.` : `Asked ${clock(ask.at)}`)
@@ -5238,12 +5244,14 @@ function queuePart(step, state, isLong) {
   button.type = 'button'
   button.dataset.queueStep = step.id
   button.disabled = sending.has(key)
-  button.title = problems.get(key) ?? `Ask ${mainTitle} to hand it to a worker`
+  // B285: a step that is not refined is refined by the Advisor first (`refineState`, backlog.mjs refineStateOf).
+  const isRefined = step.refineState === 'answered' || step.refineState === 'ready'
+  button.title = problems.get(key) ?? (isRefined ? `Ask ${mainTitle} to hand it to a worker` : `The Advisor refines it first, then ${mainTitle} hands it to a worker`)
   // Every row has one: the step it is for is in its name.
   button.setAttribute('aria-label', `${button.textContent}: ${step.id} ${step.title}`)
   if (!isLong) return button
   const line = el('div', 'step-queue-line')
-  line.append(button, el('span', 'muted', `${mainTitle} picks the worker, or what it waits for.`))
+  line.append(button, el('span', 'muted', isRefined ? `${mainTitle} picks the worker, or what it waits for.` : `Not refined yet: the Advisor refines it first, then ${mainTitle} picks the worker.`))
   if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
   return line
 }
