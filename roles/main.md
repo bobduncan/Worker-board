@@ -45,6 +45,8 @@ You decide this, not the user. For every task:
    before. The board refines a new step once by itself; you never ask the Advisor for it. The steps that were queued
    already when the board began refining go as before (the board keeps their list in its `data/refine-gate.json`;
    your briefing names them).
+   You may `work queue` a step even before its refine: the board keeps the wish and queues it by itself once
+   refined (B303).
 
 1. Needs: does it need the result of an open step, or a choice of the user? Then it queues behind that step.
 2. Touches: name the parts it changes. Compare with what every running task changes: for each branch that is not
