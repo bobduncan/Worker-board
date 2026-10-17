@@ -2,7 +2,7 @@
 // the work from the store only; this is how a project gets one.
 //
 //   node tools/migrate-backlog.mjs --backlog <file> --work <folder> [--dry-run]
-//   node tools/migrate-backlog.mjs --backlog <file> --work <folder> --make-store [--dry-run] [--chats <folder>]
+//   node tools/migrate-backlog.mjs --backlog <file> --work <folder> --make-store [--dry-run] [--chats <folder>] [--from-view]
 //   node tools/migrate-backlog.mjs --work <folder> --init [--activity <name>] [--dry-run]
 //
 // Without a mode it prints what a store made from the backlog would hold, and writes nothing: the counts (steps before
@@ -14,7 +14,8 @@
 // steps in flight (id, state, owner, branch) and every chat card with a task (`<chats>/<session>.json`, the folder
 // beside the backlog unless `--chats` names one) beside the store's state of the step it names, "<- check" where they
 // disagree. The old file is kept beside it as backlog.before-store.md, and backlog.md is written anew as the store's
-// generated view. With `--dry-run` it prints the same and writes nothing.
+// generated view. With `--dry-run` it prints the same and writes nothing. A backlog that is the board's own view of a
+// store (its first line says so) is refused unless `--from-view`: the store's History is not in it.
 //
 // `--init`: an empty store for a new project, in an empty folder: one activity (`--activity`, "First steps" unless
 // given) with the person's focus, no items, and the default flow (examples/work/flow.json) as its flow.json.
@@ -28,7 +29,7 @@ import { parseBacklog } from '../src/backlog.mjs'
 import { storeAsBacklog } from '../src/work/adapter.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { isLegacyId } from '../src/work/line.mjs'
-import { migrateBacklog } from '../src/work/migrate.mjs'
+import { GENERATED, migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 import { backlogView, writeView } from '../src/work/view.mjs'
 
@@ -177,6 +178,11 @@ async function makeStore(args, log) {
   const text = await readFile(file, 'utf8').catch(() => null)
   if (text === null) {
     log(`No backlog at ${file}.`)
+    return 1
+  }
+  // B301: a backlog.md the board wrote is a store's view: the store's History and Since are not in it.
+  if (GENERATED.test(text.split(/\r?\n/, 1)[0]) && !args.includes('--from-view')) {
+    log(`${file} is the board's view of a work store (its first line says so): the store's History is not in it. Put the store folder back from a copy instead; to make a store from the view all the same, add --from-view.`)
     return 1
   }
   const now = Date.now()
