@@ -746,7 +746,8 @@ function freeLine(lane, clock = null) {
 /**
  * B300: the reconciler's flags on a lane (`lane.flags`), each a line, and for a chat that holds work but does not run a
  * button "Start <chat>" that asks the main chat to start it (the board's own start words; `data-start`). No button
- * without a main chat, for the main chat itself, or while an ask to start it is on its way (`restart.starting`).
+ * without a main chat, for the main chat itself, or while an ask to start it is on its way (`restart.starting`). B304:
+ * a step whose check failed gets "Check again" (`data-recheck`), the board's check run anew.
  */
 function laneFlags(lane, restart = null) {
   const main = restart?.main ?? null
@@ -754,7 +755,9 @@ function laneFlags(lane, restart = null) {
   return (lane.flags ?? []).map(flag => ({
     text: flag.text,
     tone: flag.kind === 'card' ? 'warn' : 'problem',
-    button: flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
+    // B304: a failed check is the person's to run again ("Check again", `data-recheck`: the work API's `recheck`).
+    button: flag.kind === 'check failed' ? { label: 'Check again', recheck: flag.id }
+      : flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
   }))
 }
 // laneflags:end
@@ -845,7 +848,14 @@ function drawLane(lane, state) {
   if (alerts.length > 0) what.append(el('p', 'alert', alerts.join(' · ')))
   for (const flag of laneFlags(lane, state.restart ?? null)) {
     const line = el('p', `lane-flag is-${flag.tone}`, flag.text)
-    if (flag.button !== null) {
+    if (flag.button?.recheck !== undefined) {
+      const again = el('button', 'choice', flag.button.label)
+      again.type = 'button'
+      again.dataset.recheck = flag.button.recheck
+      again.disabled = sending.has(`recheck:${flag.button.recheck}`)
+      again.title = `The board checks ${flag.button.recheck} again`
+      line.append(' ', again)
+    } else if (flag.button !== null) {
       const start = el('button', 'choice', flag.button.isAsked ? `${flag.button.label}: asked` : flag.button.label)
       start.type = 'button'
       start.dataset.start = flag.button.start
@@ -853,6 +863,7 @@ function drawLane(lane, state) {
       start.title = `Asks ${state.restart.main} to start it`
       line.append(' ', start)
     }
+    if (problems.has(`recheck:${flag.button?.recheck}`)) line.append(' ', el('span', 'lane-flag-problem', problems.get(`recheck:${flag.button.recheck}`)))
     what.append(line)
   }
   if (removal.line !== null) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
@@ -1957,6 +1968,12 @@ document.addEventListener('click', event => {
   const button = event.target.closest('[data-start]')
   if (button === null || board === null || (board.restart?.main ?? null) === null) return
   send({ to: board.restart.main, command: 'start', chat: button.dataset.start }, `start:${button.dataset.start}`)
+})
+// B304: "Check again" on a step whose check failed: the board runs its check anew.
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-recheck]')
+  if (button === null || board === null) return
+  sendWork({ action: 'recheck', id: button.dataset.recheck }, `recheck:${button.dataset.recheck}`)
 })
 $('main-game').addEventListener('click', event => {
   const button = event.target.closest('[data-game]')

@@ -918,9 +918,11 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   taken, the chat to in progress, with its branch; a step another holds is refused naming the holder), `step` (one
   History line; the mod writes the card), `ask` (a `Q<n>` under a step, answered with the "For you" block; a blocking
   one moves the step to waiting on you), `note` (an `N<n>` to the person or Main), `report` (in progress → review,
-  "check pending", a note to Main), `block`/`unblock`, `new`, `queue`, `close` (an instruction), `drop`, `refine` and
+  "check pending", a note to Main; B304: from review, by the flow's move review → review, the check runs again),
+  `block`/`unblock`, `new`, `queue`, `close` (an instruction), `drop`, `refine` and
   `refined` (the Advisor's block in today's form). The person, on the page: `answer`, `tick` (close, approve, done: a
-  step in review is done, any other dropped; an ask answered), `delete`, `refine-answer`, `refine-accept`. The board:
+  step in review is done, any other dropped; an ask answered), `delete`, `refine-answer`, `refine-accept`, `recheck`
+  (B304: "Check again" on a step in review whose check failed). The board:
   `check`. Every move asks the flow (`mayMove`) and writes `<from> → <to>` in History; a file whose head is broken is
   refused with its line, never moved. B301: a store folder that is not there or cannot be read is refused with 503
   and the board's line for it (`work/read.mjs`, `storeFault`); a file that changed meanwhile is 409, one that cannot be
@@ -934,9 +936,14 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
 - **The routes**: `POST /api/work` for the page (the token, the origin, JSON, as `/api/backlog`) and `POST
   /api/bridge/work` for the Workers mod (the key, and only the chat and session the board shows, as `/api/bridge/take`).
   Roles come from the list of chats (the main chat, the Advisor, the workers); free chats from the lanes; `overlaps`
-  from the steps' "Touches:" lines. After a report the board runs its own check (`src/work/check.mjs`: each
-  repository's base equals its remote, the branch is gone, a result is named) and writes it to History; a passed
-  check closes the step by the default flow. The board that delivers writes backlog.md; a copy with a store of its own
+  from the steps' "Touches:" lines. After a report the board runs its own check (`src/work/check.mjs`) and writes it
+  to History; a passed check closes the step by the default flow. B304: it checks the one repository the step's work
+  is in, among those the board knows (the game's, `gameRepo`, and the board's own folder): the one that holds the
+  reported merged commit, else the one that has, or had by its reflog or its remote, the step's branch. There its
+  base equals its remote, the branch is gone (also from the remote), and a result is named; the lines name the
+  repository by its folder's last part. When no repository can be told, the check fails with "could not tell which
+  repository B<id>'s work is in", never a silent pass. A failed check runs again on the person's "Check again" (the
+  lane's flag, `recheck`) or the owner's report from review. The board that delivers writes backlog.md; a copy with a store of its own
   writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
   view".
 - **The board's own writers** (`src/tick.mjs`): closing, deleting, the person's refine answers and the board's tick of
@@ -1029,7 +1036,7 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   flagged after `GRACE_MS` (10 min, from the later of its Since and the chat's last activity) with the button
   "Start <chat>". An open blocking ask older than `ASK_MS` (60 min) is marked old and stands first under Needs your
   attention; nothing is sent again. Open instructions are B298's list (no flag). A step in review whose last check
-  failed is flagged on its Owner's lane, and the Owner is told once. A broken file, an id twice or a state the flow
+  failed is flagged on its Owner's lane with the button "Check again" (B304), and the Owner is told once. A broken file, an id twice or a state the flow
   does not know make one line on top (`workFlags`, in the store note) and are not moved or delivered. A card that names
   a step the store does not hold taken, in progress or waiting for that chat is flagged ("Units' card says B281 but
   B281 is queued"). The flow's other moves by the server whose guard holds are made (a review closed once its check
