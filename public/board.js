@@ -2237,14 +2237,17 @@ function twoLines(words) {
 }
 
 /**
- * B281: what the backlog step a task is about is, in at most two lines: the hand-over's "In short: ..." line, else
- * the step's own first line in the backlog (`step.about`), else as shortTask finds it in the message. The person,
- * 2026-10-17: "I want the task to be clear, recap the original task briefly".
+ * B281: what the backlog step a task is about is, in at most two lines: as shortTask finds it in the message (its
+ * "In short: ..." line, else its first line), unless that only names the step again: then the step's own first line
+ * in the backlog that says what it is (`step.about`). The person, 2026-10-17: "I want the task to be clear, recap the
+ * original task briefly".
  */
 function stepTask(given, step, topic = null) {
-  const hasShort = String(given ?? '').split('\n').some(line => /^in short:/i.test(line.trim()))
-  if (!hasShort && typeof step.about === 'string' && step.about.trim() !== '') return twoLines(step.about)
-  return shortTask(given, step.title, topic)
+  const said = shortTask(given, step.title, topic)
+  const bare = text => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '')
+  // The message's first line that only names the step again says nothing the head does not.
+  const isTitle = bare(said) === '' || bare(step.title).includes(bare(said)) || bare(said).includes(bare(step.title))
+  return isTitle && typeof step.about === 'string' && step.about.trim() !== '' ? twoLines(step.about) : said
 }
 
 /**

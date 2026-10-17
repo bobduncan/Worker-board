@@ -9,7 +9,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { answer, fromChat, step, toolResult, typed } from '../fixtures/lines.mjs'
+import { answer, assistant, fromChat, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from '../src/state.mjs'
 
@@ -115,6 +115,47 @@ test('a task the person typed keeps their words as the task; their later words a
   assert.deepEqual(units.feedback, { at: NOW - 20 * MIN, text: 'Brighter, please.' })
 })
 
+test('a typed task stays the task when the worker named its card anew for the person\'s feedback', () => {
+  const lines = [
+    typed(NOW - 40 * MIN, 'Make the quokkaberry glow.'),
+    step(NOW - 39 * MIN, 'Read'),
+    answer(NOW - 21 * MIN, 'Like this?'),
+    typed(NOW - 20 * MIN, 'Brighter, please.'),
+    step(NOW - 2 * MIN, 'Glow'),
+    toolResult(NOW - MIN),
+  ]
+  const units = lane(lines, { plan: card(NOW - 19 * MIN, 'Brighter glow'), backlogText: '' })
+  assert.deepEqual([units.givenTask.by, units.givenTask.text], ['you', 'Make the quokkaberry glow.'])
+  assert.deepEqual(units.feedback, { at: NOW - 20 * MIN, text: 'Brighter, please.' })
+})
+
+test('words after a task the worker finished are a new task, not feedback: it reported, or said "Done: yes"', () => {
+  const report = assistant(NOW - 30 * MIN, 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Report from Units: B12 done.' })])
+  const reported = [fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER), step(NOW - 49 * MIN, 'Draw'), report, answer(NOW - 29 * MIN, 'Reported.'), typed(NOW - 20 * MIN, 'Now make the quokkaberry glow.'), step(NOW - 2 * MIN, 'Glow'), toolResult(NOW - MIN)]
+  const after = lane(reported, { plan: card(NOW - 19 * MIN, 'Quokkaberry glow') })
+  assert.deepEqual([after.givenTask.by, after.givenTask.text, after.feedback], ['you', 'Now make the quokkaberry glow.', null])
+  const done = answer(NOW - 29 * MIN, 'It walks.\n\n---\n\n```diff\n  Prompt: the walk\n  Who:    Game - Units\n+ Done:   yes\n```')
+  const said = [fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER), step(NOW - 49 * MIN, 'Draw'), done, typed(NOW - 20 * MIN, 'Now make the quokkaberry glow.'), step(NOW - 2 * MIN, 'Glow'), toolResult(NOW - MIN)]
+  const next = lane(said, { plan: card(NOW - 19 * MIN, 'Quokkaberry glow') })
+  assert.deepEqual([next.givenTask.by, next.givenTask.text, next.feedback], ['you', 'Now make the quokkaberry glow.', null])
+})
+
+test('the feedback leaves off what the board adds to an answer: a picture\'s place, what to do with a verdict', () => {
+  const pictured = lane(onFeedback('Two squares, like this.\nPicture: C:\\game\\art-inbox\\talk\\square.png\n(typed on the worker board, 10:10)'))
+  assert.equal(pictured.feedback.text, 'Two squares, like this.')
+  const verdict = lane(onFeedback('(answered on the worker board, 10:10) B12 "The zebracorn\'s walk": rejected. Reason: two squares\nPick this up: now if it belongs to what you are doing, else as a step in the queue.'))
+  assert.equal(verdict.feedback.text, 'B12 "The zebracorn\'s walk": rejected. Reason: two squares')
+  const approved = lane(onFeedback('(answered on the worker board, 10:10) B12 "The zebracorn\'s walk": approved. Tick this step in the backlog.'))
+  assert.equal(approved.feedback.text, 'B12 "The zebracorn\'s walk": approved.')
+})
+
+test('what a step is: not a plan file, a choice, where it was queued or split, nor any other head\'s part', () => {
+  for (const first of ['Plan: .claude/plans/goal-ask.md, Tasks 14-15.', 'Your choice on the worker board (2026-10-15): A.', 'Queued by you on the board.', 'Split on 2026-10-16 into B12 and B13.', 'Held for today.', 'Problem: the map is slow.']) {
+    const notes = BACKLOG.replace('  The zebracorn walks', `  ${first}\n  The zebracorn walks`)
+    assert.equal(lane(onFeedback(), { backlogText: notes }).givenTask.step.about, 'The zebracorn walks in four directions on the big map, with its old idle kept.', first)
+  }
+})
+
 test('a lane that is not on a task carries no feedback', () => {
   const free = lane([typed(NOW - 30 * MIN, 'Zebracorn please'), answer(NOW - 29 * MIN, 'Done.')], { plan: '', backlogText: '' })
   assert.deepEqual([free.state, free.feedback], ['free', null])
@@ -141,9 +182,11 @@ test('the window names the step and what it is, and apart from it the feedback t
   assert.deepEqual(view.given, { from: `Handed over by Game - Main, ${page.clock(NOW - 50 * MIN)}`, text: HAND_OVER })
 })
 
-test('the hand-over\'s "In short:" line says what the step is when it has one', () => {
+test('the hand-over\'s "In short:" line, or a first line that says more than the step\'s title, says what the step is', () => {
   const short = lane(onFeedback().map((line, i) => (i === 0 ? fromChat(NOW - 50 * MIN, 'Game - Main', `${HAND_OVER}\nIn short: the zebracorn walks.`) : line)))
   assert.equal(page.laneWindowOf(short, NOW, 'Game - Main').task, 'The zebracorn walks.')
+  const more = lane(onFeedback().map((line, i) => (i === 0 ? fromChat(NOW - 50 * MIN, 'Game - Main', 'Task from Game - Main: B12, a walk in four directions, the old idle kept. About 1 h.') : line)))
+  assert.equal(page.laneWindowOf(more, NOW, 'Game - Main').task, 'A walk in four directions, the old idle kept.')
 })
 
 test('a task without a step keeps today\'s words, with the same feedback part; a window without feedback has none', () => {

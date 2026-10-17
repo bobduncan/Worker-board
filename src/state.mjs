@@ -19,7 +19,7 @@ import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
-import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
+import { backgroundRunning, conversation, doingNow, finishedBetween, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -33,6 +33,9 @@ const TYPED_MARK = /\n?\(typed on the worker board, \d{1,2}:\d{2}\)\s*$/
 const TALK_MESSAGES = 40
 /** B281: the mark before an answer given on the board (bridge.mjs, `messageText`): the board's, not the person's words. */
 const ANSWERED_MARK = /^\(answered on the worker board, \d{1,2}:\d{2}\)\s*/
+/** B281: what the board adds to an answer given on it (bridge.mjs, `messageText`): a picture's place, and what to do with a verdict. */
+const BOARD_LINES = /^(?:Picture: |Pick this up: )/
+const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)$/
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
@@ -142,20 +145,12 @@ export function heldBy({ plan, handOver, background, step, isCompleted = false, 
 }
 
 /**
- * The task a chat is on, as the chat recorded it: the topic, the steps and the time of its plan line (`source:
- * 'plan'`). A busy chat that has recorded nothing shows the backlog step it works on (`source: 'step'`): the one
- * that names its branch, else the first open one the hand-over names by id. With neither, the task is there but
- * has no words (`source: 'unrecorded'`, `text: ''`). The words of a prompt or of a hand-over are never used: what
- * a person or a chat typed stays in the chat. `step` is the step that names the chat's branch, `stepById` finds
- * an open step by its id; a step gives the task its id and, for a chat with no estimate of its own, its time.
- * A chat that recorded its task is on a step too (`stepId`): the one that names its branch, else the open one
- * of its own (or of nobody) that its record names by id, else the one handed to it.
- */
-/**
  * B281: a note line that does not say what a step is: who has it or how far it is, the person's answers to a quick
  * check (choices, not the ask), or a head for files, tests or the requirements.
  */
-const STEP_STATUS = /^(?:handed (?:to|over)|in progress|done on|approved|refined|picked up|paused|moved|was:|your answers\b|(?:touches|context|requirements|files|tests?):)/i
+const STEP_STATUS = /^(?:handed (?:to|over)|in progress|done on|approved|refined|picked up|paused|moved|split|kept|queued|held|parked|merge \d|back on|taken out|accepted|was:|your (?:answers?|choice|yes|no|approval)\b|not handed out\b|later\b)/i
+/** B281: a head with words after it ("Plan: ...", "Problem: ...", "Touches: ..."): a part of a step's notes, not what it is. */
+const NOTE_HEAD = /^(?!your words\b)[A-Z][A-Za-z /]{1,28}:\s/
 
 /** B281: "Your words (board, 18:26, ...): the ask" without its lead: the words after the first colon outside brackets. */
 function withoutLead(line) {
@@ -176,7 +171,7 @@ function withoutLead(line) {
 function aboutLine(notes = []) {
   for (const note of notes) {
     const line = String(note).trim().replace(/^[-*]\s+/, '')
-    if (line === '' || STEP_STATUS.test(line) || /^[A-Z][A-Za-z /]{1,28}:$/.test(line)) continue
+    if (line === '' || STEP_STATUS.test(line.replace(/^\(/, '')) || NOTE_HEAD.test(line) || /^[A-Z][A-Za-z /]{1,28}:$/.test(line)) continue
     return withoutLead(line)
   }
   return null
@@ -188,11 +183,21 @@ function aboutLine(notes = []) {
  */
 function feedbackLine(words) {
   const lines = String(words ?? '').replace(TYPED_MARK, '').replace(ANSWERED_MARK, '').split('\n')
-    .map(line => line.trim()).filter(line => line !== '' && line !== '[picture]')
+    .map(line => line.trim().replace(BOARD_CLOSE, '')).filter(line => line !== '' && line !== '[picture]' && !BOARD_LINES.test(line))
   const one = lines.join(' · ').replace(/\s+/g, ' ')
   return one.length > FEEDBACK_CHARS ? `${one.slice(0, FEEDBACK_CHARS - 1).trimEnd()}…` : one
 }
 
+/**
+ * The task a chat is on, as the chat recorded it: the topic, the steps and the time of its plan line (`source:
+ * 'plan'`). A busy chat that has recorded nothing shows the backlog step it works on (`source: 'step'`): the one
+ * that names its branch, else the first open one the hand-over names by id. With neither, the task is there but
+ * has no words (`source: 'unrecorded'`, `text: ''`). The words of a prompt or of a hand-over are never used: what
+ * a person or a chat typed stays in the chat. `step` is the step that names the chat's branch, `stepById` finds
+ * an open step by its id; a step gives the task its id and, for a chat with no estimate of its own, its time.
+ * A chat that recorded its task is on a step too (`stepId`): the one that names its branch, else the open one
+ * of its own (or of nobody) that its record names by id, else the one handed to it.
+ */
 function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, step = null, stepById = () => null }) {
   // `scan` holds the entries that can start or end a task: the tail, after a longer look back when there is one.
   const handOver = chat.isMain || scan === null ? null : taskStart(scan, main)
@@ -357,14 +362,25 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // chat named its task anew for them (B231's window showed those words as its task).
   const openHandOver = !isOnTask || scan === null || chat.isMain ? null : taskStart(scan, main)
   const until = openHandOver?.at ?? (Number.isFinite(task?.startedAt) ? task.startedAt + 2 * MIN : Infinity)
-  const given = !isOnTask || scan === null ? null : taskOrigin(scan, main, until)
+  // B281: the person's words that opened its turn (only a sure opening: words the tail cannot see the turn before of
+  // may be a remark in the middle of a turn). They are feedback on the task given before them, unless the chat
+  // finished that task in between (it reported, or said "Done: yes"): then they are the task.
+  const opening = !isOnTask || scan === null ? null : turnStart(scan, { prefix })
+  const words = opening?.by === 'you' && opening.isSure ? opening : null
+  let given = !isOnTask || scan === null ? null : taskOrigin(scan, main, until)
+  if (words !== null) {
+    const before = taskOrigin(scan, main, words.at - 1)
+    const isOn = before !== null && !finishedBetween(scan, main, before.at, words.at)
+    // Its card named the task anew for the feedback, so its start is the feedback's: the task is the one before.
+    if (isOn && (given === null || given.at >= words.at)) given = before
+    // A task it finished: the words started a new one.
+    if (!isOn && given !== null && given.at < words.at) given = taskOrigin(scan, main, words.at)
+  }
   const givenStep = given === null ? null
     : (task.stepId === null ? null : stepById(task.stepId)) ?? (given.text.split('\n')[0].match(/\bB\d+\b/g) ?? []).map(id => stepById(id)).find(one => one !== null) ?? null
-  // B281: the person's words that opened its turn after it was given the task: the feedback it is on now.
-  const opening = !isOnTask || scan === null ? null : turnStart(scan, { prefix })
+  // B281: the person's words after the task was given: the feedback it is on now.
   const after = given?.at ?? task?.startedAt ?? Infinity
-  // Only a sure opening: words the tail cannot see the turn before of may be a remark in the middle of a turn.
-  const feedback = opening?.by === 'you' && opening.isSure && opening.at > after ? { at: opening.at, text: feedbackLine(opening.words ?? opening.title) } : null
+  const feedback = words !== null && words.at > after ? { at: words.at, text: feedbackLine(words.words ?? words.title) } : null
   return {
     ...base,
     state,

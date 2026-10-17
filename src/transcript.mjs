@@ -353,7 +353,21 @@ const CLOSING = '```diff\n'
  * that runs, or an answer of the app's own (a stop at the limit), says nothing.
  */
 export function saysDone(entries) {
-  const last = entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)
+  return isDoneAnswer(entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain))
+}
+
+/**
+ * B281: whether the chat finished a task between two moments (both left out): it reported to the main chat, or an
+ * answer that ended a turn closed with "+ Done:   yes". The person's words after it are a new task, not feedback.
+ */
+export function finishedBetween(entries, { mainTitle, mainSession = null }, from, to) {
+  const mains = [mainTitle, mainSession].filter(Boolean)
+  return entries.some(entry => !entry.isSidechain && Number.isFinite(entry.at) && entry.at > from && entry.at < to
+    && (isReportTo(entry, mains) || (entry.type === 'assistant' && isDoneAnswer(entry))))
+}
+
+/** An answer that ended a turn with the closing block's last line "+ Done:   yes". */
+function isDoneAnswer(last) {
   if (last === undefined || !endsTurn(last) || (last.error ?? null) !== null) return false
   const words = textOf(last).replace(/\r\n/g, '\n').trimEnd()
   const at = words.lastIndexOf(CLOSING)
