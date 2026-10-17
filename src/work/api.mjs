@@ -521,17 +521,14 @@ async function refined(body, w) {
   if (head === null) return refuse(409, `${id}: its refine block does not start with "Refined (...):"; fix it by hand first.`)
   const inside = (head[2] ?? '').split(';').map(one => one.trim()).filter(one => one !== '' && !/^ready$/i.test(one))
   const indent = head[1] || '  '
-  // What we build stands last in the block, once.
+  // The ready form (roles/advisor.md): the questions, their answers and the feedback are folded in and go; What we
+  // build stands last, once.
   const kept = []
-  let isWhat = false
+  let isDropped = false
   for (const one of block.slice(1)) {
-    if (/^\s*What we build:/.test(one)) {
-      isWhat = true
-      continue
-    }
-    if (isWhat && /^\s*[-*]\s+/.test(one)) continue
-    isWhat = false
-    kept.push(one)
+    const named = one.trim().match(/^([A-Z][A-Za-z /]{1,28}):/)
+    if (named !== null) isDropped = ['Questions', 'Feedback', 'What we build', 'Problem', 'Goal'].includes(named[1])
+    if (!isDropped) kept.push(one)
   }
   const item = copy(found.item)
   item.sections.set('Refined', [`${indent}Refined (${[...inside, 'ready'].join('; ')}):`, ...kept, `${indent}What we build:`, ...what.map(one => `${indent}${one}`)])

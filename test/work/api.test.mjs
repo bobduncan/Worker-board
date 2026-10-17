@@ -243,6 +243,8 @@ test('refine writes today\'s block and Refined: open; refined makes it ready and
     assert.deepEqual(['State', 'Refined', 'Goal'].map(key => valueOf(seven, key)), ['refined', 'ready', 'G4'])
     assert.deepEqual(seven.sections.get('What we build'), ['- the strip', '- its window'])
     assert.equal(seven.sections.get('Refined')[0], '  Refined (round 1, by Advisor, 2026-10-17 11:06; ready):')
+    // The ready form: the questions and their answers are folded in and go.
+    assert.deepEqual(seven.sections.get('Refined').slice(1), ['  Summary: One strip per step.', '  Part of: G4', '  Size: about 1 h', '  What we build:', '  - the strip', '  - its window'])
     // The backlog reads it as refined and ready, as before.
     const view = await readFile(join(dir, 'B7.md'), 'utf8')
     assert.match(view, /^Refined: ready$/m)
