@@ -29,7 +29,8 @@ test('per chat, the missed ones first and named as missed, the closed ones last 
 })
 
 test('the part sits under Needs your attention, missed red and closed grey', () => {
-  assert.match(script, /fill\(box, \[none, \.\.\.cards, drawLegacy\(state\), drawInformation\(state\), drawInstructions\(state\)\]\)/)
+  // B258: the answers to the person's asks on the goal map stand first.
+  assert.match(script, /fill\(box, \[none, drawGoalAskNeeds\(state\), \.\.\.cards, drawLegacy\(state\), drawInformation\(state\), drawInstructions\(state\)\]\)/)
   assert.match(style, /\.instruction\.is-missed \.instruction-id, \.instruction\.is-missed \.instruction-note \{ color: var\(--warn\); \}/)
   assert.match(style, /\.instruction\.is-closed \{ opacity: \.6; \}/)
 })

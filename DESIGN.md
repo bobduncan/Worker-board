@@ -421,6 +421,28 @@ of goals), Also part of…, Mark done, Rename, Dissolve or Delete (the game plan
 stay); there is no drag. The "…" is on wide screens too, faint until the row is hovered. Pictures:
 `art-inbox/board-goals/b257-top.png`, `b257-in-goal.png`, `b257-in-milestone.png` and `b257-phone.png`.
 
+**Asks from the goal map (B258).** The person, 2026-10-15, chose that the Advisor writes the map "through a
+brainstorm or an ask" (spec 2026-10-15, section 4): an ask is a question to the Advisor tied to a goal, which runs
+while the person does other things. "Ask the Advisor…" in the frame of the goal zoomed into (second, after
+"+ Sub-goal") and in a row's "…" menu opens a box under the frame: the question (2000 characters), pictures pasted
+with Ctrl+V or picked (at most four, kept as Talk to Main's are, `keepTalkFile`), Send. The words and pictures stay
+while the map is drawn anew; Esc or Cancel closes the box. Send writes `Ask (A<n>, <date time>): <question>` under
+the goal (`POST /api/goals` `ask`; the next ask id, kept from coming back by the head line "Last ask: A<n>"), then
+types `ask from the goal map`, `Goal: G<id> <title>`, `Ask (A<n>): <question>` and `Pictures: <paths>` into the
+Advisor's chat (`goal-ask`, `src/say.mjs`, to the Advisor only; a chat that is not running is started through the
+main chat, as any word to it). The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
+(roles/advisor.md, "Asks from the goal map"; the page in `goalAsks`, `.claude/goal-asks`, beside the threads, not in
+the game). The frame shows each ask as a violet block: the question with its id, time and "waiting for the Advisor",
+or the answer with the pictures it names and "More ↗" (the page in the board's file window, from the project's
+folder or the asks' folder), and the buttons "Make a step from this" (Talk to Main, prefilled with the goal, the ask
+and the answer; B259 gives the main chat words of its own), "Ask again" and "Done", which writes `Read: <date time>`
+under the answer (`read`). A read ask folds away with the frame's lines ("1 ask read"). An ask not answered or not
+read stands in the tree as a violet dashed box after the goals inside (a click lights its block; nothing drops on
+it), in the outline as a tag ("1 ask pending", "answer to read") and in the frame's line. An answer not read is a
+line under Needs your attention, "Answers to your asks", with "Read it →" (the answer under its goal) and "Done",
+and counts in its number. An ask and its read mark are messages, not edits: the page's undo leaves them alone. The
+picture: `art-inbox/board-goals/b258-ask.png`.
+
 **The game plan, readable (B218).** The person, 2026-10-14: "advisor game plan has links that dont work i want to be
 able to click them in the UI", and "too much text ... adding collapsing headers so this page feel more manageable".
 In the Advisor tab's Game plan part every heading folds what stands under it, folded at first with its first line

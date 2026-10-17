@@ -111,6 +111,18 @@
       <p class="goals-problems" id="goals-problems" hidden></p>
       <p class="goals-note" id="goals-note" role="status" hidden></p>
       <div class="goals-frame" id="goals-frame" hidden></div>
+      <form class="goals-ask" id="goals-ask" hidden>
+        <label class="goals-ask-head" id="goals-ask-head" for="goals-ask-text">Ask the Advisor</label>
+        <textarea id="goals-ask-text" maxlength="2000" rows="3" placeholder="What do you want to know about this goal?"></textarea>
+        <div class="main-picture goals-ask-pictures" id="goals-ask-pictures" hidden></div>
+        <div class="goals-ask-foot">
+          <button type="button" class="goals-tool" id="goals-ask-pick">Add a picture…</button>
+          <input type="file" id="goals-ask-file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+          <small class="goals-ask-note" id="goals-ask-note" role="status"></small>
+          <button type="button" class="goals-tool" id="goals-ask-cancel">Cancel</button>
+          <button type="submit" class="goals-action is-send" id="goals-ask-send">Send</button>
+        </div>
+      </form>
       <div class="goals-chosen" id="goals-chosen" hidden></div>
       <div class="goals-split" id="goals-split">
         <div class="goals-diagram" id="goals-diagram" aria-label="The goal map drawn as a tree"></div>

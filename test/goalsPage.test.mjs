@@ -86,7 +86,8 @@ test('the frame folds a node\'s lines to one, and unfolds them all', () => {
     'Recommendation (R2): Add signposts at the forks · a visitor gets lost once per walk · about 2 h · B44',
   ])
   assert.deepEqual(plain(page.goalFrameLines(goals, node('G9'))), ['Also part of: M2 · The garden is open (G5)', 'Steps: B07'])
-  assert.deepEqual(plain(page.goalFrameLines(goals, node('G6'))), ['Steps: B04, B05', 'Ask (A1, 2026-10-15 18:40): what differs most from the picture?'])
+  // B258: its asks are blocks of their own, not lines.
+  assert.deepEqual(plain(page.goalFrameLines(goals, node('G6'))), ['Steps: B04, B05'])
 })
 
 test('the focus lives in the address: #advice/goals is the top, #advice/goals/G4 a goal; anything else is not the map', () => {

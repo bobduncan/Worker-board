@@ -336,6 +336,9 @@ Rules: a goal is one line "- [ ] G<n> <title>"; two spaces of indentation per le
     - [~] G4 The jump
       Steps: B03, B11
       Missing: a test level with gaps of every width
+      Ask (A2, ${dayOf(now)} 08:40): how does our jump compare with the arc in the picture?
+      Answer (${dayOf(now)} 09:05, Advisor): It rises as in the picture but falls too slowly: the picture falls twice as fast as it rises. Fix the fall first, about 30 min; the height is right (art-inbox/jump/jump-arc.png).
+      More: .claude/goal-asks/${dayOf(now)}-jump-compared.md
     - [ ] G5 Enemies that chase
       Missing: the enemies' pathfinding as a step
   - [ ] G6 M2 · A level to finish

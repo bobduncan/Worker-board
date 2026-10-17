@@ -1712,6 +1712,35 @@ function drawInformation(state) {
   return part
 }
 
+/**
+ * B258: the part "Answers to your asks" under Needs your attention: each ask on the goal map the Advisor answered and
+ * the person has not read. "Read it" opens the answer under its goal; "Done" marks it read.
+ */
+function drawGoalAskNeeds(state) {
+  const needs = state.goalAskNeeds ?? []
+  if (needs.length === 0) return null
+  const part = el('section', 'information goal-ask-needs')
+  const head = el('h3', '', 'Answers to your asks')
+  head.append(el('small', 'muted', `${needs.length} to read`))
+  part.append(head)
+  for (const need of needs) {
+    const line = el('div', 'info')
+    const words = el('p', '')
+    words.append(el('b', '', need.title), ' ', `${need.id}: ${need.question}`)
+    const open = el('button', 'choice', 'Read it →')
+    open.type = 'button'
+    Object.assign(open.dataset, { goalAskOpen: need.goal, ask: need.id })
+    const done = el('button', 'choice', 'Done')
+    done.type = 'button'
+    done.title = 'Mark the answer read; it stays under the goal'
+    Object.assign(done.dataset, { goalAskDone: need.goal, ask: need.id })
+    done.disabled = !canEditGoals(state)
+    line.append(words, el('small', 'muted', `answered ${need.at}`), open, done)
+    part.append(line)
+  }
+  return part
+}
+
 function drawNeed(need, state) {
   const kind = KINDS[need.kind]
   const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${isClosed(need) ? ' is-closed' : isAnswered(need) ? ' is-answered' : ''}`)
@@ -1856,6 +1885,17 @@ $('needs').addEventListener('click', event => {
   if (read !== null) sendWork({ action: 'read', id: read.dataset.read }, `read:${read.dataset.read}`)
   const withdraw = event.target.closest('[data-withdraw]')
   if (withdraw !== null) sendWork({ action: 'withdraw', id: withdraw.dataset.withdraw, why: 'its chat does not run' }, `work:${withdraw.dataset.withdraw}`)
+  // B258: an answer to an ask on the goal map: read it under its goal, or mark it read.
+  const askOpen = event.target.closest('[data-goal-ask-open]')
+  if (askOpen !== null) {
+    show('advice')
+    showAdvisorPane('goals')
+    // The map is drawn at once: the answer's block is there to bring into sight.
+    zoomGoal(askOpen.dataset.goalAskOpen)
+    goalsShowAsk(askOpen.dataset.ask)
+  }
+  const askDone = event.target.closest('[data-goal-ask-done]')
+  if (askDone !== null) sendGoals({ command: 'read', id: askDone.dataset.goalAskDone, ask: askDone.dataset.ask })
 })
 
 function drawNeeds(state) {
@@ -1864,11 +1904,12 @@ function drawNeeds(state) {
   const top = box.scrollTop
   const open = state.forYou.filter(need => !isClosed(need))
   const answered = state.forYou.length - open.length
-  const unanswered = open.filter(need => !isAnswered(need)).length
+  // B258: an answer to an ask on the goal map waits to be read, and counts.
+  const unanswered = open.filter(need => !isAnswered(need)).length + (state.goalAskNeeds ?? []).length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   const cards = ordered(showsClosed() ? state.forYou : open).map(need => drawNeed(need, state))
-  const none = open.length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
-  fill(box, [none, ...cards, drawLegacy(state), drawInformation(state), drawInstructions(state)])
+  const none = open.length > 0 || (state.goalAskNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  fill(box, [none, drawGoalAskNeeds(state), ...cards, drawLegacy(state), drawInformation(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
 }
@@ -1876,7 +1917,7 @@ function drawNeeds(state) {
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
 // A card is closed two minutes after its answer was typed: the minute is part of what is drawn.
-const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
+const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], state.goalAskNeeds ?? [], state.goalsEdit?.canWrite ?? null, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
@@ -3106,19 +3147,55 @@ function goalCounter(counts) {
   return parts.length === 0 ? 'no steps yet' : parts.join(' · ')
 }
 
+/** B258: where an ask stands: the Advisor has not answered it, answered and the person has not read it, or read. */
+function goalAskState(ask) { return ask.answer === null ? 'pending' : ask.readAt === null ? 'answered' : 'read' }
+
+/** "1 ask pending", "2 asks pending": the asks of a goal the Advisor has not answered yet ("" when none). */
+function goalAsksPending(node) {
+  const pending = node.asks.filter(ask => goalAskState(ask) === 'pending').length
+  return pending === 0 ? '' : `${pending} ask${pending === 1 ? '' : 's'} pending`
+}
+
+/**
+ * B258: a goal's asks as the blocks its frame shows, oldest first: the question with its id and time, where it stands,
+ * the answer with its page (`more`) and the pictures it names. One read already only when `showRead` (the frame's
+ * lines unfolded): the block stays under the goal after Done.
+ */
+function goalAskBlocks(node, showRead) {
+  return node.asks.filter(ask => showRead || goalAskState(ask) !== 'read')
+    .map(ask => ({ id: ask.id, at: ask.at, question: ask.text, state: goalAskState(ask), answer: ask.answer, pictures: goalAskPictures(ask.answer) }))
+}
+
+/** The pictures an answer names by their paths (png, jpg, webp), in its words or as its More line, each once. */
+function goalAskPictures(answer) {
+  if (answer === null || answer === undefined) return []
+  const found = `${answer.text ?? ''} ${answer.more ?? ''}`.match(/[\w@+./-]+\.(?:png|jpe?g|webp)\b/gi) ?? []
+  return [...new Set(found.map(path => path.replace(/^\.\//, '')))]
+}
+
+/**
+ * B258: what "Make a step from this" puts into Talk to Main, for the person to change and send: the goal, the ask and
+ * the answer, as plain words. (B259 gives the main chat words of its own for a step from the map.)
+ */
+function goalStepWords(node, block) {
+  const answer = block.answer === null ? '' : ` The Advisor's answer: ${block.answer.text}${block.answer.more ? ` (more in ${block.answer.more})` : ''}`
+  return `Make a backlog step from the goal map, for ${goalLabel(node)}, from my ask ${block.id}: ${block.question}${/[.?!]$/.test(block.question) ? '' : '.'}${answer}`
+}
+
 /** A node's own lines folded to one: "Done when: … · 1 ask pending · 1 note · 1 missing" ("" when it has none of these). */
 function goalFrameLine(node) {
   const parts = []
   if (node.doneWhen) parts.push(`Done when: ${node.doneWhen}`)
-  const pending = node.asks.filter(ask => ask.answer === null).length
-  if (pending > 0) parts.push(`${pending} ask${pending === 1 ? '' : 's'} pending`)
+  if (goalAsksPending(node) !== '') parts.push(goalAsksPending(node))
+  const unread = node.asks.filter(ask => goalAskState(ask) === 'answered').length
+  if (unread > 0) parts.push(`${unread} answer${unread === 1 ? '' : 's'} to read`)
   const notes = node.notes.filter(line => line.startsWith('Note')).length
   if (notes > 0) parts.push(`${notes} note${notes === 1 ? '' : 's'}`)
   if (node.missing.length > 0) parts.push(`${node.missing.length} missing`)
   return parts.join(' · ')
 }
 
-/** A node's own lines unfolded, as the file names them; another goal by its title and id. */
+/** A node's own lines unfolded, as the file names them; another goal by its title and id. Its asks are blocks of their own (B258). */
 function goalFrameLines(goals, node) {
   const named = id => { const other = goalById(goals, id); return other === null ? id : `${other.title} (${id})` }
   const lines = []
@@ -3134,11 +3211,6 @@ function goalFrameLines(goals, node) {
     lines.push(`Recommendation (${rec.id}): ${[rec.title, rec.why, rec.cost, rec.step ?? 'none'].filter(Boolean).join(' · ')}`)
   }
   if (node.brainstorm) lines.push(`Brainstorm: ${node.brainstorm.path} (${node.brainstorm.state})`)
-  for (const ask of node.asks) {
-    lines.push(`Ask (${ask.id}, ${ask.at}): ${ask.text}`)
-    if (ask.answer) lines.push(`Answer (${ask.answer.at}, ${ask.answer.by}): ${ask.answer.text}`)
-    if (ask.answer?.more) lines.push(`More: ${ask.answer.more}`)
-  }
   lines.push(...node.notes)
   return lines
 }
@@ -3149,6 +3221,9 @@ function goalTags(goals, node, isRef) {
   else for (const id of node.alsoPartOf) tags.push(`also under ${goalById(goals, id)?.title ?? id}`)
   for (const id of node.enables) tags.push(`enables → ${goalById(goals, id)?.title ?? id}`)
   if (node.brainstorm?.state === 'running') tags.push('brainstorm')
+  // B258: an ask the Advisor has not answered, and an answer not read yet, at the goal's home.
+  if (!isRef && goalAsksPending(node) !== '') tags.push(goalAsksPending(node))
+  if (!isRef && node.asks.some(ask => goalAskState(ask) === 'answered')) tags.push('answer to read')
   return tags
 }
 
@@ -3333,7 +3408,9 @@ function goalTreeLayout(goals, focusId, width) {
   const ghosts = outside.slice(0, GOAL_BOX.ghostsMost).map(([id, to], index) => ({ id, title: goalById(goals, id)?.title ?? id, x: width - GOAL_BOX.ghostW, y: 12 + index * 42, w: GOAL_BOX.ghostW, h: GOAL_BOX.ghostH, arrowTo: to }))
   const frame = focus === null ? null : { id: focus.id, x: 0, y: 0, w: area, h: GOAL_BOX.frameH }
   const perRow = Math.max(1, Math.floor((area + GOAL_BOX.gap) / (GOAL_BOX.w + GOAL_BOX.gap)))
-  const all = [...childIds.map(id => ({ id, kind: 'child' })), ...refIds.map(id => ({ id, kind: 'ref' }))]
+  // B258: the goal's asks not answered or not read yet stand after the references, as violet boxes of kind "ask".
+  const askIds = focus === null ? [] : focus.asks.filter(ask => goalAskState(ask) !== 'read').map(ask => ask.id)
+  const all = [...childIds.map(id => ({ id, kind: 'child' })), ...refIds.map(id => ({ id, kind: 'ref' })), ...askIds.map(id => ({ id, kind: 'ask' }))]
   const firstY = frame === null ? GOAL_BOX.topY : GOAL_BOX.firstY
   const boxes = all.map((one, index) => {
     const row = Math.floor(index / perRow)
@@ -3423,7 +3500,7 @@ function goalTreeDrop(goals, layout, fromId, x, y) {
   if (box !== undefined) {
     const at = (x - box.x) / box.w
     const place = at < 0.25 ? 'before' : at > 0.75 ? 'after' : 'into'
-    return { place, over: box.id, target: box.kind === 'ref' ? null : goalDropTarget(goals, fromId, box.id, place) }
+    return { place, over: box.id, target: box.kind !== 'child' ? null : goalDropTarget(goals, fromId, box.id, place) }
   }
   if (layout.frame !== null && hit(layout.frame)) return { place: 'into', over: layout.frame.id, target: goalDropTarget(goals, fromId, layout.frame.id, 'into') }
   return null
@@ -3456,7 +3533,7 @@ const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, u
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
-  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews]
+  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null]
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
@@ -3528,11 +3605,13 @@ function drawGoals(state) {
     fill($('goals-actions'), goals !== null && canEdit ? [goalButton('goals-action', '+ Goal', { goalAction: 'add' })] : [])
     $('goals-note').hidden = goalsUi.note === null
     $('goals-note').textContent = goalsUi.note?.text ?? ''
+  $('goals-note').classList.toggle('is-ok', goalsUi.note?.tone === 'ok')
     fill($('goals-outline'), [el('p', 'muted goals-empty', goals === null
       ? `No goal map yet. The Advisor writes ${state.goalsFile ?? '.claude/goals.md'} with you; the board draws it here.`
       : `${state.goalsFile ?? 'The goals file'} holds no goal yet. The Advisor writes them with you; the board draws them here.`),
     goals !== null && canEdit && goalsUi.editing?.kind === 'add' ? goalEditorRow(goals, 0) : null])
     if ($('goals-input') !== null) $('goals-input').focus()
+    showGoalAsk()
     drawGoalTree(state)
     return
   }
@@ -3573,6 +3652,7 @@ function drawGoals(state) {
   fill($('goals-actions'), actions)
   $('goals-note').hidden = goalsUi.note === null
   $('goals-note').textContent = goalsUi.note?.text ?? ''
+  $('goals-note').classList.toggle('is-ok', goalsUi.note?.tone === 'ok')
 
   // B256: the goals chosen with Ctrl-click, to put under a new goal.
   const chosen = [...goalsUi.chosen].filter(id => goalById(goals, id) !== null)
@@ -3591,11 +3671,14 @@ function drawGoals(state) {
     const isRenaming = goalsUi.editing?.kind === 'rename' && goalsUi.editing.id === focus.id
     head.append(el('span', `goal-dot is-${focus.state}`), isRenaming ? goalEditorBox(goals) : goalFrameTitle(focus), el('span', `goals-frame-state is-${focus.state}`, GOAL_STATES[focus.state] ?? focus.state))
     const lines = goalFrameLines(goals, focus)
+    // B258: an ask read already folds away with the lines; the others always show, as blocks under the frame's tools.
+    const readAsks = focus.asks.filter(ask => goalAskState(ask) === 'read').length
     const summary = el('div', 'goals-frame-line')
     // Unfolded, the lines say it all: the folded line goes.
     if (!goalsLinesOpen || lines.length === 0) summary.append(el('span', '', goalFrameLine(focus)))
-    if (lines.length > 0) {
-      const toggle = el('button', 'goals-lines', goalsLinesOpen ? 'fold ▾' : `${lines.length} line${lines.length === 1 ? '' : 's'} ▸`)
+    if (lines.length > 0 || readAsks > 0) {
+      const folded = [lines.length > 0 ? `${lines.length} line${lines.length === 1 ? '' : 's'}` : null, readAsks > 0 ? `${readAsks} ask${readAsks === 1 ? '' : 's'} read` : null].filter(Boolean).join(' · ')
+      const toggle = el('button', 'goals-lines', goalsLinesOpen ? 'fold ▾' : `${folded} ▸`)
       toggle.type = 'button'
       toggle.id = 'goals-lines'
       toggle.setAttribute('aria-expanded', String(goalsLinesOpen))
@@ -3620,13 +3703,17 @@ function drawGoals(state) {
         if (kind === 'delete') tool.title = 'Remove it and the links to it'
         tools.append(tool)
       }
+      // B258: ask the Advisor about this goal, when the board has an Advisor: second, after "+ Sub-goal".
+      if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Ask the Advisor…', { goalTool: 'ask' }), tools.children[1] ?? null)
       if (focus.fromPlan) tools.append(el('small', 'muted', 'Its title and Done when are the game plan\'s.'))
       parts.push(tools)
       const editing = goalsUi.editing
       if (editing !== null && editing.id === focus.id && !['rename', 'add', 'sibling', 'group'].includes(editing.kind)) parts.push(goalEditorBox(goals))
     }
+    for (const block of goalAskBlocks(focus, goalsLinesOpen)) parts.push(goalAskBlockNode(focus, block, canEdit))
     fill($('goals-frame'), parts)
   }
+  showGoalAsk()
 
   // A redraw keeps the keyboard where it was: on the same row's arrow, title or "…", in its menu, or on a box.
   const active = document.activeElement
@@ -3664,7 +3751,7 @@ function drawGoals(state) {
       more.setAttribute('aria-label', `More for ${row.title}`)
       more.setAttribute('aria-expanded', String(goalsUi.menu === row.id))
     }
-    line.append(fold, dot, title, ...row.tags.map(tag => el('span', `goal-tag${tag.startsWith('enables') ? ' is-enables' : ''}`, tag)), ...asks, el('span', 'goal-meta', row.counter))
+    line.append(fold, dot, title, ...row.tags.map(tag => el('span', `goal-tag${tag.startsWith('enables') ? ' is-enables' : /^(?:\d+ asks? pending|answer to read)$/.test(tag) ? ' is-asking' : ''}`, tag)), ...asks, el('span', 'goal-meta', row.counter))
     if (more !== null) line.append(more)
     // B256: rows move by dragging, all but the references and the path down to the focus.
     if (canEdit && !row.isRef && !chain.has(row.id)) line.draggable = true
@@ -3758,6 +3845,38 @@ function goalLabelNodes(node, lead = '') {
   return parts.id === '' ? [`${lead}${goalLabel(node)}`] : [parts.lead, el('span', 'goal-id', parts.id), parts.rest].filter(part => part !== '')
 }
 
+const ASK_STATES = { pending: 'waiting for the Advisor', answered: 'answered', read: 'read' }
+
+/**
+ * B258: one ask under the goal zoomed into: the question, the answer with its pictures and its page (More ↗, from the
+ * project's folder or the asks' folder), and, on a board that writes the map, what the person can do with it.
+ */
+function goalAskBlockNode(node, block, canEdit) {
+  const box = el('div', `goal-ask-block is-${block.state}`)
+  box.dataset.askBlock = block.id
+  const head = el('p', 'goal-ask-head')
+  head.append(el('b', '', `? Ask ${block.id}`), el('small', 'muted', ` · ${block.at} · ${ASK_STATES[block.state]}`))
+  box.append(head, el('p', 'goal-ask-question', block.question))
+  if (block.answer !== null) {
+    const answer = el('div', 'goal-ask-answer')
+    answer.append(el('small', 'muted', `Answer · ${block.answer.at} · ${block.answer.by}`), el('p', '', block.answer.text))
+    if (block.pictures.length > 0) answer.append(fill(el('div', 'goal-ask-pictures'), block.pictures.map(path => picture(path, `${block.id}: ${path}`))))
+    box.append(answer)
+  }
+  const buttons = el('div', 'goals-tools')
+  if (block.answer?.more) {
+    const more = goalButton('goals-tool', 'More ↗', { gameFile: block.answer.more, projectFile: `${board?.goalAsksFolder ?? '.claude/goal-asks'}/${block.answer.more.split('/').pop()}` })
+    more.title = `Open ${block.answer.more}`
+    buttons.append(more)
+  }
+  if (canEdit && block.answer !== null) {
+    buttons.append(goalButton('goals-tool', 'Make a step from this', { askAction: 'step', askId: block.id }), goalButton('goals-tool', 'Ask again', { askAction: 'again', askId: block.id }))
+    if (block.state === 'answered') buttons.append(goalButton('goals-tool is-read', 'Done', { askAction: 'done', askId: block.id }))
+  }
+  if (buttons.children.length > 0) box.append(buttons)
+  return box
+}
+
 /** B284: the title in the head of the frame of the goal zoomed into, with its id. */
 function goalFrameTitle(focus) {
   const title = el('b', 'goals-frame-title')
@@ -3765,7 +3884,25 @@ function goalFrameTitle(focus) {
   return title
 }
 
+/** B258: an ask under the goal zoomed into, as a violet dashed box: its id, its question and where it stands. */
+function goalAskBox(goals, box) {
+  const ask = goalById(goals, goalsFocus)?.asks.find(one => one.id === box.id) ?? null
+  const state = ask === null ? 'pending' : goalAskState(ask)
+  const g = svgEl('g', { 'data-ask': box.id, tabindex: 0, role: 'button', 'aria-label': `Ask ${box.id}: ${ask?.text ?? ''}. ${state === 'pending' ? 'The Advisor has not answered yet' : 'Answered: read it'}` }, `goal-box is-ask is-${state}`)
+  g.append(svgEl('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: 8 }, 'goal-box-rect'))
+  g.append(svgText(box.x + 10, box.y + 21, `? Ask ${box.id}`, 'goal-box-title goal-ask-title'))
+  const question = svgEl('text', { x: box.x + 10, y: box.y + 40 }, 'goal-box-meta')
+  goalTitleLines(ask?.text ?? '', 23).forEach((line, index) => {
+    const span = svgEl('tspan', index === 0 ? {} : { x: box.x + 10, dy: 14 })
+    span.textContent = line
+    question.append(span)
+  })
+  g.append(question, svgText(box.x + 10, box.y + 84, state === 'pending' ? 'waiting for the Advisor' : 'answered · read it', 'goal-box-state'))
+  return g
+}
+
 function goalBoxGroup(goals, box) {
+  if (box.kind === 'ask') return goalAskBox(goals, box)
   const node = goalById(goals, box.id)
   const counts = node.counts
   const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${goalLabel(node)}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
@@ -3926,6 +4063,9 @@ function goalsGlide(id) {
 
 $('goals-diagram').addEventListener('click', event => {
   if (goalsUi.justDragged || board?.goals === undefined) return
+  // B258: an ask's box shows its block in the frame.
+  const ask = event.target.closest('[data-ask]')
+  if (ask !== null) return goalsShowAsk(ask.dataset.ask)
   const hit = event.target.closest('[data-goal]')
   // The empty ground zooms out one level.
   if (hit === null) {
@@ -3942,8 +4082,14 @@ $('goals-diagram').addEventListener('click', event => {
   goalsGlide(hit.dataset.goal)
 })
 $('goals-diagram').addEventListener('keydown', event => {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  const ask = event.target.closest?.('[data-ask]')
+  if (ask !== null && ask !== undefined) {
+    event.preventDefault()
+    return goalsShowAsk(ask.dataset.ask)
+  }
   const hit = event.target.closest?.('[data-goal]')
-  if (hit === null || hit === undefined || (event.key !== 'Enter' && event.key !== ' ')) return
+  if (hit === null || hit === undefined) return
   event.preventDefault()
   if (hit.classList.contains('goal-ghost')) zoomGoal(hit.dataset.goal)
   else if (!hit.classList.contains('goal-tree-frame')) goalsGlide(hit.dataset.goal)
@@ -4051,6 +4197,8 @@ function goalMenuRow(goals, node, depth) {
     action(goalsUi.menuInto ? 'Move into… ▾' : 'Move into…', 'into'),
     action('Also part of…', 'link'),
   )
+  // B258: ask the Advisor about it, when the board has an Advisor.
+  if ((board?.advisor ?? null) !== null) menu.append(action('Ask the Advisor…', 'ask'))
   if (node.state !== 'done') menu.append(action(isConfirming('done', node.id) ? 'Goals inside are open: again to mark done' : 'Mark done', 'done'))
   if (!isPlan) {
     menu.append(action('Rename', 'rename'))
@@ -4140,6 +4288,11 @@ $('goals-outline').addEventListener('click', event => {
     zoomGoal(id)
     return goalsEdit('Also part of', id)
   }
+  if (name === 'ask') {
+    close()
+    zoomGoal(id)
+    return openGoalAsk(id)
+  }
   if (name === 'rename') {
     close()
     return goalsEdit('rename', id, node.title)
@@ -4176,10 +4329,10 @@ function zoomGoal(id) {
   redrawGoals()
 }
 
-/** A line under the map for a while: why a change was refused. */
-function goalsSay(text) {
+/** A line under the map for a while: why a change was refused, or (B258, tone 'ok') that an ask went out. */
+function goalsSay(text, tone = 'problem') {
   const until = Date.now() + GOAL_NOTE_MS
-  goalsUi.note = { text, until }
+  goalsUi.note = { text, until, tone }
   setTimeout(() => {
     if (goalsUi.note?.until === until) {
       goalsUi.note = null
@@ -4219,8 +4372,8 @@ async function sendGoals(body) {
   } catch {
     goalsSay('Not changed: the board\'s server does not answer.')
   }
-  // A change that changed nothing is nothing to undo.
-  if (result !== null && result.unchanged !== true) goalsUi.undoable = body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
+  // A change that changed nothing is nothing to undo; an ask and a read mark (B258) are no change undo takes back.
+  if (result !== null && result.unchanged !== true && body.command !== 'ask' && body.command !== 'read') goalsUi.undoable = body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   // Changed or refused, the map is read anew (a refusal is often a change made elsewhere in between), and the next
   // key works on the map as it now is.
   await read()
@@ -4296,6 +4449,182 @@ async function goalsMove(id, target) {
   await sendGoals({ command: 'move', id, parent: target.parent, index: target.index })
 }
 
+// B258: the box under the frame that asks the Advisor about the goal zoomed into (spec 2026-10-15, section 4): the
+// question, pictures pasted (Ctrl+V) or picked, Send. It stands in the page itself, so the words typed stay while the
+// map is drawn anew; it shows while its goal is the focus. Send writes the Ask line under the goal (its id comes back),
+// then types the words into the Advisor's chat with that id and the pictures the board kept.
+const goalsAskBox = { goal: null, pictures: [], problem: null, busy: false }
+const ASK_PICTURES_MOST = 4
+
+function openGoalAsk(id) {
+  if (goalsAskBox.goal !== id) {
+    $('goals-ask-text').value = ''
+    setAskPictures([])
+  }
+  goalsAskBox.goal = id
+  goalsAskBox.problem = null
+  showGoalAsk()
+  $('goals-ask-text').focus()
+}
+
+function closeGoalAsk() {
+  goalsAskBox.goal = null
+  goalsAskBox.problem = null
+  $('goals-ask-text').value = ''
+  setAskPictures([])
+  showGoalAsk()
+}
+
+function setAskPictures(pictures) {
+  for (const one of goalsAskBox.pictures) if (!pictures.includes(one)) URL.revokeObjectURL(one.url)
+  goalsAskBox.pictures = pictures
+}
+
+/** Shown under the frame of the goal it asks about, on a board that writes the map and has an Advisor. */
+function showGoalAsk() {
+  const form = $('goals-ask')
+  const node = board?.goals ? goalById(board.goals, goalsAskBox.goal) : null
+  form.hidden = node === null || goalsFocus !== node.id || !canEditGoals(board) || (board?.advisor ?? null) === null
+  if (form.hidden) return
+  $('goals-ask-head').textContent = `Ask the Advisor about ${goalLabel(node)}`
+  $('goals-ask-send').disabled = goalsAskBox.busy
+  $('goals-ask-send').textContent = goalsAskBox.busy ? 'Sending…' : 'Send'
+  $('goals-ask-pick').disabled = goalsAskBox.busy || goalsAskBox.pictures.length >= ASK_PICTURES_MOST
+  const note = $('goals-ask-note')
+  note.classList.toggle('is-error', goalsAskBox.problem !== null)
+  note.textContent = goalsAskBox.problem ?? (board.advisor.isRunning === false
+    ? `${board.advisor.name}'s chat is not running: the main chat is asked to start it, then it answers under the goal.`
+    : 'The Advisor answers under the goal; do other things meanwhile. Ctrl+V pastes a picture.')
+  const shown = goalsAskBox.pictures.map((one, index) => {
+    const image = el('img')
+    image.src = one.url
+    image.alt = `Picture ${index + 1} of the ask`
+    const remove = el('button', 'main-picture-remove', '×')
+    remove.type = 'button'
+    remove.dataset.askPicture = String(index)
+    remove.title = 'Take the picture away'
+    remove.setAttribute('aria-label', 'Take the picture away')
+    const frame = el('span', 'main-picture-frame')
+    frame.append(image, remove)
+    return frame
+  })
+  fill($('goals-ask-pictures'), shown)
+  $('goals-ask-pictures').hidden = shown.length === 0
+}
+
+/** A pasted or picked picture for the ask; why it was not taken otherwise. */
+function addAskPicture(file, why = null) {
+  goalsAskBox.problem = file === null ? why ?? 'The clipboard holds no picture.'
+    : !TALK_TYPES.includes(file.type) ? 'Only a PNG, JPEG or WebP picture can go with an ask.'
+      : goalsAskBox.pictures.length >= ASK_PICTURES_MOST ? `At most ${ASK_PICTURES_MOST} pictures go with an ask.` : talkPictureProblem(file)
+  if (goalsAskBox.problem === null) setAskPictures([...goalsAskBox.pictures, { file, url: URL.createObjectURL(file), path: null }])
+  showGoalAsk()
+}
+
+async function sendGoalAsk() {
+  const goal = goalsAskBox.goal
+  const advisor = board?.advisor?.name ?? null
+  const text = $('goals-ask-text').value.trim()
+  if (goal === null || advisor === null || goalsAskBox.busy) return
+  if (text === '') {
+    goalsAskBox.problem = 'Say what you want to know.'
+    return showGoalAsk()
+  }
+  goalsAskBox.busy = true
+  goalsAskBox.problem = null
+  showGoalAsk()
+  const fail = why => {
+    goalsAskBox.busy = false
+    goalsAskBox.problem = why
+    showGoalAsk()
+  }
+  // The board keeps the pictures as Talk to Main's; one kept on an earlier try is not kept twice.
+  const pictures = []
+  for (const one of goalsAskBox.pictures) {
+    if (one.path === null) {
+      const kept = await keepTalkFile(one.file)
+      if (kept.path === undefined) return fail(`Not sent: ${kept.problem}`)
+      one.path = kept.path
+    }
+    pictures.push(one.path)
+  }
+  const written = await sendGoals({ command: 'ask', id: goal, text })
+  if (typeof written?.id !== 'string') return fail('Not sent: the ask could not be written under the goal (the line above the map says why).')
+  const key = `goal-ask:${written.id}`
+  await send({ to: advisor, command: 'goal-ask', goal, ask: written.id, text, pictures }, key)
+  if (problems.has(key)) {
+    const why = problems.get(key)
+    problems.delete(key)
+    return fail(`${written.id} stands under the goal, but the words did not reach ${advisor}: ${why.replace(/^Not sent: /, '')}.`)
+  }
+  goalsAskBox.busy = false
+  closeGoalAsk()
+  goalsSay(`Asked ${advisor} (${written.id}). The answer comes under the goal and under Needs your attention.`, 'ok')
+}
+
+/** B258: what the person does with an answer: a step from it (Talk to Main, prefilled), ask again, or Done (read). */
+function goalsAskAction(kind, goal, askId) {
+  const node = board?.goals ? goalById(board.goals, goal) : null
+  const block = node === null ? undefined : goalAskBlocks(node, true).find(one => one.id === askId)
+  if (block === undefined) return
+  if (kind === 'done') return sendGoals({ command: 'read', id: goal, ask: askId })
+  if (kind === 'again') return openGoalAsk(goal)
+  if (kind === 'step') {
+    showSide('main')
+    $('main-text').value = goalStepWords(node, block)
+    $('main-text').focus()
+  }
+}
+
+/** An ask's block in the frame, brought into sight and lit for a moment (from its box in the tree). */
+function goalsShowAsk(id) {
+  const block = document.querySelector(`#goals-frame [data-ask-block="${id}"]`)
+  if (block === null) return
+  block.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  block.classList.remove('is-lit')
+  void block.offsetWidth
+  block.classList.add('is-lit')
+}
+
+$('goals-ask').addEventListener('submit', event => {
+  event.preventDefault()
+  sendGoalAsk()
+})
+$('goals-ask').addEventListener('paste', event => {
+  const pasted = pastedTalk(event.clipboardData?.items)
+  if (pasted.ignore === true) return
+  event.preventDefault()
+  addAskPicture(pasted.take?.getAsFile() ?? null, pasted.problem ?? null)
+})
+$('goals-ask').addEventListener('click', event => {
+  const remove = event.target.closest('[data-ask-picture]')
+  if (remove !== null && !goalsAskBox.busy) {
+    setAskPictures(goalsAskBox.pictures.filter((one, index) => index !== Number(remove.dataset.askPicture)))
+    showGoalAsk()
+    return $('goals-ask-text').focus()
+  }
+  if (event.target.closest('#goals-ask-pick') !== null) return $('goals-ask-file').click()
+  if (event.target.closest('#goals-ask-cancel') !== null && !goalsAskBox.busy) closeGoalAsk()
+})
+$('goals-ask-file').addEventListener('change', event => {
+  for (const file of Array.from(event.target.files ?? [])) addAskPicture(file)
+  event.target.value = ''
+})
+$('goals-ask-text').addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !goalsAskBox.busy) {
+    event.preventDefault()
+    closeGoalAsk()
+  } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault()
+    sendGoalAsk()
+  }
+})
+$('goals-ask-text').addEventListener('input', () => {
+  if (goalsAskBox.problem === null) return
+  goalsAskBox.problem = null
+  showGoalAsk()
+})
+
 // B289: a step under no goal opens its window.
 $('goals-unlinked').addEventListener('click', event => {
   const row = event.target.closest('[data-unlinked-step]')
@@ -4332,8 +4661,12 @@ $('goals-frame').addEventListener('click', event => {
   if (choice !== null) return goalsLink(choice.dataset.linkTarget)
   const unlink = event.target.closest('[data-unlink]')
   if (unlink !== null && focus !== null) return sendGoals({ command: 'unlink', id: focus, name: unlink.dataset.unlink, target: unlink.dataset.target })
+  // B258: what the person does with an ask's answer.
+  const askAction = event.target.closest('[data-ask-action]')
+  if (askAction !== null && focus !== null) return goalsAskAction(askAction.dataset.askAction, focus, askAction.dataset.askId)
   const tool = event.target.closest('[data-goal-tool]')?.dataset.goalTool
   if (tool === undefined || focus === null) return
+  if (tool === 'ask') return openGoalAsk(focus)
   const node = board?.goals ? goalById(board.goals, focus) : null
   if (tool === 'delete' || tool === 'dissolve') {
     if (!isConfirmed(tool, focus)) {
@@ -5249,16 +5582,29 @@ function setSlotPicture(slot, file) {
   box.replaceChildren(frame)
 }
 
+/**
+ * The board keeps a picture to send and answers `{ path }` in the project, or `{ problem }` with the reason. B258: the
+ * typing boxes' slots and the ask on the goal map keep their pictures this one way.
+ */
+async function keepTalkFile(file) {
+  try {
+    const got = await fetch('/api/talk/picture', { method: 'POST', headers: { 'Content-Type': file.type, 'X-Board-Token': TOKEN }, body: file })
+    if (got.ok) return { path: (await got.json()).path }
+    return { problem: `the picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}` }
+  } catch {
+    return { problem: 'the board\'s server does not answer' }
+  }
+}
+
+/** Why a picture cannot go with the words: too large; null when it can (the types are pastedTalk's). */
+const talkPictureProblem = file => (file.size > TALK_BYTES ? `That picture is too large: ${TALK_BYTES / (1024 * 1024)} MB at most.` : null)
+
 /** The board keeps the picture and answers its path; null, with the reason shown, when it did not. */
 async function keepSlotPicture(slot) {
   if (slot.picture.path !== null) return slot.picture.path
-  try {
-    const got = await fetch('/api/talk/picture', { method: 'POST', headers: { 'Content-Type': slot.picture.file.type, 'X-Board-Token': TOKEN }, body: slot.picture.file })
-    if (got.ok) return (slot.picture.path = (await got.json()).path)
-    problems.set(slot.key, `Not sent: the picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}`)
-  } catch {
-    problems.set(slot.key, 'Not sent: the board\'s server does not answer')
-  }
+  const kept = await keepTalkFile(slot.picture.file)
+  if (kept.path !== undefined) return (slot.picture.path = kept.path)
+  problems.set(slot.key, `Not sent: ${kept.problem}`)
   return null
 }
 
@@ -5271,8 +5617,7 @@ function pasteInto(slot, event) {
   if (pasted.ignore === true) return
   event.preventDefault()
   const file = pasted.take?.getAsFile() ?? null
-  slot.problem = file === null ? pasted.problem ?? 'The clipboard holds no picture.'
-    : file.size > TALK_BYTES ? `That picture is too large: ${TALK_BYTES / (1024 * 1024)} MB at most.` : null
+  slot.problem = file === null ? pasted.problem ?? 'The clipboard holds no picture.' : talkPictureProblem(file)
   if (slot.problem === null) {
     problems.delete(slot.key)
     setSlotPicture(slot, file)

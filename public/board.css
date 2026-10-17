@@ -14,6 +14,7 @@
   --unknown: #5b6779;
   --warn: #ff7a59;
   --ink: #08110c;
+  --ask: #b48cff;
   color-scheme: dark;
 }
 
@@ -233,6 +234,40 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .goals-choice:hover, .goals-choice:focus-visible { border-color: var(--free); }
 .goals-chosen { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; padding: 6px 10px; border: 1px dashed var(--free); border-radius: 6px; font-size: 13px; }
 .goal-row.is-chosen { background: #1d2a3f; box-shadow: inset 3px 0 0 #8fb4ff; }
+/* B258: an ask to the Advisor under a goal, violet: the tag in the outline, the box in the tree, the block in the frame, the box to ask in. */
+.goal-tag.is-asking { border-color: var(--ask); color: var(--ask); }
+.goals-tool.is-ask { border-color: #5a4a86; color: var(--ask); }
+.goal-box.is-ask .goal-box-rect { fill: none; stroke: var(--ask); stroke-dasharray: 5 4; stroke-width: 1.5; }
+.goal-box.is-ask.is-answered .goal-box-rect { stroke-dasharray: none; stroke-width: 2; fill: #1c1830; }
+.goal-box.is-ask:hover .goal-box-rect, .goal-box.is-ask:focus-visible .goal-box-rect { fill: #221d3a; }
+.goal-box.is-ask .goal-ask-title { fill: var(--ask); }
+.goal-ask-block { margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--ask); border-radius: 8px; background: var(--panel); font-size: 13px; }
+.goal-ask-block.is-answered { border-style: solid; }
+.goal-ask-block.is-read { border-color: var(--line); opacity: .8; }
+.goal-ask-block.is-lit { animation: goal-ask-lit 1.2s ease-out; }
+@keyframes goal-ask-lit { from { box-shadow: 0 0 0 4px #5a4a86; } to { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .goal-ask-block.is-lit { animation: none; } }
+.goal-ask-head { margin: 0; color: var(--ask); }
+.goal-ask-question { margin: 2px 0 0; overflow-wrap: anywhere; }
+.goal-ask-answer { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--ask); }
+.goal-ask-answer p { margin: 2px 0 0; overflow-wrap: anywhere; }
+.goal-ask-pictures { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.goal-ask-pictures .picture img { max-width: 160px; max-height: 96px; }
+.goal-ask-block .goals-tools { margin-top: 8px; }
+.goals-tool.is-read { border-color: #2d6b47; color: var(--working); }
+.goals-ask { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; padding: 10px 14px; border: 1px dashed var(--ask); border-radius: 8px; background: var(--inset); }
+.goals-ask[hidden] { display: none; }
+.goals-ask-head { color: var(--ask); font-weight: 600; font-size: 13.5px; }
+.goals-ask textarea { width: 100%; max-width: 760px; min-height: 64px; box-sizing: border-box; padding: 6px 8px; border: 1px solid #5a4a86; border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; resize: vertical; }
+.goals-ask .main-picture { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 6px; }
+.goals-ask .main-picture[hidden] { display: none; }
+.goals-ask .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
+.goals-ask .main-picture-remove:hover { border-color: #ff8a8a; color: #ff8a8a; }
+.goals-ask-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.goals-ask-note { flex: 1; min-width: 12em; color: var(--muted); font-size: 12.5px; }
+.goals-ask-note.is-error { color: var(--warn); }
+.goals-action.is-send { border-color: var(--ask); background: #2a2148; }
+.goals-note.is-ok { border-color: #5a4a86; color: var(--ask); }
 .goal-row.is-editor { cursor: default; }
 .goal-row.is-dragging { opacity: .4; }
 .goal-row.is-before { box-shadow: inset 0 2px 0 var(--free); }

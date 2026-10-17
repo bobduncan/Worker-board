@@ -1,12 +1,18 @@
 // B258: an ask to the Advisor under a goal (spec 2026-10-15, section 4): the Ask line the board writes, the words it
 // types into the Advisor's chat, the Read mark after the answer, and what the state gives the page. Made-up names only.
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+import vm from 'node:vm'
 
-import { goalAskNeeds, goalAskList, parseGoals } from '../src/goals.mjs'
+import { parseBacklog } from '../src/backlog.mjs'
+
+import { goalAskNeeds, goalAskList, goalCounts, parseGoals } from '../src/goals.mjs'
 import { addGoalAsk, editGoals, markAskRead } from '../src/goalsWrite.mjs'
 import { checkSay, wakeFor } from '../src/say.mjs'
-import { GOALS } from './fixtures-goals.mjs'
+import { BACKLOG, GOALS } from './fixtures-goals.mjs'
 
 const ANSWERED = GOALS.replace('      Ask (A1, 2026-10-15 18:40): what differs most from the picture?\n', [
   '      Ask (A1, 2026-10-15 18:40): what differs most from the picture?',
@@ -112,4 +118,67 @@ test('the state lists every ask under its goal, and an answered one not yet read
   // Pending, or read: nothing for the person.
   assert.deepEqual(goalAskNeeds(parseGoals(GOALS)), [])
   assert.deepEqual(goalAskNeeds(parseGoals(markAskRead(ANSWERED, 'G6', 'A1', '2026-10-15 19:40').text)), [])
+})
+
+// The page's parts, run here without the page.
+const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
+const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
+const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
+const made = {}
+vm.runInNewContext(`${script.slice(script.indexOf('// goals:start'), script.indexOf('// goals:end'))}
+Object.assign(this, { goalAskBlocks, goalAskPictures, goalFrameLine, goalOutlineRows, goalStepWords, goalTreeDrop, goalTreeLayout })`, made)
+const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
+const stateGoals = text => {
+  const goals = parseGoals(text)
+  const counts = goalCounts(goals, parseBacklog(BACKLOG))
+  return { roots: goals.roots, problems: goals.problems, nodes: goals.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })) }
+}
+const WITH_PICTURE = ANSWERED.replace('the shading: three tones there, one here.', 'the shading: three tones there, one here (pictures/benches/side-by-side.png).')
+
+test('the frame shows each ask as a block: pending, answered with its pictures, read only with the lines open', () => {
+  const g6 = goals => goals.nodes.find(one => one.id === 'G6')
+  assert.deepEqual(page.goalAskBlocks(g6(stateGoals(GOALS)), false), [{ id: 'A1', at: '2026-10-15 18:40', question: 'what differs most from the picture?', state: 'pending', answer: null, pictures: [] }])
+  const answered = page.goalAskBlocks(g6(stateGoals(WITH_PICTURE)), false)[0]
+  assert.equal(answered.state, 'answered')
+  assert.equal(answered.answer.more, '.claude/goal-asks/2026-10-15-benches.md')
+  assert.deepEqual(answered.pictures, ['pictures/benches/side-by-side.png'])
+  assert.equal(page.goalFrameLine(g6(stateGoals(WITH_PICTURE))), '1 answer to read')
+  const read = stateGoals(markAskRead(ANSWERED, 'G6', 'A1', '2026-10-15 19:40').text)
+  assert.deepEqual(page.goalAskBlocks(g6(read), false), [])
+  assert.equal(page.goalAskBlocks(g6(read), true)[0].state, 'read')
+  assert.deepEqual(page.goalAskPictures({ text: 'see ./art/a.webp and art/b.JPG, and art/a.webp again', more: 'art/c.png' }), ['art/a.webp', 'art/b.JPG', 'art/c.png'])
+})
+
+test('the outline tags a goal with its pending asks and an answer to read; a step from an answer names the goal and the ask', () => {
+  const tags = text => page.goalOutlineRows(stateGoals(text), 'G5', new Set()).find(row => row.id === 'G6').tags
+  assert.deepEqual(tags(GOALS), ['1 ask pending'])
+  assert.deepEqual(tags(ANSWERED), ['answer to read'])
+  assert.deepEqual(tags(markAskRead(ANSWERED, 'G6', 'A1', '2026-10-15 19:40').text), [])
+  const goals = stateGoals(ANSWERED)
+  const node = goals.nodes.find(one => one.id === 'G6')
+  assert.equal(page.goalStepWords(node, page.goalAskBlocks(node, true)[0]),
+    'Make a backlog step from the goal map, for G6 Benches that match the picture, from my ask A1: what differs most from the picture? The Advisor\'s answer: the shading: three tones there, one here. (more in .claude/goal-asks/2026-10-15-benches.md)')
+})
+
+test('in the tree an ask stands as a violet box after the goals inside, and nothing can be dropped on it', () => {
+  const asked = addGoalAsk(GOALS, 'G5', { askId: 'A2', at: '2026-10-15 20:00', question: 'when does it open?' }).text
+  const out = page.goalTreeLayout(stateGoals(asked), 'G5', 540)
+  assert.deepEqual(out.boxes.map(box => [box.id, box.kind]), [['G6', 'child'], ['G9', 'ref'], ['A2', 'ask']])
+  const box = out.boxes[2]
+  assert.equal(page.goalTreeDrop(stateGoals(asked), out, 'G3', box.x + box.w / 2, box.y + box.h / 2).target, null)
+  // Read, it stands in the frame's lines only.
+  const read = page.goalTreeLayout(stateGoals(markAskRead(ANSWERED, 'G6', 'A1', '2026-10-15 19:40').text), 'G6', 540)
+  assert.deepEqual(read.boxes, [])
+  assert.deepEqual(page.goalTreeLayout(stateGoals(ANSWERED), 'G6', 540).boxes.map(one => one.kind), ['ask'])
+})
+
+test('the page has the box to ask in under the frame: words, pictures, Send; and the part for answers to read', () => {
+  assert.ok(html.indexOf('id="goals-frame"') < html.indexOf('id="goals-ask"'))
+  for (const id of ['goals-ask-head', 'goals-ask-text', 'goals-ask-pictures', 'goals-ask-pick', 'goals-ask-file', 'goals-ask-note', 'goals-ask-cancel', 'goals-ask-send']) assert.ok(html.includes(`id="${id}"`), id)
+  assert.match(html, /id="goals-ask-text" maxlength="2000"/)
+  // The words go to the Advisor with the id the map gave the ask; Done marks it read.
+  assert.match(script, /send\(\{ to: advisor, command: 'goal-ask', goal, ask: written\.id, text, pictures \}/)
+  assert.match(script, /sendGoals\(\{ command: 'read', id: goal, ask: askId \}\)/)
+  assert.match(script, /'Answers to your asks'/)
 })
