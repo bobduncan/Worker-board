@@ -134,3 +134,22 @@ test('a note is read by the person and by nobody else', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('review: the asking chat closes its own ask with the person\'s words from the chat; the step it blocked goes on', async () => {
+  const { dir, board, support } = await fresh()
+  try {
+    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
+    assert.equal(await state(dir, 'B1'), 'waiting on you')
+    assert.equal((await support({ action: 'answered-in-chat', id: 'Q1', text: 'thick' })).status, 409)
+    const done = await board({ action: 'answered-in-chat', id: 'Q1', text: 'thick, the person said in the chat' })
+    assert.equal(done.ok, true, done.why)
+    assert.equal(await state(dir, 'Q1'), 'answered')
+    assert.deepEqual((await item(dir, 'Q1')).sections.get('Answer'), ['thick, the person said in the chat'])
+    assert.equal((await item(dir, 'Q1')).sections.get('History').at(-1), '- 2026-10-17 11:06 Board: answered in the chat: thick, the person said in the chat')
+    assert.equal(await state(dir, 'B1'), 'in progress')
+    assert.equal((await board({ action: 'answered-in-chat', id: 'Q1', text: 'again' })).result.changed, false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
