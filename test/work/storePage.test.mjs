@@ -23,8 +23,8 @@ const plain = value => JSON.parse(JSON.stringify(value))
 const ask = { id: 'work:Q4', workId: 'Q4', asks: 'look', of: 'B1', ofTitle: 'Draw the strip', blocking: true, blocks: [{ step: 'B1', owner: 'Board' }], isForm: false, isRefine: false, play: 'b1-strip&screen=shop' }
 
 test('a store ask\'s card: its own kind, what it blocks and who waits, its play link', () => {
-  assert.deepEqual(plain(page.storeAskParts(ask)), { id: 'Q4', tag: 'Look', blocks: 'blocks B1 · Board waits', play: '/#play=b1-strip&screen=shop' })
-  assert.deepEqual(plain(page.storeAskParts({ ...ask, asks: 'decide', blocking: false, blocks: [], isRefine: true, play: null })), { id: 'Q4', tag: 'Decide · refine', blocks: 'on B1 Draw the strip', play: null })
+  assert.deepEqual(plain(page.storeAskParts(ask)), { id: 'Q4', tag: 'Look', blocks: 'blocks B1 · Board waits', play: '/#play=b1-strip&screen=shop', withdraw: false })
+  assert.deepEqual(plain(page.storeAskParts({ ...ask, asks: 'decide', blocking: false, blocks: [], isRefine: true, play: null })), { id: 'Q4', tag: 'Decide · refine', blocks: 'on B1 Draw the strip', play: null, withdraw: false })
   assert.equal(page.storeAskParts({ ...ask, of: null, blocks: [], isForm: true }).blocks, null)
   assert.equal(page.storeAskParts({ id: 'chat:Board:5' }), null)
 })
@@ -65,4 +65,13 @@ test('a step\'s window: Summary, picture, goal, the strip, What we build, Requir
 test('a lane names its step by the store\'s title, not by the card\'s short topic', () => {
   assert.deepEqual(plain(page.laneTaskOf({ task: { text: 'B1 Draw the', stepId: 'B1', title: 'Draw the strip' } })), { code: 'B1', text: 'Draw the strip' })
   assert.deepEqual(plain(page.laneTaskOf({ task: { text: 'B1 Draw the', stepId: 'B1' } })), { code: 'B1', text: 'Draw the' })
+})
+
+test('review: a question of the app\'s form whose chat does not run can be withdrawn on the board', () => {
+  const form = { ...ask, of: null, blocks: [], blocking: false, isForm: true, answer: null }
+  assert.equal(page.storeAskParts(form, false).withdraw, true)
+  assert.equal(page.storeAskParts(form, true).withdraw, false)
+  assert.equal(page.storeAskParts(form, null).withdraw, false)
+  assert.equal(page.storeAskParts({ ...ask, answer: null }, false).withdraw, false)
+  assert.match(script, /sendWork\(\{ action: 'withdraw', id: withdraw\.dataset\.withdraw, why: 'its chat does not run' \}/)
 })

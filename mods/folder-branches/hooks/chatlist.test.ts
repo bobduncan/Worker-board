@@ -57,10 +57,16 @@ type World = {
   /** B299: what the person picks in the app's question form, by question; the board's answers to the work tool, in turn. */
   formAnswers: Record<string, string>
   workAnswers: { status: number; text: string }[]
+  /** Review of B298: what the app's form answers besides its choices, whether it was closed unanswered, whether the
+   * board hangs, and what went in beside each prompt for the model. */
+  formResponse: string | null
+  formCloses: boolean
+  hangs: boolean
+  contexts: string[][]
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -133,7 +139,9 @@ function stand(on: On, w: World): void {
   on('tool.call', { tool: 'AskUserQuestion' }, () => {
     w.whileAsked = fileOf(w)
 
-    return { result: { answers: w.formAnswers } }
+    if (w.formCloses) throw new Error('the person closed the form')
+
+    return { result: { answers: w.formAnswers, ...(w.formResponse === null ? {} : { response: w.formResponse }) } }
   })
   on('fs.exists', (_$, e) => {
     const path = slashed(e.path)
@@ -172,6 +180,7 @@ function stand(on: On, w: World): void {
     if (w.up !== null && !w.up.some(address => e.url.startsWith(address))) return { deny: 'ECONNREFUSED' }
     if (e.url.endsWith('/api/bridge/work')) {
       w.worked.push(e.init?.body ?? '')
+      if (w.hangs) return new Promise<never>(() => {})
       const answer = w.workAnswers.shift() ?? w.workAnswer
 
       return { value: { status: answer.status, ok: answer.status === 200, headers: {}, text: answer.text } }
@@ -188,6 +197,7 @@ function stand(on: On, w: World): void {
   on('prompt.submit', (_$, e) => {
     if (w.refusesTyping) return { drop: 'no prompt is taken now' }
     w.typedIn.push(`${e.origin.kind}:${e.origin.kind === 'plugin' && e.origin.asUser === true ? 'as the person' : 'framed'}:${e.text}`)
+    w.contexts.push([...(e.context ?? [])])
 
     return { text: e.text }
   })
@@ -1153,16 +1163,17 @@ describe('B297: the work tool asks the worker board', () => {
   })
 })
 
+
 describe('B298: the person\'s words are filed on the worker board as instructions', () => {
   const BOARD = 'C:/Web/project/.claude/board.json'
   const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
-  const BATCH = { hook_event_name: 'PostToolBatch', session_id: 'units', transcript_path: 'x', cwd: ROOT, tool_calls: [] } as const
   const FILED = JSON.stringify({ id: 'I17', text: 'Recorded as I17', open: [{ id: 'I15', turns: 2 }, { id: 'I17', turns: 0 }] })
-  type Batches = { classic: { PostToolBatch: (e: never) => Promise<{ additionalContext?: string[] }> } }
-  const told = async ($: Batches): Promise<string> => ((await $.classic.PostToolBatch(BATCH as never)).additionalContext ?? []).join('\n')
   const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 200; i++) await Promise.resolve()
+  }
 
-  test('a prompt typed in the chat is filed before the turn sees it; a line the board typed and a slash command are not', async ($, on) => {
+  test('a prompt typed in the chat is filed before the turn sees it and goes in with its id and the open ones beside it', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
@@ -1171,31 +1182,43 @@ describe('B298: the person\'s words are filed on the worker board as instruction
     w.workAnswer = { status: 200, text: FILED }
     await $.prompt.submit({ text: 'Make the strip blue', ...ASKED } as never)
     expect(sent(w)).toEqual([{ action: 'instruction', text: 'Make the strip blue', chat: 'Units', session: 'units' }])
-    // The prompt itself goes on unchanged.
+    // The prompt itself goes on unchanged; beside it, for the model: its id and the ones still open.
     expect(w.typedIn).toEqual(['composer:framed:Make the strip blue'])
-    await $.prompt.submit({ text: 'Queue the menu [I18]\n(typed on the worker board, 11:05)', origin: { kind: 'plugin', asUser: true } } as never)
-    await $.prompt.submit({ text: '/compact', ...ASKED } as never)
-    expect(w.worked.length).toBe(1)
-    // The composed prompt names the open ones; the first batch of the turn names the new id and the ones left open.
+    expect(w.contexts[0]?.join('\n')).toContain('Recorded as I17; close it with work close I17 --as "what came of it" once it is done.')
+    expect(w.contexts[0]?.join('\n')).toContain('Open instructions: I15 (2 turns), I17 (new).')
+    // Review of B298: the system prompt stays the same words, so it stays cached.
     const composed = await $.prompt.compose(COMPOSE)
-    expect(composed.sections.find(section => section.id === 'folder-branches:instructions')?.text ?? '').toContain('Open instructions: I15 (2 turns), I17 (new).')
-    await $.turn.start({ text: 'Make the strip blue', turnId: 't1' })
-    expect(await told($)).toContain('Recorded as I17; close it with work close I17 --as "what came of it" once it is done. Still open from earlier turns: I15 (missed 2 turns).')
-    expect(await told($)).not.toContain('Recorded as')
+    expect(composed.sections.some(section => section.id === 'folder-branches:instructions')).toBe(false)
   })
 
-  test('a prompt held during a turn is filed on submit, and the next batch names it', async ($, on) => {
+  test('what the person sends by Remote Control is filed; a line the board typed, the same pasted by hand and a slash command are not', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.workAnswer = { status: 200, text: FILED }
+    await $.prompt.submit({ text: 'From my phone: the menu too', origin: { kind: 'bridge' } } as never)
+    await $.prompt.submit({ text: 'Queue the menu [I18]\n(typed on the worker board, 11:05)', origin: { kind: 'plugin', asUser: true } } as never)
+    await $.prompt.submit({ text: 'Queue the menu [I18]', ...ASKED } as never)
+    await $.prompt.submit({ text: '(answered on the worker board, 11:05) Q2 "Box or yew?": yew', ...ASKED } as never)
+    await $.prompt.submit({ text: '/compact', ...ASKED } as never)
+    expect(sent(w).map(one => one.text)).toEqual(['From my phone: the menu too'])
+    // A board line that starts a turn still carries the open ones beside it.
+    expect(w.contexts[1]?.join('\n')).toContain('Open instructions: I15 (2 turns), I17 (new).')
+  })
+
+  test('a prompt held during a turn is filed on submit and goes in with its id', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     await $.turn.start({ text: 'go', turnId: 't1' })
-    await told($)
     w.workAnswer = { status: 200, text: JSON.stringify({ id: 'I18', open: [{ id: 'I18', turns: 0 }] }) }
     await $.prompt.submit({ text: 'And the menu too', ...ASKED, turnId: 't1' } as never)
     expect(sent(w).map(one => one.action)).toEqual(['instruction'])
-    expect(await told($)).toContain('Recorded as I18;')
+    expect(w.contexts[0]?.join('\n')).toContain('Recorded as I18;')
   })
 
   test('the end of a turn that answered is told once, with when the turn started; a subagent\'s end is not', async ($, on) => {
@@ -1214,43 +1237,86 @@ describe('B298: the person\'s words are filed on the worker board as instruction
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(sent(w)).toEqual([{ action: 'turn-ended', since: started, chat: 'Units', session: 'units' }])
-    // The next request names it as missed.
-    const composed = await $.prompt.compose(COMPOSE)
-    expect(composed.sections.find(section => section.id === 'folder-branches:instructions')?.text ?? '').toContain('I15 (3 turns)')
+    // The next prompt names it as missed.
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'I16', open: [{ id: 'I15', turns: 3 }, { id: 'I16', turns: 0 }] }) }
+    await $.prompt.submit({ text: 'go on', ...ASKED } as never)
+    expect(w.contexts[0]?.join('\n')).toContain('I15 (3 turns)')
   })
 
-  test('while the board\'s store is not the truth, the refusal is swallowed and nothing changes for the chat', async ($, on) => {
-    mock.clock(on)
+  test('a store that is not the truth yet answers 409: nothing changes for the chat, and the board is asked again only after five minutes', async ($, on) => {
+    const clock = mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     w.workAnswer = { status: 409, text: 'The store is not the truth yet: the cutover has not run' }
     await $.prompt.submit({ text: 'Make the strip blue', ...ASKED } as never)
-    expect(w.typedIn).toEqual(['composer:framed:Make the strip blue'])
+    expect([w.typedIn, w.contexts]).toEqual([['composer:framed:Make the strip blue'], [[]]])
     await $.turn.start({ text: 'Make the strip blue', turnId: 't1' })
-    expect(await told($)).toBe('')
     await $.turn.complete({ ...ENDED, turnId: 't1' })
-    const composed = await $.prompt.compose(COMPOSE)
-    expect(composed.sections.some(section => section.id === 'folder-branches:instructions')).toBe(false)
+    await $.prompt.submit({ text: 'And the menu', ...ASKED } as never)
+    expect(w.worked.length).toBe(1)
+    await clock.advance(5 * 60_000)
+    await $.prompt.submit({ text: 'And the shop', ...ASKED } as never)
+    expect(w.worked.length).toBe(2)
     expect(w.toasts).toEqual([])
+  })
+
+  test('a board that hangs holds the prompt at most a moment and a half: the prompt goes in without it', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.hangs = true
+    const submitted = $.prompt.submit({ text: 'Make the strip blue', ...ASKED } as never)
+    await settle()
+    expect(w.typedIn).toEqual([])
+    await clock.advance(1500)
+    await submitted
+    expect(w.typedIn).toEqual(['composer:framed:Make the strip blue'])
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    const ended = $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    await clock.advance(1500)
+    await ended
+    expect(sent(w).map(one => one.action)).toEqual(['instruction', 'turn-ended'])
+  })
+
+  test('a chat started anew asks once for its open instructions, so its first turn names them', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
+    stand(on, w)
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [{ id: 'I9', turns: 1 }] }) }
+    await $.session.start(START)
+    await settle()
+    expect(sent(w).map(one => one.action)).toEqual(['next'])
+    await $.prompt.submit({ text: 'Queue the menu [I10]\n(typed on the worker board, 11:05)', origin: { kind: 'plugin', asUser: true } } as never)
+    expect(w.contexts[0]?.join('\n')).toContain('Open instructions: I9 (1 turn).')
+    expect(w.worked.length).toBe(1)
   })
 })
 
-describe('B299: a question asked with the app’s form stands on the worker board too', () => {
+describe('B299: a question asked with the app\u2019s form stands on the worker board too', () => {
   const BOARD = 'C:/Web/project/.claude/board.json'
   const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
   const FORM = { tool: 'AskUserQuestion', questions: [{ question: 'Which port?', header: 'Port', multiSelect: false, options: [{ label: '4320', description: 'free' }, { label: '4330', description: 'taken' }] }] }
   const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
   const working = { units: { name: 'Units', role: 'worker' as const, state: 'waiting' as const, task: task('B12 Give the golem', 1, 3, 20), at: 0 } }
+  /** A chat that joins by its title, so it has asked the board nothing before the test's own calls. */
+  const begin = async ($: { session: { start: (e: never) => Promise<unknown> }; classic: { UserPromptSubmit: (e: never) => Promise<unknown> }; turn: { start: (e: never) => Promise<unknown> } }): Promise<void> => {
+    await $.session.start(START as never)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' } as never)
+    await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  }
 
-  test('it is filed as a decide ask under the card’s step, and the answer given in the form follows', async ($, on) => {
+  test('it is filed as a decide ask under the card\u2019s step, and the answer given in the form follows', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(working), [BOARD]: board })
+    w.workAnswer = { status: 409, text: 'not yet' }
     stand(on, w)
-    await $.session.start(START)
-    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
-    await $.turn.start({ text: 'go', turnId: 't1' })
+    await begin($)
+    w.worked = []
     w.workAnswer = { status: 200, text: JSON.stringify({ id: 'Q4', text: '> **For you**' }) }
     w.formAnswers = { 'Which port?': '4320' }
     await $.tool.call(FORM as never)
@@ -1260,29 +1326,47 @@ describe('B299: a question asked with the app’s form stands on the worker boar
     ])
   })
 
-  test('refused under the step it stands alone; a form closed without an answer is withdrawn', async ($, on) => {
-    mock.clock(on)
+  test('refused under the step it stands alone; answered in free text it is answered; closed unanswered it is withdrawn', async ($, on) => {
+    const clock = mock.clock(on)
     const w = world('units', { ...listed(working), [BOARD]: board })
+    w.workAnswer = { status: 409, text: 'not yet' }
     stand(on, w)
-    await $.session.start(START)
-    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
-    await $.turn.start({ text: 'go', turnId: 't1' })
-    w.workAnswers = [{ status: 409, text: 'B12 is Board’s' }, { status: 200, text: JSON.stringify({ id: 'Q5' }) }]
+    await begin($)
+    // The 409 above is remembered for five minutes: past them the board is asked again.
+    await clock.advance(5 * 60_000)
+    w.worked = []
+    w.workAnswers = [{ status: 409, text: 'B12 is Board\u2019s' }, { status: 200, text: JSON.stringify({ id: 'Q5' }) }, { status: 200, text: '{}' }]
+    w.formResponse = 'neither, use 4340'
     await $.tool.call(FORM as never)
-    expect(sent(w).map(one => [one.action, one.of ?? null, one.id ?? null])).toEqual([['ask', 'B12', null], ['ask', null, null], ['withdraw', null, 'Q5']])
+    expect(sent(w).map(one => [one.action, one.of ?? null, one.id ?? null, one.text ?? null])).toEqual([
+      ['ask', 'B12', null, 'Which port?'], ['ask', null, null, 'Which port?'], ['answered-in-chat', null, 'Q5', 'neither, use 4340'],
+    ])
+    w.worked = []
+    w.workAnswers = [{ status: 200, text: JSON.stringify({ id: 'Q6' }) }]
+    w.formCloses = true
+    await $.tool.call(FORM as never).catch(() => null)
+    expect(sent(w).map(one => [one.action, one.id ?? null])).toEqual([['ask', null], ['withdraw', 'Q6']])
   })
 
   test('while the store is not the truth nothing is filed and the form is asked as before', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
-    await $.session.start(START)
-    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
-    await $.turn.start({ text: 'go', turnId: 't1' })
     w.workAnswer = { status: 409, text: 'The store is not the truth yet: the cutover has not run' }
+    await begin($)
     const asked = await $.tool.call(FORM as never)
     expect(asked.result).toEqual({ answers: {} })
     expect(sent(w).map(one => one.action)).toEqual(['ask'])
     expect(w.whileAsked?.state).toBe('asking')
+  })
+
+  test('the chat closes its own ask with the person\u2019s words from the chat, through the work tool', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await begin($)
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'Q7', text: 'Q7 answered in the chat.' }) }
+    expect((await $.tool.call({ tool: 'mcp__folder-branches__work', action: 'answered-in-chat', id: 'Q7', text: 'yes, B' } as never)).result).toBe('Q7 answered in the chat.')
+    expect(sent(w).at(-1)).toEqual({ action: 'answered-in-chat', id: 'Q7', text: 'yes, B', chat: 'Units', session: 'units' })
   })
 })

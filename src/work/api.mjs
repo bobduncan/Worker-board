@@ -30,7 +30,7 @@ export const BOARD_ANSWERS_ASKS = true
 const READS = new Set(['next', 'list'])
 const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'answered-in-chat', 'pull'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull'])
 /** What only the person does, on the board's page; and what only the server does. */
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept'])
 const SERVER = new Set(['check', 'advance'])
@@ -69,6 +69,8 @@ const plain = (name, prefix = '') => {
 const at = now => stamp(now).replace(' ', ' at ')
 /** B298: the time to the second, for an instruction's Since: a turn that starts a moment later can tell it. */
 const toSecond = now => `${stamp(now)}:${String(new Date(now).getSeconds()).padStart(2, '0')}`
+/** Review of B298: when an instruction was filed, to the millisecond (`Filed`), else as its Since says. */
+const filedMs = item => (/^\d+$/.test(valueOf(item, 'Filed') ?? '') ? Number(valueOf(item, 'Filed')) : sinceMs(valueOf(item, 'Since')))
 
 /** One request after the other per store folder: two takes of one step never interleave. */
 const turns = new Map()
@@ -367,21 +369,31 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
 }
 
 /**
- * B299: the person answered in the chat a question the app's form asked (`via: form`): the mod records the answer, so
- * the board no longer shows it as open. Only the chat that asked.
+ * B299: the person answered one of the chat's asks in the chat itself (the app's question form, or its "For you" block
+ * answered in words): the chat that asked closes it with their words (`text`), so the board no longer shows it open,
+ * and a step that waited only on its asks goes on. Review: any ask of its own, not only the form's.
  */
 async function answeredInChat(body, w) {
   const found = await load(body.id, w, { kind: ['ask'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
-  if (valueOf(found.item, 'Via') !== 'form') return refuse(409, `${id} was not asked with the app's question form: the person answers it on the board.`)
-  if (!isOwner(found.item, w.who, w.prefix)) return refuse(409, `${id} is ${valueOf(found.item, 'Owner') ?? 'nobody'}'s.`)
+  if (!isOwner(found.item, w.who, w.prefix)) return refuse(409, `${id} is ${valueOf(found.item, 'Owner') ?? 'the person'}'s: only the chat that asked closes it.`)
   if (stateOf(found.item) !== 'open') return { ok: true, result: { id, text: `${id} is ${stateOf(found.item)} already.`, changed: false } }
   const text = lines(body.text)
-  const item = said(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), w, 'answered in its chat')
+  const short = line(text.join(' '), 200)
+  let item = put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now))
   if (text.length > 0) item.sections.set('Answer', text)
-  const done = await save(item, found.text, w)
-  return done.ok ? changed(item) : done
+  item = said(item, w, `answered in the chat${short === '' ? '' : `: ${short}`}`)
+  const of = valueOf(found.item, 'Of')
+  const done = await answerStep(w, item, found.text, of, step => {
+    let mine = said(underStep(step, [`${id} answered in ${w.who}'s chat on ${at(w.now)}${short === '' ? '' : `: ${short}`}`]), w, `${id} answered`)
+    if (stateOf(mine) === 'waiting on you') {
+      const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
+      if (goesOn.ok) mine = goesOn.item
+    }
+    return mine
+  })
+  return done.ok ? { ok: true, result: { ...done.result, text: `${id} answered in the chat.` } } : done
 }
 
 /** Information, never a question: a note `N<n>` to the person or to the main chat. */
@@ -608,7 +620,7 @@ async function instruction(body, w) {
   if (text.length === 0) return refuse(400, 'Say it in "text".')
   const id = await nextId(w.dir, 'I', w.fs)
   const item = said({
-    head: new Map([['Id', id], ['Kind', 'instruction'], ['Chat', chat], ['State', 'open'], ['Since', toSecond(w.now)], ['Via', w.role === 'person' ? 'board' : 'chat'], ['Text', line(text.join(' '), LINE_CHARS)]]),
+    head: new Map([['Id', id], ['Kind', 'instruction'], ['Chat', chat], ['State', 'open'], ['Since', toSecond(w.now)], ['Filed', String(w.now)], ['Via', w.role === 'person' ? 'board' : 'chat'], ['Text', line(text.join(' '), LINE_CHARS)]]),
     sections: new Map([['Text', text]]),
     problem: null,
   }, w, 'filed')
@@ -627,7 +639,7 @@ async function turnEnded(body, w) {
   const since = Number(body.since)
   if (body.since === undefined || body.since === null || !Number.isFinite(since)) return refuse(400, '"since" is when the turn started.')
   const due = [...w.store.items.values()].filter(one => kindOf(one) === 'instruction' && stateOf(one) === 'open'
-    && plain(valueOf(one, 'Chat'), w.prefix) === plain(chat, w.prefix) && sinceMs(valueOf(one, 'Since')) <= since)
+    && plain(valueOf(one, 'Chat'), w.prefix) === plain(chat, w.prefix) && filedMs(one) <= since)
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   const missed = []
   const fresh = []

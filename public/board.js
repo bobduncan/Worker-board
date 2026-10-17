@@ -1630,7 +1630,7 @@ function listBox(title, lines) {
 // storeasks:start
 /** B299: what an ask of the work store says of itself (`Q<n>`): its own kind, what it blocks, its play link. */
 const STORE_ASKS = { decide: 'Decide', look: 'Look', provide: 'Provide', do: 'Do' }
-function storeAskParts(need) {
+function storeAskParts(need, isRunning = null) {
   if (need.workId === undefined) return null
   const blocks = need.blocks.length > 0
     ? `blocks ${need.blocks.map(one => `${one.step}${one.owner === null ? '' : ` · ${one.owner} waits`}`).join(', ')}`
@@ -1640,6 +1640,8 @@ function storeAskParts(need) {
     tag: `${STORE_ASKS[need.asks] ?? 'Decide'}${need.isRefine ? ' · refine' : ''}`,
     blocks,
     play: need.play === null ? null : `/#play=${need.play}`,
+    // Review of B299: a question of the app's form whose chat does not run (not seen for a while) can be withdrawn here.
+    withdraw: need.isForm === true && isRunning === false && (need.answer ?? null) === null,
   }
 }
 
@@ -1655,10 +1657,18 @@ function informationRows(list) {
 
 /** B299: the parts of a store ask's card under its head: what it blocks, its play link (one of the app's form says
  * "Answer in its chat" in its answer part). */
-function storeAskLines(need) {
-  const parts = storeAskParts(need)
+function storeAskLines(need, state) {
+  const parts = storeAskParts(need, (state.chats ?? []).find(chat => chat.name === need.from)?.isRunning ?? (state.advisor?.name === need.from ? state.advisor.isRunning ?? null : null))
   if (parts === null) return []
   const out = []
+  if (parts.withdraw) {
+    const button = el('button', 'choice', sending.has(need.id) ? 'Withdrawing…' : 'Withdraw')
+    button.type = 'button'
+    button.dataset.withdraw = need.workId
+    button.title = `${need.from} does not run, and only its chat can take this answer: withdraw the question.`
+    button.disabled = sending.has(need.id)
+    out.push(button)
+  }
   if (parts.blocks !== null) out.push(el('p', `ask-blocks${need.blocking ? ' is-blocking' : ''}`, parts.blocks))
   if (parts.play !== null) {
     const link = el('a', 'run')
@@ -1713,7 +1723,7 @@ function drawNeed(need, state) {
   if (isStep(need)) top.append(el('span', 'kind', kind.sign), need.step === null ? '' : el('b', '', need.step), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
   else top.append(el('span', 'kind', kind.sign), el('b', '', need.from ?? 'the board'), el('span', 'tag', storeAskParts(need)?.tag ?? kind.tag), since(need.at, state.readAt))
   head.append(top, el('h4', '', need.title))
-  card.append(head, ...storeAskLines(need))
+  card.append(head, ...storeAskLines(need, state))
   if (need.text !== '') card.append(el('p', '', need.text))
   card.append(...optionParts(need))
 
@@ -1833,6 +1843,8 @@ $('needs').addEventListener('click', event => {
   if (side !== null) showSide(side.dataset.showSide)
   const read = event.target.closest('[data-read]')
   if (read !== null) sendWork({ action: 'read', id: read.dataset.read }, `read:${read.dataset.read}`)
+  const withdraw = event.target.closest('[data-withdraw]')
+  if (withdraw !== null) sendWork({ action: 'withdraw', id: withdraw.dataset.withdraw, why: 'its chat does not run' }, `work:${withdraw.dataset.withdraw}`)
 })
 
 function drawNeeds(state) {

@@ -154,3 +154,16 @@ test('the state carries the instructions once the store is the truth, and none w
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('review: the turn\'s start is compared to the millisecond: a line filed in the same second after it is not missed', async () => {
+  const { dir, main } = await fresh()
+  try {
+    await main({ action: 'instruction', text: 'Before the turn' }, NOW + 100)
+    await main({ action: 'instruction', text: 'Typed while it runs' }, NOW + 800)
+    assert.equal(valueOf(await item(dir, 'I1'), 'Filed'), String(NOW + 100))
+    const ended = await main({ action: 'turn-ended', since: NOW + 500 }, NOW + 900)
+    assert.deepEqual(ended.result.missed, ['I1'])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

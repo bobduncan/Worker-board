@@ -11,8 +11,9 @@ export const HEAD_KEYS = {
   // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of).
   ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Advice', 'Via', 'Queue note', 'Line'],
   // B298: `Via` says where the words were typed (chat: in the chat's own box; board: on the worker board), `Missed` how
-  // many of the chat's turns ended while it stood open.
-  instruction: ['Id', 'Kind', 'Chat', 'State', 'Since', 'Via', 'Missed', 'Text', 'Closed as'],
+  // many of the chat's turns ended while it stood open, `Filed` when it was filed to the millisecond (review: the
+  // turn's start is compared with it).
+  instruction: ['Id', 'Kind', 'Chat', 'State', 'Since', 'Filed', 'Via', 'Missed', 'Text', 'Closed as'],
   note: ['Id', 'Kind', 'From', 'To', 'State', 'Since', 'Text'],
 }
 const REQUIRED = ['Id', 'Kind', 'State', 'Since']
