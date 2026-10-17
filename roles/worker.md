@@ -78,9 +78,13 @@ hand-over therefore says what the task touches ("Touches: ...").
   merged: `work report B<id>` with what the user gets and the commit; the board checks the merge itself. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
-  wait for it, with its pictures; put the block it answers into your answer. An ask you no longer need: `work withdraw Q<id>`;
+  wait for it, with its pictures; put the block it answers into your answer. The user answered it in your chat:
+  `work answered-in-chat Q<id>` with their words. An ask you no longer need: `work withdraw Q<id>`;
   a step that waits on you is reported only once its asks are answered or withdrawn. Information for the person or the main
   chat: `work note`. An instruction of the user's that you finished: `work close I<id>` with what came of it.
+- Every line the user types to you, in your chat or on the board, is filed as an instruction `I<n>`: the board names
+  its id with your first tool results ("Recorded as I17") and your open ones under "Open instructions"; close each with
+  `work close I<n>` and what came of it once it is done. A turn that ends with one open shows it red on the board.
 - Work you find: `work new` under the activity it belongs to. Its title is 5 to 10 words of your own, starting with a
   verb, saying what the user gets, never the user's request read back; their words go in its text.
 - The backlog file is the board's view of the store: read it, never edit it.
