@@ -42,9 +42,9 @@ tool; the board checks every call against the flow file and refuses, in one line
 tool answers with the record: work from it, not from a message.
 
 - **An item** is `<work>/<id>.md`: a head of `Key: value` lines up to the first blank line (`Id`, `Kind`, `Title`,
-  `State`, `Owner`, `Activity`, `Goal`, `Blocked by`, `Waits for`, `Since`, `Estimate`, `Branch`, ...), then `## `
-  sections (`Summary`, `What we build`, `Context`, `History`, ...). Steps are `B<n>`, asks for the person `Q<n>`,
-  instructions `I<n>`, notes `N<n>`; the board gives the ids, and an id never comes back.
+  `State`, `Owner`, `Activity`, `Goal`, `Blocked by`, `Waits for`, `Since`, `Estimate`, `Branch`, `Queue when refined`,
+  ...), then `## ` sections (`Summary`, `What we build`, `Context`, `History`, ...). Steps are `B<n>`, asks for the
+  person `Q<n>`, instructions `I<n>`, notes `N<n>`; the board gives the ids, and an id never comes back.
 - **The flow file** (`<work>/flow.json`, the default `examples/work/flow.json`) holds the states of a step and who moves
   it from one to the next, and when. It, not a job text, says who moves an item and when; the person may change it.
 - **History**: every change writes one line, `- <date time> <who>: <what>`.
@@ -60,7 +60,7 @@ tool answers with the record: work from it, not from a message.
 | `work report B<id>` (`result`, `merged`) | a worker | in progress to review; the board checks the base branch against its remote and that the branch is gone, writes it in History, and tells the main chat. The only way a step ends: the worker's card clears when its turn ends |
 | `work block` / `unblock B<id>` (`on`) | the main chat, a worker | what the step waits on (`Blocked by`) |
 | `work new` (`title`, `activity`, `goal`, `text`) | the main chat, a worker, the Advisor | a new step `B<n>`, state new |
-| `work queue B<id>` (`for`, `after`, `about`) | the main chat | a refined step into a worker's queue |
+| `work queue B<id>` (`for`, `after`, `about`) | the main chat | a refined step into a worker's queue; a step not refined yet keeps the wish (`Queue when refined:`), and the board queues it by itself once it is refined |
 | `work requeue B<id>` (`for`) | the main chat, the person ("Move to") | a queued step to another worker's queue; the board delivers it anew |
 | `work unqueue B<id>` | the main chat, the person ("Take out of the queue") | a queued step out of its queue: refined (or new), without a worker |
 | `work close I<id>` (`as`) | any chat | an instruction is done, and what came of it |
