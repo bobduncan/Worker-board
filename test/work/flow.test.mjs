@@ -53,12 +53,15 @@ test('a move from "*" is allowed from every state', () => {
     assert.equal(mayMove(DEFAULT_FLOW, step(state), 'dropped', 'person', { store: storeOf() }).ok, true, state)
   }
   assert.equal(mayMove(DEFAULT_FLOW, step('new'), 'dropped', 'worker', { store: storeOf() }).why, 'B285: only person or main drops a step (flow.json)')
-  assert.match(mayMove(DEFAULT_FLOW, step('new'), 'done', 'main', { store: storeOf() }).why, /^B285: no move from new to done/)
+  // B297, review 5: the person closes a step from any state; nobody else does.
+  assert.equal(mayMove(DEFAULT_FLOW, step('new'), 'done', 'main', { store: storeOf() }).why, 'B285: only person closes a step (flow.json)')
+  assert.equal(mayMove(DEFAULT_FLOW, step('in progress'), 'done', 'person', { store: storeOf() }).ok, true)
 })
 
 test('nextMoves lists the moves out of the item\'s state, who makes them and when', () => {
   assert.deepEqual(nextMoves(DEFAULT_FLOW, step('queued')), [
     { to: 'taken', by: ['server'], when: 'Blocked by all done and Owner free' },
+    { to: 'done', by: ['person'], when: null },
     { to: 'dropped', by: ['person', 'main'], when: null },
   ])
   assert.deepEqual(nextMoves(DEFAULT_FLOW, item('Id: Q1\nKind: ask\nState: open\nSince: -\n')), [])

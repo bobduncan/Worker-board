@@ -89,7 +89,15 @@ export async function readStore(dir, fs = files) {
   const read = flowText === null ? { flow: DEFAULT_FLOW, problem: null } : parseFlow(flowText)
   if (read.problem !== null) problems.push({ file: 'flow.json', line: read.problem })
   const truth = await readTruth(dir, fs)
-  return { exists: true, items, ...listed, lastIds, truth: truth.truth, since: truth.since, flow: read.flow, problems }
+  // B297, review 4: the hand-edited view the board kept last, while it is there.
+  let viewKept = null
+  try {
+    const kept = JSON.parse(await readOr(fs, join(dir, 'view.json'), '{}'))?.kept?.file
+    if (typeof kept === 'string' && await readOr(fs, kept, null) !== null) viewKept = kept
+  } catch {
+    viewKept = null
+  }
+  return { exists: true, items, ...listed, lastIds, truth: truth.truth, since: truth.since, flow: read.flow, problems, viewKept }
 }
 
 /** Writes one item to `<dir>/<Id>.md`; with `expected` (the file's text the change was made from) only while it holds that. */
@@ -268,4 +276,9 @@ export async function removeItem(dir, id, fs = files, { expected } = {}) {
   } catch (error) {
     return { ok: false, why: `${id}.md could not be removed: ${error.code ?? error.message}` }
   }
+}
+
+/** B297, review 6: puts an item's file back as it was (`text`), only while it holds what was written (`expected`). */
+export async function putBack(dir, id, text, fs = files, { expected } = {}) {
+  return putInPlace(join(dir, `${id}.md`), text, fs, expected)
 }

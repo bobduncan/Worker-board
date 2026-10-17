@@ -118,7 +118,8 @@ export function shadowBacklog(work, fromText, rules) {
     return { backlog: fromText, store: { mode: work.truth, ok: false, items: work.items.size, differences: null, problems: unique, why: `The store could not be read as a backlog (${error.message}): the board shows the backlog.`, failed: true } }
   }
   const count = differences(fromStore, fromText)
-  return { backlog: count === 0 || work.truth === 'store' ? fromStore : fromText, store: { mode: work.truth, ok: true, items: work.items.size, differences: count, problems: unique, why: null, failed: false } }
+  const kept = work.viewKept ?? null
+  return { backlog: count === 0 || work.truth === 'store' ? fromStore : fromText, store: { mode: work.truth, ok: true, items: work.items.size, differences: count, problems: unique, why: null, failed: false, ...(kept === null ? {} : { kept }) } }
 }
 
 /**

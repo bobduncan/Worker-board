@@ -17,7 +17,7 @@ export const DEFAULT_FLOW = {
       { from: 'in progress', to: 'waiting on you', by: 'worker', when: 'an ask with Blocking yes is open' },
       { from: 'waiting on you', to: 'in progress', by: 'server', when: 'its asks are answered', then: 'wake Owner' },
       { from: 'in progress', to: 'review', by: 'worker', then: 'check: base equals remote, branch gone, result named' },
-      { from: 'review', to: 'done', by: 'person' },
+      { from: '*', to: 'done', by: 'person' },
       { from: 'review', to: 'done', by: 'server', when: 'the check passed and no ask of kind look is open' },
       { from: '*', to: 'dropped', by: ['person', 'main'] },
     ],
@@ -25,7 +25,7 @@ export const DEFAULT_FLOW = {
 }
 
 /** The states of the kinds the flow does not hold: an ask, an instruction, a note (spec section 3). */
-const FIXED_STATES = { ask: ['open', 'answered'], instruction: ['open', 'closed'], note: ['unread', 'read'] }
+const FIXED_STATES = { ask: ['open', 'answered', 'withdrawn'], instruction: ['open', 'closed'], note: ['unread', 'read'] }
 
 const byList = by => (Array.isArray(by) ? by : [by])
 

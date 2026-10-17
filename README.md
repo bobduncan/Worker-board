@@ -152,6 +152,13 @@ beside the store's state of its step). From then on the chats work the store wit
 `backlog.md` from the store as a view after every change; nobody edits it. The old file stays as
 `backlog.before-store.md`. The mod needs version 0.10.0 or newer for the tool: run `npm run setup` and start the
 chats anew.
+The cutover is refused until the board lists the store's asks so you can answer them (B299) and the running board has
+this version. A hand edit of `backlog.md` after it is kept beside it as `backlog.edited-<date>-<time>.md`, and the
+board says so on its top line.
+
+**Undo the cutover by hand**, with the board stopped: set `<work>	ruth.json` to `{"truth":"shadow"}`, copy
+`backlog.before-store.md` back over `backlog.md` (what the store learned since is in its items' History, to carry over
+by hand), and start the board: the store is a shadow of the backlog again and the chats edit the backlog as before.
 
 `<project>\.claude\chats\list.json`: `prefix` and `main` (the main chat's title is the two together), `boards` (the
 launch entries the mod keeps running) and `compactAbove` (a worker larger than this many tokens is compacted after

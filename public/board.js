@@ -226,9 +226,14 @@ function storeLine(store) {
   return { tone: store.differences !== 0 ? 'problem' : problems.length > 0 ? 'warn' : 'ok', text: parts.join(' · '), problems }
 }
 
-/** B296: the note on top when the work store could not be read: the board falls back to the backlog. Null: none. */
+/**
+ * B296: the note on top when the work store could not be read: the board falls back to the backlog. B297: or when
+ * backlog.md was edited by hand after the cutover, the edit kept beside it (`store.kept`). Null: none.
+ */
 function storeNote(store) {
-  return store?.failed === true ? { tone: 'problem', text: store.why } : null
+  if (store?.failed === true) return { tone: 'problem', text: store.why }
+  if (typeof store?.kept === 'string') return { tone: 'warn', text: `backlog.md was edited by hand after the cutover. The board wrote it anew from the work store and kept the edited file as ${store.kept}: carry what it adds over with the work tool, then delete it.` }
+  return null
 }
 // store:end
 

@@ -786,7 +786,8 @@ const WORK_TOOL = {
     + 'names your card after the step. "step" ("id", "step", "names", "minutes", "stepMinutes"): the step of your plan '
     + "you are on, as the chat tool's \"plan\" and \"step\", which it writes to your card too. \"ask\" (\"of\" the step, \"kind\" "
     + 'decide, look, provide or do, "blocking", "text", "options", "pictures", "play"): something only the person can '
-    + 'do; put the "For you" block it answers into your answer. "note" ("to" you or main, "text", "of"): information, '
+    + 'do; put the "For you" block it answers into your answer. "withdraw" ("id", "why"): take your own ask back when '
+    + 'it is no longer needed; a step that waited on it goes on. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question. "report" ("id", "result", "merged"): your step is done; the board checks it and tells the main '
     + 'chat. "block" and "unblock" ("id", "on"). "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
     + '"for", "after", "about"): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
@@ -795,7 +796,7 @@ const WORK_TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['next', 'take', 'step', 'ask', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'list'] },
+      action: { type: 'string', enum: ['next', 'take', 'step', 'ask', 'withdraw', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'list'] },
       id: { type: 'string', description: 'The item: B12 (a step), Q3 (an ask), I4 (an instruction).' },
       branch: { type: 'string', description: 'take: the branch you work the step on.' },
       step: { type: 'integer', description: 'step: the step of your plan you are on now.' },

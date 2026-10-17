@@ -13,12 +13,17 @@ import { mayMove } from './flow.mjs'
 import { ASK_KINDS, HEAD_KEYS, serializeItem, validateHead, valueOf } from './item.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
-import { appendHistory, nextId, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
+import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { writeView } from './view.mjs'
 
 export const NOT_TRUTH = 'The store is not the truth yet: the cutover has not run'
+/**
+ * B297, review 1: whether the board lists the store's asks and lets the person answer them (Needs your attention, built
+ * in B299). Until it does, a blocking ask would strand its step, so the cutover is refused. B299 sets it true.
+ */
+export const BOARD_ANSWERS_ASKS = false
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
 const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close'])
 /** What only the person does, on the board's page; and what only the server does. */
@@ -116,7 +121,7 @@ async function act(body, ctx) {
   const done = await CHANGE[action](body, w)
   if (!done.ok || done.result.changed === false || !ctx.viewFile || OFF_VIEW.has(action)) return done
   // The view follows every change: whatever still reads backlog.md reads what the store says.
-  const view = await writeView({ dir: ctx.dir, ...(await readStore(ctx.dir, ctx.fs)) }, ctx.viewFile, ctx.fs)
+  const view = await writeView({ dir: ctx.dir, ...(await readStore(ctx.dir, ctx.fs)) }, ctx.viewFile, ctx.fs, { now })
   return { ok: true, result: { ...done.result, view: view.ok ? 'written' : view.why } }
 }
 
@@ -237,6 +242,12 @@ async function take(body, w) {
   const owner = valueOf(item, 'Owner')
   if (HELD.includes(state) && owner !== null && !isOwner(item, w.who, w.prefix)) return refuse(409, `${id}: ${owner} holds it (${state}).`)
   if (state === 'in progress' && isOwner(item, w.who, w.prefix)) return { ok: true, result: { id, text: serializeItem(item), title: valueOf(item, 'Title'), changed: false } }
+  // Review 2: a step the backlog showed in progress without naming its worker is the first taker's.
+  if (state === 'in progress' && owner === null) {
+    const claimed = ordered(said(put(copy(item), 'Owner', w.who), w, 'claimed (in progress)'))
+    const done = await save(claimed, found.text, w)
+    return done.ok ? changed(claimed, undefined, { title: valueOf(claimed, 'Title') }) : done
+  }
   if (state === 'queued') {
     if (owner === null || !isOwner(item, w.who, w.prefix)) return refuse(409, `${id} is queued for ${owner ?? 'nobody'}, not for ${w.who}.`)
     // No reconciler moves it yet (increment 5): the chat that takes it is free for it.
@@ -290,6 +301,10 @@ export function forYouBlock({ id, of, kind, blocking, title, options, pictures, 
 async function ask(body, w) {
   const of = await load(body.of, w, { kind: ['step'] })
   if (!of.ok) return of
+  const holder = valueOf(of.item, 'Owner')
+  if (holder !== null && !['main', 'person'].includes(w.role) && !isOwner(of.item, w.who, w.prefix)) {
+    return refuse(409, `${valueOf(of.item, 'Id')} is ${holder}'s: only ${holder}, the main chat or the person asks under it.`)
+  }
   const kind = body.kind ?? 'decide'
   if (!ASK_KINDS.includes(kind)) return refuse(400, `"kind" is ${ASK_KINDS.join(', ')}.`)
   const blocking = body.blocking === true || body.blocking === 'yes'
@@ -357,6 +372,10 @@ async function report(body, w) {
   const result = line(body.result, 1000)
   if (result === '') return refuse(400, 'Name the result in "result": what the person gets now.')
   const merged = line(body.merged, 60)
+  if (stateOf(found.item) === 'waiting on you') {
+    const open = openAsksOf(w, id)
+    return refuse(409, `${id} waits on ${open.join(', ') || 'an ask'}: withdraw it (work withdraw ${open[0] ?? 'Q<n>'}) or wait for the answer.`)
+  }
   const moved = move(found.item, 'review', w.role, w)
   if (!moved.ok) return moved
   const item = appendHistory(underStep(moved.item, [`Reported by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`]), 'server', 'check pending', w.now)
@@ -364,6 +383,56 @@ async function report(body, w) {
   if (!done.ok) return done
   await makeNote(w, 'main', [`${id} reported by ${w.who}: ${line(result, 200)}`], id)
   return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result } })
+}
+
+/** The open asks under a step, by id. */
+const openAsksOf = (w, id) => [...w.store.items.values()]
+  .filter(one => kindOf(one) === 'ask' && valueOf(one, 'Of') === id && stateOf(one) === 'open').map(one => valueOf(one, 'Id')).sort(byId)
+
+/**
+ * Review 1: the chat that asked takes its ask back (it found the answer, or the question went): the ask is withdrawn,
+ * and a step that waited only on its asks goes on (the flow's move by the server). The step is written first.
+ */
+async function withdraw(body, w) {
+  const found = await load(body.id, w, { kind: ['ask'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (stateOf(found.item) !== 'open') return refuse(409, `${id} is not open.`)
+  const asker = valueOf(found.item, 'Owner')
+  if (w.role !== 'person' && (asker === null || plain(asker, w.prefix) !== plain(w.who, w.prefix))) return refuse(409, `${id} is ${asker ?? 'the person'}'s to withdraw.`)
+  const why = line(body.why, 300)
+  const item = said(put(put(copy(found.item), 'State', 'withdrawn'), 'Since', stamp(w.now)), w, `withdrawn${why === '' ? '' : `: ${why}`}`)
+  const of = valueOf(found.item, 'Of')
+  return answerStep(w, item, found.text, of, step => {
+    let mine = said(underStep(step, [`${id} withdrawn by ${w.who} on ${at(w.now)}${why === '' ? '' : `: ${why}`}`]), w, `${id} withdrawn`)
+    if (stateOf(mine) === 'waiting on you') {
+      const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} withdrawn)`)
+      if (goesOn.ok) mine = goesOn.item
+    }
+    return mine
+  })
+}
+
+/**
+ * Review 6: an ask that is answered or withdrawn, and its step: the step is written first, then the ask; when the
+ * ask cannot be written the step is put back, and the answer is 500 with both as they were.
+ */
+async function answerStep(w, item, text, of, change) {
+  let step = null
+  if (of !== null) {
+    step = await load(of, w, { kind: ['step'] })
+    if (!step.ok) return step
+    const mine = change(step.item)
+    const done = await save(mine, step.text, w)
+    if (!done.ok) return refuse(500, `${of} could not be written (${done.why}); nothing changed.`)
+    step = { ...step, written: serializeItem(mine) }
+  }
+  const done = await save(item, text, w)
+  if (!done.ok) {
+    if (step !== null) await putBack(w.dir, of, step.text, w.fs, { expected: step.written })
+    return refuse(500, `${valueOf(item, 'Id')} could not be written (${done.why}); nothing changed.`)
+  }
+  return changed(item)
 }
 
 /** The board's own check after a report, in History; when it passed the flow may close the step. */
@@ -639,26 +708,20 @@ async function answer(body, w) {
   // An ask that stands on the backlog itself (an @you step) shows the answer under its line.
   if (of === null) item = underStep(item, [`Answered by you on the worker board on ${at(w.now)}: ${short}`])
   item = said(item, w, `answered: ${short}`)
-  const done = await save(item, found.text, w)
-  if (!done.ok) return done
-  if (of !== null) {
-    const step = await load(of, w, { kind: ['step'] })
-    if (step.ok) {
-      let mine = said(underStep(step.item, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
-      if (stateOf(mine) === 'waiting on you') {
-        const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
-        if (goesOn.ok) mine = goesOn.item
-      }
-      await save(mine, step.text, w)
+  return answerStep(w, item, found.text, of, step => {
+    let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
+    if (stateOf(mine) === 'waiting on you') {
+      const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
+      if (goesOn.ok) mine = goesOn.item
     }
-  }
-  return changed(item)
+    return mine
+  })
 }
 
 /**
  * The person closes a step on the Backlog tab, or approves or marks done what only they could do: it stands ticked,
- * with their line under it (`line`). A step in review is done; any other step is dropped (the flow decides); an ask
- * is answered.
+ * with their line under it (`line`). A step is done (review 5: dropped only through `drop`), as the flow lets the
+ * person; an ask is answered.
  */
 async function tick(body, w) {
   const found = await load(body.id, w, { kind: ['step', 'ask'] })
@@ -671,8 +734,7 @@ async function tick(body, w) {
     item = said(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), w, 'answered on the board')
   } else {
     if (['done', 'dropped'].includes(stateOf(found.item))) return refuse(409, `${id} is ticked already.`)
-    const done = move(found.item, 'done', 'person', w)
-    const moved = done.ok ? done : move(found.item, 'dropped', 'person', w)
+    const moved = move(found.item, 'done', 'person', w)
     if (!moved.ok) return moved
     item = moved.item
   }
@@ -722,7 +784,7 @@ async function refineText(body, w) {
 }
 
 const CHANGE = {
-  take, step, ask, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick, instruction,
+  take, step, ask, withdraw, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick, instruction,
   'turn-ended': turnEnded,
   block: (body, w) => blockOn(body, w, true),
   unblock: (body, w) => blockOn(body, w, false),

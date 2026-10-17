@@ -21,6 +21,7 @@ import { pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
 
 import { parseBacklog } from '../src/backlog.mjs'
+import { BOARD_ANSWERS_ASKS } from '../src/work/api.mjs'
 import { storeAsBacklog } from '../src/work/adapter.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { isLegacyId } from '../src/work/line.mjs'
@@ -32,8 +33,8 @@ const IN_FLIGHT = ['queued', 'taken', 'in progress', 'waiting on you', 'review',
 const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
 
 /** The run, with its words to `log`; answers the exit code. */
-export async function run(args, log = console.log) {
-  if (args.includes('--cutover')) return cutover(args, log)
+export async function run(args, log = console.log, checks = {}) {
+  if (args.includes('--cutover')) return cutover(args, log, checks)
   const backlog = argAfter(args, '--backlog')
   const work = argAfter(args, '--work')
   if (backlog === undefined || work === undefined) {
@@ -140,8 +141,30 @@ async function cards(folder, items) {
   return { lines, count, disagree }
 }
 
-/** B297: the cutover (see the head of this file). */
-async function cutover(args, log) {
+/**
+ * B297, review 7: whether the board that runs (`board.json` in the folder `claude`) has the work route: this version
+ * answers a call without a chat with 400 (or 401, 403, 409); an older one has no such route (404, 405).
+ */
+export async function boardRunsWork(claude) {
+  const note = await readFile(join(claude, 'board.json'), 'utf8').then(JSON.parse, () => null)
+  if (typeof note?.url !== 'string') return { ok: false, why: 'no board runs (no board.json beside the backlog): start the board with this version first.' }
+  try {
+    const answer = await fetch(new URL('/api/bridge/work', note.url), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Key': String(note.key ?? '') },
+      body: '{}',
+      signal: AbortSignal.timeout(2000),
+    })
+    await answer.text().catch(() => '')
+    if ([400, 401, 403, 409].includes(answer.status)) return { ok: true }
+    return { ok: false, why: `the board at ${note.url} answers ${answer.status} to /api/bridge/work: it runs an older version. Start it anew with this version first.` }
+  } catch {
+    return { ok: false, why: `the board at ${note.url} does not answer: start it with this version first.` }
+  }
+}
+
+/** B297: the cutover (see the head of this file). `checks` stand in for the running board's, in the tests. */
+async function cutover(args, log, { asksOnBoard = BOARD_ANSWERS_ASKS, boardAnswers = boardRunsWork } = {}) {
   const backlog = argAfter(args, '--backlog')
   const work = argAfter(args, '--work')
   if (backlog === undefined || work === undefined) {
@@ -179,20 +202,29 @@ async function cutover(args, log) {
 
   const flying = [...items.values()].filter(item => IN_FLIGHT.includes(valueOf(item, 'State')))
   log(`In flight: ${flying.length}`)
-  for (const item of flying) log(`  ${[valueOf(item, 'Id'), valueOf(item, 'State'), valueOf(item, 'Owner') ?? '-', valueOf(item, 'Branch') ?? '-'].join(' | ')}`)
+  for (const item of flying) {
+    const cells = [valueOf(item, 'Id'), valueOf(item, 'State'), valueOf(item, 'Owner') ?? '-', valueOf(item, 'Branch') ?? '-']
+    // Review 2: the worker on a step that names nobody claims it.
+    if (valueOf(item, 'Kind') === 'step' && valueOf(item, 'Owner') === null && valueOf(item, 'State') !== 'queued') cells.push('no owner: the worker on it runs work take')
+    log(`  ${cells.join(' | ')}`)
+  }
   const shown = await cards(chats, items)
   log(`Cards with a task: ${shown.count}${shown.disagree === 0 ? '' : ` (${shown.disagree} disagree with the store)`}`)
   for (const line of shown.lines) log(line)
 
+  const blockers = []
+  if (asksOnBoard !== true) blockers.push("the board cannot answer the store's asks yet (BOARD_ANSWERS_ASKS in src/work/api.mjs is false).")
+  const board = await boardAnswers(dirname(file))
+  if (!board.ok) blockers.push(board.why)
   const isSafe = same && viewSame && before === counts.steps
   if (isDry) {
+    for (const line of blockers) log(`Would refuse: ${line}`)
     log('Dry run: nothing written.')
-    return isSafe ? 0 : 1
+    return isSafe && blockers.length === 0 ? 0 : 1
   }
-  if (!isSafe) {
-    log('Nothing written: the store must read back as the backlog, and its view as the same items.')
-    return 1
-  }
+  for (const line of blockers) log(`Refused: ${line}`)
+  if (!isSafe) log('Nothing written: the store must read back as the backlog, and its view as the same items.')
+  if (!isSafe || blockers.length > 0) return 1
   const kept = join(dirname(file), 'backlog.before-store.md')
   const keptText = await readFile(kept, 'utf8').catch(() => null)
   if (keptText !== null && keptText !== text) {
@@ -200,7 +232,20 @@ async function cutover(args, log) {
     return 1
   }
   const written = await writeStore(folder, migrated, undefined, { now })
-  for (const line of written.problems) log(`  ${line}`)
+  // Review 3: the store on disk must be the one that passed the checks; any write that failed, any file more or less,
+  // and the store stays a shadow.
+  const disk = await readStore(folder)
+  const off = [
+    ...written.problems,
+    ...disk.problems.map(one => one.line),
+    ...[...new Set([...items.keys(), ...disk.items.keys()])].filter(id => !items.has(id) || !disk.items.has(id) || carried(disk.items.get(id)) !== carried(items.get(id))).map(id => `${id}: on disk it is not what was checked`),
+    ...(isDeepStrictEqual(disk.activities, activities) && isDeepStrictEqual(disk.preamble, preamble) ? [] : ['activities.json: on disk it is not what was checked']),
+  ]
+  if (off.length > 0) {
+    for (const line of off.slice(0, 20)) log(`  ${line}`)
+    log('The store stays a shadow: nothing else written.')
+    return 1
+  }
   // A chat that wrote the backlog in the meantime: its words would be lost under the view.
   if (await readFile(file, 'utf8').catch(() => null) !== text) {
     log('backlog.md changed during the cutover: the store stays a shadow; run the cutover again.')
@@ -208,7 +253,8 @@ async function cutover(args, log) {
   }
   if (keptText === null) await copyFile(file, kept)
   await writeTruth(folder, { truth: 'store', since: stamp(now) })
-  const view = await writeView({ dir: folder, ...(await readStore(folder)) }, file)
+  // The view of the store that passed the checks.
+  const view = await writeView({ dir: folder, items, activities, preamble }, file, undefined, { now })
   if (!view.ok) {
     log(`${view.why} The store is the truth; the board writes the view at the next change.`)
     return 1

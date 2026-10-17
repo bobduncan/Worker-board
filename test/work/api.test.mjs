@@ -273,7 +273,7 @@ test('drop, close, tick and delete', async () => {
     await person({ action: 'tick', id: 'B6', line: 'Approved by you on the worker board on 2026-10-17 at 11:06.' })
     assert.equal(await state(dir, 'B6'), 'answered')
     await person({ action: 'tick', id: 'B4', line: 'Closed by you on the worker board on 2026-10-17 at 11:06.' })
-    assert.equal(await state(dir, 'B4'), 'dropped')
+    assert.equal(await state(dir, 'B4'), 'done')
     assert.equal((await person({ action: 'tick', id: 'B4', line: '' })).why, 'B4 is ticked already.')
     assert.equal((await person({ action: 'delete', id: 'B7' })).ok, true)
     assert.ok(!(await readdir(dir)).includes('B7.md'))
@@ -328,4 +328,84 @@ test('overlapsIn names a taken step whose Touches overlap, a folder covering its
   assert.equal(overlaps(store.items.get('B2')), 'B1')
   assert.equal(overlaps(store.items.get('B3')), null)
   assert.equal(overlaps(store.items.get('B4')), null)
+})
+
+// ---- the review's findings ----
+
+test('review 1: the chat that asked withdraws a blocking ask; the step goes on, and a report waits for that', async () => {
+  const { dir, board, support, main } = await fresh()
+  try {
+    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
+    assert.equal(await state(dir, 'B1'), 'waiting on you')
+    assert.equal((await board({ action: 'report', id: 'B1', result: 'done' })).why, 'B1 waits on Q1: withdraw it (work withdraw Q1) or wait for the answer.')
+    assert.equal((await support({ action: 'withdraw', id: 'Q1' })).why, 'Q1 is Board\'s to withdraw.')
+    assert.equal((await main({ action: 'withdraw', id: 'Q1' })).status, 409)
+    const withdrawn = await board({ action: 'withdraw', id: 'Q1', why: 'found it in the plan' })
+    assert.equal(withdrawn.ok, true, withdrawn.why)
+    assert.equal(await state(dir, 'Q1'), 'withdrawn')
+    assert.equal(await state(dir, 'B1'), 'in progress')
+    assert.equal((await history(dir, 'B1')).at(-1), '- 2026-10-17 11:06 server: waiting on you → in progress (Q1 withdrawn)')
+    assert.equal((await board({ action: 'withdraw', id: 'Q1' })).why, 'Q1 is not open.')
+    assert.equal((await board({ action: 'report', id: 'B1', result: 'done' })).ok, true)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('review 2: a step in progress without an owner is claimed by the chat that takes it', async () => {
+  const { dir, board, support } = await fresh()
+  try {
+    // B4's line names Team - Support; a migrated step may name nobody.
+    const text = await readFile(join(dir, 'B4.md'), 'utf8')
+    await writeFile(join(dir, 'B4.md'), text.replace(/^Owner: .*\n/m, ''))
+    const claimed = await board({ action: 'take', id: 'B4' })
+    assert.equal(claimed.ok, true, claimed.why)
+    assert.equal(valueOf(await item(dir, 'B4'), 'Owner'), 'Board')
+    assert.equal((await history(dir, 'B4')).at(-1), '- 2026-10-17 11:06 Board: claimed (in progress)')
+    assert.equal((await support({ action: 'take', id: 'B4' })).why, 'B4: Board holds it (in progress).')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('review 5: the person closing a step in progress records it done, not dropped', async () => {
+  const { dir, board, person } = await fresh()
+  try {
+    await board({ action: 'take', id: 'B1' })
+    await person({ action: 'tick', id: 'B1', line: 'Closed by you on the worker board.' })
+    assert.equal(await state(dir, 'B1'), 'done')
+    await person({ action: 'tick', id: 'B3', line: '' })
+    assert.equal(await state(dir, 'B3'), 'done')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('review 6: an answer whose ask cannot be written leaves the step and the ask as they were', async () => {
+  const { dir, ctx, board } = await fresh()
+  try {
+    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
+    const before = [await readFile(join(dir, 'B1.md'), 'utf8'), await readFile(join(dir, 'Q1.md'), 'utf8')]
+    const real = await import('node:fs/promises')
+    const failing = { ...real, rename: (from, to) => (String(to).endsWith('Q1.md') ? Promise.reject(Object.assign(new Error('busy'), { code: 'EBUSY' })) : real.rename(from, to)) }
+    const done = await workApi({ action: 'answer', id: 'Q1', text: 'thick' }, { ...ctx, fs: failing, as: 'person' })
+    assert.equal(done.status, 500)
+    assert.deepEqual([await readFile(join(dir, 'B1.md'), 'utf8'), await readFile(join(dir, 'Q1.md'), 'utf8')], before)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('review 7: a chat asks only under its own step, or one nobody holds; Main and the person under any', async () => {
+  const { dir, board, support, main } = await fresh()
+  try {
+    await board({ action: 'take', id: 'B1' })
+    assert.equal((await support({ action: 'ask', of: 'B1', text: 'Mine?' })).why, 'B1 is Board\'s: only Board, the main chat or the person asks under it.')
+    assert.equal((await main({ action: 'ask', of: 'B1', text: 'Go on?' })).ok, true)
+    assert.equal((await support({ action: 'ask', of: 'B7', text: 'Which?' })).ok, true)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })

@@ -51,9 +51,10 @@ tool answers with the record: work from it, not from a message.
 | The call | Who, by the default flow | What it does |
 |---|---|---|
 | `work next` | any chat | your open instructions, then your steps by state, each in one line; the first in full |
-| `work take B<id>` (`branch`) | a worker | a step queued for you: taken, then in progress, on that branch; names your card after it |
+| `work take B<id>` (`branch`) | a worker | a step queued for you: taken, then in progress, on that branch; names your card after it. A step in progress that names nobody is claimed by the worker on it |
 | `work step B<id>` (`step`, `names`, `minutes`, `stepMinutes`) | a worker | the step of your plan you are on: one History line, and your card |
 | `work ask` (`of`, `kind` decide, look, provide or do, `blocking`, `text`, `options`, `pictures`, `play`) | any chat | something only the person can do, `Q<n>` under the step; blocking moves the step to waiting on you. It answers the "For you" block for your answer |
+| `work withdraw Q<id>` (`why`) | the chat that asked | the ask is withdrawn; a step that waited only on it goes on. A step waiting on you is reported only after its asks are answered or withdrawn |
 | `work note` (`to` you or main, `text`, `of`) | any chat | information, never a question: `N<n>` |
 | `work report B<id>` (`result`, `merged`) | a worker | in progress to review; the board checks the base branch against its remote and that the branch is gone, writes it in History, and tells the main chat |
 | `work block` / `unblock B<id>` (`on`) | the main chat, a worker | what the step waits on (`Blocked by`) |
