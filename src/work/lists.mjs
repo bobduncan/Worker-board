@@ -28,3 +28,84 @@ export function instructionsOf(work, now) {
   const closed = all.filter(one => !one.isOpen && one.since !== null && now - one.since < DAY).sort((a, b) => b.since - a.since || byId(b, a))
   return [...open, ...closed].map(({ isOpen, ...one }) => one)
 }
+
+const KEEP_ANSWERED_MS = 10 * 60_000
+const plainName = (name, prefix = '') => {
+  const words = String(name ?? '').trim()
+  return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
+}
+const textOf = item => (item.sections.get('Text') ?? []).filter(one => one.trim() !== '')
+const asksOfStore = work => truthItems(work).filter(item => valueOf(item, 'Kind') === 'ask' && /^Q\d+$/.test(valueOf(item, 'Id') ?? ''))
+
+/**
+ * B299: who waits for the person by the store: the chats (by plain name, lower case) with an open blocking ask, and
+ * those with an open ask of the app's question form. Null while the store is not the truth: today's reading stands.
+ */
+export function storeWaits(work, prefix = '') {
+  if (!(work?.ok === true && work.truth === 'store')) return null
+  const open = asksOfStore(work).filter(item => valueOf(item, 'State') === 'open' && valueOf(item, 'Owner') !== null)
+  return {
+    blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes').map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    form: new Set(open.filter(item => valueOf(item, 'Via') === 'form').map(item => plainName(valueOf(item, 'Owner'), prefix))),
+  }
+}
+
+/** Whether an option is the one advised: its text, or its letter ("B" of "B thick"). */
+const isAdvised = (option, advice) => advice !== null && (option === advice || option.toLowerCase().startsWith(`${advice.toLowerCase()} `))
+
+/**
+ * B299: the store's asks for Needs your attention, in the shape of the board's other cards: the open ones, and the ones
+ * answered within ten minutes (their card says the answer is on its way, then closes). `kind` is the card's form (a
+ * look is approved or rejected, a do is done, a decide or provide takes words); `asks` the ask's own kind; `blocks`
+ * the step it holds up and who waits on it. `names` are the chats on the board, `answerOf(id)` what the outbox knows of
+ * the answer sent for it.
+ */
+export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () => ({ answer: null, earlier: null }) }) {
+  const items = new Map(truthItems(work).map(item => [valueOf(item, 'Id'), item]))
+  const nameOf = owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
+  return asksOfStore(work).flatMap(item => {
+    const state = valueOf(item, 'State')
+    const since = sinceMs(valueOf(item, 'Since'))
+    if (state !== 'open' && !(state === 'answered' && Number.isFinite(since) && now - since < KEEP_ANSWERED_MS)) return []
+    const id = valueOf(item, 'Id')
+    const asks = valueOf(item, 'Asks') ?? 'decide'
+    const owner = valueOf(item, 'Owner')
+    const of = valueOf(item, 'Of')
+    const step = of === null ? undefined : items.get(of)
+    const advice = valueOf(item, 'Advice')
+    const via = valueOf(item, 'Via')
+    const blocking = valueOf(item, 'Blocking') === 'yes'
+    const [title = valueOf(item, 'Title') ?? '', ...rest] = textOf(item)
+    const known = answerOf(`work:${id}`)
+    // Answered with nobody to wake (or before the board kept it): the answer as the store holds it.
+    const answer = known.answer ?? (state === 'open' ? null : { at: since, verdict: null, text: (item.sections.get('Answer') ?? []).join(' '), state: 'delivered', takenAt: null, deliveredAt: since })
+    return [{
+      id: `work:${id}`, workId: id, from: owner === null ? null : nameOf(owner), kind: asks === 'look' ? 'verify' : asks === 'do' ? 'do' : 'input', asks,
+      title: valueOf(item, 'Title') ?? title, text: rest.join('\n'), at: Number.isFinite(since) ? since : null,
+      options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, picture: null, isRecommended: isAdvised(label, advice) })),
+      advice, pictures: (valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),
+      play: (item.sections.get('Play') ?? [])[0] ?? null, run: null, game: null, checks: [], tried: [], version: null,
+      of, ofTitle: step === undefined ? null : valueOf(step, 'Title'), blocking,
+      blocks: blocking && of !== null ? [{ step: of, owner: step === undefined ? null : valueOf(step, 'Owner') }] : [],
+      via, isForm: via === 'form', isRefine: via === 'refine',
+      // The board answers it through the store (POST /api/work, answer); a question of the app's form only in its chat.
+      canAnswer: state === 'open' && via !== 'form', isClosed: false, answer, earlier: known.earlier ?? null,
+    }]
+  })
+}
+
+/**
+ * B299: the Information list: notes and reports, one line each, newest first; the read ones of the last day after the
+ * unread. Nothing here waits for the person.
+ */
+export function informationOf(work, now) {
+  return truthItems(work).filter(item => valueOf(item, 'Kind') === 'note').map(item => {
+    const since = sinceMs(valueOf(item, 'Since'))
+    const words = textOf(item)
+    return {
+      id: valueOf(item, 'Id'), from: valueOf(item, 'From'), to: valueOf(item, 'To'), text: words.length > 0 ? words.join(' ') : valueOf(item, 'Text') ?? '',
+      about: (item.sections.get('About') ?? [])[0] ?? null, since: Number.isFinite(since) ? since : null, isRead: valueOf(item, 'State') === 'read',
+    }
+  }).filter(one => !one.isRead || (one.since !== null && now - one.since < DAY))
+    .sort((a, b) => Number(a.isRead) - Number(b.isRead) || (b.since ?? 0) - (a.since ?? 0) || b.id.localeCompare(a.id, 'en', { numeric: true }))
+}

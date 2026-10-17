@@ -42,7 +42,7 @@ import { parseHistory } from './src/history.mjs'
 import { seenTicks } from './src/finished.mjs'
 import { freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
-import { checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
+import { answerWords, checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { roundText, roundsNow } from './src/rounds.mjs'
@@ -809,8 +809,25 @@ async function main(args) {
       return typeof page === 'string' && /^[0-9a-f]{4,40}$/.test(page) ? page : ''
     },
     bridgeKey,
-    // B297: the page's actions on the work store, as the person.
-    work: body => workAction(body, 'person'),
+    // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
+    work: async body => {
+      const done = await workAction(body, 'person')
+      const wake = done.ok ? done.result.wake ?? null : null
+      if (wake !== null && !isShowOnly) {
+        const state = await readState()
+        const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].some(chat => chat.name === wake.to)
+        if (shown) {
+          const isCopied = state.bridge?.isMissing === true
+          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...answerWords(wake), state: isCopied ? 'copied' : 'waiting' }
+          await store.say(message)
+          const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+          if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
+          readState.reset()
+          if (isCopied) return { ok: true, result: { ...done.result, paste: { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
+        }
+      }
+      return done
+    },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
     bridgeWork: async body => {
       const checked = checkTake(body, await readState())

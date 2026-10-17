@@ -19,7 +19,7 @@ import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
-import { instructionsOf } from './work/lists.mjs'
+import { informationOf, instructionsOf, storeNeeds, storeWaits } from './work/lists.mjs'
 import { flowOfStep, shadowBacklog } from './work/shadow.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
@@ -304,7 +304,7 @@ function finishedWith(waits, scan, main, task) {
   return { ...waits, handover: parseHandover(waits.words), given: origin?.by === 'main' ? origin : null }
 }
 
-function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null }) {
+function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, waits = null }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
@@ -332,8 +332,11 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // ends with a "For you" block (or it asked with the app's question form, `turn` asking). Else it is free: idle, and
   // not held by its own card either, as the main chat reports to nobody.
   const appState = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
-  const asksNothing = chat.isMain && appState === 'waiting' && turn === 'ended' && entries !== null && !asksAtEnd(waitingFor(entries)?.words ?? '')
-  const ended = asksNothing ? 'free' : appState
+  const asksNothing = waits === null && chat.isMain && appState === 'waiting' && turn === 'ended' && entries !== null && !asksAtEnd(waitingFor(entries)?.words ?? '')
+  // B299: once the store is the truth (`waits`), no answer is read for questions: a chat waits for the person when it
+  // asked with the app's question form or has an open blocking ask; else its ended turn is free (or held, below).
+  const isBlocked = waits !== null && waits.blocking.has(chat.name.toLowerCase())
+  const ended = waits !== null && appState !== 'working' ? (turn === 'asking' || isBlocked ? 'waiting' : 'free') : asksNothing ? 'free' : appState
   // B148: its last answer ends with "+ Done:   yes": it has finished, and a card it forgot to clear holds nothing.
   const isDone = turn === 'ended' && entries !== null && saysDone(entries)
   const held = wasCutOff || ended !== 'free' ? null : heldBy({
@@ -583,7 +586,7 @@ function answerOf(outbox, id, version = null) {
  * B275: the Advisor (`advisor`, its card) asks as a worker does when it waits (`advisorWaits`, see `advisorWaiting`),
  * and is answered straight in its chat.
  */
-function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null } = {}) {
+function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null, waits = null } = {}) {
   const live = lanes.filter(lane => !lane.isLeftover)
   const names = new Set(live.map(lane => lane.name))
   // Work to verify is looked at in the game: on the branch the ask names, else on main.
@@ -597,7 +600,10 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
   const asked = new Set(asks.map(ask => ask.from))
   const blank = { options: [], pictures: [], run: null, game: null, checks: [], tried: [] }
   for (const lane of advisorWaits === null ? live : [...live, advisorWaits]) {
-    if (lane.state === 'waiting' && !asked.has(lane.name)) {
+    // B299: once the store is the truth its asks are the cards; a chat's own card stays only for the app's question form
+    // that the mod could not file.
+    const isFiled = waits !== null && (!lane.isAsking || waits.form.has(lane.name.toLowerCase()))
+    if (lane.state === 'waiting' && !asked.has(lane.name) && !isFiled) {
       // B149: a worker that finished its task and left something for the person says so in the title.
       const form = lane.waitsFor?.handover ?? null
       const isFinished = form !== null && (form.items.length > 0 || form.task !== null || form.did !== null)
@@ -728,8 +734,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const main = found.find(chat => chat.isMain)
   // What the history last said about each chat, also from before the board was last off.
   const last = new Map(lines.filter(line => line.gap !== true).map(line => [line.chat, line]))
+  // B299: who waits for the person by the store's asks, once it is the truth; null before (today's reading).
+  const waits = storeWaits(raw.work, prefix)
   const context = {
-    now, config, last, lines, prefix,
+    now, config, last, lines, prefix, waits,
     // How a message from the main chat is known: by its title, or by the app's id for it.
     main: { mainTitle: list.main === null ? null : `${prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
   }
@@ -857,7 +865,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   if (advisorChat !== undefined) {
     const { state, doingNow: doing, session, appSession } = advisorCard
     const tail = raw.tails?.[advisorChat.cliSessionId] ?? null
-    advisorWaits = advisorWaiting(advisorCard, tail, prefix)
+    advisorWaits = waits === null ? advisorWaiting(advisorCard, tail, prefix)
+      : advisorCard.state === 'waiting' ? { ...advisorCard, isAdvisor: true } : null
     advisor = {
       name: advisorChat.name,
       session,
@@ -1013,7 +1022,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       stop: Object.fromEntries(lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => [lane.name, removalAsk(sent.findLast(message => message.command === 'stop' && message.about === lane.name), now)]).filter(([, ask]) => ask !== null)),
       steps: Object.fromEntries(lanes.flatMap(lane => lane.queue ?? []).filter(step => typeof step.id === 'string').map(step => [step.id, removalAsk(sent.findLast(message => (message.command === 'move' || message.command === 'unqueue') && message.about === step.id), now)]).filter(([, ask]) => ask !== null)),
     },
-    forYou: needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits }),
+    forYou: [
+      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, waits }),
+      // B299: the store's asks, once it is the truth, answered through POST /api/work.
+      ...storeNeeds(raw.work, { now, names: [...names, ...(advisorChat === undefined ? [] : [advisorChat.name])], prefix, answerOf: id => answerOf(sent, id) }),
+    ].sort((a, b) => (b.at ?? 0) - (a.at ?? 0)),
+    // B299: notes and reports for the person, once the store is the truth.
+    information: informationOf(raw.work, now),
     // B296: the work store beside the backlog: shadow or truth, its items, and whether it reads back as the backlog.
     store: shadow.store,
     // B298: the person's words per chat, filed as instructions, once the store is the truth (work/lists.mjs); else none.

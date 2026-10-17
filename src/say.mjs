@@ -327,3 +327,12 @@ export async function withInstruction(message, file) {
   if (filed?.ok !== true || typeof filed.result?.id !== 'string') return message
   return { ...message, text: `${words}${words === '' ? '' : ' '}[${filed.result.id}]`, instruction: filed.result.id }
 }
+
+/**
+ * B299: the words that wake the chat whose ask the person answered on the board (the work API's `wake`): typed into
+ * its chat as `(answered on the worker board, HH:MM) Q12 "<title>": <answer>` (bridge.mjs, messageText). The answer
+ * names the ask's own id, so it answers that ask whatever the chat did since.
+ */
+export const answerWords = wake => ({
+  to: wake.to, ask: `work:${wake.id}`, step: wake.id, title: String(wake.title ?? '').slice(0, 200), version: null, verdict: null, text: String(wake.text ?? ''),
+})
