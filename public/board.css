@@ -107,6 +107,14 @@ button, textarea, select { font: inherit; color: inherit; }
 .goals-sep { color: var(--unknown); }
 .goals-here { font-weight: 600; }
 .goals-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+/* B289: the open steps no goal names, folded under the map. */
+.goals-unlinked { margin: 12px 6px 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.goals-unlinked summary { cursor: pointer; color: var(--muted); }
+.goals-unlinked[open] summary { margin-bottom: 6px; }
+.goals-unlinked-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.goals-unlinked-row { display: flex; gap: 10px; align-items: baseline; border: 0; background: none; padding: 3px 6px; border-radius: 5px; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.goals-unlinked-row:hover, .goals-unlinked-row:focus-visible { background: var(--inset); }
+.goals-unlinked-row .step-id { flex: none; min-width: 3.4em; color: #8fa3c4; font-weight: 700; font-variant-numeric: tabular-nums; }
 .goals-problems { margin: 10px 6px 0; padding: 6px 10px; border: 1px solid #6b4a1f; border-radius: 6px; color: var(--waiting); font-size: 13px; }
 .goals-frame { margin: 12px 0 4px; padding: 10px 14px; border: 2px solid var(--waiting); border-radius: 8px; background: var(--inset); }
 .goals-frame-head { display: flex; align-items: center; gap: 10px; }

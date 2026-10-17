@@ -10,7 +10,7 @@ import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList, reportsOf } from './finished.mjs'
-import { goalCounts, parseGoals } from './goals.mjs'
+import { goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
@@ -1081,7 +1081,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     goals: (() => {
       if (goalMap === null) return null
       const counts = goalCounts(goalMap, backlog)
-      return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })) }
+      // B289: with the open steps no goal names.
+      return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })), unlinked: unlinkedSteps(goalMap, backlog) }
     })(),
     goalsFile: config.goals,
   }

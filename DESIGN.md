@@ -357,6 +357,14 @@ frame's head name the goal by its id before its title, "G17 The Advisor's work�
 milestone keeps its own mark after the id ("G2 M1 · The loop is fun"); a ↗ reference box or row has the arrow before
 it; the top crumb, "Goals", has no id. The goal's title in `goals.md` is unchanged: renaming edits the title alone.
 
+**Steps under no goal (B289).** Under the map, folded, one line "Not under a goal: N steps" (or "Every open step is
+under a goal"): the open backlog steps with an id that no goal's `Steps:` line names, in the backlog's order
+(`unlinkedSteps` in `src/goals.mjs`, the state's `goals.unlinked`); the Advisor's own suggestions are left out, as
+they are not work yet. Opened, each step stands as a row with its id and title, and a click opens the step's window.
+An open list stays open while the board redraws. The Advisor links them: roles/advisor.md, "Steps under no goal",
+has it add every open step to the `Steps:` line of the goal it serves at every round, and flag one that fits no goal
+as a suggestion with a proposed goal.
+
 **Editing the goal map (B256).** The person, 2026-10-15: "what is really important for me is the ability to quickly
 reorder things and to abstract things away, and change abstraction level." The Goals part changes `goals.md` at once,
 one change at a time, by the goal's id (`src/goalsWrite.mjs`): the file is read anew right before, the change made on

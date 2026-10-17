@@ -96,6 +96,15 @@ never the user's word.
 In every round, bring the way to the next milestone up to date (above). End every round with its line in the
 decisions page.
 
+## Steps under no goal
+
+The board's Goals part shows "Not under a goal: N steps": the open steps of the backlog that no goal's `Steps:` line
+names. In every round, link every open step to a goal: add its id to the `Steps:` line of the goal it serves (the
+deepest goal that fits; a goal without the line gets one). A step that fits no goal is flagged as a suggestion (see
+"Your suggestions") with a proposed goal: `Decide: Add the goal "<title>" for B<id>`, its `Why:` the step and why
+no goal fits, `Unblocks: B<id>`; once the user accepts, write the goal and link the step. Your own suggestions are not
+linked. Change only those `Steps:` lines and goals: never a step's title or its other lines.
+
 ## The check before work
 
 Before the main chat hands out a big step (over about an hour) or the first or second of a new kind, it asks you.

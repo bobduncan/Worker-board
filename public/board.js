@@ -3197,6 +3197,19 @@ function goalLabel(node) {
   return id === '' || title === id || title.startsWith(`${id} `) ? title : `${id} ${title}`
 }
 
+/**
+ * B289: the part under the goal map with the open steps no goal names: its line ("Not under a goal: 3 steps") and the
+ * steps, each with its id and title. Null without the list (no goal map).
+ */
+function unlinkedView(unlinked) {
+  if (!Array.isArray(unlinked)) return null
+  const count = unlinked.length
+  return {
+    summary: count === 0 ? 'Every open step is under a goal' : `Not under a goal: ${count} step${count === 1 ? '' : 's'}`,
+    rows: unlinked.map(step => ({ id: step.id, title: step.title.charAt(0).toUpperCase() + step.title.slice(1) })),
+  }
+}
+
 /** B284: a drawn line of a goal's label in its parts: what stands before the id ("↗ "), the id, and the rest. */
 function goalIdSplit(line, id) {
   const lead = line.startsWith('↗ ') ? '↗ ' : ''
@@ -3322,6 +3335,7 @@ function goalEditorRow(goals, depth) {
 function drawGoals(state) {
   const goals = state.goals ?? null
   const canEdit = canEditGoals(state)
+  drawUnlinked(goals)
   // B257: the view buttons say what shows at this width (a phone shows the outline unless the diagram is chosen).
   showGoalsViews()
   if (goals === null || (goals.nodes.length === 0 && goals.problems.length === 0)) {
@@ -3536,6 +3550,27 @@ function svgText(x, y, words, className) {
   return text
 }
 const cut = (words, most) => (words.length <= most ? words : `${words.slice(0, most - 1)}…`)
+
+/** B289: the open steps no goal names, folded under the map; a row opens the step's window. */
+function drawUnlinked(goals) {
+  const box = $('goals-unlinked')
+  const view = unlinkedView(goals?.unlinked)
+  box.hidden = view === null
+  if (view === null) return
+  // Drawn anew only when it changed, so a list the person opened stays open.
+  once('goals-unlinked', view, () => {
+    const list = el('div', 'goals-unlinked-list')
+    for (const row of view.rows) {
+      const button = el('button', 'goals-unlinked-row')
+      button.type = 'button'
+      button.dataset.unlinkedStep = row.id
+      button.title = 'Show the step'
+      button.append(el('span', 'step-id', row.id), el('span', 'goals-unlinked-title', row.title))
+      list.append(button)
+    }
+    fill(box, [el('summary', '', view.summary), view.rows.length === 0 ? null : list])
+  })
+}
 
 /** B284: a goal's label as page nodes: its id in a span of its own colour, then its title; `lead` before them ("↗ "). */
 function goalLabelNodes(node, lead = '') {
@@ -4080,6 +4115,14 @@ async function goalsMove(id, target) {
   if (target === null) return
   await sendGoals({ command: 'move', id, parent: target.parent, index: target.index })
 }
+
+// B289: a step under no goal opens its window.
+$('goals-unlinked').addEventListener('click', event => {
+  const row = event.target.closest('[data-unlinked-step]')
+  if (row === null || board === null) return
+  const step = (board.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === row.dataset.unlinkedStep)
+  if (step !== undefined) openDetails({ step: step.key })
+})
 
 $('goals-crumb').addEventListener('click', event => {
   const link = event.target.closest('button[data-goal]')
