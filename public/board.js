@@ -4548,8 +4548,9 @@ async function sendGoals(body) {
   } catch {
     goalsSay('Not changed: the board\'s server does not answer.')
   }
-  // A change that changed nothing is nothing to undo; an ask and a read mark (B258) are no change undo takes back.
-  if (result !== null && result.unchanged !== true && body.command !== 'ask' && body.command !== 'read') goalsUi.undoable = body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
+  // A change that changed nothing is nothing to undo. B258: an ask and a read mark are no change undo takes back, and
+  // after them the map no longer reads as the changes before left it, so those cannot be undone either.
+  if (result !== null && result.unchanged !== true) goalsUi.undoable = body.command === 'ask' || body.command === 'read' ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   // Changed or refused, the map is read anew (a refusal is often a change made elsewhere in between), and the next
   // key works on the map as it now is.
   await read()
@@ -4628,14 +4629,18 @@ async function goalsMove(id, target) {
 // B258: the box under the frame that asks the Advisor about the goal zoomed into (spec 2026-10-15, section 4): the
 // question, pictures pasted (Ctrl+V) or picked, Send. It stands in the page itself, so the words typed stay while the
 // map is drawn anew; it shows while its goal is the focus. Send writes the Ask line under the goal (its id comes back),
-// then types the words into the Advisor's chat with that id and the pictures the board kept.
-const goalsAskBox = { goal: null, pictures: [], problem: null, busy: false }
+// then types the words into the Advisor's chat with that id and the pictures the board kept. `written` is an ask
+// written under its goal whose words did not reach the Advisor: Send again types that one, and writes no second ask.
+// While it sends, the box stays as it is.
+const goalsAskBox = { goal: null, pictures: [], problem: null, busy: false, written: null }
 const ASK_PICTURES_MOST = 4
 
 function openGoalAsk(id) {
+  if (goalsAskBox.busy) return
   if (goalsAskBox.goal !== id) {
     $('goals-ask-text').value = ''
     setAskPictures([])
+    goalsAskBox.written = null
   }
   goalsAskBox.goal = id
   goalsAskBox.problem = null
@@ -4646,6 +4651,7 @@ function openGoalAsk(id) {
 function closeGoalAsk() {
   goalsAskBox.goal = null
   goalsAskBox.problem = null
+  goalsAskBox.written = null
   $('goals-ask-text').value = ''
   setAskPictures([])
   showGoalAsk()
@@ -4663,8 +4669,11 @@ function showGoalAsk() {
   form.hidden = node === null || goalsFocus !== node.id || !canEditGoals(board) || (board?.advisor ?? null) === null
   if (form.hidden) return
   $('goals-ask-head').textContent = `Ask the Advisor about ${goalLabel(node)}`
+  // No longer than the board takes a message; an ask written already keeps the words the map holds.
+  $('goals-ask-text').maxLength = Math.min(2000, board.maxMessageChars ?? 2000)
+  $('goals-ask-text').readOnly = goalsAskBox.written !== null
   $('goals-ask-send').disabled = goalsAskBox.busy
-  $('goals-ask-send').textContent = goalsAskBox.busy ? 'Sending…' : 'Send'
+  $('goals-ask-send').textContent = goalsAskBox.busy ? 'Sending…' : goalsAskBox.written !== null ? 'Send again' : 'Send'
   $('goals-ask-pick').disabled = goalsAskBox.busy || goalsAskBox.pictures.length >= ASK_PICTURES_MOST
   const note = $('goals-ask-note')
   note.classList.toggle('is-error', goalsAskBox.problem !== null)
@@ -4702,8 +4711,8 @@ async function sendGoalAsk() {
   const advisor = board?.advisor?.name ?? null
   const text = $('goals-ask-text').value.trim()
   if (goal === null || advisor === null || goalsAskBox.busy) return
-  if (text === '') {
-    goalsAskBox.problem = 'Say what you want to know.'
+  if (text === '' || goalsUi.busy) {
+    goalsAskBox.problem = text === '' ? 'Say what you want to know.' : 'Another change to the map is on its way: send again in a moment.'
     return showGoalAsk()
   }
   goalsAskBox.busy = true
@@ -4724,18 +4733,24 @@ async function sendGoalAsk() {
     }
     pictures.push(one.path)
   }
-  const written = await sendGoals({ command: 'ask', id: goal, text })
-  if (typeof written?.id !== 'string') return fail('Not sent: the ask could not be written under the goal (the line above the map says why).')
-  const key = `goal-ask:${written.id}`
-  await send({ to: advisor, command: 'goal-ask', goal, ask: written.id, text, pictures }, key)
+  // An ask written on an earlier try is typed again, never written twice.
+  let id = goalsAskBox.written?.goal === goal ? goalsAskBox.written.id : null
+  if (id === null) {
+    const written = await sendGoals({ command: 'ask', id: goal, text })
+    if (typeof written?.id !== 'string') return fail('Not sent: the ask could not be written under the goal (the line above the map says why).')
+    id = written.id
+    goalsAskBox.written = { goal, id }
+  }
+  const key = `goal-ask:${id}`
+  await send({ to: advisor, command: 'goal-ask', goal, ask: id, text, pictures }, key)
   if (problems.has(key)) {
     const why = problems.get(key)
     problems.delete(key)
-    return fail(`${written.id} stands under the goal, but the words did not reach ${advisor}: ${why.replace(/^Not sent: /, '')}.`)
+    return fail(`${id} stands under the goal, but the words did not reach ${advisor}: ${why.replace(/^Not sent: /, '').replace(/\.$/, '')}. "Send again" types it again.`)
   }
   goalsAskBox.busy = false
   closeGoalAsk()
-  goalsSay(`Asked ${advisor} (${written.id}). The answer comes under the goal and under Needs your attention.`, 'ok')
+  goalsSay(`Asked ${advisor} (${id}). The answer comes under the goal and under Needs your attention.`, 'ok')
 }
 
 /** B258: what the person does with an answer: a step from it (Talk to Main, prefilled), ask again, or Done (read). */
@@ -4746,8 +4761,10 @@ function goalsAskAction(kind, goal, askId) {
   if (kind === 'done') return sendGoals({ command: 'read', id: goal, ask: askId })
   if (kind === 'again') return openGoalAsk(goal)
   if (kind === 'step') {
+    // After what was typed there already, and no longer than a message may be.
     showSide('main')
-    $('main-text').value = goalStepWords(node, block)
+    const draft = $('main-text').value.trim()
+    $('main-text').value = `${draft === '' ? '' : `${draft}\n\n`}${goalStepWords(node, block)}`.slice(0, board.maxMessageChars ?? 2000)
     $('main-text').focus()
   }
 }
@@ -4767,6 +4784,7 @@ $('goals-ask').addEventListener('submit', event => {
   sendGoalAsk()
 })
 $('goals-ask').addEventListener('paste', event => {
+  if (goalsAskBox.busy) return event.preventDefault()
   const pasted = pastedTalk(event.clipboardData?.items)
   if (pasted.ignore === true) return
   event.preventDefault()

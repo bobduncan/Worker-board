@@ -169,15 +169,32 @@ export function addGoalNote(text, id, note) {
   return words === '' ? refuse('form') : appendOwnLine(text, id, `Note: ${words}`)
 }
 
-/** B258: an ask to the Advisor under the goal, after its own lines: `Ask (A<n>, <at>): <the question, as one line>`. */
+/** B258: the lines of an ask, as src/goals.mjs reads them: the ask, its answer, its page, its read mark. */
+const ASK_HEAD = /^Ask \(A\d+, [^)]+\):/
+const ANSWER_HEAD = /^Answer \([^,]+, [^)]+\):/
+const ASK_PART = /^(?:Ask \(A\d+, [^)]+\):|Answer \([^,]+, [^)]+\):|More:|Read:)/
+
+/**
+ * B258: an ask to the Advisor under the goal: `Ask (A<n>, <at>): <the question, as one line>`, after the goal's last
+ * ask and its lines (also when those stand after its goals inside, as the map reads them), else after its own lines.
+ */
 export function addGoalAsk(text, id, { askId, at, question }) {
   const words = oneLine(question, 2000)
-  return words === '' ? refuse('form') : appendOwnLine(text, id, `Ask (${askId}, ${at}): ${words}`)
+  if (words === '') return refuse('form')
+  const line = `Ask (${askId}, ${at}): ${words}`
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const asks = ownLines(file.lines, found).filter(index => ASK_PART.test(file.lines[index].trim()))
+  if (asks.length === 0) return appendOwnLine(text, id, line)
+  file.lines.splice(asks.at(-1) + 1, 0, `${' '.repeat(found.depth + 2)}${line}`)
+  return { ok: true, text: join(file) }
 }
 
 /**
- * B258: `Read: <at>` after the ask's answer (its Answer and More lines): the person read it. Refused `none` when the
- * goal holds no such ask or the ask has no answer yet; an ask read already stays as it is.
+ * B258: `Read: <at>` after the ask's answer (its last Answer or More line): the person read it. The ask's lines are its
+ * goal's own lines up to its next ask, as src/goals.mjs reads them, other lines (a note) in between too. Refused `none`
+ * when the goal holds no such ask or the ask has no answer yet; an ask read already stays as it is.
  */
 export function markAskRead(text, id, askId, at) {
   const file = split(text)
@@ -186,16 +203,16 @@ export function markAskRead(text, id, askId, at) {
   const own = ownLines(file.lines, found)
   const head = own.findIndex(index => file.lines[index].trim().startsWith(`Ask (${askId}, `))
   if (head < 0) return refuse('none')
-  let last = own[head]
-  let isAnswered = false
+  let last = null
+  let isRead = false
   for (const index of own.slice(head + 1)) {
     const line = file.lines[index].trim()
-    if (line.startsWith('Read:')) return isAnswered ? { ok: true, text } : refuse('none')
-    if (line.startsWith('Answer (')) isAnswered = true
-    else if (!line.startsWith('More:')) break
-    last = index
+    if (ASK_HEAD.test(line)) break
+    if (ANSWER_HEAD.test(line) || (last !== null && line.startsWith('More:'))) last = index
+    if (line.startsWith('Read:')) isRead = true
   }
-  if (!isAnswered) return refuse('none')
+  if (last === null) return refuse('none')
+  if (isRead) return { ok: true, text }
   file.lines.splice(last + 1, 0, `${' '.repeat(found.depth + 2)}Read: ${at}`)
   return { ok: true, text: join(file) }
 }

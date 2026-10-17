@@ -108,8 +108,9 @@ function refineCheck(body, state) {
 
 /**
  * B258: the person's ask about a goal of the map, to the Advisor only (spec 2026-10-15, section 4). The page wrote the
- * Ask line under the goal first and names its id; the goal's title is read from the board's own state. Pictures are the
- * ones the board kept from a paste, by their paths in the project; anything else is left out.
+ * Ask line under the goal first and names its id: only an ask that stands under that goal, not answered yet, is typed,
+ * in the map's own words; the goal's title is read from the board's own state too. Pictures are the ones the board kept
+ * from a paste, by their paths in the project; anything else is left out.
  */
 function goalAskCheck(body, state) {
   const advisor = state.advisor?.name ?? null
@@ -117,8 +118,11 @@ function goalAskCheck(body, state) {
   const goal = (state.goals?.nodes ?? []).find(one => one.id === body.goal)
   if (goal === undefined) return refuse(409, 'That goal is not in the map.')
   if (typeof body.ask !== 'string' || !/^A\d+$/.test(body.ask)) return refuse(400, 'No ask id.')
-  const question = String(body.text ?? '').replace(/\s+/g, ' ').trim()
-  if (question === '') return refuse(400, 'Say what you want to know.')
+  const ask = (goal.asks ?? []).find(one => one.id === body.ask)
+  if (ask === undefined) return refuse(409, 'That ask is not under this goal.')
+  if ((ask.answer ?? null) !== null) return refuse(409, 'The Advisor answered this ask already.')
+  const question = String(ask.text ?? '').replace(/\s+/g, ' ').trim()
+  if (question === '') return refuse(409, 'That ask has no question.')
   if ((body.verdict ?? null) !== null) return refuse(400, 'An ask carries no verdict.')
   const pictures = Array.isArray(body.pictures) ? [...new Set(body.pictures.filter(path => isTalkPicture(path, state.pictures ?? 'pictures')))] : []
   const lines = ['ask from the goal map', `Goal: ${goal.id} ${plainLine(goal.title)}`, `Ask (${body.ask}): ${question}`]

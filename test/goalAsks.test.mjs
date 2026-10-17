@@ -48,22 +48,43 @@ test('the Read mark goes after the answer\'s More line, once; an ask that is not
   assert.equal(addGoalAsk(GOALS, 'G4', { askId: 'A2', at: '2026-10-15 20:00', question: '  ' }).why, 'form')
 })
 
-test('the words for an ask go to the Advisor only, with the goal, the ask and the pictures', () => {
+test('the Read mark finds an answer the Advisor wrote under a note; a new ask goes after the last one, also below the goals inside', () => {
+  // As the map reads it, an answer belongs to the goal's last ask above it, a note in between or not.
+  const noted = ANSWERED.replace('what differs most from the picture?\n', 'what differs most from the picture?\n      Note: asked after the visit\n')
+  assert.equal(goalAskNeeds(parseGoals(noted)).length, 1)
+  const read = markAskRead(noted, 'G6', 'A1', '2026-10-15 19:40')
+  assert.ok(read.text.includes('      More: .claude/goal-asks/2026-10-15-benches.md\n      Read: 2026-10-15 19:40\n'))
+  assert.deepEqual(goalAskNeeds(parseGoals(read.text)), [])
+  // An answer to the next ask is not this one's.
+  const two = addGoalAsk(GOALS, 'G6', { askId: 'A2', at: '2026-10-15 20:00', question: 'and the colours?' }).text
+    .replace('and the colours?\n', 'and the colours?\n      Answer (2026-10-15 20:10, Advisor): warm ones.\n')
+  assert.equal(markAskRead(two, 'G6', 'A1', '2026-10-15 20:30').why, 'none')
+  assert.ok(markAskRead(two, 'G6', 'A2', '2026-10-15 20:30').text.includes('warm ones.\n      Read: 2026-10-15 20:30\n'))
+  // An ask of G2 whose answer stands after G2's goals inside: the next ask goes after that answer, not above them.
+  const below = GOALS.replace('  - [ ] G5 M2', '    Ask (A1, 2026-10-15 18:00): is M1 near?\n    Answer (2026-10-15 18:30, Advisor): two steps away.\n  - [ ] G5 M2').replace('      Ask (A1, 2026-10-15 18:40): what differs most from the picture?\n', '')
+  assert.deepEqual(parseGoals(below).byId.get('G2').asks.map(ask => [ask.id, ask.answer?.text ?? null]), [['A1', 'two steps away.']])
+  const next = addGoalAsk(below, 'G2', { askId: 'A2', at: '2026-10-15 20:00', question: 'and M2?' })
+  assert.ok(next.text.includes('    Answer (2026-10-15 18:30, Advisor): two steps away.\n    Ask (A2, 2026-10-15 20:00): and M2?\n  - [ ] G5 M2'))
+  assert.deepEqual(parseGoals(next.text).byId.get('G2').asks.map(ask => [ask.id, ask.answer?.text ?? null]), [['A1', 'two steps away.'], ['A2', null]])
+})
+
+test('the words for an ask go to the Advisor only, with the goal, the ask as the map holds it and the pictures', () => {
   const state = { chats: [{ name: 'Main', isMain: true }], advisor: { name: 'Oracle' }, restart: { main: 'Main' }, pictures: 'pictures',
-    goals: { roots: ['G6'], problems: [], nodes: [{ id: 'G6', title: 'Benches that match the picture', asks: [] }] } }
+    goals: { roots: ['G6'], problems: [], nodes: [{ id: 'G6', title: 'Benches that match the picture', asks: [{ id: 'A1', text: 'old', answer: { text: 'done' } }, { id: 'A2', text: 'what differs most?', answer: null }] }] } }
   const ok = checkSay({ to: 'Oracle', command: 'goal-ask', goal: 'G6', ask: 'A2', text: 'what differs most?', pictures: [] }, state, 2000)
   assert.equal(ok.ok, true)
   assert.equal(ok.message.text, 'ask from the goal map\nGoal: G6 Benches that match the picture\nAsk (A2): what differs most?')
   assert.equal(checkSay({ to: 'Main', command: 'goal-ask', goal: 'G6', ask: 'A2', text: 'x' }, state, 2000).status, 400)
   assert.equal(checkSay({ to: 'Oracle', command: 'goal-ask', goal: 'G99', ask: 'A2', text: 'x' }, state, 2000).status, 409)
   assert.equal(checkSay({ to: 'Oracle', command: 'goal-ask', goal: 'G6', ask: 'x', text: 'x' }, state, 2000).status, 400)
-  assert.equal(checkSay({ to: 'Oracle', command: 'goal-ask', goal: 'G6', ask: 'A2', text: '  ' }, state, 2000).status, 400)
+  // Only an ask under that goal, not answered yet; its words are the map's, whatever the page sends.
+  assert.equal(checkSay({ to: 'Oracle', command: 'goal-ask', goal: 'G6', ask: 'A3', text: 'x' }, state, 2000).status, 409)
+  assert.equal(checkSay({ to: 'Oracle', command: 'goal-ask', goal: 'G6', ask: 'A1', text: 'x' }, state, 2000).status, 409)
+  assert.equal(checkSay({ to: 'Oracle', command: 'goal-ask', goal: 'G6', ask: 'A2', text: 'something else' }, state, 2000).message.text.split('\n')[2], 'Ask (A2): what differs most?')
   // Pictures the board kept, by their paths; anything else is left out.
   const pictured = checkSay({ to: 'Oracle', command: 'goal-ask', goal: 'G6', ask: 'A2', text: 'this one?', pictures: ['pictures/talk/2026-10-15-2000.png', '../secret.png', 'pictures/talk/2026-10-15-2000-2.webp'] }, state, 2000)
-  assert.equal(pictured.message.text, 'ask from the goal map\nGoal: G6 Benches that match the picture\nAsk (A2): this one?\nPictures: pictures/talk/2026-10-15-2000.png, pictures/talk/2026-10-15-2000-2.webp')
+  assert.equal(pictured.message.text, 'ask from the goal map\nGoal: G6 Benches that match the picture\nAsk (A2): what differs most?\nPictures: pictures/talk/2026-10-15-2000.png, pictures/talk/2026-10-15-2000-2.webp')
   assert.deepEqual(pictured.message.pictures, ['pictures/talk/2026-10-15-2000.png', 'pictures/talk/2026-10-15-2000-2.webp'])
-  // The person's words stay one line, also when typed over several.
-  assert.equal(checkSay({ to: 'Oracle', command: 'goal-ask', goal: 'G6', ask: 'A2', text: 'one\ntwo' }, state, 2000).message.text.split('\n')[2], 'Ask (A2): one two')
 })
 
 test('an ask to an Advisor whose chat is not running asks the main chat to start it', () => {
@@ -178,7 +199,9 @@ test('the page has the box to ask in under the frame: words, pictures, Send; and
   for (const id of ['goals-ask-head', 'goals-ask-text', 'goals-ask-pictures', 'goals-ask-pick', 'goals-ask-file', 'goals-ask-note', 'goals-ask-cancel', 'goals-ask-send']) assert.ok(html.includes(`id="${id}"`), id)
   assert.match(html, /id="goals-ask-text" maxlength="2000"/)
   // The words go to the Advisor with the id the map gave the ask; Done marks it read.
-  assert.match(script, /send\(\{ to: advisor, command: 'goal-ask', goal, ask: written\.id, text, pictures \}/)
+  assert.match(script, /send\(\{ to: advisor, command: 'goal-ask', goal, ask: id, text, pictures \}/)
   assert.match(script, /sendGoals\(\{ command: 'read', id: goal, ask: askId \}\)/)
+  // Review B258: when the words did not reach the Advisor, "Send again" types the same ask, it writes no second one.
+  assert.match(script, /let id = goalsAskBox\.written\?\.goal === goal \? goalsAskBox\.written\.id : null\n  if \(id === null\) \{\n    const written = await sendGoals\(\{ command: 'ask', id: goal, text \}\)/)
   assert.match(script, /'Answers to your asks'/)
 })
