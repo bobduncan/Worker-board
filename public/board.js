@@ -2082,6 +2082,18 @@ function itemPartsOf(item, hasFlow) {
   ]
   return parts.filter(part => part !== null)
 }
+
+/**
+ * B293: an item's picture line as the refine writes it: `{ path, caption }` for a picture file with what it shows in
+ * brackets (a path written as code too), or `{ path: null, note }` with why there is none ("none (a rule only)").
+ */
+function pictureOfLine(line) {
+  const words = String(line).replace(/`([^`]*)`/g, '$1').trim()
+  const inBrackets = text => text.replace(/^\((.*)\)\.?$/, '$1').trim()
+  const file = words.match(/^(\S+\.(?:png|jpe?g|gif|webp))(?=\s|$)\s*(.*)$/i)
+  if (file !== null) return { path: file[1], caption: inBrackets(file[2].trim()), note: '' }
+  return { path: null, caption: '', note: inBrackets(words.replace(/^none\b[\s:,;.-]*/i, '').trim()) }
+}
 // item:end
 // window:end
 
@@ -2752,7 +2764,7 @@ function drawDetails(state) {
   left.append(...notes.named)
   if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
   // B293: the refine's picture shows in it, not a second time here.
-  const refinedPicture = refine === null ? null : refined?.picture?.path ?? null
+  const refinedPicture = refined?.picture?.path ?? null
   const shown = need === null ? step.pictures.filter(path => path !== refinedPicture).map(path => ({ path, caption: '' })) : [
     ...need.options.filter(option => option.picture !== null).map(option => ({ path: option.picture, caption: `${option.label}${option.isRecommended ? ' (recommended)' : ''}` })),
     ...need.pictures.map(path => ({ path, caption: '' })),
@@ -2831,7 +2843,7 @@ function itemFor(step, state) {
 /** B299: one part of a step's item in its window (see itemPartsOf). */
 function itemPart(part, strip) {
   if (part.key === 'flow') return flowPart(strip)
-  if (part.key === 'picture') return section('Picture', drawReferences([{ path: part.lines[0], caption: '' }]))
+  if (part.key === 'picture') return pictureSection(pictureOfLine(part.lines[0]))
   if (part.key === 'goal') return el('p', 'chip is-goal', `Goal: ${part.lines[0]}`)
   if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
   if (part.isFolded) {
@@ -2840,6 +2852,23 @@ function itemPart(part, strip) {
     return box
   }
   return section(part.title, [listOf(part.lines)])
+}
+
+/** B293: the item's picture as in the refine's picture row; or why there is none. */
+function pictureSection({ path, caption, note }) {
+  if (path === null) return holding('section', 'details-part refined-nopicture', el('span', 'refine-tag', 'Picture'), el('p', 'muted', note === '' ? 'None.' : `None: ${note}`))
+  return holding('section', 'details-part', pictureRow(path, caption))
+}
+
+/** B293: a picture as a thumbnail that opens it large, with what it shows and "Open the picture ↗" beside it. */
+function pictureRow(path, caption) {
+  const row = el('div', 'refined-picture')
+  const open = el('button', 'refined-open', 'Open the picture ↗')
+  open.type = 'button'
+  open.dataset.zoom = path
+  open.dataset.caption = caption
+  row.append(picture(path, caption), holding('div', '', el('span', 'refine-tag', 'Picture'), el('p', '', caption === '' ? path.split('/').pop() : caption), open))
+  return row
 }
 
 function listOf(lines) {
@@ -5825,16 +5854,8 @@ function refineToRead(refined) {
 function refinedParts(refined) {
   const parts = []
   if (refined.summary !== '') parts.push(holding('div', 'refined-summary', el('span', 'refine-tag', 'Summary'), el('p', '', refined.summary)))
-  if (refined.picture !== null) {
-    const { path, caption } = refined.picture
-    const row = el('div', 'refined-picture')
-    const open = el('button', 'refined-open', 'Open the picture ↗')
-    open.type = 'button'
-    open.dataset.zoom = path
-    open.dataset.caption = caption
-    row.append(picture(path, caption), holding('div', '', el('span', 'refine-tag', 'Picture'), el('p', '', caption === '' ? path.split('/').pop() : caption), open))
-    parts.push(row)
-  } else if (refined.pictureNote !== '') {
+  if (refined.picture !== null) parts.push(pictureRow(refined.picture.path, refined.picture.caption))
+  else if (refined.pictureNote !== '') {
     parts.push(holding('div', 'refined-nopicture', el('span', 'refine-tag', 'Picture'), el('p', 'muted', `None: ${refined.pictureNote}`)))
   }
   if (refined.problem !== '') parts.push(el('span', 'refine-tag', 'Problem'), el('p', '', refined.problem))

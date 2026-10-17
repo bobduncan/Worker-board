@@ -162,7 +162,8 @@ test('the Refine part: the advice can be taken while questions are open with adv
 test('the page draws the stages as in the picture, and replaces "Accept as refined" by "Take the advice"', () => {
   const draw = between('function refinePart(', '$(\'details\').addEventListener(\'input\', event => {\n  const name = event.target.dataset?.refineField')
   assert.ok(draw.length > 1000)
-  for (const words of ['Send answers', 'Take the advice', 'Refine again', 'Open the picture ↗', 'What we build', 'advised: ']) assert.ok(draw.includes(words), words)
+  for (const words of ['Send answers', 'Take the advice', 'Refine again', 'pictureRow(', 'What we build', 'advised: ']) assert.ok(draw.includes(words), words)
+  assert.match(script, /function pictureRow\(path, caption\) \{[^]*?'Open the picture ↗'/)
   // No button says the old words any more (comments may).
   assert.ok(!script.includes("'Accept as refined'"))
   assert.ok(!script.includes("'Send answers · refine again'"))
@@ -228,6 +229,17 @@ test('the review\'s findings: refining a ready step again, and a finished step\'
   assert.match(script, /const isDescribed = step\.refined\?\.ready === true \|\| \(step\.status === 'done' && hasNewForm\(step\.refined\)\)/)
   assert.match(script, /if \(working !== null\) box\.append\(working\)\n {4}return box/)
   assert.match(script, /Questions \$\{taken\.missing\.join\(' and '\)\} have no advice: answer them first\./)
+})
+
+test('with the work store, the item\'s picture line is a path with what it shows in brackets, or none with why', () => {
+  const item = {}
+  vm.runInNewContext(`${between('// item:start', '// item:end')}\nthis.pictureOfLine = pictureOfLine`, item)
+  assert.deepEqual(plain(item.pictureOfLine('pictures/stable/v1.png (the stable; the roof is open)')), { path: 'pictures/stable/v1.png', caption: 'the stable; the roof is open', note: '' })
+  assert.deepEqual(plain(item.pictureOfLine('`pictures/stable/v1.png`')), { path: 'pictures/stable/v1.png', caption: '', note: '' })
+  assert.deepEqual(plain(item.pictureOfLine('none (a colour change only)')), { path: null, caption: '', note: 'a colour change only' })
+  assert.match(script, /if \(part\.key === 'picture'\) return pictureSection\(pictureOfLine\(part\.lines\[0\]\)\)/)
+  // The refine's picture is not shown a second time under References, whichever part shows it.
+  assert.match(script, /const refinedPicture = refined\?\.picture\?\.path \?\? null/)
 })
 
 test('the Advisor\'s job and the protocol name the new form', async () => {
