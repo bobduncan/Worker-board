@@ -35,6 +35,14 @@ test('every form of closing note leaves the title, and its parts are still read'
     { title: 'the quokka looks right', worker: 'Features', after: null, minutes: null, branch: null })
   assert.equal(one('- [ ] B32 Decide: show damage before the click (Advisor) @you').title, 'show damage before the click')
   assert.equal(one('- [ ] B33 Check the board (on http://127.0.0.1:4310/; Game - Board) @you').title, 'Check the board')
+  // The last note names who it is for, and its parts come first: a note a migrated title kept only adds the rest.
+  assert.deepEqual(parts(one('- [ ] B37 See walls (after the merge; about 2 h; not handed out) (for Units; after B9; about 40 min)')),
+    { title: 'See walls', worker: 'Units', after: 'B9', minutes: 40, branch: null })
+  assert.deepEqual(parts(one('- [ ] B38 See walls (after today; about 2 h) (for Units)')),
+    { title: 'See walls', worker: 'Units', after: 'today', minutes: 120, branch: null })
+  // A "for" in an earlier note names nobody: the step is not queued for a made-up chat.
+  const zebra = one('- [ ] B39 Show the zebra (for instance the big one) (pictures in art-inbox/x)')
+  assert.deepEqual([zebra.title, zebra.isFor, zebra.worker], ['Show the zebra', false, null])
   // Two notes in a row: both leave, and the parts of both are read.
   assert.deepEqual(parts(one('- [ ] B34 Check the shop (pictures in art-inbox/shop) (for Board; about 1 h)')),
     { title: 'Check the shop', worker: 'Board', after: null, minutes: 60, branch: null })
@@ -97,6 +105,10 @@ const running = [typed(NOW - 30 * MIN, 'Go on.'), toolStep(NOW - 2 * MIN, 'Build
 test('of two steps its worker holds, the lane shows the one its card names, else the newest', () => {
   assert.equal(support({ plan: card('B85 Refine before the queue'), tail: running }).task.stepId, 'B85')
   assert.equal(support({ plan: card('B29 See tall walls'), tail: running }).task.stepId, 'B29')
+  // The first it names: "B85 ... after B29" is on B85.
+  assert.equal(support({ plan: card('B85 Refine, after B29'), tail: running }).task.stepId, 'B85')
+  // The store's title of the step reaches the page without its note.
+  assert.equal(support({ plan: card('B29 See tall walls'), tail: running }).task.title, 'See tall walls')
   // A card that names none: the step it took last.
   assert.equal(support({ plan: card('Refining'), tail: running, since: '2026-10-17 23:50' }).task.stepId, 'B85')
 })

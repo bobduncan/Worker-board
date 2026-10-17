@@ -45,6 +45,11 @@ export function aboutMinutes(text) {
  * ("after the archer (branch x) merges"). `rest` is what stands before them; words that are nothing but brackets keep
  * them, as there is no other title.
  */
+/** B292: a title without the notes in brackets at its end, as `parseStep` reads a step's (a title the store migrated). */
+export function withoutNotes(title) {
+  return closingNotes(String(title ?? '')).rest.trim()
+}
+
 function closingNotes(body) {
   const notes = []
   let rest = body
@@ -73,11 +78,19 @@ export function parseStep(isDone, rest, { prefix, names }) {
   let forWhom = null
   let after = null
   let minutes = null
-  for (const part of notes.flatMap(note => note.split(';')).map(piece => piece.trim())) {
-    if (/^for\s+/i.test(part)) forWhom ??= part.replace(/^for\s+/i, '').trim()
-    else if (/^after\s+/i.test(part)) after ??= part.replace(/^after\s+/i, '').trim()
-    else minutes ??= minutesOf(part)
+  // Only the last note names who a step is for: the main chat's queue note, which the store writes last too. Its
+  // parts come first; an earlier note (one a migrated title kept) only adds what the last one does not say.
+  const last = notes.length === 0 ? [] : [notes[notes.length - 1]]
+  const read = (note, mayName) => {
+    for (const part of note.split(';').map(piece => piece.trim())) {
+      if (/^for\s+/i.test(part)) {
+        if (mayName) forWhom ??= part.replace(/^for\s+/i, '').trim()
+      } else if (/^after\s+/i.test(part)) after ??= part.replace(/^after\s+/i, '').trim()
+      else minutes ??= minutesOf(part)
+    }
   }
+  for (const note of last) read(note, true)
+  for (const note of notes.slice(0, -1)) read(note, false)
 
   // After its id, a step for the person says what it asks of them: "Verify:", "Decide:", "Provide:" or "Do:".
   const asks = text.match(/^(Verify|Decide|Provide|Do):\s*/i)

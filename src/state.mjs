@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS } from './config.mjs'
-import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refinedAt, refinedKey, refineStateOf } from './backlog.mjs'
+import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refinedAt, refinedKey, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
@@ -745,11 +745,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const mine = itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step' && ['in progress', 'waiting on you', 'taken'].includes(one.head.get('State'))
       && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
     const newest = mine.reduce((best, one) => (best === undefined || String(one.head.get('Since') ?? '') > String(best.head.get('Since') ?? '') ? one : best), undefined)
-    const item = mine.find(one => named.includes(one.head.get('Id'))) ?? newest
+    // The first id the card names that is one of them: "B292 ... after B290" is on B292.
+    const item = named.map(id => mine.find(one => one.head.get('Id') === id)).find(one => one !== undefined) ?? newest
     if (item === undefined) return null
     const id = item.head.get('Id')
     const branch = item.head.get('Branch')
-    return { id, title: item.head.get('Title') ?? '', minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' ? null : branch, about: null }
+    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' ? null : branch, about: null }
   }
   const read = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf: stepOfChat, stepById }))
   const advisorCard = advisorChat === undefined ? null : card(advisorChat, raw, context)
@@ -765,7 +766,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     warnAt: config.limitWarnPercent,
   })
   // B299: a lane on a step of the store shows the step's title as the store holds it.
-  const titleOf = id => (!workOk || typeof id !== 'string' ? null : raw.work.items.get(id)?.head.get('Title') ?? null)
+  // B292: without the note in brackets a migrated title kept.
+  const titleOf = id => {
+    const title = !workOk || typeof id !== 'string' ? null : raw.work.items.get(id)?.head.get('Title') ?? null
+    return title === null ? null : withoutNotes(title)
+  }
   const cards = read.map(({ usage, ...lane }) => ({
     ...lane,
     suspended: heldUntil(lane.suspended, limits, now),
