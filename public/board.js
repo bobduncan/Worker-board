@@ -1666,6 +1666,62 @@ function refocus(box, id) {
 
 const focusedNeed = box => (box.contains(document.activeElement) ? document.activeElement.closest('.need')?.dataset.id ?? null : null)
 
+// instructions:start
+/**
+ * B298: the person's words filed as instructions, per chat, for the part "Open instructions" under Needs your
+ * attention: each chat's missed ones first (a turn of the chat ended with them open: red), then the open ones, then the
+ * ones closed lately (grey, with what came of them). `list` is the state's `instructions`; empty without the store.
+ */
+function instructionGroups(list) {
+  const groups = new Map()
+  for (const one of list ?? []) {
+    const tone = one.closedAs !== null && one.closedAs !== undefined ? 'closed' : one.isMissed ? 'missed' : 'open'
+    const note = tone === 'closed' ? `→ ${one.closedAs}` : tone === 'missed' ? `missed ${one.turns} turn${one.turns === 1 ? '' : 's'}` : 'new'
+    const row = { id: one.id, text: one.text, tone, note, at: one.since ?? null, via: one.via ?? 'chat' }
+    if (!groups.has(one.chat)) groups.set(one.chat, [])
+    groups.get(one.chat).push(row)
+  }
+  const rank = { missed: 0, open: 1, closed: 2 }
+  return [...groups].map(([chat, rows]) => ({
+    chat, rows: rows.sort((a, b) => rank[a.tone] - rank[b.tone]), missed: rows.filter(row => row.tone === 'missed').length, open: rows.filter(row => row.tone !== 'closed').length,
+  })).sort((a, b) => b.missed - a.missed || b.open - a.open || a.chat.localeCompare(b.chat))
+}
+// instructions:end
+
+/** B298: the part "Open instructions": the person's words per chat; a click on the main chat's opens the talk with it. */
+function drawInstructions(state) {
+  const groups = instructionGroups(state.instructions ?? [])
+  if (groups.length === 0) return null
+  const open = groups.reduce((sum, group) => sum + group.open, 0)
+  const part = el('section', 'instructions')
+  const head = el('h3', '', 'Open instructions')
+  head.append(el('small', 'muted', open === 0 ? 'all closed' : `${open} open`))
+  part.append(head)
+  for (const group of groups) {
+    const box = el('div', 'instruction-chat')
+    const name = el('b', '', group.chat)
+    if (group.chat === state.restart?.main) {
+      name.dataset.showSide = 'main'
+      name.title = 'Open the talk with the main chat'
+      name.classList.add('is-link')
+    }
+    box.append(name)
+    for (const row of group.rows) {
+      const line = el('p', `instruction is-${row.tone}`)
+      line.append(el('span', 'instruction-id', row.id), el('span', 'instruction-text', row.text), el('small', 'instruction-note', row.at === null || row.tone === 'closed' ? row.note : `${row.note} · ${ago(row.at, state.readAt)}`))
+      box.append(line)
+    }
+    part.append(box)
+  }
+  return part
+}
+
+// B298: the main chat's name over its instructions opens the talk with it.
+$('needs').addEventListener('click', event => {
+  const side = event.target.closest('.instructions [data-show-side]')
+  if (side !== null) showSide(side.dataset.showSide)
+})
+
 function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
@@ -1676,7 +1732,7 @@ function drawNeeds(state) {
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   const cards = ordered(showsClosed() ? state.forYou : open).map(need => drawNeed(need, state))
   const none = open.length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
-  fill(box, [none, ...cards, drawLegacy(state)])
+  fill(box, [none, ...cards, drawLegacy(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
 }
@@ -1684,7 +1740,7 @@ function drawNeeds(state) {
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
 // A card is closed two minutes after its answer was typed: the minute is part of what is drawn.
-const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
+const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, state.instructions ?? [], showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {

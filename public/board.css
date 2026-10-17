@@ -745,6 +745,17 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .legacy { border: 1px dashed var(--line); border-radius: 9px; padding: 10px 12px; }
 .legacy summary { cursor: pointer; font-weight: 600; }
 .legacy summary small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+/* B298: the person's words filed as instructions, per chat: missed ones red, closed ones grey. */
+.instructions { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.instructions h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.instruction-chat { margin: 6px 0 10px; }
+.instruction-chat > b.is-link { cursor: pointer; text-decoration: underline dotted; }
+.instruction { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; margin: 4px 0; font-size: 13px; }
+.instruction-id { font-weight: 600; color: var(--muted); }
+.instruction-note { grid-column: 2; color: var(--muted); }
+.instruction.is-missed .instruction-id, .instruction.is-missed .instruction-note { color: var(--warn); }
+.instruction.is-missed { border-left: 3px solid var(--warn); padding-left: 6px; }
+.instruction.is-closed { opacity: .6; }
 .need.is-step { margin-top: 10px; padding: 10px 11px 11px; gap: 7px; }
 .need.is-step h4 { font-size: 14.5px; font-weight: 600; }
 .need.is-step .tag { background: var(--inset); color: var(--text); border: 1px solid var(--line); }

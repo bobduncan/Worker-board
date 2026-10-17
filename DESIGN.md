@@ -972,6 +972,32 @@ refresh that the store says the same.
   in flight (id, state, owner, branch) and each chat card with a task beside the store's state of the step it names,
   "<- check" where they disagree. The dry run prints the same and writes nothing.
 
+## The work store, increment 3 (B298): every word of the person's is filed
+
+Everything here acts only once truth.json says "store"; while it says "shadow" the API refuses (409), the mod swallows
+that without a word, and the page, the state and the chats are as before.
+
+- **Instructions** (`api.mjs`): `instruction` files the person's words to a chat as `I<n>` (`Chat`, `State: open`,
+  `Since` to the second, `Via: chat | board`, `Text` in one line, the words in full under `## Text`) and answers
+  "Recorded as I17; close it with work close I17 --as ...", with the chat's open ones (`open: [{ id, turns }]`).
+  `turn-ended` (with `since`, when the turn started) marks every instruction of that chat filed before then and still
+  open as missed once more: `Missed: n` and a History line "server: missed: a turn of Main ended without closing it".
+  The instruction that opened the turn was filed before it started, so a turn that answers without closing it marks
+  it; a line that came in while the turn ran waits for the next one. Nothing is closed for the chat: `close` does
+  that, and answers which stay open. `next` names a missed one with its turns.
+- **The Workers mod** (`hooks/register.tsx`): on `prompt.submit` with origin `composer` (the person typing in the
+  chat's own box; never a line the board or another chat brought in, never a slash command) it files the words before
+  `next(e)`, also while a turn runs, so a prompt the app holds is filed when submitted. The first tool batch after a
+  filing adds "Recorded as I17; close it with ..." and, once a turn, the ones earlier turns left open
+  (`additionalContext`); the composed prompt has a section "Open instructions: I17 (new), I15 (2 turns)". On
+  `turn.complete` (reason answer, the chat's own turn, once) it sends `turn-ended`.
+- **A line typed on the board** (`say.mjs`, `withInstruction`): Talk to Main or a line to any chat is filed as the
+  person's instruction first and goes with its id at its end ("Queue the menu [I17]"); an answer to a request and the
+  board's own words are not filed.
+- **What you see** (`work/lists.mjs`, `instructionsOf`; the page's `instructionGroups`): under Needs your attention a
+  part "Open instructions", per chat: the missed ones first, in red with their turns, then the open ones, then the
+  ones closed within a day, grey, with "→ <Closed as>". The main chat's name opens the talk with it.
+
 ## The bridge
 
 1. The person types on the board. The page sends it to the server, which keeps it as "waiting".
