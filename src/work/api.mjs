@@ -655,7 +655,9 @@ async function turnEnded(body, w) {
   }
   const open = openOf(chat, w, fresh)
   const text = missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`
-  return { ok: true, result: { text, missed, open, changed: missed.length > 0 } }
+  // The review of B300: with `pull`, the same call answers the chat's pull (one call at a turn's end).
+  const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
+  return { ok: true, result: { text, missed, open, changed: missed.length > 0, ...(pulled === undefined ? {} : { pull: pulled }) } }
 }
 
 /** A step is dropped, and why. */
@@ -922,13 +924,14 @@ async function refineText(body, w) {
 function pull(body, w) {
   const steps = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, w.who, w.prefix))
   const held = steps.find(item => ['taken', 'in progress', 'waiting on you'].includes(stateOf(item)))
-  if (held !== undefined) return { ok: true, result: { text: '', id: valueOf(held, 'Id'), wake: null, changed: false } }
+  if (held !== undefined) return { ok: true, result: { text: '', id: valueOf(held, 'Id'), since: null, wake: null, changed: false } }
   for (const item of steps.filter(one => stateOf(one) === 'queued').sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
     if (!mayMove(w.store.flow, item, 'taken', 'server', flowCtx(w, [item], [w.who])).ok) continue
     const id = valueOf(item, 'Id')
-    return { ok: true, result: { text: workWords(w.who, id).text, id, wake: { to: w.who, id }, changed: false } }
+    // When it was queued for this chat: a step queued anew is delivered anew (work/deliver.mjs, deliveryKey).
+    return { ok: true, result: { text: workWords(w.who, id).text, id, since: valueOf(item, 'Since'), wake: { to: w.who, id }, changed: false } }
   }
-  return { ok: true, result: { text: '', id: null, wake: null, changed: false } }
+  return { ok: true, result: { text: '', id: null, since: null, wake: null, changed: false } }
 }
 
 /** B300: the board moves a step as the flow lets the server (the reconciler's moves). */

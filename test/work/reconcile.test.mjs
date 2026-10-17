@@ -28,7 +28,7 @@ test('the times stand in the config beside the board\'s other times', () => {
 test('a queued step whose guards hold and whose Owner is free is delivered to its Owner, not moved', () => {
   const done = run([step('B1', 'done'), step('B286', 'queued', { Owner: 'Team - Units', 'Blocked by': 'B1' }), step('B287', 'queued', { Owner: 'Units' })], [lane('Units')])
   // One line per chat: the first of its steps.
-  assert.deepEqual(done.deliveries, [{ id: 'B286', chat: 'Units', why: 'deliver B286 to Units' }])
+  assert.deepEqual(done.deliveries, [{ id: 'B286', chat: 'Units', since: '2026-10-17 11:00', why: 'deliver B286 to Units' }])
   assert.deepEqual(done.moves, [])
 })
 

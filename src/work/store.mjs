@@ -252,36 +252,38 @@ export async function writeStore(dir, { items, activities, preamble = [] }, fs =
   return { written, problems }
 }
 
-/** B300: what the board told the chats once (`<dir>/delivered.json`): a key per line sent, never sent again. */
-const DELIVERED = 'delivered.json'
-const keysIn = text => {
-  try {
-    const keys = JSON.parse(text ?? '{}')?.keys
-    return Array.isArray(keys) ? keys.filter(key => typeof key === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-/** B300: the keys of what was sent once ("B286 Units": the step delivered to that chat), as a set. */
-export async function readDelivered(dir, fs = files) {
-  return new Set(keysIn(await readOr(fs, join(dir, DELIVERED), null)))
-}
-
 /**
- * B300: writes down that `key` was sent, before it is sent, so it never goes twice, also not after a restart of the
- * board. `{ ok, added }`: `added` false when it was written down already (then it is not sent again); `ok` false when it
- * could not be written (then it is not sent now).
+ * B300: what the board sent the chats (`<dir>/delivered.json`): `keys`, one per line sent ("B286 Units <queued since>"),
+ * and per key `sent[key] = { message, wake, again }`: the outbox message, the start it asked of the main chat, and how
+ * often it went once more after it expired untaken. Only grows.
  */
-export async function addDelivered(dir, key, fs = files) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const before = await readOr(fs, join(dir, DELIVERED), null)
-    const keys = keysIn(before)
-    if (keys.includes(key)) return { ok: true, added: false }
-    const done = await putInPlace(join(dir, DELIVERED), `${JSON.stringify({ keys: [...keys, key] }, null, 1)}\n`, fs, before)
-    if (done.ok) return { ok: true, added: true }
+const DELIVERED = 'delivered.json'
+
+/** B300: the record of what was sent: `{ keys, sent }` (empty when there is none or it cannot be read). */
+export async function readDelivered(dir, fs = files) {
+  return parseDelivered(await readOr(fs, join(dir, DELIVERED), null)).record
+}
+
+function parseDelivered(text) {
+  try {
+    const raw = JSON.parse(text ?? '{}') ?? {}
+    const keys = Array.isArray(raw.keys) ? raw.keys.filter(key => typeof key === 'string') : []
+    const sent = raw.sent !== null && typeof raw.sent === 'object' && !Array.isArray(raw.sent) ? raw.sent : {}
+    return { record: { keys, sent }, text }
+  } catch {
+    return { record: { keys: [], sent: {} }, text }
   }
-  return { ok: false, added: false }
+}
+
+/** B300: the record as its file holds it now, with the text it was read from (for `writeDelivered`'s `expected`). */
+export async function readDeliveredFile(dir, fs = files) {
+  return parseDelivered(await readOr(fs, join(dir, DELIVERED), null))
+}
+
+/** B300: writes the record, only while the file still holds `expected` (the text it was read from). */
+export async function writeDelivered(dir, record, fs = files, { expected } = {}) {
+  await fs.mkdir(dir, { recursive: true })
+  return putInPlace(join(dir, DELIVERED), `${JSON.stringify(record, null, 1)}\n`, fs, expected)
 }
 
 /** B297: an item's file as it is now: `{ text, item }`, or null when there is none. */

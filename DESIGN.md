@@ -1079,6 +1079,17 @@ what they did (tests run both).
   the mod's 1.5 s race; a 409 (shadow) is swallowed.
 - **The page**: a lane's flag is a line, with the button "Start <chat>" (`data-start`: the board's start words to the
   main chat); the lines on top stand in the store note; an old ask first, whatever the order.
+- **The review's findings**: a line's key is the step, its owner and when it was queued for that owner (`Since`), so a
+  step queued anew goes anew. `sendOnce` checks and records under one lock per store (the pull and the refresh never
+  send twice), puts the line into the outbox first and spends the key only then; a line that expired or failed untaken
+  goes once more (`delivered.json` keeps per key the message, its start word and how often it went again). No line,
+  pull answer or check line goes to a chat that is not on the board, busy or held by the limit (`mayWake`: its lane
+  free, read anew for a pull). A waiting line whose step is no longer that chat's (another owner, done, dropped; a
+  check's line once the step left review) is withdrawn (`dropped`), with the start it asked of the main chat when
+  nothing else waits for that chat. A step queued for a chat that has been free longer than the grace time and not
+  taken is flagged ("B286 queued for Units, Units free, not taken"). The mod's turn end is one call (`turn-ended` with
+  `pull: true`, the pull's answer in `pull`), held 1.5 s at most in all; a 409 keeps it quiet for five minutes. The
+  button "Start <chat>" does not open the lane's window.
 - The job texts (`roles/main.md` "Queue a step", `protocol.md` without the `Task from` row, `README.md`) are held in
   the branch's last commit, "B300: job texts (merge only with the cutover)".
 

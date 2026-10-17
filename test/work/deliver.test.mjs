@@ -58,7 +58,7 @@ test('a queued step reaches a free worker\'s outbox as one line, once; also not 
   const { dir, build, deliver } = await garden()
   try {
     const state = await build()
-    assert.deepEqual(state.reconciled.deliveries, [{ id: 'B1', chat: 'Digger', why: 'deliver B1 to Digger' }])
+    assert.deepEqual(state.reconciled.deliveries, [{ id: 'B1', chat: 'Digger', since: '2026-10-17 10:05', why: 'deliver B1 to Digger' }])
     const outbox = memoryStore()
     const done = await deliver(state, outbox)
     assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.about, one.state, messageText(one, () => '11:05')]), [['Digger', 'work', 'B1', 'waiting', 'work: B1 is yours; run work next']])
@@ -69,8 +69,8 @@ test('a queued step reaches a free worker\'s outbox as one line, once; also not 
     await deliver(await build(), anew)
     assert.equal(outbox.outbox().length, 1)
     assert.equal(anew.outbox().length, 0)
-    assert.deepEqual([...await readDelivered(dir)], ['B1 Digger'])
-    assert.match(await readFile(join(dir, 'delivered.json'), 'utf8'), /"B1 Digger"/)
+    assert.deepEqual((await readDelivered(dir)).keys, ['B1 Digger 2026-10-17 10:05'])
+    assert.match(await readFile(join(dir, 'delivered.json'), 'utf8'), /"B1 Digger 2026-10-17 10:05"/)
     // Delivered is not moved: the chat's own take moves it.
     assert.equal(valueOf((await readStore(dir)).items.get('B1'), 'State'), 'queued')
   } finally {
@@ -135,14 +135,14 @@ test('a free worker\'s pull answers its line while a step may be taken; nothing 
   const shadow = await garden('shadow')
   try {
     const pulled = await store.digger({ action: 'pull' })
-    assert.deepEqual(pulled.result, { text: 'work: B1 is yours; run work next', id: 'B1', wake: { to: 'Digger', id: 'B1' }, changed: false })
+    assert.deepEqual(pulled.result, { text: 'work: B1 is yours; run work next', id: 'B1', since: '2026-10-17 10:05', wake: { to: 'Digger', id: 'B1' }, changed: false })
     // The server sends it once under the same key as its own delivery.
     const outbox = memoryStore()
-    const send = () => sendOnce({ dir: store.dir, key: 'B1 Digger', words: { to: 'Digger', command: 'work', about: 'B1', text: pulled.result.text }, outbox, state: {}, now: NOW, maxChars: 2000, newId: () => 'p1' })
+    const send = () => sendOnce({ dir: store.dir, key: 'B1 Digger 2026-10-17 10:05', words: { to: 'Digger', command: 'work', about: 'B1', text: pulled.result.text }, outbox, state: {}, now: NOW, maxChars: 2000, newId: () => 'p1' })
     assert.notEqual(await send(), null)
     assert.equal(await send(), null)
     await store.digger({ action: 'take', id: 'B1' })
-    assert.deepEqual((await store.digger({ action: 'pull' })).result, { text: '', id: 'B1', wake: null, changed: false })
+    assert.deepEqual((await store.digger({ action: 'pull' })).result, { text: '', id: 'B1', since: null, wake: null, changed: false })
     assert.deepEqual(await shadow.digger({ action: 'pull' }), { ok: false, status: 409, why: NOT_TRUTH })
   } finally {
     await rm(store.dir, { recursive: true, force: true })
@@ -158,7 +158,7 @@ test('while the store is a shadow the board reconciles nothing: no line, no flag
     assert.deepEqual(state.workFlags, [])
     assert.ok(state.chats.every(lane => lane.flags.length === 0))
     const outbox = memoryStore()
-    assert.deepEqual(await deliver(state, outbox), { moved: [], sent: [] })
+    assert.deepEqual(await deliver(state, outbox), { moved: [], sent: [], withdrawn: [] })
     assert.equal(outbox.outbox().length, 0)
   } finally {
     await rm(dir, { recursive: true, force: true })

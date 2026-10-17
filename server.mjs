@@ -42,7 +42,7 @@ import { parseHistory } from './src/history.mjs'
 import { seenTicks } from './src/finished.mjs'
 import { freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
-import { answerWords, checkSay, spawnWhenAlone, wakeFor, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { roundText, roundsNow } from './src/rounds.mjs'
@@ -52,7 +52,7 @@ import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
 import { reportCheck } from './src/work/check.mjs'
-import { deliverWork, deliveryKey, sendOnce } from './src/work/deliver.mjs'
+import { deliverWork, pullFor } from './src/work/deliver.mjs'
 import { shadowKeeper } from './src/work/shadow.mjs'
 import { readStore } from './src/work/store.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -835,14 +835,18 @@ async function main(args) {
       const checked = checkTake(body, state)
       if (!checked.ok) return checked
       const done = await workAction({ ...body, chat: checked.chat })
-      // B300: a free worker's pull at the end of its turn: its line goes into the outbox, once per step and chat (as the
-      // reconciler's delivery), and the mod takes it at once. A line sent before is not sent again: nothing then.
-      const wake = done.ok && body?.action === 'pull' ? done.result.wake ?? null : null
-      if (wake === null) return done
-      const sent = await sendOnce({ dir: workDir, key: deliveryKey(wake.id, wake.to), words: workWords(wake.to, wake.id), outbox: store, state, now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex') })
-      if (sent === null) return { ok: true, result: { ...done.result, text: '', wake: null } }
+      // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
+      // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
+      // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
+      const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
+      if (pulled === null || (pulled.wake ?? null) === null) return done
       readState.reset()
-      return done
+      const answered = await pullFor({
+        dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
+        newId: () => randomBytes(8).toString('hex'), keep,
+      })
+      if (answered.text !== '') readState.reset()
+      return { ok: true, result: body?.action === 'pull' ? answered : { ...done.result, pull: answered } }
     },
     take: async body => {
       const checked = checkTake(body, await readState())
@@ -1020,9 +1024,9 @@ async function main(args) {
         const state = await readState()
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
-          newId: () => randomBytes(8).toString('hex'),
+          newId: () => randomBytes(8).toString('hex'), keep,
         })
-        if (done.moved.length + done.sent.length > 0) {
+        if (done.moved.length + done.sent.length + done.withdrawn.length > 0) {
           work.reset?.()
           readState.reset()
         }

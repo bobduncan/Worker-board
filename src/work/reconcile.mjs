@@ -61,7 +61,13 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     const ctx = { store: { items }, freeChats: new Set([owner]), now, overlaps }
     if (!mayMove(flow, item, 'taken', 'server', ctx).ok) continue
     const id = valueOf(item, 'Id')
-    deliveries.push({ id, chat: lane.name, why: `deliver ${id} to ${lane.name}` })
+    const since = valueOf(item, 'Since')
+    deliveries.push({ id, chat: lane.name, since, why: `deliver ${id} to ${lane.name}` })
+    // The review of B300: queued for a chat that has been free longer than the grace time, and not taken.
+    const freeSince = Math.max(Number.isFinite(sinceMs(since)) ? sinceMs(since) : 0, Number.isFinite(lane.idle?.since) ? lane.idle.since : 0)
+    if (Number.isFinite(lane.idle?.since) && now - freeSince >= times.graceMs) {
+      flags.push({ kind: 'not taken', id, chat: lane.name, text: `${id} queued for ${lane.name}, ${lane.name} free, not taken`, button: null })
+    }
   }
 
   // A step taken or in progress whose Owner is not running and not held by the limit: flagged after the grace time.
@@ -96,9 +102,10 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     const lane = laneOf(valueOf(item, 'Owner'))
     const chat = lane?.name ?? valueOf(item, 'Owner')
     const detail = failed[2]?.trim() || 'no reason given'
+    // The review of B300: its Owner is told by the delivery's rules: a chat on the board that is free.
     flags.push({
       kind: 'check failed', id, chat, text: `${id}: the board's check failed: ${detail}`, button: null,
-      ...(chat === null ? {} : { say: `work: the board's check of ${id} failed (${detail}); see work next`, key: `${id} ${chat} check ${failed[1]}` }),
+      ...(lane === undefined || lane.state !== 'free' ? {} : { say: `work: the board's check of ${id} failed (${detail}); see work next`, key: `${id} ${chat} check ${failed[1]}` }),
     })
   }
 
