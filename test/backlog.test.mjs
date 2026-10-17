@@ -67,7 +67,7 @@ test('an open step starts with its id, before its kind; the id is not part of it
   const text = '## Art\n- [ ] B14 Verify: the walk is smooth (pictures in art-inbox/archer; Game - Units) @you\n- [ ] B7 Draw the bat\n- [x] B03 Do: quit the app @you\n- [ ] Build B12 later\n\n## Next to hand out (Game - Main)\n- [ ] B59 Redraw the portrait (for Features; after the camera; about 20 min)\n'
   const backlog = parseBacklog(text, RULES)
   assert.deepEqual(backlog.activities[0].steps.map(step => [step.id, step.asks, step.title]), [
-    ['B14', 'verify', 'the walk is smooth (pictures in art-inbox/archer; Game - Units)'],
+    ['B14', 'verify', 'the walk is smooth'],
     ['B7', null, 'Draw the bat'],
     ['B03', 'do', 'quit the app'],
     [null, null, 'Build B12 later'],
@@ -127,8 +127,8 @@ test('forYou: every open step that ends in @you, with its activity', () => {
 test('forYou: a step says what it asks of the person, and names the worker it is about', () => {
   const text = '## Art\n- [ ] Verify: the bone ranger walks smoothly (pictures in art-inbox/archer) @you\n- [ ] decide: accept the bridge or continue (options in Game - Levels / Environment) @you\n- [ ] Provide: the Suno plan @you\n- [ ] Do: quit the app once @you\n'
   assert.deepEqual(forYou(parseBacklog(text, RULES)).map(step => [step.asks, step.title, step.worker]), [
-    ['verify', 'the bone ranger walks smoothly (pictures in art-inbox/archer)', null],
-    ['decide', 'accept the bridge or continue (options in Game - Levels / Environment)', 'Levels / Environment'],
+    ['verify', 'the bone ranger walks smoothly', null],
+    ['decide', 'accept the bridge or continue', 'Levels / Environment'],
     ['provide', 'the Suno plan', null],
     ['do', 'quit the app once', null],
   ])

@@ -77,7 +77,7 @@ test('the finished steps, newest first: the time a line under it gives, else the
     ['B10', at(13, 0, 30), 'line', 'Board'],
     ['B13', at(12, 0, 0), 'day', 'Units'],
   ])
-  assert.deepEqual(list[0], { key: 'B11', id: 'B11', title: 'the limits look right (Game - Board)', at: at(14, 10, 8), how: 'line', by: 'you' })
+  assert.deepEqual(list[0], { key: 'B11', id: 'B11', title: 'the limits look right', at: at(14, 10, 8), how: 'line', by: 'you' })
   // B15 was ticked before the board first looked: no time to put it in order by.
 })
 

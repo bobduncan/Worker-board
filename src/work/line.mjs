@@ -31,7 +31,11 @@ export function lineFields(rest) {
       else if (estimate === null && minutesOf(part) !== null) estimate = part.replace(/^about\s+/i, '')
     }
   }
-  return { id: step.id, asks: step.asks, title: step.title, isYou: step.isYou, owner, after, estimate, branch: step.ownBranch, note: spec?.[1] ?? null }
+  // B292: the store keeps a title as its line had it: only a "(for ...)" note is fields of the store's own; any other
+  // note stays in the title as it was migrated, so a line written back still says the same step. The board's own
+  // reading (parseStep) leaves every note out of the title it shows.
+  const title = (spec === null ? body : body.slice(0, spec.index)).replace(/^(?:Verify|Decide|Provide|Do):\s*/i, '').trim()
+  return { id: step.id, asks: step.asks, title, isYou: step.isYou, owner, after, estimate, branch: step.ownBranch, note: spec?.[1] ?? null }
 }
 
 /** What an item's head says its line holds, in `lineFields`' terms. */
