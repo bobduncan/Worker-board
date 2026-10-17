@@ -52,6 +52,7 @@ import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
 import { reportCheck } from './src/work/check.mjs'
+import { deliverWork, pullFor } from './src/work/deliver.mjs'
 import { shadowKeeper } from './src/work/shadow.mjs'
 import { readStore } from './src/work/store.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -830,9 +831,22 @@ async function main(args) {
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
     bridgeWork: async body => {
-      const checked = checkTake(body, await readState())
+      const state = await readState()
+      const checked = checkTake(body, state)
       if (!checked.ok) return checked
-      return workAction({ ...body, chat: checked.chat })
+      const done = await workAction({ ...body, chat: checked.chat })
+      // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
+      // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
+      // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
+      const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
+      if (pulled === null || (pulled.wake ?? null) === null) return done
+      readState.reset()
+      const answered = await pullFor({
+        dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
+        newId: () => randomBytes(8).toString('hex'), keep,
+      })
+      if (answered.text !== '') readState.reset()
+      return { ok: true, result: body?.action === 'pull' ? answered : { ...done.result, pull: answered } }
     },
     take: async body => {
       const checked = checkTake(body, await readState())
@@ -996,6 +1010,33 @@ async function main(args) {
     }).catch(() => {})
     look()
     setInterval(look, TICK_MS)
+  }
+
+  // B300: once the store is the truth, the reconciler at every refresh: the server's moves through the work API, and
+  // each chat's line that a step is its own, once (src/work/deliver.mjs). Only a board that writes the store: the one
+  // that delivers, or a copy with a store of its own (whose outbox no chat takes from).
+  if (!isDemo && historyFrom === undefined && workWriters !== null) {
+    let isReconciling = false
+    const reconcileNow = async () => {
+      if (isReconciling) return
+      isReconciling = true
+      try {
+        const state = await readState()
+        const done = await deliverWork({
+          state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
+          newId: () => randomBytes(8).toString('hex'), keep,
+        })
+        if (done.moved.length + done.sent.length + done.withdrawn.length > 0) {
+          work.reset?.()
+          readState.reset()
+        }
+      } catch {
+        // tried again at the next refresh
+      } finally {
+        isReconciling = false
+      }
+    }
+    setInterval(reconcileNow, Math.max(5, config.refreshSeconds) * 1000)
   }
 }
 

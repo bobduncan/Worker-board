@@ -111,7 +111,8 @@ test('an answered ask wakes its chat with its id and title, and the chat waits n
     const words = answerWords(done.result.wake)
     assert.equal(messageText({ ...words, at: NOW }, () => '11:05'), '(answered on the worker board, 11:05) Q1 "Box or yew?": Yew')
     const state = await build(PLAIN, [{ id: 'm1', at: NOW, ...words, state: 'waiting' }])
-    assert.equal(digger(state).state, 'free')
+    // B300: it waits for the person no more; it holds B1 in progress again, so it is between two turns of its work.
+    assert.deepEqual([digger(state).state, digger(state).between], ['working', 'Its turn has ended; its step B1 is in progress.'])
     const need = state.forYou.find(one => one.id === 'work:Q1')
     assert.deepEqual([need.canAnswer, need.answer.state, need.answer.text], [false, 'waiting', 'Yew'])
   } finally {

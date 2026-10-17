@@ -491,9 +491,10 @@ const ORIGIN_CHARS = 6000
  * also one that arrived in the middle of a turn, or what the person typed (also through the board). The newest
  * such message at or before `until`, when the task started as far as the board knows. `{ by: 'main' | 'you', at,
  * text }`, the text kept to its first 6000 characters; null when the entries hold none. Only for the window the
- * person opens on a working lane: the lane itself names the task as the chat's card does (B82).
+ * person opens on a working lane: the lane itself names the task as the chat's card does (B82). B300: `handOvers`
+ * false (the work store is the truth) reads only what the person typed.
  */
-export function taskOrigin(entries, { mainTitle, mainSession = null }, until = Infinity) {
+export function taskOrigin(entries, { mainTitle, mainSession = null }, until = Infinity, { handOvers = true } = {}) {
   let found = null
   const keep = (by, entry, text) => {
     if (found === null || entry.at >= found.at) found = { by, at: entry.at, text }
@@ -503,7 +504,8 @@ export function taskOrigin(entries, { mainTitle, mainSession = null }, until = I
     const peer = peerMessage(entry)
     if (peer !== null) {
       const isFromMain = peer.from !== null && (peer.from === mainTitle || peer.from === mainSession)
-      if (isFromMain && HANDS_OVER.test(peer.body)) keep('main', entry, peer.body)
+      // B300: once the work store is the truth (`handOvers` false), the main chat's "Task from" lines start no task.
+      if (handOvers && isFromMain && HANDS_OVER.test(peer.body)) keep('main', entry, peer.body)
       continue
     }
     if (entry.type !== 'user' || hasToolResult(entry)) continue

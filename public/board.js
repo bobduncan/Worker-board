@@ -230,8 +230,10 @@ function storeLine(store) {
  * B296: the note on top when the work store could not be read: the board falls back to the backlog. B297: or when
  * backlog.md was edited by hand after the cutover, the edit kept beside it (`store.kept`). Null: none.
  */
-function storeNote(store) {
+function storeNote(store, workFlags = []) {
   if (store?.failed === true) return { tone: 'problem', text: store.why }
+  // B300: the reconciler's lines on top: a file it cannot read, an id twice, a state the flow does not know.
+  if (workFlags.length > 0) return { tone: 'problem', text: `The work store: ${workFlags.join(' · ')}. Such an item is shown as it is and not moved: fix it by hand.` }
   if (typeof store?.kept === 'string') return { tone: 'warn', text: `backlog.md was edited by hand after the cutover. The board wrote it anew from the work store and kept the edited file as ${store.kept}: carry what it adds over with the work tool, then delete it.` }
   return null
 }
@@ -248,7 +250,7 @@ function drawAppNote(state) {
 
 /** B296: the note on top when the work store could not be read (see `storeNote`). */
 function drawStoreNote(state) {
-  const shown = storeNote(state.store ?? null)
+  const shown = storeNote(state.store ?? null, state.workFlags ?? [])
   const note = $('store-note')
   note.hidden = shown === null
   if (shown !== null) note.textContent = shown.text
@@ -742,6 +744,23 @@ function freeLine(lane, clock = null) {
 }
 // lanefree:end
 
+// laneflags:start
+/**
+ * B300: the reconciler's flags on a lane (`lane.flags`), each a line, and for a chat that holds work but does not run a
+ * button "Start <chat>" that asks the main chat to start it (the board's own start words; `data-start`). No button
+ * without a main chat, for the main chat itself, or while an ask to start it is on its way (`restart.starting`).
+ */
+function laneFlags(lane, restart = null) {
+  const main = restart?.main ?? null
+  const isAsked = (restart?.starting ?? []).some(one => one.chat === lane.name && one.state !== 'expired' && one.state !== 'failed')
+  return (lane.flags ?? []).map(flag => ({
+    text: flag.text,
+    tone: flag.kind === 'card' ? 'warn' : 'problem',
+    button: flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
+  }))
+}
+// laneflags:end
+
 function drawLane(lane, state) {
   const isOpen = openLanes.has(lane.name)
   const card = el('article', `lane is-${lane.state}${lane.isLeftover ? ' is-leftover' : ''}${isOpen ? ' is-open' : ''}`)
@@ -826,6 +845,18 @@ function drawLane(lane, state) {
   }
   const alerts = alertsOf(lane, state)
   if (alerts.length > 0) what.append(el('p', 'alert', alerts.join(' · ')))
+  for (const flag of laneFlags(lane, state.restart ?? null)) {
+    const line = el('p', `lane-flag is-${flag.tone}`, flag.text)
+    if (flag.button !== null) {
+      const start = el('button', 'choice', flag.button.isAsked ? `${flag.button.label}: asked` : flag.button.label)
+      start.type = 'button'
+      start.dataset.start = flag.button.start
+      start.disabled = flag.button.isAsked || sending.has(`start:${flag.button.start}`)
+      start.title = `Asks ${state.restart.main} to start it`
+      line.append(' ', start)
+    }
+    what.append(line)
+  }
   if (removal.line !== null) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
   if (problems.has(`remove:${lane.name}`)) what.append(el('p', 'remove-line is-problem', problems.get(`remove:${lane.name}`)))
 
@@ -1231,7 +1262,7 @@ $('workers-panel').addEventListener('click', event => {
 // given. The queue, the unfolded details, its step line and its remove control keep their own clicks.
 $('lanes').addEventListener('click', event => {
   const card = event.target.closest('.lane.is-working, .lane.is-suspended, .lane.is-interrupted')
-  if (card === null || board === null || event.target.closest('.queue, .more, .step-line, .remove-button, .remove-warning, .lane-menu') !== null) return
+  if (card === null || board === null || event.target.closest('.queue, .more, .step-line, .remove-button, .remove-warning, .lane-menu, .lane-flag') !== null) return
   openDetails({ lane: card.dataset.lane, task: true })
 })
 
@@ -1239,7 +1270,7 @@ $('lanes').addEventListener('click', event => {
 // queue and the unfolded details keep their own clicks.
 $('lanes').addEventListener('click', event => {
   const card = event.target.closest('.lane.is-waiting')
-  if (card === null || board === null || event.target.closest('.queue, .more, .remove-button, .remove-warning, .lane-menu') !== null) return
+  if (card === null || board === null || event.target.closest('.queue, .more, .remove-button, .remove-warning, .lane-menu, .lane-flag') !== null) return
   const id = needOfLane(board.forYou, card.dataset.lane)
   if (id !== null) openDetails({ need: id })
 })
@@ -1720,7 +1751,8 @@ function ordered(needs) {
   const list = [...needs].sort((a, b) => newness(b) - newness(a))
   if (order === 'oldest') list.reverse()
   if (order === 'worker') list.sort((a, b) => (a.from ?? '').localeCompare(b.from ?? '') || newness(b) - newness(a))
-  return list
+  // B300: a blocking ask that waited longer than the board's ask time stands first, whatever the order.
+  return list.sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true))
 }
 // order:end
 

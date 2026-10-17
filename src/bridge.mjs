@@ -43,7 +43,8 @@ export const bridgeNote = ({ port, key, at }) => JSON.stringify({ url: `http://1
 export function messageText(message, clock, where = path => path) {
   const words = (message.text ?? '').trim()
   // B173: a round of the board's clock is the clock's word, never the person's: it carries no mark of theirs.
-  if (message.command === 'round') return words
+  // B300: so is the work store's line that a step is the chat's ("work: B286 is yours; run work next").
+  if (message.command === 'round' || message.command === 'work') return words
   if ((message.ask ?? null) === null) {
     const picture = typeof message.picture === 'string' ? pictureLine(where(message.picture)) : null
     return `${[words, picture].filter(part => part !== null && part !== '').join('\n')}\n(typed on the worker board, ${clock(message.at)})`

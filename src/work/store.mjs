@@ -252,6 +252,40 @@ export async function writeStore(dir, { items, activities, preamble = [] }, fs =
   return { written, problems }
 }
 
+/**
+ * B300: what the board sent the chats (`<dir>/delivered.json`): `keys`, one per line sent ("B286 Units <queued since>"),
+ * and per key `sent[key] = { message, wake, again }`: the outbox message, the start it asked of the main chat, and how
+ * often it went once more after it expired untaken. Only grows.
+ */
+const DELIVERED = 'delivered.json'
+
+/** B300: the record of what was sent: `{ keys, sent }` (empty when there is none or it cannot be read). */
+export async function readDelivered(dir, fs = files) {
+  return parseDelivered(await readOr(fs, join(dir, DELIVERED), null)).record
+}
+
+function parseDelivered(text) {
+  try {
+    const raw = JSON.parse(text ?? '{}') ?? {}
+    const keys = Array.isArray(raw.keys) ? raw.keys.filter(key => typeof key === 'string') : []
+    const sent = raw.sent !== null && typeof raw.sent === 'object' && !Array.isArray(raw.sent) ? raw.sent : {}
+    return { record: { keys, sent }, text }
+  } catch {
+    return { record: { keys: [], sent: {} }, text }
+  }
+}
+
+/** B300: the record as its file holds it now, with the text it was read from (for `writeDelivered`'s `expected`). */
+export async function readDeliveredFile(dir, fs = files) {
+  return parseDelivered(await readOr(fs, join(dir, DELIVERED), null))
+}
+
+/** B300: writes the record, only while the file still holds `expected` (the text it was read from). */
+export async function writeDelivered(dir, record, fs = files, { expected } = {}) {
+  await fs.mkdir(dir, { recursive: true })
+  return putInPlace(join(dir, DELIVERED), `${JSON.stringify(record, null, 1)}\n`, fs, expected)
+}
+
 /** B297: an item's file as it is now: `{ text, item }`, or null when there is none. */
 export async function readItemFile(dir, id, fs = files) {
   const text = await readOr(fs, join(dir, `${id}.md`), null)

@@ -106,3 +106,11 @@ export function valueOf(item, key) {
   const value = item.head.get(key)
   return value === undefined || value === '' || value === '-' ? null : value
 }
+
+/** B298: a Since as a time; the start of its minute (or second) as written. NaN when it is none. */
+export function sinceMs(value) {
+  const found = String(value ?? '').match(/^(\d{4})-(\d\d)-(\d\d)(?: (\d\d):(\d\d)(?::(\d\d))?)?$/)
+  if (found === null) return Number.NaN
+  const [, y, m, d, h = 0, min = 0, sec = 0] = found
+  return new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec)).getTime()
+}

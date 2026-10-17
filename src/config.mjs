@@ -4,6 +4,13 @@ import { constants } from 'node:fs'
 import { access, copyFile, readFile, readdir, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative } from 'node:path'
 
+/**
+ * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
+ * the grace time; a blocking ask that waited longer than the ask time stands first under Needs your attention.
+ */
+export const GRACE_MS = 10 * 60_000
+export const ASK_MS = 60 * 60_000
+
 const DEFAULTS = {
   /** B129: the project's name, the page's title; by default the project folder's name. */
   name: '',

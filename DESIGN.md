@@ -1044,6 +1044,55 @@ chats' answers for questions and waiting exactly as before (tests run both).
   picture, the goal chip, the flow strip, What we build, then Requirements and Touches folded, History last. A lane
   names its step by the store's title, not the card's short topic.
 
+## The work store, increment 5 (B300): pull delivery and the reconciler
+
+As before: everything below acts only once truth.json says "store"; as a shadow the board, the chats and the mod do
+what they did (tests run both).
+
+- **The reconciler** (`work/reconcile.mjs`, pure): `reconcile({ store, flow, lanes, now, times, prefix })` →
+  `{ moves, deliveries, flags }`, one rule per row of the spec's section 7. Since a chat's `take` moves queued → taken
+  itself, the first row is a wake, not a move: a queued step whose guards hold (`mayMove` to taken for the server,
+  the Owner counted free) and whose Owner's lane is free and holds no other step is a delivery ("deliver B286 to
+  Units"), one per chat. A step taken or in progress whose Owner does not run (and is not held by the limit) is
+  flagged after `GRACE_MS` (10 min, from the later of its Since and the chat's last activity) with the button
+  "Start <chat>". An open blocking ask older than `ASK_MS` (60 min) is marked old and stands first under Needs your
+  attention; nothing is sent again. Open instructions are B298's list (no flag). A step in review whose last check
+  failed is flagged on its Owner's lane, and the Owner is told once. A broken file, an id twice or a state the flow
+  does not know make one line on top (`workFlags`, in the store note) and are not moved or delivered. A card that names
+  a step the store does not hold taken, in progress or waiting for that chat is flagged ("Units' card says B281 but
+  B281 is queued"). The flow's other moves by the server whose guard holds are made (a review closed once its check
+  passed and its look is answered); the reconciler never names a move the flow does not allow.
+- **The state** (`state.mjs`) runs it at every build: the lanes carry `flags`, the state `workFlags` and `reconciled`
+  (moves, deliveries, and the lines the flags say to their chats). Once the store is the truth a lane's task is the step
+  the store holds for its chat (with or without a branch; a step in progress holds an ended turn as "between two
+  turns"), and the main chat's "Task from" lines are read no more (`transcript.mjs` `taskOrigin(..., { handOvers:
+  false })`; `HANDS_OVER` stays until the cutover).
+- **Delivery** (`work/deliver.mjs`, `server.mjs`): every refresh (`refreshSeconds`) the board that writes the store
+  carries `reconciled` out: the moves through the API as the server (action `advance`), and each line into the outbox
+  once per key ("B286 Units"), written down in the store's `delivered.json` before it is sent, so never twice, also
+  not after a restart. The line is `say.mjs` `workWords`: command `work`, typed without the board's mark (the board's
+  word, not the person's), kept as long as an answer, and a chat that does not run makes the board ask the main chat to
+  start it (`wakeFor`).
+- **Pull** (`api.mjs` `pull`, the mod's `turn.complete`): a worker whose card holds no task asks once per turn that
+  answered; the API answers the line when a step queued for it may be taken now (the chat counted free), else nothing;
+  the server sends it under the same key (nothing when sent before) and the mod takes it at once. The call goes through
+  the mod's 1.5 s race; a 409 (shadow) is swallowed.
+- **The page**: a lane's flag is a line, with the button "Start <chat>" (`data-start`: the board's start words to the
+  main chat); the lines on top stand in the store note; an old ask first, whatever the order.
+- **The review's findings**: a line's key is the step, its owner and when it was queued for that owner (`Since`), so a
+  step queued anew goes anew. `sendOnce` checks and records under one lock per store (the pull and the refresh never
+  send twice), puts the line into the outbox first and spends the key only then; a line that expired or failed untaken
+  goes once more (`delivered.json` keeps per key the message, its start word and how often it went again). No line,
+  pull answer or check line goes to a chat that is not on the board, busy or held by the limit (`mayWake`: its lane
+  free, read anew for a pull). A waiting line whose step is no longer that chat's (another owner, done, dropped; a
+  check's line once the step left review) is withdrawn (`dropped`), with the start it asked of the main chat when
+  nothing else waits for that chat. A step queued for a chat that has been free longer than the grace time and not
+  taken is flagged ("B286 queued for Units, Units free, not taken"). The mod's turn end is one call (`turn-ended` with
+  `pull: true`, the pull's answer in `pull`), held 1.5 s at most in all; a 409 keeps it quiet for five minutes. The
+  button "Start <chat>" does not open the lane's window.
+- The job texts (`roles/main.md` "Queue a step", `protocol.md` without the `Task from` row, `README.md`) are held in
+  the branch's last commit, "B300: job texts (merge only with the cutover)".
+
 ## The bridge
 
 1. The person types on the board. The page sends it to the server, which keeps it as "waiting".

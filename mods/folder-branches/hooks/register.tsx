@@ -413,6 +413,19 @@ async function withinTime<T>($: EngineInterface, run: Promise<T>): Promise<T | n
   return Promise.race([run, $.clock.sleep(BOARD_WAIT_MS).then(() => null, () => null)])
 }
 
+/** B300: whether this chat is a worker whose card holds no task, or only one it reported: it is free for the next. */
+async function holdsNothing($: EngineInterface): Promise<boolean> {
+  try {
+    if (myself?.role !== 'worker') return false
+    const dir = await findChatsDir($)
+    const mine = dir === null ? null : await readChat($, dir, await $.session.id())
+
+    return mine !== null && (mine.task === null || mine.task.isReported)
+  } catch {
+    return false
+  }
+}
+
 /** B299: files the questions of the app's question form on the board as asks: `[{ id, text }]` of those it took. */
 async function fileForm($: EngineInterface, input: unknown): Promise<{ id: string; text: string }[]> {
   const filed: { id: string; text: string }[] = []
@@ -1081,7 +1094,17 @@ export const register: Register = on => {
         // B298: a turn that answered has ended: the board marks the instructions filed before it and still open as missed.
         if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
           isTurnEndTold = true
-          await workQuietly($, { action: 'turn-ended', since: turnStartedAt })
+          const since = turnStartedAt
+          // B300: a worker that holds nothing pulls with the same call, once per turn: when a step queued for it may be
+          // taken now, the board puts its line ("work: B286 is yours; run work next") into the outbox once, and it is
+          // typed here at once. All of it holds the turn's end 1.5 s at most; while the store is not the truth the board
+          // refuses, and the mod asks again only after five minutes.
+          await withinTime($, (async () => {
+            const pulls = await holdsNothing($)
+            const ended = await workQuietly($, { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}) })
+            const line = (ended?.pull as { text?: unknown } | undefined)?.text
+            if (typeof line === 'string' && line !== '') await takeFromBoard($)
+          })())
         }
         turnStartedAt = null
       } else {

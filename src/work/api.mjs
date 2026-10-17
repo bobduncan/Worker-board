@@ -7,14 +7,19 @@
 // action that changes something is refused, and only `next` and `list` answer.
 
 import { minutesOf } from '../backlog.mjs'
+import { workWords } from '../say.mjs'
 import { acceptRefine, answerRefine } from '../tick.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
-import { ASK_KINDS, HEAD_KEYS, serializeItem, validateHead, valueOf } from './item.mjs'
+import { overlapsIn } from './guards.mjs'
+import { ASK_KINDS, HEAD_KEYS, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { writeView } from './view.mjs'
+
+// B300: kept here for those who import them from the API.
+export { overlapsIn, sinceMs }
 
 export const NOT_TRUTH = 'The store is not the truth yet: the cutover has not run'
 /**
@@ -23,12 +28,12 @@ export const NOT_TRUTH = 'The store is not the truth yet: the cutover has not ru
  */
 export const BOARD_ANSWERS_ASKS = true
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull'])
 /** What only the person does, on the board's page; and what only the server does. */
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept'])
-const SERVER = new Set(['check'])
+const SERVER = new Set(['check', 'advance'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -66,13 +71,6 @@ const at = now => stamp(now).replace(' ', ' at ')
 const toSecond = now => `${stamp(now)}:${String(new Date(now).getSeconds()).padStart(2, '0')}`
 /** Review of B298: when an instruction was filed, to the millisecond (`Filed`), else as its Since says. */
 const filedMs = item => (/^\d+$/.test(valueOf(item, 'Filed') ?? '') ? Number(valueOf(item, 'Filed')) : sinceMs(valueOf(item, 'Since')))
-/** B298: a Since as a time; the start of its minute (or second) as written. NaN when it is none. */
-export function sinceMs(value) {
-  const found = String(value ?? '').match(/^(\d{4})-(\d\d)-(\d\d)(?: (\d\d):(\d\d)(?::(\d\d))?)?$/)
-  if (found === null) return Number.NaN
-  const [, y, m, d, h = 0, min = 0, sec = 0] = found
-  return new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec)).getTime()
-}
 
 /** One request after the other per store folder: two takes of one step never interleave. */
 const turns = new Map()
@@ -657,7 +655,9 @@ async function turnEnded(body, w) {
   }
   const open = openOf(chat, w, fresh)
   const text = missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`
-  return { ok: true, result: { text, missed, open, changed: missed.length > 0 } }
+  // The review of B300: with `pull`, the same call answers the chat's pull (one call at a turn's end).
+  const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
+  return { ok: true, result: { text, missed, open, changed: missed.length > 0, ...(pulled === undefined ? {} : { pull: pulled }) } }
 }
 
 /** A step is dropped, and why. */
@@ -916,8 +916,36 @@ async function refineText(body, w) {
   return changed(next)
 }
 
+/**
+ * B300: a chat that holds no step asks for its next one at the end of a turn (the Workers mod): the line that wakes it
+ * (`work: B286 is yours; run work next`, with `wake`) when a step queued for it may be taken now, else nothing. It
+ * changes nothing: the server sends the line once (src/work/deliver.mjs), and the chat's own take moves the step.
+ */
+function pull(body, w) {
+  const steps = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, w.who, w.prefix))
+  const held = steps.find(item => ['taken', 'in progress', 'waiting on you'].includes(stateOf(item)))
+  if (held !== undefined) return { ok: true, result: { text: '', id: valueOf(held, 'Id'), since: null, wake: null, changed: false } }
+  for (const item of steps.filter(one => stateOf(one) === 'queued').sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
+    if (!mayMove(w.store.flow, item, 'taken', 'server', flowCtx(w, [item], [w.who])).ok) continue
+    const id = valueOf(item, 'Id')
+    // When it was queued for this chat: a step queued anew is delivered anew (work/deliver.mjs, deliveryKey).
+    return { ok: true, result: { text: workWords(w.who, id).text, id, since: valueOf(item, 'Since'), wake: { to: w.who, id }, changed: false } }
+  }
+  return { ok: true, result: { text: '', id: null, since: null, wake: null, changed: false } }
+}
+
+/** B300: the board moves a step as the flow lets the server (the reconciler's moves). */
+async function advance(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const moved = move(found.item, line(body.to, 40), 'server', w)
+  if (!moved.ok) return moved
+  const done = await save(ordered(moved.item), found.text, w)
+  return done.ok ? changed(ordered(moved.item)) : done
+}
+
 const CHANGE = {
-  take, step, ask, withdraw, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick, instruction,
+  take, step, ask, withdraw, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,
@@ -926,28 +954,4 @@ const CHANGE = {
   delete: remove,
   'refine-answer': refineText,
   'refine-accept': refineText,
-}
-
-/** The paths a step's "Touches:" lines name (under Context or a Touches section), each as written. */
-function touchesOf(item) {
-  const lines = [...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)]
-  return lines.flatMap(one => one.trim().match(/^Touches:\s*(.*)$/)?.[1].split(/[,;]\s*|\s+and\s+/) ?? [])
-    .map(one => one.replace(/^[-*]\s+/, '').replace(/[`.]+$/g, '').replace(/^`/, '').trim()).filter(Boolean)
-}
-
-/**
- * The flow's `overlaps` for the server: the id of a taken or in-progress step whose Touches name a path the item's
- * Touches name too (a folder covers what is in it), or null.
- */
-export function overlapsIn(items) {
-  return item => {
-    const mine = touchesOf(item)
-    if (mine.length === 0) return null
-    const covers = (a, b) => a === b || b.startsWith(`${a.replace(/\/$/, '')}/`) || a.startsWith(`${b.replace(/\/$/, '')}/`)
-    for (const other of items.values()) {
-      if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || !['taken', 'in progress', 'waiting on you'].includes(stateOf(other))) continue
-      if (touchesOf(other).some(path => mine.some(own => covers(own, path)))) return valueOf(other, 'Id')
-    }
-    return null
-  }
 }
