@@ -147,6 +147,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .goal-box.is-done .goal-box-rect, .goal-tree-frame.is-done .goal-frame-rect { stroke: var(--working); }
 .goal-box.is-ref .goal-box-rect { stroke-dasharray: 3 3; fill: none; }
 .goal-box.is-ref text { fill: var(--muted); }
+.goal-box.is-ref .goal-box-id { fill: inherit; }
 .goal-box:hover .goal-box-rect, .goal-box.is-hover .goal-box-rect, .goal-box:focus-visible .goal-box-rect { fill: #182640; }
 .goal-box.is-chosen .goal-box-rect { fill: #1d2a3f; stroke: #8fb4ff; }
 .goal-box.is-lift { opacity: .4; }
@@ -155,6 +156,9 @@ button, textarea, select { font: inherit; color: inherit; }
 .goal-box.is-before .goal-box-rect { stroke: var(--free); stroke-width: 3; stroke-dasharray: 0 384 92 20; }
 .goal-box.is-after .goal-box-rect { stroke: var(--free); stroke-width: 3; stroke-dasharray: 0 142 92 400; }
 .goal-box-title { font-size: 12.5px; font-weight: 600; }
+/* B284: a goal's id before its title, in the diagram, the outline, the breadcrumb and the frame. */
+.goal-box-id { fill: #8fa3c4; font-weight: 700; }
+.goal-id { color: #8fa3c4; font-weight: 700; font-variant-numeric: tabular-nums; }
 .goal-box-meta { font-size: 11px; fill: var(--muted) !important; }
 .goal-box-state { font-size: 10.5px; fill: var(--muted) !important; }
 .goal-box.is-now .goal-box-state { fill: var(--waiting) !important; }
@@ -656,10 +660,10 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .main-picture[hidden] { display: none; }
 .main-picture-frame { position: relative; display: inline-block; vertical-align: top; }
 .main-picture img { display: block; max-width: 160px; max-height: 96px; border: 1px solid var(--line); border-radius: 7px; background: #0a0f18; }
-.main-say .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
-.main-say .main-picture-remove:hover { border-color: #ff8a8a; color: #ff8a8a; }
+.say .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
+.say .main-picture-remove:hover { border-color: #ff8a8a; color: #ff8a8a; }
 .talk-picture { display: block; width: auto; max-width: 240px; margin-top: 8px; }
-.talk-picture img { width: auto; max-width: 100%; max-height: 180px; aspect-ratio: auto; object-fit: contain; }
+.picture.talk-picture img { width: auto; max-width: 100%; max-height: 180px; aspect-ratio: auto; object-fit: contain; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; white-space: nowrap; cursor: pointer; }
 .check input { accent-color: var(--free); width: 15px; height: 15px; margin: 0; }
 .need.is-closed { opacity: 0.6; }
@@ -774,7 +778,7 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .bubble small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
 .message.is-pending { opacity: 0.55; }
 .message.is-status .bubble { background: none; color: var(--muted); padding-left: 0; font-style: italic; }
-.say { display: flex; gap: 8px; margin: 10px 14px 0; }
+.say { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 14px 0; }
 .say textarea { flex: 1; min-width: 0; resize: none; background: var(--panel); }
 .say textarea:focus { border-color: #2f5fb3; }
 .say button { flex: none; width: 78px; border: 0; border-radius: 7px; background: var(--free); color: #fff; font-weight: 700; cursor: pointer; }
@@ -1172,6 +1176,11 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .task-brief { background: #14233a; border: 1px solid #2a4a7d; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
 .task-brief h3 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #9db8e8; font-weight: 700; margin-bottom: 4px; }
 .task-brief .brief-task { font-size: 16px; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+/* B281: the backlog step the task is, above what it is; the person's feedback the worker is on, set apart by a bar. */
+.task-brief .brief-head { font-size: 13.5px; font-weight: 700; color: #c9d7f0; margin-bottom: 2px; overflow-wrap: anywhere; }
+.task-brief .brief-part:has(.brief-feedback) { border-left: 3px solid var(--waiting, #e0a33a); padding-left: 10px; }
+.task-brief .brief-part:has(.brief-feedback) h3 { color: #f0c27a; }
+.task-brief .brief-feedback { font-size: 15px; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .task-brief .brief-text { font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
 .task-brief .brief-plan { font-size: 14.5px; line-height: 1.5; }
 .task-brief .brief-plan .is-done { color: var(--muted); }

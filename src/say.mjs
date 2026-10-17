@@ -159,11 +159,11 @@ export function checkSay(body, state, maxChars) {
   if (state.advisor?.name) names.push(state.advisor.name)
   if (typeof body.to !== 'string' || !names.includes(body.to)) return refuse(400, 'No such chat on the board.')
   // B167: a picture pasted into Talk to Main, which the board kept beforehand: one of its own names, to the main chat,
-  // with a plain message.
+  // with a plain message. B282: the same into the Advisor's chat.
   const picture = body.picture ?? null
   if (picture !== null) {
     if (!isTalkPicture(picture, state.pictures ?? 'pictures')) return refuse(400, 'That is no picture the board kept.')
-    if (body.to !== state.restart?.main) return refuse(400, 'A picture goes to the main chat only.')
+    if (body.to !== state.restart?.main && body.to !== (state.advisor?.name ?? null)) return refuse(400, 'A picture goes to the main chat or the Advisor only.')
     if ((body.ask ?? null) !== null || (body.command ?? null) !== null) return refuse(400, 'A picture goes with a plain message only.')
   }
 

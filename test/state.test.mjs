@@ -10,8 +10,8 @@ import { BACKLOG, GOALS } from './fixtures-goals.mjs'
 
 const MIN = 60_000
 
-/** B151: what the page gets outside the window of a working lane, which shows the task as it was given (`givenTask`). */
-const outsideWindow = state => JSON.stringify({ ...state, chats: (state.chats ?? []).map(({ givenTask, ...lane }) => lane) })
+/** B151: what the page gets outside the window of a working lane, which shows the task as it was given (`givenTask`) and, B281, the feedback it is on (`feedback`). */
+const outsideWindow = state => JSON.stringify({ ...state, chats: (state.chats ?? []).map(({ givenTask, feedback, ...lane }) => lane) })
 const NOW = Date.UTC(2026, 9, 12, 8, 24)
 const PROJECT = 'C:\\game'
 const config = { ...parseConfig('{}', {}), project: PROJECT, pictureRoots: ['art-inbox'] }

@@ -221,7 +221,7 @@ test('turnStart: the first thing typed since the last turn ended, not a remark m
     toolResult(min(7)),
     typed(min(9), 'How far are you?'),
   ]), { prefix: 'Game - ' })
-  assert.deepEqual(start, { at: min(5), by: 'you', title: 'Make the lava glow more', isSure: true, isOpen: true })
+  assert.deepEqual(start, { at: min(5), by: 'you', title: 'Make the lava glow more', words: 'Make the lava glow more. It looks flat.', isSure: true, isOpen: true })
 })
 
 test('turnStart: a turn another chat started names that chat, and a tail without the turn before is not sure', () => {
@@ -238,7 +238,7 @@ test('turnStart: a message that starts with a picture is named after its words',
 
 test('turnStart: after the turn ended, the opening is still known but no longer open', () => {
   assert.deepEqual(turnStart(entries([typed(min(0), 'Go'), answer(min(1), 'Done')]), { prefix: 'Game - ' }),
-    { at: min(0), by: 'you', title: 'Go', isSure: false, isOpen: false })
+    { at: min(0), by: 'you', title: 'Go', words: 'Go', isSure: false, isOpen: false })
 })
 
 test('turnStart: what was typed after the person stopped a turn opens a new one', () => {
@@ -255,7 +255,7 @@ test('turnStart: a turn the chat\'s own work started goes on with what the turn 
   })
   for (const wake of [notice, handBack]) {
     const start = turnStart(entries([answer(min(0), 'Done'), typed(min(1), 'Build the board.'), answer(min(2), 'A helper reviews it.'), wake, step(min(6), 'Read the result')]), { prefix: 'Game - ' })
-    assert.deepEqual(start, { at: min(1), by: 'you', title: 'Build the board', isSure: true, isOpen: true })
+    assert.deepEqual(start, { at: min(1), by: 'you', title: 'Build the board', words: 'Build the board.', isSure: true, isOpen: true })
   }
   // Slash commands and the app's notes do not open anything.
   const idle = turnStart(entries([typed(min(1), 'Build the board.'), answer(min(2), 'Done'), ...slashCommand(min(3), '/git')]), { prefix: 'Game - ' })
