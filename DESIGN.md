@@ -241,6 +241,30 @@ the block's first line. The board writes only that block, as for Close (`src/tic
 the board that delivers). While a round is asked and not written yet (on its way, or arrived less than half an hour
 ago), the window says so and the server refuses a second ask.
 
+**A refined step is one compact description (B293).** The person approved what "refined" means on 2026-10-17 (the
+project's spec of that day): "after the questions are answered i want them processes in the new design and i dont want
+to see them anymore. the goal is to have 1 fully comprehensive description that is compact with pictures and summary.
+that doesnt read like it was in progress text." The block now holds "Summary:", "Picture:" (a path and in brackets what
+it shows, or "none (why)"), "Part of:" (its goal and milestone) and "Size:", and while refining one-line questions
+with " Advised: yes|no, <why>" behind them. Once every answer is folded in, the Advisor writes it as "Refined (<date
+time>; ready):" with "What we build:" (points; "Not in it: ..." among them) and no questions, feedback or round
+(roles/advisor.md). The window's head shows the goal, the size and "N questions for you" or a green "Ready" in place of
+"Step". While refining, the box shows the summary, the picture as a thumbnail with "Open the picture ↗", and a line
+per question: the advice (its reason on hover) and Yes / No; a pick is kept until it is sent, a second click takes it
+back. "Send answers" writes the picks and the feedback and asks the next round; "Take the advice" (in place of "Accept
+as refined") writes the advice as the answer to every open question the person did not pick, and says which question
+has none to take. Once ready, the description stands first in the window, with no box, and the step's own lines follow
+as its "Notes"; its foot has "Refine again". A ready block names no round: a refine ask counts as written once the
+block changed since the ask (B285, `refineAsk`). Blocks in the older form (Problem, Goal, questions with a field)
+still show as before; the server still writes "accepted" for them, though no button asks it any more. The window of a
+step in a worker's queue shows the same description to read (its questions are answered from the Backlog tab), and
+a finished step keeps its description without questions. A ready step refined again tells the Advisor to check it
+against the backlog and the goals, since no new answers stand in it. With the work store, the step's window shows the
+store's item (Summary, the picture as the same thumbnail, What we build with "Not in it" greyed) and the refine part
+under it holds only the questions; the goal shows once, as the head's chip. A refine question answered under Needs
+your attention is written into the block too (`withRefineAnswer`), and the lines the store adds under a step go above
+the block, never into it; lines added after a block before this, and a lone bracketed line at its end, end it.
+
 **Refined before a queue (B285).** The person, on goal G17 (2026-10-17): "every item on the backlog automatically Before
 it gets put in the queue. if main wants to put it in the queue automatically/directly, refine it first". A step is
 refined when the first line of its block says "; ready" (the person approved what "refined" means on 2026-10-17: one
@@ -1165,6 +1189,20 @@ Safety, because what arrives is typed into a chat that can change files:
   teammate's report and never counts as the person's word.
 - What remains: any program running as the person on this PC could type through it. Such a program can already
   change the files the chats read.
+
+## A step's title without its note (B292)
+
+The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont
+understand why this is happening." Every note in brackets at the end of a step's line is no part of its title on the
+board, whatever it starts with: the main chat's "(for Units; after B12; about 1 h)", "(later; not handed out)",
+"(not handed out; after today; ...)", a chat's name, where its pictures are; two in a row too (`closingNotes` in
+`src/backlog.mjs`). Their parts are still read from every note: who it is for, after what, how long; the step's
+words keep the notes, so what reads them (a step held back, the pictures it points to) finds them. The work store
+keeps the titles it migrated with their notes (`lineFields` in `src/work/line.mjs` reads only "(for ...)" as
+fields), so the line it writes back still says the same step; a lane named after such a title, or after a card
+named so, drops the note (`withoutNote` in board.js). Of two steps the store holds in progress for one worker, its
+lane shows the one its card names, else the one it took last, never one it was taken off. And a worker whose last
+answer closed "- Done:   partly" or "no" is between two turns, not free, whatever the app calls its turn.
 
 ## What it does not do
 

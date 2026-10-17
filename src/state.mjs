@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS } from './config.mjs'
-import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refinedAt, refinedKey, refineStateOf } from './backlog.mjs'
+import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refinedAt, refinedKey, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
@@ -24,10 +24,13 @@ import { sinceMs, valueOf } from './work/item.mjs'
 import { informationOf, instructionsOf, storeNeeds, storeWaits } from './work/lists.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
-import { backgroundRunning, conversation, doingNow, finishedBetween, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
+import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
+/** B288: a round being typed counts as running this long at most; after it arrived, its turn shows within this. */
+const ROUND_TYPING_MS = 10 * MIN
+const ROUND_SHOWS_MS = 2 * MIN
 const ASKED = 'Asked you a question in its chat.'
 /** A chat's own file that says it works is renewed twice a minute. Older than this, its process is gone. */
 const CUT_OFF_MS = 150_000
@@ -128,12 +131,13 @@ const textOr = (value, fallback) => (typeof value === 'string' ? value : fallbac
  * it started still runs, or the store holds a step in progress for it. The board then shows it as working, between
  * two turns.
  */
-export function heldBy({ plan, background, step, isCompleted = false, isDone = false }) {
+export function heldBy({ plan, background, step, isCompleted = false, isDone = false, isUnfinished = false }) {
   // A card holds the chat unless the app's own summary calls the ended turn completed: a chat that reported and
   // forgot to clear its card is done. One that asked another chat in the middle of its task still waits. B148: a
   // chat whose last answer ends with "+ Done:   yes" is done, whatever its card says or what it left running in
   // the background (a server it started); a step the store holds in progress for it still holds.
-  if (plan?.task != null && !plan.task.isReported && !isDone && (!isCompleted || plan.task.asked === true)) {
+  // B292: nor when the answer closed "Done: partly" or "no": the task is open.
+  if (plan?.task != null && !plan.task.isReported && !isDone && (!isCompleted || plan.task.asked === true || isUnfinished)) {
     return { why: 'task', text: plan.task.asked === true ? 'Its turn has ended; it asked another chat and waits for the answer.' : 'Its turn has ended; its task is not reported yet.' }
   }
   if (background > 0 && !isDone) return { why: 'background', text: 'Its turn has ended; background work it started is still running.' }
@@ -304,7 +308,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   })
   // The longer look back is a few minutes old, so the tail follows it.
   const scan = typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries
-  const step = stepOf(chat.name)
+  const step = stepOf(chat.name, plan?.task?.isReported === false ? String(plan.task.text ?? '').match(/\bB\d+\b/g) ?? [] : [])
   const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
   const appState = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
@@ -314,6 +318,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const ended = appState === 'working' || appState === 'unknown' ? appState : turn === 'asking' || isBlocked ? 'waiting' : 'free'
   // B148: its last answer ends with "+ Done:   yes": it has finished, and a card it forgot to clear holds nothing.
   const isDone = turn === 'ended' && entries !== null && saysDone(entries)
+  // B292: an answer that closed "- Done:   partly" or "no" has left its task open, whatever the app calls the turn.
+  const isUnfinished = turn === 'ended' && entries !== null && saysUnfinished(entries)
   // B290: the app counts the main chat as waiting after every answer; that ended turn is free, and its own card does not
   // hold it either, as the main chat reports to nobody.
   const isMainIdle = chat.isMain && appState === 'waiting' && turn === 'ended'
@@ -321,6 +327,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     plan: isMainIdle ? null : plan, step,
     isCompleted: summary?.category === 'completed',
     isDone,
+    isUnfinished,
     background: entries === null ? 0 : backgroundRunning(entries),
   })
   // B113: held by a limit of the plan. The app stopped it there, or the worker told the main chat that it paused
@@ -496,7 +503,7 @@ const queueAsk = (step, sent, now) => {
  * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
  * step's refine block shows the round it asked for, for half an hour at most.
  */
-function refineAsk(step, sent, now) {
+export function refineAsk(step, sent, now) {
   if (step.id === null) return null
   const message = sent.findLast(one => one.command === 'refine' && one.about === step.id)
   const ask = removalAsk(message, now, REFINE_OPEN_MS)
@@ -735,13 +742,18 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   }
   // B300: the step a chat is on is the one the store holds taken, in progress or waiting on the person for it, with or
   // without a branch.
-  const stepOfChat = name => {
-    const item = itemsOf(raw.work).find(one => one.head.get('Kind') === 'step' && ['in progress', 'waiting on you', 'taken'].includes(one.head.get('State'))
+  // B292: of the steps the store holds for it, the one its card names (`named`: the ids in the card's words), else the
+  // one it took last: never one it was taken off while another stays open for it.
+  const stepOfChat = (name, named = []) => {
+    const mine = itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step' && ['in progress', 'waiting on you', 'taken'].includes(one.head.get('State'))
       && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
+    const newest = mine.reduce((best, one) => (best === undefined || String(one.head.get('Since') ?? '') > String(best.head.get('Since') ?? '') ? one : best), undefined)
+    // The first id the card names that is one of them: "B292 ... after B290" is on B292.
+    const item = named.map(id => mine.find(one => one.head.get('Id') === id)).find(one => one !== undefined) ?? newest
     if (item === undefined) return null
     const id = item.head.get('Id')
     const branch = item.head.get('Branch')
-    return { id, title: item.head.get('Title') ?? '', minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' ? null : branch, about: null }
+    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' ? null : branch, about: null }
   }
   const read = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf: stepOfChat, stepById }))
   const advisorCard = advisorChat === undefined ? null : card(advisorChat, raw, context)
@@ -757,7 +769,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     warnAt: config.limitWarnPercent,
   })
   // B299: a lane on a step of the store shows the step's title as the store holds it.
-  const titleOf = id => (!workOk || typeof id !== 'string' ? null : raw.work.items.get(id)?.head.get('Title') ?? null)
+  // B292: without the note in brackets a migrated title kept.
+  const titleOf = id => {
+    const title = !workOk || typeof id !== 'string' ? null : raw.work.items.get(id)?.head.get('Title') ?? null
+    return title === null ? null : withoutNotes(title)
+  }
   const cards = read.map(({ usage, ...lane }) => ({
     ...lane,
     suspended: heldUntil(lane.suspended, limits, now),
@@ -825,7 +841,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   const lanes = cards.map(lane => {
     const mine = lane.isLeftover ? [] : queued.filter(step => step.worker === lane.name)
-    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, pictures: picturesOf(allWords(step)), why: whyNot(step, lane) })) }
+    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, refined: step.refined ?? null, pictures: picturesOf(allWords(step)), why: whyNot(step, lane) })) }
     return {
       ...withQueue,
       folders: lane.isLeftover ? [] : (folders ?? []).filter(folder => owner(folder) === lane.name),
@@ -861,6 +877,21 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           .map(one => (one.via === 'board' ? { ...one, ...splitPicture(one.text.replace(TYPED_MARK, '').trim(), config.pictureRoots[0]) } : one)),
       // Typed on the board to the advisor and not in its chat yet.
       pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null && (message.command ?? null) === null),
+      // B288: a round runs from when it is sent, by the clock or on the person's request: while it waits to be typed;
+      // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then
+      // while the Advisor is at work on the turn that began with it (an hour at most). A turn begun later is another.
+      roundRuns: (() => {
+        const last = sent.findLast(message => message.to === advisorChat.name && (message.command === 'round' || message.command === 'recheck'))
+        if (last === undefined) return false
+        if (last.state === 'waiting') return true
+        if (last.state === 'taken') return now - (last.takenAt ?? last.at) < ROUND_TYPING_MS
+        if (last.state !== 'delivered') return false
+        const arrived = last.deliveredAt ?? last.at
+        if (now - arrived < ROUND_SHOWS_MS) return true
+        const entries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
+        const begun = entries === null ? null : turnStart(entries, { prefix })?.at ?? null
+        return state === 'working' && now - arrived < HOUR && (begun === null || begun <= arrived + ROUND_SHOWS_MS)
+      })(),
     }
   }
 

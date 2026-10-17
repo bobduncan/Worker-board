@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { storeProblems } from '../../src/work/adapter.mjs'
+import { parseBacklog, refinedOf, withoutRefined } from '../../src/backlog.mjs'
+import { stepLine, stepNotes, storeProblems } from '../../src/work/adapter.mjs'
 import { forYouBlock, workApi } from '../../src/work/api.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
@@ -148,6 +149,33 @@ test('review: the asking chat closes its own ask with the person\'s words from t
     assert.equal((await item(dir, 'Q1')).sections.get('History').at(-1), '- 2026-10-17 11:06 Board: answered in the chat: thick, the person said in the chat')
     assert.equal(await state(dir, 'B1'), 'in progress')
     assert.equal((await board({ action: 'answered-in-chat', id: 'Q1', text: 'again' })).result.changed, false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('B293: a refine question answered under Needs your attention is answered in the block, and lines added under the step stay out of it', async () => {
+  const { dir, advisor, person } = await fresh()
+  try {
+    await advisor({ action: 'refine', id: 'B7', summary: 'One strip per step.', size: '1 h', questions: ['Thin, not thick? Advised: yes, quicker to read', 'Blue? Advised: no, too dark'] })
+    await person({ action: 'answer', id: 'Q1', text: 'no' })
+    const step = await item(dir, 'B7')
+    const notes = parseBacklog(`## Board work\n${stepLine(step)}\n${stepNotes(step).join('\n')}\n`).activities[0].steps[0].notes
+    const refined = refinedOf(notes)
+    assert.deepEqual(refined.questions, [
+      { text: 'Thin, not thick?', answer: 'no', advice: 'yes', why: 'quicker to read' },
+      { text: 'Blue?', answer: null, advice: 'no', why: 'too dark' },
+    ])
+    assert.equal(refined.size, 'about 1 h')
+    // What the store wrote under the step about the asks stands apart from the block, before it.
+    const rest = withoutRefined(notes)
+    assert.ok(rest.some(line => /^Q1 answered by you on .*: no$/.test(line.trim())))
+    // Answered in the window too: the other ask follows, and none is left open.
+    await person({ action: 'refine-answer', id: 'B7', answers: [{ index: 1, answer: 'yes' }], feedback: '' })
+    assert.deepEqual([await state(dir, 'Q1'), await state(dir, 'Q2')], ['answered', 'answered'])
+    const after = await item(dir, 'B7')
+    const again = refinedOf(parseBacklog(`## Board work\n${stepLine(after)}\n${stepNotes(after).join('\n')}\n`).activities[0].steps[0].notes)
+    assert.deepEqual(again.questions.map(one => one.answer), ['no', 'yes'])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

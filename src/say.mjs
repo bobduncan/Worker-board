@@ -3,6 +3,7 @@
 // request: a verdict for work to verify, "done" for something only the person can do, words for a question.
 
 import { isRefined, refinedKey } from './backlog.mjs'
+import { RECHECK_HEAD } from './rounds.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
@@ -78,7 +79,10 @@ const queueWords = (to, step) => ({
  */
 export const refineWords = (to, step, round) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'refine', about: step.id, round,
-  text: `refine step\nStep: ${stepLine(step)}\nRound: ${round}${round === 1 ? '' : '\nThe answers and feedback are written in the step\'s refine block.'}`,
+  // B293: a ready step refined again holds no new answers: it is checked again.
+  text: `refine step\nStep: ${stepLine(step)}\nRound: ${round}${round === 1 ? '' : step.refined?.ready === true
+    ? '\nThe step is ready: check it again against the backlog and the goals.'
+    : '\nThe answers and feedback are written in the step\'s refine block.'}`,
 })
 
 /**
@@ -152,11 +156,20 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
     // B233: the one command that goes to the Advisor only.
     if (body.command === 'refine') return refineCheck(body, state)
+    // B288: the person asks the Advisor for a round now, off while one runs. The server writes its words
+    // (rounds.mjs recheckText), which need the board's folder and the project's settings.
+    if (body.command === 'recheck') {
+      const advisor = state.advisor?.name ?? null
+      if (advisor === null || body.to !== advisor) return refuse(400, 'A re-check of the goals goes to the Advisor.')
+      if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+      if (state.advisor.roundRuns === true) return refuse(409, 'A round runs: wait until the Advisor has finished it.')
+      return { ok: true, message: { to: advisor, ask: null, step: null, title: null, version: null, verdict: null, command: 'recheck', text: RECHECK_HEAD } }
+    }
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
     // B181: a step of the backlog for the queue: one with an id that nobody has (not queued, not in progress, not
@@ -276,7 +289,8 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   const main = state.restart?.main ?? null
   // B195, B233: of the commands, only the answer to the Advisor's recommendation, a refine and (B300) the work store's
   // line to a chat go to another chat than the main one.
-  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work'].includes(message.command))) return null
+  // B288: and a re-check of the goals, asked of the Advisor.
+  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work', 'recheck'].includes(message.command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

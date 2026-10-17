@@ -85,7 +85,7 @@ test('readSources reads a project\'s files into the shape buildState takes, and 
   assert.equal(JSON.parse(raw.planLineTexts['units-id']).task.text, 'Archer')
   assert.deepEqual(raw.pictureLists, { 'art-inbox/archer': ['art-inbox/archer/sheet.png'] })
   assert.deepEqual(state.forYou.map(need => [need.id, need.from, need.pictures]), [['units-sheet', 'Units', ['art-inbox/archer/sheet.png']]])
-  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.pictures]), [['Say whether the archer is right (pictures in art-inbox/archer)', 'Art', ['art-inbox/archer/sheet.png']]])
+  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.pictures]), [['Say whether the archer is right', 'Art', ['art-inbox/archer/sheet.png']]])
   assert.equal('backlogText' in raw, false)
 })
 
