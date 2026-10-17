@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS } from './config.mjs'
-import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue, refinedAt, refinedKey, refineStateOf } from './backlog.mjs'
+import { allWords, closedForYou, minutesOf, forYou, inProgress, noteSections, overview, parseBacklog, queue, refinedAt, refinedKey, refineStateOf } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
@@ -146,7 +146,8 @@ export function heldBy({ plan, handOver, background, step, isCompleted = false, 
   }
   if (handOver !== null) return { why: 'task', text: 'Its turn has ended; the task handed to it is not reported yet.' }
   if (background > 0 && !isDone) return { why: 'background', text: 'Its turn has ended; background work it started is still running.' }
-  if (step !== null) return { why: 'branch', text: `Its turn has ended; its branch ${step.branch} is still open.` }
+  // B300: once the store is the truth, its step in progress holds it, also one without a branch.
+  if (step !== null) return { why: 'branch', text: step.branch === null || step.branch === undefined ? `Its turn has ended; its step ${step.id} is in progress.` : `Its turn has ended; its branch ${step.branch} is still open.` }
   return null
 }
 
@@ -204,9 +205,10 @@ function feedbackLine(words) {
  * A chat that recorded its task is on a step too (`stepId`): the one that names its branch, else the open one
  * of its own (or of nobody) that its record names by id, else the one handed to it.
  */
-function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, step = null, stepById = () => null }) {
+function taskOf({ chat, plan, scan, state, before, lines, main, prefix, now, step = null, stepById = () => null, readsHandOvers = true }) {
   // `scan` holds the entries that can start or end a task: the tail, after a longer look back when there is one.
-  const handOver = chat.isMain || scan === null ? null : taskStart(scan, main)
+  // B300: once the store is the truth, a task comes from the store: no "Task from" line is read.
+  const handOver = chat.isMain || scan === null || !readsHandOvers ? null : taskStart(scan, main)
   const opening = scan === null ? null : turnStart(scan, { prefix })
   const bare = { step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null }
   // A handed-over task stands while the chat works on it or waits for the person; a free chat has finished it.
@@ -301,10 +303,10 @@ function etaOf(task, state, now) {
  * newest one up to two minutes after the task's start, else the newest one. What the person typed to a chat that
  * waits is never shown (B100), so a task the person gave it is told by its own "Task:" line only.
  */
-function finishedWith(waits, scan, main, task) {
+function finishedWith(waits, scan, main, task, readsHandOvers = true) {
   if (waits === null) return null
   const until = task !== null && Number.isFinite(task.startedAt) ? task.startedAt + 2 * MIN : Infinity
-  const origin = scan === null ? null : taskOrigin(scan, main, until)
+  const origin = scan === null ? null : taskOrigin(scan, main, until, { handOvers: readsHandOvers })
   return { ...waits, handover: parseHandover(waits.words), given: origin?.by === 'main' ? origin : null }
 }
 
@@ -330,6 +332,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // The longer look back is a few minutes old, so the tail follows it: the newest hand-over or report wins.
   const scan = typeof tail?.earlier === 'string' && entries !== null ? [...parseTail(tail.earlier, false), ...entries] : entries
   const step = stepOf(chat.name)
+  // B300: once the store is the truth (`waits`), the main chat's "Task from" lines are read no more: the store says.
+  const reads = waits === null
   const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
   // B290: the app counts the main chat as waiting after every answer; it waits for the person only when its last answer
@@ -347,7 +351,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     plan: asksNothing ? null : plan, step,
     isCompleted: summary?.category === 'completed',
     isDone,
-    handOver: chat.isMain || scan === null ? null : reportedOrOpen(taskStart(scan, main), turn, scan, main),
+    handOver: chat.isMain || scan === null || !reads ? null : reportedOrOpen(taskStart(scan, main), turn, scan, main),
     background: entries === null ? 0 : backgroundRunning(entries),
   })
   // B113: held by a limit of the plan. The app stopped it there, or the worker told the main chat that it paused
@@ -367,28 +371,28 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // B148: a chat that has finished (its last answer says "Done: yes", or it is free by the app's own summary) is
   // not on the task its card still names: that card was left behind, and the lane names it only as finished.
   const isLeftBehind = plan?.task != null && !plan.task.isReported && (isDone || state === 'free')
-  const task = taskOf({ chat, plan: isLeftBehind ? { ...plan, task: null } : plan, state: wasCutOff || paused !== null ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById })
+  const task = taskOf({ chat, plan: isLeftBehind ? { ...plan, task: null } : plan, state: wasCutOff || paused !== null ? 'working' : state, before: last.get(chat.name), lines, main, prefix, now, scan, step, stepById, readsHandOvers: reads })
   const eta = etaOf(task, state, now)
   // B151: the message that gave it the task it is on, as it arrived, for the window a click on its lane opens; with
   // the backlog step it is on, else the first open one that message names.
   const isOnTask = task !== null && (state === 'working' || state === 'suspended' || state === 'interrupted')
   // B281: while the main chat's hand-over is open it is the task, also when the person's words came after it and the
   // chat named its task anew for them (B231's window showed those words as its task).
-  const openHandOver = !isOnTask || scan === null || chat.isMain ? null : taskStart(scan, main)
+  const openHandOver = !isOnTask || scan === null || chat.isMain || !reads ? null : taskStart(scan, main)
   const until = openHandOver?.at ?? (Number.isFinite(task?.startedAt) ? task.startedAt + 2 * MIN : Infinity)
   // B281: the person's words that opened its turn (only a sure opening: words the tail cannot see the turn before of
   // may be a remark in the middle of a turn). They are feedback on the task given before them, unless the chat
   // finished that task in between (it reported, or said "Done: yes"): then they are the task.
   const opening = !isOnTask || scan === null ? null : turnStart(scan, { prefix })
   const words = opening?.by === 'you' && opening.isSure ? opening : null
-  let given = !isOnTask || scan === null ? null : taskOrigin(scan, main, until)
+  let given = !isOnTask || scan === null ? null : taskOrigin(scan, main, until, { handOvers: reads })
   if (words !== null) {
-    const before = taskOrigin(scan, main, words.at - 1)
+    const before = taskOrigin(scan, main, words.at - 1, { handOvers: reads })
     const isOn = before !== null && !finishedBetween(scan, main, before.at, words.at)
     // Its card named the task anew for the feedback, so its start is the feedback's: the task is the one before.
     if (isOn && (given === null || given.at >= words.at)) given = before
     // A task it finished: the words started a new one.
-    if (!isOn && given !== null && given.at < words.at) given = taskOrigin(scan, main, words.at)
+    if (!isOn && given !== null && given.at < words.at) given = taskOrigin(scan, main, words.at, { handOvers: reads })
   }
   const givenStep = given === null ? null
     : (task.stepId === null ? null : stepById(task.stepId)) ?? (given.text.split('\n')[0].match(/\bB\d+\b/g) ?? []).map(id => stepById(id)).find(one => one !== null) ?? null
@@ -412,7 +416,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // B100: what it last said, for the window of what it waits for: its own words, never what was typed to it.
     // B149: with the parts of it when it finished a task with something left for the person, and the message that
     // gave it that task.
-    waitsFor: state === 'waiting' ? finishedWith(waitingFor(entries), scan, main, task) : null,
+    waitsFor: state === 'waiting' ? finishedWith(waitingFor(entries), scan, main, task, reads) : null,
     task,
     // When a chat that was cut off last wrote.
     cutOffAt: wasCutOff ? lastWriteAt : null,
@@ -773,7 +777,18 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const one = openSteps.find(found => found.id === id && (whose === null || found.worker === null || found.worker === whose))
     return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch, about: aboutLine(one.notes) }
   }
-  const read = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf, stepById }))
+  // B300: once the store is the truth, the step a chat is on is the one the store holds taken, in progress or waiting on
+  // the person for it, with or without a branch; the backlog's reading is the fallback.
+  const storeStep = waits === null ? null : name => {
+    const item = [...raw.work.items.values()].find(one => one.head.get('Kind') === 'step' && ['in progress', 'waiting on you', 'taken'].includes(one.head.get('State'))
+      && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
+    if (item === undefined) return null
+    const id = item.head.get('Id')
+    const branch = item.head.get('Branch')
+    return { id, title: item.head.get('Title') ?? '', minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' ? null : branch, about: null }
+  }
+  const stepOfChat = storeStep === null ? stepOf : name => storeStep(name) ?? stepOf(name)
+  const read = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf: stepOfChat, stepById }))
   const advisorCard = advisorChat === undefined ? null : card(advisorChat, raw, context)
 
   // B113: the plan's limits, from what is on this machine: the app's own file, what any chat looked up, and a
