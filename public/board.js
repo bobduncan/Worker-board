@@ -3115,7 +3115,8 @@ function goalLinkChoices(goals, id, name, words) {
     seen.add(other.id)
     if (other.id === id || has.includes(other.id)) return false
     if (name === 'Also part of' && (other.id === node.parent || goalInside(goals, id, other.id))) return false
-    const title = other.title.toLowerCase()
+    // B284: found by its id too ("G17").
+    const title = goalLabel(other).toLowerCase()
     return wanted.every(word => title.includes(word))
   }).map(other => ({ id: other.id, title: other.title, where: goalById(goals, other.parent)?.title ?? null }))
 }
@@ -3204,10 +3205,15 @@ function goalIdSplit(line, id) {
   return { lead, id, rest: after.slice(id.length) }
 }
 
-/** A title in at most two lines of `most` characters, cut at a space; what does not fit ends in "…". */
+/**
+ * A title in at most two lines of `most` characters, cut at a space; what does not fit ends in "…". B284: never at
+ * the space after a goal's id, so "G17" never stands alone on a line.
+ */
 function goalTitleLines(title, most) {
   if (title.length <= most) return [title]
-  const cut = title.lastIndexOf(' ', most)
+  const lead = /^(?:↗ )?G\d+ /.exec(title)?.[0].length ?? 0
+  const space = title.lastIndexOf(' ', most)
+  const cut = space < lead ? -1 : space
   const shorten = words => (words.length <= most ? words : `${words.slice(0, most - 1)}…`)
   if (cut <= 0) return [shorten(title)]
   return [title.slice(0, cut).trimEnd(), shorten(title.slice(cut + 1).trimStart())]
@@ -3300,7 +3306,7 @@ function goalChoicesList(goals) {
   if (choices.length === 0) list.append(el('span', 'muted', 'No goal fits those words.'))
   for (const choice of choices) {
     const button = goalButton('goals-choice', '', { linkTarget: choice.id })
-    button.append(el('b', '', choice.title), el('small', 'muted', choice.where === null ? ' · at the top' : ` · in ${choice.where}`))
+    button.append(el('b', '', goalLabel(choice)), el('small', 'muted', choice.where === null ? ' · at the top' : ` · in ${choice.where}`))
     list.append(button)
   }
   return list
@@ -3606,7 +3612,16 @@ function drawGoalTree(state) {
     const frame = layout.frame
     const g = svgEl('g', { 'data-goal': frame.id }, `goal-tree-frame is-${focus.state}`)
     g.append(svgEl('rect', { x: frame.x, y: frame.y, width: frame.w, height: frame.h, rx: 10 }, 'goal-frame-rect'))
-    g.append(svgText(14, 26, cut(focus.title, Math.floor(frame.w / 9)), 'goal-frame-title'))
+    // B284: the goal's id first, in its own colour.
+    const head = svgText(14, 26, '', 'goal-frame-title')
+    const parts = goalIdSplit(cut(goalLabel(focus), Math.floor(frame.w / 9)), focus.id)
+    if (parts.id === '') head.textContent = parts.rest
+    else {
+      const id = svgEl('tspan', {}, 'goal-box-id')
+      id.textContent = parts.id
+      head.append(id, parts.rest)
+    }
+    g.append(head)
     g.append(svgText(14, 48, cut(`${GOAL_STATES[focus.state]} · ${goalCounter(focus.counts)}`, Math.floor(frame.w / 7)), 'goal-frame-meta'))
     svg.append(g)
   }
@@ -3617,9 +3632,10 @@ function drawGoalTree(state) {
   const top = id => (shown.has(id) ? { x: shown.get(id).x + shown.get(id).w / 2, y: shown.get(id).y } : { x: layout.frame.x + layout.frame.w / 2, y: layout.frame.h })
   for (const arrow of layout.arrows) svg.append(goalArrow(top(arrow.from), top(arrow.to), shown.has(arrow.to)))
   for (const ghost of layout.ghosts) {
-    const g = svgEl('g', { 'data-goal': ghost.id, tabindex: 0, role: 'button', 'aria-label': `${ghost.title} enables this: go there` }, 'goal-ghost')
+    const g = svgEl('g', { 'data-goal': ghost.id, tabindex: 0, role: 'button', 'aria-label': `${goalLabel(ghost)} enables this: go there` }, 'goal-ghost')
     g.append(svgEl('rect', { x: ghost.x, y: ghost.y, width: ghost.w, height: ghost.h, rx: 6 }))
-    g.append(svgText(ghost.x + 8, ghost.y + 21, cut(`↗ ${ghost.title}`, 13), ''))
+    // B284: its id first, the part that still fits a narrow box.
+    g.append(svgText(ghost.x + 8, ghost.y + 21, cut(`↗ ${goalLabel(ghost)}`, 13), ''))
     svg.append(g)
     const from = { x: ghost.x, y: ghost.y + ghost.h / 2 }
     for (const target of ghost.arrowTo) {
@@ -3770,7 +3786,8 @@ window.addEventListener('pointermove', event => {
   if (!press.lifted) {
     if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 6) return
     press.lifted = true
-    press.follower = el('div', 'goal-tree-follower', goalById(board.goals, press.id)?.title ?? press.id)
+    const lifted = goalById(board.goals, press.id)
+    press.follower = el('div', 'goal-tree-follower', lifted === null ? press.id : goalLabel(lifted))
     document.body.append(press.follower)
   }
   document.querySelector(`#goals-diagram [data-goal="${press.id}"]`)?.classList.add('is-lift')
@@ -3843,7 +3860,7 @@ function goalMenuChoices(goals, node) {
   const list = el('div', 'goals-choices')
   list.id = 'goals-menu-choices'
   const wanted = goalsUi.menuWords.toLowerCase().split(/\s+/).filter(Boolean)
-  const into = goals.nodes.filter(other => other.id !== node.parent && goalDropTarget(goals, node.id, other.id, 'into') !== null && wanted.every(word => other.title.toLowerCase().includes(word)))
+  const into = goals.nodes.filter(other => other.id !== node.parent && goalDropTarget(goals, node.id, other.id, 'into') !== null && wanted.every(word => goalLabel(other).toLowerCase().includes(word)))
   if (node.parent !== null && wanted.length === 0) list.append(goalButton('goals-choice', 'The top: a goal of its own', { moveInto: '' }))
   for (const other of into.slice(0, 20)) {
     const button = goalButton('goals-choice', '', { moveInto: other.id })

@@ -14,7 +14,7 @@ const style = await readFile(join(HERE, '..', 'public', 'board.css'), 'utf8')
 const design = await readFile(join(HERE, '..', 'DESIGN.md'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`${cut('goals')}\nObject.assign(this, { goalLabel, goalIdSplit })`, page)
+vm.runInNewContext(`${cut('goals')}\nObject.assign(this, { goalLabel, goalIdSplit, goalTitleLines })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 test('a goal is named by its id and its title; a milestone keeps its own mark after the id', () => {
@@ -32,6 +32,23 @@ test('a line that starts with the id gives it apart, so the page draws it in its
   assert.deepEqual(plain(page.goalIdSplit('Goals', null)), { lead: '', id: '', rest: 'Goals' })
 })
 
+test('a box\'s two lines never leave the id alone on the first', () => {
+  assert.deepEqual(plain(page.goalTitleLines('G17 Internationalization of everything', 21)), ['G17 Internationaliza…'])
+  assert.deepEqual(plain(page.goalTitleLines('↗ G9 Internationalization', 21)), ['↗ G9 Internationaliz…'])
+  assert.deepEqual(plain(page.goalTitleLines('G3 Five harder fights, and a real boss', 21)), ['G3 Five harder', 'fights, and a real b…'])
+})
+
+test('the pickers for a link or a move name a goal with its id, and find it by its id', () => {
+  const ids = /const title = goalLabel\(other\)\.toLowerCase\(\)/.test(script)
+    && /button\.append\(el\('b', '', goalLabel\(choice\)\)/.test(script)
+    && /wanted\.every\(word => goalLabel\(other\)\.toLowerCase\(\)\.includes\(word\)\)/.test(script)
+    && /button\.append\(el\('b', '', goalLabel\(other\)\)/.test(script)
+  assert.ok(ids, 'the pickers')
+  assert.ok(/cut\(`↗ \$\{goalLabel\(ghost\)\}`, 13\)/.test(script), 'a ghost box')
+  assert.ok(/el\('div', 'goal-tree-follower', lifted === null \? press\.id : goalLabel\(lifted\)\)/.test(script), 'the box being dragged')
+  assert.ok(/\.goal-box\.is-ref \.goal-box-id \{ fill: inherit; \}/.test(style), 'a reference box keeps its id as muted as its title')
+})
+
 test('the diagram\'s boxes, the outline\'s rows, the breadcrumb and the frame draw the id; the design says so', () => {
   const checks = [
     [/goalTitleLines\(`\$\{box\.kind === 'ref' \? '↗ ' : ''\}\$\{goalLabel\(node\)\}`, 21\)/, 'the box wraps its label'],
@@ -39,6 +56,7 @@ test('the diagram\'s boxes, the outline\'s rows, the breadcrumb and the frame dr
     [/el\('button', 'goal-title'\)[\s\S]{0,80}goalLabelNodes\(row, row\.isRef \? '↗ ' : ''\)/, 'the outline row'],
     [/isHere \? el\('span', 'goals-here'\) : el\('button', 'goals-link'\)\n\s+part\.append\(\.\.\.goalLabelNodes\(step\)\)/, 'the breadcrumb'],
     [/goalLabelNodes\(focus\)/, 'the frame'],
+    [/goalIdSplit\(cut\(goalLabel\(focus\), Math\.floor\(frame\.w \/ 9\)\), focus\.id\)/, 'the diagram\'s frame around the goal zoomed into'],
     [/'aria-label': `\$\{goalLabel\(node\)\}: /, 'the box is read out with its id'],
   ]
   for (const [pattern, what] of checks) assert.ok(pattern.test(script), what)

@@ -147,6 +147,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .goal-box.is-done .goal-box-rect, .goal-tree-frame.is-done .goal-frame-rect { stroke: var(--working); }
 .goal-box.is-ref .goal-box-rect { stroke-dasharray: 3 3; fill: none; }
 .goal-box.is-ref text { fill: var(--muted); }
+.goal-box.is-ref .goal-box-id { fill: inherit; }
 .goal-box:hover .goal-box-rect, .goal-box.is-hover .goal-box-rect, .goal-box:focus-visible .goal-box-rect { fill: #182640; }
 .goal-box.is-chosen .goal-box-rect { fill: #1d2a3f; stroke: #8fb4ff; }
 .goal-box.is-lift { opacity: .4; }
