@@ -741,7 +741,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // from the file. `store` is the line about it on the Backlog tab; `raw.work` is missing where there is no store.
   const shadow = shadowBacklog(raw.work, parseBacklog(textOr(raw.backlogText, ''), { prefix, names }), { prefix, names })
   const backlog = shadow.backlog
-  const workShown = shadow.store?.differences === 0 ? raw.work : null
+  // B297: a store that is the truth is shown as it is.
+  const workShown = shadow.store?.differences === 0 || (shadow.store?.mode === 'store' && shadow.store.ok) ? raw.work : null
   // B255, B260: the goal map, read once for the Goals part and for the way to the next milestone.
   const goalMap = typeof raw.goalsText === 'string' ? parseGoals(raw.goalsText) : null
   const folders = Array.isArray(raw.folders) ? raw.folders : null

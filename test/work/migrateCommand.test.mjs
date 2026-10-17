@@ -42,8 +42,8 @@ test('the dry run writes nothing', async () => {
   }
 })
 
-test('--cutover is not in this version', () => {
-  const cut = command('--backlog', FIXTURE, '--work', tmpdir(), '--cutover')
+test('--cutover without a backlog says how to call it', () => {
+  const cut = command('--cutover')
   assert.equal(cut.status, 2)
-  assert.match(cut.stdout, /not in this version/)
+  assert.match(cut.stdout, /^Usage: .*--cutover/m)
 })

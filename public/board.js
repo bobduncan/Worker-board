@@ -219,7 +219,9 @@ function storeLine(store) {
   const problems = store.problems ?? []
   if (store.ok !== true) return { tone: 'problem', text: `Store: ${store.why}`, problems }
   const parts = [`Store: ${store.mode}`, `${store.items} item${store.items === 1 ? '' : 's'}`]
-  parts.push(store.differences === 0 ? 'in step with the backlog' : `${store.differences} step${store.differences === 1 ? ' differs' : 's differ'} from the backlog: the board shows the backlog`)
+  // B297: once the store is the truth, backlog.md is its view.
+  if (store.mode === 'store') parts.push(store.differences === 0 ? 'backlog.md is its view' : `${store.differences} step${store.differences === 1 ? '' : 's'} of backlog.md differ${store.differences === 1 ? 's' : ''} from the store: the board shows the store; backlog.md is rewritten at the next change`)
+  else parts.push(store.differences === 0 ? 'in step with the backlog' : `${store.differences} step${store.differences === 1 ? ' differs' : 's differ'} from the backlog: the board shows the backlog`)
   if (problems.length > 0) parts.push(`${problems.length} problem${problems.length === 1 ? '' : 's'}`)
   return { tone: store.differences !== 0 ? 'problem' : problems.length > 0 ? 'warn' : 'ok', text: parts.join(' · '), problems }
 }

@@ -143,3 +143,33 @@ test('a store that cannot be read puts one line on top of the board', () => {
   assert.equal(page.storeNote(null), null)
   assert.match(html, /id="store-note" role="status" hidden/)
 })
+
+test('B297: a store that is the truth is never written by the shadow, and the board shows it even where backlog.md differs', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'work-shadow-'))
+  try {
+    const fs = counting()
+    await shadowKeeper({ dir, canWrite: true, clock: () => NOW, fs })(BACKLOG)
+    const { writeTruth } = await import('../../src/work/store.mjs')
+    await writeTruth(dir, { truth: 'store', since: '2026-10-17 11:05' })
+    const written = fs.writes
+    const keeper = shadowKeeper({ dir, canWrite: true, clock: () => NOW + 60_000, fs })
+    const edited = BACKLOG.replace('- [ ] B18', '- [x] B18')
+    const work = await keeper(edited)
+    assert.equal(fs.writes, written, 'the shadow writes nothing over the truth')
+    assert.equal(work.truth, 'store')
+    assert.deepEqual(work.lastWrite?.problems ?? [], [])
+    // backlog.md was edited by hand: the board shows the store, and says how many steps differ.
+    const shown = shadowBacklog(work, parseBacklog(edited, RULES), RULES)
+    assert.equal(shown.backlog.activities[0].steps.find(step => step.id === 'B18').isDone, false)
+    assert.deepEqual(shown.store, { mode: 'store', ok: true, items: 19, differences: 1, problems: [], why: null, failed: false })
+    assert.deepEqual(line(shown.store), { tone: 'problem', text: 'Store: store · 19 items · 1 step of backlog.md differs from the store: the board shows the store; backlog.md is rewritten at the next change', problems: [] })
+    assert.deepEqual(line({ ...shown.store, differences: 0 }).text, 'Store: store · 19 items · backlog.md is its view')
+    // A change through the API is read at the next refresh: the keeper is told to read anew.
+    await real.rm(join(dir, 'B18.md'))
+    assert.equal((await keeper(edited)).items.has('B18'), true, 'kept for the reread time')
+    keeper.reset()
+    assert.equal((await keeper(edited)).items.has('B18'), false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

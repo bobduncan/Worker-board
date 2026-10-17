@@ -38,8 +38,10 @@ export function shadowKeeper({ dir, canWrite, clock = Date.now, fs, rereadMs = R
   const writeOne = async text => {
     const now = clock()
     const truth = await readTruth(dir, fs)
+    // B297: after the cutover the store is the truth and backlog.md its view: the shadow writes nothing.
     if (truth.truth === 'store') {
-      lastWrite = { at: now, files: 0, problems: ['The store says it is the truth: a shadow does not write over it.'] }
+      lastWrite = { at: now, files: 0, problems: [] }
+      hash = hashOf(text)
       return
     }
     const done = await writeStore(dir, migrateBacklog(text, { now }), fs, { now })
@@ -59,7 +61,7 @@ export function shadowKeeper({ dir, canWrite, clock = Date.now, fs, rereadMs = R
       kept = null
     }
   }
-  return async backlogText => {
+  const keeper = async backlogText => {
     try {
       if (canWrite && typeof backlogText === 'string' && hashOf(backlogText) !== hash) wanted = backlogText
       if (wanted !== null) writing ??= flush().finally(() => {
@@ -77,6 +79,11 @@ export function shadowKeeper({ dir, canWrite, clock = Date.now, fs, rereadMs = R
       return { ok: false, why: `The work store in ${dir} could not be read (${error.code ?? error.message}).` }
     }
   }
+  // B297: after a change through the work API the store is read anew at the next refresh, not after the reread time.
+  keeper.reset = () => {
+    kept = null
+  }
+  return keeper
 }
 
 /** How many steps and activities read differently in two backlogs (an activity more or less counts its steps too). */
@@ -95,7 +102,8 @@ export function differences(a, b) {
 /**
  * The state's part: the backlog the board shows and the line about the store. `work` is the keeper's answer
  * (undefined: no store for this board, as the demo); `fromText` the backlog parsed from its file. The store's backlog
- * is shown while it reads back as the same; otherwise the file's, and `store` says why.
+ * is shown while it reads back as the same; otherwise the file's, and `store` says why. B297: a store that is the truth
+ * is always shown; `differences` then counts the steps of backlog.md (its view) that a hand edit changed.
  */
 export function shadowBacklog(work, fromText, rules) {
   if (work === undefined || work === null) return { backlog: fromText, store: null }
@@ -110,7 +118,7 @@ export function shadowBacklog(work, fromText, rules) {
     return { backlog: fromText, store: { mode: work.truth, ok: false, items: work.items.size, differences: null, problems: unique, why: `The store could not be read as a backlog (${error.message}): the board shows the backlog.`, failed: true } }
   }
   const count = differences(fromStore, fromText)
-  return { backlog: count === 0 ? fromStore : fromText, store: { mode: work.truth, ok: true, items: work.items.size, differences: count, problems: unique, why: null, failed: false } }
+  return { backlog: count === 0 || work.truth === 'store' ? fromStore : fromText, store: { mode: work.truth, ok: true, items: work.items.size, differences: count, problems: unique, why: null, failed: false } }
 }
 
 /**

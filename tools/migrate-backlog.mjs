@@ -1,13 +1,21 @@
 // B296: the backlog into the work store (spec 2026-10-17, section 9).
 //
 //   node tools/migrate-backlog.mjs --backlog <file> --work <folder> [--dry-run]
+//   node tools/migrate-backlog.mjs --backlog <file> --work <folder> --cutover [--dry-run] [--chats <folder>]
 //
 // Prints the counts (steps before and after, open, done, for the person), the problems, whether the store gives the
 // same backlog back (parity), the steps in flight and the goal map's step ids the store lacks. The dry run writes
 // nothing; the real run writes the store as a shadow of the backlog and refuses a folder that is not empty.
-// `--cutover` (the store becomes the truth) comes with increment 2.
+//
+// B297, `--cutover`: the store becomes the truth. The final migration is written into the store (over the shadow
+// that is there), the old file is kept beside it as backlog.before-store.md, truth.json says "store", and backlog.md is
+// written anew as the store's generated view. First it proves that the store reads back as the backlog and that the
+// view reads back as the same items, and refuses when either does not hold. It prints the steps in flight (id, state,
+// owner, branch) and every chat card with a task (`<chats>/<session>.json`, the folder beside the backlog unless
+// `--chats` names one) beside the store's state of the step it names, "<- check" where they disagree. With
+// `--dry-run` it prints the same and writes nothing. It runs once: a store that is the truth already is refused.
 
-import { readdir, readFile } from 'node:fs/promises'
+import { copyFile, readdir, readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
@@ -16,18 +24,16 @@ import { parseBacklog } from '../src/backlog.mjs'
 import { storeAsBacklog } from '../src/work/adapter.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { isLegacyId } from '../src/work/line.mjs'
-import { migrateBacklog } from '../src/work/migrate.mjs'
-import { writeStore } from '../src/work/store.mjs'
+import { migrateBacklog, stamp } from '../src/work/migrate.mjs'
+import { readStore, readTruth, writeStore, writeTruth } from '../src/work/store.mjs'
+import { backlogView, writeView } from '../src/work/view.mjs'
 
 const IN_FLIGHT = ['queued', 'taken', 'in progress', 'waiting on you', 'review', 'open']
 const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
 
 /** The run, with its words to `log`; answers the exit code. */
 export async function run(args, log = console.log) {
-  if (args.includes('--cutover')) {
-    log('--cutover: not in this version (it comes with increment 2, when the store becomes the truth).')
-    return 2
-  }
+  if (args.includes('--cutover')) return cutover(args, log)
   const backlog = argAfter(args, '--backlog')
   const work = argAfter(args, '--work')
   if (backlog === undefined || work === undefined) {
@@ -82,6 +88,134 @@ export async function run(args, log = console.log) {
   log(`Written into ${folder}: ${done.written.length} files; the store is a shadow of the backlog.`)
   for (const line of done.problems) log(`  ${line}`)
   return same && before === counts.steps ? 0 : 1
+}
+
+/** What the view of a store can carry of an item: its head without Since, its sections without History. */
+const carried = item => JSON.stringify({
+  head: [...item.head].filter(([key]) => key !== 'Since'),
+  sections: [...item.sections].filter(([name]) => name !== 'History'),
+})
+const HELD = ['taken', 'in progress', 'waiting on you', 'review']
+const plain = (name, prefix) => {
+  let words = String(name ?? '').trim()
+  if (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase())) words = words.slice(prefix.length)
+  return words.trim().toLowerCase()
+}
+
+/**
+ * The chats' cards with a task, each beside the store's state of the step it names (an id in its text), or, when it
+ * names none, the steps the store has that chat on. `{ lines, count, disagree }`.
+ */
+async function cards(folder, items) {
+  const names = await readdir(folder).catch(() => null)
+  if (names === null) return { lines: [`  No chat cards in ${folder}.`], count: 0, disagree: 0 }
+  const list = await readFile(join(folder, 'list.json'), 'utf8').then(JSON.parse, () => ({}))
+  const prefix = typeof list.prefix === 'string' ? list.prefix : ''
+  const lines = []
+  let disagree = 0
+  let count = 0
+  for (const name of names.filter(one => one.endsWith('.json') && one !== 'list.json').sort()) {
+    const card = await readFile(join(folder, name), 'utf8').then(JSON.parse, () => null)
+    if (card === null || card.left === true || typeof card.name !== 'string' || card.task === null || typeof card.task?.text !== 'string') continue
+    count += 1
+    const mine = [...items.values()].filter(item => valueOf(item, 'Kind') === 'step' && valueOf(item, 'Owner') !== null && plain(valueOf(item, 'Owner'), prefix) === plain(card.name, prefix))
+    const held = mine.filter(item => HELD.includes(valueOf(item, 'State'))).map(item => `${valueOf(item, 'Id')} ${valueOf(item, 'State')}`)
+    const queued = mine.filter(item => valueOf(item, 'State') === 'queued').map(item => valueOf(item, 'Id'))
+    const named = card.task.text.match(/\bB\d+\b/)?.[0] ?? null
+    let said
+    let isOff
+    if (named !== null) {
+      const item = items.get(named)
+      const owner = item === undefined ? null : valueOf(item, 'Owner')
+      isOff = item === undefined || !HELD.includes(valueOf(item, 'State')) || (owner !== null && plain(owner, prefix) !== plain(card.name, prefix))
+      said = item === undefined ? `${named} is not in the store` : `${named} ${valueOf(item, 'State')}${owner !== null && isOff ? ` (${owner}'s)` : ''}`
+    } else {
+      isOff = held.length === 0
+      said = `names no step; ${card.name} holds in the store: ${held.length === 0 ? 'nothing in progress' : held.join(', ')}${queued.length === 0 ? '' : ` (queued: ${queued.join(', ')})`}`
+    }
+    if (isOff) disagree += 1
+    const progress = card.task.steps > 0 ? ` (${card.task.step}/${card.task.steps})` : ''
+    lines.push(`  ${card.name} | ${card.task.text}${progress} | ${said}${isOff ? ' <- check' : ''}`)
+  }
+  return { lines, count, disagree }
+}
+
+/** B297: the cutover (see the head of this file). */
+async function cutover(args, log) {
+  const backlog = argAfter(args, '--backlog')
+  const work = argAfter(args, '--work')
+  if (backlog === undefined || work === undefined) {
+    log('Usage: node tools/migrate-backlog.mjs --backlog <file> --work <folder> --cutover [--dry-run] [--chats <folder>]')
+    return 2
+  }
+  const file = resolve(backlog)
+  const folder = resolve(work)
+  const chats = resolve(argAfter(args, '--chats') ?? join(dirname(file), 'chats'))
+  const isDry = args.includes('--dry-run')
+  const truth = await readTruth(folder)
+  if (truth.truth === 'store') {
+    log(`The store in ${folder} is the truth already (since ${truth.since ?? 'an unknown time'}): the cutover ran.`)
+    return 1
+  }
+  const text = await readFile(file, 'utf8').catch(() => null)
+  if (text === null) {
+    log(`No backlog at ${file}.`)
+    return 1
+  }
+  const now = Date.now()
+  const migrated = migrateBacklog(text, { now })
+  const { counts, items, activities, preamble, problems } = migrated
+  const before = text.split('\n').filter(line => /^- \[( |x|X)\]\s/.test(line)).length
+  log(`Steps: ${before} on the backlog, ${counts.steps} in the store${before === counts.steps ? '' : ' (NOT the same)'}`)
+  log(`Open: ${counts.open} · done: ${counts.done} · for you (open): ${counts.you}`)
+  log(`Problems: ${problems.length}`)
+  for (const line of problems) log(`  ${line}`)
+  const same = isDeepStrictEqual(storeAsBacklog(items, activities), parseBacklog(text))
+  log(`Parity with the backlog: ${same ? 'yes, the store reads back as the same backlog' : 'NO, the store reads back differently'}`)
+  const back = migrateBacklog(backlogView({ dir: folder, items, activities, preamble }), { now })
+  const differ = [...items.keys()].filter(id => back.items.get(id) === undefined || carried(back.items.get(id)) !== carried(items.get(id)))
+  const viewSame = differ.length === 0 && back.items.size === items.size && isDeepStrictEqual(back.activities, activities)
+  log(`The view reads back as the same items: ${viewSame ? 'yes' : `NO (${differ.slice(0, 10).join(', ') || 'the activities'})`}`)
+
+  const flying = [...items.values()].filter(item => IN_FLIGHT.includes(valueOf(item, 'State')))
+  log(`In flight: ${flying.length}`)
+  for (const item of flying) log(`  ${[valueOf(item, 'Id'), valueOf(item, 'State'), valueOf(item, 'Owner') ?? '-', valueOf(item, 'Branch') ?? '-'].join(' | ')}`)
+  const shown = await cards(chats, items)
+  log(`Cards with a task: ${shown.count}${shown.disagree === 0 ? '' : ` (${shown.disagree} disagree with the store)`}`)
+  for (const line of shown.lines) log(line)
+
+  const isSafe = same && viewSame && before === counts.steps
+  if (isDry) {
+    log('Dry run: nothing written.')
+    return isSafe ? 0 : 1
+  }
+  if (!isSafe) {
+    log('Nothing written: the store must read back as the backlog, and its view as the same items.')
+    return 1
+  }
+  const kept = join(dirname(file), 'backlog.before-store.md')
+  const keptText = await readFile(kept, 'utf8').catch(() => null)
+  if (keptText !== null && keptText !== text) {
+    log(`${kept} is there already and holds another backlog: move it away first. Nothing written.`)
+    return 1
+  }
+  const written = await writeStore(folder, migrated, undefined, { now })
+  for (const line of written.problems) log(`  ${line}`)
+  // A chat that wrote the backlog in the meantime: its words would be lost under the view.
+  if (await readFile(file, 'utf8').catch(() => null) !== text) {
+    log('backlog.md changed during the cutover: the store stays a shadow; run the cutover again.')
+    return 1
+  }
+  if (keptText === null) await copyFile(file, kept)
+  await writeTruth(folder, { truth: 'store', since: stamp(now) })
+  const view = await writeView({ dir: folder, ...(await readStore(folder)) }, file)
+  if (!view.ok) {
+    log(`${view.why} The store is the truth; the board writes the view at the next change.`)
+    return 1
+  }
+  log(`Kept the old backlog as ${kept}.`)
+  log('The store is the truth now; backlog.md is its view.')
+  return 0
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

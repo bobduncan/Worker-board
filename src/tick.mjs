@@ -3,11 +3,17 @@
 // rejection, an approval of work whose branch is still open, an answer to a question.
 //
 // Only the board that delivers writes (the one in the repository's main folder); a copy and the demo never do.
+//
+// B297: once the work store is the truth (the cutover), these writers change the store through its API (work/api.mjs)
+// as the person, and the API writes backlog.md anew as the store's view. Before the cutover they write backlog.md as
+// they always did. `work` is `{ dir, viewFile }`: the store's folder and the file its view is written to.
 
 import { randomBytes } from 'node:crypto'
 import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { parseBacklog, refinedSpan } from './backlog.mjs'
+import { workApi } from './work/api.mjs'
+import { readTruth } from './work/store.mjs'
 
 const STEP = /^- \[( |x|X)\]\s+(B\d+)\b/
 const NOTE_CHARS = 400
@@ -246,13 +252,18 @@ const EDIT_WHY = {
  * the board that delivers writes (`canWrite`). That a worker is on the step or it is queued is said by the page
  * before the person confirms: the board does not refuse it. Answers `{ ok: true, result }` or `{ ok: false, status, why }`.
  */
-export async function editStep(body, { canWrite, file, now, fs = files }) {
+export async function editStep(body, { canWrite, file, now, fs = files, work = null }) {
   if (canWrite !== true) return { ok: false, status: 409, why: 'This board only shows: change the backlog on the board that delivers.' }
   const step = typeof body?.step === 'string' ? body.step : ''
   if (!STEP_ID.test(step)) return { ok: false, status: 400, why: 'Name the step by its number (B12).' }
   const action = body?.action
-  if (action === 'refine-answer' || action === 'refine-accept') return refineStep(body, step, { file, now, fs })
+  const store = await isStore(work)
+  if (action === 'refine-answer' || action === 'refine-accept') return refineStep(body, step, { file, now, fs, work: store ? work : null })
   if (action !== 'close' && action !== 'delete') return { ok: false, status: 400, why: 'Close or delete.' }
+  if (store) {
+    const done = await asPerson(work, now, action === 'close' ? { action: 'tick', id: step, line: approvalLine(now, body?.reason ?? '', 'close') } : { action: 'delete', id: step })
+    return done.ok ? { ok: true, result: { step, action } } : done
+  }
   const done = action === 'close'
     ? await writeTick(file, step, approvalLine(now, body?.reason ?? '', 'close'), fs)
     : await rewrite(file, before => deleteStep(before, step), fs)
@@ -269,8 +280,12 @@ export const REFINE_CHARS = 1000
  * }]`, `feedback`), or their "accepted" (`refine-accept`), written into the block under the step. Empty answers are
  * left out; one answer or the feedback is needed.
  */
-async function refineStep(body, step, { file, now, fs }) {
+async function refineStep(body, step, { file, now, fs, work }) {
   let change
+  if (work !== null && body.action === 'refine-accept') {
+    const done = await asPerson(work, now, { action: 'refine-accept', id: step })
+    return done.ok ? { ok: true, result: { step, action: body.action } } : done
+  }
   if (body.action === 'refine-accept') {
     const at = new Date(now)
     const when = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
@@ -287,6 +302,10 @@ async function refineStep(body, step, { file, now, fs }) {
     if (typeof (body.feedback ?? '') !== 'string' || (body.feedback ?? '').length > REFINE_CHARS) return { ok: false, status: 413, why: `At most ${REFINE_CHARS} characters of feedback.` }
     const feedback = oneLine(body.feedback, REFINE_CHARS)
     if (answers.length === 0 && feedback === '') return { ok: false, status: 400, why: 'Answer a question or give feedback first.' }
+    if (work !== null) {
+      const done = await asPerson(work, now, { action: 'refine-answer', id: step, answers, feedback })
+      return done.ok ? { ok: true, result: { step, action: body.action } } : done
+    }
     // The file is handled as latin1 bytes: the person's words go in as their UTF-8 bytes.
     const bytes = words => Buffer.from(words, 'utf8').toString('latin1')
     change = before => answerRefine(before, step, answers.map(one => ({ ...one, answer: bytes(one.answer) })), bytes(feedback))
@@ -295,6 +314,17 @@ async function refineStep(body, step, { file, now, fs }) {
   if (done.ok) return { ok: true, result: { step, action: body.action } }
   const [status, why] = EDIT_WHY[done.why] ?? EDIT_WHY.write
   return { ok: false, status, why }
+}
+
+/** B297: whether the work store is the truth, so the writers go through its API. */
+async function isStore(work) {
+  if (work === null || work === undefined || typeof work.dir !== 'string') return false
+  return (await readTruth(work.dir, work.fs)).truth === 'store'
+}
+
+/** B297: one change to the store as the person, its view written to `work.viewFile`. */
+function asPerson(work, now, body) {
+  return workApi(body, { dir: work.dir, fs: work.fs, now, as: 'person', viewFile: work.viewFile ?? null, prefix: work.prefix ?? '' })
 }
 
 /** What the person's word on a step is called in the line under it: an approval of work, or "done" for what only they could do. */
@@ -312,13 +342,18 @@ const WORDS = { approve: 'Approved', done: 'Done' }
  * is ticked already or gone, and null when it is not the board's to settle or could not be written: the answer
  * then goes to its worker as before, never lost.
  */
-export async function settleByBoard(message, state, { canWrite, file, branchesNow, now, say, newId, fs = files }) {
+export async function settleByBoard(message, state, { canWrite, file, branchesNow, now, say, newId, fs = files, work = null }) {
   if (canWrite !== true || WORDS[message.verdict] === undefined || typeof message.step !== 'string') return null
   const item = (state.backlogForYou ?? []).find(need => need.id === message.ask)
   if (item === undefined || item.approval !== 'tick' || item.kind !== (message.verdict === 'done' ? 'do' : 'verify')) return null
   if (approvalRoute(item.branch, await branchesNow().catch(() => null), state.baseBranch) !== 'tick') return null
-  const done = await writeTick(file, message.step, approvalLine(now, message.text, message.verdict), fs)
-  if (!done.ok) return done.why === 'write' ? null : { ok: false, status: 409, why: 'That step is ticked already, or no longer on the backlog.' }
+  if (await isStore(work)) {
+    const ticked = await asPerson(work, now, { action: 'tick', id: message.step, line: approvalLine(now, message.text, message.verdict) })
+    if (!ticked.ok) return ticked.status === 409 || ticked.status === 404 ? { ok: false, status: 409, why: 'That step is ticked already, or no longer on the backlog.' } : null
+  } else {
+    const done = await writeTick(file, message.step, approvalLine(now, message.text, message.verdict), fs)
+    if (!done.ok) return done.why === 'write' ? null : { ok: false, status: 409, why: 'That step is ticked already, or no longer on the backlog.' }
+  }
   const text = await fs.readFile(file).then(bytes => bytes.toString('utf8'), () => '')
   const waiting = waitingOn(parseBacklog(text), message.step)
   const main = state.restart?.main ?? null

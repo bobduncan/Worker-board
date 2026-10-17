@@ -318,3 +318,12 @@ test('after a change the view is written, and it reads back as the store', async
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('overlapsIn names a taken step whose Touches overlap, a folder covering its files', async () => {
+  const { overlapsIn } = await import('../../src/work/api.mjs')
+  const store = migrateBacklog('## A\n- [ ] B1 One (branch b1)\n  Touches: src/state.mjs, public/\n- [ ] B2 Two\n  Touches: public/board.js\n- [ ] B3 Three\n  Touches: README.md\n- [ ] B4 Four\n', { now: NOW })
+  const overlaps = overlapsIn(store.items)
+  assert.equal(overlaps(store.items.get('B2')), 'B1')
+  assert.equal(overlaps(store.items.get('B3')), null)
+  assert.equal(overlaps(store.items.get('B4')), null)
+})
