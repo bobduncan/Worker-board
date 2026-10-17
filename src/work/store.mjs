@@ -89,7 +89,15 @@ export async function readStore(dir, fs = files) {
   const read = flowText === null ? { flow: DEFAULT_FLOW, problem: null } : parseFlow(flowText)
   if (read.problem !== null) problems.push({ file: 'flow.json', line: read.problem })
   const truth = await readTruth(dir, fs)
-  return { exists: true, items, ...listed, lastIds, truth: truth.truth, since: truth.since, flow: read.flow, problems }
+  // B297, review 4: the hand-edited view the board kept last, while it is there.
+  let viewKept = null
+  try {
+    const kept = JSON.parse(await readOr(fs, join(dir, 'view.json'), '{}'))?.kept?.file
+    if (typeof kept === 'string' && await readOr(fs, kept, null) !== null) viewKept = kept
+  } catch {
+    viewKept = null
+  }
+  return { exists: true, items, ...listed, lastIds, truth: truth.truth, since: truth.since, flow: read.flow, problems, viewKept }
 }
 
 /** Writes one item to `<dir>/<Id>.md`; with `expected` (the file's text the change was made from) only while it holds that. */

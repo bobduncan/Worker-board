@@ -88,3 +88,40 @@ test('a dropped step stands ticked on the view; a done one too', () => {
   const steps = storeAsBacklog(changed(items => set(items.get('B18'), 'State', 'dropped')).items, changed(() => {}).activities, RULES).activities[0].steps
   assert.equal(steps.find(step => step.id === 'B18').isDone, true)
 })
+
+test('review 4: a hand edit of the view is kept beside it before the view is written anew, and the board says so', async () => {
+  const { mkdtemp, readFile, readdir, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { readStore } = await import('../../src/work/store.mjs')
+  const { shadowBacklog } = await import('../../src/work/shadow.mjs')
+  const { writeView } = await import('../../src/work/view.mjs')
+  const root = await mkdtemp(join(tmpdir(), 'work-view-'))
+  try {
+    const dir = join(root, 'work')
+    const file = join(root, 'backlog.md')
+    await writeFile(file, TEXT)
+    const store = changed(() => {})
+    // The first view (the cutover's) writes over the backlog it came from: that one is kept by the cutover itself.
+    assert.deepEqual(await writeView({ ...store, dir }, file, undefined, { now: NOW }), { ok: true, changed: true, kept: null })
+    assert.deepEqual(await readdir(root), ['backlog.md', 'work'])
+    // Unchanged: nothing is kept, nothing written.
+    assert.deepEqual(await writeView({ ...store, dir }, file, undefined, { now: NOW }), { ok: true, changed: false, kept: null })
+    // A chat edits the view by hand; the next change keeps that file and writes the view.
+    const edited = (await readFile(file, 'utf8')).replace('- [ ] B18', '- [x] B18')
+    await writeFile(file, edited)
+    const next = changed(items => items.get('B10').head.set('State', 'taken'))
+    const done = await writeView({ ...next, dir }, file, undefined, { now: NOW + 60_000 })
+    assert.equal(done.kept, join(root, 'backlog.edited-2026-10-17-1106.md'))
+    assert.equal(await readFile(done.kept, 'utf8'), edited)
+    assert.equal(await readFile(file, 'utf8'), backlogView({ ...next, dir }))
+    // The board's top line names the kept file while it is there.
+    const work = { ok: true, ...(await readStore(dir)) }
+    assert.equal(work.viewKept, done.kept)
+    const shown = shadowBacklog({ ...work, items: next.items, activities: next.activities, exists: true, truth: 'store' }, parseBacklog(backlogView({ ...next, dir }), RULES), RULES)
+    assert.equal(shown.store.kept, done.kept)
+    await rm(done.kept)
+    assert.equal((await readStore(dir)).viewKept, null)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

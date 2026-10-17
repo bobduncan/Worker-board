@@ -105,7 +105,7 @@ async function act(body, ctx) {
   const done = await CHANGE[action](body, w)
   if (!done.ok || done.result.changed === false || !ctx.viewFile) return done
   // The view follows every change: whatever still reads backlog.md reads what the store says.
-  const view = await writeView({ dir: ctx.dir, ...(await readStore(ctx.dir, ctx.fs)) }, ctx.viewFile, ctx.fs)
+  const view = await writeView({ dir: ctx.dir, ...(await readStore(ctx.dir, ctx.fs)) }, ctx.viewFile, ctx.fs, { now })
   return { ok: true, result: { ...done.result, view: view.ok ? 'written' : view.why } }
 }
 

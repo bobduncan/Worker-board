@@ -173,3 +173,9 @@ test('B297: a store that is the truth is never written by the shadow, and the bo
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('B297, review 4: a kept hand edit of the view puts one line on top of the board', () => {
+  const note = JSON.parse(JSON.stringify(page.storeNote({ ok: true, failed: false, kept: 'X/backlog.edited-2026-10-17-1106.md' })))
+  assert.equal(note.tone, 'warn')
+  assert.match(note.text, /^backlog\.md was edited by hand after the cutover\. .*X\/backlog\.edited-2026-10-17-1106\.md/)
+})
