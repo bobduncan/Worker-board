@@ -62,6 +62,17 @@ test('B255: the state carries the goal map with counters and its file, or null w
   assert.equal(build({ apps: [app('Main')], backlog: BACKLOG }).goalsFile, '.claude/goals.md')
 })
 
+test('B258: the state lists the asks under the goals, an answer not yet read as a need, and the answers\' folder', () => {
+  const answered = GOALS.replace('what differs most from the picture?\n', 'what differs most from the picture?\n      Answer (2026-10-15 19:20, Advisor): the shading.\n')
+  const state = build({ apps: [app('Main')], backlog: BACKLOG, goals: answered })
+  assert.deepEqual(state.goalAsks.map(one => [one.goal, one.ask.id]), [['G6', 'A1']])
+  assert.deepEqual(state.goalAskNeeds.map(need => [need.kind, need.id, need.goal]), [['goal-ask', 'A1', 'G6']])
+  assert.equal(state.goalAsksFolder, '.claude/goal-asks')
+  // A question still open is nothing for the person yet; no map, no asks.
+  assert.deepEqual(build({ apps: [app('Main')], backlog: BACKLOG, goals: GOALS }).goalAskNeeds, [])
+  assert.deepEqual(build({ apps: [app('Main')], backlog: BACKLOG }).goalAsks, [])
+})
+
 test('chatState: a running turn is working, whatever the app says', () => {
   assert.equal(chatState({ turn: 'running', category: 'blocked', needsAction: 'Pick one' }), 'working')
 })

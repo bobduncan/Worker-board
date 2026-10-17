@@ -103,6 +103,26 @@ function refineCheck(body, state) {
 }
 
 /**
+ * B258: the person's ask about a goal of the map, to the Advisor only (spec 2026-10-15, section 4). The page wrote the
+ * Ask line under the goal first and names its id; the goal's title is read from the board's own state. Pictures are the
+ * ones the board kept from a paste, by their paths in the project; anything else is left out.
+ */
+function goalAskCheck(body, state) {
+  const advisor = state.advisor?.name ?? null
+  if (advisor === null || body.to !== advisor) return refuse(400, 'An ask from the goal map goes to the Advisor.')
+  const goal = (state.goals?.nodes ?? []).find(one => one.id === body.goal)
+  if (goal === undefined) return refuse(409, 'That goal is not in the map.')
+  if (typeof body.ask !== 'string' || !/^A\d+$/.test(body.ask)) return refuse(400, 'No ask id.')
+  const question = String(body.text ?? '').replace(/\s+/g, ' ').trim()
+  if (question === '') return refuse(400, 'Say what you want to know.')
+  if ((body.verdict ?? null) !== null) return refuse(400, 'An ask carries no verdict.')
+  const pictures = Array.isArray(body.pictures) ? [...new Set(body.pictures.filter(path => isTalkPicture(path, state.pictures ?? 'pictures')))] : []
+  const lines = ['ask from the goal map', `Goal: ${goal.id} ${plainLine(goal.title)}`, `Ask (${body.ask}): ${question}`]
+  if (pictures.length > 0) lines.push(`Pictures: ${pictures.join(', ')}`)
+  return { ok: true, message: { to: body.to, ask: null, step: null, title: null, version: null, verdict: null, command: 'goal-ask', goal: goal.id, about: body.ask, pictures, text: lines.join('\n') } }
+}
+
+/**
  * B195: the person's answer to the Advisor's recommendation on the way to the next milestone. Yes goes to the main
  * chat, which puts the step on the backlog when it is not there and hands it out; no goes to the Advisor with the
  * person's reason. What was recommended is read from the board's own state: the page sends the answer and a reason.
@@ -152,11 +172,12 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'goal-ask'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
-    // B233: the one command that goes to the Advisor only.
+    // B233, B258: the commands that go to the Advisor only.
     if (body.command === 'refine') return refineCheck(body, state)
+    if (body.command === 'goal-ask') return goalAskCheck(body, state)
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
     // B181: a step of the backlog for the queue: one with an id that nobody has (not queued, not in progress, not
@@ -274,9 +295,9 @@ const WAKE_PENDING_MS = 10 * 60_000
  */
 export function wakeFor(message, state, outbox, now, maxChars) {
   const main = state.restart?.main ?? null
-  // B195, B233: of the commands, only the answer to the Advisor's recommendation, a refine and (B300) the work store's
-  // line to a chat go to another chat than the main one.
-  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work'].includes(message.command))) return null
+  // B195, B233: of the commands, only the answer to the Advisor's recommendation, a refine, (B300) the work store's
+  // line to a chat and (B258) an ask from the goal map go to another chat than the main one.
+  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work', 'goal-ask'].includes(message.command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

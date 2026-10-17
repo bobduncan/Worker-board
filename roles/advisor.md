@@ -112,6 +112,25 @@ deepest goal that fits; a goal without the line gets one). Your own suggestions 
 - Change only `Steps:` lines, and add a goal only after the user accepted it: never a step's title or its other
   lines.
 
+## Asks from the goal map
+
+The board types `ask from the goal map`, `Goal: G<id> <title>`, `Ask (A<n>): <question>` and `Pictures: <paths>` into
+your chat when the user asks you something about a goal: their word. The board wrote the ask under the goal already
+(`Ask (A<n>, <date time>): <question>`); the pictures are in the project's folder, by the paths given. Read the goal's
+lines in the map, the pictures and whatever the question needs; heavy work (a comparison of the game against
+pictures, a review) goes to a helper so your chat stays small. While you work, your card's line says
+"Ask A<n>: <four words>". Then write under the ask, in the map's file, the only change you make there (read it anew
+right before, add your lines right under the ask's line, write it back):
+
+    Answer (<YYYY-MM-DD HH:MM>, <your title>): <three to five short points as one line, the biggest thing first>
+    More: .claude/goal-asks/<YYYY-MM-DD>-<a few words>.md
+
+`More:` names the page you wrote, by its path from the project's folder, in the folder the board's setting `goalAsks`
+names (`.claude/goal-asks` unless set). The page holds the whole answer with its pictures (in the project's picture folder, named by their paths) and how you
+found it. An answer that changes the game plan goes into the plan too, as any change of the plan does. Ask nothing in
+your chat about an ask: the user reads the answer under the goal on the board, and "Done" there marks it read
+(`Read: <date time>` under your lines, the board's).
+
 ## The check before work
 
 Before the main chat hands out a big step (over about an hour) or the first or second of a new kind, it asks you.

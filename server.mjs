@@ -740,6 +740,10 @@ async function main(args) {
       if (typeof checked.message.picture === 'string' && !(await stat(inProject(config.project, checked.message.picture)).then(file => file.isFile(), () => false))) {
         return { ok: false, status: 409, why: 'That picture is not there any more: paste it again.' }
       }
+      // B258: so are the pictures of an ask from the goal map, each.
+      for (const path of checked.message.pictures ?? []) {
+        if (!(await stat(inProject(config.project, path)).then(file => file.isFile(), () => false))) return { ok: false, status: 409, why: 'A picture of the ask is not there any more: paste it again.' }
+      }
       // B212: without a Workers mod nothing takes the board's words: they are kept as copied, and the page puts them on
       // the clipboard for the person to paste into the chat, marked as typed on the board.
       const isCopied = state.bridge?.isMissing === true
