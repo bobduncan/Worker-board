@@ -413,6 +413,19 @@ async function withinTime<T>($: EngineInterface, run: Promise<T>): Promise<T | n
   return Promise.race([run, $.clock.sleep(BOARD_WAIT_MS).then(() => null, () => null)])
 }
 
+/** B300: whether this chat is a worker whose card holds no task, or only one it reported: it is free for the next. */
+async function holdsNothing($: EngineInterface): Promise<boolean> {
+  try {
+    if (myself?.role !== 'worker') return false
+    const dir = await findChatsDir($)
+    const mine = dir === null ? null : await readChat($, dir, await $.session.id())
+
+    return mine !== null && (mine.task === null || mine.task.isReported)
+  } catch {
+    return false
+  }
+}
+
 /** B299: files the questions of the app's question form on the board as asks: `[{ id, text }]` of those it took. */
 async function fileForm($: EngineInterface, input: unknown): Promise<{ id: string; text: string }[]> {
   const filed: { id: string; text: string }[] = []
@@ -1082,6 +1095,13 @@ export const register: Register = on => {
         if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
           isTurnEndTold = true
           await workQuietly($, { action: 'turn-ended', since: turnStartedAt })
+          // B300: a worker that holds nothing pulls, once per turn: when a step queued for it may be taken now, the board
+          // puts its line ("work: B286 is yours; run work next") into the outbox once, and it is typed here at once.
+          // While the store is not the truth the board refuses, and nothing happens.
+          if (await withinTime($, holdsNothing($)) === true) {
+            const pulled = await workQuietly($, { action: 'pull' })
+            if (typeof pulled?.text === 'string' && pulled.text !== '') await withinTime($, takeFromBoard($))
+          }
         }
         turnStartedAt = null
       } else {
