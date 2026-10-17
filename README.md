@@ -132,6 +132,18 @@ idea, and its reference pictures; `examples\design.json` shows one. `goals` (`.c
 project's goal map, which the Advisor tab's Goals part draws (it only reads it); `examples\goals.md` shows its form.
 `brainstorms`, `goalAsks` and `goalsHistory` (`.claude/brainstorms`, `.claude/goal-asks`, `.claude/goals.history`
 unless set) are the folders for the map's brainstorms, the long answers to its asks and its daily copy, which come later.
+`work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own
+(a copy tried beside your board gives it a folder outside the project, and only then writes one).
+
+## The work store
+
+One file per step in the `work` folder, with its state, its owner, what it waits for and its history, and
+`flow.json` for the order of states (the default is `examples\work\flow.json`; `examples\work` shows three items).
+For now it is a shadow of the backlog: at every refresh the board that delivers copies the backlog into it when the
+backlog changed, and the Backlog tab says in one line whether the store reads back as the same backlog
+("Store: shadow · 370 items · in step with the backlog"); a step's window shows where the step stands in the flow.
+You and the chats go on editing the backlog. To look at what the store would hold without the board:
+`node tools/migrate-backlog.mjs --backlog <project>\.claude\backlog.md --work <an empty folder> --dry-run`.
 
 `<project>\.claude\chats\list.json`: `prefix` and `main` (the main chat's title is the two together), `boards` (the
 launch entries the mod keeps running) and `compactAbove` (a worker larger than this many tokens is compacted after
@@ -164,7 +176,8 @@ shows: answers are given on the board in the main folder.
 `data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran
 and the Design tab's ideas. Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
 pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), and in the backlog one thing only: the tick of a step you
-approved or marked done on the board, with a line under it.
+approved or marked done on the board, with a line under it. And the work store (`work`, `.claude\work` unless set):
+one file per step, kept as a shadow of the backlog by the board that delivers (see "The work store" below).
 
 ## Safety
 

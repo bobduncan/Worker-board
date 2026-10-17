@@ -19,6 +19,7 @@ import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
+import { flowOfStep, shadowBacklog } from './work/shadow.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -736,7 +737,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const advisorChat = found.find(isAdvisor)
   const names = found.filter(chat => !isAdvisor(chat) && !chat.isLeftover).map(chat => chat.name)
 
-  const backlog = parseBacklog(textOr(raw.backlogText, ''), { prefix, names })
+  // B296: the backlog from the work store, which runs as its shadow, while the store reads back as the same; else
+  // from the file. `store` is the line about it on the Backlog tab; `raw.work` is missing where there is no store.
+  const shadow = shadowBacklog(raw.work, parseBacklog(textOr(raw.backlogText, ''), { prefix, names }), { prefix, names })
+  const backlog = shadow.backlog
+  const workShown = shadow.store?.differences === 0 ? raw.work : null
   // B255, B260: the goal map, read once for the Goals part and for the way to the next milestone.
   const goalMap = typeof raw.goalsText === 'string' ? parseGoals(raw.goalsText) : null
   const folders = Array.isArray(raw.folders) ? raw.folders : null
@@ -1007,6 +1012,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       steps: Object.fromEntries(lanes.flatMap(lane => lane.queue ?? []).filter(step => typeof step.id === 'string').map(step => [step.id, removalAsk(sent.findLast(message => (message.command === 'move' || message.command === 'unqueue') && message.about === step.id), now)]).filter(([, ask]) => ask !== null)),
     },
     forYou: needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits }),
+    // B296: the work store beside the backlog: shadow or truth, its items, and whether it reads back as the backlog.
+    store: shadow.store,
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
     backlog: overview(backlog, { underWay: onNow }).map(activity => ({
       ...activity,
@@ -1022,6 +1029,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           refineAsk: asked,
           // B285, B286: where its refine stands.
           refineState: refineStateOf({ refined: step.refined, refineAsk: asked }),
+          // B296: where it stands in the flow (flow.json), for the strip in its window; null without the store.
+          flow: flowOfStep(workShown, step.key),
         }
       }),
     })),

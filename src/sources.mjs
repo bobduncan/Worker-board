@@ -62,8 +62,11 @@ async function pictureLists(config, backlogText, now) {
   return lists
 }
 
-/** `readFolders()` answers the working folders (see folders.mjs). */
-export async function readSources(config, readFolders, now = Date.now(), readBranches = async () => null) {
+/**
+ * `readFolders()` answers the working folders (see folders.mjs). B296: `readWork(backlogText)` answers the work store,
+ * which runs as a shadow of the backlog (see work/shadow.mjs); undefined where the board has none.
+ */
+export async function readSources(config, readFolders, now = Date.now(), readBranches = async () => null, readWork = async () => undefined) {
   const claude = join(config.project, '.claude')
   // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository.
   const plan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.gamePlan.split('/'))
@@ -113,6 +116,8 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   return {
     listText, appChatTexts, planLineTexts, planLineAt, tails, backlogText, adviceText, folders, askTexts, goalsText,
     pictureLists: await pictureLists(config, backlogText, now),
+    // B296: the work store, migrated from the backlog's text when it changed, and read.
+    work: await readWork(backlogText),
     // B113: the file the app keeps for its own usage card. The board only reads it.
     usageText: (await readTail(config.usageHistory, USAGE_BYTES))?.text ?? null,
     // The main chat's note of who was on what before a restart: only whether it is there, and since when.

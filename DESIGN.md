@@ -871,6 +871,58 @@ under "Next to hand out" without a worker waits for the main chat; one for a wor
 tool sent it (the main chat's name, its local id or pipe address, the app's send_message): Game - Support's report of
 B168 went to the main chat's local id, and the board kept its hand-over open, so Support showed as working.
 
+## The work store (B296, increment 1: a shadow of the backlog)
+
+The design: `.claude/specs/2026-10-17-work-store-design.md` in the project; the plan beside it in `.claude/plans`.
+The work moves from prose (the backlog's lines) into records: one file per item in the folder of the setting `work`
+(`.claude/work` unless set), a state per item, and the flow of states as data. Increment 1 builds the store and runs
+it as a **shadow**: the backlog file stays the truth, the chats edit it as before, and the board proves at every
+refresh that the store says the same.
+
+- **An item** (`src/work/item.mjs`): `<id>.md`, a head of `Key: value` lines up to the first blank line (keys fixed
+  per kind: step, ask, instruction, note; `Id`, `Kind`, `State`, `Since` always; `-` is none), then `## ` sections
+  kept verbatim. A broken head is named by file and line; the item is still read as it is.
+- **The flow** (`src/work/flow.mjs`, `guards.mjs`, `examples/work/flow.json`): per kind its states and its moves,
+  who makes each (`by`: a role, `person` or `server`) and what must hold first (`when`, a guard by name). `mayMove`
+  answers yes or one line ("B285: only main queues a step (flow.json)"); `nextMoves` lists the moves out of a state.
+  A `flow.json` in the store folder replaces the default; one that names an unknown guard or state is refused with
+  its name and the default stands.
+- **The migration** (`src/work/migrate.mjs`, `line.mjs`): every step line becomes an item. Its line is kept as
+  fields: `Title`; `Owner`, `Blocked by` (a condition of only ids, "B12 and B13") or `Waits for` (any other condition,
+  "after today's board work", verbatim), `Estimate` from "(for ...)"; `Branch` from "(branch x)"; `State` (done,
+  in progress with a branch, new when held back or not queued, queued with a worker, refined with a ready block);
+  an `@you` step is an ask (`Asks: look | decide | provide | do` from Verify/Decide/Provide/Do, `open` or
+  `answered`) that keeps its `B` id. When the fields alone would not give the line back as written, the head keeps
+  the backlog's words: `Queue note` (a "(for ...)" with more in it, such as "now" or "with B280"), or `Line` (the
+  whole line); the adapter uses them only while they still say what the fields say, so a changed field wins. The
+  indented lines go verbatim under `## Context`; a refine block goes whole under `## Refined` (a mark in Context
+  says where it stood), and its Summary, Picture and What we build lines are also copied into sections of those
+  names; "Done on ... by ..." lines also become `## History` lines. A step without an id gets `L<n>`; an id twice
+  keeps its first item, and the second gets `L<n>` with its line, named as a problem. `activities.json` keeps the
+  activities in order with their steps, their notes (the lines under a heading before its first step), the loose
+  lines between steps and the head of the file. Nothing is dropped: the store written back as text equals the
+  backlog line for line, blank lines aside.
+- **The adapter** (`src/work/adapter.mjs`): the store as the backlog's text in today's form, read by the same
+  `parseBacklog`, so `state.mjs` and the page need no change. Parity is a test: on a made-up backlog with every form
+  of line, and on the real one when `BOARD_PARITY_BACKLOG` names it (skipped otherwise; no chat's words come into
+  the repository).
+- **The store on disk** (`src/work/store.mjs`): `readStore`, `writeItem` (read anew, written beside, put in place;
+  refused when the file changed since it was read), `nextId` (above `last-ids.json` and every file: an id never comes
+  back), `appendHistory`, `writeStore` (only the files whose text changed; a step that left the backlog keeps its
+  file and is named as a problem, never deleted), `truth.json` (`shadow` here).
+- **The shadow** (`src/work/shadow.mjs`): at every refresh the server migrates the backlog's text into the store
+  when its hash changed. An item keeps its `Since` and History while its state stays; a state that changed gets a
+  History line "queued → done (the backlog says so)". The store is read again after a write, else every 30 s. The
+  state takes its backlog from the store while it reads back as the same backlog, else from the file; a store that
+  cannot be read puts one line on top of the board. Only the board that delivers writes the store; a copy writes
+  only when its settings give it a store folder of its own outside the project (`isOwnWork`), and else reads.
+- **What you see**: under the Backlog tab's head one line, "Store: shadow · 370 items · in step with the backlog"
+  (or how many steps differ, and the problems on hover); in a step's window a part "Flow": the strip of states with
+  the step's own marked, and the moves out of it with who makes each.
+- **The command**: `node tools/migrate-backlog.mjs --backlog <file> --work <folder> [--dry-run]` prints the counts,
+  the problems, the parity, the steps in flight and the goal map's step ids the store lacks; the real run refuses a
+  folder that is not empty. `--cutover` comes with increment 2.
+
 ## The bridge
 
 1. The person types on the board. The page sends it to the server, which keeps it as "waiting".
@@ -900,7 +952,7 @@ Safety, because what arrives is typed into a chat that can change files:
 - It does not call an AI service, with one exception since 2026-10-12: on the Design tab, on the person's click, it
   starts Codex to make a picture of an idea (see "The Design tab" above). Apart from that, only typing through the
   bridge and the advisor use the plan's usage.
-- It does not change the backlog, the game's folders or git.
+- It does not change the backlog, the game's folders or git. (B296: it writes the work store beside the backlog, a shadow of it.)
 
 ## Build order
 

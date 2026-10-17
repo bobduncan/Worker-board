@@ -209,6 +209,27 @@ function appNote(moved, clockOf) {
 }
 // appnote:end
 
+// store:start
+/**
+ * B296: the line under the Backlog tab's head about the work store, which runs as a shadow of the backlog: how many
+ * items it holds and whether it reads back as the backlog (`store` from the state). Null without a store.
+ */
+function storeLine(store) {
+  if (store === null || store === undefined) return null
+  const problems = store.problems ?? []
+  if (store.ok !== true) return { tone: 'problem', text: `Store: ${store.why}`, problems }
+  const parts = [`Store: ${store.mode}`, `${store.items} item${store.items === 1 ? '' : 's'}`]
+  parts.push(store.differences === 0 ? 'in step with the backlog' : `${store.differences} step${store.differences === 1 ? ' differs' : 's differ'} from the backlog: the board shows the backlog`)
+  if (problems.length > 0) parts.push(`${problems.length} problem${problems.length === 1 ? '' : 's'}`)
+  return { tone: store.differences !== 0 ? 'problem' : problems.length > 0 ? 'warn' : 'ok', text: parts.join(' · '), problems }
+}
+
+/** B296: the note on top when the work store could not be read: the board falls back to the backlog. Null: none. */
+function storeNote(store) {
+  return store?.failed === true ? { tone: 'problem', text: store.why } : null
+}
+// store:end
+
 function drawAppNote(state) {
   const shown = appNote(state.appMoved ?? null, clock)
   const note = $('app-note')
@@ -216,6 +237,14 @@ function drawAppNote(state) {
   if (shown === null) return
   note.className = `app-note is-${shown.tone}`
   note.textContent = shown.text
+}
+
+/** B296: the note on top when the work store could not be read (see `storeNote`). */
+function drawStoreNote(state) {
+  const shown = storeNote(state.store ?? null)
+  const note = $('store-note')
+  note.hidden = shown === null
+  if (shown !== null) note.textContent = shown.text
 }
 
 /** The note on top (see `updateView`). */
@@ -1799,6 +1828,22 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
   // `hasNotes`: something is written under the step, wherever the window shows it (B94).
   return { code: need.step ?? null, title: need.title, chips, at: need.at ?? null, checklist, notes: rest, hasNotes: notes.length > 0 }
 }
+
+/**
+ * B296: the strip of a step's states in its window, from the flow file (flow.json) of the work store: each state, the
+ * step's own marked, those before it passed; and the moves out of it, who makes each and what must hold first. Null
+ * without the store.
+ */
+function flowStripOf(flow) {
+  if (flow === null || flow === undefined) return null
+  const at = flow.states.indexOf(flow.state)
+  return {
+    states: flow.states.map((name, index) => ({ name, tone: index === at ? 'now' : at >= 0 && index < at ? 'past' : 'later' })),
+    state: flow.state,
+    isKnown: at >= 0,
+    next: flow.next.map(move => `${move.to}, by ${move.by.join(' or ')}${move.when === null ? '' : ` when ${move.when}`}`),
+  }
+}
 // window:end
 
 // waiting:start
@@ -2499,6 +2544,24 @@ function noteParts(notes) {
   }
 }
 
+/** B296: the flow of the step a window shows: a Backlog tab's step carries it; another is found by its id. */
+function flowFor(step, need, state) {
+  if (step !== null && step.flow !== undefined) return step.flow
+  const id = step?.id ?? (need !== null && isStep(need) ? need.step ?? null : null)
+  if (id === null) return null
+  return (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === id)?.flow ?? null
+}
+
+/** B296: the strip of states, the step's own marked, and the moves out of it. */
+function flowPart(strip) {
+  const row = el('ol', 'flow-strip')
+  for (const one of strip.states) row.append(el('li', `flow-state is-${one.tone}`, one.name))
+  const parts = [row]
+  if (!strip.isKnown) parts.push(el('p', 'warn', `It is "${strip.state}", a state the flow file does not know.`))
+  if (strip.next.length > 0) parts.push(el('p', 'muted flow-next', `Next: ${strip.next.join(' · ')}`))
+  return section('Flow', parts)
+}
+
 function drawDetails(state) {
   const box = $('details')
   const subject = subjectOf(state)
@@ -2545,6 +2608,9 @@ function drawDetails(state) {
   // has them on the right.
   if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section('Description', described))
   else if (!view.hasNotes) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
+  // B296: where the step stands in the flow (flow.json), from the work store.
+  const strip = flowStripOf(flowFor(subject.step ?? step ?? null, need, state))
+  if (strip !== null) left.append(flowPart(strip))
   // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback.
   const refine = subject.step !== undefined ? refinePart(subject.step, state) : null
   if (refine !== null) left.append(refine)
@@ -5633,6 +5699,15 @@ function askQueue(button) {
 
 function drawCoordinate(state) {
   const activities = state.backlog ?? []
+  // B296: one line about the work store; its problems on hover.
+  const store = storeLine(state.store ?? null)
+  const storeBox = $('coordinate-store')
+  storeBox.hidden = store === null
+  if (store !== null) {
+    storeBox.className = `coordinate-store is-${store.tone}`
+    storeBox.textContent = store.text
+    storeBox.title = store.problems.join('\n')
+  }
   const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked, hideBusy: $('coordinate-busy').checked })
   // B250: how many steps the box hides, so none seems lost.
   $('coordinate-busy-count').textContent = $('coordinate-busy').checked ? `(${list.hidden} hidden)` : ''
@@ -6382,6 +6457,7 @@ function draw(state) {
   drawTop(state)
   drawUpdate(state)
   drawAppNote(state)
+  drawStoreNote(state)
   drawMainGame(state)
   drawLimits(state)
   drawRestart(state)

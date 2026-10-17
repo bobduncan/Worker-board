@@ -12,6 +12,7 @@
 <body>
   <button class="update-note" id="update-note" type="button" hidden></button>
   <p class="app-note" id="app-note" role="status" hidden></p>
+  <p class="app-note is-problem" id="store-note" role="status" hidden></p>
   <nav class="tabs" aria-label="Views">
     <div class="tab-list">
       <button class="tab is-active" type="button" data-tab="overview"><span class="tab-long">Overview</span><span class="tab-short">Today</span></button>
@@ -166,6 +167,7 @@
           </div>
         </div>
       </header>
+      <p class="coordinate-store" id="coordinate-store" role="status" hidden></p>
       <section class="finished" id="finished" aria-labelledby="finished-title" hidden></section>
       <div class="coordinate-list" id="coordinate-list"></div>
     </main>

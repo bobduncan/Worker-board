@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
-import { BrokenConfig, configProblem, firstStart, followApp, loadConfig } from './src/config.mjs'
+import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
@@ -49,6 +49,7 @@ import { editStep, settleByBoard } from './src/tick.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
+import { shadowKeeper } from './src/work/shadow.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { findGameFile } from './src/gameFile.mjs'
@@ -370,6 +371,12 @@ async function main(args) {
     newId: () => randomBytes(8).toString('hex'),
   })
 
+  // B296: the work store as a shadow of the backlog. The board that delivers writes it; a copy only when its settings
+  // give it a store folder of its own outside the project, so a copy never writes the project's store. Every board
+  // reads it.
+  const canWriteWork = !isDemo && config.project !== '' && (!isShowOnly || isOwnWork(config))
+  const work = isDemo || config.project === '' ? async () => undefined : shadowKeeper({ dir: workFolder(config), canWrite: canWriteWork, clock })
+
   let store
   let readRaw
   let readLines = raw => raw.historyLines ?? store.lines()
@@ -400,7 +407,7 @@ async function main(args) {
     readRaw = async () => {
       // B273: the app may move its folder while the board runs: the board follows it.
       await followApp(config, process.env, process.platform).catch(() => false)
-      return readSources(config, folders, undefined, branches)
+      return readSources(config, folders, undefined, branches, work)
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
@@ -417,7 +424,7 @@ async function main(args) {
       readLines = () => lines.now
       readRaw = async () => {
         lines.now = await shared()
-        return readSources(config, folders, undefined, branches)
+        return readSources(config, folders, undefined, branches, work)
       }
     }
   }

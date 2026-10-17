@@ -973,6 +973,16 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .coordinate-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
 .coordinate-top h1 { font-size: 22px; font-weight: 700; }
 .coordinate-top h1 small { margin-left: 8px; font-size: 14px; font-weight: 400; color: var(--muted); }
+/* B296: the line about the work store under the Backlog tab's head, and the strip of a step's states in its window. */
+.coordinate-store { margin: -6px 0 0; font-size: 13px; color: var(--muted); }
+.coordinate-store.is-ok::before { content: "● "; color: var(--working); }
+.coordinate-store.is-warn::before { content: "● "; color: var(--waiting); }
+.coordinate-store.is-problem { color: var(--warn); }
+.details-part .flow-strip { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.details-part .flow-state { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--muted); }
+.details-part .flow-state.is-past { color: var(--text); background: var(--inset); }
+.details-part .flow-state.is-now { border-color: var(--free); background: var(--free); color: #fff; font-weight: 600; }
+.flow-next { margin-top: 6px; font-size: 12px; }
 .coordinate-filters { display: flex; flex-wrap: wrap; gap: 6px; }
 .coordinate-filters .choice small { margin-left: 4px; color: var(--muted); }
 .coordinate-filters .choice.is-chosen small { color: inherit; }
