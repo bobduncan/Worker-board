@@ -140,6 +140,10 @@ the information i need to approve. i think it works for for workers, but not for
 asks the person as part of its talk with them, not as a finished task, so its window (`mainParts`) differs from a
 worker's:
 
+- *When* (B290): only when its last answer asks something in a "For you" block, or it asked with the app's question
+  form. The app counts the main chat as waiting after every answer; a plain report asks nothing, stands nowhere under
+  Needs your attention, and the main chat's lane is not "Waiting for you" for it (the person, 2026-10-17: "I dont see a
+  question. or its not clear what you want").
 - *The head* says "Main needs your answer" (also its card), not "Finished: its task".
 - *On top*, set apart: "You asked", its closing block's Prompt line, and "Where it stands", its Done line in green or
   red.

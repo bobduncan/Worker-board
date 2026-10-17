@@ -158,7 +158,8 @@ test('a worker that works again is not suspended, and the main chat cannot pause
 // Why a queued step is not started
 
 test('a queued step says why it is not started: its worker is busy, waits for you, or is free and nobody handed it out', () => {
-  const state = build({ tails: { Units: tail(busy), Main: tail([typed(NOW - 30 * MIN, 'Zebracorn'), answer(NOW - 29 * MIN, 'Which one?')]) }, plans: { Units: JSON.stringify({ name: 'x', role: 'worker', state: 'working', task: { text: 'The zebracorn', step: 1, steps: 2, left: 25 * MIN, isReported: false }, at: NOW - 5 * MIN }) }, more: { Main: { postTurnSummary: { status_category: 'blocked', status_detail: 'asked', needs_action: 'Choose one.', summarizes_uuid: 'u-1' } } } })
+  // B290: the main chat waits for the person only when its answer asks in a "For you" block.
+  const state = build({ tails: { Units: tail(busy), Main: tail([typed(NOW - 30 * MIN, 'Zebracorn'), answer(NOW - 29 * MIN, '> **For you**\n> 1. **Answer:** Which one?')]) }, plans: { Units: JSON.stringify({ name: 'x', role: 'worker', state: 'working', task: { text: 'The zebracorn', step: 1, steps: 2, left: 25 * MIN, isReported: false }, at: NOW - 5 * MIN }) }, more: { Main: { postTurnSummary: { status_category: 'blocked', status_detail: 'asked', needs_action: 'Choose one.', summarizes_uuid: 'u-1' } } } })
   assert.deepEqual(why(state, 'Units', 'B03'), { reason: 'busy', worker: 'Units', leftMs: 20 * MIN })
   assert.deepEqual(why(state, 'Main', 'B07'), { reason: 'you', worker: 'Main' })
   const done = [typed(NOW - 30 * MIN, 'Zebracorn'), answer(NOW - 29 * MIN, 'Done.')]
