@@ -23,11 +23,11 @@ import { writeView } from './view.mjs'
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
 const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull'])
 /** What only the person does, on the board's page; and what only the server does. */
-const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept'])
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck'])
 const SERVER = new Set(['check', 'advance'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
@@ -439,17 +439,42 @@ async function report(body, w) {
     const open = openAsksOf(w, id)
     return refuse(409, `${id} waits on ${open.join(', ') || 'an ask'}: withdraw it (work withdraw ${open[0] ?? 'Q<n>'}) or wait for the answer.`)
   }
-  const moved = move(found.item, 'review', w.role, w)
+  // B304: a report from review runs the board's check again (the flow's move review → review), say after a fix.
+  const isAgain = stateOf(found.item) === 'review'
+  let moved
+  if (isAgain) {
+    const allowed = mayMove(w.store.flow, found.item, 'review', w.role, flowCtx(w, [found.item]))
+    moved = allowed.ok ? { ok: true, item: said(found.item, w, 'reported again') } : refuse(409, allowed.why)
+  } else moved = move(found.item, 'review', w.role, w)
   if (!moved.ok) return moved
-  const item = appendHistory(underStep(moved.item, [`Reported by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`]), 'server', 'check pending', w.now)
+  const item = appendHistory(underStep(moved.item, [`Reported ${isAgain ? 'again ' : ''}by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`]), 'server', 'check pending', w.now)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
-  await makeNote(w, 'main', [`${id} reported by ${w.who}: ${line(result, 200)}`], id)
+  await makeNote(w, 'main', [`${id} reported ${isAgain ? 'again ' : ''}by ${w.who}: ${line(result, 200)}`], id)
   // B301: the chat's next step, when the store holds one for it (queued or taken): the Workers mod keeps the chat's
   // context for it instead of compacting it after this report.
   const more = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && valueOf(one, 'Id') !== id && isOwner(one, w.who, w.prefix) && ['queued', 'taken'].includes(stateOf(one)))
     .map(one => valueOf(one, 'Id')).sort(byId)[0] ?? null
-  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result }, more })
+  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result, merged: merged === '' ? lastReport(found.item).merged : merged }, more })
+}
+
+const REPORTED = /^Reported (?:again )?by .+? on \d{4}-\d\d-\d\d at \d\d:\d\d: (.*?)(?: \(merged ([^()\s]+)\))?$/
+/** B304: what the step's reports said: the last result, and the last merged commit named ('' for none). */
+function lastReport(item) {
+  const reports = (item.sections.get('Context') ?? []).map(one => one.trim().match(REPORTED)).filter(Boolean)
+  return { result: reports.at(-1)?.[1] ?? '', merged: reports.findLast(one => one[2] !== undefined)?.[2] ?? '' }
+}
+
+/** B304: the person's "Check again" on a step in review: the board runs its check anew with what was reported. */
+async function recheck(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (stateOf(found.item) !== 'review') return refuse(409, `${id} is ${stateOf(found.item)}: only a step in review is checked again.`)
+  const item = appendHistory(said(found.item, w, 'check asked again'), 'server', 'check pending', w.now)
+  const done = await save(item, found.text, w)
+  if (!done.ok) return done
+  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), ...lastReport(item) } })
 }
 
 /** The open asks under a step, by id. */
@@ -1044,7 +1069,7 @@ async function advance(body, w) {
 }
 
 const CHANGE = {
-  take, step, ask, withdraw, note, report, check, new: make, queue, requeue, unqueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
+  take, step, ask, withdraw, note, report, check, recheck, new: make, queue, requeue, unqueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,

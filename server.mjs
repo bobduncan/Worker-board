@@ -408,7 +408,7 @@ async function main(args) {
     }
   }
   const workReads = new Set(['next', 'list'])
-  /** One action on the store; after a change the board reads it anew, and after a report it runs its own check. */
+  /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${homePort}/` }
@@ -418,9 +418,10 @@ async function main(args) {
       readState.reset()
     }
     if (done.ok && done.result.check !== undefined) {
-      const { id, branch, result } = done.result.check
+      const { id, branch, result, merged } = done.result.check
+      // B304: the repositories the board knows; the check finds the one the step's work is in among them.
       const repos = [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
-      void reportCheck({ branch, result, repos, run: gitRunner() })
+      void reportCheck({ id, branch, result, merged, repos, run: gitRunner() })
         .then(async outcome => workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' }))
         .then(() => {
           work.reset?.()

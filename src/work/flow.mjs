@@ -20,6 +20,7 @@ export const DEFAULT_FLOW = {
       { from: 'in progress', to: 'waiting on you', by: 'worker', when: 'an ask with Blocking yes is open' },
       { from: 'waiting on you', to: 'in progress', by: 'server', when: 'its asks are answered', then: 'wake Owner' },
       { from: 'in progress', to: 'review', by: 'worker', then: 'check: base equals remote, branch gone, result named' },
+      { from: 'review', to: 'review', by: ['worker', 'main'], then: 'check: base equals remote, branch gone, result named' },
       { from: '*', to: 'done', by: 'person' },
       { from: 'review', to: 'done', by: 'server', when: 'the check passed and no ask of kind look is open' },
       { from: '*', to: 'dropped', by: ['person', 'main'] },
@@ -76,7 +77,8 @@ export function mayMove(flow, item, to, by, ctx = {}) {
   const id = valueOf(item, 'Id') ?? '?'
   const kind = valueOf(item, 'Kind') ?? 'step'
   const from = valueOf(item, 'State')
-  const moves = (flow[kind]?.moves ?? []).filter(move => (move.from === from || move.from === '*') && move.to === to && to !== from)
+  // B304: a move to the state it is in is made only when the flow names it so (review → review: reported again).
+  const moves = (flow[kind]?.moves ?? []).filter(move => move.to === to && (to === from ? move.from === from : move.from === from || move.from === '*'))
   if (moves.length === 0) return { ok: false, why: `${id}: no move from ${from} to ${to} (flow.json)` }
   const mine = moves.filter(move => byList(move.by).includes(by))
   if (mine.length === 0) {
