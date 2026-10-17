@@ -333,6 +333,96 @@ function history(now) {
 }
 
 /** B255: the demo's goal map, in the form of goals.md, its steps on the demo's backlog. */
+/** B259: the demo's brainstorms: one waiting on a question, one with a proposal to tick, one done the day before. */
+const THREADS = now => {
+  const day = dayOf(now)
+  const before = dayOf(now - 24 * 60 * MIN)
+  return [
+    { path: `.claude/brainstorms/${day}-how-the-enemies-chase.md`, at: now - 5 * MIN, text: `# Brainstorm: How the enemies chase
+Goal: G5 Enemies that chase
+Started: ${day} 09:30 · State: running
+Opening: The enemies should feel clever, not unfair. How do they find the player?
+Context: G5 has no steps yet; its Missing line asks for the enemies' pathfinding. M1 wants moving to feel good first.
+
+## Q1 (09:32)
+Which enemies chase first?
+Why: it decides which enemy the first step builds.
+- A: the wolves, the forest's main enemy (advised)
+- B: the bats, which fly over everything
+Answer (09:35): A
+
+## Q2 (09:37)
+How far does an enemy see you?
+Why: it decides how often a chase starts.
+- A: five tiles (advised)
+- B: the whole screen
+Answer (09:40): A — but less in the fog
+
+## Q3 (09:42)
+How should a wolf find its way to you?
+Why: it decides the pathfinding step and what it costs.
+- A: a navigation mesh: smooth paths round the trees (advised)
+- B: a grid, tile by tile: simpler, a little stiff
+- C: straight at you, no pathfinding: wolves get stuck on trees
+Picture: art-inbox/pathfinding/option-a-navmesh.png
+` },
+    { path: `.claude/brainstorms/${day}-the-forest-level-s-map.md`, at: now - 40 * MIN, text: `# Brainstorm: The forest level's map
+Goal: G8 The forest level
+Started: ${day} 08:10 · State: running
+Opening: I want the forest level to have one moment players remember.
+
+## Q1 (08:12)
+What should the moment be?
+Why: it decides what the map is built around.
+- A: a clearing where the fog lifts (advised)
+- B: a chase across a bridge
+Answer (08:14): A
+
+## Q2 (08:16)
+When does the player reach it?
+Why: it decides where the clearing stands on the map.
+- A: halfway (advised)
+- B: at the very end
+Answer (08:19): B — the clearing at dusk, as the reward
+
+## Proposal (08:30)
+Decided:
+- one clearing at the end is the moment: the fog lifts there at dusk
+- the map first, the light after
+Goals:
+- [ ] The forest map, drawn — under G8 — Done when: a friend walks from the start to the clearing without a guide
+- [ ] The clearing at dusk — under G8 — Done when: the fog lifts as you enter it
+Steps:
+- [ ] Draw the forest level's map — Levels — about 2 h
+- [ ] The fog that lifts in the clearing — Main decides — about 1 h
+- [ ] A test walk with a friend — Advisor — about 30 min
+Note: one moment to remember is enough for the first level; the light makes it, so it comes after the map.
+` },
+    { path: `.claude/brainstorms/${before}-footsteps-that-sound-right.md`, at: now - 20 * 60 * MIN, text: `# Brainstorm: Footsteps that sound right
+Goal: G3 Footsteps and fog
+Started: ${before} 16:00 · State: done
+Opening: The footsteps sound the same on every ground.
+
+## Q1 (16:02)
+Which grounds get their own sound?
+Why: it decides how many sounds are made.
+- A: grass, stone and wood (advised)
+- B: every ground of the game
+Answer (16:05): A
+
+## Proposal (16:12)
+Decided:
+- three grounds, three sounds
+Goals:
+Steps:
+- [ ] Record grass, stone and wood steps — Main decides — about 1 h
+- [ ] Play the step sound by the ground — Units — about 30 min
+Note: three sounds cover nine of ten steps a player takes.
+Created (16:20): no goals; 2 steps asked of the main chat; left out: nothing
+` },
+  ]
+}
+
 const GOALS = now => `# Goals
 
 Rules: a goal is one line "- [ ] G<n> <title>"; two spaces of indentation per level is "part of".
@@ -354,6 +444,7 @@ Rules: a goal is one line "- [ ] G<n> <title>"; two spaces of indentation per le
       More: .claude/goal-asks/${dayOf(now)}-jump-compared.md
     - [ ] G5 Enemies that chase
       Missing: the enemies' pathfinding as a step
+      Brainstorm: .claude/brainstorms/${dayOf(now)}-how-the-enemies-chase.md (running)
   - [ ] G6 M2 · A level to finish
     From the game plan: M2
     - [ ] G7 The menus
@@ -361,6 +452,7 @@ Rules: a goal is one line "- [ ] G<n> <title>"; two spaces of indentation per le
       Ask (A1, ${dayOf(now)} 09:10): which menu does a player open first?
     - [ ] G8 The forest level
       Missing: the level's map
+      Brainstorm: .claude/brainstorms/${dayOf(now)}-the-forest-level-s-map.md (running)
   - [ ] G9 M3+ · More levels
     From the game plan: M3+
 - [~] G10 The team's tools
@@ -411,6 +503,8 @@ export async function demoSources(now) {
     // B301: the demo's work store, made in memory from its backlog (it has no project folder).
     work: demoWork(now),
     goalsText: GOALS(now),
+    // B259: the demo's brainstorms, newest first.
+    threadTexts: THREADS(now),
     // B113: the app's usage file, three minutes old.
     usageText: `{"version":2,"samples":[{"t":${now - 3 * MIN},"org":"demo","u":{"fh":86,"sd":64}}]}`,
     adviceText: ADVICE,

@@ -93,6 +93,7 @@
     <nav class="advisor-tabs" id="advisor-tabs" aria-label="The Advisor's parts">
       <button type="button" data-advisor-pane="way" aria-pressed="true">Next milestone</button>
       <button type="button" data-advisor-pane="goals" aria-pressed="false">Goals</button>
+      <button type="button" data-advisor-pane="brainstorm" aria-pressed="false">Brainstorm <small id="advisor-brainstorm-count"></small></button>
       <button type="button" data-advisor-pane="plan" aria-pressed="false">Game plan</button>
       <button type="button" data-advisor-pane="suggestions" aria-pressed="false">Suggestions <small id="advisor-suggestions-count"></small></button>
       <button type="button" data-advisor-pane="refine" aria-pressed="false">Refine <small id="advisor-refine-count"></small></button>
@@ -132,6 +133,25 @@
         <div class="goals-outline" id="goals-outline"></div>
       </div>
       <details class="goals-unlinked" id="goals-unlinked" hidden></details>
+    </section>
+    <section class="panel advisor-brainstorm" id="advisor-brainstorm" aria-label="Brainstorms with the Advisor">
+      <div class="brainstorm-split">
+        <nav class="brainstorm-list" id="brainstorm-list" aria-label="The brainstorms"></nav>
+        <div class="brainstorm-main">
+          <form class="brainstorm-new" id="brainstorm-new" hidden>
+            <label class="brainstorm-new-head" for="brainstorm-new-title">A new brainstorm with the Advisor</label>
+            <input type="text" id="brainstorm-new-title" maxlength="120" placeholder="Its title, in a few words" autocomplete="off">
+            <p class="brainstorm-new-about" id="brainstorm-new-about"></p>
+            <textarea id="brainstorm-new-opening" maxlength="2000" rows="3" placeholder="What do you want to think through? The Advisor asks you one question at a time."></textarea>
+            <div class="brainstorm-foot">
+              <small class="brainstorm-note" id="brainstorm-new-note" role="status"></small>
+              <button type="button" class="goals-tool" id="brainstorm-new-cancel">Cancel</button>
+              <button type="submit" class="goals-action is-send" id="brainstorm-new-start">Start</button>
+            </div>
+          </form>
+          <div class="brainstorm-card" id="brainstorm-card"></div>
+        </div>
+      </div>
     </section>
     <section class="panel advice-panel" aria-labelledby="advice-title">
       <h2 id="advice-title">The Advisor</h2>

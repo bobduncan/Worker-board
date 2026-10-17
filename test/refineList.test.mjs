@@ -59,7 +59,7 @@ test('the count on its button is the steps whose answers wait; a group stays as 
 test('the Advisor tab has a Refine part with its count of steps waiting for your answers, and it shows alone', () => {
   assert.match(html, /<button type="button" data-advisor-pane="refine" aria-pressed="false">Refine <small id="advisor-refine-count"><\/small><\/button>/)
   assert.match(html, /<section class="panel advisor-refine" id="advisor-refine" aria-label="The steps by where their refine stands"><\/section>/)
-  assert.match(script, /const ADVISOR_PANES = \['way', 'goals', 'plan', 'suggestions', 'refine', 'chat'\]/)
+  assert.match(script, /const ADVISOR_PANES = \['way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'\]/)
   assert.match(css, /#view-advice > \.advisor-refine/)
   assert.match(css, /#view-advice\[data-pane="refine"\] > \.advisor-refine/)
 })

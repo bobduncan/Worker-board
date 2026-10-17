@@ -87,11 +87,11 @@ button, textarea, select { font: inherit; color: inherit; }
 #view-advice { --side: 500px; }
 /* B195: the Advisor's tab shows one of its parts at a time, under their buttons; the chat is one of them. */
 #view-advice { display: flex; flex-direction: column; }
-#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advisor-refine, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
-#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="refine"] > .advisor-refine, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
+#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advisor-brainstorm, #view-advice > .advisor-refine, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
+#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="brainstorm"] > .advisor-brainstorm, #view-advice[data-pane="refine"] > .advisor-refine, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 #view-advice[data-pane="chat"] > .talk { display: flex; flex: 1; width: min(900px, calc(100% - 36px)); }
 #view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
-.advisor-tabs { display: flex; gap: 8px; padding: 14px 18px 0; flex: none; }
+.advisor-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 18px 0; flex: none; }
 /* B288: "Re-check the goals now" in the Next milestone part's head. */
 .way-recheck-line { margin-top: 8px; }
 .way-recheck { align-self: flex-start; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
@@ -281,6 +281,73 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .goals-ask-note.is-error { color: var(--warn); }
 .goals-action.is-send { border-color: var(--ask); background: #2a2148; }
 .goals-note.is-ok { border-color: #5a4a86; color: var(--ask); }
+/* B259: the Brainstorm part: the list at the left, the box for a new one and the card at the right (where-brainstorm.png, B). */
+.advisor-brainstorm { margin: 14px 18px 16px; max-width: 1240px; }
+.brainstorm-split { display: flex; gap: 18px; align-items: flex-start; }
+.brainstorm-list { flex: 0 0 290px; display: flex; flex-direction: column; gap: 6px; }
+.brainstorm-start { padding: 8px 12px; border: 1px solid var(--free); border-radius: 8px; background: var(--inset); color: #8fb4ff; font: inherit; font-size: 13.5px; cursor: pointer; }
+.brainstorm-start:disabled { color: var(--unknown); border-color: var(--line); cursor: default; }
+.brainstorm-group { margin: 10px 0 2px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.brainstorm-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.brainstorm-row small { color: var(--muted); font-size: 12px; }
+.brainstorm-row:hover, .brainstorm-row:focus-visible { border-color: var(--free); }
+.brainstorm-row.is-chosen { border-color: var(--free); background: #13213a; }
+.brainstorm-row.is-waiting small { color: var(--ask); }
+.brainstorm-empty { font-size: 13px; }
+.brainstorm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.brainstorm-new { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border: 1px dashed var(--free); border-radius: 8px; background: var(--inset); }
+.brainstorm-new[hidden] { display: none; }
+.brainstorm-new-head { color: #8fb4ff; font-weight: 600; font-size: 13.5px; }
+.brainstorm-new-about { margin: 0; color: var(--muted); font-size: 13px; }
+.brainstorm-new input, .brainstorm-new textarea, .brainstorm-other, .brainstorm-change textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.brainstorm-new textarea, .brainstorm-change textarea { resize: vertical; min-height: 56px; }
+.brainstorm-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.brainstorm-note { flex: 1; min-width: 12em; margin: 0; color: var(--muted); font-size: 12.5px; }
+.brainstorm-note.is-error, .brainstorm-foot .is-error { color: var(--warn); }
+.brainstorm-about { margin: 0; color: var(--muted); font-size: 13px; }
+.brainstorm-box { padding: 12px 16px; border: 1px solid var(--free); border-radius: 10px; background: var(--inset); }
+.brainstorm-box.is-done, .brainstorm-box.is-discarded { border-color: var(--line); }
+.brainstorm-meta { color: var(--muted); font-size: 12px; }
+.brainstorm-title { margin: 2px 0 4px; font-size: 15px; }
+.brainstorm-opening { margin: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.brainstorm-question { margin: 12px 0 2px; font-size: 17px; overflow-wrap: anywhere; }
+.brainstorm-why { margin: 0; font-size: 13px; }
+.brainstorm-options { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.brainstorm-option { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.brainstorm-option:hover:not(:disabled), .brainstorm-option:focus-visible { border-color: var(--free); }
+.brainstorm-option:disabled { cursor: default; }
+.brainstorm-option.is-chosen { border-color: var(--free); background: #13213a; }
+.brainstorm-key { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: #1d2a3f; font-weight: 700; }
+.brainstorm-option.is-chosen .brainstorm-key { background: var(--free); color: #fff; }
+.brainstorm-option-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.brainstorm-advised { flex: none; padding: 0 7px; border: 1px solid var(--free); border-radius: 9px; color: #8fb4ff; font-size: 11px; }
+.brainstorm-other { border-style: dashed; }
+.brainstorm-other.is-chosen { border-color: var(--free); border-style: solid; }
+.brainstorm-picture { margin-top: 10px; }
+.brainstorm-picture img { max-width: min(440px, 100%); max-height: 240px; }
+.brainstorm-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.brainstorm-gap { flex: 1; }
+.brainstorm-waiting { margin: 12px 0 0; color: var(--ask); font-size: 13.5px; }
+.brainstorm-waiting.is-off { color: var(--warn); }
+.brainstorm-proposal h4 { margin: 12px 0 0; font-size: 15px; }
+.brainstorm-proposal h5 { margin: 12px 0 4px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.brainstorm-decided { margin: 0; padding: 6px 10px 6px 26px; border-left: 3px solid var(--waiting); background: var(--panel); font-size: 13.5px; }
+.brainstorm-tick { display: flex; align-items: baseline; gap: 8px; margin: 4px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 13.5px; }
+.brainstorm-tick small { margin-left: auto; text-align: right; font-size: 12px; }
+.brainstorm-tick.is-off > span { color: var(--muted); text-decoration: line-through; }
+.brainstorm-note-kept { margin: 0; padding: 4px 10px; border-left: 3px solid var(--waiting); font-size: 13.5px; }
+.brainstorm-created { margin: 12px 0 0; color: var(--working); font-size: 13.5px; }
+.brainstorm-change { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.brainstorm-change .goals-action { align-self: flex-start; }
+.brainstorm-earlier { margin-top: 12px; font-size: 13px; }
+.brainstorm-earlier summary { cursor: pointer; color: var(--muted); }
+.brainstorm-earlier p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.brainstorm-file { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12.5px; }
+.brainstorm-file .goals-tool { margin-left: auto; }
+@media (max-width: 760px) {
+  .brainstorm-split { flex-direction: column; }
+  .brainstorm-list { flex: none; width: 100%; }
+}
 .goal-row.is-editor { cursor: default; }
 .goal-row.is-dragging { opacity: .4; }
 .goal-row.is-before { box-shadow: inset 0 2px 0 var(--free); }

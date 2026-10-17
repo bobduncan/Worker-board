@@ -197,7 +197,7 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 
 test('the page: the Advisor tab in four parts under their buttons, the way first; no tab of its own for the chat', () => {
   assert.match(html, /data-tab="advice"><span class="tab-long">Advisor<\/span><span class="tab-short">Advisor<\/span><\/button>/)
-  assert.deepEqual([...html.matchAll(/data-advisor-pane="(\w+)"/g)].map(found => found[1]), ['way', 'goals', 'plan', 'suggestions', 'refine', 'chat'])
+  assert.deepEqual([...html.matchAll(/data-advisor-pane="(\w+)"/g)].map(found => found[1]), ['way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'])
   assert.equal((html.match(/class="tab[^"]*" type="button" data-tab=/g) ?? []).length, 4)
   assert.match(script, /const pane = ADVISOR_PANES\.includes\(name\) \? name : 'way'/)
   // The answers: yes to the main chat, no with its reason to the Advisor; the way is drawn anew while one is sent.
