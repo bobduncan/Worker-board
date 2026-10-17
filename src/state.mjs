@@ -275,7 +275,10 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const step = stepOf(chat.name)
   const wasCutOff = isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
-  const ended = chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
+  // B290: the app counts the main chat as waiting after every answer; it waits for the person only when its last answer
+  // asks something in a "For you" block (or it asked with the app's question form, `turn` asking).
+  const asksNothing = chat.isMain && turn === 'ended' && entries !== null && parseHandover(waitingFor(entries)?.words ?? '').items.length === 0
+  const ended = asksNothing ? 'free' : chatState({ turn, category: summary?.category, needsAction: summary?.needsAction })
   // B148: its last answer ends with "+ Done:   yes": it has finished, and a card it forgot to clear holds nothing.
   const isDone = turn === 'ended' && entries !== null && saysDone(entries)
   const held = wasCutOff || ended !== 'free' ? null : heldBy({
