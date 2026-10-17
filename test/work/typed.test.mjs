@@ -11,14 +11,13 @@ import { messageText } from '../../src/bridge.mjs'
 import { withInstruction } from '../../src/say.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { valueOf } from '../../src/work/item.mjs'
-import { readStore, writeTruth } from '../../src/work/store.mjs'
+import { readStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 17, 11, 5).getTime()
 
 test('a plain line is filed for its chat and ends with its id; the typed words carry it', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'work-typed-'))
   try {
-    await writeTruth(dir, { truth: 'store', since: '2026-10-17 11:00' })
     const file = body => workApi(body, { dir, now: NOW, roleOf: chat => (chat === 'Main' ? 'main' : null), as: 'person' })
     const message = await withInstruction({ to: 'Main', ask: null, step: null, title: null, verdict: null, text: 'Queue the menu' }, file)
     assert.deepEqual([message.text, message.instruction], ['Queue the menu [I1]', 'I1'])

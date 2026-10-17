@@ -1,5 +1,5 @@
-// B151: a click on a working worker's lane opens a window with the task as it was given: the main chat's hand-over as
-// it arrived in that chat, or what the person typed there, with the backlog step it names and where it stands now.
+// B151: a click on a working worker's lane opens a window with the task as it was given: what the person typed there
+// (B301: never the main chat's hand-over, which gives no task), with the step it is on and where it stands now.
 // The person, 2026-10-14: "I want to be able to click on any worker that is working and in the popup show what it's
 // original task is". The lane itself keeps its card's short task (B82). Made-up samples only.
 
@@ -10,53 +10,51 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { answer, fromChat, midTurn, step, toolResult, typed, user } from '../fixtures/lines.mjs'
+import { answer, assistant, fromChat, midTurn, step, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 import { parseTail, taskOrigin } from '../src/transcript.mjs'
 
 const MIN = 60_000
 const NOW = Date.UTC(2026, 9, 14, 10, 30)
-const MAIN = { mainTitle: 'Game - Main', mainSession: 'local_Main' }
 const entries = lines => parseTail(lines.join('\n'), false)
 const HAND_OVER = 'Task from Game - Main: B12, the zebracorn\'s walk. About 1 h.\n\n- Four directions.\n- Keep the old idle.'
 
 // Finding the message
 
-test('the task\'s first message is the main chat\'s hand-over as it arrived, with all its lines', () => {
+test('B301: the main chat\'s hand-over is no task\'s origin, also one that arrived in the middle of a turn', () => {
   const lines = [fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER), step(NOW - 49 * MIN, 'Draw'), toolResult(NOW - 48 * MIN)]
-  assert.deepEqual(taskOrigin(entries(lines), MAIN), { by: 'main', at: NOW - 50 * MIN, text: HAND_OVER })
-  // One that arrived in the middle of a turn counts too.
+  assert.equal(taskOrigin(entries(lines)), null)
   const queued = [typed(NOW - 60 * MIN, 'Zebracorn please'), step(NOW - 59 * MIN, 'Build'), midTurn(NOW - 50 * MIN, 'local_Main', HAND_OVER, 'Game - Main')]
-  assert.deepEqual(taskOrigin(entries(queued), MAIN), { by: 'main', at: NOW - 50 * MIN, text: HAND_OVER })
+  assert.deepEqual(taskOrigin(entries(queued)), { by: 'you', at: NOW - 60 * MIN, text: 'Zebracorn please' })
 })
 
 test('a task the person typed into the chat is their own words', () => {
   const lines = [typed(NOW - 40 * MIN, 'Make the quokkaberry glow.\nOnly at night.'), step(NOW - 39 * MIN, 'Read'), toolResult(NOW - 38 * MIN)]
-  assert.deepEqual(taskOrigin(entries(lines), MAIN), { by: 'you', at: NOW - 40 * MIN, text: 'Make the quokkaberry glow.\nOnly at night.' })
+  assert.deepEqual(taskOrigin(entries(lines)), { by: 'you', at: NOW - 40 * MIN, text: 'Make the quokkaberry glow.\nOnly at night.' })
 })
 
 test('the newest message at or before the task\'s start counts; a note, a tool\'s answer or a slash command is none', () => {
   const lines = [
-    fromChat(NOW - 90 * MIN, 'Game - Main', 'Task from Game - Main: an older task.'),
+    typed(NOW - 90 * MIN, 'An older task.'),
     answer(NOW - 80 * MIN, 'Done.'),
-    fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER),
+    typed(NOW - 50 * MIN, HAND_OVER),
     fromChat(NOW - 30 * MIN, 'Game - Main', 'Note from Game - Main: the art folder moved.'),
     fromChat(NOW - 25 * MIN, 'Game - Units', 'Task from Game - Main: not from the main chat at all.'),
     user(NOW - 20 * MIN, '<command-name>/reload-plugins</command-name>'),
     toolResult(NOW - 15 * MIN),
     typed(NOW - 10 * MIN, 'How far are you?'),
   ]
-  // The task started with the hand-over: what came later is about it, not it.
-  assert.equal(taskOrigin(entries(lines), MAIN, NOW - 48 * MIN).text, HAND_OVER)
+  // The task started with those words: what came later is about it, not it.
+  assert.equal(taskOrigin(entries(lines), NOW - 48 * MIN).text, HAND_OVER)
   // Without a known start, the newest that can start one.
-  assert.deepEqual(taskOrigin(entries(lines), MAIN), { by: 'you', at: NOW - 10 * MIN, text: 'How far are you?' })
-  assert.equal(taskOrigin(entries(lines.slice(3, 7)), MAIN), null)
+  assert.deepEqual(taskOrigin(entries(lines)), { by: 'you', at: NOW - 10 * MIN, text: 'How far are you?' })
+  assert.equal(taskOrigin(entries(lines.slice(3, 7))), null)
 })
 
 test('a very long message is kept to its first 6000 characters', () => {
-  const long = `Task from Game - Main: B12.\n${'x'.repeat(7000)}`
-  const found = taskOrigin(entries([fromChat(NOW - 5 * MIN, 'Game - Main', long)]), MAIN)
+  const long = `B12.\n${'x'.repeat(7000)}`
+  const found = taskOrigin(entries([typed(NOW - 5 * MIN, long)]))
   assert.equal(found.text.length, 6001)
   assert.ok(found.text.endsWith('…'))
 })
@@ -82,19 +80,25 @@ function lane(lines, { plan = card, backlogText = BACKLOG } = {}) {
   }
   return buildState(raw, { lines: [], outbox: [], runs: [], now: NOW, config }).chats.find(chat => chat.name === 'Units')
 }
-const working = [fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER), step(NOW - 2 * MIN, 'Draw the sheet'), toolResult(NOW - MIN)]
+const working = [typed(NOW - 50 * MIN, HAND_OVER), step(NOW - 2 * MIN, 'Draw the sheet'), toolResult(NOW - MIN)]
 
-test('a working lane carries the task as it was given, with the backlog step it names; its own task stays the card\'s', () => {
+test('a working lane carries the task as it was given: the step the store holds for it, else the person\'s words; its own task stays the card\'s', () => {
   const units = lane(working)
   assert.equal(units.state, 'working')
   assert.equal(units.task.text, 'Zebracorn walk')
-  assert.deepEqual(units.givenTask, { by: 'main', at: NOW - 50 * MIN, text: HAND_OVER, step: { id: 'B12', title: 'The zebracorn\'s walk', about: null } })
+  assert.deepEqual(units.givenTask, { by: 'step', at: null, text: '', step: { id: 'B12', title: 'The zebracorn\'s walk', about: null } })
+  // Without a step of the store, what the person typed.
+  assert.deepEqual(lane(working, { backlogText: '' }).givenTask, { by: 'you', at: NOW - 50 * MIN, text: HAND_OVER, step: null })
+  // B301: a hand-over of the main chat gives it none.
+  assert.equal(lane([fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER), step(NOW - 2 * MIN, 'Draw the sheet'), toolResult(NOW - MIN)], { backlogText: '' }).givenTask, null)
 })
 
 test('a lane that is free, or waits for the person, carries none: its window is another one, or there is none', () => {
   const free = lane([typed(NOW - 30 * MIN, 'Zebracorn please'), answer(NOW - 29 * MIN, 'Done.')], { plan: '', backlogText: '' })
   assert.deepEqual([free.state, free.givenTask], ['free', null])
-  const raw = { listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [app('Main'), app('Units', { postTurnSummary: { status_category: 'blocked', status_detail: 'x', needs_action: 'Choose.', summarizes_uuid: 'u-1' } })], tails: { 'cli-Units': { text: [...working, answer(NOW - 30 * 1000, 'Which one?')].join('\n'), isCut: false, modifiedAt: NOW } }, planLineTexts: { 'cli-Units': card }, backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {} }
+  // It asks with the app's question form.
+  const asking = assistant(NOW - 30 * 1000, 'tool_use', [tool('AskUserQuestion', { questions: [{ question: 'Which one?', options: [{ label: 'A' }] }] })])
+  const raw = { listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [app('Main'), app('Units')], tails: { 'cli-Units': { text: [...working, asking].join('\n'), isCut: false, modifiedAt: NOW } }, planLineTexts: { 'cli-Units': card.replace('"state":"working"', '"state":"asking"') }, backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {} }
   const waiting = buildState(raw, { now: NOW, config }).chats.find(chat => chat.name === 'Units')
   assert.deepEqual([waiting.state, waiting.givenTask], ['waiting', null])
 })
@@ -114,14 +118,17 @@ const plain = value => JSON.parse(JSON.stringify(value))
 test('the window shows the card\'s task in its head, the task as it was given, its step, and where it stands now', () => {
   const units = lane(working)
   const view = plain(page.laneWindowOf(units, NOW, 'Game - Main'))
-  assert.deepEqual([view.code, view.title, view.chips], ['B12', 'Zebracorn walk', [{ text: 'Working', tone: 'kind' }, { text: 'Worker: Units', tone: 'to' }]])
-  assert.deepEqual(view.given, { from: `Handed over by Game - Main, ${page.clock(NOW - 50 * MIN)}`, text: HAND_OVER })
+  // B299: the lane names its step by the store's title, not the card's short topic.
+  assert.deepEqual([view.code, view.title, view.chips], ['B12', 'The zebracorn\'s walk', [{ text: 'Working', tone: 'kind' }, { text: 'Worker: Units', tone: 'to' }]])
+  // B301: the step is the task; no words gave it.
+  assert.equal(view.given, null)
+  assert.deepEqual(plain(page.laneWindowOf(lane(working, { backlogText: '' }), NOW, 'Game - Main')).given, { from: `Typed by you, ${page.clock(NOW - 50 * MIN)}`, text: HAND_OVER })
   assert.deepEqual(view.step, { id: 'B12', title: 'The zebracorn\'s walk', about: null })
   assert.deepEqual(view.standing, ['Step 2 of 3: Views, 6 min left', `ETA: 18 min left, until ${page.clock(NOW + 18 * MIN)}`, 'Now: Draw the sheet'])
 })
 
 test('typed by the person, unknown, or a lane whose window this is not', () => {
-  const units = lane([typed(NOW - 40 * MIN, 'Make the quokkaberry glow.'), step(NOW - 2 * MIN, 'Draw the sheet'), toolResult(NOW - MIN)], { plan: card.replace(`"since":${NOW - 49 * MIN}`, `"since":${NOW - 39 * MIN}`) })
+  const units = lane([typed(NOW - 40 * MIN, 'Make the quokkaberry glow.'), step(NOW - 2 * MIN, 'Draw the sheet'), toolResult(NOW - MIN)], { plan: card.replace(`"since":${NOW - 49 * MIN}`, `"since":${NOW - 39 * MIN}`), backlogText: '' })
   assert.equal(page.laneWindowOf(units, NOW, 'Game - Main').given.from, `Typed by you, ${page.clock(NOW - 40 * MIN)}`)
   const lost = plain(page.laneWindowOf({ ...lane(working), givenTask: null }, NOW, 'Game - Main'))
   assert.deepEqual([lost.given, lost.code, lost.step], [null, 'B12', null])

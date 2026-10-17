@@ -1,6 +1,7 @@
 // B149: a worker that finished its task with something left for the person: the parts of its last answer in the
-// agreed form (CLAUDE.md part "2b"), the window that shows them, and its links to a picture and to the game.
-// Made-up samples only; no word names a project.
+// agreed form (CLAUDE.md part "2b") and the window that shows them. B301: its "For you" items are no questions the
+// board answers: what waits for the person is the work store's asks, and a block without one is a warning. Made-up
+// samples only; no word names a project.
 
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -13,7 +14,7 @@ import { answer, fromChat, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { checkGame } from '../src/games.mjs'
 import { closingOf, parseHandover, withoutClosing } from '../src/handover.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const CLOSING = '---\n\n```diff\n  Prompt: B150, the walk\n  Who:    Studio · Worker 2\n- Done:   partly, waits for your look\n```'
 const ANSWER = [
@@ -95,11 +96,11 @@ function waitingWorker(lines) {
   return state.forYou.find(need => need.from === 'Worker 2')
 }
 
-test('a finished worker\'s need carries the parts and the main chat\'s hand-over, and its title says it finished', () => {
+test('B301: a finished worker\'s "For you" block without an ask is a warning, its window with the parts, never the main chat\'s hand-over', () => {
   const need = waitingWorker([fromChat(NOW - 90 * MIN, 'Studio · Lead', 'Task from Studio · Lead: B150, the walk. About 1 hour.'), answer(NOW - 4 * MIN, ANSWER)])
-  assert.equal(need.title, 'Finished: B150: give the archer a walk cycle in four directions')
-  assert.equal(need.waits.handover.items.length, 3)
-  assert.deepEqual([need.waits.given.by, need.waits.given.text], ['main', 'Task from Studio · Lead: B150, the walk. About 1 hour.'])
+  assert.deepEqual([need.kind, need.title, need.canAnswer, need.talk], ['unfiled', 'Worker 2 wrote questions in its chat but filed no ask', false, 'window'])
+  assert.equal(need.waits.handover.task, 'B150: give the archer a walk cycle in four directions')
+  assert.equal(need.waits.given, null)
 })
 
 test('what the person typed to a chat that waits is never shown, also as its task', () => {
@@ -113,14 +114,12 @@ test('what the person typed to a chat that waits is never shown, also as its tas
 const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('waiting')}\nObject.assign(this, { waitingOf, hasForm, handoverAnswer, closingRows })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('waiting')}\nObject.assign(this, { waitingOf, hasForm, closingRows })`, page)
 
-test('the answers to the items are typed as the person answers in a chat, one line per item answered', () => {
-  const items = parseHandover(ANSWER).items
-  const answers = new Map([[1, { verdict: 'yes', words: '' }], [2, { verdict: 'no', words: ' it slides  at the corner ' }], [3, { verdict: null, words: '' }]])
-  assert.equal(page.handoverAnswer(items, answers), '1. yes\n2. no: it slides at the corner')
-  assert.equal(page.handoverAnswer(items, new Map([[3, { verdict: 'done', words: '' }], [1, { verdict: null, words: 'too fast' }]])), '1. too fast\n3. done')
-  assert.equal(page.handoverAnswer(items, new Map()), '')
+test('B301: the window offers no answers to a "For you" block\'s items: no item part, no answer rows', () => {
+  const parts = script.slice(script.indexOf('function handoverParts'), script.indexOf('function mainParts'))
+  assert.doesNotMatch(parts, /itemsPart|data-item-verdict/)
+  assert.doesNotMatch(script, /function itemsPart|function handoverAnswer|itemAnswers/)
 })
 
 test('the window has the form when the answer has items or a task or what it did, and shows the closing block as rows', () => {
@@ -135,9 +134,7 @@ test('the window has the form when the answer has items or a task or what it did
   assert.equal(view.handover.items.length, 3)
 })
 
-test('the window\'s links: a picture opens in the board\'s popup, the game starts in a new tab; the address follows a link once', () => {
-  assert.match(script, /open\.dataset\.zoom = link\.path/)
-  assert.match(script, /open\.dataset\.play = link\.branch/)
+test('the board\'s links: the game starts in a new tab; the address follows a link once', () => {
   assert.match(script, /body: JSON\.stringify\(\{ item: 'branch', branch, action: 'start' \}\)/)
   assert.match(script, /if \(location\.hash\.startsWith\('#picture='\) \|\| location\.hash\.startsWith\('#play='\)\) \{\n {4}const hash = location\.hash\n {4}history\.replaceState\(null, '', location\.pathname\)/)
 })

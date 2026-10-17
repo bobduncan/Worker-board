@@ -28,6 +28,7 @@ import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, workFolder } from './src/config.mjs'
@@ -40,7 +41,7 @@ import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { seenTicks } from './src/finished.mjs'
-import { freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
+import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { answerWords, checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
@@ -53,7 +54,7 @@ import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor } from './src/work/deliver.mjs'
-import { shadowKeeper } from './src/work/shadow.mjs'
+import { storeKeeper } from './src/work/read.mjs'
 import { readStore } from './src/work/store.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
@@ -377,29 +378,19 @@ async function main(args) {
   // B110: an approval of merged work, and "Done" on what only the person could do, the board settles itself.
   const settle = (message, state) => settleByBoard(message, state, {
     work: workWriters,
-    canWrite: !isDemo && !isShowOnly,
-    file: join(config.project, ...config.backlog.split('/')),
     branchesNow,
     now: clock(),
     say: sent => store.say(sent),
     newId: () => randomBytes(8).toString('hex'),
   })
 
-  // B296: the work store as a shadow of the backlog. The board that delivers writes it; a copy only when its settings
-  // give it a store folder of its own outside the project, so a copy never writes the project's store. Every board
-  // reads it.
-  const canWriteWork = !isDemo && config.project !== '' && (!isShowOnly || isOwnWork(config))
-  const work = isDemo || config.project === '' ? async () => undefined : shadowKeeper({
-    dir: workFolder(config),
-    canWrite: canWriteWork,
-    clock,
-    // The backlog read anew right before each write, so a refresh's older text never wins (B296 review).
-    readBacklog: () => readFile(join(config.project, ...config.backlog.split('/')), 'utf8'),
-  })
-  // B297: the work store's API (work/api.mjs): the page's actions as the person, the work tool's as its chat. Once the
-  // store is the truth, each change writes backlog.md anew as the store's view: the board that delivers writes the
-  // project's file; a copy with a store of its own writes the view into that folder, never the project's backlog. A
-  // copy without one only reads.
+  // B296, B301: the work store, the one source of the work. Every board reads it; a store that is not there or cannot be
+  // read is said on top of the page (work/read.mjs, `storeFault`), and nothing is drawn from the backlog file instead.
+  const work = isDemo || config.project === '' ? async () => undefined : storeKeeper({ dir: workFolder(config), clock })
+  // B297: the work store's API (work/api.mjs): the page's actions as the person, the work tool's as its chat. Each
+  // change writes backlog.md anew as the store's view: the board that delivers writes the project's file; a copy with a
+  // store of its own (outside the project) writes the view into that folder, never the project's backlog. A copy
+  // without one only reads.
   const workDir = isDemo || config.project === '' ? null : workFolder(config)
   const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
@@ -413,7 +404,7 @@ async function main(args) {
     return {
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
-      viewFile, boardUrl: `http://${HOST}:${homePort}`,
+      viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
     }
   }
   const workReads = new Set(['next', 'list'])
@@ -628,17 +619,24 @@ async function main(args) {
   let measuring = false
   let hasList = false
   const measureTasks = async state => {
-    const main = { mainTitle: state.workers?.mainTitle ?? null, mainSession: state.chats.find(chat => chat.isMain)?.appSession ?? null }
-    if (measuring || main.mainTitle === null || typeof config.transcripts !== 'string') return
+    if (measuring || typeof config.transcripts !== 'string' || workDir === null) return
     measuring = true
     try {
+      // B301: a step's area and estimate as the store holds them.
+      const items = (await readStore(workDir).catch(() => ({ items: new Map() }))).items
+      const stepOf = id => {
+        const item = items.get(id)
+        if (item === undefined) return null
+        const words = [item.head.get('Title') ?? '', ...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)].join('\n')
+        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`) }
+      }
       const added = []
       for (const chat of state.chats) {
         if (chat.isMain || chat.isLeftover || typeof chat.session !== 'string' || !/^[\w-]+$/.test(chat.session)) continue
         const scan = taskTimes.scans[chat.session] ?? freshScan(chat.name)
         scan.worker = chat.name
         taskTimes.scans[chat.session] = scan
-        added.push(...await readOn(join(config.transcripts, `${chat.session}.jsonl`), scan, main))
+        added.push(...await readOn(join(config.transcripts, `${chat.session}.jsonl`), scan, stepOf))
       }
       if (added.length > 0) taskTimes.tasks = keptTasks(taskTimes.tasks, added)
       if (historyFrom === undefined) {
@@ -753,7 +751,7 @@ async function main(args) {
         readState.reset()
         return ticked
       }
-      // B298: once the store is the truth, a line to a chat is filed as an instruction first and carries its id.
+      // B298: a line to a chat is filed as an instruction first and carries its id.
       message = await withInstruction(message, body => workAction(body, 'person'))
       await store.say(message)
       if (isCopied) {
@@ -774,10 +772,10 @@ async function main(args) {
       const found = await findPicture(project, config.pictureRoots, path)
       return found === null ? null : { type: found.type, body: await readFile(found.file) }
     },
-    // B221: the person closes or deletes a step on the Backlog tab. Only the board that delivers writes the backlog.
+    // B221: the person closes or deletes a step on the Backlog tab, through the work API (the store, then its view).
     // B285: the state is read anew after a change, so an ask made next (Send answers · refine again) knows the block.
     backlog: async body => {
-      const done = await editStep(body, { canWrite: !isDemo && !isShowOnly, file: join(config.project, ...config.backlog.split('/')), now: clock(), work: workWriters })
+      const done = await editStep(body, { now: clock(), work: workWriters })
       work.reset?.()
       readState.reset()
       return done
@@ -1012,7 +1010,7 @@ async function main(args) {
     setInterval(look, TICK_MS)
   }
 
-  // B300: once the store is the truth, the reconciler at every refresh: the server's moves through the work API, and
+  // B300: the reconciler at every refresh: the server's moves through the work API, and
   // each chat's line that a step is its own, once (src/work/deliver.mjs). Only a board that writes the store: the one
   // that delivers, or a copy with a store of its own (whose outbox no chat takes from).
   if (!isDemo && historyFrom === undefined && workWriters !== null) {

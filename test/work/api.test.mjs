@@ -8,10 +8,10 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { parseBacklog } from '../../src/backlog.mjs'
-import { NOT_TRUTH, workApi } from '../../src/work/api.mjs'
+import { workApi } from '../../src/work/api.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { readStore, writeStore, writeTruth } from '../../src/work/store.mjs'
+import { readStore, writeStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 17, 11, 5).getTime()
 const BACKLOG = [
@@ -34,11 +34,10 @@ const BACKLOG = [
 ].join('\n')
 const ROLES = { Main: 'main', Board: 'worker', Support: 'worker', Advisor: 'advisor' }
 
-/** A store of the backlog above in a folder of its own; the truth unless `truth` says shadow. */
-async function fresh(truth = 'store') {
+/** A store of the backlog above in a folder of its own. */
+async function fresh() {
   const dir = await mkdtemp(join(tmpdir(), 'work-api-'))
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
-  await writeTruth(dir, { truth, since: '2026-10-17 11:05' })
   const ctx = { dir, now: NOW + 60_000, prefix: 'Team - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(['Board', 'Support']) }
   const as = chat => body => workApi({ chat, ...body }, ctx)
   return { dir, ctx, main: as('Main'), board: as('Board'), support: as('Support'), advisor: as('Advisor'), person: body => workApi(body, { ...ctx, as: 'person' }), server: body => workApi(body, { ...ctx, as: 'server' }) }
@@ -47,15 +46,20 @@ const item = async (dir, id) => (await readStore(dir)).items.get(id)
 const state = async (dir, id) => valueOf(await item(dir, id), 'State')
 const history = async (dir, id) => (await item(dir, id)).sections.get('History')
 
-test('while the store is a shadow, every change is refused and the reads answer', async () => {
-  const { dir, board } = await fresh('shadow')
+test('B301: no store, or a store folder that cannot be read: every action, the reads too, answers 503 with the line the board shows', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'work-api-'))
   try {
-    assert.deepEqual(await board({ action: 'take', id: 'B1' }), { ok: false, status: 409, why: NOT_TRUTH })
-    assert.equal(NOT_TRUTH, 'The store is not the truth yet: the cutover has not run')
-    const next = await board({ action: 'next' })
-    assert.equal(next.ok, true)
-    assert.match(next.result.text, /^Yours, Board:\n- B1 queued: Draw the strip\n- B2 queued \(after B1\): Keep the cards apart\n\nId: B1\n/)
-    assert.equal((await board({ action: 'list' })).result.items.length, 7)
+    const ctx = { dir: join(dir, 'work'), now: NOW, prefix: 'Team - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(), backlogFile: join(dir, 'backlog.md') }
+    for (const body of [{ action: 'take', id: 'B1' }, { action: 'next' }, { action: 'list' }]) {
+      const none = await workApi({ chat: 'Board', ...body }, ctx)
+      assert.equal(none.status, 503)
+      assert.equal(none.why, `No work store in ${ctx.dir}: the board shows no work. In the board's folder, make it from the backlog with "node tools/migrate-backlog.mjs --backlog ${ctx.backlogFile} --work ${ctx.dir} --make-store", or make an empty one with "node tools/migrate-backlog.mjs --work ${ctx.dir} --init".`)
+    }
+    // A file where the folder should be: it cannot be read, and nothing falls back.
+    await writeFile(ctx.dir, 'not a folder')
+    const broken = await workApi({ chat: 'Board', action: 'next' }, ctx)
+    assert.equal(broken.status, 503)
+    assert.match(broken.why, /^The work store .* cannot be read \((ENOTDIR|EEXIST|EINVAL)\): the board shows no work until it can\./)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

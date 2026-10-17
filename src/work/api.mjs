@@ -3,30 +3,25 @@
 // line per change. Only the server writes the store: the chats call the tool (POST /api/bridge/work), the page calls
 // POST /api/work, and the server's own writers call `workApi` with `as: 'server'` or `as: 'person'`.
 //
-// While the store is a shadow of the backlog (truth.json says "shadow"), nothing changes it but the shadow: every
-// action that changes something is refused, and only `next` and `list` answer.
+// B301: the store is required. A store folder that is not there or cannot be read is refused with 503 and the one line
+// the board shows on top for it (read.mjs, `storeFault`); nothing is read from or written to the backlog file instead.
 
 import { minutesOf } from '../backlog.mjs'
 import { workWords } from '../say.mjs'
-import { acceptRefine, answerRefine } from '../tick.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
 import { overlapsIn } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
+import { storeFault } from './read.mjs'
+import { acceptRefine, answerRefine } from './refineText.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { writeView } from './view.mjs'
 
 // B300: kept here for those who import them from the API.
 export { overlapsIn, sinceMs }
 
-export const NOT_TRUTH = 'The store is not the truth yet: the cutover has not run'
-/**
- * B297, review 1: whether the board lists the store's asks and lets the person answer them (Needs your attention, built
- * in B299). Until it does, a blocking ask would strand its step, so the cutover is refused. B299 sets it true.
- */
-export const BOARD_ANSWERS_ASKS = true
 const READS = new Set(['next', 'list'])
 const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
@@ -111,9 +106,15 @@ async function act(body, ctx) {
   if (SERVER.has(action) && role !== 'server') return refuse(403, 'Only the board does that.')
   if (ROLES[action] !== undefined && !ROLES[action].includes(role)) return refuse(403, `Only ${ROLES[action].join(' or ')} ${action === 'new' ? 'makes a step' : `may ${action}`}.`)
 
-  const store = await readStore(ctx.dir, ctx.fs)
-  if (!store.exists) return refuse(409, `No work store in ${ctx.dir}.`)
-  if (CHANGES.has(action) && store.truth !== 'store') return refuse(409, NOT_TRUTH)
+  let store
+  try {
+    store = { ok: true, dir: ctx.dir, ...(await readStore(ctx.dir, ctx.fs)) }
+  } catch (error) {
+    store = { ok: false, dir: ctx.dir, code: error?.code ?? error?.message ?? 'unknown' }
+  }
+  // B301: no store, or one that cannot be read: the board's line for it, never a fallback.
+  const fault = storeFault(store, { backlog: ctx.backlogFile ?? null })
+  if (fault !== null) return refuse(503, fault)
   const now = ctx.now ?? Date.now()
   const w = { ...ctx, store, now, who, role, action }
   if (action === 'next') return next(body, w)
@@ -184,7 +185,9 @@ async function load(id, w, { kind = null } = {}) {
 /** Writes the item while its file still holds `text` (null: a new one). */
 async function save(item, text, w) {
   const done = await writeItem(w.dir, item, w.fs, { expected: text })
-  return done.ok ? { ok: true } : refuse(409, `${valueOf(item, 'Id')}: ${done.why}; try again.`)
+  if (done.ok) return { ok: true }
+  // B301: a file that changed since it was read is a conflict (409); one that cannot be written is the board's fault (500).
+  return refuse(/could not be written/.test(done.why) ? 500 : 409, `${valueOf(item, 'Id')}: ${done.why}; try again.`)
 }
 
 const copy = item => ({ ...item, head: new Map(item.head), sections: new Map(item.sections) })
@@ -440,7 +443,11 @@ async function report(body, w) {
   const done = await save(item, found.text, w)
   if (!done.ok) return done
   await makeNote(w, 'main', [`${id} reported by ${w.who}: ${line(result, 200)}`], id)
-  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result } })
+  // B301: the chat's next step, when the store holds one for it (queued or taken): the Workers mod keeps the chat's
+  // context for it instead of compacting it after this report.
+  const more = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && valueOf(one, 'Id') !== id && isOwner(one, w.who, w.prefix) && ['queued', 'taken'].includes(stateOf(one)))
+    .map(one => valueOf(one, 'Id')).sort(byId)[0] ?? null
+  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result }, more })
 }
 
 /** The open asks under a step, by id. */
@@ -880,7 +887,7 @@ async function remove(body, w) {
 
 /**
  * The person's answers to a step's refine questions and their feedback, or their "accepted": written into its refine
- * block as the backlog's own writers write it (tick.mjs), then read back into the item.
+ * block (refineText.mjs) on the step's lines as the store holds them, then read back into the item.
  */
 async function refineText(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })

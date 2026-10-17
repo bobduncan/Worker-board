@@ -93,7 +93,8 @@ const FOR_YOU_TITLE = /^>\s*\*{0,2}\s*(?:for you|needs your attention)\s*:?\s*\*
 /**
  * B290: whether an answer ends by asking the person something: its last "For you" block is followed by nothing but
  * blank lines, a rule and the closing block. A block quoted earlier in the answer (a worker's, already answered) asks
- * nothing of its own; a block whose title or items are written a little off still asks.
+ * nothing of its own; a block whose title or items are written a little off still asks. B301: no chat waits for the
+ * person by this; a chat whose answer asks so without an ask of the work store is a warning (state.mjs, `unfiledAsk`).
  */
 export function asksAtEnd(text) {
   if (typeof text !== 'string') return false

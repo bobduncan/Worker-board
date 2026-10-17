@@ -1,6 +1,7 @@
-// B297: the cutover. The store becomes the truth, backlog.md its generated view; the board's own writers (a tick, a
-// close, a delete, the person's refine answers) change the item and the view, not the old file's lines; the command
-// prints the steps in flight and every chat card beside the store's state of its step. Made-up samples only.
+// B297, B301: how a project gets its work store. `--make-store` makes it from a backlog file (backlog.md becomes its
+// generated view, the old file kept), `--init` an empty one for a new project; the board's own writers (a tick, a close,
+// a delete, the person's refine answers) change the item and the view, never the backlog file's lines. Made-up samples
+// only.
 
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -11,14 +12,13 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { editStep, settleByBoard } from '../../src/tick.mjs'
+import { workApi } from '../../src/work/api.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { readStore, readTruth, writeStore, writeTruth } from '../../src/work/store.mjs'
-import { BOARD_ANSWERS_ASKS } from '../../src/work/api.mjs'
-import { boardRunsWork, run } from '../../tools/migrate-backlog.mjs'
+import { storeFault, storeKeeper } from '../../src/work/read.mjs'
+import { readStore, writeStore } from '../../src/work/store.mjs'
+import { run } from '../../tools/migrate-backlog.mjs'
 
-/** The checks of the running board, as they stand once B299 is in and the board runs this version. */
-const READY = { asksOnBoard: true, boardAnswers: async () => ({ ok: true }) }
 const quiet = () => {
   const lines = []
   return { lines, log: line => lines.push(line), text: () => lines.join('\n') }
@@ -32,7 +32,7 @@ const command = (...args) => spawnSync(process.execPath, [TOOL, ...args], { enco
 
 /** A project folder with the fixture as its backlog and two chat cards. */
 async function project() {
-  const root = await mkdtemp(join(tmpdir(), 'work-cutover-'))
+  const root = await mkdtemp(join(tmpdir(), 'work-make-'))
   const claude = join(root, '.claude')
   await mkdir(join(claude, 'chats'), { recursive: true })
   await copyFile(FIXTURE, join(claude, 'backlog.md'))
@@ -44,58 +44,76 @@ async function project() {
   return { root, claude, backlog: join(claude, 'backlog.md'), work: join(claude, 'work') }
 }
 
-test('the cutover dry run prints the table and every card beside its step, and writes nothing', async () => {
+test('the dry run of --make-store prints the table and every card beside its step, and writes nothing', async () => {
   const { root, claude, backlog, work } = await project()
   try {
-    const dry = command('--backlog', backlog, '--work', work, '--cutover', '--dry-run')
-    // Review 1 and 7: until the board answers the store's asks and runs this version, the cutover is refused. B299: the
-    // board answers them now (Needs your attention, POST /api/work answer); it still has to run this version.
-    assert.equal(BOARD_ANSWERS_ASKS, true)
-    assert.equal(dry.status, 1, dry.stdout + dry.stderr)
-    assert.doesNotMatch(dry.stdout, /the board cannot answer the store's asks yet/)
-    assert.match(dry.stdout, /^Would refuse: no board runs \(no board\.json beside the backlog\): start the board with this version first\.$/m)
+    const dry = command('--backlog', backlog, '--work', work, '--make-store', '--dry-run')
+    assert.equal(dry.status, 0, dry.stdout + dry.stderr)
     assert.match(dry.stdout, /^Steps: 19 on the backlog, 19 in the store$/m)
     assert.match(dry.stdout, /^The view reads back as the same items: yes$/m)
     assert.match(dry.stdout, /^In flight: 13$/m)
-    // Review 2: a step in progress that names nobody is claimed by the worker on it.
+    // A step in progress that names nobody is claimed by the worker on it.
     assert.match(dry.stdout, /^ {2}B17 \| in progress \| - \| feature\/shop \| no owner: the worker on it runs work take$/m)
     assert.match(dry.stdout, /^ {2}B10 \| queued \| Board \| -$/m)
     assert.match(dry.stdout, /^Cards with a task: 2 \(1 disagree with the store\)$/m)
     assert.match(dry.stdout, /^ {2}Units \| B17 the shop screen \(2\/4\) \| B17 in progress$/m)
     assert.match(dry.stdout, /^ {2}Board \| Draw the strip \(1\/3\) \| names no step; Board holds in the store: nothing in progress \(queued: B10, B20, B21, B24\) <- check$/m)
-    assert.match(dry.stdout, /^Dry run: nothing written\.$/m)
+    assert.match(dry.stdout, /^Dry run: would write 19 item files, activities\.json and last-ids\.json into .*; nothing written\.$/m)
     assert.deepEqual(await readdir(claude), ['backlog.md', 'chats'])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('the cutover makes the store the truth, keeps the old file and writes the view; it runs once', async () => {
+test('--make-store makes the store, keeps the old file and writes the view; a folder that holds something is refused', async () => {
   const { root, claude, backlog, work } = await project()
   try {
     const before = await readFile(backlog, 'utf8')
     const out = quiet()
-    assert.equal(await run(['--backlog', backlog, '--work', work, '--cutover'], out.log, READY), 0, out.text())
-    const cut = { stdout: out.text() }
+    assert.equal(await run(['--backlog', backlog, '--work', work, '--make-store'], out.log), 0, out.text())
     assert.equal(await readFile(join(claude, 'backlog.before-store.md'), 'utf8'), before)
-    assert.equal((await readTruth(work)).truth, 'store')
+    assert.equal((await readStore(work)).items.size, 19)
+    assert.equal((await readdir(work)).includes('truth.json'), false)
     const view = await readFile(backlog, 'utf8')
     assert.match(view.split('\n')[0], /^<!-- generated by the worker board from .*; edit nothing here -->$/)
-    assert.match(cut.stdout, /^The store is the truth now; backlog\.md is its view\.$/m)
+    assert.match(out.text(), /^The store is made; backlog\.md is its view from now on\.$/m)
+    // The board reads it with no fault.
+    assert.equal(storeFault(await storeKeeper({ dir: work })()), null)
     const again = quiet()
-    assert.equal(await run(['--backlog', backlog, '--work', work, '--cutover'], again.log, READY), 1)
-    assert.match(again.text(), /is the truth already/)
+    assert.equal(await run(['--backlog', backlog, '--work', work, '--make-store'], again.log), 1)
+    assert.match(again.text(), /is not empty: the store is made only in an empty folder/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('after the cutover a tick on the page changes the item and the view, not the old file\'s lines', async () => {
+test('--init makes an empty store with one activity and the default flow, which the board reads and the chats fill', async () => {
+  const { root, work } = await project()
+  try {
+    const out = quiet()
+    assert.equal(await run(['--work', work, '--init', '--activity', 'The first week'], out.log), 0, out.text())
+    assert.deepEqual((await readdir(work)).sort(), ['activities.json', 'flow.json', 'last-ids.json'])
+    assert.equal(await readFile(join(work, 'flow.json'), 'utf8'), await readFile(join(HERE, '..', '..', 'examples', 'work', 'flow.json'), 'utf8'))
+    const read = await storeKeeper({ dir: work })()
+    assert.deepEqual([storeFault(read), read.items.size, read.problems, read.activities.map(one => [one.name, one.isFocus])], [null, 0, [], [['The first week', true]]])
+    // The main chat's first step goes in under that activity.
+    const made = await workApi({ chat: 'Main', action: 'new', title: 'Make the repository', activity: 'The first week', text: 'A README and a first commit.' }, { dir: work, now: NOW, prefix: 'Team - ', roleOf: () => 'main' })
+    assert.equal(made.ok, true, made.why)
+    assert.equal(made.result.id, 'B1')
+    const twice = quiet()
+    assert.equal(await run(['--work', work, '--init'], twice.log), 1)
+    assert.match(twice.text(), /is not empty: an empty store is made only in an empty folder/)
+    assert.equal(command('--init').status, 2)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('the board\'s writers change the item and the view, not the backlog file\'s lines', async () => {
   const { root, backlog, work } = await project()
   try {
     await writeStore(work, migrateBacklog(await readFile(backlog, 'utf8'), { now: NOW }), undefined, { now: NOW })
-    await writeTruth(work, { truth: 'store', since: '2026-10-17 11:05' })
-    const options = { canWrite: true, file: backlog, now: NOW + 60_000, work: { dir: work, viewFile: backlog } }
+    const options = { now: NOW + 60_000, work: { dir: work, viewFile: backlog } }
     const closed = await editStep({ action: 'close', step: 'B18', reason: 'not now' }, options)
     assert.deepEqual(closed, { ok: true, result: { step: 'B18', action: 'close' } })
     const store = await readStore(work)
@@ -124,52 +142,21 @@ test('after the cutover a tick on the page changes the item and the view, not th
   }
 })
 
-test('before the cutover the tick writers change backlog.md as before', async () => {
-  const { root, backlog, work } = await project()
+test('B301: without a store this board writes, the writers refuse and the backlog file stays as it is', async () => {
+  const { root, backlog } = await project()
   try {
-    await writeStore(work, migrateBacklog(await readFile(backlog, 'utf8'), { now: NOW }), undefined, { now: NOW })
-    const closed = await editStep({ action: 'close', step: 'B18' }, { canWrite: true, file: backlog, now: NOW, work: { dir: work, viewFile: backlog } })
-    assert.equal(closed.ok, true)
-    assert.match(await readFile(backlog, 'utf8'), /^- \[x\] B18 /m)
-    assert.equal(valueOf((await readStore(work)).items.get('B18'), 'State'), 'new')
+    const before = await readFile(backlog, 'utf8')
+    assert.deepEqual(await editStep({ action: 'close', step: 'B18' }, { now: NOW, work: null }), { ok: false, status: 409, why: 'This board only shows: change the work on the board that delivers.' })
+    assert.equal((await editStep({ action: 'refine-accept', step: 'B21' }, { now: NOW, work: null })).status, 409)
+    const message = { id: 'm1', at: NOW, to: 'Units', ask: 'backlog:B13', step: 'B13', title: 'x', verdict: 'approve', text: 'fine', state: 'waiting' }
+    const state = { backlogForYou: [{ id: 'backlog:B13', approval: 'tick', kind: 'verify', branch: null }], baseBranch: 'main', restart: { main: 'Main' } }
+    assert.equal(await settleByBoard(message, state, { now: NOW, work: null, branchesNow: async () => [], say: async () => {}, newId: () => 'n1' }), null)
+    // A store folder that is not there: the API's 503, and still nothing written to the backlog file.
+    const none = await editStep({ action: 'close', step: 'B18' }, { now: NOW, work: { dir: join(root, 'no-store'), viewFile: backlog } })
+    assert.equal(none.status, 503)
+    assert.match(none.why, /^No work store in /)
+    assert.equal(await readFile(backlog, 'utf8'), before)
   } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-})
-
-test('review 3: a store that does not read back as the one checked is refused, and stays a shadow', async () => {
-  const { root, backlog, work } = await project()
-  try {
-    // A step the shadow kept that left the backlog: on disk, but not in the checked store.
-    await writeStore(work, migrateBacklog(await readFile(backlog, 'utf8'), { now: NOW }), undefined, { now: NOW })
-    await writeFile(join(work, 'B99.md'), 'Id: B99\nKind: step\nTitle: Gone\nState: new\nSince: -\n')
-    const out = quiet()
-    assert.equal(await run(['--backlog', backlog, '--work', work, '--cutover'], out.log, READY), 1)
-    assert.match(out.text(), /B99/)
-    assert.match(out.text(), /^The store stays a shadow: nothing else written\.$/m)
-    assert.equal((await readTruth(work)).truth, 'shadow')
-    assert.doesNotMatch(await readFile(backlog, 'utf8'), /generated by the worker board/)
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-})
-
-test('review 7: the running board must answer the work route; an older one answers 404', async () => {
-  const { createServer } = await import('node:http')
-  const { root, claude } = await project()
-  const statuses = [404, 400]
-  const server = createServer((req, res) => {
-    req.resume()
-    res.writeHead(statuses[0]).end()
-  })
-  await new Promise(done => server.listen(0, '127.0.0.1', done))
-  try {
-    await writeFile(join(claude, 'board.json'), JSON.stringify({ url: `http://127.0.0.1:${server.address().port}`, key: 'ab'.repeat(32) }))
-    assert.match((await boardRunsWork(claude)).why, /answers 404 to \/api\/bridge\/work: it runs an older version/)
-    statuses.shift()
-    assert.deepEqual(await boardRunsWork(claude), { ok: true })
-  } finally {
-    await new Promise(done => server.close(done))
     await rm(root, { recursive: true, force: true })
   }
 })

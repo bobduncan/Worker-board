@@ -315,8 +315,8 @@ export function wakeFor(message, state, outbox, now, maxChars) {
 /**
  * B298: a line the person typed on the board to a chat is filed as an instruction before it is kept for delivery, and
  * carries its id at its end ("Make it blue [I17]"), so the chat closes the one it was given. `file(body)` is the work
- * API as the person. An answer to a request and the board's own words are no instruction; when nothing is filed (the
- * store is not the truth yet, or the board only shows), the line goes as it is.
+ * API as the person. An answer to a request and the board's own words are no instruction; when nothing is filed (no
+ * store, or the board only shows: the page says so on top), the line goes as it is, without an id.
  */
 export async function withInstruction(message, file) {
   if ((message.ask ?? null) !== null || (message.command ?? null) !== null) return message

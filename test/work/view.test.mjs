@@ -1,5 +1,4 @@
-// B297: the backlog as a view of the store (spec 2026-10-17, section 3): once the store is the truth, backlog.md is
-// written from it in today's form, marked as generated on its first line. What the line cannot say (a state such as
+// B297: the backlog as a view of the store (spec 2026-10-17, section 3): backlog.md is written from it in today's form, marked as generated on its first line. What the line cannot say (a state such as
 // taken or review, a goal) stands in one "[store]" line under the step, so the view migrates back to the same items.
 // Made-up samples only.
 
@@ -93,7 +92,7 @@ test('review 4: a hand edit of the view is kept beside it before the view is wri
   const { mkdtemp, readFile, readdir, rm, writeFile } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const { readStore } = await import('../../src/work/store.mjs')
-  const { shadowBacklog } = await import('../../src/work/shadow.mjs')
+  const { storeBacklog } = await import('../../src/work/read.mjs')
   const { writeView } = await import('../../src/work/view.mjs')
   const root = await mkdtemp(join(tmpdir(), 'work-view-'))
   try {
@@ -117,7 +116,7 @@ test('review 4: a hand edit of the view is kept beside it before the view is wri
     // The board's top line names the kept file while it is there.
     const work = { ok: true, ...(await readStore(dir)) }
     assert.equal(work.viewKept, done.kept)
-    const shown = shadowBacklog({ ...work, items: next.items, activities: next.activities, exists: true, truth: 'store' }, parseBacklog(backlogView({ ...next, dir }), RULES), RULES)
+    const shown = storeBacklog({ ...work, dir, items: next.items, activities: next.activities, exists: true }, RULES)
     assert.equal(shown.store.kept, done.kept)
     await rm(done.kept)
     assert.equal((await readStore(dir)).viewKept, null)

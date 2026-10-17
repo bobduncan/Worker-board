@@ -1,21 +1,21 @@
-// B298, B299: what the board shows from the work store once it is the truth (spec 2026-10-17, section 8): the person's
-// instructions per chat (Open instructions). Built from the items' fields alone, never from a chat's words.
+// B298, B299: what the board shows from the work store (spec 2026-10-17, section 8): the person's instructions per chat
+// (Open instructions), the asks (Needs your attention) and the notes (Information). Built from the items' fields
+// alone, never from a chat's words.
 
 import { sinceMs } from './api.mjs'
 import { valueOf } from './item.mjs'
+import { itemsOf } from './read.mjs'
 
 const DAY = 24 * 60 * 60_000
 const byId = (a, b) => a.id.localeCompare(b.id, 'en', { numeric: true })
 
-/** The store's items when it is the truth and could be read; else none. */
-export const truthItems = work => (work?.ok === true && work.truth === 'store' && work.items instanceof Map ? [...work.items.values()] : [])
 
 /**
  * B298: the instructions for Open instructions: `[{ id, chat, text, since, via, turns, isMissed, closedAs }]`, the open
  * ones first (missed ones on top, oldest first), then the closed ones filed within the last day, newest first.
  */
 export function instructionsOf(work, now) {
-  const all = truthItems(work).filter(item => valueOf(item, 'Kind') === 'instruction').map(item => {
+  const all = itemsOf(work).filter(item => valueOf(item, 'Kind') === 'instruction').map(item => {
     const turns = Number(valueOf(item, 'Missed') ?? 0) || 0
     const isOpen = valueOf(item, 'State') === 'open'
     const since = sinceMs(valueOf(item, 'Since'))
@@ -35,18 +35,28 @@ const plainName = (name, prefix = '') => {
   return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
 }
 const textOf = item => (item.sections.get('Text') ?? []).filter(one => one.trim() !== '')
-const asksOfStore = work => truthItems(work).filter(item => valueOf(item, 'Kind') === 'ask' && /^Q\d+$/.test(valueOf(item, 'Id') ?? ''))
+const asksOfStore = work => itemsOf(work).filter(item => valueOf(item, 'Kind') === 'ask' && /^Q\d+$/.test(valueOf(item, 'Id') ?? ''))
 
 /**
  * B299: who waits for the person by the store: the chats (by plain name, lower case) with an open blocking ask, and
- * those with an open ask of the app's question form. Null while the store is not the truth: today's reading stands.
+ * those with an open ask of the app's question form. B301: `asked`, per chat the newest Since of an ask of its own
+ * (open, answered or withdrawn), and `open`, the chats with an open ask: a chat that wrote questions in its chat after
+ * that filed none. Empty when the store cannot be read: no chat waits by a chat's words instead.
  */
 export function storeWaits(work, prefix = '') {
-  if (!(work?.ok === true && work.truth === 'store')) return null
-  const open = asksOfStore(work).filter(item => valueOf(item, 'State') === 'open' && valueOf(item, 'Owner') !== null)
+  const own = asksOfStore(work).filter(item => valueOf(item, 'Owner') !== null)
+  const open = own.filter(item => valueOf(item, 'State') === 'open')
+  const asked = new Map()
+  for (const item of own) {
+    const name = plainName(valueOf(item, 'Owner'), prefix)
+    const since = sinceMs(valueOf(item, 'Since'))
+    if (Number.isFinite(since)) asked.set(name, Math.max(asked.get(name) ?? -Infinity, since))
+  }
   return {
     blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes').map(item => plainName(valueOf(item, 'Owner'), prefix))),
     form: new Set(open.filter(item => valueOf(item, 'Via') === 'form').map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    open: new Set(open.map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    asked,
   }
 }
 
@@ -61,7 +71,7 @@ const isAdvised = (option, advice) => advice !== null && (option === advice || o
  * the answer sent for it.
  */
 export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () => ({ answer: null, earlier: null }) }) {
-  const items = new Map(truthItems(work).map(item => [valueOf(item, 'Id'), item]))
+  const items = new Map(itemsOf(work).map(item => [valueOf(item, 'Id'), item]))
   const nameOf = owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
   return asksOfStore(work).flatMap(item => {
     const state = valueOf(item, 'State')
@@ -99,7 +109,7 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
  * unread. Nothing here waits for the person.
  */
 export function informationOf(work, now) {
-  return truthItems(work).filter(item => valueOf(item, 'Kind') === 'note').map(item => {
+  return itemsOf(work).filter(item => valueOf(item, 'Kind') === 'note').map(item => {
     const since = sinceMs(valueOf(item, 'Since'))
     const words = textOf(item)
     return {

@@ -1,7 +1,7 @@
 // B296: the work store on disk (spec 2026-10-17, section 3): one folder, the setting `work`, with one `<id>.md` per
 // item, `activities.json` (the activities in order, with their steps, notes and loose lines, and the head of the
-// backlog file), `last-ids.json` (the highest id given per letter: it only grows), `truth.json` (whether the store is
-// a shadow of the backlog or the truth) and, when the person wants another order, `flow.json`.
+// backlog file), `last-ids.json` (the highest id given per letter: it only grows) and, when the person wants another
+// order, `flow.json`. B301: the store is the one source of the work; nothing falls back to the backlog file.
 // Every write is read anew right before, written beside and put in place, as goalsWrite.mjs does: never blind.
 
 import { randomBytes } from 'node:crypto'
@@ -46,17 +46,19 @@ async function putInPlace(file, text, fs, expected) {
 }
 
 /**
- * The store in `dir`: `{ exists, items, activities, preamble, lastIds, truth, since, flow, problems }`. A file whose
- * head is broken is still listed as it is, and named in `problems` (`{ file, line }`) by file and line; so is a
- * flow.json or activities.json the board cannot read (the default flow stands then).
+ * The store in `dir`: `{ exists, items, activities, preamble, lastIds, flow, problems }`. A file whose head is broken
+ * is still listed as it is, and named in `problems` (`{ file, line }`) by file and line; so is a flow.json or
+ * activities.json the board cannot read (the default flow stands then). B301: a folder that is not there is `exists:
+ * false`; one that cannot be read (not a folder, no access) throws, so the board says so instead of showing nothing.
  */
 export async function readStore(dir, fs = files) {
   const problems = []
   let names
   try {
     names = await fs.readdir(dir)
-  } catch {
-    return { exists: false, items: new Map(), activities: [], preamble: [], lastIds: {}, truth: 'shadow', since: null, flow: DEFAULT_FLOW, problems }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    return { exists: false, items: new Map(), activities: [], preamble: [], lastIds: {}, flow: DEFAULT_FLOW, problems }
   }
   const items = new Map()
   for (const name of names.filter(one => ITEM_FILE.test(one)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))) {
@@ -71,7 +73,9 @@ export async function readStore(dir, fs = files) {
   }
   let listed = { preamble: [], activities: [] }
   const activitiesText = await readOr(fs, join(dir, 'activities.json'), null)
-  if (activitiesText !== null) {
+  // B301: without activities.json no step stands under an activity, and the board would show none.
+  if (activitiesText === null) problems.push({ file: 'activities.json', line: 'activities.json is missing, so no step is listed' })
+  else {
     try {
       const raw = JSON.parse(activitiesText)
       listed = { preamble: Array.isArray(raw.preamble) ? raw.preamble : [], activities: Array.isArray(raw.activities) ? raw.activities : [] }
@@ -88,7 +92,6 @@ export async function readStore(dir, fs = files) {
   const flowText = await readOr(fs, join(dir, 'flow.json'), null)
   const read = flowText === null ? { flow: DEFAULT_FLOW, problem: null } : parseFlow(flowText)
   if (read.problem !== null) problems.push({ file: 'flow.json', line: read.problem })
-  const truth = await readTruth(dir, fs)
   // B297, review 4: the hand-edited view the board kept last, while it is there.
   let viewKept = null
   try {
@@ -97,7 +100,7 @@ export async function readStore(dir, fs = files) {
   } catch {
     viewKept = null
   }
-  return { exists: true, items, ...listed, lastIds, truth: truth.truth, since: truth.since, flow: read.flow, problems, viewKept }
+  return { exists: true, items, ...listed, lastIds, flow: read.flow, problems, viewKept }
 }
 
 /** Writes one item to `<dir>/<Id>.md`; with `expected` (the file's text the change was made from) only while it holds that. */
@@ -172,21 +175,6 @@ export function appendHistory(item, who, what, now) {
   return { ...item, head: new Map(item.head), sections }
 }
 
-/** Which is the truth: `{ truth: 'shadow' | 'store', since }`; a shadow when nothing says otherwise. */
-export async function readTruth(dir, fs = files) {
-  try {
-    const raw = JSON.parse(await fs.readFile(join(dir, 'truth.json'), 'utf8'))
-    return { truth: raw.truth === 'store' ? 'store' : 'shadow', since: typeof raw.since === 'string' ? raw.since : null }
-  } catch {
-    return { truth: 'shadow', since: null }
-  }
-}
-
-export async function writeTruth(dir, { truth, since }, fs = files) {
-  await fs.mkdir(dir, { recursive: true })
-  return putInPlace(join(dir, 'truth.json'), `${JSON.stringify({ truth, since })}\n`, fs)
-}
-
 /**
  * A freshly migrated item over the file that is there: while its state stays, the file's Since and History stay
  * (lines the migration adds that the file lacks are added); a state that changed gets Since now and a History line.
@@ -211,10 +199,10 @@ function carried(item, before, now) {
 }
 
 /**
- * The shadow's whole write of a migrated backlog (`{ items, activities, preamble }` of migrateBacklog): only the files
+ * The whole write of a migrated backlog (`{ items, activities, preamble }` of migrateBacklog): only the files
  * whose text changed; an item file whose step left the backlog stays and is named in `problems`, except a step
  * without an id, whose file goes (it only held a copy of its line). Raises last-ids.json, never lowering it,
- * to the highest id per letter and writes truth.json as a shadow when it is not there. `{ written, problems }`.
+ * to the highest id per letter. `{ written, problems }`.
  */
 export async function writeStore(dir, { items, activities, preamble = [] }, fs = files, { now = Date.now() } = {}) {
   await fs.mkdir(dir, { recursive: true })
@@ -243,10 +231,6 @@ export async function writeStore(dir, { items, activities, preamble = [] }, fs =
   const raised = higher(readLastIds(lastText), Object.fromEntries([...new Set(numbered.map(id => id[0]))].map(letter => [letter, highestOf(numbered, letter)])))
   const lastDone = await putInPlace(join(dir, 'last-ids.json'), `${JSON.stringify(raised)}\n`, fs, lastText)
   if (lastDone.changed) written.push('last-ids.json')
-  if (await readOr(fs, join(dir, 'truth.json'), null) === null) {
-    await writeTruth(dir, { truth: 'shadow', since: stamp(now) }, fs)
-    written.push('truth.json')
-  }
   const held = new Map(onDisk.map(id => [id, items.get(id) ?? { head: new Map([['Kind', 'step']]) }]))
   problems.push(...storeProblems(held, activities).filter(line => /no longer on the backlog$/.test(line)))
   return { written, problems }

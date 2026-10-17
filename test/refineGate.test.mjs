@@ -16,7 +16,7 @@ import { parseConfig } from '../src/config.mjs'
 import { firstLook, isRefined, refineStateOf, refineWhenDue } from '../src/refineGate.mjs'
 import { checkSay } from '../src/say.mjs'
 import { outboxNow } from '../src/store.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN

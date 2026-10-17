@@ -9,7 +9,7 @@ import { backlogText, storeProblems } from '../../src/work/adapter.mjs'
 
 import { parseItem, valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { appendHistory, nextId, readStore, readTruth, writeItem, writeStore, writeTruth } from '../../src/work/store.mjs'
+import { appendHistory, nextId, readStore, writeItem, writeStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 17, 11, 5).getTime()
 const LATER = new Date(2026, 9, 17, 12, 30).getTime()
@@ -29,19 +29,27 @@ test('readStore reads every item and names a broken head by file and line, the i
     assert.deepEqual(store.problems, [
       { file: 'B2.md', line: 'B2.md: line 3 is no head line: "Owner Support"' },
       { file: 'N3.md', line: 'N3.md: Owner is no key of a note' },
+      // B301: without activities.json no step is listed under an activity: that is a problem too.
+      { file: 'activities.json', line: 'activities.json is missing, so no step is listed' },
     ])
-    assert.equal(store.truth, 'shadow')
     assert.deepEqual(store.flow.step.states.at(-1), 'dropped')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
 })
 
-test('a store folder that is not there reads as empty, with no problem', async () => {
+test('a store folder that is not there reads as not there; B301: one that cannot be read throws, so the board says so', async () => {
   const store = await readStore(join(tmpdir(), 'no-such-store-folder-b296'))
   assert.equal(store.items.size, 0)
   assert.equal(store.exists, false)
   assert.deepEqual(store.problems, [])
+  const dir = await folder()
+  try {
+    await writeFile(join(dir, 'work'), 'a file, no folder')
+    await assert.rejects(readStore(join(dir, 'work')), error => ['ENOTDIR', 'EEXIST', 'EINVAL'].includes(error.code))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test('nextId never gives an id at or below last-ids.json, also when the file was deleted', async () => {
@@ -83,7 +91,7 @@ test('writeStore writes only the files whose text changed, keeps Since while the
   const dir = await folder()
   try {
     const first = await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
-    assert.deepEqual(first.written.sort(), ['B1', 'B2', 'activities.json', 'last-ids.json', 'truth.json'])
+    assert.deepEqual(first.written.sort(), ['B1', 'B2', 'activities.json', 'last-ids.json'])
     const again = await writeStore(dir, migrateBacklog(BACKLOG, { now: LATER }), undefined, { now: LATER })
     assert.deepEqual(again.written, [])
     const moved = await writeStore(dir, migrateBacklog(BACKLOG.replace('- [ ] B1', '- [x] B1'), { now: LATER }), undefined, { now: LATER })
@@ -94,22 +102,11 @@ test('writeStore writes only the files whose text changed, keeps Since while the
     const gone = await writeStore(dir, migrateBacklog(BACKLOG.replace(/- \[x\] B2[^\n]*\n[^\n]*\n/, ''), { now: LATER }), undefined, { now: LATER })
     assert.deepEqual(gone.problems, ['B2: in the store, but no longer on the backlog'])
     assert.ok((await readdir(dir)).includes('B2.md'))
-    assert.deepEqual(await readTruth(dir), { truth: 'shadow', since: '2026-10-17 11:05' })
+    assert.equal((await readdir(dir)).includes('truth.json'), false)
     const store = await readStore(dir)
     assert.deepEqual(store.activities.map(one => one.steps), [['B1']])
     assert.deepEqual(store.activities[0].notes, ['  A note of the activity.'])
     assert.deepEqual(store.lastIds, { B: 2 })
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-  }
-})
-
-test('writeTruth and readTruth keep which is the truth', async () => {
-  const dir = await folder()
-  try {
-    assert.deepEqual(await readTruth(dir), { truth: 'shadow', since: null })
-    await writeTruth(dir, { truth: 'shadow', since: '2026-10-17 11:05' })
-    assert.deepEqual(await readTruth(dir), { truth: 'shadow', since: '2026-10-17 11:05' })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

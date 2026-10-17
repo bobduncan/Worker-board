@@ -5,7 +5,10 @@ import { demoSources } from '../fixtures/demo.mjs'
 import { answer, assistant, fromChat, modCompaction, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { hourEnd, hourStart } from '../src/history.mjs'
-import { buildState, chatState } from '../src/state.mjs'
+import { chatState } from '../src/state.mjs'
+import { parseItem } from '../src/work/item.mjs'
+import { storeFromText } from '../src/work/read.mjs'
+import { buildState } from './withStore.mjs'
 import { BACKLOG, GOALS } from './fixtures-goals.mjs'
 
 const MIN = 60_000
@@ -29,7 +32,7 @@ const ended = [typed(NOW - 20 * MIN, 'Go'), answer(NOW - 9 * MIN, 'Done')]
 // B262: a turn the person opened that has had no answer at all: a quiet one of these runs without a sign of life.
 const noAnswer = [typed(NOW - 14 * MIN, 'Go')]
 
-function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', goals = null, outbox = [], asks = [], folders = null, pictureLists = {}, runs = [], restartNote = null, board = null, seen = null }) {
+function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', goals = null, outbox = [], asks = [], folders = null, pictureLists = {}, runs = [], restartNote = null, board = null, seen = null, work }) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: apps,
@@ -42,6 +45,7 @@ function build({ apps, tails = {}, plans = {}, lines = [], backlog = '', goals =
     askTexts: asks.map(ask => JSON.stringify(ask)),
     pictureLists,
     restartNote,
+    work,
   }
   return buildState(raw, { lines, outbox, runs, board, seen, now: NOW, config })
 }
@@ -94,33 +98,23 @@ test('a working chat shows the task of its plan line and what it does now', () =
   assert.deepEqual(units.task, {
     text: 'Shadow Beast', step: 2, steps: 6, names: null, leftMs: 40 * MIN, estimateAt: NOW - 3 * MIN, stepLeftMs: null, stepEstimateAt: null, source: 'plan', by: null,
     // First seen now, in a turn the person opened 20 minutes ago, with an estimate given 3 minutes ago.
-    startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
+    startedAt: NOW - 20 * MIN, firstEstimateMs: 57 * MIN, waitedMs: 0, workedMs: 20 * MIN, stepId: null, stepMinutes: null,
   })
 })
 
-test('a chat whose turn ended blocked waits for you, and its need leads the For you list', () => {
-  const state = build({
-    apps: [app('Main'), app('Units', summary('blocked', 'Pick sheet A or B', 'two sheets drawn'))],
-    tails: { Units: tail(ended) },
-    backlog: '## Art\n- [ ] Say whether the mage is right @you\n',
-  })
+test('B301: the app\'s word that a turn ended blocked makes no chat wait: only an open blocking ask in the store does', () => {
+  const apps = [app('Main'), app('Units', summary('blocked', 'Pick sheet A or B', 'two sheets drawn'))]
+  const blocked = build({ apps, tails: { Units: tail(ended) }, backlog: '## Art\n- [ ] Say whether the mage is right @you\n' })
+  assert.equal(chatNamed(blocked, 'Units').state, 'free')
+  assert.deepEqual(blocked.forYou, [])
+  assert.deepEqual(blocked.backlogForYou.map(step => [step.title, step.activity, step.kind, step.from, step.canAnswer]), [['Say whether the mage is right', 'Art', 'input', 'Main', true]])
+  // With its ask filed, blocking, it waits, and the ask is the card.
+  const work = storeFromText('## Art\n- [ ] B1 The sheets (for Units)\n', { now: NOW })
+  work.items.set('Q1', parseItem('Id: Q1\nKind: ask\nTitle: Sheet A or B?\nState: open\nOwner: Units\nSince: 2026-10-12 14:50\nAsks: decide\nBlocking: yes\nOf: B1\nOptions: A | B\n'))
+  const state = build({ apps, tails: { Units: tail(ended) }, work })
   const units = chatNamed(state, 'Units')
-  assert.equal(units.state, 'waiting')
-  assert.equal(units.needsYou, 'Pick sheet A or B')
-  assert.equal(units.statusDetail, 'two sheets drawn')
-  assert.equal(units.waitingSince, NOW - 9 * MIN)
-  assert.equal(units.doingNow, null)
-  assert.deepEqual(state.forYou, [{
-    id: `chat:Units:${NOW - 9 * MIN}`, from: 'Units', kind: 'input', title: 'Needs your decision', text: 'Pick sheet A or B', at: NOW - 9 * MIN,
-    options: [], pictures: [], run: null, game: null, checks: [], tried: [], canAnswer: true, version: null, answer: null, earlier: null,
-    // B100: what its window shows: its task as its card names it (it recorded none), and what it last said.
-    // B149: no parts of the agreed form, and no hand-over from the main chat.
-    task: null, waits: { at: NOW - 9 * MIN, words: 'Done', questions: [], plan: null, handover: null, given: null },
-    // B169: a worker, not the main chat; B275: nor the Advisor.
-    isMain: false,
-    isAdvisor: false,
-  }])
-  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.kind, step.from, step.canAnswer]), [['Say whether the mage is right', 'Art', 'input', 'Main', true]])
+  assert.deepEqual([units.state, units.needsYou, units.statusDetail, units.waitingSince, units.doingNow], ['waiting', 'Pick sheet A or B', 'two sheets drawn', NOW - 9 * MIN, null])
+  assert.deepEqual(state.forYou.map(need => [need.id, need.from, need.kind, need.title, need.canAnswer, need.blocks]), [['work:Q1', 'Units', 'input', 'Sheet A or B?', true, [{ step: 'B1', owner: 'Units' }]]])
 })
 
 test('a chat whose turn ended with nothing open is free, and one without a transcript is unknown', () => {
@@ -219,13 +213,13 @@ test('B262: a turn whose last entry is a tool\'s answer, quiet for longer than q
   // Not that long yet: it may still be thinking.
   const soon = chatNamed(build({ apps: [app('Units')], tails: { Units: tail(silent, 5) } }), 'Units')
   assert.deepEqual([soon.state, soon.idle], ['working', null])
-  // A task handed to it and not reported keeps it working, between two turns.
+  // B301: a task handed to it in a message holds nothing; a step the store holds in progress for it keeps it working.
   const handedOver = [fromChat(NOW - 20 * MIN, 'Game - Main', 'Task from Game - Main: build the archer.'), ...silent.slice(1)]
-  const held = chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail(handedOver, 14) } }), 'Units')
-  assert.deepEqual([held.state, held.between], ['working', 'Its turn has ended; the task handed to it is not reported yet.'])
-  // One it reported in that turn is finished: by the long quiet, or at once by the app's word.
+  assert.equal(chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail(handedOver, 14) } }), 'Units').state, 'free')
+  const held = chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail(handedOver, 14) }, backlog: '## Art\n- [ ] B1 The archer (for Units) (branch feature/archer)\n' }), 'Units')
+  assert.deepEqual([held.state, held.between], ['working', 'Its turn has ended; its branch feature/archer is still open.'])
+  // A report sent to the main chat ends nothing: the turn is still not over before the quiet limit.
   const reported = [...handedOver, assistant(NOW - 14 * MIN, 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Report from Game - Units: the archer is built.' })]), toolResult(NOW - 14 * MIN)]
-  assert.equal(chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail(reported, 14) } }), 'Units').state, 'free')
   assert.equal(chatNamed(build({ apps: [app('Main'), app('Units', summary('completed'))], tails: { Units: tail(reported, 1) } }), 'Units').state, 'free')
   assert.equal(chatNamed(build({ apps: [app('Main'), app('Units')], tails: { Units: tail(reported, 1) } }), 'Units').state, 'working')
 })
@@ -391,7 +385,7 @@ test('a running turn that wrote nothing for more than ten minutes is quiet', () 
   assert.equal(units.isQuiet, true)
 })
 
-test('a worker that recorded nothing has a task without words, from when it was handed over; no word of the hand-over is shown', () => {
+test('a worker that recorded nothing has a task without words, from when its turn was opened; no word of the message is shown', () => {
   const handOver = fromChat(NOW - 30 * MIN, 'Game - Main', 'Task from Game - Main: build the archer.\nDetails follow.')
   const report = fromChat(NOW - 30 * MIN, 'Game - Units', 'The knight is finished.')
   const state = build({
@@ -401,7 +395,7 @@ test('a worker that recorded nothing has a task without words, from when it was 
   })
   assert.deepEqual(chatNamed(state, 'Units').task, {
     text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null,
-    startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
+    startedAt: NOW - 30 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 30 * MIN, stepId: null, stepMinutes: null,
   })
   // A report is no task for the main chat; it works, on something it has not recorded.
   assert.deepEqual([chatNamed(state, 'Main').task.source, chatNamed(state, 'Main').task.text], ['unrecorded', ''])
@@ -414,7 +408,7 @@ test('a working chat that recorded no task has one without words, from when its 
   const units = chatNamed(state, 'Units')
   assert.deepEqual(units.task, {
     text: '', step: null, steps: null, names: null, leftMs: null, estimateAt: null, stepLeftMs: null, stepEstimateAt: null, source: 'unrecorded', by: null,
-    startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null, handMinutes: null,
+    startedAt: NOW - 25 * MIN, firstEstimateMs: null, waitedMs: 0, workedMs: 25 * MIN, stepId: null, stepMinutes: null,
   })
   assert.ok(!outsideWindow(state).includes('lava'))
   const main = chatNamed(build({
@@ -600,8 +594,8 @@ test('the demo shows the second design: six lanes with their queues, three reque
   ])
   assert.deepEqual(state.counts, { working: 2, waiting: 1, free: 2, unknown: 0, interrupted: 0, suspended: 1 })
   assert.deepEqual(state.chats[5].idle, { since: NOW - 26 * MIN, from: 'transcript', isSilent: true })
-  // B155: the steps finished this morning, newest first: one approved by the person, one reported, one with only the day.
-  assert.deepEqual(state.finished.map(one => [one.id, one.how, one.by]), [['B05', 'line', 'you'], ['B06', 'report', 'Cleanup'], ['B07', 'day', 'Levels / Environment']])
+  // B155: the steps finished this morning, newest first: one approved by the person, one closed through the work store, one with only the day.
+  assert.deepEqual(state.finished.map(one => [one.id, one.how, one.by]), [['B05', 'line', 'you'], ['B06', 'store', 'Cleanup'], ['B07', 'day', 'Levels / Environment']])
   // B148: Cleanup's last answer ends with "+ Done:   yes": free, although its card still names its task.
   assert.deepEqual([state.chats[3].state, state.chats[3].task], ['free', null])
   assert.equal(JSON.parse(demo.planLineTexts['demo-cleanup']).task.isReported, false)
@@ -615,8 +609,8 @@ test('the demo shows the second design: six lanes with their queues, three reque
   assert.deepEqual(state.unassigned.map(step => step.title), ['Decide the name of the game'])
 
   assert.deepEqual(state.forYou.map(need => [need.from, need.kind, need.title, need.canAnswer]), [
-    // B275: the Advisor's question, answered straight to it; the newest.
-    ['Advisor', 'input', 'Advisor needs your answer', true],
+    // B301: the Advisor wrote a question in its chat and filed no ask: a warning that leads to its chat; the newest.
+    ['Advisor', 'unfiled', 'Advisor wrote questions in its chat but filed no ask', false],
     ['Main', 'verify', 'Test player movement', true],
     ['Units', 'input', 'Choose pathfinding approach', true],
   ])

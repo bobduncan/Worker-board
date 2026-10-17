@@ -1,44 +1,51 @@
-// B296: the backlog into the work store (spec 2026-10-17, section 9).
+// B296, B301: a backlog file into the work store (spec 2026-10-17, section 9), or a new empty store. The board reads
+// the work from the store only; this is how a project gets one.
 //
 //   node tools/migrate-backlog.mjs --backlog <file> --work <folder> [--dry-run]
-//   node tools/migrate-backlog.mjs --backlog <file> --work <folder> --cutover [--dry-run] [--chats <folder>]
+//   node tools/migrate-backlog.mjs --backlog <file> --work <folder> --make-store [--dry-run] [--chats <folder>]
+//   node tools/migrate-backlog.mjs --work <folder> --init [--activity <name>] [--dry-run]
 //
-// Prints the counts (steps before and after, open, done, for the person), the problems, whether the store gives the
-// same backlog back (parity), the steps in flight and the goal map's step ids the store lacks. The dry run writes
-// nothing; the real run writes the store as a shadow of the backlog and refuses a folder that is not empty.
+// Without a mode it prints what a store made from the backlog would hold, and writes nothing: the counts (steps before
+// and after, open, done, for the person), the problems, whether the store gives the same backlog back (parity), the
+// steps in flight and the goal map's step ids the store lacks.
 //
-// B297, `--cutover`: the store becomes the truth. The final migration is written into the store (over the shadow
-// that is there), the old file is kept beside it as backlog.before-store.md, truth.json says "store", and backlog.md is
-// written anew as the store's generated view. First it proves that the store reads back as the backlog and that the
-// view reads back as the same items, and refuses when either does not hold. It prints the steps in flight (id, state,
-// owner, branch) and every chat card with a task (`<chats>/<session>.json`, the folder beside the backlog unless
-// `--chats` names one) beside the store's state of the step it names, "<- check" where they disagree. With
-// `--dry-run` it prints the same and writes nothing. It runs once: a store that is the truth already is refused.
+// `--make-store`: the store made from the backlog, in an empty folder. First it proves that the store reads back as
+// the backlog and that the view reads back as the same items, and refuses when either does not hold. It prints the
+// steps in flight (id, state, owner, branch) and every chat card with a task (`<chats>/<session>.json`, the folder
+// beside the backlog unless `--chats` names one) beside the store's state of the step it names, "<- check" where they
+// disagree. The old file is kept beside it as backlog.before-store.md, and backlog.md is written anew as the store's
+// generated view. With `--dry-run` it prints the same and writes nothing.
+//
+// `--init`: an empty store for a new project, in an empty folder: one activity (`--activity`, "First steps" unless
+// given) with the person's focus, no items, and the default flow (examples/work/flow.json) as its flow.json.
 
-import { copyFile, readdir, readFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
 
 import { parseBacklog } from '../src/backlog.mjs'
-import { BOARD_ANSWERS_ASKS } from '../src/work/api.mjs'
 import { storeAsBacklog } from '../src/work/adapter.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { isLegacyId } from '../src/work/line.mjs'
-import { migrateBacklog, stamp } from '../src/work/migrate.mjs'
-import { readStore, readTruth, writeStore, writeTruth } from '../src/work/store.mjs'
+import { migrateBacklog } from '../src/work/migrate.mjs'
+import { readStore, writeStore } from '../src/work/store.mjs'
 import { backlogView, writeView } from '../src/work/view.mjs'
 
 const IN_FLIGHT = ['queued', 'taken', 'in progress', 'waiting on you', 'review', 'open']
+const FLOW = join(dirname(fileURLToPath(import.meta.url)), '..', 'examples', 'work', 'flow.json')
 const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
+/** The files in a folder; none when it is not there. */
+const filesIn = folder => readdir(folder).catch(() => [])
 
 /** The run, with its words to `log`; answers the exit code. */
-export async function run(args, log = console.log, checks = {}) {
-  if (args.includes('--cutover')) return cutover(args, log, checks)
+export async function run(args, log = console.log) {
+  if (args.includes('--init')) return init(args, log)
+  if (args.includes('--make-store')) return makeStore(args, log)
   const backlog = argAfter(args, '--backlog')
   const work = argAfter(args, '--work')
   if (backlog === undefined || work === undefined) {
-    log('Usage: node tools/migrate-backlog.mjs --backlog <file> --work <folder> [--dry-run]')
+    log('Usage: node tools/migrate-backlog.mjs --backlog <file> --work <folder> [--make-store] [--dry-run], or --work <folder> --init')
     return 2
   }
   const text = await readFile(resolve(backlog), 'utf8').catch(() => null)
@@ -46,14 +53,6 @@ export async function run(args, log = console.log, checks = {}) {
     log(`No backlog at ${resolve(backlog)}.`)
     return 1
   }
-  const isDry = args.includes('--dry-run')
-  const folder = resolve(work)
-  const there = await readdir(folder).catch(() => [])
-  if (!isDry && there.length > 0) {
-    log(`The folder ${folder} is not empty: the migration writes only into an empty folder.`)
-    return 1
-  }
-
   const migrated = migrateBacklog(text, { now: Date.now() })
   const before = text.split('\n').filter(line => /^- \[( |x|X)\]\s/.test(line)).length
   const { counts, items, problems } = migrated
@@ -80,15 +79,33 @@ export async function run(args, log = console.log, checks = {}) {
     const missing = named.filter(id => !items.has(id))
     log(`Goal map: ${named.length} step ids, ${missing.length === 0 ? 'every one in the store' : `not in the store: ${missing.join(', ')}`}`)
   }
-
-  if (isDry) {
-    log(`Dry run: would write ${items.size} item files, activities.json, last-ids.json and truth.json into ${folder}; nothing written.`)
-    return same && before === counts.steps ? 0 : 1
-  }
-  const done = await writeStore(folder, migrated)
-  log(`Written into ${folder}: ${done.written.length} files; the store is a shadow of the backlog.`)
-  for (const line of done.problems) log(`  ${line}`)
+  log(`Nothing written: --make-store makes the store in ${resolve(work)} (${items.size} item files).`)
   return same && before === counts.steps ? 0 : 1
+}
+
+/** B301: an empty store for a new project (see the head of this file). */
+async function init(args, log) {
+  const work = argAfter(args, '--work')
+  if (work === undefined) {
+    log('Usage: node tools/migrate-backlog.mjs --work <folder> --init [--activity <name>] [--dry-run]')
+    return 2
+  }
+  const folder = resolve(work)
+  const name = String(argAfter(args, '--activity') ?? '').replace(/\s+/g, ' ').trim() || 'First steps'
+  if ((await filesIn(folder)).length > 0) {
+    log(`The folder ${folder} is not empty: an empty store is made only in an empty folder.`)
+    return 1
+  }
+  if (args.includes('--dry-run')) {
+    log(`Dry run: would make an empty store in ${folder} (activity "${name}", the default flow); nothing written.`)
+    return 0
+  }
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, 'activities.json'), `${JSON.stringify({ preamble: ['# Backlog'], activities: [{ name, isFocus: true, steps: [], notes: [], loose: [] }] }, null, 1)}\n`)
+  await writeFile(join(folder, 'last-ids.json'), '{}\n')
+  await copyFile(FLOW, join(folder, 'flow.json'))
+  log(`An empty work store in ${folder}: the activity "${name}" and the default flow (flow.json). The board reads it at its next refresh.`)
+  return 0
 }
 
 /** What the view of a store can carry of an item: its head without Since, its sections without History. */
@@ -141,43 +158,20 @@ async function cards(folder, items) {
   return { lines, count, disagree }
 }
 
-/**
- * B297, review 7: whether the board that runs (`board.json` in the folder `claude`) has the work route: this version
- * answers a call without a chat with 400 (or 401, 403, 409); an older one has no such route (404, 405).
- */
-export async function boardRunsWork(claude) {
-  const note = await readFile(join(claude, 'board.json'), 'utf8').then(JSON.parse, () => null)
-  if (typeof note?.url !== 'string') return { ok: false, why: 'no board runs (no board.json beside the backlog): start the board with this version first.' }
-  try {
-    const answer = await fetch(new URL('/api/bridge/work', note.url), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Board-Key': String(note.key ?? '') },
-      body: '{}',
-      signal: AbortSignal.timeout(2000),
-    })
-    await answer.text().catch(() => '')
-    if ([400, 401, 403, 409].includes(answer.status)) return { ok: true }
-    return { ok: false, why: `the board at ${note.url} answers ${answer.status} to /api/bridge/work: it runs an older version. Start it anew with this version first.` }
-  } catch {
-    return { ok: false, why: `the board at ${note.url} does not answer: start it with this version first.` }
-  }
-}
-
-/** B297: the cutover (see the head of this file). `checks` stand in for the running board's, in the tests. */
-async function cutover(args, log, { asksOnBoard = BOARD_ANSWERS_ASKS, boardAnswers = boardRunsWork } = {}) {
+/** B297, B301: the store made from the backlog (see the head of this file). */
+async function makeStore(args, log) {
   const backlog = argAfter(args, '--backlog')
   const work = argAfter(args, '--work')
   if (backlog === undefined || work === undefined) {
-    log('Usage: node tools/migrate-backlog.mjs --backlog <file> --work <folder> --cutover [--dry-run] [--chats <folder>]')
+    log('Usage: node tools/migrate-backlog.mjs --backlog <file> --work <folder> --make-store [--dry-run] [--chats <folder>]')
     return 2
   }
   const file = resolve(backlog)
   const folder = resolve(work)
   const chats = resolve(argAfter(args, '--chats') ?? join(dirname(file), 'chats'))
   const isDry = args.includes('--dry-run')
-  const truth = await readTruth(folder)
-  if (truth.truth === 'store') {
-    log(`The store in ${folder} is the truth already (since ${truth.since ?? 'an unknown time'}): the cutover ran.`)
+  if ((await filesIn(folder)).length > 0) {
+    log(`The folder ${folder} is not empty: the store is made only in an empty folder.`)
     return 1
   }
   const text = await readFile(file, 'utf8').catch(() => null)
@@ -212,19 +206,15 @@ async function cutover(args, log, { asksOnBoard = BOARD_ANSWERS_ASKS, boardAnswe
   log(`Cards with a task: ${shown.count}${shown.disagree === 0 ? '' : ` (${shown.disagree} disagree with the store)`}`)
   for (const line of shown.lines) log(line)
 
-  const blockers = []
-  if (asksOnBoard !== true) blockers.push("the board cannot answer the store's asks yet (BOARD_ANSWERS_ASKS in src/work/api.mjs is false).")
-  const board = await boardAnswers(dirname(file))
-  if (!board.ok) blockers.push(board.why)
   const isSafe = same && viewSame && before === counts.steps
   if (isDry) {
-    for (const line of blockers) log(`Would refuse: ${line}`)
-    log('Dry run: nothing written.')
-    return isSafe && blockers.length === 0 ? 0 : 1
+    log(`Dry run: would write ${items.size} item files, activities.json and last-ids.json into ${folder}; nothing written.`)
+    return isSafe ? 0 : 1
   }
-  for (const line of blockers) log(`Refused: ${line}`)
-  if (!isSafe) log('Nothing written: the store must read back as the backlog, and its view as the same items.')
-  if (!isSafe || blockers.length > 0) return 1
+  if (!isSafe) {
+    log('Nothing written: the store must read back as the backlog, and its view as the same items.')
+    return 1
+  }
   const kept = join(dirname(file), 'backlog.before-store.md')
   const keptText = await readFile(kept, 'utf8').catch(() => null)
   if (keptText !== null && keptText !== text) {
@@ -233,7 +223,7 @@ async function cutover(args, log, { asksOnBoard = BOARD_ANSWERS_ASKS, boardAnswe
   }
   const written = await writeStore(folder, migrated, undefined, { now })
   // Review 3: the store on disk must be the one that passed the checks; any write that failed, any file more or less,
-  // and the store stays a shadow.
+  // and backlog.md is left as it is.
   const disk = await readStore(folder)
   const off = [
     ...written.problems,
@@ -243,24 +233,23 @@ async function cutover(args, log, { asksOnBoard = BOARD_ANSWERS_ASKS, boardAnswe
   ]
   if (off.length > 0) {
     for (const line of off.slice(0, 20)) log(`  ${line}`)
-    log('The store stays a shadow: nothing else written.')
+    log(`The store in ${folder} is not what was checked: backlog.md is left as it is. Remove the folder and run this again.`)
     return 1
   }
   // A chat that wrote the backlog in the meantime: its words would be lost under the view.
   if (await readFile(file, 'utf8').catch(() => null) !== text) {
-    log('backlog.md changed during the cutover: the store stays a shadow; run the cutover again.')
+    log(`backlog.md changed while the store was made: remove ${folder} and run this again.`)
     return 1
   }
   if (keptText === null) await copyFile(file, kept)
-  await writeTruth(folder, { truth: 'store', since: stamp(now) })
   // The view of the store that passed the checks.
   const view = await writeView({ dir: folder, items, activities, preamble }, file, undefined, { now })
   if (!view.ok) {
-    log(`${view.why} The store is the truth; the board writes the view at the next change.`)
+    log(`${view.why} The store is made; the board writes the view at the next change.`)
     return 1
   }
   log(`Kept the old backlog as ${kept}.`)
-  log('The store is the truth now; backlog.md is its view.')
+  log('The store is made; backlog.md is its view from now on.')
   return 0
 }
 

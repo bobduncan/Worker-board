@@ -1,7 +1,6 @@
 // B296: the independent review's findings on increment 1, each pinned. Made-up samples only.
 
 import assert from 'node:assert/strict'
-import * as real from 'node:fs/promises'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +10,6 @@ import { parseBacklog } from '../../src/backlog.mjs'
 import { storeAsBacklog } from '../../src/work/adapter.mjs'
 import { parseItem, valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { differences, shadowKeeper } from '../../src/work/shadow.mjs'
 import { nextId, readStore, writeStore } from '../../src/work/store.mjs'
 
 const T1 = new Date(2026, 9, 17, 11, 5).getTime()
@@ -84,45 +82,8 @@ test('2. a broken last-ids.json gives no id back: its readable values and the fi
   }
 })
 
-test('3. the shadow writes one at a time, and the newest text wins', async () => {
-  const dir = await folder()
-  try {
-    let running = 0
-    let most = 0
-    const slow = { ...real, readdir: real.readdir, mkdir: real.mkdir, readFile: real.readFile, rename: real.rename, rm: real.rm }
-    slow.writeFile = async (...args) => {
-      running += 1
-      most = Math.max(most, running)
-      await new Promise(done => setTimeout(done, 5))
-      running -= 1
-      return real.writeFile(...args)
-    }
-    const old = '## A\n- [ ] B1 One\n'
-    const newer = '## A\n- [x] B1 One\n'
-    let file = newer
-    const keeper = shadowKeeper({ dir, canWrite: true, clock: () => T1, fs: slow, readBacklog: async () => file })
-    // Two refreshes overlap: the older text arrives last, but the backlog as it is now is the newer.
-    await Promise.all([keeper(newer), keeper(old)])
-    assert.equal(valueOf(parseItem(await readFile(join(dir, 'B1.md'), 'utf8')), 'State'), 'done')
-    assert.ok(most <= 1, `writes at once: ${most}`)
-    // Without a reader of its own the last text given wins, still one write at a time.
-    const plain = shadowKeeper({ dir, canWrite: true, clock: () => T2, fs: slow })
-    file = old
-    await Promise.all([plain(newer), plain(old)])
-    assert.equal(valueOf(parseItem(await readFile(join(dir, 'B1.md'), 'utf8')), 'State'), 'new')
-    assert.ok(most <= 1, `writes at once: ${most}`)
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-  }
-})
-
 test('4. a note that reads like the mark of a refine block is kept', () => {
   const text = '## A\n- [ ] B1 One\n  (the refine block stands under ## Refined)\n  More.\n'
   const migrated = migrateBacklog(text, { now: T1 })
   assert.deepEqual(storeAsBacklog(migrated.items, migrated.activities), parseBacklog(text))
-})
-
-test('5. differences counts an activity whose focus changed, also without steps', () => {
-  assert.equal(differences(parseBacklog('## A #focus\n## B\n- [ ] B1 One\n'), parseBacklog('## A\n## B\n- [ ] B1 One\n')), 1)
-  assert.equal(differences(parseBacklog('## A\n'), parseBacklog('## A\n')), 0)
 })

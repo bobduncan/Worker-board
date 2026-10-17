@@ -6,11 +6,12 @@ import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mjs'
 import { readAsks } from './asks.mjs'
-import { allWords, forYou, parseBacklog, queue } from './backlog.mjs'
+import { allWords, forYou, queue } from './backlog.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
 import { ownCard, ownCardKey } from './planLines.mjs'
 import { readDeep, readTail } from './transcript.mjs'
+import { storeBacklog } from './work/read.mjs'
 
 /** A transcript's name comes from a file another program wrote; only a plain id may become part of a path. */
 const SAFE_ID = /^[A-Za-z0-9_-]+$/
@@ -45,9 +46,9 @@ export function oneAtATime(read, ttlMs) {
 const earlier = oneAtATime(readDeep, EARLIER_MS)
 const picturesIn = new Map()
 
-/** The pictures in the folders the backlog's steps for the person and its queued steps point to, per mentioned path. */
-async function pictureLists(config, backlogText, now) {
-  const backlog = parseBacklog(backlogText ?? '')
+/** The pictures in the folders the store's steps for the person and its queued steps point to, per mentioned path. */
+async function pictureLists(config, work, now) {
+  const { backlog } = storeBacklog(work)
   const steps = [...forYou(backlog), ...queue(backlog)]
   const paths = [...new Set(steps.flatMap(step => mentionedPaths(allWords(step), config.pictureRoots)))].slice(0, MOST_FOLDERS)
   const lists = {}
@@ -63,22 +64,22 @@ async function pictureLists(config, backlogText, now) {
 }
 
 /**
- * `readFolders()` answers the working folders (see folders.mjs). B296: `readWork(backlogText)` answers the work store,
- * which runs as a shadow of the backlog (see work/shadow.mjs); undefined where the board has none.
+ * `readFolders()` answers the working folders (see folders.mjs). B296, B301: `readWork()` answers the work store (see
+ * work/read.mjs, `storeKeeper`); undefined where the board has none. The backlog file is not read: it is the store's view.
  */
 export async function readSources(config, readFolders, now = Date.now(), readBranches = async () => null, readWork = async () => undefined) {
   const claude = join(config.project, '.claude')
   // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository.
   const plan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.gamePlan.split('/'))
-  const [listText, appChatTexts, backlogText, adviceText, folders, askTexts, goalsText] = await Promise.all([
+  const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     readAppChats(config.appSessions),
-    readText(join(config.project, ...config.backlog.split('/'))),
     plan === null ? null : readText(plan),
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
     // B255: the goal map, beside the backlog; since B260 also the way to the next milestone.
     readText(join(config.project, ...config.goals.split('/'))),
+    readWork(),
   ])
 
   const chats = boardChats(
@@ -114,10 +115,10 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   }))
 
   return {
-    listText, appChatTexts, planLineTexts, planLineAt, tails, backlogText, adviceText, folders, askTexts, goalsText,
-    pictureLists: await pictureLists(config, backlogText, now),
-    // B296: the work store, migrated from the backlog's text when it changed, and read.
-    work: await readWork(backlogText),
+    listText, appChatTexts, planLineTexts, planLineAt, tails, adviceText, folders, askTexts, goalsText,
+    pictureLists: await pictureLists(config, work, now),
+    // B296, B301: the work store as it was read: the one source of the work.
+    work,
     // B113: the file the app keeps for its own usage card. The board only reads it.
     usageText: (await readTail(config.usageHistory, USAGE_BYTES))?.text ?? null,
     // The main chat's note of who was on what before a restart: only whether it is there, and since when.

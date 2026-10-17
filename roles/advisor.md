@@ -15,11 +15,12 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   and merge; and your suggestions on the backlog.
 - You ask the user one question at a time, with your advice in it.
 - Whoever asks the user asks once (B261). When you need something from the user (a decision, an answer, a look at a
-  picture), ask it in your own chat, in a "For you" block at the end of your answer (see `protocol.md`): the board
-  shows it under Needs your attention, and the user's answer comes straight back into your chat, never through the
-  main chat. Then tell the main chat in one line only what you asked ("Asked the user in my chat: ..."), so it does
-  not ask again. A refine, a suggestion, a recommendation and an ask on the goal map keep their own places on the
-  board: they are not repeated in your "For you" block.
+  picture), file it with `work ask` (`kind` decide, look, provide or do, your options and advice, its pictures): the
+  board shows it under Needs your attention, and the user's answer comes straight back into your chat, never through
+  the main chat. Put the "For you" block the tool answers at the end of your answer, so your chat says the same. A
+  "For you" block without an ask is not read by the board: it shows as a warning that you filed none. Then tell the
+  main chat in one line only what you asked ("Asked the user: Q12 ..."), so it does not ask again. A refine, a
+  suggestion, a recommendation and an ask on the goal map keep their own places on the board.
 
 ## Your two pages in the game
 

@@ -1,5 +1,4 @@
-// B300: the server's part of the reconciler (spec 2026-10-17, sections 6 hook 3 and 7). Once the store is the truth, at
-// every refresh the board makes the moves the reconciler names (through the work API, as the server) and sends each
+// B300: the server's part of the reconciler (spec 2026-10-17, sections 6 hook 3 and 7). At every refresh the board makes the moves the reconciler names (through the work API, as the server) and sends each
 // chat its line ("work: B286 is yours; run work next") into the outbox, where the Workers mod takes it. A line goes
 // once per key: the step, its owner and when it was queued for that owner ("B286 Units 2026-10-17 11:00"), so a step
 // queued anew is delivered anew. The keys stand in the store's folder (`delivered.json`), written once the line is in
@@ -113,7 +112,7 @@ async function withdrawStale({ dir, outbox, prefix, fs }) {
 }
 
 /**
- * One refresh: `state.reconciled` (state.mjs; null while the store is a shadow) carried out. `apply(body)` is the work
+ * One refresh: `state.reconciled` (state.mjs; null while the store cannot be read) carried out. `apply(body)` is the work
  * API as the server. `{ moved, sent, withdrawn }`: the ids moved, the messages sent and withdrawn.
  */
 export async function deliverWork({ state, dir, outbox, apply, now, maxChars, newId, fs, keep }) {

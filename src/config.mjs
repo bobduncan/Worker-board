@@ -73,8 +73,8 @@ const DEFAULTS = {
   goalsHistory: '.claude/goals.history',
   /**
    * B296: the work store, one file per item (spec 2026-10-17): a path inside the project, or a whole path of its own
-   * (a copy of the board tried beside the person's keeps its store apart that way). In increment 1 it is a shadow of
-   * the backlog, written by the board that delivers.
+   * (a copy of the board tried beside the person's keeps its store apart that way). B301: the one source of the work;
+   * a project gets it with tools/migrate-backlog.mjs (--make-store from a backlog, --init for an empty one).
    */
   work: '.claude/work',
   // The way to the next milestone is part of the goal map since B260 (the setting milestoneMap is gone).

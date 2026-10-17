@@ -3,7 +3,8 @@
 // written into that block by the board. Made-up samples only.
 
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -11,7 +12,10 @@ import vm from 'node:vm'
 
 import { overview, parseBacklog, refinedOf, withoutRefined } from '../src/backlog.mjs'
 import { checkSay, wakeFor } from '../src/say.mjs'
-import { acceptRefine, answerRefine, editStep } from '../src/tick.mjs'
+import { editStep } from '../src/tick.mjs'
+import { migrateBacklog } from '../src/work/migrate.mjs'
+import { acceptRefine, answerRefine } from '../src/work/refineText.mjs'
+import { readStore, writeStore } from '../src/work/store.mjs'
 
 const BACKLOG = [
   '## Zebracorns #focus\n',
@@ -27,22 +31,6 @@ const BACKLOG = [
   '  Context: asked by the herd.\n',
   '- [ ] B13 Paint the narwhal bridge\n',
 ].join('')
-
-function memoryFile(text) {
-  const files = new Map([['backlog.md', Buffer.from(text, 'latin1')]])
-  return {
-    files,
-    fs: {
-      readFile: async name => {
-        if (!files.has(name)) throw new Error('gone')
-        return files.get(name)
-      },
-      writeFile: async (name, bytes) => { files.set(name, Buffer.from(bytes)) },
-      rename: async (from, to) => { files.set(to, files.get(from)); files.delete(from) },
-      rm: async name => { files.delete(name) },
-    },
-  }
-}
 
 test('the refine block is read apart from the step\'s other lines, which end it', () => {
   const step = parseBacklog(BACKLOG).activities[0].steps[0]
@@ -81,17 +69,28 @@ test('accepting marks the head of the block, once', () => {
   assert.equal(refinedOf(parseBacklog(done.text).activities[0].steps[0].notes).accepted, '2026-10-14 19:02')
 })
 
-test('the board writes them only on the board that delivers, and in one line each', async () => {
-  const { files, fs } = memoryFile(BACKLOG)
-  const now = new Date(2026, 9, 14, 19, 2).getTime()
-  assert.equal((await editStep({ action: 'refine-answer', step: 'B11', answers: [], feedback: 'x' }, { canWrite: false, file: 'backlog.md', now, fs })).status, 409)
-  assert.equal((await editStep({ action: 'refine-answer', step: 'B11', answers: [{ index: 0, answer: '  ' }], feedback: '' }, { canWrite: true, file: 'backlog.md', now, fs })).status, 400)
-  const done = await editStep({ action: 'refine-answer', step: 'B11', answers: [{ index: 0, answer: 'The dawn\nchorus' }], feedback: '' }, { canWrite: true, file: 'backlog.md', now, fs })
-  assert.deepEqual(done, { ok: true, result: { step: 'B11', action: 'refine-answer' } })
-  assert.match(files.get('backlog.md').toString('latin1'), /- Which song\? Answer: The dawn chorus\n/)
-  await editStep({ action: 'refine-accept', step: 'B11' }, { canWrite: true, file: 'backlog.md', now, fs })
-  assert.match(files.get('backlog.md').toString('latin1'), /; accepted 2026-10-14 19:02\):/)
-  assert.equal((await editStep({ action: 'refine-accept', step: 'B13' }, { canWrite: true, file: 'backlog.md', now, fs })).status, 409)
+test('the board writes them through the work store, only on the board that writes one, and in one line each', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'board-refine-'))
+  try {
+    const file = join(folder, 'backlog.md')
+    const dir = join(folder, 'work')
+    await writeFile(file, BACKLOG)
+    await writeStore(dir, migrateBacklog(BACKLOG, { now: 0 }), undefined, { now: 0 })
+    const work = { dir, viewFile: file }
+    const block = async () => (await readStore(dir)).items.get('B11').sections.get('Refined').join('\n')
+    const now = new Date(2026, 9, 14, 19, 2).getTime()
+    assert.equal((await editStep({ action: 'refine-answer', step: 'B11', answers: [], feedback: 'x' }, { now, work: null })).status, 409)
+    assert.equal((await editStep({ action: 'refine-answer', step: 'B11', answers: [{ index: 0, answer: '  ' }], feedback: '' }, { now, work })).status, 400)
+    const done = await editStep({ action: 'refine-answer', step: 'B11', answers: [{ index: 0, answer: 'The dawn\nchorus' }], feedback: '' }, { now, work })
+    assert.deepEqual(done, { ok: true, result: { step: 'B11', action: 'refine-answer' } })
+    assert.match(await block(), /- Which song\? Answer: The dawn chorus$/m)
+    assert.match(await readFile(file, 'utf8'), /- Which song\? Answer: The dawn chorus\n/)
+    await editStep({ action: 'refine-accept', step: 'B11' }, { now, work })
+    assert.match(await block(), /; accepted 2026-10-14 19:02\):/)
+    assert.equal((await editStep({ action: 'refine-accept', step: 'B13' }, { now, work })).status, 409)
+  } finally {
+    await rm(folder, { recursive: true, force: true })
+  }
 })
 
 const STATE = {

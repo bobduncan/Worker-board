@@ -1,5 +1,5 @@
-// B300: once the store is the truth, a lane's task comes from the store, not from the main chat's "Task from" line
-// (spec 2026-10-17, section 6 hook 4); while it is a shadow the hand-over is read as before. Made-up samples only.
+// B300, B301: a lane's task comes from the store, never from the main chat's "Task from" line (spec 2026-10-17, section
+// 6 hook 4). Made-up samples only.
 
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -9,10 +9,10 @@ import test from 'node:test'
 
 import { answer, fromChat, step, typed } from '../../fixtures/lines.mjs'
 import { parseConfig } from '../../src/config.mjs'
-import { buildState } from '../../src/state.mjs'
+import { buildState } from '../withStore.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { readStore, writeStore, writeTruth } from '../../src/work/store.mjs'
+import { readStore, writeStore } from '../../src/work/store.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 17, 11, 5).getTime()
@@ -28,16 +28,15 @@ const tail = isRunning => ({
   isCut: false, modifiedAt: NOW - MIN,
 })
 
-async function garden(truth) {
+async function garden() {
   const dir = await mkdtemp(join(tmpdir(), 'work-task-'))
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW - 60 * MIN }), undefined, { now: NOW - 60 * MIN })
-  await writeTruth(dir, { truth: 'store', since: '2026-10-17 10:00' })
   await workApi({ chat: 'Digger', action: 'take', id: 'B1' }, { dir, now: NOW - 30 * MIN, prefix: 'Garden · ', roleOf: chat => ({ Lead: 'main', Digger: 'worker' })[chat] ?? null, freeChats: new Set(['Digger']) })
   const build = async isRunning => {
     const work = { ok: true, dir, ...(await readStore(dir)) }
     const raw = {
       listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead'), app('Digger')], tails: { 'cli-Digger': tail(isRunning) }, planLineTexts: {},
-      backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work: truth === 'store' ? work : { ...work, truth: 'shadow' },
+      backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work,
     }
     return buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config }).chats.find(one => one.name === 'Digger')
   }
@@ -45,30 +44,23 @@ async function garden(truth) {
 }
 
 test('a working lane\'s task is the step the store holds for it, not the step a "Task from" line names', async () => {
-  const store = await garden('store')
-  const shadow = await garden('shadow')
+  const store = await garden()
   try {
     const now = await store.build(true)
-    assert.deepEqual([now.state, now.task.stepId, now.task.text, now.task.handMinutes], ['working', 'B1', 'B1 Plant the hedge', null])
-    // As a shadow the board reads the hand-over as before.
-    const before = await shadow.build(true)
-    assert.deepEqual([before.state, before.task.stepId, before.task.handMinutes], ['working', 'B2', 45])
+    assert.deepEqual([now.state, now.task.stepId, now.task.text, now.task.handMinutes], ['working', 'B1', 'B1 Plant the hedge', undefined])
+    // The step is the task as it was given, not the hand-over.
+    assert.deepEqual([now.givenTask.by, now.givenTask.step.id], ['step', 'B1'])
   } finally {
     await rm(store.dir, { recursive: true, force: true })
-    await rm(shadow.dir, { recursive: true, force: true })
   }
 })
 
 test('between two turns a "Task from" line holds the chat no more; the step it holds in progress does', async () => {
-  const store = await garden('store')
-  const shadow = await garden('shadow')
+  const store = await garden()
   try {
     const now = await store.build(false)
     assert.deepEqual([now.state, now.between, now.task.stepId], ['working', 'Its turn has ended; its step B1 is in progress.', 'B1'])
-    const before = await shadow.build(false)
-    assert.deepEqual([before.state, before.between], ['working', 'Its turn has ended; the task handed to it is not reported yet.'])
   } finally {
     await rm(store.dir, { recursive: true, force: true })
-    await rm(shadow.dir, { recursive: true, force: true })
   }
 })

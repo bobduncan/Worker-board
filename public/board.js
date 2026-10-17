@@ -16,6 +16,8 @@ const KINDS = {
   verify: { sign: '✓', tag: 'Verification needed' },
   intervene: { sign: '!', tag: 'Intervention needed' },
   do: { sign: '→', tag: 'Only you can do' },
+  // B301: a chat wrote questions in its chat but filed no ask: a warning, with the way to its chat.
+  unfiled: { sign: '!', tag: 'No ask filed' },
 }
 /** What a step in the backlog says it asks of the person. */
 const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
@@ -211,30 +213,29 @@ function appNote(moved, clockOf) {
 
 // store:start
 /**
- * B296: the line under the Backlog tab's head about the work store, which runs as a shadow of the backlog: how many
- * items it holds and whether it reads back as the backlog (`store` from the state). Null without a store.
+ * B296: the line under the Backlog tab's head about the work store, the one source of the work: how many items it holds
+ * and that backlog.md is its view (`store` from the state). Null without a store.
  */
 function storeLine(store) {
   if (store === null || store === undefined) return null
   const problems = store.problems ?? []
   if (store.ok !== true) return { tone: 'problem', text: `Store: ${store.why}`, problems }
-  const parts = [`Store: ${store.mode}`, `${store.items} item${store.items === 1 ? '' : 's'}`]
-  // B297: once the store is the truth, backlog.md is its view.
-  if (store.mode === 'store') parts.push(store.differences === 0 ? 'backlog.md is its view' : `${store.differences} step${store.differences === 1 ? '' : 's'} of backlog.md differ${store.differences === 1 ? 's' : ''} from the store: the board shows the store; backlog.md is rewritten at the next change`)
-  else parts.push(store.differences === 0 ? 'in step with the backlog' : `${store.differences} step${store.differences === 1 ? ' differs' : 's differ'} from the backlog: the board shows the backlog`)
+  const parts = ['Store', `${store.items} item${store.items === 1 ? '' : 's'}`, 'backlog.md is its view']
   if (problems.length > 0) parts.push(`${problems.length} problem${problems.length === 1 ? '' : 's'}`)
-  return { tone: store.differences !== 0 ? 'problem' : problems.length > 0 ? 'warn' : 'ok', text: parts.join(' · '), problems }
+  return { tone: problems.length > 0 ? 'warn' : 'ok', text: parts.join(' · '), problems }
 }
 
 /**
- * B296: the note on top when the work store could not be read: the board falls back to the backlog. B297: or when
- * backlog.md was edited by hand after the cutover, the edit kept beside it (`store.kept`). Null: none.
+ * B296, B301: the note on top about the work store: it is not there or cannot be read (`store.why`, naming its folder
+ * and what to run; the board then shows no work, and nothing from backlog.md instead); a file in it the board cannot
+ * read (the reconciler's lines, naming the folder and the file); or backlog.md was edited by hand, the edit kept beside
+ * it (`store.kept`). Null: none.
  */
 function storeNote(store, workFlags = []) {
-  if (store?.failed === true) return { tone: 'problem', text: store.why }
+  if (store !== null && store !== undefined && store.ok !== true) return { tone: 'problem', text: store.why }
   // B300: the reconciler's lines on top: a file it cannot read, an id twice, a state the flow does not know.
-  if (workFlags.length > 0) return { tone: 'problem', text: `The work store: ${workFlags.join(' · ')}. Such an item is shown as it is and not moved: fix it by hand.` }
-  if (typeof store?.kept === 'string') return { tone: 'warn', text: `backlog.md was edited by hand after the cutover. The board wrote it anew from the work store and kept the edited file as ${store.kept}: carry what it adds over with the work tool, then delete it.` }
+  if (workFlags.length > 0) return { tone: 'problem', text: `The work store${typeof store?.dir === 'string' ? ` ${store.dir}` : ''}: ${workFlags.join(' · ')}. Such an item is shown as it is and not moved: fix the file by hand.` }
+  if (typeof store?.kept === 'string') return { tone: 'warn', text: `backlog.md was edited by hand. The board wrote it anew from the work store and kept the edited file as ${store.kept}: carry what it adds over with the work tool, then delete it.` }
   return null
 }
 // store:end
@@ -248,7 +249,7 @@ function drawAppNote(state) {
   note.textContent = shown.text
 }
 
-/** B296: the note on top when the work store could not be read (see `storeNote`). */
+/** B296, B301: the note on top about the work store (see `storeNote`). */
 function drawStoreNote(state) {
   const shown = storeNote(state.store ?? null, state.workFlags ?? [])
   const note = $('store-note')
@@ -547,12 +548,12 @@ function timeOf(lane, now) {
   if (eta === null) {
     // The main chat hands out work and answers: it has no task to time.
     return lane.isWithoutTime === true
-      ? { label: 'ETA', main: 'No time', tone: 'fault', small: soFar, from: null, title: 'This worker works without a time: it gave none, its step names none, and its hand-over named none.' }
+      ? { label: 'ETA', main: 'No time', tone: 'fault', small: soFar, from: null, title: 'This worker works without a time: it gave none, and its step names none.' }
       : { label: '', main: 'Working', tone: 'muted', small: soFar, from: null }
   }
   const from = eta.isOwn !== false ? null : {
-    text: eta.from === 'handover' ? 'from its hand-over' : `from ${lane.task?.stepId ?? 'its step'}`,
-    title: `The worker gave no estimate of its own: this is the time its ${eta.from === 'handover' ? 'hand-over' : 'backlog step'} names, counted from when the task started.`,
+    text: `from ${lane.task?.stepId ?? 'its step'}`,
+    title: 'The worker gave no estimate of its own: this is the time its step names, counted from when the task started.',
   }
   // Overdue stays overdue, with how far over as its figure.
   if (eta.isOverdue) return { label: 'Overdue', main: `${span(now - eta.at)} over`, tone: 'bad', small: [`was ${clock(eta.at)}`], from }
@@ -703,11 +704,8 @@ function drawMore(lane, state) {
     if (task.firstEstimateMs !== null) list.append(el('li', '', `First estimate ${span(task.firstEstimateMs)}, worked ${span(task.workedMs)}`))
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
     if (task.source === 'unrecorded') list.append(el('li', 'muted', 'It has recorded no task yet: no topic, no steps and no time.'))
-    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the backlog step that names its branch.'))
-    if (lane.eta !== null && lane.eta.isOwn === false) {
-      const [where, minutes] = lane.eta.from === 'handover' ? ['its hand-over', task.handMinutes] : [task.stepId ?? 'its step', task.stepMinutes]
-      list.append(el('li', 'muted', `It gave no estimate: ${where} says ${about(minutes)}, counted from the start.`))
-    }
+    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the step the work store holds for it.'))
+    if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
     if (task.source === 'plan' && (task.stepId ?? null) !== null) list.append(el('li', 'muted', `It is on step ${task.stepId} of the backlog.`))
   }
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
@@ -1458,6 +1456,7 @@ function answerPart(need, state, isFolded) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
+  if (need.kind === 'unfiled') return [...parts, ...talkButton(need)]
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
@@ -1494,6 +1493,17 @@ function answerPart(need, state, isFolded) {
   else parts.push(text, buttons)
   if (problems.has(need.id)) parts.push(el('p', 'problem', problems.get(need.id)))
   return parts
+}
+
+/**
+ * B301: the way to the chat of a warning that it wrote questions without filing an ask: Talk to Main, the Advisor's
+ * chat on its tab, or, for a worker, this card's window with its last answer.
+ */
+function talkButton(need) {
+  const open = el('button', 'choice', need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`)
+  open.type = 'button'
+  open.dataset.openTalk = need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id
+  return [open]
 }
 
 /** The options of a request: a button under its picture for each that has one, plain buttons for the others. */
@@ -1841,6 +1851,16 @@ function drawInstructions(state) {
 $('needs').addEventListener('click', event => {
   const side = event.target.closest('.instructions [data-show-side]')
   if (side !== null) showSide(side.dataset.showSide)
+  // B301: a warning's way to its chat.
+  const talk = event.target.closest('[data-open-talk]')
+  if (talk !== null) {
+    const where = talk.dataset.openTalk
+    if (where === 'main') showSide('main')
+    else if (where === 'advisor') {
+      show('advice')
+      showAdvisorPane('chat')
+    } else openDetails({ need: where })
+  }
   const read = event.target.closest('[data-read]')
   if (read !== null) sendWork({ action: 'read', id: read.dataset.read }, `read:${read.dataset.read}`)
   const withdraw = event.target.closest('[data-withdraw]')
@@ -2032,7 +2052,7 @@ function flowStripOf(flow) {
 
 // item:start
 /**
- * B299: the parts of a step's window once the store is the truth, in their order: the Summary on top, the picture, the
+ * B299: the parts of a step's window from the work store, in their order: the Summary on top, the picture, the
  * goal chip, the flow strip, What we build, then Requirements and Touches folded, History last. `item` is the state's
  * `item` of the step; only the parts it has.
  */
@@ -2109,20 +2129,6 @@ function waitingOf(need, now) {
 /** B149: whether a finished worker's answer has the parts of the agreed form, so the window shows them. */
 const hasForm = handover => handover !== null && (handover.items.length > 0 || handover.task !== null || handover.did !== null)
 
-/**
- * B149: the answer the window types for the items of a finished worker's "For you" block, as the person answers in
- * a chat: one line per item answered, "1. yes", "2. no: it slides at the corner", "3. done". `answers` holds per
- * item number `{ verdict: 'yes' | 'no' | 'done' | null, words }`.
- */
-function handoverAnswer(items, answers) {
-  return items.map(item => {
-    const given = answers.get(item.n) ?? { verdict: null, words: '' }
-    const words = String(given.words ?? '').replace(/\s+/g, ' ').trim()
-    if (given.verdict === null && words === '') return null
-    return `${item.n}. ${[given.verdict, words].filter(part => part !== null && part !== '').join(': ')}`
-  }).filter(line => line !== null).join('\n')
-}
-
 /** B149: the closing block's lines, to show as a small table: `[label, words, tone]`; tone 'good' or 'bad' for Done. */
 function closingRows(closing) {
   if (closing === null) return []
@@ -2136,7 +2142,7 @@ function closingRows(closing) {
  * what it did, and what it needs from the person, numbered, each with its links and its own answer; its whole
  * answer folded; its closing block on the right. `{ main, side }`, each a list of sections.
  */
-function handoverParts(waiting, needId) {
+function handoverParts(waiting) {
   const { handover, given } = waiting
   // B157: on top, set apart: the task in at most two lines, and what it did in plain words (a technical sentence
   // is left out there; the folded details have its whole answer).
@@ -2146,11 +2152,11 @@ function handoverParts(waiting, needId) {
     ['What I did', did === '' ? [] : [el('p', 'brief-text', did)]],
   ])]
 
-  if (handover.items.length > 0) main.push(itemsPart(handover.items, waiting, needId))
+  // B301: its "For you" items are not shown as questions to answer here: what waits for the person is the store's asks.
   // B157: below, folded: the message as it was given, its whole answer, its closing block.
   main.push(foldedDetails([
     given === null ? null : section('Its task as it was given', [
-      el('small', 'muted', `Given by ${given.by === 'you' ? 'you' : 'the main chat'} at ${clock(given.at)}`), rich(el('div', 'said-words'), given.text),
+      el('small', 'muted', `Given by you at ${clock(given.at)}`), rich(el('div', 'said-words'), given.text),
     ]),
     waiting.words === '' ? null : section(`Its whole answer${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`, [rich(el('div', 'said-words'), waiting.words)]),
     ...closingParts(handover.closing),
@@ -2160,12 +2166,12 @@ function handoverParts(waiting, needId) {
 
 /**
  * B169: the window of the main chat that waits for the person. The person, 2026-10-14: "This 'for you' tab, doesnt
- * contain the information i need to approve. i think it works for for workers, but not for the main chat", and of
- * the mock-up "1. yes". On top what the person asked it (its closing block's Prompt) and where that stands (Done);
- * then its answer itself, open: what the person decides on; then its questions, with the choices it lists; its
- * closing block folded, and for a question it first asked in an earlier answer, the way to Talk to Main ("2. yes: A").
+ * contain the information i need to approve. i think it works for for workers, but not for the main chat". On top what
+ * the person asked it (its closing block's Prompt) and where that stands (Done); then its answer itself, open; its
+ * closing block folded, and the way to Talk to Main. B301: the questions of its "For you" block are not offered as
+ * questions to answer here: what waits for the person is the store's asks.
  */
-function mainParts(waiting, needId) {
+function mainParts(waiting) {
   const handover = waiting.handover
   const closing = handover?.closing ?? null
   const asked = closing?.prompt ?? ''
@@ -2179,12 +2185,11 @@ function mainParts(waiting, needId) {
     ]))
   }
   const material = handover?.material ?? waiting.words
-  if (material !== '') main.push(section(`What you decide on${waiting.saidAt === null ? '' : ` · its answer of ${clock(waiting.saidAt)}`}`, [drawTalkText(el('div', 'main-material'), material)]))
-  if (handover !== null && handover.items.length > 0) main.push(itemsPart(handover.items, waiting, needId, true))
+  if (material !== '') main.push(section(`Its answer${waiting.saidAt === null ? '' : ` of ${clock(waiting.saidAt)}`}`, [drawTalkText(el('div', 'main-material'), material)]))
   // B275: what it asked with the app's own form, or the plan it asks to have approved: answered in its chat.
   const form = formParts(waiting)
   if (form.length > 0) main.push(section('What it asks in its chat', [...form, el('p', 'muted', 'It asked with the app\'s own question form: that one takes its answer only in its chat.')]))
-  if (material === '' && (handover?.items.length ?? 0) === 0 && form.length === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
+  if (material === '' && form.length === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
   const open = el('button', 'link-button', waiting.isAdvisor ? 'Open its chat on the Advisor tab' : `Open Talk to ${board?.mainTalk?.name ?? 'Main'}`)
   open.type = 'button'
   // B275: the Advisor's window leads to the talk with it, on its own tab.
@@ -2192,80 +2197,13 @@ function mainParts(waiting, needId) {
   else open.dataset.showSide = 'main'
   main.push(foldedDetails([
     ...closingParts(closing),
-    section('Asked before', [el('p', 'muted', 'A question it first asked in an earlier answer: all its answers are in the talk with it.'), open]),
+    section('Its talk', [el('p', 'muted', 'All its answers are in the talk with it.'), open]),
   ]))
   return { main, side: [] }
 }
 
 /** B169: words with a capital first letter, as a line of the window starts. */
 const capitalized = text => text.charAt(0).toUpperCase() + text.slice(1)
-
-/**
- * B149: the items of a "For you" block, numbered, each with its links and its own answer: Yes or No, Done, or (B169,
- * the main chat's window, `withChoices`) the choices it lists, shown under its question with its advice.
- */
-function itemsPart(items, waiting, needId, withChoices = false) {
-  const answers = itemAnswers.get(needId) ?? new Map()
-  const list = el('ol', 'handover-items')
-  for (const item of items) {
-    const li = el('li', 'handover-item')
-    li.dataset.item = String(item.n)
-    const ask = el('p', 'handover-ask')
-    ask.append(el('b', '', `${item.n}. ${item.kind === 'do' ? 'Do' : 'Answer'}: `), withChoices ? capitalized(item.ask ?? item.text) : item.text)
-    li.append(ask)
-    const choices = withChoices ? item.options ?? [] : []
-    if (choices.some(choice => choice.text !== null)) {
-      const listed = el('ul', 'handover-options')
-      for (const choice of choices) {
-        const row = el('li')
-        row.append(el('b', '', `${choice.key}: `), choice.text ?? '')
-        listed.append(row)
-      }
-      li.append(listed)
-    }
-    if (withChoices && (item.note ?? '') !== '') li.append(el('p', 'handover-note', item.note))
-    // B132: a project without a game has nothing to play: its play links are left out.
-    for (const link of item.links.filter(one => one.kind === 'picture' || board?.hasGame !== false)) {
-      const open = el('button', 'handover-link', link.kind === 'picture' ? link.label : `▶  ${link.label}`)
-      open.type = 'button'
-      if (link.kind === 'picture') {
-        open.dataset.zoom = link.path
-        open.dataset.caption = link.label
-        open.title = `Opens the picture here: ${link.path}`
-      } else {
-        open.dataset.play = link.branch
-        open.dataset.settings = link.settings
-        open.disabled = starting.has(`play:${link.branch}`)
-        open.title = 'Starts the game with this work in a new tab, where the change shows. It stops by itself after you close the tab.'
-      }
-      li.append(open)
-      if (link.kind === 'play' && problems.has(`play:${link.branch}`)) li.append(el('p', 'problem', problems.get(`play:${link.branch}`)))
-    }
-    if (waiting.where === 'here') {
-      const mine = answers.get(item.n) ?? { verdict: null, words: '' }
-      const row = el('div', 'handover-answer')
-      for (const verdict of choices.length > 0 ? choices.map(choice => choice.key) : item.kind === 'do' ? ['done'] : ['yes', 'no']) {
-        const pick = el('button', `choice${mine.verdict === verdict ? ' is-chosen' : ''}`, verdict.charAt(0).toUpperCase() + verdict.slice(1))
-        pick.type = 'button'
-        pick.dataset.itemVerdict = verdict
-        pick.setAttribute('aria-pressed', String(mine.verdict === verdict))
-        row.append(pick)
-      }
-      const words = el('input')
-      words.type = 'text'
-      words.value = mine.words
-      words.maxLength = 500
-      words.placeholder = item.kind === 'do' || choices.length > 0 ? 'Your words, if any…' : 'Your words (needed for No)…'
-      words.dataset.itemWords = ''
-      words.setAttribute('aria-label', `Your answer to ${item.n}`)
-      row.append(words)
-      li.append(row)
-    }
-    list.append(li)
-  }
-  // B169: the person, 2026-10-14: "lets rename 'For you' to 'Need your attention'", and "everywhere".
-  return section('Needs your attention', [list, ...(waiting.where === 'here' ? [el('p', 'muted', 'Your answers gather in the box below; change it there if you like, then send.')] : [])])
-}
 
 /** B149: the closing block of a worker's answer as three lines, Done in green or red; nothing when it has none. */
 function closingParts(closing) {
@@ -2274,19 +2212,6 @@ function closingParts(closing) {
   const list = el('dl', 'closing-rows')
   for (const [label, words, tone] of rows) list.append(el('dt', 'muted', label), el('dd', tone === '' ? '' : `is-${tone}`, words))
   return [section('Its closing block', [list])]
-}
-
-/** B149: what the person chose per item of a finished worker's "For you" block, per window; it stays in this page only. */
-const itemAnswers = new Map()
-
-/** B149: the answer box of the window shows what the items' answers make, and keeps it as the draft. */
-function gatherAnswers(box, needId) {
-  const need = everyNeed(board).find(one => one.id === needId)
-  const items = need?.waits?.handover?.items ?? []
-  const text = handoverAnswer(items, itemAnswers.get(needId) ?? new Map())
-  drafts.set(needId, text)
-  const area = box.querySelector('.details-foot textarea')
-  if (area !== null) area.value = text
 }
 
 $('details').addEventListener('click', event => {
@@ -2302,31 +2227,7 @@ $('details').addEventListener('click', event => {
     closeDetails()
     show('advice')
     showAdvisorPane(advisor.dataset.showAdvisor)
-    return
   }
-  const pick = event.target.closest('[data-item-verdict]')
-  if (pick === null || detailsOf?.need === undefined) return
-  const n = Number(pick.closest('[data-item]').dataset.item)
-  const answers = itemAnswers.get(detailsOf.need) ?? new Map()
-  const mine = answers.get(n) ?? { verdict: null, words: '' }
-  // A second click takes the choice back.
-  const verdict = mine.verdict === pick.dataset.itemVerdict ? null : pick.dataset.itemVerdict
-  answers.set(n, { ...mine, verdict })
-  itemAnswers.set(detailsOf.need, answers)
-  for (const other of pick.parentElement.querySelectorAll('[data-item-verdict]')) {
-    other.classList.toggle('is-chosen', other.dataset.itemVerdict === verdict)
-    other.setAttribute('aria-pressed', String(other.dataset.itemVerdict === verdict))
-  }
-  gatherAnswers($('details'), detailsOf.need)
-})
-
-$('details').addEventListener('input', event => {
-  if (!event.target.matches('[data-item-words]') || detailsOf?.need === undefined) return
-  const n = Number(event.target.closest('[data-item]').dataset.item)
-  const answers = itemAnswers.get(detailsOf.need) ?? new Map()
-  answers.set(n, { ...(answers.get(n) ?? { verdict: null }), words: event.target.value })
-  itemAnswers.set(detailsOf.need, answers)
-  gatherAnswers($('details'), detailsOf.need)
 })
 
 /** B100: the questions a chat asked with the app's own form, with the options it offers, and the plan it asks to have approved. */
@@ -2347,9 +2248,9 @@ function formParts(waiting) {
 /** B100: the two parts of a waiting worker's window: its task, and what it wants from the person. */
 function waitingParts(waiting, needId = null) {
   // B169: the main chat, which asks the person as part of its talk with them; B275: the Advisor too.
-  if (waiting.isMain || waiting.isAdvisor) return mainParts(waiting, needId)
+  if (waiting.isMain || waiting.isAdvisor) return mainParts(waiting)
   // B149: a finished worker whose answer has the agreed form.
-  if (hasForm(waiting.handover)) return handoverParts(waiting, needId)
+  if (hasForm(waiting.handover)) return handoverParts(waiting)
   const task = waiting.task.map((line, index) => el('p', index === 0 ? `waiting-topic${waiting.hasTask ? '' : ' muted'}` : 'muted', line))
   const wants = []
   if (waiting.summary !== '') wants.push(el('p', 'waiting-summary', waiting.summary))
@@ -2544,10 +2445,10 @@ function planOf(lane, now) {
 
 /**
  * B151: what the window of a working worker's lane shows (also one that is suspended, cut off, or between two turns):
- * in its head the task as its card names it; then the task as it was given (`given`: the main chat's hand-over as it
- * arrived in that chat, or what the person typed there, with when), the backlog step that message is about, and
- * where it stands now (`standing`: its step line, its time, what it does). Null for a lane whose window this is
- * not: a free one, or one that waits for the person (that one opens what it waits for, B100).
+ * in its head the task as its card names it; then the task as it was given (`given`: what the person typed there,
+ * with when; B301: the step the work store holds for it has no words of its own), the step it is on, and where it
+ * stands now (`standing`: its step line, its time, what it does). Null for a lane whose window this is not: a free
+ * one, or one that waits for the person (that one opens what it waits for, B100).
  */
 function laneWindowOf(lane, now, mainTitle) {
   const chip = LANE_WINDOW_STATES[lane.state]
@@ -2560,14 +2461,15 @@ function laneWindowOf(lane, now, mainTitle) {
     code: laneTaskOf(lane).code,
     title: laneTaskOf(lane).text ?? 'Task not recorded yet',
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
-    given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
+    // B301: only the person's words give a task; the main chat's messages give none.
+    given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
     step: given?.step ?? null,
     // B157: the top part: the task in one short sentence, and its plan in plain words. B281: for a backlog step, the
     // step's id and title above it, and what the step is; the person's feedback the worker is on as a part apart.
     taskHead: (given?.step ?? null) === null ? null : `${given.step.id} · ${given.step.title}`,
     task: (given?.step ?? null) === null
       ? shortTask(given?.text ?? null, null, task === null || task.text === '' ? null : task.text)
-      : stepTask(given.text, given.step, task === null || task.text === '' ? null : task.text),
+      : given.by === 'step' ? stepTask('', given.step) : stepTask(given.text, given.step, task === null || task.text === '' ? null : task.text),
     feedback: (lane.feedback ?? null) === null ? null : { title: `Now on your feedback (${clock(lane.feedback.at)})`, text: lane.feedback.text },
     plan: planOf(lane, now),
     standing: [
@@ -2819,7 +2721,7 @@ function drawDetails(state) {
   // has them on the right.
   // B296: where the step stands in the flow (flow.json), from the work store.
   const strip = flowStripOf(flowFor(subject.step ?? step ?? null, need, state))
-  // B299: once the store is the truth, a step's window shows its item: Summary, picture, goal, the strip, What we
+  // B299: a step's window shows its item from the work store: Summary, picture, goal, the strip, What we
   // build, Requirements and Touches folded; its History comes last.
   const itemParts = itemPartsOf(itemNow, strip !== null)
   if (itemParts.length > 0) left.append(...itemParts.filter(part => part.key !== 'history').map(part => itemPart(part, strip)))
@@ -3043,19 +2945,6 @@ function openPicture(path, caption) {
 document.addEventListener('click', event => {
   const frame = event.target.closest('[data-zoom]')
   if (frame !== null) openPicture(frame.dataset.zoom, frame.dataset.caption)
-})
-
-// B149: "Play it" in a finished worker's window: the tab is opened with the click itself, as for "Open the game".
-document.addEventListener('click', event => {
-  const link = event.target.closest('[data-play]')
-  if (link === null) return
-  let tab = null
-  try {
-    tab = window.open('about:blank', '_blank')
-  } catch {
-    // Stopped by the browser: said below.
-  }
-  play(link.dataset.play, link.dataset.settings ?? '', { tab })
 })
 
 // B208: a phone is a screen up to 600 px wide, as the style sheet has it.
@@ -5528,7 +5417,7 @@ resizable($('talk-resizer'), $('view-advice'), 'chat-width', 500)
 // B155: the steps finished last, newest first, at the top of the Backlog tab. The person, 2026-10-14: "i want a
 // chronological list of backlog items that were recently finish desc, so latest items first."
 
-const FINISHED_HOW = { line: 'its line in the backlog', report: 'its report to the main chat', seen: 'the board saw it ticked', day: 'only the day is known' }
+const FINISHED_HOW = { line: 'its line in the backlog', store: 'its move to done in the work store', seen: 'the board saw it ticked', day: 'only the day is known' }
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /**

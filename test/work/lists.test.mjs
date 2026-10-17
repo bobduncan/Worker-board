@@ -1,7 +1,7 @@
-// B299: Needs your attention and Information from the store once it is the truth (spec 2026-10-17, section 8): an ask
-// stands until answered, whatever the chat said since; a note is information, never a question; an answer wakes the
-// chat that asked; a chat waits only on an open blocking ask or the app's question form. While the store is a shadow
-// the board reads the chats' answers as before. Made-up samples only.
+// B299: Needs your attention and Information from the store (spec 2026-10-17, section 8): an ask stands until answered,
+// whatever the chat said since; a note is information, never a question; an answer wakes the chat that asked; a chat
+// waits only on an open blocking ask or the app's question form. B301: a "For you" block a chat wrote without filing an
+// ask is a warning with the way to its chat, never a question. Made-up samples only.
 
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -13,10 +13,10 @@ import { answer, typed } from '../../fixtures/lines.mjs'
 import { messageText } from '../../src/bridge.mjs'
 import { parseConfig } from '../../src/config.mjs'
 import { answerWords } from '../../src/say.mjs'
-import { buildState } from '../../src/state.mjs'
+import { buildState } from '../withStore.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { readStore, writeStore, writeTruth } from '../../src/work/store.mjs'
+import { readStore, writeStore } from '../../src/work/store.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 17, 11, 5).getTime()
@@ -32,10 +32,9 @@ const app = name => JSON.stringify({
 })
 const tail = words => ({ text: [typed(NOW - 30 * MIN, 'Plant it'), answer(NOW - 20 * MIN, words)].join('\n'), isCut: false, modifiedAt: NOW - 20 * MIN })
 
-async function garden(truth = 'store') {
+async function garden() {
   const dir = await mkdtemp(join(tmpdir(), 'work-lists-'))
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW - 60 * MIN }), undefined, { now: NOW - 60 * MIN })
-  await writeTruth(dir, { truth: 'store', since: '2026-10-17 10:00' })
   const ctx = at => ({ dir, now: at, prefix: 'Garden · ', roleOf: chat => ({ Lead: 'main', Digger: 'worker' })[chat] ?? null, freeChats: new Set(['Digger']), boardUrl: 'http://127.0.0.1:4310' })
   const digger = (body, at = NOW - 40 * MIN) => workApi({ chat: 'Digger', ...body }, ctx(at))
   const person = (body, at = NOW) => workApi(body, { ...ctx(at), as: 'person' })
@@ -44,7 +43,7 @@ async function garden(truth = 'store') {
     const raw = {
       listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead'), app('Digger')],
       tails: { 'cli-Digger': tail(words) }, planLineTexts: {}, backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {},
-      work: truth === 'store' ? work : { ...work, truth: 'shadow' },
+      work,
     }
     return buildState(raw, { lines: [], outbox, runs: [], board: null, seen: null, now: NOW, config })
   }
@@ -70,20 +69,40 @@ test('an ask stands under Needs your attention after the chat\'s next answer wit
   }
 })
 
-test('a "For you" block in a chat\'s answer makes it wait no more once the store is the truth; in shadow it still does', async () => {
-  const store = await garden('store')
-  const shadow = await garden('shadow')
+test('B301: a "For you" block without an ask makes the chat wait no more, and stands as a warning with the way to its chat', async () => {
+  const { dir, build } = await garden()
   try {
-    const now = await store.build(ASKS)
-    assert.equal(digger(now).state, 'free')
-    assert.equal(now.forYou.length, 0)
-    const before = await shadow.build(ASKS)
-    assert.equal(digger(before).state, 'waiting')
-    assert.equal(before.forYou.filter(one => one.id.startsWith('chat:Digger:')).length, 1)
-    assert.deepEqual([before.information, before.instructions], [[], []])
+    const state = await build(ASKS)
+    assert.equal(digger(state).state, 'free')
+    assert.equal(state.forYou.some(one => one.id.startsWith('chat:Digger:')), false)
+    const warnings = state.forYou.filter(one => one.kind === 'unfiled')
+    assert.deepEqual(warnings.map(one => [one.id, one.from, one.title, one.canAnswer, one.talk]), [
+      [`unfiled:Digger:${NOW - 20 * MIN}`, 'Digger', 'Digger wrote questions in its chat but filed no ask', false, 'window'],
+    ])
+    // Its window shows its answer, as its words, not as questions to answer on the board.
+    assert.match(warnings[0].waits.words, /Box or yew\?/)
+    // A plain answer asks nothing: no warning.
+    assert.equal((await build(PLAIN)).forYou.length, 0)
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
-    await rm(shadow.dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('B301: an ask filed in the turn that wrote the block, or one still open, leaves no warning; one closed before that turn does', async () => {
+  const before = await garden()
+  const within = await garden()
+  try {
+    // Filed and withdrawn before the turn that wrote the block began (it began 30 minutes ago).
+    await before.digger({ action: 'ask', kind: 'decide', text: 'Box or yew?' }, NOW - 40 * MIN)
+    await before.digger({ action: 'withdraw', id: 'Q1', why: 'not needed' }, NOW - 35 * MIN)
+    assert.equal((await before.build(ASKS)).forYou.filter(one => one.kind === 'unfiled').length, 1)
+    // Filed in that turn and answered since: it was filed.
+    await within.digger({ action: 'ask', kind: 'decide', text: 'Box or yew?' }, NOW - 25 * MIN)
+    await within.person({ action: 'answer', id: 'Q1', text: 'yew' }, NOW - 22 * MIN)
+    assert.equal((await within.build(ASKS)).forYou.filter(one => one.kind === 'unfiled').length, 0)
+  } finally {
+    await rm(before.dir, { recursive: true, force: true })
+    await rm(within.dir, { recursive: true, force: true })
   }
 })
 

@@ -11,7 +11,7 @@ import { storeProblems } from '../../src/work/adapter.mjs'
 import { forYouBlock, workApi } from '../../src/work/api.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { readStore, writeStore, writeTruth } from '../../src/work/store.mjs'
+import { readStore, writeStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 17, 11, 5).getTime()
 const BACKLOG = [
@@ -27,7 +27,6 @@ const URL = 'http://127.0.0.1:4310'
 async function fresh() {
   const dir = await mkdtemp(join(tmpdir(), 'work-asks-'))
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
-  await writeTruth(dir, { truth: 'store', since: '2026-10-17 11:05' })
   const ctx = { dir, now: NOW + 60_000, prefix: 'Team - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(['Board', 'Support']), boardUrl: URL }
   const as = chat => body => workApi({ chat, ...body }, ctx)
   return { dir, board: as('Board'), support: as('Support'), advisor: as('Advisor'), person: body => workApi(body, { ...ctx, as: 'person' }) }

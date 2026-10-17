@@ -3,10 +3,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { answer, fromChat, step, toolResult, typed, user } from '../fixtures/lines.mjs'
+import { answer, assistant, fromChat, step, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
 import { inProgress, parseBacklog, queue } from '../src/backlog.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { buildState, heldBy } from '../src/state.mjs'
+import { heldBy } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 import { backgroundRunning, parseTail } from '../src/transcript.mjs'
 
 const MIN = 60_000
@@ -193,9 +194,9 @@ test('a worker whose turn has ended is not free while its task is not reported',
   assert.deepEqual([chatNamed(done, 'Units').state, chatNamed(done, 'Units').between], ['free', null])
 })
 
-test('a worker whose turn has ended is not free while the task handed to it is not reported', () => {
+test('B301: a task the main chat handed over in a message holds nothing: with no card, no step and nothing running the worker is free', () => {
   const units = chatNamed(build({ apps: everyone, tails: { Units: tail([handOver(NOW - 30 * MIN), ...ended]) } }), 'Units')
-  assert.deepEqual([units.state, units.between, units.task.text], ['working', 'Its turn has ended; the task handed to it is not reported yet.', ''])
+  assert.deepEqual([units.state, units.between, units.task], ['free', null, null])
 })
 
 test('a worker whose turn has ended is not free while background work it started runs (a review before a merge)', () => {
@@ -217,20 +218,21 @@ test('a worker whose turn has ended is not free while the step it works on still
 })
 
 test('a worker that waits for you stays waiting, whatever is open', () => {
+  // B299: it asked with the app's question form (or holds an open blocking ask in the store).
+  const asking = [typed(NOW - 20 * MIN, 'Go'), assistant(NOW - 10 * MIN, 'tool_use', [tool('AskUserQuestion', { questions: [{ question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] }] })])]
   const state = build({
     apps: [app('Main'), app('Features', summary('blocked', 'Pick one'))],
-    tails: { Features: tail(ended) },
+    tails: { Features: tail(asking) },
     plans: { Features: planLine({ text: 'Camera', step: 1, steps: 4, left: 10 * MIN, isReported: false }) },
   })
   assert.deepEqual([chatNamed(state, 'Features').state, chatNamed(state, 'Features').between], ['waiting', null])
 })
 
 test('heldBy: the first open thing says why, and nothing open is null', () => {
-  const nothing = { plan: null, handOver: null, background: 0, step: null }
+  const nothing = { plan: null, background: 0, step: null }
   assert.equal(heldBy(nothing), null)
   assert.equal(heldBy({ ...nothing, plan: { task: { isReported: true } } }), null)
   assert.equal(heldBy({ ...nothing, plan: { task: { isReported: false } }, background: 2 }).why, 'task')
-  assert.equal(heldBy({ ...nothing, handOver: { at: 1, title: 'x' } }).why, 'task')
   assert.equal(heldBy({ ...nothing, background: 1, step: { branch: 'b' } }).why, 'background')
   assert.equal(heldBy({ ...nothing, step: { branch: 'feature/x' } }).text, 'Its turn has ended; its branch feature/x is still open.')
 })
@@ -247,7 +249,7 @@ test('backgroundRunning counts what was sent to the background and has not repor
 })
 
 test('a card the chat forgot to clear does not keep it "working" once the app itself calls its turn completed', () => {
-  const nothing = { plan: null, handOver: null, background: 0, step: null }
+  const nothing = { plan: null, background: 0, step: null }
   const card = { task: { isReported: false } }
   // The app's own summary of the ended turn says the work is complete: the chat is free, whatever its card says.
   assert.equal(heldBy({ ...nothing, plan: card, isCompleted: true }), null)
@@ -255,7 +257,7 @@ test('a card the chat forgot to clear does not keep it "working" once the app it
   assert.equal(heldBy({ ...nothing, plan: card }).why, 'task')
   // A chat that asked another chat in the middle of its task waits for the answer: its card still holds it.
   assert.equal(heldBy({ ...nothing, plan: { task: { isReported: false, asked: true } }, isCompleted: true }).why, 'task')
-  // What the board sees for itself still counts: background work, an open branch, a hand-over without a report.
+  // What the board sees for itself still counts: background work, a step in progress in the store.
   assert.equal(heldBy({ ...nothing, plan: card, isCompleted: true, background: 1 }).why, 'background')
-  assert.equal(heldBy({ ...nothing, handOver: { at: 1, title: 'x' }, isCompleted: true }).why, 'task')
+  assert.equal(heldBy({ ...nothing, step: { id: 'B1', branch: null }, isCompleted: true }).why, 'branch')
 })

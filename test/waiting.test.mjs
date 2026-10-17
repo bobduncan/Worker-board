@@ -1,5 +1,6 @@
-// B100: a click on a worker that waits for the person opens what it waits for: its task as its card names it, what
-// it wants in its own words, and the form to answer it there. The page's own code is run here, cut out of board.js
+// B100: a click on a worker that waits for the person opens what it waits for: its task as its card names it and what
+// it wants in its own words. B301: a chat waits for the person on the app's question form (answered in its chat) or on
+// an ask of the work store; a question it only wrote in its answer is no card to answer on the board. The page's own code is run here, cut out of board.js
 // between its marks. Made-up samples only.
 
 import assert from 'node:assert/strict'
@@ -12,7 +13,7 @@ import vm from 'node:vm'
 import { answer, assistant, step, text, tool, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { checkSay } from '../src/say.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 import { parseTail, waitingFor } from '../src/transcript.mjs'
 
 const MIN = 60_000
@@ -73,15 +74,19 @@ test('a question asked with the app\'s form: the questions and the options it of
 })
 
 test('a worker that waits brings its task as its card names it and its own words; nothing typed to it', () => {
-  const state = build({ tails: { Units: tail(asked) }, plans: { Units: planLine({ text: 'Portraits, B08', step: 2, steps: 3, names: ['Sheet', 'Pick', 'Cut'] }) } })
+  const state = build({ tails: { Units: tail(form) }, plans: { Units: planLine({ text: 'Portraits, B08', step: 2, steps: 3, names: ['Sheet', 'Pick', 'Cut'] }) } })
   const units = state.chats.find(chat => chat.name === 'Units')
   assert.equal(units.state, 'waiting')
   const one = need(state)
-  assert.deepEqual([one.id, one.title, one.text, one.canAnswer], [`chat:Units:${NOW - 9 * MIN}`, 'Needs your decision', 'Pick sheet A or B', true])
+  assert.deepEqual([one.id, one.title, one.canAnswer], [`chat:Units:${NOW - 9 * MIN}`, 'Asked you a question in its chat', false])
   assert.deepEqual(one.task, { text: 'Portraits, B08', step: 2, steps: 3, name: 'Pick', startedAt: units.task.startedAt, stepId: 'B08' })
   // B149: no parts of the agreed form, and no hand-over: the task was typed by the person, which is never shown.
-  assert.deepEqual(one.waits, { at: NOW - 9 * MIN, words: 'Two sheets are drawn.\n\nWhich one do you want: A or B?', questions: [], plan: null, handover: null, given: null })
+  assert.deepEqual(one.waits, { at: NOW - 9 * MIN, words: 'I need one choice.', questions: [{ question: 'Which sheet?', options: ['Sheet A', 'Sheet B'] }], plan: null, handover: null, given: null })
   assert.ok(!JSON.stringify(state).includes('Zebracorn'))
+  // B301: a question only written in its answer makes it wait no more, and gives no card to answer here.
+  const wrote = build({ tails: { Units: tail(asked) }, plans: { Units: planLine({ text: 'Portraits, B08' }) } })
+  assert.notEqual(wrote.chats.find(chat => chat.name === 'Units').state, 'waiting')
+  assert.equal(wrote.forYou.some(one => one.id.startsWith('chat:Units:')), false)
   // A chat that does not wait says nothing of the kind.
   const working = build({ tails: { Units: tail(asked.slice(0, 3)) }, summary: null })
   assert.equal(working.chats.find(chat => chat.name === 'Units').waitsFor, null)
@@ -92,33 +97,6 @@ test('a question asked with the app\'s form shows in the window, and is answered
   const one = need(state)
   assert.deepEqual([one.canAnswer, one.waits.questions], [false, [{ question: 'Which sheet?', options: ['Sheet A', 'Sheet B'] }]])
   assert.equal(checkSay({ to: 'Units', ask: one.id, text: 'Sheet A' }, state, 4000).ok, false)
-})
-
-test('the answer typed in the window is accepted for that worker, as its own request', () => {
-  const state = build({ tails: { Units: tail(asked) } })
-  const sent = checkSay({ to: 'Units', ask: need(state).id, text: 'Sheet B, please.' }, state, 4000)
-  assert.deepEqual([sent.ok, sent.message.to, sent.message.ask, sent.message.text], [true, 'Units', `chat:Units:${NOW - 9 * MIN}`, 'Sheet B, please.'])
-  assert.equal(checkSay({ to: 'Main', ask: need(state).id, text: 'x' }, state, 4000).ok, false)
-})
-
-test('once answered, the card stays while the answer is on its way and a while after it was typed in', () => {
-  const id = `chat:Units:${NOW - 9 * MIN}`
-  const sent = more => ({ at: NOW - 2 * MIN, to: 'Units', ask: id, verdict: null, text: 'Sheet B', title: 'Needs your decision', ...more })
-  // The chat got the answer and works again: it no longer waits, and its card says where the answer is.
-  const works = [...asked, typed(NOW - MIN, 'Sheet B'), step(NOW - MIN / 2, 'Cut'), toolResult(NOW - MIN / 4)]
-  for (const state of ['waiting', 'taken']) {
-    const kept = need(build({ tails: { Units: tail(works) }, outbox: [sent({ state })], summary: null }))
-    assert.deepEqual([kept.id, kept.title, kept.canAnswer, kept.answer.state, kept.at], [id, 'Waited for you', false, state, NOW - 9 * MIN])
-  }
-  const typedIn = build({ tails: { Units: tail(works) }, outbox: [sent({ state: 'delivered', deliveredAt: NOW - MIN })], summary: null })
-  assert.deepEqual([need(typedIn).answer.state, need(typedIn).answer.deliveredAt], ['delivered', NOW - MIN])
-  assert.equal(checkSay({ to: 'Units', ask: id, text: 'again' }, typedIn, 4000).ok, false)
-  // Ten minutes after it was typed in it is gone; so is an answer that never arrived.
-  assert.equal(need(build({ tails: { Units: tail(works) }, outbox: [sent({ state: 'delivered', deliveredAt: NOW - 11 * MIN })], summary: null })), undefined)
-  assert.equal(need(build({ tails: { Units: tail(works) }, outbox: [sent({ state: 'expired' })], summary: null })), undefined)
-  // While the chat still waits there is one card, the open one, with its answer.
-  const still = build({ tails: { Units: tail(asked) }, outbox: [sent({ state: 'waiting' })] })
-  assert.deepEqual(still.forYou.filter(one => one.from === 'Units').map(one => [one.title, one.answer.state]), [['Needs your decision', 'waiting']])
 })
 
 // The page

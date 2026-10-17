@@ -13,8 +13,8 @@ import vm from 'node:vm'
 import { assistant, fromChat, midTurn, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
 import { aboutMinutes } from '../src/backlog.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { buildState } from '../src/state.mjs'
-import { conversation, doingNow, lastReport, parseTail, taskStart, turnStart, turnState } from '../src/transcript.mjs'
+import { buildState } from './withStore.mjs'
+import { conversation, doingNow, parseTail, turnStart, turnState } from '../src/transcript.mjs'
 
 const MIN = 60_000
 const NOW = Date.UTC(2026, 9, 12, 15, 0)
@@ -43,13 +43,13 @@ const planLine = (task, named = 3) => JSON.stringify({ name: 'x', role: 'worker'
 const busy = [step(NOW - 2 * MIN, 'Run the tests'), toolResult(NOW - MIN)]
 const running = [typed(NOW - 20 * MIN, 'Zebracorn please'), ...busy]
 
-function build({ tails = {}, plans = {}, lines = [], adviceAt }) {
+function build({ tails = {}, plans = {}, lines = [], adviceAt, backlog = BACKLOG }) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: [app('Main'), app('Units'), app('Levels')],
     tails: Object.fromEntries(Object.entries(tails).map(([name, value]) => [`cli-${name}`, value])),
     planLineTexts: Object.fromEntries(Object.entries(plans).map(([name, value]) => [`cli-${name}`, value])),
-    backlogText: BACKLOG,
+    backlogText: backlog,
     adviceText: 'Some advice.',
     adviceAt,
     folders: null,
@@ -64,34 +64,30 @@ const entries = lines => parseTail(lines.join('\n'), false)
 
 // B95: the time of a lane
 
-test('a hand-over may give a time: the first "about <time>" of its first line', () => {
+test('a step\'s time is the first "about <time>" of its note', () => {
   assert.equal(aboutMinutes('About 45 minutes, after B92.'), 45)
   assert.equal(aboutMinutes('fix what is about the archer, about 1 h 30 min'), 90)
   assert.equal(aboutMinutes('about 2 hours'), 120)
   for (const none of ['', 'about the archer', 'roughly 20 min', 'about 300 files']) assert.equal(aboutMinutes(none), null, none)
-  const minutes = body => taskStart(entries([fromChat(1, 'Game - Main', body)]), MAIN).minutes
-  assert.equal(minutes('Task from Game - Main: the zebracorn check. About 45 minutes, after the other one.\nIt may take about 3 h.'), 45)
-  assert.equal(minutes('Task from Game - Main: the zebracorn check.\nAbout 45 minutes.'), null)
 })
 
-test('a working worker without a time of its own and without a step takes the time of its hand-over, from the start', () => {
+test('B301: a hand-over gives no time: a working worker without a time of its own and without a step has none', () => {
   const handOver = fromChat(NOW - 10 * MIN, 'Game - Main', 'Task from Game - Main: the zebracorn check. About 45 minutes.')
   const units = lane(build({ tails: { Units: tail([handOver, ...busy]) } }), 'Units')
-  assert.deepEqual([units.task.source, units.task.stepId, units.task.handMinutes], ['unrecorded', null, 45])
-  assert.deepEqual(units.eta, { at: NOW + 35 * MIN, leftMs: 35 * MIN, isOverdue: false, isOver: false, isOwn: false, from: 'handover' })
-  assert.equal(units.isWithoutTime, false)
+  assert.deepEqual([units.task.source, units.task.stepId, units.task.handMinutes, units.eta, units.isWithoutTime], ['unrecorded', null, undefined, null, true])
 })
 
-test('the worker\'s own time wins, then its step\'s, then its hand-over\'s', () => {
+test('the worker\'s own time wins, then its step\'s in the store; a hand-over\'s time counts for nothing', () => {
+  const backlog = '## Board\n- [ ] B08 Portraits (for Units; about 30 min) (branch feature/portraits)\n- [ ] B13 A check that names no time (for Units) (branch feature/check)\n'
   const handOver = fromChat(NOW - 10 * MIN, 'Game - Main', 'Task from Game - Main: backlog step B08, the portraits. About 2 h.')
-  const fromStep = lane(build({ tails: { Units: tail([handOver, ...busy]) } }), 'Units')
-  assert.deepEqual([fromStep.eta.from, fromStep.eta.at], ['step', NOW + 10 * MIN])
-  const own = lane(build({ tails: { Units: tail([handOver, ...busy]) }, plans: { Units: planLine({ text: 'Portraits', left: 30 * MIN }) } }), 'Units')
+  const fromStep = lane(build({ tails: { Units: tail(running) }, backlog }), 'Units')
+  assert.deepEqual([fromStep.task.stepId, fromStep.eta.from, fromStep.eta.at], ['B08', 'step', NOW + 10 * MIN])
+  const own = lane(build({ tails: { Units: tail([handOver, ...busy]) }, plans: { Units: planLine({ text: 'Portraits', left: 30 * MIN }) }, backlog }), 'Units')
   assert.deepEqual([own.eta.from, own.eta.at], ['own', NOW + 27 * MIN])
-  // A step that names no time leaves it to the hand-over.
-  const noStepTime = fromChat(NOW - 10 * MIN, 'Game - Main', 'Task from Game - Main: backlog step B13. About 15 min.')
-  const third = lane(build({ tails: { Units: tail([noStepTime, ...busy]) } }), 'Units')
-  assert.deepEqual([third.task.stepId, third.eta.from, third.eta.at], ['B13', 'handover', NOW + 5 * MIN])
+  // A step that names no time leaves the worker without one, whatever a hand-over says.
+  const noTime = backlog.replace('- [ ] B08', '- [x] B08')
+  const third = lane(build({ tails: { Units: tail([fromChat(NOW - 10 * MIN, 'Game - Main', 'Task from Game - Main: backlog step B13. About 15 min.'), ...running]) }, backlog: noTime }), 'Units')
+  assert.deepEqual([third.task.stepId, third.eta, third.isWithoutTime], ['B13', null, true])
 })
 
 test('a worker that works without a time from anywhere is marked; the main chat and a chat that does not work are not', () => {
@@ -103,14 +99,10 @@ test('a worker that works without a time from anywhere is marked; the main chat 
 
 // B94: a step a worker is on is in progress, not next in a queue
 
-test('a message that arrives in the middle of a turn is read: it hands over a task, and opens or ends no turn', () => {
+test('a message that arrives in the middle of a turn is read, and opens or ends no turn (B301: it hands over no task)', () => {
   const lines = [typed(10 * MIN, 'Zebracorn please'), step(11 * MIN, 'Build'), toolResult(12 * MIN), midTurn(13 * MIN, 'local_Main', 'Next task from Game - Main: backlog step B06, the quokkaberry. About 25 minutes.'), step(14 * MIN, 'Build'), toolResult(15 * MIN)]
   const read = entries(lines)
   assert.deepEqual(read.map(entry => entry.type), ['user', 'assistant', 'user', 'queued', 'assistant', 'user'])
-  const start = taskStart(read, MAIN)
-  assert.deepEqual([start.at, start.steps, start.minutes], [13 * MIN, ['B06'], 25])
-  // The app names the sender when the message came straight from the other chat.
-  assert.deepEqual(taskStart(entries([midTurn(13 * MIN, 'local_x', 'Task from Game - Main: step B08.', 'Game - Main')]), MAIN).steps, ['B08'])
   assert.equal(turnState(read), 'running')
   assert.equal(turnState(entries([...lines.slice(0, 3), midTurn(13 * MIN, 'local_Main', 'Task: x')])), 'running')
   assert.deepEqual([turnStart(read).at, turnStart(read).by], [10 * MIN, 'you'])
@@ -129,14 +121,18 @@ test('the step a worker recorded by its id is in progress: it leaves the queue, 
   assert.deepEqual([lane(state, 'Units').eta.from, lane(state, 'Units').isWithoutTime], ['step', false])
 })
 
-test('the step a hand-over names is in progress, also when the worker\'s own record names none', () => {
-  const lines = [typed(NOW - 60 * MIN, 'Zebracorn please'), step(NOW - 59 * MIN, 'Build'), toolResult(NOW - 58 * MIN), midTurn(NOW - 6 * MIN, 'local_Main', 'Next task from Game - Main: backlog step B06.'), ...busy]
-  const recorded = build({ tails: { Units: tail(lines) }, plans: { Units: planLine({ text: 'Against the pictures' }) } })
+test('B301: the step the store holds in progress is the lane\'s, also when a hand-over names another; a hand-over names none', () => {
+  const lines = [typed(NOW - 60 * MIN, 'Zebracorn please'), step(NOW - 59 * MIN, 'Build'), toolResult(NOW - 58 * MIN), midTurn(NOW - 6 * MIN, 'local_Main', 'Next task from Game - Main: backlog step B08.'), ...busy]
+  const backlog = BACKLOG.replace('- [ ] B06 The archer (for Units; about 40 min)', '- [ ] B06 The archer (for Units; about 40 min) (branch feature/archer)')
+  const recorded = build({ tails: { Units: tail(lines) }, plans: { Units: planLine({ text: 'Against the pictures' }) }, backlog })
   assert.deepEqual([lane(recorded, 'Units').task.source, lane(recorded, 'Units').task.stepId], ['plan', 'B06'])
   assert.deepEqual(lane(recorded, 'Units').queue.map(one => one.id), ['B08', 'B13'])
-  assert.equal(statusOf(recorded, 'B06'), 'progress')
-  const unrecorded = build({ tails: { Units: tail(lines) } })
+  assert.deepEqual([statusOf(recorded, 'B06'), statusOf(recorded, 'B08')], ['progress', 'queued'])
+  const unrecorded = build({ tails: { Units: tail(lines) }, backlog })
   assert.deepEqual([lane(unrecorded, 'Units').task.source, lane(unrecorded, 'Units').task.stepId, statusOf(unrecorded, 'B06')], ['step', 'B06', 'progress'])
+  // Without such a step the hand-over gives the lane no step.
+  const none = build({ tails: { Units: tail(lines) } })
+  assert.deepEqual([lane(none, 'Units').task.source, lane(none, 'Units').task.stepId, statusOf(none, 'B08')], ['unrecorded', null, 'queued'])
 })
 
 test('a record names a step only when it is open and this worker\'s, or nobody\'s', () => {
@@ -165,18 +161,6 @@ test('a task named while the board still showed another one the chat had named s
   // Once recorded, the start stands, whatever the board showed before.
   const later = build({ tails: { Units: tail(lines) }, plans: { Units: planLine({ text: 'Against the pictures' }) }, lines: [history('The archer', NOW - 182 * MIN), history('Against the pictures', NOW - 3 * MIN, NOW - 2 * MIN)] })
   assert.equal(lane(later, 'Units').task.startedAt, NOW - 3 * MIN)
-})
-
-test('a task named after a report to the main chat starts no earlier than that report', () => {
-  const report = assistant(NOW - 10 * MIN, 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'The quokkaberry is done.' })])
-  const lines = [typed(NOW - 182 * MIN, 'Zebracorn please'), step(NOW - 180 * MIN, 'Build'), toolResult(NOW - 179 * MIN), report, toolResult(NOW - 9 * MIN), ...busy]
-  assert.equal(lastReport(entries(lines), MAIN), NOW - 10 * MIN)
-  assert.equal(lastReport(entries(running), MAIN), null)
-  const state = build({ tails: { Units: tail(lines) }, plans: { Units: planLine({ text: 'Against the pictures' }) } })
-  assert.equal(lane(state, 'Units').task.startedAt, NOW - 10 * MIN)
-  // A hand-over that came after the report is the later start.
-  const handed = [...lines.slice(0, 5), midTurn(NOW - 6 * MIN, 'local_Main', 'Next task from Game - Main: the narwhalish one.'), ...busy]
-  assert.equal(lane(build({ tails: { Units: tail(handed) }, plans: { Units: planLine({ text: 'Against the pictures' }) } }), 'Units').task.startedAt, NOW - 6 * MIN)
 })
 
 // B94: "Now:" in plain words
@@ -232,8 +216,7 @@ test('a working lane shows the time left as the main figure and the clock time s
 test('a time that is not the worker\'s own says where it is from', () => {
   const eta = { at: NOW + 15 * MIN, leftMs: 15 * MIN, isOverdue: false, isOwn: false }
   assert.equal(timeOf({ ...working, eta: { ...eta, from: 'step' } }).from.text, 'from B08')
-  assert.equal(timeOf({ ...working, eta: { ...eta, from: 'handover' } }).from.text, 'from its hand-over')
-  assert.match(timeOf({ ...working, eta: { ...eta, from: 'handover' } }).from.title, /hand-over names/)
+  assert.match(timeOf({ ...working, eta: { ...eta, from: 'step' } }).from.title, /time its step names/)
 })
 
 test('a worker that works without a time is shown as a fault, on one line, with the time of this task so far', () => {

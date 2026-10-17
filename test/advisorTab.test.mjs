@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { parseConfig } from '../src/config.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const NOW = new Date(2026, 9, 14, 10, 30).getTime()
 const config = { ...parseConfig('{}', {}), project: 'C:\\game', gameRepo: 'C:\\game\\repo' }

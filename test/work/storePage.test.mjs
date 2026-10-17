@@ -1,4 +1,4 @@
-// B299: the page once the store is the truth: an ask's card says its kind and what it blocks and is answered through
+// B299: the page from the work store: an ask's card says its kind and what it blocks and is answered through
 // POST /api/work; Information lists notes with "Read"; a step's window shows its item in the agreed order; a lane names
 // its step by the store's title. The page's own code, cut out of board.js between its marks. Made-up samples only.
 
@@ -9,7 +9,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { itemOfStep } from '../../src/work/shadow.mjs'
+import { itemOfStep } from '../../src/work/read.mjs'
 import { parseItem } from '../../src/work/item.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public')
@@ -45,7 +45,7 @@ const ITEM = [
   '## Summary', 'One strip per step.', '', '## Picture', 'art-inbox/strip/strip.png', '', '## What we build', '- the strip', '- its window', '',
   '## Requirements', '- readable when small', '', '## Context', '  Touches: public/board.js, src/state.mjs', '', '## History', '- 2026-10-17 11:05 Board: taken',
 ].join('\n')
-const work = { ok: true, truth: 'store', items: new Map([['B1', parseItem(ITEM)]]), activities: [{ name: 'Board', steps: ['B1'] }] }
+const work = { ok: true, items: new Map([['B1', parseItem(ITEM)]]), activities: [{ name: 'Board', steps: ['B1'] }] }
 
 test('a step\'s window: Summary, picture, goal, the strip, What we build, Requirements and Touches folded, History last', () => {
   const item = itemOfStep(work, 'B1')
@@ -57,8 +57,8 @@ test('a step\'s window: Summary, picture, goal, the strip, What we build, Requir
     ['summary', false], ['picture', false], ['goal', false], ['flow', false], ['what', false], ['requirements', true], ['touches', true], ['history', false],
   ])
   assert.deepEqual(plain(page.itemPartsOf(null, true)), [])
-  // While the store is a shadow the window is as before.
-  assert.equal(itemOfStep({ ...work, truth: 'shadow' }, 'B1'), null)
+  // A store that cannot be read gives no item.
+  assert.equal(itemOfStep({ ok: false, dir: 'W', code: 'EACCES' }, 'B1'), null)
   assert.equal(itemOfStep(work, '0:0').id, 'B1')
 })
 

@@ -3,8 +3,6 @@
 
 import { open } from 'node:fs/promises'
 
-import { aboutMinutes } from './backlog.mjs'
-
 const TAIL_BYTES = 1024 * 1024
 /** Tools that stop a turn until the person answers in the chat. */
 const ASKING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
@@ -357,13 +355,13 @@ export function saysDone(entries) {
 }
 
 /**
- * B281: whether the chat finished a task between two moments (both left out): it reported to the main chat, or an
- * answer that ended a turn closed with "+ Done:   yes". The person's words after it are a new task, not feedback.
+ * B281: whether the chat finished a task between two moments (both left out): an answer that ended a turn closed with
+ * "+ Done:   yes". The person's words after it are a new task, not feedback. B301: a message to another chat ends
+ * nothing; a step of the store ends with the chat's `work report`.
  */
-export function finishedBetween(entries, { mainTitle, mainSession = null }, from, to) {
-  const mains = [mainTitle, mainSession].filter(Boolean)
+export function finishedBetween(entries, from, to) {
   return entries.some(entry => !entry.isSidechain && Number.isFinite(entry.at) && entry.at > from && entry.at < to
-    && (isReportTo(entry, mains) || (entry.type === 'assistant' && isDoneAnswer(entry))))
+    && entry.type === 'assistant' && isDoneAnswer(entry))
 }
 
 /** An answer that ended a turn with the closing block's last line "+ Done:   yes". */
@@ -399,12 +397,6 @@ export function peerMessage(entry) {
   }
 }
 
-/**
- * How the main chat opens a message that hands over a task: "Task from ...", "Next task from ...", "Two tasks
- * from ...". Its other messages ("From the main chat, ...") are notes on a task and start none.
- */
-export const HANDS_OVER = /^\s*(?:\w+\s+){0,2}tasks?\b/i
-
 /** A short title from the first line of a message: its first sentence, without the main chat's opening words. */
 function titleOf(body, isHandOver = false) {
   const first = body.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
@@ -413,19 +405,6 @@ function titleOf(body, isHandOver = false) {
   const short = sentence.length > TITLE_CHARS ? `${sentence.slice(0, TITLE_CHARS - 1).trimEnd()}…` : sentence
   return short.charAt(0).toUpperCase() + short.slice(1)
 }
-
-/** The words a chat sent to another with a tool: SendMessage's, or the app's own send_message tool's. */
-const sentWords = input => [input?.message, input?.content, input?.text, input?.prompt].find(value => typeof value === 'string') ?? ''
-
-/**
- * A message to the main chat that ends a task: one sent to it by name or by its session id (`mains`), or, B172, any
- * message whose first line starts "Report from", whatever address or tool sent it (the main chat's local id or pipe
- * address, the app's send_message): only the main chat is sent reports.
- */
-const isReportTo = (entry, mains) =>
-  entry.type === 'assistant'
-  && entry.blocks.some(block => block.type === 'tool_use' && (block.name === 'SendMessage' || /(?:^|__)send_message$/.test(block.name ?? ''))
-    && ((block.name === 'SendMessage' && mains.includes(block.input?.to)) || /^\s*Report from\b/.test(sentWords(block.input))))
 
 /**
  * An entry after which no turn is running: the answer that ends it, the app's mark that the person stopped it, or
@@ -437,77 +416,23 @@ export const endsTurn = entry =>
       ? entry.stopReason !== null && entry.stopReason !== 'tool_use'
       : !hasToolResult(entry) && textOf(entry).startsWith('[Request interrupted')
 
-/**
- * Walks the entries and keeps the task the main chat handed over. A task is finished when the chat has sent a
- * message to the main chat and its turn has ended after it: a question sent to the main chat in the middle of the
- * work does not end the task, because the turn goes on.
- */
-function handOvers(entries, { mainTitle, mainSession = null }) {
-  let start = null
-  let reportedAt = null
-  let finishedAt = null
-  let lastReportAt = null
-  for (const entry of entries) {
-    if (entry.isSidechain) continue
-    if (endsTurn(entry)) {
-      if (reportedAt !== null) {
-        start = null
-        finishedAt = reportedAt
-      }
-      reportedAt = null
-      continue
-    }
-    const message = peerMessage(entry)
-    if (message !== null) {
-      const isFromMain = message.from !== null && (message.from === mainTitle || message.from === mainSession)
-      if (isFromMain && HANDS_OVER.test(message.body)) {
-        // The backlog steps its first line names ("backlog steps B64 and then B65") and the time it gives
-        // ("about 45 minutes"): ids and a number, never its words.
-        const first = message.body.trim().split('\n')[0] ?? ''
-        const steps = [...new Set(first.match(/\bB\d+\b/g) ?? [])]
-        start = { at: entry.at, from: message.from, title: titleOf(message.body, true), steps, minutes: aboutMinutes(first) }
-        reportedAt = null
-      }
-    } else if (isReportTo(entry, [mainTitle, mainSession].filter(Boolean))) {
-      reportedAt = entry.at
-      lastReportAt = entry.at
-    }
-  }
-  return { start, finishedAt, lastReportAt }
-}
-
-/**
- * The task the main chat handed to this chat and that is not finished: when it was handed over, and a title from
- * its first line for a chat whose plan line has none. Null when there is none in these entries.
- */
-export function taskStart(entries, main) {
-  return handOvers(entries, main).start
-}
-
 const ORIGIN_CHARS = 6000
 
 /**
- * B151: the message that gave a chat the task it is on, as it arrived: the main chat's hand-over ("Task from ..."),
- * also one that arrived in the middle of a turn, or what the person typed (also through the board). The newest
- * such message at or before `until`, when the task started as far as the board knows. `{ by: 'main' | 'you', at,
- * text }`, the text kept to its first 6000 characters; null when the entries hold none. Only for the window the
- * person opens on a working lane: the lane itself names the task as the chat's card does (B82). B300: `handOvers`
- * false (the work store is the truth) reads only what the person typed.
+ * B151: what the person typed (also through the board) that gave a chat the task it is on, as it arrived: the newest
+ * such words at or before `until`, when the task started as far as the board knows. `{ by: 'you', at, text }`, the
+ * text kept to its first 6000 characters; null when the entries hold none. Only for the window the person opens on a
+ * working lane: the lane itself names the task as the chat's card does (B82). B301: another chat's message gives no
+ * task; a step comes from the work store.
  */
-export function taskOrigin(entries, { mainTitle, mainSession = null }, until = Infinity, { handOvers = true } = {}) {
+export function taskOrigin(entries, until = Infinity) {
   let found = null
   const keep = (by, entry, text) => {
     if (found === null || entry.at >= found.at) found = { by, at: entry.at, text }
   }
   for (const entry of entries) {
     if (entry.isSidechain || !Number.isFinite(entry.at) || entry.at > until) continue
-    const peer = peerMessage(entry)
-    if (peer !== null) {
-      const isFromMain = peer.from !== null && (peer.from === mainTitle || peer.from === mainSession)
-      // B300: once the work store is the truth (`handOvers` false), the main chat's "Task from" lines start no task.
-      if (handOvers && isFromMain && HANDS_OVER.test(peer.body)) keep('main', entry, peer.body)
-      continue
-    }
+    if (peerMessage(entry) !== null) continue
     if (entry.type !== 'user' || hasToolResult(entry)) continue
     const origin = entry.origin
     const isTyped = origin === null
@@ -518,19 +443,6 @@ export function taskOrigin(entries, { mainTitle, mainSession = null }, until = I
   }
   if (found === null) return null
   return { ...found, text: found.text.length > ORIGIN_CHARS ? `${found.text.slice(0, ORIGIN_CHARS)}…` : found.text }
-}
-
-/** When the chat last finished a task: its last report to the main chat that its turn ended after. Or null. */
-export function lastFinish(entries, main) {
-  return handOvers(entries, main).finishedAt
-}
-
-/**
- * When the chat last sent the main chat a message, whether or not its turn ended after it. A chat that reports
- * and goes on in the same turn has started on something else there. Or null.
- */
-export function lastReport(entries, main) {
-  return handOvers(entries, main).lastReportAt
 }
 
 /**

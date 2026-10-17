@@ -7,21 +7,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { NOT_TRUTH, workApi } from '../../src/work/api.mjs'
+import { workApi } from '../../src/work/api.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { instructionsOf } from '../../src/work/lists.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { readStore, writeStore, writeTruth } from '../../src/work/store.mjs'
+import { readStore, writeStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 17, 11, 5, 20).getTime()
 const SEC = 1000
 const BACKLOG = ['# Backlog', '', '## Board work', '- [ ] B1 Draw the strip (for Board; about 1 h)', ''].join('\n')
 const ROLES = { Main: 'main', Board: 'worker' }
 
-async function fresh(truth = 'store') {
+async function fresh() {
   const dir = await mkdtemp(join(tmpdir(), 'work-instructions-'))
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
-  await writeTruth(dir, { truth, since: '2026-10-17 11:05' })
   const ctx = at => ({ dir, now: at, prefix: 'Team - ', roleOf: chat => ROLES[chat] ?? null })
   const as = chat => (body, at = NOW) => workApi({ chat, ...body }, ctx(at))
   return { dir, main: as('Main'), board: as('Board'), person: (body, at = NOW) => workApi(body, { ...ctx(at), as: 'person' }) }
@@ -94,17 +93,6 @@ test('turn-ended marks only the instructions filed before the turn started, and 
   }
 })
 
-test('while the store is a shadow, filing is refused with 409 and nothing is written', async () => {
-  const { dir, main } = await fresh('shadow')
-  try {
-    assert.deepEqual(await main({ action: 'instruction', text: 'Make the strip blue' }), { ok: false, status: 409, why: NOT_TRUTH })
-    assert.deepEqual(await main({ action: 'turn-ended', since: NOW }), { ok: false, status: 409, why: NOT_TRUTH })
-    assert.equal((await readStore(dir)).items.has('I1'), false)
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-  }
-})
-
 test('next lists the open instructions first, a missed one with its turns', async () => {
   const { main } = await fresh()
   await main({ action: 'instruction', text: 'Make the strip blue' })
@@ -127,8 +115,8 @@ test('instructionsOf: per chat, open first and the missed ones on top, closed on
       ['I1', 'Main', true, 1, null], ['I2', 'Main', false, 0, null], ['I3', 'Board', false, 0, 'made step B2'],
     ])
     assert.deepEqual([list[0].text, list[0].since, list[0].via], ['Make the strip blue', NOW, 'chat'])
-    // A store that is no truth yet, or none, shows none.
-    assert.deepEqual(instructionsOf({ ...work, truth: 'shadow' }, NOW), [])
+    // A store that cannot be read, or none, shows none.
+    assert.deepEqual(instructionsOf({ ok: false, dir, code: 'EACCES' }, NOW), [])
     assert.deepEqual(instructionsOf(undefined, NOW), [])
     // A closed one shows for a day after it was filed.
     assert.deepEqual(instructionsOf(work, NOW + 25 * 60 * 60_000).map(one => one.id), ['I1', 'I2'])
@@ -137,7 +125,7 @@ test('instructionsOf: per chat, open first and the missed ones on top, closed on
   }
 })
 
-test('the state carries the instructions once the store is the truth, and none while it is a shadow', async () => {
+test('the state carries the instructions of the store, and none without one', async () => {
   const { buildState } = await import('../../src/state.mjs')
   const { parseConfig } = await import('../../src/config.mjs')
   const { dir, main } = await fresh()
@@ -148,7 +136,6 @@ test('the state carries the instructions once the store is the truth, and none w
     const options = { lines: [], outbox: [], runs: [], now: NOW, config: { ...parseConfig('{}', {}), project: 'C:\game' } }
     const work = { ok: true, dir, ...(await readStore(dir)) }
     assert.deepEqual(buildState({ ...raw, work }, options).instructions.map(one => one.id), ['I1'])
-    assert.deepEqual(buildState({ ...raw, work: { ...work, truth: 'shadow' } }, options).instructions, [])
     assert.deepEqual(buildState(raw, options).instructions, [])
   } finally {
     await rm(dir, { recursive: true, force: true })

@@ -18,7 +18,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork, deliveryKey, pullFor, sendOnce } from '../../src/work/deliver.mjs'
 import { reconcile } from '../../src/work/reconcile.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { readDelivered, writeStore, writeTruth } from '../../src/work/store.mjs'
+import { readDelivered, writeStore } from '../../src/work/store.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 17, 12, 0).getTime()
@@ -123,7 +123,6 @@ test('the end of a turn carries the pull: one call answers the missed instructio
   const dir = await folder()
   try {
     await writeStore(dir, migrateBacklog('# Backlog\n\n## Garden\n- [ ] B1 Plant the hedge (for Digger; about 1 h)\n', { now: NOW - 60 * MIN }), undefined, { now: NOW - 60 * MIN })
-    await writeTruth(dir, { truth: 'store', since: '2026-10-17 10:00' })
     const done = await workApi({ chat: 'Digger', action: 'turn-ended', since: NOW - MIN, pull: true }, { dir, now: NOW, prefix: '', roleOf: chat => (chat === 'Digger' ? 'worker' : null), freeChats: new Set() })
     assert.equal(done.ok, true, done.why)
     assert.deepEqual(done.result.pull, { text: 'work: B1 is yours; run work next', id: 'B1', since: '2026-10-17 11:00', wake: { to: 'Digger', id: 'B1' } })
@@ -138,7 +137,6 @@ test('a waiting line whose step went to another chat or was dropped is withdrawn
   const dir = await folder()
   try {
     await writeStore(dir, migrateBacklog('# Backlog\n\n## Garden\n- [ ] B1 Plant the hedge (for Digger; about 1 h)\n- [ ] B2 Mow (for Digger)\n', { now: NOW - 60 * MIN }), undefined, { now: NOW - 60 * MIN })
-    await writeTruth(dir, { truth: 'store', since: '2026-10-17 10:00' })
     const outbox = memoryStore()
     const down = { restart: { main: 'Main' }, chatPrefix: '', chats: [{ name: 'Main', isMain: true, isLeftover: false, isRunning: true }, { name: 'Units', isLeftover: false, isRunning: false }] }
     await sendOnce({ dir, key: 'B1 Units a', words: words('Units', 'B1'), outbox, state: down, now: NOW, maxChars: 2000, newId, keep: KEEP })

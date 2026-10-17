@@ -30,10 +30,12 @@ test('a stuck lane gets its line and the button that asks the main chat to start
   assert.deepEqual(plain(page.laneFlags({ name: 'Digger' }, null)), [])
 })
 
-test('the reconciler\'s lines stand on top; a store that cannot be read still comes first', () => {
-  assert.deepEqual(plain(page.storeNote({ ok: true, failed: false }, ['B10.md: line 3 is no head line'])), { tone: 'problem', text: 'The work store: B10.md: line 3 is no head line. Such an item is shown as it is and not moved: fix it by hand.' })
-  assert.equal(page.storeNote({ ok: false, failed: true, why: 'Unreadable.' }, ['x']).text, 'Unreadable.')
-  assert.equal(page.storeNote({ ok: true, failed: false }, []), null)
+test('the reconciler\'s lines stand on top, naming the folder and the file; a store that cannot be read still comes first', () => {
+  assert.deepEqual(plain(page.storeNote({ ok: true, dir: 'C:/garden/.claude/work' }, ['B10.md: line 3 is no head line'])), { tone: 'problem', text: 'The work store C:/garden/.claude/work: B10.md: line 3 is no head line. Such an item is shown as it is and not moved: fix the file by hand.' })
+  // B301: no store, or one that cannot be read: its line, whatever else there is.
+  assert.equal(page.storeNote({ ok: false, why: 'No work store in C:/garden/.claude/work: the board shows no work.' }, ['x']).text, 'No work store in C:/garden/.claude/work: the board shows no work.')
+  assert.equal(page.storeNote({ ok: true }, []), null)
+  assert.equal(page.storeNote(null, []), null)
 })
 
 test('an old blocking ask stands first under Needs your attention, whatever the order', () => {

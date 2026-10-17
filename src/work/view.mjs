@@ -1,6 +1,5 @@
-// B297: the backlog as a view of the work store (spec 2026-10-17, section 3). Once the store is the truth (the
-// cutover, tools/migrate-backlog.mjs --cutover), the server writes backlog.md from the store after every change, in
-// today's form, so whatever still reads the file reads what the store says. Its first line says it is generated;
+// B297: the backlog as a view of the work store (spec 2026-10-17, section 3). The server writes backlog.md from the
+// store after every change (and tools/migrate-backlog.mjs --make-store writes the first), in today's form, so whatever still reads the file reads what the store says. Its first line says it is generated;
 // nobody edits it. What a step's line cannot say stands in one "[store]" line under it (adapter.mjs, `storeLine`),
 // so the view migrates back to the same items.
 

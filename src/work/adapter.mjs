@@ -1,6 +1,7 @@
-// B296: the work store → today's backlog, so `state.mjs` and the page need no change while the store runs as a shadow
-// (spec 2026-10-17, section 3). The store is written as the backlog's text in today's form and read by the same
-// `parseBacklog`: what the page shows from the store is what it would show from the file.
+// B296: the work store → the backlog's shape, so `state.mjs` and the page read the store in the form they know (spec
+// 2026-10-17, section 3). The store is written as the backlog's text in today's form and read by the same
+// `parseBacklog`; the same text, marked as generated, is backlog.md, the store's view (view.mjs). B301: the backlog file
+// itself is never read.
 
 import { parseBacklog } from '../backlog.mjs'
 import { valueOf } from './item.mjs'
