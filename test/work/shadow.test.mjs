@@ -104,10 +104,10 @@ test('the step window carries the flow strip with the step\'s state marked', asy
   try {
     const work = await shadowKeeper({ dir, canWrite: true, clock: () => NOW })(BACKLOG)
     const flow = flowOfStep(work, 'B10')
-    assert.deepEqual([flow.state, flow.states.length, flow.next.map(move => move.to)], ['queued', 9, ['taken', 'dropped']])
+    assert.deepEqual([flow.state, flow.states.length, flow.next.map(move => move.to)], ['queued', 9, ['taken', 'done', 'dropped']])
     assert.match(flowOfStep(work, '1:0').id, /^L-[0-9a-f]{8}$/)
     assert.equal(flowOfStep(work, '1:0').state, 'done')
-    assert.deepEqual(flowOfStep(work, 'B13').states, ['open', 'answered'])
+    assert.deepEqual(flowOfStep(work, 'B13').states, ['open', 'answered', 'withdrawn'])
     assert.equal(flowOfStep(work, 'B99'), null)
     assert.equal(flowOfStep({ ok: false }, 'B10'), null)
     const app = name => JSON.stringify({ title: `Team - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\\game', isArchived: false, createdAt: 1, lastActivityAt: 1, lastAssistantUuid: 'u' })

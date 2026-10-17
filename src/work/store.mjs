@@ -269,3 +269,8 @@ export async function removeItem(dir, id, fs = files, { expected } = {}) {
     return { ok: false, why: `${id}.md could not be removed: ${error.code ?? error.message}` }
   }
 }
+
+/** B297, review 6: puts an item's file back as it was (`text`), only while it holds what was written (`expected`). */
+export async function putBack(dir, id, text, fs = files, { expected } = {}) {
+  return putInPlace(join(dir, `${id}.md`), text, fs, expected)
+}
