@@ -1103,6 +1103,15 @@ and does not pretend.
   the main chat); the "Task"/"What I did" lines and the closing block, shown in a chat's answer window as its words.
 - **Making a store**: `tools/migrate-backlog.mjs --make-store` (the cutover's checks, into an empty folder) or
   `--init` (an empty store: one activity, the default flow). Without a mode the command only reports.
+- **The review's findings**: the warning counts only asks filed since the turn began (an ask's first History line),
+  looks for the turn's start in the tail and the longer look back, and warns all the same, saying so, when it cannot
+  tell; an open ask of an earlier turn keeps it quiet no more. The board notes what it sees ticked (`data/finished.json`)
+  only from a store it can read, with each step's own time of its move to done (`seenFromState`), so a store read again
+  is no burst. A chat whose last answer closed with "Done: yes" while the store still holds its step is flagged on its
+  lane ("... run work report"), one flag per turn. Moving a queued step and taking it out of its queue are the API's
+  `requeue` (`for`) and `unqueue` (Main and the person; flow.json: queued → refined or new), called by the page's
+  buttons; the words `move step` and `unqueue step` go. The Workers mod 0.13.1: the work tool knows them; no message
+  is a report (`sentKind` goes); the compaction keeps the store's steps.
 - **The demo and the tests** make their stores in memory from their backlog texts (`storeFromText`;
   `test/withStore.mjs`), as `--make-store` would.
 

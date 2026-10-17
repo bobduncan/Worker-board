@@ -100,12 +100,12 @@ test('B301: a finished worker\'s "For you" block without an ask is a warning, it
   const need = waitingWorker([fromChat(NOW - 90 * MIN, 'Studio · Lead', 'Task from Studio · Lead: B150, the walk. About 1 hour.'), answer(NOW - 4 * MIN, ANSWER)])
   assert.deepEqual([need.kind, need.title, need.canAnswer, need.talk], ['unfiled', 'Worker 2 wrote questions in its chat but filed no ask', false, 'window'])
   assert.equal(need.waits.handover.task, 'B150: give the archer a walk cycle in four directions')
-  assert.equal(need.waits.given, null)
+  assert.equal('given' in need.waits, false)
 })
 
 test('what the person typed to a chat that waits is never shown, also as its task', () => {
   const need = waitingWorker([typed(NOW - 90 * MIN, 'Zebracorn, draw the walk'), answer(NOW - 4 * MIN, ANSWER)])
-  assert.equal(need.waits.given, null)
+  assert.equal('given' in need.waits, false)
   assert.equal(JSON.stringify(need).includes('Zebracorn'), false)
 })
 
@@ -128,7 +128,7 @@ test('the window has the form when the answer has items or a task or what it did
   assert.equal(page.hasForm({ ...parts, items: [], task: null, did: null }), false)
   assert.equal(page.hasForm(null), false)
   assert.deepEqual(JSON.parse(JSON.stringify(page.closingRows(parts.closing))), [['Prompt', 'B150, the walk', ''], ['Who', 'Studio · Worker 2', ''], ['Done', 'partly, waits for your look', 'bad']])
-  const view = JSON.parse(JSON.stringify(page.waitingOf({ id: 'chat:W:1', text: 'x', canAnswer: true, answer: null, task: null, waits: { at: 1, words: ANSWER, questions: [], plan: null, handover: parts, given: null } }, NOW)))
+  const view = JSON.parse(JSON.stringify(page.waitingOf({ id: 'chat:W:1', text: 'x', canAnswer: true, answer: null, task: null, waits: { at: 1, words: ANSWER, questions: [], plan: null, handover: parts } }, NOW)))
   // The closing block is shown apart, not among its words.
   assert.equal(view.words.includes('```diff'), false)
   assert.equal(view.handover.items.length, 3)

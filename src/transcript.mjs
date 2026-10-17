@@ -397,10 +397,9 @@ export function peerMessage(entry) {
   }
 }
 
-/** A short title from the first line of a message: its first sentence, without the main chat's opening words. */
-function titleOf(body, isHandOver = false) {
-  const first = body.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
-  const plain = isHandOver ? first.replace(/^(?:\w+\s+){0,2}tasks?\b[^:]{0,60}:\s*/i, '') : first
+/** A short title from the first line of a message: its first sentence. */
+function titleOf(body) {
+  const plain = body.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
   const sentence = plain.match(/^(.+?)[.!?](\s|$)/)?.[1] ?? plain
   const short = sentence.length > TITLE_CHARS ? `${sentence.slice(0, TITLE_CHARS - 1).trimEnd()}…` : sentence
   return short.charAt(0).toUpperCase() + short.slice(1)
@@ -467,7 +466,7 @@ export function turnStart(entries, { prefix = '' } = {}) {
     const peer = peerMessage(entry)
     if (peer !== null) {
       const from = typeof peer.from === 'string' && !peer.from.startsWith('local_') ? peer.from : 'Another chat'
-      opening = { at: entry.at, by: from.startsWith(prefix) ? from.slice(prefix.length) : from, title: titleOf(peer.body, true), isSure: hasEnd }
+      opening = { at: entry.at, by: from.startsWith(prefix) ? from.slice(prefix.length) : from, title: titleOf(peer.body), isSure: hasEnd }
       isOpen = true
       continue
     }

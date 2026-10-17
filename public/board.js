@@ -2106,10 +2106,8 @@ function waitingOf(need, now) {
     words: waits?.handover?.rest ?? waits?.words ?? '',
     saidAt: waits?.at ?? null,
     where,
-    // B149: the parts of its answer when it finished a task with something left for the person (`handover`), and
-    // the message that gave it that task (`given`).
+    // B149: the parts of its answer when it finished a task with something left for the person (`handover`).
     handover: waits?.handover ?? null,
-    given: waits?.given ?? null,
     // B169: the main chat's window shows what the person decides on (`mainParts`).
     isMain: need.isMain === true,
     // B275: so does the Advisor's, which asks the person as part of its talk with them.
@@ -2129,26 +2127,22 @@ function closingRows(closing) {
 // waiting:end
 
 /**
- * B149: the parts of a finished worker's window when its answer has the agreed form: its task as it was given,
- * what it did, and what it needs from the person, numbered, each with its links and its own answer; its whole
- * answer folded; its closing block on the right. `{ main, side }`, each a list of sections.
+ * B149: the parts of a worker's answer window when its answer has the agreed form: its task as its own Task line says,
+ * what it did, its whole answer folded, and its closing block. `{ main, side }`, each a list of sections.
  */
 function handoverParts(waiting) {
-  const { handover, given } = waiting
+  const { handover } = waiting
   // B157: on top, set apart: the task in at most two lines, and what it did in plain words (a technical sentence
   // is left out there; the folded details have its whole answer).
   const did = plainWords(handover.did)
   const main = [briefPart([
-    ['The task', [briefTask(shortTask(handover.task ?? given?.text ?? null, null, waiting.task[0] ?? null))]],
+    ['The task', [briefTask(shortTask(handover.task, null, waiting.task[0] ?? null))]],
     ['What I did', did === '' ? [] : [el('p', 'brief-text', did)]],
   ])]
 
   // B301: its "For you" items are not shown as questions to answer here: what waits for the person is the store's asks.
-  // B157: below, folded: the message as it was given, its whole answer, its closing block.
+  // B157: below, folded: its whole answer, its closing block.
   main.push(foldedDetails([
-    given === null ? null : section('Its task as it was given', [
-      el('small', 'muted', `Given by you at ${clock(given.at)}`), rich(el('div', 'said-words'), given.text),
-    ]),
     waiting.words === '' ? null : section(`Its whole answer${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`, [rich(el('div', 'said-words'), waiting.words)]),
     ...closingParts(handover.closing),
   ]))

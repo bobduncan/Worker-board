@@ -111,7 +111,7 @@ const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('waiting')}\nObject.assign(this, { waitingOf })`, page)
 
 test('the window knows the main chat', () => {
-  const need = { id: 'unfiled:Lead:1', isMain: true, canAnswer: false, answer: null, text: '', task: null, waits: { at: NOW, words: MAIN_ANSWER, questions: [], plan: null, handover: parseHandover(MAIN_ANSWER), given: null } }
+  const need = { id: 'unfiled:Lead:1', isMain: true, canAnswer: false, answer: null, text: '', task: null, waits: { at: NOW, words: MAIN_ANSWER, questions: [], plan: null, handover: parseHandover(MAIN_ANSWER) } }
   assert.equal(page.waitingOf(need, NOW).isMain, true)
   assert.equal(page.waitingOf({ ...need, isMain: undefined }, NOW).isMain, false)
 })

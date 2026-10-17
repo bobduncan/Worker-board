@@ -276,11 +276,11 @@ function etaOf(task, state, now) {
 /**
  * B149: what a chat that waits last said (`waitingFor`), with its parts in the agreed form (`handover`, null when it
  * has none), for its window: information, never what waits for the person (B301: that is the store's asks). What the
- * person typed to a chat that waits is never shown (B100), and no other chat's message gives it a task (`given`).
+ * person typed to a chat that waits is never shown (B100).
  */
 function finishedWith(waits) {
   if (waits === null) return null
-  return { ...waits, handover: parseHandover(waits.words), given: null }
+  return { ...waits, handover: parseHandover(waits.words) }
 }
 
 function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, waits }) {
@@ -596,7 +596,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       version: null,
       canAnswer: false,
       task: cardOf(lane.task),
-      waits: { at: lane.unfiled.at, words: lane.unfiled.words, questions: [], plan: null, handover: parseHandover(lane.unfiled.words), given: null },
+      waits: { at: lane.unfiled.at, words: lane.unfiled.words, questions: [], plan: null, handover: parseHandover(lane.unfiled.words) },
       isMain: lane.isMain === true,
       isAdvisor,
       // Where its chat is on the board: Talk to Main, the Advisor's tab, or a worker's last answer in this card's window.

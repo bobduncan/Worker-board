@@ -81,7 +81,7 @@ test('a worker that waits brings its task as its card names it and its own words
   assert.deepEqual([one.id, one.title, one.canAnswer], [`chat:Units:${NOW - 9 * MIN}`, 'Asked you a question in its chat', false])
   assert.deepEqual(one.task, { text: 'Portraits, B08', step: 2, steps: 3, name: 'Pick', startedAt: units.task.startedAt, stepId: 'B08' })
   // B149: no parts of the agreed form, and no hand-over: the task was typed by the person, which is never shown.
-  assert.deepEqual(one.waits, { at: NOW - 9 * MIN, words: 'I need one choice.', questions: [{ question: 'Which sheet?', options: ['Sheet A', 'Sheet B'] }], plan: null, handover: null, given: null })
+  assert.deepEqual(one.waits, { at: NOW - 9 * MIN, words: 'I need one choice.', questions: [{ question: 'Which sheet?', options: ['Sheet A', 'Sheet B'] }], plan: null, handover: null })
   assert.ok(!JSON.stringify(state).includes('Zebracorn'))
   // B301: a question only written in its answer makes it wait no more, and gives no card to answer here.
   const wrote = build({ tails: { Units: tail(asked) }, plans: { Units: planLine({ text: 'Portraits, B08' }) } })
