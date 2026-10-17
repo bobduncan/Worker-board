@@ -995,12 +995,16 @@ that without a word, and the page, the state and the chats are as before.
   The instruction that opened the turn was filed before it started, so a turn that answers without closing it marks
   it; a line that came in while the turn ran waits for the next one. Nothing is closed for the chat: `close` does
   that, and answers which stay open. `next` names a missed one with its turns.
-- **The Workers mod** (`hooks/register.tsx`): on `prompt.submit` with origin `composer` (the person typing in the
-  chat's own box; never a line the board or another chat brought in, never a slash command) it files the words before
-  `next(e)`, also while a turn runs, so a prompt the app holds is filed when submitted. The first tool batch after a
-  filing adds "Recorded as I17; close it with ..." and, once a turn, the ones earlier turns left open
-  (`additionalContext`); the composed prompt has a section "Open instructions: I17 (new), I15 (2 turns)". On
-  `turn.complete` (reason answer, the chat's own turn, once) it sends `turn-ended`.
+- **The Workers mod** (`hooks/register.tsx`): on `prompt.submit` with an origin of the person's own typing
+  (`composer`, Remote Control's `bridge`, the desktop app's `sdk`; never a line the board typed, which comes as
+  `plugin`, nor one pasted by hand with `[I<n>]` at its end or the board's mark, never a slash command) it files the
+  words before `next(e)`, also while a turn runs, so a prompt the app holds is filed when submitted. Beside the prompt,
+  as its context for the model, go "Recorded as I17; close it with ..." and "Open instructions: I17 (new), I15 (2
+  turns)"; the composed system prompt never changes with them, so it stays cached (review). On `turn.complete`
+  (reason answer, the chat's own turn, once) it sends `turn-ended` with the turn's start; `Filed` keeps the
+  millisecond an instruction was filed, so a line typed a moment after the turn began is not counted for it. Every call
+  of the mod's own to the board waits 1.5 s at most and goes on without it; a 409 "not the truth yet" is remembered
+  for five minutes, so a shadow costs no call per prompt. A chat started anew asks once (`next`) for its open ones.
 - **A line typed on the board** (`say.mjs`, `withInstruction`): Talk to Main or a line to any chat is filed as the
   person's instruction first and goes with its id at its end ("Queue the menu [I17]"); an answer to a request and the
   board's own words are not filed.
@@ -1019,7 +1023,9 @@ chats' answers for questions and waiting exactly as before (tests run both).
   (`http://127.0.0.1:<port>/#picture=<path>`, `#play=<branch>&<settings>`). An ask may stand alone (no `of`): the
   Workers mod files each question of the app's question form (AskUserQuestion) as a decide ask, `Via: form`, under the
   card's step when the board takes it there; the person answers those in the chat, and the mod then sends
-  `answered-in-chat` (or `withdraw` when the form closed without an answer). `answer` (the person) names the ask's own
+  `answered-in-chat` with their choice or their own words (or `withdraw` when the form was closed unanswered). Any ask
+  of its own a chat closes the same way when the person answered it in the chat. On the board, a form's question
+  whose chat does not run has a **Withdraw** button. `answer` (the person) names the ask's own
   id, so an answer given after the chat moved on answers that ask and no later one; a look takes approve or reject
   (with words), a do takes done; the answer says whom to wake (`wake`). `read` puts a note away.
 - **Refine questions are asks**: `refine` makes one decide ask per question under the step (`Via: refine`, Owner the

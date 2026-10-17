@@ -64,6 +64,8 @@ const plain = (name, prefix = '') => {
 const at = now => stamp(now).replace(' ', ' at ')
 /** B298: the time to the second, for an instruction's Since: a turn that starts a moment later can tell it. */
 const toSecond = now => `${stamp(now)}:${String(new Date(now).getSeconds()).padStart(2, '0')}`
+/** Review of B298: when an instruction was filed, to the millisecond (`Filed`), else as its Since says. */
+const filedMs = item => (/^\d+$/.test(valueOf(item, 'Filed') ?? '') ? Number(valueOf(item, 'Filed')) : sinceMs(valueOf(item, 'Since')))
 /** B298: a Since as a time; the start of its minute (or second) as written. NaN when it is none. */
 export function sinceMs(value) {
   const found = String(value ?? '').match(/^(\d{4})-(\d\d)-(\d\d)(?: (\d\d):(\d\d)(?::(\d\d))?)?$/)
@@ -620,7 +622,7 @@ async function instruction(body, w) {
   if (text.length === 0) return refuse(400, 'Say it in "text".')
   const id = await nextId(w.dir, 'I', w.fs)
   const item = said({
-    head: new Map([['Id', id], ['Kind', 'instruction'], ['Chat', chat], ['State', 'open'], ['Since', toSecond(w.now)], ['Via', w.role === 'person' ? 'board' : 'chat'], ['Text', line(text.join(' '), LINE_CHARS)]]),
+    head: new Map([['Id', id], ['Kind', 'instruction'], ['Chat', chat], ['State', 'open'], ['Since', toSecond(w.now)], ['Filed', String(w.now)], ['Via', w.role === 'person' ? 'board' : 'chat'], ['Text', line(text.join(' '), LINE_CHARS)]]),
     sections: new Map([['Text', text]]),
     problem: null,
   }, w, 'filed')
@@ -639,7 +641,7 @@ async function turnEnded(body, w) {
   const since = Number(body.since)
   if (body.since === undefined || body.since === null || !Number.isFinite(since)) return refuse(400, '"since" is when the turn started.')
   const due = [...w.store.items.values()].filter(one => kindOf(one) === 'instruction' && stateOf(one) === 'open'
-    && plain(valueOf(one, 'Chat'), w.prefix) === plain(chat, w.prefix) && sinceMs(valueOf(one, 'Since')) <= since)
+    && plain(valueOf(one, 'Chat'), w.prefix) === plain(chat, w.prefix) && filedMs(one) <= since)
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   const missed = []
   const fresh = []
