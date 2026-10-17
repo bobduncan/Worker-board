@@ -151,18 +151,33 @@ export function heldBy({ plan, handOver, background, step, isCompleted = false, 
  * A chat that recorded its task is on a step too (`stepId`): the one that names its branch, else the open one
  * of its own (or of nobody) that its record names by id, else the one handed to it.
  */
-/** B281: a note line about who has a step or how far it is: not what the step is. */
-const STEP_STATUS = /^(?:handed (?:to|over)|in progress|done on|approved|refined|picked up|paused|moved|was:)/i
+/**
+ * B281: a note line that does not say what a step is: who has it or how far it is, the person's answers to a quick
+ * check (choices, not the ask), or a head for files, tests or the requirements.
+ */
+const STEP_STATUS = /^(?:handed (?:to|over)|in progress|done on|approved|refined|picked up|paused|moved|was:|your answers\b|(?:touches|context|requirements|files|tests?):)/i
+
+/** B281: "Your words (board, 18:26, ...): the ask" without its lead: the words after the first colon outside brackets. */
+function withoutLead(line) {
+  if (!/^your words\b/i.test(line)) return line
+  let depth = 0
+  for (let at = 0; at < line.length; at++) {
+    if (line[at] === '(') depth += 1
+    else if (line[at] === ')') depth = Math.max(0, depth - 1)
+    else if (line[at] === ':' && depth === 0) return line.slice(at + 1).trim() || line
+  }
+  return line
+}
 
 /**
- * B281: what a backlog step is, in a line: the first line of its notes that is not about who has it or how far it is,
- * nor a bare head ("Requirements:"); a point's dash left off. Null when its notes have none.
+ * B281: what a backlog step is, in a line: the first line of its notes that says so (see STEP_STATUS), a point's dash
+ * left off, the person's own words without their lead. Null when its notes have none.
  */
 function aboutLine(notes = []) {
   for (const note of notes) {
     const line = String(note).trim().replace(/^[-*]\s+/, '')
     if (line === '' || STEP_STATUS.test(line) || /^[A-Z][A-Za-z /]{1,28}:$/.test(line)) continue
-    return line
+    return withoutLead(line)
   }
   return null
 }

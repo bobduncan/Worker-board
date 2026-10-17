@@ -75,6 +75,17 @@ test('the task stays the main chat\'s hand-over when the person\'s words started
   assert.deepEqual(units.feedback, { at: NOW - 20 * MIN, text: '1. no: almost but his red square is actually 2 squares · 2. yes' })
 })
 
+test('what a step is: not the person\'s answers to a quick check, and their own words without the lead before them', () => {
+  const golem = BACKLOG.replace(
+    '  The zebracorn walks in four directions on the big map, with its old idle kept.\n',
+    '  Your answers to the quick check (board, 2026-10-15, 23:52), all as advised: 14 HP, 2 Shields.\n'
+      + '  Your words (board, 18:26, in the Advisor\'s round): the zebracorn as the boss, bigger than one tile (2x2).\n',
+  )
+  assert.equal(lane(onFeedback(), { backlogText: golem }).givenTask.step.about, 'the zebracorn as the boss, bigger than one tile (2x2).')
+  const technical = BACKLOG.replace('  The zebracorn walks', '  Touches: src/content, tests.\n  The zebracorn walks')
+  assert.equal(lane(onFeedback(), { backlogText: technical }).givenTask.step.about, 'The zebracorn walks in four directions on the big map, with its old idle kept.')
+})
+
 test('an answer given on the worker board is the feedback without the board\'s mark', () => {
   const units = lane(onFeedback('(answered on the worker board, 10:10) 1. no: two squares'))
   assert.deepEqual(units.feedback, { at: NOW - 20 * MIN, text: '1. no: two squares' })
