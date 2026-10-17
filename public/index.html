@@ -137,7 +137,8 @@
       </header>
       <div class="messages" id="messages"></div>
       <form class="say" id="say">
-        <textarea id="say-text" rows="2" placeholder="Ask the advisor…" maxlength="2000" aria-label="Message to the advisor"></textarea>
+        <div class="main-picture" id="say-picture" hidden></div>
+        <textarea id="say-text" rows="2" placeholder="Ask the advisor… Ctrl+V adds a picture." maxlength="2000" aria-label="Message to the advisor"></textarea>
         <button type="submit" id="say-send">Send</button>
       </form>
       <p class="muted say-note" id="say-note"></p>
