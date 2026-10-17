@@ -252,7 +252,10 @@ as refined") writes the advice as the answer to every open question the person d
 has none to take. Once ready, the description stands first in the window, with no box, and the step's own lines follow
 as its "Notes"; its foot has "Refine again". A ready block names no round, so a refine ask counts as written once a
 block is written in a minute after it (`refineAsk`). Blocks in the older form (Problem, Goal, questions with a field)
-still show as before; the server still writes "accepted" for them, though no button asks it any more.
+still show as before; the server still writes "accepted" for them, though no button asks it any more. The window of a
+step in a worker's queue shows the same description to read (its questions are answered from the Backlog tab), and
+a finished step keeps its description without questions. A ready step refined again tells the Advisor to check it
+against the backlog and the goals, since no new answers stand in it.
 
 **Stop, move or take out of the queue (B83).** The person, 2026-10-14, of the two choices: "1. A" (stop lets the worker
 reach a safe point: work committed and pushed, nothing new started) and "2. A" (the main chat makes the change). A

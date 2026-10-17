@@ -91,8 +91,9 @@ function refineBlock(lines, id) {
       if (part === 'Feedback') block.feedback = index
       continue
     }
-    // Counted as `refinedOf` counts them: "None: ..." is no question.
-    if (part === 'Questions' && /^[-*]\s+/.test(line) && !/^[-*]\s+None\b/i.test(line)) block.questions.push(index)
+    // Counted as `refinedOf` counts them: every line under "Questions:", with its point or without; "None: ..." is no
+    // question.
+    if (part === 'Questions' && line !== '' && !/^(?:[-*]\s+)?None\b/i.test(line)) block.questions.push(index)
     if (part === 'Feedback') block.feedback = index
   }
   return { ok: true, block }

@@ -1773,7 +1773,7 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
   const checklist = [...(need?.checks ?? []), ...notes.filter(isChecklist).flatMap(part => [...part.lines, ...part.points])]
   const rest = notes.filter(part => !isChecklist(part))
   if (need === null) {
-    const refined = refinedChips(step.refined ?? null)
+    const refined = refinedChips(step.refined ?? null, step.status === 'done')
     return {
       code: step.id ?? null,
       title: step.title,
@@ -1805,13 +1805,16 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
 /** B293: a size as a chip says it: "about 3-4 hours" is "about 3–4 h". */
 const sizeText = size => String(size).replace(/(\d)\s*-\s*(\d)/g, '$1–$2').replace(/\bhours?\b/gi, 'h').replace(/\bminutes?\b/gi, 'min').trim()
 
+/** B293: a refine block in the newer form: a summary, its goal or its size, or ready. */
+const hasNewForm = refined => refined !== null && refined !== undefined && (refined.ready === true || refined.summary !== '' || refined.partOf !== '' || refined.size !== '')
+
 /**
- * B293: the chips of a step refined in the newer form (a summary, its goal or its size, or ready): its goal, its
- * size, and the questions that wait for the person, or Ready. Null for a step refined in the older form, or not.
+ * B293: the chips of a step refined in the newer form: its goal, its size, and the questions that wait for the
+ * person (none for a finished step, `isDone`), or Ready. Null for a step refined in the older form, or not.
  */
-function refinedChips(refined) {
-  if (refined === null || !(refined.ready || refined.summary !== '' || refined.partOf !== '' || refined.size !== '')) return null
-  const open = refined.questions.filter(one => one.answer === null).length
+function refinedChips(refined, isDone = false) {
+  if (!hasNewForm(refined)) return null
+  const open = isDone ? 0 : refined.questions.filter(one => one.answer === null).length
   return [
     ...(refined.partOf === '' ? [] : [{ text: refined.partOf, tone: 'goal' }]),
     ...(refined.size === '' ? [] : [{ text: sizeText(refined.size), tone: 'plain' }]),
@@ -2533,10 +2536,12 @@ function drawDetails(state) {
   // has them on the right.
   // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback. B293: once ready
   // it is the step's description, first; the step's own lines follow as its notes.
-  const refine = subject.step !== undefined ? refinePart(subject.step, state) : null
+  // A step in a worker's queue shows its refine to read; it is answered in its window on the Backlog tab.
+  const refined = subject.step?.refined ?? (need === null ? step?.refined ?? null : null)
+  const refine = subject.step !== undefined ? refinePart(subject.step, state) : refined !== null ? refineToRead(refined) : null
   const isReady = refine?.classList.contains('is-ready') === true
   // A refine with a summary describes the step: no "nothing more is written" above it.
-  const isSummed = isReady || (subject.step?.refined?.summary ?? '') !== ''
+  const isSummed = isReady || (refine !== null && (refined?.summary ?? '') !== '')
   if (isReady) left.append(refine)
   if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section(isReady ? 'Notes' : 'Description', described))
   else if (!view.hasNotes && !isSummed) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
@@ -2544,7 +2549,7 @@ function drawDetails(state) {
   left.append(...notes.named)
   if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
   // B293: the refine's picture shows in it, not a second time here.
-  const refinedPicture = refine === null ? null : subject.step?.refined?.picture?.path ?? null
+  const refinedPicture = refine === null ? null : refined?.picture?.path ?? null
   const shown = need === null ? step.pictures.filter(path => path !== refinedPicture).map(path => ({ path, caption: '' })) : [
     ...need.options.filter(option => option.picture !== null).map(option => ({ path: option.picture, caption: `${option.label}${option.isRecommended ? ' (recommended)' : ''}` })),
     ...need.pictures.map(path => ({ path, caption: '' })),
@@ -5432,14 +5437,19 @@ function holding(tag, className, ...children) {
  * description itself (`is-ready`): the summary, the picture and what we build, with no box, no rounds and no questions.
  */
 function refinePart(step, state) {
-  // A ready description stays, also once the step is finished.
-  if (step.refined?.ready === true) {
-    const box = el('section', 'details-part refined is-ready')
-    box.append(...refinedParts(step.refined))
-    return box
-  }
   const advisor = state.advisor?.name ?? null
   const view = refineView(step, advisor)
+  const working = view?.working == null ? null
+    : el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'}. It shows here once written.`)
+  // A ready description stays, also once the step is finished; so does a finished step's summary, without its questions.
+  const isDescribed = step.refined?.ready === true || (step.status === 'done' && hasNewForm(step.refined))
+  if (isDescribed) {
+    const box = el('section', 'details-part refined is-ready')
+    box.append(...refinedParts(step.refined))
+    // "Refine again" asked: said here too, not only on the button.
+    if (working !== null) box.append(working)
+    return box
+  }
   if (view === null) return null
   const box = el('section', 'details-part refine')
   const heading = el('h3', '', 'Refined')
@@ -5468,10 +5478,20 @@ function refinePart(step, state) {
     if (!view.isNewForm) box.append(el('span', 'refine-tag', 'Feedback'))
     box.append(feedback)
   }
-  if (view.working !== null) {
-    box.append(el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'}. It shows here once written.`))
-  }
+  if (working !== null) box.append(working)
   return box
+}
+
+/**
+ * B293: the refine of a step in a worker's queue, to read: its description once ready, else what it says so far and
+ * how many questions wait (answered in the step's window on the Backlog tab). Null when it says nothing.
+ */
+function refineToRead(refined) {
+  const box = el('section', `details-part ${refined.ready ? 'refined is-ready' : 'refine'}`)
+  box.append(...refinedParts(refined))
+  const open = refined.ready ? 0 : refined.questions.filter(one => one.answer === null).length
+  if (open > 0) box.append(el('p', 'muted', `${open} question${open === 1 ? '' : 's'} wait for your answer in the step's window on the Backlog tab.`))
+  return box.children.length === 0 ? null : box
 }
 
 /** B293: the parts of a refine block that describe the step: summary, picture, problem and goal (the older form), what we build. */
@@ -5599,7 +5619,7 @@ async function refineClick(button) {
   if (button.dataset.refineAction === 'advice') {
     const taken = adviceAnswers(step.refined, picks)
     if (taken.missing.length > 0) {
-      problems.set(key, `Question ${taken.missing.join(' and ')} has no advice: answer ${taken.missing.length === 1 ? 'it' : 'them'} first.`)
+      problems.set(key, taken.missing.length === 1 ? `Question ${taken.missing[0]} has no advice: answer it first.` : `Questions ${taken.missing.join(' and ')} have no advice: answer them first.`)
       return redrawNeeds()
     }
     answers = taken.answers

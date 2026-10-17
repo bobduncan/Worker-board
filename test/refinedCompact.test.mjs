@@ -10,7 +10,8 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { overview, parseBacklog, refinedOf, withoutRefined } from '../src/backlog.mjs'
+import { overview, parseBacklog, queue, refinedOf, withoutRefined } from '../src/backlog.mjs'
+import { checkSay } from '../src/say.mjs'
 import { refineAsk } from '../src/state.mjs'
 import { answerRefine } from '../src/tick.mjs'
 
@@ -170,6 +171,60 @@ test('the page draws the stages as in the picture, and replaces "Accept as refin
   assert.match(script, /if \(isReady\) left\.append\(refine\)/)
   assert.match(script, /section\(isReady \? 'Notes' : 'Description', described\)/)
   for (const rule of ['.details-chips .chip.is-goal', '.details-chips .chip.is-wait', '.details-chips .chip.is-ready', '.refine-pick[aria-pressed="true"]', '.refined-build li.is-not', '.refined-picture']) assert.ok(style.includes(rule), rule)
+})
+
+test('the review\'s findings: a step in a worker\'s queue carries its block apart, as on the Backlog tab', async () => {
+  const step = queue(parseBacklog(REFINING))[1]
+  assert.equal(step.refined.ready, true)
+  assert.deepEqual(plain(step.notes), [{ title: null, lines: ['(branch feature/bridge)'], points: [] }])
+  assert.deepEqual(plain(page.windowOf({ step, lane: 'Units' }, names).chips).map(chip => chip.text), ['G4 M2 · A herd that rests', 'about 1 h', 'Ready', 'For: Units'])
+  // The lane's queue in the board's state carries it to the page, where the window draws it to read.
+  const stateSource = await readFile(join(HERE, '..', 'src', 'state.mjs'), 'utf8')
+  assert.match(stateSource, /notes: step\.notes, refined: step\.refined \?\? null, pictures:/)
+  assert.match(script, /: refined !== null \? refineToRead\(refined\) : null/)
+})
+
+test('the review\'s findings: a caption on its own line, a path in backticks, a dash before the reason, a lone "Not in it:"', () => {
+  const text = [
+    '- [ ] B31 Fence the meadow (for Units; about 2 h)\n',
+    '  Refined (round 1, by Oracle, 2026-10-17 11:00):\n',
+    '  Summary: A fence keeps the herd in.\n',
+    '  Picture: `art-inbox/fence/v1.png`\n',
+    '  (the fence around the meadow)\n',
+    '  Size: about 2 hours\n',
+    '  Questions:\n',
+    '  - Wood, not stone? Advised: yes — wood is quicker\n',
+    '  A gate on the east side? Advised: no\n',
+    '  - Paint it white? Advised: yes\n',
+    '  What we build:\n',
+    '  - A fence of wood.\n',
+    '  Not in it:\n',
+    '  - a second gate\n',
+    '  (branch feature/fence)\n',
+  ].join('')
+  const notes = parseBacklog(`## Meadow\n${text}`).activities[0].steps[0].notes
+  const refined = refinedOf(notes)
+  assert.deepEqual(refined.picture, { path: 'art-inbox/fence/v1.png', caption: 'the fence around the meadow' })
+  assert.equal(refined.size, 'about 2 hours')
+  assert.deepEqual(refined.questions.map(one => [one.text, one.advice, one.why]), [['Wood, not stone?', 'yes', 'wood is quicker'], ['A gate on the east side?', 'no', ''], ['Paint it white?', 'yes', '']])
+  assert.deepEqual(refined.build, ['A fence of wood.', 'Not in it: a second gate'])
+  assert.deepEqual(withoutRefined(notes), ['(branch feature/fence)'])
+  // The board writes an answer to the question it shows at that place, also one written without its point.
+  const done = answerRefine(`## Meadow\n${text}`, 'B31', [{ index: 1, answer: 'yes' }, { index: 2, answer: 'no' }], '')
+  assert.match(done.text, /\n {2}A gate on the east side\? Advised: no Answer: yes\n {2}- Paint it white\? Advised: yes Answer: no\n/)
+})
+
+test('the review\'s findings: refining a ready step again, and a finished step\'s block', () => {
+  const steps = overview(parseBacklog(REFINING))[0].steps
+  const state = { advisor: { name: 'Oracle' }, backlog: [{ name: 'Zebracorns', steps: steps.map(step => ({ ...step, refineAsk: null })) }] }
+  assert.match(checkSay({ to: 'Oracle', command: 'refine', step: 'B22' }, state, 4000).message.text, /^refine step\nStep: B22 Paint the narwhal bridge\nRound: 2\nThe step is ready: check it again against the backlog and the goals\.$/)
+  assert.match(checkSay({ to: 'Oracle', command: 'refine', step: 'B21' }, state, 4000).message.text, /\nThe answers and feedback are written in the step's refine block\.$/)
+  // A finished step asks nothing: no "questions for you" in its head.
+  assert.deepEqual(plain(page.windowOf({ step: { ...steps[0], status: 'done' } }, names).chips).map(chip => chip.text), ['G4 M2 · A herd that rests', 'about 3–4 h', 'Finished'])
+  // Its window shows the description; while refining again a ready step says so.
+  assert.match(script, /const isDescribed = step\.refined\?\.ready === true \|\| \(step\.status === 'done' && hasNewForm\(step\.refined\)\)/)
+  assert.match(script, /if \(working !== null\) box\.append\(working\)\n {4}return box/)
+  assert.match(script, /Questions \$\{taken\.missing\.join\(' and '\)\} have no advice: answer them first\./)
 })
 
 test('the Advisor\'s job and the protocol name the new form', async () => {

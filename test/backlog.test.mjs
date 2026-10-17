@@ -55,8 +55,8 @@ test('parseBacklog adds an indented line to the step above it', () => {
 
 test('queue: the open steps to hand out, with the worker, the condition and the time picked out', () => {
   assert.deepEqual(queue(backlog), [
-    { id: null, text: 'Main menu (for Features; after the battle page merges; about 40 min)', title: 'Main menu', worker: 'Features', branch: null, after: 'the battle page merges', minutes: 40, notes: [] },
-    { id: null, text: 'Level streaming (for Levels / Environment; about 2 h)', title: 'Level streaming', worker: 'Levels / Environment', branch: null, after: null, minutes: 120, notes: [] },
+    { id: null, text: 'Main menu (for Features; after the battle page merges; about 40 min)', title: 'Main menu', worker: 'Features', branch: null, after: 'the battle page merges', minutes: 40, notes: [], refined: null },
+    { id: null, text: 'Level streaming (for Levels / Environment; about 2 h)', title: 'Level streaming', worker: 'Levels / Environment', branch: null, after: null, minutes: 120, notes: [], refined: null },
   ])
   // B172: under "Next to hand out" too, a step that names no worker in its note waits for the main chat, not for a
   // worker: a chat named in its words ("tell Game - Units") does not make it that chat's.

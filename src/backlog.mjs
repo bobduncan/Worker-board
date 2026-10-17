@@ -169,10 +169,18 @@ export function refinedSpan(notes) {
   const start = notes.findIndex(note => REFINED_HEAD.test(note.trim()))
   if (start < 0) return null
   let end = start + 1
+  // B293: what the picture shows may stand in brackets on the line after its path: that line is no closing note.
+  let part = null
+  let hasCaption = false
   while (end < notes.length) {
     const line = notes[end].trim()
     const named = line.match(NAMED)
-    if ((named !== null && REFINED_PARTS[named[1]] === undefined) || line.startsWith('(') || REFINED_HEAD.test(line)) break
+    const isCaption = part === 'picture' && !hasCaption && line.startsWith('(')
+    if (!isCaption && ((named !== null && REFINED_PARTS[named[1]] === undefined) || line.startsWith('(') || REFINED_HEAD.test(line))) break
+    if (named !== null && REFINED_PARTS[named[1]] !== undefined) {
+      part = REFINED_PARTS[named[1]]
+      hasCaption = named[2].includes('(')
+    } else if (part === 'picture') hasCaption = hasCaption || line.includes('(')
     end += 1
   }
   return [start, end]
@@ -213,10 +221,10 @@ export function refinedOf(notes) {
     const named = line.match(NAMED)
     if (named !== null && REFINED_PARTS[named[1]] !== undefined) {
       part = REFINED_PARTS[named[1]]
-      // "Not in it: ..." written as a line of its own is one more point of what we build.
+      // "Not in it: ..." written as a line of its own is one more point of what we build; alone, the points under it are.
       if (part === 'not') {
-        refined.build.push(line)
-        part = 'build'
+        if (named[2] !== '') refined.build.push(line)
+        part = named[2] === '' ? 'not' : 'build'
       } else if (part === 'picture') picture = joined(picture, named[2])
       else if (named[2] !== '') addRefined(refined, part, named[2], false)
       continue
@@ -234,7 +242,9 @@ const joined = (before, words) => (before === '' ? words : words === '' ? before
  * B293: a refine block's picture line: `{ picture: { path, caption } }` for a picture file with what it shows in
  * brackets, or `{ picture: null, pictureNote }` with why there is none ("none (a rule only; nothing to see)").
  */
-function pictureOf(words) {
+function pictureOf(written) {
+  // A path written as code (`pictures/a.png`) is the same path.
+  const words = written.replace(/`([^`]*)`/g, '$1')
   const file = words.match(/^(\S+\.(?:png|jpe?g|gif|webp))(?=\s|$)\s*(.*)$/i)
   const inBrackets = text => text.replace(/^\((.*)\)\.?$/, '$1').trim()
   if (file !== null) return { picture: { path: file[1], caption: inBrackets(file[2].trim()) }, pictureNote: '' }
@@ -254,6 +264,11 @@ function addRefined(refined, part, line, isMore) {
     else refined.build.push(words)
     return
   }
+  if (part === 'not') {
+    if (point === null && isMore && /^Not in it\b/i.test(refined.build.at(-1) ?? '')) refined.build[refined.build.length - 1] = joined(refined.build.at(-1), words)
+    else refined.build.push(`Not in it: ${words}`)
+    return
+  }
   if (part === 'feedback') {
     refined.feedback.push(words)
     return
@@ -264,7 +279,7 @@ function addRefined(refined, part, line, isMore) {
   const at = words.search(/\sAnswer:\s/)
   const asked = at < 0 ? words : words.slice(0, at).trim()
   const answer = at < 0 ? null : words.slice(at).replace(/^\s*Answer:\s*/, '').trim()
-  const advised = asked.match(/^(.*?)\s+Advised:\s*(yes|no)\b[\s,;:.-]*(.*)$/i)
+  const advised = asked.match(/^(.*?)\s+Advised:\s*(yes|no)\b[\s,;:.\-–—]*(.*)$/i)
   refined.questions.push(advised === null
     ? { text: asked, answer, advice: null, why: '' }
     : { text: advised[1].trim(), answer, advice: advised[2].toLowerCase(), why: advised[3].trim() })
@@ -307,7 +322,8 @@ export function queue(backlog, { underWay = new Set() } = {}) {
   return backlog.activities
     .flatMap(activity => open(activity).filter(isQueued))
     .filter(step => step.id === null || !underWay.has(step.id))
-    .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(notes) }))
+    // B293: its refine block apart, as on the Backlog tab, so its window draws it the same way.
+    .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(withoutRefined(notes)), refined: refinedOf(notes) }))
 }
 
 /** The steps being worked on: the open ones that name their own branch, with the worker and the time their note gives. */
