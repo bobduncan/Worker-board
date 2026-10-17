@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { answer, typed } from '../fixtures/lines.mjs'
+import { answer, step, typed } from '../fixtures/lines.mjs'
 import { messageText } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { isClockLine, recheckText } from '../src/rounds.mjs'
@@ -27,11 +27,14 @@ const app = name => JSON.stringify({
 })
 const rested = { text: [typed(NOW - 30 * MIN, 'Zebracorn'), answer(NOW - 29 * MIN, 'Done.')].join('\n'), isCut: false, modifiedAt: NOW }
 
-function build({ outbox = [], chats = ['Lead', 'Advisor'] } = {}) {
+/** The Advisor at work on a turn that began at `at`. */
+const working = at => ({ text: [typed(at, 'Go'), step(at + 30_000, 'Read the plan')].join('\n'), isCut: false, modifiedAt: NOW })
+
+function build({ outbox = [], chats = ['Lead', 'Advisor'], advisor = rested } = {}) {
   const raw = {
     listText: LIST,
     appChatTexts: chats.map(app),
-    tails: Object.fromEntries(chats.map(name => [`cli-${name}`, rested])),
+    tails: Object.fromEntries(chats.map(name => [`cli-${name}`, name === 'Advisor' ? advisor : rested])),
     planLineTexts: {}, backlogText: '## Work\n- [ ] B10 Build the tower\n', adviceText: null, folders: null, askTexts: [], pictureLists: {},
   }
   const seen = { shown: Object.fromEntries(chats.map(name => [name, NOW - 5000])), other: {} }
@@ -73,6 +76,21 @@ test('off while a round runs: one on its way, or one the Advisor is still workin
   }
   // Arrived and the Advisor rests: the round is over.
   assert.equal(build({ outbox: [sent('round', NOW - 20 * MIN, 'delivered', { deliveredAt: NOW - 19 * MIN })] }).advisor.roundRuns, false)
+})
+
+test('a round runs while the Advisor works on the turn it began, not on a later one, and not for ever', () => {
+  const round = sent('recheck', NOW - 20 * MIN, 'delivered', { deliveredAt: NOW - 19 * MIN })
+  // The turn began with the round: it runs.
+  assert.equal(build({ outbox: [round], advisor: working(NOW - 19 * MIN) }).advisor.roundRuns, true)
+  // A turn begun well after it (a refine, the person's words) is another: the button is on again.
+  assert.equal(build({ outbox: [round], advisor: working(NOW - 5 * MIN) }).advisor.roundRuns, false)
+  // An hour after it arrived, whatever the card says.
+  const old = sent('recheck', NOW - 70 * MIN, 'delivered', { deliveredAt: NOW - 61 * MIN })
+  assert.equal(build({ outbox: [old], advisor: working(NOW - 61 * MIN) }).advisor.roundRuns, false)
+  // Just arrived, before its turn shows: it runs.
+  assert.equal(build({ outbox: [sent('recheck', NOW - 2 * MIN, 'delivered', { deliveredAt: NOW - MIN })] }).advisor.roundRuns, true)
+  // Taken and never typed: off again after ten minutes.
+  assert.equal(build({ outbox: [sent('round', NOW - 30 * MIN, 'taken', { takenAt: NOW - 25 * MIN })] }).advisor.roundRuns, false)
 })
 
 test('the page: the button stands in the Next milestone part, sends the word, and is off while a round runs', async () => {

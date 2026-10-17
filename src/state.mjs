@@ -28,6 +28,9 @@ import { backgroundRunning, conversation, doingNow, finishedBetween, parseTail, 
 
 const MIN = 60_000
 const HOUR = 60 * MIN
+/** B288: a round being typed counts as running this long at most; after it arrived, its turn shows within this. */
+const ROUND_TYPING_MS = 10 * MIN
+const ROUND_SHOWS_MS = 2 * MIN
 const ASKED = 'Asked you a question in its chat.'
 /** A chat's own file that says it works is renewed twice a minute. Older than this, its process is gone. */
 const CUT_OFF_MS = 150_000
@@ -861,13 +864,20 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           .map(one => (one.via === 'board' ? { ...one, ...splitPicture(one.text.replace(TYPED_MARK, '').trim(), config.pictureRoots[0]) } : one)),
       // Typed on the board to the advisor and not in its chat yet.
       pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null && (message.command ?? null) === null),
-      // B288: a round runs from when it is sent, by the clock or on the person's request, while it is on its way, and
-      // after it arrived while the Advisor is still at work on it (an hour at most).
+      // B288: a round runs from when it is sent, by the clock or on the person's request: while it waits to be typed;
+      // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then
+      // while the Advisor is at work on the turn that began with it (an hour at most). A turn begun later is another.
       roundRuns: (() => {
         const last = sent.findLast(message => message.to === advisorChat.name && (message.command === 'round' || message.command === 'recheck'))
         if (last === undefined) return false
-        if (last.state === 'waiting' || last.state === 'taken') return true
-        return last.state === 'delivered' && state === 'working' && now - (last.deliveredAt ?? last.at) < HOUR
+        if (last.state === 'waiting') return true
+        if (last.state === 'taken') return now - (last.takenAt ?? last.at) < ROUND_TYPING_MS
+        if (last.state !== 'delivered') return false
+        const arrived = last.deliveredAt ?? last.at
+        if (now - arrived < ROUND_SHOWS_MS) return true
+        const entries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
+        const begun = entries === null ? null : turnStart(entries, { prefix })?.at ?? null
+        return state === 'working' && now - arrived < HOUR && (begun === null || begun <= arrived + ROUND_SHOWS_MS)
       })(),
     }
   }

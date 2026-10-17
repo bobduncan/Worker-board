@@ -4664,7 +4664,7 @@ let wayNoOpen = false
 let wayReason = ''
 
 // B288: the person asks the Advisor for a round now, from the Next milestone part; off while a round runs.
-/** The button "Re-check the goals now", or null without an Advisor. */
+/** The button "Re-check the goals now" with why it was refused under it, or null without an Advisor. */
 function recheckPart(state) {
   if ((state.advisor?.name ?? null) === null) return null
   const runs = state.advisor.roundRuns === true
@@ -4672,8 +4672,11 @@ function recheckPart(state) {
   button.type = 'button'
   button.dataset.recheck = 'yes'
   button.disabled = runs || sending.has('recheck')
-  button.title = problems.get('recheck') ?? (runs ? 'The Advisor works on a round now: it brings the goals up to date.' : 'Ask the Advisor for a round now: it brings the way to the next milestone and the goal map up to date.')
-  return button
+  button.title = runs ? 'The Advisor works on a round now: it brings the goals up to date.' : 'Ask the Advisor for a round now: it brings the way to the next milestone and the goal map up to date.'
+  const part = el('div', 'way-recheck-line')
+  part.append(button)
+  if (problems.has('recheck')) part.append(el('p', 'problem', problems.get('recheck')))
+  return part
 }
 // recheck:end
 
@@ -4691,15 +4694,14 @@ function drawWay(state) {
   named.append(el('small', 'way-kicker', milestone.name === '' ? 'Next milestone' : `Next milestone · ${milestone.name}`), el('h2', '', milestone.title))
   if (milestone.doneWhen !== '') named.append(el('p', 'muted', `Done when: ${milestone.doneWhen}`))
   // B260: a milestone of the plan without sub-goals in the goal map yet has no way to draw.
+  if (recheck !== null) named.append(recheck)
   if (way.isMapped === false) {
     head.append(named)
-    if (recheck !== null) head.append(recheck)
     return fill(box, [head, el('p', 'muted', `Its way is not mapped yet: the Advisor adds its steps as sub-goals in the goal map (${state.goalsFile ?? '.claude/goals.md'}) at its next round.`), ...recommendationPart(way.recommendation ?? null, state)])
   }
   const total = el('div', 'way-total')
   total.append(el('b', '', `${totals.left} to go`), el('span', 'muted', `${totals.done} done · ${totals.open} on the backlog · ${totals.missing} not on it yet`))
   head.append(named, total)
-  if (recheck !== null) head.append(recheck)
   const all = totals.done + totals.open + totals.missing
   const bar = el('div', 'way-bar')
   bar.setAttribute('aria-hidden', 'true')
@@ -4814,9 +4816,14 @@ function recommendationPart(rec, state) {
 
 // B288: the re-check of the goals, asked of the Advisor.
 $('advisor-way').addEventListener('click', event => {
-  if (event.target.closest('[data-recheck]') === null) return
+  const button = event.target.closest('[data-recheck]')
+  if (button === null || button.disabled) return
   const advisor = board?.advisor?.name ?? null
-  if (advisor !== null) send({ to: advisor, command: 'recheck' }, 'recheck')
+  if (advisor === null) return
+  // Off at once, so a second click sends nothing; the next redraw shows how it stands.
+  button.disabled = true
+  button.textContent = 'Asking…'
+  send({ to: advisor, command: 'recheck' }, 'recheck')
 })
 $('advisor-way').addEventListener('click', event => {
   if (board === null) return

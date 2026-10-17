@@ -744,7 +744,10 @@ async function main(args) {
       // the clipboard for the person to paste into the chat, marked as typed on the board.
       const isCopied = state.bridge?.isMissing === true
       // B285: a queue ask for a step that is not refined yet waits on the board until it is (refineGate.mjs).
-      // B288: the words of a re-check of the goals name the board's folder and the project's settings.
+      // B288: the words of a re-check of the goals name the board's folder and the project's settings. A second ask
+      // made before the first was written down (a double click) finds the first in the store and is refused.
+      const isRound = message => message.to === checked.message.to && (message.command === 'round' || message.command === 'recheck') && (message.state === 'waiting' || message.state === 'taken')
+      if (checked.message.command === 'recheck' && store.outbox().some(isRound)) return { ok: false, status: 409, why: 'A round runs: wait until the Advisor has finished it.' }
       const words = checked.message.command === 'recheck' ? { text: recheckText({ board: HERE, config }) } : {}
       let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, ...words, state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
@@ -960,7 +963,8 @@ async function main(args) {
       }
       // B173: the Advisor's rounds, typed into its chat on the board's clock. Only the board that delivers, and only
       // while there is an Advisor; a chat that is not running is started through the main chat, as for a message.
-      if (bridgeKey !== null && (state.advisor ?? null) !== null) {
+      // B288: not while a round runs (one the person asked for a moment ago): the clock's comes at a later look.
+      if (bridgeKey !== null && (state.advisor ?? null) !== null && state.advisor.roundRuns !== true) {
         const now = clock()
         const week = state.limits?.week ?? null
         const next = roundsNow({

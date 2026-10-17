@@ -92,6 +92,7 @@ button, textarea, select { font: inherit; color: inherit; }
 #view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
 .advisor-tabs { display: flex; gap: 8px; padding: 14px 18px 0; flex: none; }
 /* B288: "Re-check the goals now" in the Next milestone part's head. */
+.way-recheck-line { margin-top: 8px; }
 .way-recheck { align-self: flex-start; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
 .way-recheck:disabled { opacity: 0.55; cursor: default; }
 .way-recheck.is-error { border-color: #b4553c; }
