@@ -232,13 +232,16 @@ ago), the window says so and the server refuses a second ask.
 
 **Refined before a queue (B285).** The person, on goal G17 (2026-10-17): "every item on the backlog automatically Before
 it gets put in the queue. if main wants to put it in the queue automatically/directly, refine it first". A step is
-refined when its block leaves no question open: every one answered, "None: ready to pick up.", or accepted
-(`src/backlog.mjs`, `isRefined`; the Advisor's newer lines Summary, Picture, Part of and Size stay inside the block).
+refined when the first line of its block says "; ready" (the person approved what "refined" means on 2026-10-17: one
+compact description with a summary, a picture, its goal, its size and "What we build", the answers folded in; the
+older form, also answered or accepted, is not refined; `src/backlog.mjs`, `isRefined`; the new lines stay inside the
+block).
 At every look the board that delivers does by itself (`src/refineGate.mjs`), only while no refine is open, the person's
 neither: it sends one step to the Advisor in the Refine button's words, first a step the person asked to queue, then
 a step the main chat queued before it was refined, then a new step (above the highest one on the backlog at its first
-look, kept in `data/refine-gate.json`) once; never the person's steps, finished ones or steps in progress, and never a
-step with a block, which waits for the person's answers. "Add to queue" on a step that is not refined is held on the
+look, kept in `data/refine-gate.json`) once, then any step whose answers wait to be folded in (once since its block
+was written); never the person's steps, finished ones or steps in progress, and never a block with questions open,
+which waits for the person's answers. "Add to queue" on a step that is not refined is held on the
 board ("Refine, then queue") and goes to the main chat by itself once the step is refined; it is dropped when the step
 is finished, queued or gone. A step the main chat queued before it was refined is said to it once it is
 (`step refined`, Step, For), so it hands the step out then (roles/main.md, point 0). Old steps are refined when they

@@ -47,7 +47,7 @@ function memoryFile(text) {
 test('the refine block is read apart from the step\'s other lines, which end it', () => {
   const step = parseBacklog(BACKLOG).activities[0].steps[0]
   assert.deepEqual(refinedOf(step.notes), {
-    round: 1, by: 'Oracle', at: '2026-10-14 18:52', accepted: null,
+    round: 1, by: 'Oracle', at: '2026-10-14 18:52', accepted: null, ready: false,
     problem: 'The zebracorn hums, but nobody can tell the tune.',
     goal: 'One song the herd knows by heart.',
     questions: [{ text: 'Which song?', answer: null }, { text: 'At dawn only?', answer: 'yes' }],

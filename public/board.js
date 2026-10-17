@@ -5245,7 +5245,7 @@ function queuePart(step, state, isLong) {
   button.dataset.queueStep = step.id
   button.disabled = sending.has(key)
   // B285: a step that is not refined is refined by the Advisor first (`refineState`, backlog.mjs refineStateOf).
-  const isRefined = step.refineState === 'answered' || step.refineState === 'ready'
+  const isRefined = step.refineState === 'ready'
   button.title = problems.get(key) ?? (isRefined ? `Ask ${mainTitle} to hand it to a worker` : `The Advisor refines it first, then ${mainTitle} hands it to a worker`)
   // Every row has one: the step it is for is in its name.
   button.setAttribute('aria-label', `${button.textContent}: ${step.id} ${step.title}`)

@@ -37,8 +37,8 @@ titles, both from the list of chats.
 You decide this, not the user. For every task:
 
 0. Refined first (B285, the user: "if main wants to put it in the queue automatically/directly, refine it first"): a
-   step is handed out only once it is refined, that is when its refine block leaves no question open (every one
-   answered, `- None: ready to pick up.`, or accepted). You may write the queue note of a step that is not refined
+   step is handed out only once it is refined, that is when the first line of its refine block says `; ready`
+   ("Refined (<date time>; ready):", roles/advisor.md). You may write the queue note of a step that is not refined
    yet: the board then sends it to the Advisor, and types `step refined` to you once it is. Hand it out then, not
    before. The board refines a new step once by itself; you never ask the Advisor for it. The steps that were queued
    already when the board began refining go as before (the board keeps their list in its `data/refine-gate.json`;

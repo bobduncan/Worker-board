@@ -155,10 +155,11 @@ export function noteSections(notes) {
 export const REFINED_HEAD = /^Refined\s*(?:\(([^)]*)\))?\s*:\s*$/
 const REFINED_PARTS = { Problem: 'problem', Goal: 'goal', Questions: 'questions', Feedback: 'feedback' }
 /**
- * B285: the lines of the Advisor's newer form (the draft of what "refined" means: a summary, a picture, its goal and
- * its size) stand in the block too, so the questions under them stay in it; the board does not show them yet.
+ * B285: the lines of the Advisor's newer form (what "refined" means, approved 2026-10-17: a summary, a picture, its
+ * goal, its size, and what we build once ready) stand in the block too, so the questions under them stay in it; the
+ * board does not show them yet.
  */
-const REFINED_KEPT = new Set(['Summary', 'Picture', 'Part of', 'Size'])
+const REFINED_KEPT = new Set(['Summary', 'Picture', 'Part of', 'Size', 'What we build'])
 const NAMED = /^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/
 
 /** Where the refine block stands in a step's notes: `[start, end)` as indexes of `notes`, or null when it has none. */
@@ -188,6 +189,8 @@ export function refinedOf(notes) {
     by: head.match(/\bby\s+([^,;]+)/i)?.[1].trim() ?? null,
     at: head.match(/\d{4}-\d\d-\d\d[ T]\d\d:\d\d/)?.[0] ?? null,
     accepted: head.match(/\baccepted\b\s*([^,;]*)/i)?.[1].trim() ?? null,
+    // B285: "Refined (<date time>; ready):": the Advisor folded every answer in; the step is refined.
+    ready: /(?:^|;)\s*ready\s*(?:;|$)/i.test(head),
     problem: '',
     goal: '',
     questions: [],
@@ -231,24 +234,37 @@ function addRefined(refined, part, line) {
 }
 
 /**
- * B285: whether a refine block leaves no question open, so the step may go into a queue: every question answered,
- * none left ("None: ready to pick up."), or the person accepted it. A step without a block is not refined.
+ * B285: whether a step is refined, so it may go into a queue: its block's head says "; ready" (what "refined" means,
+ * approved by the person on 2026-10-17: the Advisor folded every answer into one compact description). A block
+ * without it, also one in the older form with every question answered, is not refined; nor is a step without one.
  */
 export function isRefined(refined) {
-  return refined !== null && refined !== undefined && (refined.accepted !== null || refined.questions.every(question => question.answer !== null))
+  return refined !== null && refined !== undefined && refined.ready === true
 }
 
 /**
  * B285, B286: where a step stands in its refine: `none` (no block), `asking` (the Advisor works on it: `refineAsk`
- * is open), `answers` (questions wait for the person's answers), `answered` (every question answered, the next round
- * may still come) or `ready` (none left, or accepted). `step` holds `refined` and `refineAsk`.
+ * is open), `answers` (questions wait for the person's answers), `answered` (none open, or accepted, but not folded
+ * in yet: the Advisor's next round makes it ready) or `ready` (its head says "; ready"). `step` holds `refined` and
+ * `refineAsk`.
  */
 export function refineStateOf(step) {
   if (step.refineAsk?.isOpen === true) return 'asking'
   const refined = step.refined ?? null
   if (refined === null) return 'none'
-  if (refined.accepted !== null || refined.questions.length === 0) return 'ready'
-  return refined.questions.every(question => question.answer !== null) ? 'answered' : 'answers'
+  if (refined.ready === true) return 'ready'
+  return refined.accepted === null && refined.questions.some(question => question.answer === null) ? 'answers' : 'answered'
+}
+
+/**
+ * B285: when the block's head says it was written (its date and time, on this PC's clock), in ms; null when it does
+ * not say.
+ */
+export function refinedAt(refined) {
+  const at = refined?.at ?? null
+  if (at === null) return null
+  const ms = Date.parse(at.replace(' ', 'T'))
+  return Number.isFinite(ms) ? ms : null
 }
 
 /** B233: a step's notes without its refine block, which the step's window shows apart. */
