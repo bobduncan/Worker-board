@@ -421,6 +421,8 @@ export function chatsSummary(rows: readonly ChatRow[], now: number): string {
  * and nothing that changes while the chat works, so the prompt stays the same from turn to turn.
  */
 export function chatNote(me: ChatFile, tool: string): string {
+  // B297: the work items stand in the worker board's store; its tool is registered beside this one.
+  const work = tool.replace(/chat$/, 'work')
   const shared = `This chat is "${me.name}" in the person's list of chats, which the Workers pane and their worker board show `
     + `them (${tool} with action "list" reads it): one main chat hands out the work and the worker chats do it. `
     + `${me.role === 'main' ? 'You are the main chat' : 'You are a worker'}. Every chat keeps a card of what it is doing, without `
@@ -433,6 +435,8 @@ export function chatNote(me: ChatFile, tool: string): string {
     + 'tool call you make anyway, in the same step, never as a step of their own: a step of its own sends the whole '
     + 'conversation again. A request you answer without any tool call needs no card. The card is kept in a file, so it '
     + 'survives a compaction and a restart of the app; action "list" shows it to you again. '
+    + `The work itself (steps, asks for the person, notes) stands in the worker board's store: ${work} with action "next" `
+    + 'lists yours, and the flow file says who moves an item and when. '
   if (me.role === 'main') {
     return `${shared}Your card clears when you call "done" together with the last tool call of the request, or when `
       + 'you record the next request. Handing a task to a worker is not a report. A worker that has grown large is '
@@ -507,4 +511,25 @@ export function compactKeep(name: string, main: string): string {
     + '(6) its open work: branches, folders, servers it started, and what its last report named as still open; '
     + '(7) one line for each task it finished: what it was, where the work is (folder, branch, commit) and how it was checked; '
     + '(8) what it learned the hard way about this machine, the tools and the other chats.'
+}
+
+/** B297: what the work tool's call gives the card: the step's id and title, the plan's steps and times. */
+export type WorkCardInput = { id?: unknown; title?: unknown; names?: readonly unknown[]; steps?: number; step?: number; minutes?: number; stepMinutes?: number }
+
+/** B297: the card's topic for a step: its id and the first five words of its title. */
+const topicOf = (id: unknown, title: unknown): string => [typeof id === 'string' ? id : '', typeof title === 'string' ? title.split(/\s+/).filter(Boolean).slice(0, 5).join(' ') : ''].filter(Boolean).join(' ')
+
+/**
+ * B297: the card after a call of the work tool the board took. `take` names the task after the step; `step` records the
+ * plan when it gives the steps (`names` or `steps`), then the step it is on, as the chat tool's "plan" and "step" do.
+ * Any other action leaves the card: `{}`.
+ */
+export function workCard(chat: ChatFile, action: string, input: WorkCardInput): TaskChange | Record<string, never> {
+  if (action === 'take') return withPlan(chat, { text: topicOf(input.id, input.title), minutes: input.minutes, stepMinutes: input.stepMinutes })
+  if (action !== 'step') return {}
+  const isPlan = input.names !== undefined || input.steps !== undefined
+  if (!isPlan) return withStep(chat, { step: input.step, minutes: input.minutes, stepMinutes: input.stepMinutes })
+  const planned = withPlan(chat, { text: chat.task?.text ?? topicOf(input.id, ''), names: input.names, steps: input.steps, minutes: input.minutes, stepMinutes: input.stepMinutes })
+  if (planned.chat === undefined || input.step === undefined) return planned
+  return withStep(planned.chat, { step: input.step })
 }

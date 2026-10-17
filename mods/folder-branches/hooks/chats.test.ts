@@ -4,7 +4,7 @@ import type { ChatFile, ChatTask } from '../types'
 import {
   LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactWhy, handOver, sentKind, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
-  withSend, withState, withStep,
+  withSend, withState, withStep, workCard,
 } from './chats'
 
 const MIN = 60000
@@ -342,6 +342,8 @@ describe('which chats are in the list', () => {
     expect(main).toContain('Handing a task to a worker is not a report')
     // The main chat can keep a worker from being compacted between two tasks on the same work.
     expect(main).toContain('"Task from Main (more follows):"')
+    // B297: one line names the work tool, and that the flow file says who moves an item.
+    for (const note of [worker, main]) for (const part of ['mcp__folder-branches__work', '"next"', 'flow file']) expect(note).toContain(part)
     // The note is part of the system prompt: it reads the same whatever the chat is doing.
     expect(chatNote(chat('Units', 'waiting', task('Archer', 2, 3, 10)), 'mcp__folder-branches__chat')).toBe(worker)
   })
@@ -403,5 +405,22 @@ describe('a large chat is compacted after it reported its task', () => {
     const noted = { ...chat('Units', 'waiting'), compactNote: { at: NOW, why: 'its size is not known' } }
     expect(parseChat(chatText(noted))?.compactNote).toEqual({ at: NOW, why: 'its size is not known' })
     expect(parseChat(JSON.stringify({ ...chat('Units', 'waiting'), compactNote: { at: 'x', why: 1 } }))?.compactNote).toBeUndefined()
+  })
+})
+
+describe('B297: the work tool keeps the card', () => {
+  test('take sets the topic of the card from the title of the step; step moves it as chat "step" does', () => {
+    const units = chat('Units', 'working')
+    const taken = workCard(units, 'take', { id: 'B12', title: 'Give the golem its art in two poses and a sheet' })
+    expect(taken.chat?.task?.text).toBe('B12 Give the golem its art')
+    const planned = workCard(taken.chat as ChatFile, 'step', { id: 'B12', names: ['Read', 'Draw', 'Test'], minutes: 40, stepMinutes: 10 })
+    expect([planned.chat?.task?.step, planned.chat?.task?.steps, planned.chat?.task?.text]).toEqual([1, 3, 'B12 Give the golem its art'])
+    const stepped = workCard(planned.chat as ChatFile, 'step', { id: 'B12', step: 3 })
+    expect(stepped.chat?.task?.step).toBe(3)
+    // A step without a plan on the card asks for one, as chat "step" does.
+    expect(workCard(units, 'step', { id: 'B12', step: 2 }).error).toContain('No plan is recorded')
+    // Without a task on the card, a plan names the step by its id.
+    expect(workCard(units, 'step', { id: 'B12', steps: 4 }).chat?.task?.text).toBe('B12')
+    expect(workCard(units, 'next', {}).chat).toBeUndefined()
   })
 })

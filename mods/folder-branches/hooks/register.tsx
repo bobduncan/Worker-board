@@ -7,12 +7,12 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { ChatFile, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, boardStarts, parseBoard, parseTaken } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_PATH, boardStarts, parseBoard, parseTaken } from './board'
 import type { Board, BoardStart } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, handOver, chatText, chatsSummary, fileName,
   foldersAbove, hasLeft, isAgentId, nameFromTitle, orderChats, parseChat, parseList, sentKind, sessionOf, status, uniqueByName,
-  withDone, withPlan, withSend, withState, withStep,
+  withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { TaskChange } from './chats'
 import {
@@ -22,6 +22,8 @@ import {
 const PANE = 'folder-branches'
 const WORKERS = 'workers'
 const TOOL = 'mcp__folder-branches__chat'
+/** B297: the tool a chat works the store's items with, on the worker board. */
+const WORK = 'mcp__folder-branches__work'
 /** How often the folders are read again, so a branch switched in a terminal shows in the pane: half a minute. */
 const REFRESH_MS = 30000
 /** How often the chat list is read again, so another chat's change shows in the pane. */
@@ -335,6 +337,30 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
   })
 
   return answer.ok ? answer.text : null
+}
+
+/**
+ * B297: one call of the work tool, sent to the worker board as this chat: `{ ok, text }`, the board's answer or one
+ * line saying why there is none. It never throws.
+ */
+async function workOnBoard($: EngineInterface, fields: Record<string, unknown>): Promise<{ ok: boolean; text: string }> {
+  if (myself === null || chatsDir === null) return { ok: false, text: 'This chat is not in the list of chats: the work tool is for the chats of the list.' }
+  try {
+    const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
+    const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
+    if (board === null) return { ok: false, text: 'The worker board is not running: nothing was recorded. Try again once it runs.' }
+    const answer = await $.http.fetch(`${board.url}${WORK_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key },
+      // Who asks is the mod's to say, never the chat's.
+      body: JSON.stringify({ ...fields, chat: myself.name, session: await $.session.id() }),
+    })
+    if (!answer.ok) return { ok: false, text: answer.text.trim() || `The worker board refused it (${answer.status}).` }
+
+    return { ok: true, text: answer.text }
+  } catch {
+    return { ok: false, text: 'The worker board did not answer: nothing was recorded. Try again in a moment.' }
+  }
 }
 
 /** Tells the board what became of the messages this chat took: typed here, or not. */
@@ -715,6 +741,67 @@ const CHAT_TOOL = {
   },
 }
 
+/** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
+const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
+  'pictures', 'play', 'to', 'result', 'merged', 'on', 'title', 'activity', 'goal', 'for', 'after', 'about', 'as', 'why', 'summary', 'picture', 'size',
+  'questions', 'what']
+
+/** B297: the tool a chat works its items with: the worker board's work store. */
+const WORK_TOOL = {
+  name: 'work',
+  description: "The project's work items, kept by the person's worker board: one record per step, per ask for the "
+    + 'person, per instruction and per note. The flow file says who moves an item and when; the board refuses a move '
+    + 'the flow does not allow, with one line saying why. Work from the record it answers. "next": your open '
+    + 'instructions and your steps, the first in full. "take" ("id", "branch"): start a step queued for you; it also '
+    + 'names your card after the step. "step" ("id", "step", "names", "minutes", "stepMinutes"): the step of your plan '
+    + "you are on, as the chat tool's \"plan\" and \"step\", which it writes to your card too. \"ask\" (\"of\" the step, \"kind\" "
+    + 'decide, look, provide or do, "blocking", "text", "options", "pictures", "play"): something only the person can '
+    + 'do; put the "For you" block it answers into your answer. "note" ("to" you or main, "text", "of"): information, '
+    + 'never a question. "report" ("id", "result", "merged"): your step is done; the board checks it and tells the main '
+    + 'chat. "block" and "unblock" ("id", "on"). "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
+    + '"for", "after", "about"): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
+    + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "questions") and "refined" ("id", "what"): '
+    + 'the Advisor. "list": every item.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      action: { type: 'string', enum: ['next', 'take', 'step', 'ask', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'list'] },
+      id: { type: 'string', description: 'The item: B12 (a step), Q3 (an ask), I4 (an instruction).' },
+      branch: { type: 'string', description: 'take: the branch you work the step on.' },
+      step: { type: 'integer', description: 'step: the step of your plan you are on now.' },
+      steps: { type: 'integer', description: 'step: how many steps your plan has, when they are not named.' },
+      names: { type: 'array', items: { type: 'string' }, description: 'step: your steps by name, in order.' },
+      minutes: { type: 'number', description: 'step: the working time still expected for the whole step, roughly.' },
+      stepMinutes: { type: 'number', description: 'step: the working time the step of your plan you are on still takes.' },
+      of: { type: 'string', description: 'ask, note: the step it belongs to.' },
+      kind: { type: 'string', enum: ['decide', 'look', 'provide', 'do'], description: 'ask: what you ask of the person.' },
+      blocking: { type: 'boolean', description: 'ask: true when your work waits for the answer.' },
+      text: { type: 'string', description: 'ask, note, new: the words.' },
+      options: { type: 'array', items: { type: 'string' }, description: 'ask: the options, your advice marked.' },
+      pictures: { type: 'array', items: { type: 'string' }, description: 'ask: pictures to look at, as paths in the project.' },
+      play: { type: 'string', description: "ask: where to play it, as the board's play link names it." },
+      to: { type: 'string', enum: ['you', 'main'], description: 'note: the person or the main chat.' },
+      result: { type: 'string', description: 'report: what the person gets now, in a line.' },
+      merged: { type: 'string', description: 'report: the commit it was merged with.' },
+      on: { type: 'string', description: 'block, unblock: the step it waits on.' },
+      title: { type: 'string', description: "new: the step's title." },
+      activity: { type: 'string', description: 'new: the activity it belongs under.' },
+      goal: { type: 'string', description: 'new, refine: the goal it serves (G17).' },
+      for: { type: 'string', description: 'queue: the chat it is for.' },
+      after: { type: 'string', description: 'queue: the steps it waits on, or what it waits for.' },
+      about: { type: 'string', description: 'queue: how long it takes, roughly ("1 h").' },
+      as: { type: 'string', description: 'close: what came of the instruction ("made step B300").' },
+      why: { type: 'string', description: 'drop: why.' },
+      summary: { type: 'string', description: 'refine: the step in a few lines.' },
+      picture: { type: 'string', description: 'refine: the picture of what it makes.' },
+      size: { type: 'string', description: 'refine: how long it takes, roughly.' },
+      questions: { type: 'array', items: { type: 'string' }, description: 'refine: the questions for the person.' },
+      what: { type: 'array', items: { type: 'string' }, description: 'refined: what we build, one part per line.' },
+    },
+    required: ['action'],
+  },
+}
+
 /**
  * Starts the chat list in this session: the tool, the first reading, the timer. True when chats are listed. It never
  * fails: the folders show whatever becomes of the list.
@@ -726,6 +813,7 @@ async function startChats($: EngineInterface): Promise<boolean> {
     const dir = await findChatsDir($)
     // In a project that keeps a list the chats use the tool at every task; elsewhere it waits behind tool search.
     await $.tool.register({ ...CHAT_TOOL, isDeferred: dir === null })
+    await $.tool.register({ ...WORK_TOOL, isDeferred: dir === null })
     if (dir === null) return false
     // No turn of this process runs at its start: a file left "working" (the app was closed in the middle of a turn)
     // is set right, and the chat learns who it is in the list.
@@ -1000,6 +1088,40 @@ export const register: Register = on => {
     const chats = await loadChats($)
 
     return { result: chatsSummary(chats.rows, chats.now) }
+  })
+
+  // B297: the work tool: each call goes to the worker board as this chat; take and step keep the card as the chat tool does.
+  on('tool.call', { tool: WORK }, async ($, e) => {
+    const input = e as unknown as Record<string, unknown>
+    const action = typeof input.action === 'string' ? input.action : ''
+    if (action !== 'next' && action !== 'list' && e.agentId !== undefined) {
+      return { result: "Only the chat's main conversation changes the work: nothing was changed." }
+    }
+    const fields = Object.fromEntries(WORK_FIELDS.filter(key => input[key] !== undefined).map(key => [key, input[key]]))
+    const answer = await workOnBoard($, fields)
+    if (!answer.ok) return { result: answer.text }
+    let read: Record<string, unknown> = {}
+    try {
+      const parsed: unknown = JSON.parse(answer.text)
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) read = parsed as Record<string, unknown>
+    } catch {
+      return { result: answer.text }
+    }
+    const text = typeof read.text === 'string' ? read.text : answer.text
+    if (action !== 'take' && action !== 'step') return { result: text }
+    isCardSeen = true
+    const card = {
+      id: input.id, title: read.title, names: Array.isArray(input.names) ? input.names : undefined, steps: numberOf(input.steps),
+      step: numberOf(input.step), minutes: numberOf(input.minutes), stepMinutes: numberOf(input.stepMinutes),
+    }
+    const recorded = await setTask($, chat => {
+      const changed = workCard(chat, action, card)
+      if ('error' in changed && typeof changed.error === 'string') return { error: changed.error }
+
+      return { chat: 'chat' in changed && changed.chat !== undefined ? changed.chat : chat }
+    })
+
+    return { result: recorded.startsWith('Recorded') ? text : `${text}\n(The card: ${recorded})` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

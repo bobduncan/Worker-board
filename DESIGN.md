@@ -960,6 +960,11 @@ refresh that the store says the same.
   a hand edit changed.
 - **The board's own writers** (`src/tick.mjs`): closing, deleting, the person's refine answers and the board's tick of
   merged work go through the API as the person once the store is the truth; before, they write backlog.md as always.
+- **The work tool** (the Workers mod, `hooks/register.tsx`): `work` beside `chat`, registered in every chat of the list;
+  each call goes to `/api/bridge/work` as this chat (its name and session are the mod's to give, never the call's) and
+  answers the board's text, or one line when the board is down or refuses. `take` names the card after the step and
+  `step` moves the card as the chat tool's `plan` and `step` do; a subagent may only read (`next`, `list`). The note
+  every chat gets names the tool in one line.
 - **The cutover** (`node tools/migrate-backlog.mjs --backlog <file> --work <folder> --cutover [--dry-run] [--chats
   <folder>]`): the final migration into the store, the old file kept as `backlog.before-store.md`, truth.json
   `{"truth":"store","since":...}`, the view written. It first proves parity and the view's round trip and refuses

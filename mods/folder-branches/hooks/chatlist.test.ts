@@ -51,10 +51,13 @@ type World = {
   commanded: string[]
   compactions: string[]
   toasts: string[]
+  /** B297: each call of the work tool that reached the board, and what the board answers it. */
+  worked: string[]
+  workAnswer: { status: number; text: string }
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' } }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -164,6 +167,11 @@ function stand(on: On, w: World): void {
   })
   on('http.fetch', (_$, e) => {
     if (w.up !== null && !w.up.some(address => e.url.startsWith(address))) return { deny: 'ECONNREFUSED' }
+    if (e.url.endsWith('/api/bridge/work')) {
+      w.worked.push(e.init?.body ?? '')
+
+      return { value: { status: w.workAnswer.status, ok: w.workAnswer.status === 200, headers: {}, text: w.workAnswer.text } }
+    }
     if (e.url.endsWith('/api/bridge/typed')) {
       w.reported.push(e.init?.body ?? '')
 
@@ -207,7 +215,7 @@ describe('a chat keeps its own line in the list', () => {
     stand(on, w)
     await $.session.start(START)
     // The project keeps a list: the tool is in reach from the start, and nothing is listed yet.
-    expect(w.tools).toEqual(['chat:false'])
+    expect(w.tools).toEqual(['chat:false', 'work:false'])
     expect(fileOf(w)).toBeNull()
 
     await $.classic.UserPromptSubmit({ prompt: 'the archer', session_title: 'Game - Units' })
@@ -513,7 +521,7 @@ describe('who is in the list', () => {
     const w = world('s1')
     stand(on, w)
     await $.session.start(START)
-    expect(w.tools).toEqual(['chat:true'])
+    expect(w.tools).toEqual(['chat:true', 'work:true'])
     expect(w.opened).toEqual([])
     await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'Game - Units' })
     await $.turn.start({ text: 'hi', turnId: 't1' })
@@ -1079,5 +1087,64 @@ describe('a large worker is compacted after it reported its task', () => {
     await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: done.', ...BY_MODEL })
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(w.compactions).toEqual([])
+  })
+})
+
+describe('B297: the work tool asks the worker board', () => {
+  const BOARD = 'C:/Web/project/.claude/board.json'
+  const KEY = 'ab'.repeat(32)
+  const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: KEY, startedAt: 1 })
+  const WORK = 'mcp__folder-branches__work'
+
+  test('a call reaches the board with the chat, its session and the fields, and answers the text of the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    const next = await $.tool.call({ tool: WORK, action: 'next' })
+    expect(next.result).toBe('Yours, Units:')
+    expect(w.worked).toEqual(['{"action":"next","chat":"Units","session":"units"}'])
+    // What the chat gives as its name or session is never sent: the mod says who asks.
+    await $.tool.call({ tool: WORK, action: 'note', to: 'main', text: 'Found a bug', chat: 'Main', session: 'x', colour: 'red' })
+    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'note', to: 'main', text: 'Found a bug', chat: 'Units', session: 'units' })
+    // A refusal is the board's own line.
+    w.workAnswer = { status: 409, text: 'B12: Board holds it (in progress).\n' }
+    expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12' })).result).toBe('B12: Board holds it (in progress).')
+    // A subagent reads, and changes nothing.
+    expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12', agentId: 'a1' })).result).toBe("Only the chat's main conversation changes the work: nothing was changed.")
+    expect(w.worked.length).toBe(3)
+  })
+
+  test('a board that is down answers with one line and no throw', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.up = []
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe('The worker board did not answer: nothing was recorded. Try again in a moment.')
+  })
+
+  test('take writes the card from the title of the step, and step moves it', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', title: 'Give the golem its art', text: 'Id: B12' }) }
+    expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12' })).result).toBe('Id: B12')
+    expect(fileOf(w)?.task?.text).toBe('B12 Give the golem its art')
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', text: 'B12: step 1/3.' }) }
+    await $.tool.call({ tool: WORK, action: 'step', id: 'B12', names: ['Read', 'Draw', 'Test'], minutes: 40 })
+    expect([fileOf(w)?.task?.step, fileOf(w)?.task?.steps]).toEqual([1, 3])
+    await $.tool.call({ tool: WORK, action: 'step', id: 'B12', step: 2 })
+    expect(fileOf(w)?.task?.step).toBe(2)
+    // A step the board refused leaves the card as it is.
+    w.workAnswer = { status: 409, text: 'B12 is not in progress for Units: take it first.' }
+    expect((await $.tool.call({ tool: WORK, action: 'step', id: 'B12', step: 3 })).result).toBe('B12 is not in progress for Units: take it first.')
+    expect(fileOf(w)?.task?.step).toBe(2)
   })
 })
