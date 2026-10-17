@@ -18,7 +18,9 @@ import { writeView } from './view.mjs'
 
 export const NOT_TRUTH = 'The store is not the truth yet: the cutover has not run'
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check'])
+const CHANGES = new Set(['take', 'step', 'ask', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended'])
+/** B298: what never shows on the backlog view: it is not written anew for these. */
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close'])
 /** What only the person does, on the board's page; and what only the server does. */
 const PERSON = new Set(['answer', 'tick', 'delete', 'refine-answer', 'refine-accept'])
 const SERVER = new Set(['check'])
@@ -55,6 +57,15 @@ const plain = (name, prefix = '') => {
   return words.trim().toLowerCase()
 }
 const at = now => stamp(now).replace(' ', ' at ')
+/** B298: the time to the second, for an instruction's Since: a turn that starts a moment later can tell it. */
+const toSecond = now => `${stamp(now)}:${String(new Date(now).getSeconds()).padStart(2, '0')}`
+/** B298: a Since as a time; the start of its minute (or second) as written. NaN when it is none. */
+export function sinceMs(value) {
+  const found = String(value ?? '').match(/^(\d{4})-(\d\d)-(\d\d)(?: (\d\d):(\d\d)(?::(\d\d))?)?$/)
+  if (found === null) return Number.NaN
+  const [, y, m, d, h = 0, min = 0, sec = 0] = found
+  return new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec)).getTime()
+}
 
 /** One request after the other per store folder: two takes of one step never interleave. */
 const turns = new Map()
@@ -103,7 +114,7 @@ async function act(body, ctx) {
   if (action === 'next') return next(body, w)
   if (action === 'list') return list(w)
   const done = await CHANGE[action](body, w)
-  if (!done.ok || done.result.changed === false || !ctx.viewFile) return done
+  if (!done.ok || done.result.changed === false || !ctx.viewFile || OFF_VIEW.has(action)) return done
   // The view follows every change: whatever still reads backlog.md reads what the store says.
   const view = await writeView({ dir: ctx.dir, ...(await readStore(ctx.dir, ctx.fs)) }, ctx.viewFile, ctx.fs)
   return { ok: true, result: { ...done.result, view: view.ok ? 'written' : view.why } }
@@ -120,7 +131,9 @@ const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 function oneLine(item, items) {
   const open = idsIn(valueOf(item, 'Blocked by')).filter(id => !['done', 'dropped'].includes(stateOf(items.get(id) ?? { head: new Map() })))
   const waits = [open.length > 0 ? `after ${open.join(', ')}` : null, valueOf(item, 'Waits for') === null ? null : `after ${valueOf(item, 'Waits for')}`].filter(Boolean)
-  return `- ${valueOf(item, 'Id')} ${stateOf(item)}${waits.length > 0 ? ` (${waits.join('; ')})` : ''}: ${valueOf(item, 'Title') ?? valueOf(item, 'Text') ?? ''}`
+  const missed = Number(valueOf(item, 'Missed') ?? 0)
+  const turns = missed > 0 ? `, missed ${missed} turn${missed === 1 ? '' : 's'}` : ''
+  return `- ${valueOf(item, 'Id')} ${stateOf(item)}${turns}${waits.length > 0 ? ` (${waits.join('; ')})` : ''}: ${valueOf(item, 'Title') ?? valueOf(item, 'Text') ?? ''}`
 }
 
 /** `next`: the chat's open instructions, then its steps by state, each in one line; the first in full. */
@@ -450,7 +463,71 @@ async function close(body, w) {
   if (stateOf(found.item) === 'closed') return refuse(409, `${valueOf(found.item, 'Id')} is closed already.`)
   const item = said(put(put(copy(found.item), 'State', 'closed'), 'Closed as', as), w, `closed: ${as}`)
   const done = await save(ordered(item), found.text, w)
-  return done.ok ? changed(ordered(item)) : done
+  return done.ok ? changed(ordered(item), undefined, { open: openOf(valueOf(item, 'Chat'), w, [item]) }) : done
+}
+
+/** B298: a chat's open instructions, oldest first: `[{ id, turns, text }]`; `fresh` are items changed just now. */
+function openOf(chat, w, fresh = []) {
+  const items = new Map(w.store.items)
+  for (const one of fresh) items.set(valueOf(one, 'Id'), one)
+  return [...items.values()]
+    .filter(one => kindOf(one) === 'instruction' && stateOf(one) === 'open' && plain(valueOf(one, 'Chat'), w.prefix) === plain(chat, w.prefix))
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+    .map(one => ({ id: valueOf(one, 'Id'), turns: Number(valueOf(one, 'Missed') ?? 0), text: valueOf(one, 'Text') ?? '' }))
+}
+
+/** The chat an action is about: the chat that asks, or the one the person or the board names. */
+const chatOf = (body, w) => (w.role === 'person' || w.role === 'server' ? line(body.chat, 80) : w.who)
+
+/**
+ * B298: the person's words to a chat, filed the moment they arrive: an instruction `I<n>`, open until the chat closes
+ * it. The Workers mod files what the person types in the chat's own box (Via: chat); the board files a line typed on
+ * it (Via: board), as the person.
+ */
+async function instruction(body, w) {
+  const chat = chatOf(body, w)
+  if (chat === '') return refuse(400, 'Name the chat.')
+  if (w.who !== chat && (w.roleOf?.(chat) ?? null) === null) return refuse(404, `${chat} is no chat of the list.`)
+  const text = lines(body.text)
+  if (text.length === 0) return refuse(400, 'Say it in "text".')
+  const id = await nextId(w.dir, 'I', w.fs)
+  const item = said({
+    head: new Map([['Id', id], ['Kind', 'instruction'], ['Chat', chat], ['State', 'open'], ['Since', toSecond(w.now)], ['Via', w.role === 'person' ? 'board' : 'chat'], ['Text', line(text.join(' '), LINE_CHARS)]]),
+    sections: new Map([['Text', text]]),
+    problem: null,
+  }, w, 'filed')
+  const done = await save(item, null, w)
+  if (!done.ok) return done
+  return changed(item, `Recorded as ${id}; close it with work close ${id} --as "what came of it" once it is done.`, { open: openOf(chat, w, [item]) })
+}
+
+/**
+ * B298: a turn of the chat ended (the Workers mod says so, with `since`, when that turn started): every instruction of
+ * the chat filed before then and still open is missed once more (`Missed`, a History line). Nothing is closed.
+ */
+async function turnEnded(body, w) {
+  const chat = chatOf(body, w)
+  if (chat === '') return refuse(400, 'Name the chat.')
+  const since = Number(body.since)
+  if (body.since === undefined || body.since === null || !Number.isFinite(since)) return refuse(400, '"since" is when the turn started.')
+  const due = [...w.store.items.values()].filter(one => kindOf(one) === 'instruction' && stateOf(one) === 'open'
+    && plain(valueOf(one, 'Chat'), w.prefix) === plain(chat, w.prefix) && sinceMs(valueOf(one, 'Since')) <= since)
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  const missed = []
+  const fresh = []
+  for (const one of due) {
+    const found = await load(valueOf(one, 'Id'), w, { kind: ['instruction'] })
+    if (!found.ok || stateOf(found.item) !== 'open') continue
+    const count = Number(valueOf(found.item, 'Missed') ?? 0) + 1
+    const item = ordered(appendHistory(put(copy(found.item), 'Missed', String(count)), 'server', `missed: a turn of ${chat} ended without closing it`, w.now))
+    const done = await save(item, found.text, w)
+    if (!done.ok) continue
+    missed.push(valueOf(item, 'Id'))
+    fresh.push(item)
+  }
+  const open = openOf(chat, w, fresh)
+  const text = missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`
+  return { ok: true, result: { text, missed, open, changed: missed.length > 0 } }
 }
 
 /** A step is dropped, and why. */
@@ -644,7 +721,8 @@ async function refineText(body, w) {
 }
 
 const CHANGE = {
-  take, step, ask, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick,
+  take, step, ask, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick, instruction,
+  'turn-ended': turnEnded,
   block: (body, w) => blockOn(body, w, true),
   unblock: (body, w) => blockOn(body, w, false),
   delete: remove,

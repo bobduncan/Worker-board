@@ -19,6 +19,7 @@ import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
+import { instructionsOf } from './work/lists.mjs'
 import { flowOfStep, shadowBacklog } from './work/shadow.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
@@ -1015,6 +1016,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     forYou: needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits }),
     // B296: the work store beside the backlog: shadow or truth, its items, and whether it reads back as the backlog.
     store: shadow.store,
+    // B298: the person's words per chat, filed as instructions, once the store is the truth (work/lists.mjs); else none.
+    instructions: instructionsOf(raw.work, now),
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
     backlog: overview(backlog, { underWay: onNow }).map(activity => ({
       ...activity,

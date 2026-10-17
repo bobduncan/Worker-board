@@ -8,7 +8,9 @@ export const HEAD_KEYS = {
   // migrate.mjs); `Asks` on a step keeps a "Decide:" a step without @you may start with.
   step: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Queue note', 'Line'],
   ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Queue note', 'Line'],
-  instruction: ['Id', 'Kind', 'Chat', 'State', 'Since', 'Text', 'Closed as'],
+  // B298: `Via` says where the words were typed (chat: in the chat's own box; board: on the worker board), `Missed` how
+  // many of the chat's turns ended while it stood open.
+  instruction: ['Id', 'Kind', 'Chat', 'State', 'Since', 'Via', 'Missed', 'Text', 'Closed as'],
   note: ['Id', 'Kind', 'From', 'To', 'State', 'Since', 'Text'],
 }
 const REQUIRED = ['Id', 'Kind', 'State', 'Since']
@@ -74,7 +76,8 @@ export function serializeItem({ head, sections = new Map() }) {
   return `${parts.join('\n\n')}\n`
 }
 
-const DATE = /^\d{4}-\d\d-\d\d(?: \d\d:\d\d)?$/
+// B298: an instruction's Since carries the second it was filed, so a turn that started a moment later can tell it.
+const DATE = /^\d{4}-\d\d-\d\d(?: \d\d:\d\d(?::\d\d)?)?$/
 // B296: `L-<8 hex>` is a step the backlog gave no id (migrate.mjs `legacyId`).
 const ID = /^(?:[A-Z]\d+|L-[0-9a-f]{8})$/
 
