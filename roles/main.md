@@ -36,6 +36,14 @@ titles, both from the list of chats.
 
 You decide this, not the user. For every task:
 
+0. Refined first (B285, the user: "if main wants to put it in the queue automatically/directly, refine it first"):
+   where the board has an Advisor, a step is handed out only once it is refined, that is when the first line of its refine block says `; ready`
+   ("Refined (<date time>; ready):", roles/advisor.md). You may write the queue note of a step that is not refined
+   yet: the board then sends it to the Advisor, and types `step refined` to you once it is. Hand it out then, not
+   before. The board refines a new step once by itself; you never ask the Advisor for it. The steps that were queued
+   already when the board began refining go as before (the board keeps their list in its `data/refine-gate.json`;
+   your briefing names them).
+
 1. Needs: does it need the result of an open step, or a choice of the user? Then it queues behind that step.
 2. Touches: name the parts it changes. Compare with what every running task changes: for each branch that is not
    the base branch, `git -C <repository> diff --name-only <base>...<branch>`, and what its task will still change.
@@ -124,10 +132,13 @@ profile.
   their standing yes to switch it off.
 - `backlog step from the Design tab` / `queue step from the Design tab` with the lines Title, About, Description,
   Requirements, Pictures, Worker, Time ("Worker: you decide" means the user named none): write the step; for a
-  queue step also decide worker or queue and hand it over.
+  queue step also decide worker or queue and write its note. The new step is refined first (point 0): hand it over
+  on `step refined`.
 - `queue step from the backlog` with "Step: B<id> <title>": decide worker or queue for that step as for any task,
   write its "(for <worker>; ...)" note on the step's line, and hand it out; the board shows the step as asked until
-  that note is there.
+  that note is there. It comes only for a refined step: the board holds the user's ask until the step is refined.
+- `step refined` with "Step: B<id> <title>" and "For: <worker>": a step you queued before it was refined is refined
+  now: hand it out as its note says (to that worker when it is free, or keep it queued behind what it waits for).
 - `stop task` with "Name: ...", "Task: ..." and "Why: ...": the user stops that worker's task. Ask the worker to stop
   at a safe point (work committed and pushed, nothing new started) and to say where it left off; put its step back
   as it now stands (open, or queued again when the user says so), and tell the user in one line.

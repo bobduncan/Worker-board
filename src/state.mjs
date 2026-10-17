@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue } from './backlog.mjs'
+import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue, refinedAt, refinedKey, refineStateOf } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
@@ -39,7 +39,7 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined)\b/
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -478,8 +478,13 @@ function removalAsk(message, now, openMs = REMOVE_OPEN_MS) {
  * after it arrived for an hour at most: the main chat writes the step's "(for ...)" note, and a queued step asks
  * nothing more. After that hour, or when it did not arrive, the step can be asked again.
  */
-const queueAsk = (step, sent, now) => (step.status !== 'open' || step.id === null ? null
-  : removalAsk(sent.findLast(message => message.command === 'queue' && message.about === step.id), now, QUEUE_OPEN_MS))
+const queueAsk = (step, sent, now) => {
+  if (step.status !== 'open' || step.id === null) return null
+  const message = sent.findLast(one => one.command === 'queue' && one.about === step.id)
+  // B285: an ask held on the board until the step is refined stays open.
+  if (message?.state === 'held') return { at: message.at, state: 'held', isOpen: true }
+  return removalAsk(message, now, QUEUE_OPEN_MS)
+}
 
 /**
  * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
@@ -491,7 +496,13 @@ function refineAsk(step, sent, now) {
   const ask = removalAsk(message, now, REFINE_OPEN_MS)
   if (ask === null) return null
   const round = Number.isInteger(message.round) ? message.round : 1
-  return { ...ask, round, isOpen: ask.isOpen && (step.refined?.round ?? 0) < round }
+  // B285: the newer form's head names no round: a block that changed since the ask (`before`, its key then) answers it
+  // too; an ask from before that key, a block written since it (to the minute).
+  const written = refinedAt(step.refined)
+  const isWritten = (step.refined?.round ?? 0) >= round || (message.before !== undefined
+    ? refinedKey(step.refined) !== message.before
+    : written !== null && written >= Math.floor(message.at / MIN) * MIN)
+  return { ...ask, round, isOpen: ask.isOpen && !isWritten }
 }
 
 /**
@@ -999,15 +1010,20 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
     backlog: overview(backlog, { underWay: onNow }).map(activity => ({
       ...activity,
-      steps: activity.steps.map(step => ({
-        ...step,
-        pictures: picturesOf(allWords(step)),
-        needId: step.status !== 'you' ? null : step.id === null ? stepId(`${activity.name}\n${step.text}`) : `backlog:${step.id}`,
-        // B181: whether the main chat was asked to hand it out, for a step nobody has.
-        queueAsk: queueAsk(step, sent, now),
+      steps: activity.steps.map(step => {
         // B233: whether the Advisor was asked to refine it and has not written that round yet.
-        refineAsk: refineAsk(step, sent, now),
-      })),
+        const asked = refineAsk(step, sent, now)
+        return {
+          ...step,
+          pictures: picturesOf(allWords(step)),
+          needId: step.status !== 'you' ? null : step.id === null ? stepId(`${activity.name}\n${step.text}`) : `backlog:${step.id}`,
+          // B181: whether the main chat was asked to hand it out, for a step nobody has.
+          queueAsk: queueAsk(step, sent, now),
+          refineAsk: asked,
+          // B285, B286: where its refine stands.
+          refineState: refineStateOf({ refined: step.refined, refineAsk: asked }),
+        }
+      }),
     })),
     // The open steps in the backlog that end in @you.
     backlogForYou: forYou(backlog).map(step => stepCard(step, false)),

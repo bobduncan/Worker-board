@@ -154,6 +154,12 @@ export function noteSections(notes) {
  */
 export const REFINED_HEAD = /^Refined\s*(?:\(([^)]*)\))?\s*:\s*$/
 const REFINED_PARTS = { Problem: 'problem', Goal: 'goal', Questions: 'questions', Feedback: 'feedback' }
+/**
+ * B285: the lines of the Advisor's newer form (what "refined" means, approved 2026-10-17: a summary, a picture, its
+ * goal, its size, and what we build once ready) stand in the block too, so the questions under them stay in it; the
+ * board does not show them yet.
+ */
+const REFINED_KEPT = new Set(['Summary', 'Picture', 'Part of', 'Size', 'What we build'])
 const NAMED = /^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/
 
 /** Where the refine block stands in a step's notes: `[start, end)` as indexes of `notes`, or null when it has none. */
@@ -164,7 +170,7 @@ export function refinedSpan(notes) {
   while (end < notes.length) {
     const line = notes[end].trim()
     const named = line.match(NAMED)
-    if ((named !== null && REFINED_PARTS[named[1]] === undefined) || line.startsWith('(') || REFINED_HEAD.test(line)) break
+    if ((named !== null && REFINED_PARTS[named[1]] === undefined && !REFINED_KEPT.has(named[1])) || line.startsWith('(') || REFINED_HEAD.test(line)) break
     end += 1
   }
   return [start, end]
@@ -183,6 +189,8 @@ export function refinedOf(notes) {
     by: head.match(/\bby\s+([^,;]+)/i)?.[1].trim() ?? null,
     at: head.match(/\d{4}-\d\d-\d\d[ T]\d\d:\d\d/)?.[0] ?? null,
     accepted: head.match(/\baccepted\b\s*([^,;]*)/i)?.[1].trim() ?? null,
+    // B285: "Refined (<date time>; ready):": the Advisor folded every answer in; the step is refined.
+    ready: /(?:^|;)\s*ready\s*(?:;|$)/i.test(head),
     problem: '',
     goal: '',
     questions: [],
@@ -193,6 +201,10 @@ export function refinedOf(notes) {
   for (const note of notes.slice(span[0] + 1, span[1])) {
     const line = note.trim()
     const named = line.match(NAMED)
+    if (named !== null && REFINED_KEPT.has(named[1])) {
+      part = null
+      continue
+    }
     if (named !== null && REFINED_PARTS[named[1]] !== undefined) {
       part = REFINED_PARTS[named[1]]
       if (named[2] !== '') addRefined(refined, part, named[2])
@@ -219,6 +231,51 @@ function addRefined(refined, part, line) {
   // A question's answer stands behind " Answer: " on its own line.
   const at = words.search(/\sAnswer:\s/)
   refined.questions.push(at < 0 ? { text: words, answer: null } : { text: words.slice(0, at).trim(), answer: words.slice(at).replace(/^\s*Answer:\s*/, '').trim() })
+}
+
+/**
+ * B285: whether a step is refined, so it may go into a queue: its block's head says "; ready" (what "refined" means,
+ * approved by the person on 2026-10-17: the Advisor folded every answer into one compact description). A block
+ * without it, also one in the older form with every question answered, is not refined; nor is a step without one.
+ */
+export function isRefined(refined) {
+  return refined !== null && refined !== undefined && refined.ready === true
+}
+
+/**
+ * B285, B286: where a step stands in its refine: `none` (no block), `asking` (the Advisor works on it: `refineAsk`
+ * is open), `answers` (questions wait for the person's answers), `answered` (none open, or accepted, but not folded
+ * in yet: the Advisor's next round makes it ready) or `ready` (its head says "; ready"). `step` holds `refined` and
+ * `refineAsk`.
+ */
+export function refineStateOf(step) {
+  if (step.refineAsk?.isOpen === true) return 'asking'
+  const refined = step.refined ?? null
+  if (refined === null) return 'none'
+  if (refined.ready === true) return 'ready'
+  return refined.accepted === null && refined.questions.some(question => question.answer === null) ? 'answers' : 'answered'
+}
+
+/**
+ * B285: a short key of a refine block as it stands (its round, head, parts, questions with their answers, feedback),
+ * null for none: an ask remembers the block it was made about, and a block that changed since answers it.
+ */
+export function refinedKey(refined) {
+  if (refined === null || refined === undefined) return null
+  let hash = 0x811c9dc5
+  for (const char of JSON.stringify(refined)) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0
+  return hash.toString(36)
+}
+
+/**
+ * B285: when the block's head says it was written (its date and time, on this PC's clock), in ms; null when it does
+ * not say.
+ */
+export function refinedAt(refined) {
+  const at = refined?.at ?? null
+  if (at === null) return null
+  const ms = Date.parse(at.replace(' ', 'T'))
+  return Number.isFinite(ms) ? ms : null
 }
 
 /** B233: a step's notes without its refine block, which the step's window shows apart. */
