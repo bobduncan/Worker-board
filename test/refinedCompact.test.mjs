@@ -238,6 +238,7 @@ test('with the work store, the item\'s picture line is a path with what it shows
   assert.deepEqual(plain(item.pictureOfLine('`pictures/stable/v1.png`')), { path: 'pictures/stable/v1.png', caption: '', note: '' })
   assert.deepEqual(plain(item.pictureOfLine('none (a colour change only)')), { path: null, caption: '', note: 'a colour change only' })
   assert.match(script, /if \(part\.key === 'picture'\) return pictureSection\(pictureOfLine\(part\.lines\[0\]\)\)/)
+  assert.match(script, /if \(part\.key === 'what'\) return section\('What we build', \[buildList\(part\.lines\)\]\)/)
   // The refine's picture is not shown a second time under References, whichever part shows it.
   assert.match(script, /const refinedPicture = refined\?\.picture\?\.path \?\? null/)
 })

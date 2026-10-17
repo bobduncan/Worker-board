@@ -2846,6 +2846,8 @@ function itemPart(part, strip) {
   if (part.key === 'picture') return pictureSection(pictureOfLine(part.lines[0]))
   if (part.key === 'goal') return el('p', 'chip is-goal', `Goal: ${part.lines[0]}`)
   if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
+  // B293: what we build as the refine shows it, "Not in it" greyed.
+  if (part.key === 'what') return section('What we build', [buildList(part.lines)])
   if (part.isFolded) {
     const box = el('details', 'item-fold')
     box.append(el('summary', '', `${part.title} (${part.lines.length})`), listOf(part.lines))
@@ -2858,6 +2860,13 @@ function itemPart(part, strip) {
 function pictureSection({ path, caption, note }) {
   if (path === null) return holding('section', 'details-part refined-nopicture', el('span', 'refine-tag', 'Picture'), el('p', 'muted', note === '' ? 'None.' : `None: ${note}`))
   return holding('section', 'details-part', pictureRow(path, caption))
+}
+
+/** B293: the points of what we build, "Not in it: ..." greyed. */
+function buildList(points) {
+  const list = el('ul', 'refined-build')
+  for (const point of points) list.append(el('li', /^Not in it\b/i.test(point) ? 'is-not' : '', point))
+  return list
 }
 
 /** B293: a picture as a thumbnail that opens it large, with what it shows and "Open the picture ↗" beside it. */
@@ -5861,9 +5870,7 @@ function refinedParts(refined) {
   if (refined.problem !== '') parts.push(el('span', 'refine-tag', 'Problem'), el('p', '', refined.problem))
   if (refined.goal !== '') parts.push(el('span', 'refine-tag', 'Goal'), el('p', '', refined.goal))
   if (refined.build.length > 0) {
-    const list = el('ul', 'refined-build')
-    for (const point of refined.build) list.append(el('li', /^Not in it\b/i.test(point) ? 'is-not' : '', point))
-    parts.push(holding('div', '', el('span', 'refine-tag', 'What we build'), list))
+    parts.push(holding('div', '', el('span', 'refine-tag', 'What we build'), buildList(refined.build)))
   }
   return parts
 }
