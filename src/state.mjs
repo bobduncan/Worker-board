@@ -417,6 +417,46 @@ function refineAsk(step, sent, now) {
   return { ...ask, round, isOpen: ask.isOpen && (step.refined?.round ?? 0) < round }
 }
 
+/**
+ * B275: the turns the board itself starts in the Advisor's chat. What such a turn asks has its own place: a round of
+ * the board's clock its suggestions on the backlog, a refine the step's window, an answer to a recommendation the way
+ * to the next milestone.
+ */
+const BOARD_TURNS = /^(?:round from the board's clock: \w+|refine step|advisor recommendation: (?:yes|no))$/i
+
+/**
+ * B275: the Advisor as a chat that waits for the person, for the list of what waits for them; null when it waits for
+ * nothing there. It waits when it asked with the app's question form (answered in its chat only, whichever turn
+ * asked), or when the app says it waits, as a worker; and also when its turn has ended with a "For you" block in its
+ * last answer, which the app does not always count. The turns the board started are passed over: a question the
+ * Advisor asked before a round or a refine still waits, until the person or another chat starts a turn after it.
+ * `card` is the Advisor's card, `tail` the end of its transcript with the longer look back (`earlier`).
+ */
+function advisorWaiting(card, tail, prefix) {
+  if (tail === null || typeof tail.text !== 'string') return null
+  if (card.isAsking) return { ...card, isAdvisor: true }
+  // Its turn has ended: it waits, it is free, or it is held between two turns by a hand-over it has not reported on.
+  if (card.state !== 'waiting' && card.state !== 'free' && card.between === null) return null
+  const recent = parseTail(tail.text, tail.isCut === true)
+  // The longer look back, before the tail: a long turn's start may lie further back than the tail reaches.
+  const since = recent[0]?.at ?? Infinity
+  let entries = [...(typeof tail.earlier === 'string' ? parseTail(tail.earlier, false).filter(entry => entry.at < since) : []), ...recent]
+  let opening = turnStart(entries, { prefix })
+  const isOwn = opening === null || !BOARD_TURNS.test(opening.title)
+  while (opening !== null && BOARD_TURNS.test(opening.title)) {
+    const start = entries.findLastIndex(entry => entry.at === opening.at && entry.type !== 'assistant')
+    if (start === -1) return null
+    entries = entries.slice(0, start)
+    opening = turnStart(entries, { prefix })
+  }
+  if (isOwn && card.state === 'waiting') return { ...card, isAdvisor: true }
+  const waits = waitingFor(entries)
+  const handover = waits === null ? null : parseHandover(waits.words)
+  if (handover === null || handover.items.length === 0) return null
+  // The app's line of what it needs is about the turn that ended last, which may be one the board started.
+  return { ...card, state: 'waiting', isAdvisor: true, needsYou: isOwn ? card.needsYou : null, waitingSince: waits.at, waitsFor: { ...waits, handover, given: null } }
+}
+
 /** How long the card of a chat's question stays after its answer was typed in. The page hides it sooner. */
 const ANSWER_KEPT_MS = 10 * MIN
 
@@ -450,8 +490,10 @@ function answerOf(outbox, id, version = null) {
  * A chat that waits brings what its window shows (B100): its task as its card names it (`task`) and what it
  * last said (`waits`). Once answered on the board, its card stays while the answer is on its way and a little
  * after it was typed in, although the chat no longer waits: the person sees that it arrived.
+ * B275: the Advisor (`advisor`, its card) asks as a worker does when it waits (`advisorWaits`, see `advisorWaiting`),
+ * and is answered straight in its chat.
  */
-function needsOf(asks, lanes, outbox, gameOf, now, base = 'main') {
+function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null } = {}) {
   const live = lanes.filter(lane => !lane.isLeftover)
   const names = new Set(live.map(lane => lane.name))
   // Work to verify is looked at in the game: on the branch the ask names, else on main.
@@ -464,7 +506,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main') {
   }))
   const asked = new Set(asks.map(ask => ask.from))
   const blank = { options: [], pictures: [], run: null, game: null, checks: [], tried: [] }
-  for (const lane of live) {
+  for (const lane of advisorWaits === null ? live : [...live, advisorWaits]) {
     if (lane.state === 'waiting' && !asked.has(lane.name)) {
       // B149: a worker that finished its task and left something for the person says so in the title.
       const form = lane.waitsFor?.handover ?? null
@@ -475,10 +517,12 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main') {
         from: lane.name,
         kind: 'input',
         // B169: the main chat asks the person as part of its talk with them, not as a finished task.
+        // B275: so does the Advisor; what it asks first is its card's line when the app names nothing.
         title: lane.isAsking ? 'Asked you a question in its chat'
-          : lane.isMain ? `${lane.name} needs your answer`
+          : lane.isMain || lane.isAdvisor ? `${lane.name} needs your answer`
             : isFinished ? `Finished: ${(form.task ?? 'its task').split('\n')[0].slice(0, 120)}` : 'Needs your decision',
-        text: lane.isAsking ? 'It used the app\'s question form, which can only be answered there.' : lane.needsYou ?? 'It waits for you.',
+        text: lane.isAsking ? 'It used the app\'s question form, which can only be answered there.'
+          : lane.needsYou ?? (lane.isAdvisor ? form?.items[0]?.ask ?? null : null) ?? 'It waits for you.',
         at: lane.waitingSince,
         ...blank,
         version: null,
@@ -486,6 +530,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main') {
         task: cardOf(lane.task),
         waits: lane.waitsFor,
         isMain: lane.isMain === true,
+        isAdvisor: lane.isAdvisor === true,
       })
     }
     if (lane.isQuiet) {
@@ -508,7 +553,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main') {
   // Answered here, and the chat has moved on or will: the card of that question, with nothing left to answer.
   const isKept = sent => sent.state === 'waiting' || sent.state === 'taken'
     || (sent.state === 'delivered' && now - (sent.deliveredAt ?? sent.at) < ANSWER_KEPT_MS)
-  for (const lane of live) {
+  for (const lane of advisor === null ? live : [...live, advisor]) {
     const sent = outbox.findLast(one => one.to === lane.name && typeof one.ask === 'string' && one.ask.startsWith(`chat:${lane.name}:`))
     if (sent === undefined || !isKept(sent) || items.some(item => item.id === sent.ask)) continue
     items.push({
@@ -523,6 +568,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main') {
       canAnswer: false,
       task: cardOf(lane.task),
       waits: null,
+      isAdvisor: advisor !== null && lane === advisor,
     })
   }
   return items
@@ -711,9 +757,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const from = hourStart(now - config.hoursBack * HOUR)
 
   let advisor = null
+  // B275: the Advisor when it waits for the person, for their list of what waits for them.
+  let advisorWaits = null
   if (advisorChat !== undefined) {
     const { state, doingNow: doing, session, appSession } = advisorCard
     const tail = raw.tails?.[advisorChat.cliSessionId] ?? null
+    advisorWaits = advisorWaiting(advisorCard, tail, prefix)
     advisor = {
       name: advisorChat.name,
       session,
@@ -867,7 +916,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       stop: Object.fromEntries(lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => [lane.name, removalAsk(sent.findLast(message => message.command === 'stop' && message.about === lane.name), now)]).filter(([, ask]) => ask !== null)),
       steps: Object.fromEntries(lanes.flatMap(lane => lane.queue ?? []).filter(step => typeof step.id === 'string').map(step => [step.id, removalAsk(sent.findLast(message => (message.command === 'move' || message.command === 'unqueue') && message.about === step.id), now)]).filter(([, ask]) => ask !== null)),
     },
-    forYou: needsOf(asks, lanes, sent, gameOf, now, config.baseBranch),
+    forYou: needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits }),
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
     backlog: overview(backlog, { underWay: onNow }).map(activity => ({
       ...activity,

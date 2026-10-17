@@ -230,7 +230,21 @@ function transcripts(now) {
       toolResult(ago(45)),
       answer(ago(44), 'Decide on the pathfinding approach first: **Units** waits for it, and nothing else on enemies can start. After that, hand Cleanup its queued task: it is free.'),
       typed(ago(20), 'Can Features start the main menu while the save system is still in review?'),
-      answer(ago(19), 'Yes, if it does not touch the save files: the main menu only reads whether a save exists. I would let it start once its tests pass.'),
+      // B275: its answer asks the person something: it stands under Needs your attention, answered straight to it.
+      answer(ago(19), [
+        'Yes, if it does not touch the save files: the main menu only reads whether a save exists.',
+        '',
+        '> **For you**',
+        '> 1. **Answer:** Let Features start the main menu now, before the save system is merged? I advise yes: the menu only reads whether a save exists, so nothing waits on the review.',
+        '',
+        '---',
+        '',
+        '```diff',
+        '  Prompt: can the main menu start while the save system is in review',
+        '  Who:    Game - Advisor',
+        '- Done:   partly, waiting for your answer',
+        '```',
+      ].join('\n')),
     ], 19),
     'demo-audio': tail([
       fromChat(ago(70), 'Game - Main', 'Task from Game - Main: add the menu sounds.'),

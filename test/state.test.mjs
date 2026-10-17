@@ -116,8 +116,9 @@ test('a chat whose turn ended blocked waits for you, and its need leads the For 
     // B100: what its window shows: its task as its card names it (it recorded none), and what it last said.
     // B149: no parts of the agreed form, and no hand-over from the main chat.
     task: null, waits: { at: NOW - 9 * MIN, words: 'Done', questions: [], plan: null, handover: null, given: null },
-    // B169: a worker, not the main chat.
+    // B169: a worker, not the main chat; B275: nor the Advisor.
     isMain: false,
+    isAdvisor: false,
   }])
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.kind, step.from, step.canAnswer]), [['Say whether the mage is right', 'Art', 'input', 'Main', true]])
 })
@@ -585,7 +586,7 @@ test('sources that are missing or broken give an empty board, never an error', (
   assert.doesNotThrow(() => buildState({ appChatTexts: ['{', 'null', '5'], tails: { x: { text: '{', isCut: true, modifiedAt: 1 } }, backlogText: 5 }, { now: NOW, config }))
 })
 
-test('the demo shows the second design: six lanes with their queues, two requests, and the advisor', async () => {
+test('the demo shows the second design: six lanes with their queues, three requests, and the advisor', async () => {
   const demo = await demoSources(NOW)
   const state = buildState(demo, { lines: demo.historyLines, now: NOW, config: { ...config, project: demo.project } })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.state, chat.queue.length]), [
@@ -614,14 +615,16 @@ test('the demo shows the second design: six lanes with their queues, two request
   assert.deepEqual(state.unassigned.map(step => step.title), ['Decide the name of the game'])
 
   assert.deepEqual(state.forYou.map(need => [need.from, need.kind, need.title, need.canAnswer]), [
+    // B275: the Advisor's question, answered straight to it; the newest.
+    ['Advisor', 'input', 'Advisor needs your answer', true],
     ['Main', 'verify', 'Test player movement', true],
     ['Units', 'input', 'Choose pathfinding approach', true],
   ])
-  assert.deepEqual(state.forYou[1].options.map(option => [option.picture, option.isRecommended]), [
+  assert.deepEqual(state.forYou[2].options.map(option => [option.picture, option.isRecommended]), [
     ['art-inbox/pathfinding/option-a-navmesh.png', true],
     ['art-inbox/pathfinding/option-b-grid.png', false],
   ])
-  assert.deepEqual([state.forYou[0].game.branch, state.forYou[0].game.folder, state.forYou[0].game.url], ['main', 'game', null])
+  assert.deepEqual([state.forYou[1].game.branch, state.forYou[1].game.folder, state.forYou[1].game.url], ['main', 'game', null])
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.kind, step.from, step.pictures]), [
     ['the jump feels right (picture in art-inbox/jump)', 'verify', 'Main', ['art-inbox/jump/jump-arc.png']],
     ['quit and reopen the app once', 'do', 'Main', []],

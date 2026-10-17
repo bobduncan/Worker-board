@@ -157,6 +157,23 @@ filter, a step's state and the windows. The chats keep writing their block as ">
 under both names. The tab stays on one line also when the right side is at its narrowest. The picture:
 `art-inbox/worker-board/2026-10-14-b169-main-window.png`.
 
+**The Advisor asks you itself (B275).** The person, 2026-10-17: "I want if the advisor needs something from me, it
+also shows in this attention tab it can talk to 'me' directly instead or always via the main chat". The Advisor's
+question stands under Needs your attention like a worker's, and the answer is typed straight into its chat, never
+through the main chat:
+
+- *When* (`advisorWaiting` in `src/state.mjs`): the app says it waits, it asked with the app's question form (answered
+  in its chat only), or its turn has ended with a "For you" block in its last answer, which the app does not always
+  count as waiting.
+- *Not* for a turn the board itself started: a round of its clock, a refine, an answer to a recommendation. What such a
+  turn asks has its own place: the suggestions on the backlog, the step's window, the way to the next milestone.
+- *Its card* says "Advisor needs your answer", with the app's line of what it needs, else its first question. *Its
+  window* is the main chat's (`mainParts`): what you asked, where it stands, its answer, its questions with their
+  advice and links; under Details a button opens its chat on the Advisor tab.
+- *Once*: its job text says it asks in its own chat and tells the main chat in one line only what it asked; the main
+  chat does not ask it again (B261). The Advisor stays off the lanes. The pictures:
+  `art-inbox/worker-board/b275/2026-10-17-b275-advisor-under-attention.png` and `...-advisor-window.png`.
+
 **The Backlog tab (B155).** The tab that was called Coordinate is called Backlog (`#backlog`; `#coordinate` still
 opens it). At its top it lists the last 20 finished steps, newest first: when, the step's id and title, who finished
 it, and where the time comes from; a click opens the step's window. The person, 2026-10-14: "i want a chronological

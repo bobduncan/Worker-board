@@ -119,7 +119,8 @@ test('the window knows the main chat, and a chosen letter is typed as the answer
 })
 
 test('the main chat\'s window: what you asked and where it stands, its answer open, its questions, the rest folded', () => {
-  assert.match(script, /if \(waiting\.isMain\) return mainParts\(waiting, needId\)\n\s+\/\/ B149: a finished worker/)
+  // B275: the Advisor's window is drawn the same way.
+  assert.match(script, /if \(waiting\.isMain \|\| waiting\.isAdvisor\) return mainParts\(waiting, needId\)\n\s+\/\/ B149: a finished worker/)
   const parts = script.slice(script.indexOf('function mainParts'), script.indexOf('function itemsPart'))
   for (const words of ["['You asked',", "['Where it stands',", 'What you decide on', 'drawTalkText(el(\'div\', \'main-material\'), material)', 'itemsPart(handover.items, waiting, needId, true)', "section('Asked before'", 'open.dataset.showSide = \'main\'', '...closingParts(closing)']) {
     assert.ok(parts.includes(words), words)

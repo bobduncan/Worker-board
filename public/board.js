@@ -1849,6 +1849,8 @@ function waitingOf(need, now) {
     given: waits?.given ?? null,
     // B169: the main chat's window shows what the person decides on (`mainParts`).
     isMain: need.isMain === true,
+    // B275: so does the Advisor's, which asks the person as part of its talk with them.
+    isAdvisor: need.isAdvisor === true,
   }
 }
 
@@ -1927,11 +1929,15 @@ function mainParts(waiting, needId) {
   const material = handover?.material ?? waiting.words
   if (material !== '') main.push(section(`What you decide on${waiting.saidAt === null ? '' : ` · its answer of ${clock(waiting.saidAt)}`}`, [drawTalkText(el('div', 'main-material'), material)]))
   if (handover !== null && handover.items.length > 0) main.push(itemsPart(handover.items, waiting, needId, true))
-  if (material === '' && (handover?.items.length ?? 0) === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
-  const talk = board?.mainTalk?.name ?? 'Main'
-  const open = el('button', 'link-button', `Open Talk to ${talk}`)
+  // B275: what it asked with the app's own form, or the plan it asks to have approved: answered in its chat.
+  const form = formParts(waiting)
+  if (form.length > 0) main.push(section('What it asks in its chat', [...form, el('p', 'muted', 'It asked with the app\'s own question form: that one takes its answer only in its chat.')]))
+  if (material === '' && (handover?.items.length ?? 0) === 0 && form.length === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
+  const open = el('button', 'link-button', waiting.isAdvisor ? 'Open its chat on the Advisor tab' : `Open Talk to ${board?.mainTalk?.name ?? 'Main'}`)
   open.type = 'button'
-  open.dataset.showSide = 'main'
+  // B275: the Advisor's window leads to the talk with it, on its own tab.
+  if (waiting.isAdvisor) open.dataset.showAdvisor = 'chat'
+  else open.dataset.showSide = 'main'
   main.push(foldedDetails([
     ...closingParts(closing),
     section('Asked before', [el('p', 'muted', 'A question it first asked in an earlier answer: all its answers are in the talk with it.'), open]),
@@ -2039,6 +2045,13 @@ $('details').addEventListener('click', event => {
     showSide(side.dataset.showSide)
     return
   }
+  const advisor = event.target.closest('[data-show-advisor]')
+  if (advisor !== null) {
+    closeDetails()
+    show('advice')
+    showAdvisorPane(advisor.dataset.showAdvisor)
+    return
+  }
   const pick = event.target.closest('[data-item-verdict]')
   if (pick === null || detailsOf?.need === undefined) return
   const n = Number(pick.closest('[data-item]').dataset.item)
@@ -2064,24 +2077,31 @@ $('details').addEventListener('input', event => {
   gatherAnswers($('details'), detailsOf.need)
 })
 
+/** B100: the questions a chat asked with the app's own form, with the options it offers, and the plan it asks to have approved. */
+function formParts(waiting) {
+  const parts = []
+  for (const one of waiting.questions) {
+    parts.push(el('p', 'waiting-question', one.question))
+    if (one.options.length > 0) parts.push(listOf(one.options))
+  }
+  if (waiting.plan !== null) {
+    const plan = el('div', 'said')
+    plan.append(el('small', 'muted', 'The plan it asks you to approve'), rich(el('div', 'said-words'), waiting.plan))
+    parts.push(plan)
+  }
+  return parts
+}
+
 /** B100: the two parts of a waiting worker's window: its task, and what it wants from the person. */
 function waitingParts(waiting, needId = null) {
-  // B169: the main chat, which asks the person as part of its talk with them.
-  if (waiting.isMain) return mainParts(waiting, needId)
+  // B169: the main chat, which asks the person as part of its talk with them; B275: the Advisor too.
+  if (waiting.isMain || waiting.isAdvisor) return mainParts(waiting, needId)
   // B149: a finished worker whose answer has the agreed form.
   if (hasForm(waiting.handover)) return handoverParts(waiting, needId)
   const task = waiting.task.map((line, index) => el('p', index === 0 ? `waiting-topic${waiting.hasTask ? '' : ' muted'}` : 'muted', line))
   const wants = []
   if (waiting.summary !== '') wants.push(el('p', 'waiting-summary', waiting.summary))
-  for (const one of waiting.questions) {
-    wants.push(el('p', 'waiting-question', one.question))
-    if (one.options.length > 0) wants.push(listOf(one.options))
-  }
-  if (waiting.plan !== null) {
-    const plan = el('div', 'said')
-    plan.append(el('small', 'muted', 'The plan it asks you to approve'), rich(el('div', 'said-words'), waiting.plan))
-    wants.push(plan)
-  }
+  wants.push(...formParts(waiting))
   if (waiting.words !== '') {
     const said = el('div', 'said')
     said.append(el('small', 'muted', `Its last words${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`), rich(el('div', 'said-words'), waiting.words))

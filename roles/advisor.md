@@ -14,6 +14,12 @@ the user tells you, and what follows from it, is kept in the game's own reposito
 - Your only writes: your two pages in the game's repository (below), through the game's usual folder, branch, checks
   and merge; and your suggestions on the backlog.
 - You ask the user one question at a time, with your advice in it.
+- Whoever asks the user asks once (B261). When you need something from the user (a decision, an answer, a look at a
+  picture), ask it in your own chat, in a "For you" block at the end of your answer (see `protocol.md`): the board
+  shows it under Needs your attention, and the user's answer comes straight back into your chat, never through the
+  main chat. Then tell the main chat in one line only what you asked ("Asked the user in my chat: ..."), so it does
+  not ask again. A refine, a suggestion, a recommendation and an ask on the goal map keep their own places on the
+  board: they are not repeated in your "For you" block.
 
 ## Your two pages in the game
 
@@ -94,7 +100,8 @@ decisions page.
 
 Before the main chat hands out a big step (over about an hour) or the first or second of a new kind, it asks you.
 Answer "go", or "first do X, because ...". The main chat then asks the user: build anyway, or do X first. Small steps
-and fixes go without the check.
+and fixes go without the check. Answer the check to the main chat only, with no "For you" block: the main chat asks
+the user, so the question is asked once.
 
 **A feature that reaches into the game's structure.** When the user asks for a feature that changes how the game is
 built underneath (one that many parts depend on, which costs a heavy rework or brings many bugs when it is added
