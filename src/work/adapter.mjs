@@ -50,11 +50,14 @@ export function storeAsBacklog(items, activities, { prefix = '', names = [] } = 
   return parseBacklog(backlogText(items, activities), { prefix, names })
 }
 
+const onBacklog = item => valueOf(item, 'Kind') === 'step' || (valueOf(item, 'Kind') === 'ask' && valueOf(item, 'Of') === null)
+
 /** What does not fit between the items and the activities: an id listed but not held, an item no activity lists. */
 export function storeProblems(items, activities) {
   const listed = new Set(activities.flatMap(activity => activity.steps ?? []))
   return [
     ...[...listed].filter(id => !items.has(id)).map(id => `${id}: an activity lists it, but the store has no file for it`),
-    ...[...items.keys()].filter(id => !listed.has(id) && ['step', 'ask'].includes(valueOf(items.get(id), 'Kind'))).map(id => `${id}: in the store, but no longer on the backlog`),
+    // An ask under a step (`Of:`) stands on no backlog line of its own.
+    ...[...items.keys()].filter(id => !listed.has(id) && onBacklog(items.get(id))).map(id => `${id}: in the store, but no longer on the backlog`),
   ]
 }
