@@ -79,7 +79,10 @@ const queueWords = (to, step) => ({
  */
 export const refineWords = (to, step, round) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'refine', about: step.id, round,
-  text: `refine step\nStep: ${stepLine(step)}\nRound: ${round}${round === 1 ? '' : '\nThe answers and feedback are written in the step\'s refine block.'}`,
+  // B293: a ready step refined again holds no new answers: it is checked again.
+  text: `refine step\nStep: ${stepLine(step)}\nRound: ${round}${round === 1 ? '' : step.refined?.ready === true
+    ? '\nThe step is ready: check it again against the backlog and the goals.'
+    : '\nThe answers and feedback are written in the step\'s refine block.'}`,
 })
 
 /**

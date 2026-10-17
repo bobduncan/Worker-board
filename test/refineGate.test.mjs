@@ -139,7 +139,7 @@ test('while refining, the newer form keeps its open questions in the block', () 
     '  Context: asked by the herd.',
   ])
   const step = stepOf(build({ backlogText: text }), 'B20')
-  assert.deepEqual(step.refined.questions, [{ text: 'Stone or wood? I advise stone.', answer: null }])
+  assert.deepEqual(step.refined.questions, [{ text: 'Stone or wood? I advise stone.', answer: null, advice: null, why: '' }])
   assert.equal(step.refineState, 'answers')
   assert.deepEqual(step.notes.map(part => part.title), ['Context'])
 })

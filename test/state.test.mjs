@@ -250,7 +250,7 @@ test('a working chat with an estimate has a time it expects to be done, and its 
   const units = chatNamed(state, 'Units')
   assert.deepEqual(units.eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOver: false, isOwn: true, from: 'own' })
   assert.deepEqual(units.queue.map(step => [step.id, step.title, step.minutes]), [[null, 'Knight rows', 30], [null, 'Polish', null], [null, 'Banner', 10]])
-  assert.deepEqual(units.queue[0], { id: null, title: 'Knight rows', text: 'Knight rows (for Units; about 30 min)', minutes: 30, after: null, branch: null, notes: [], pictures: [], why: { reason: 'busy', worker: 'Units', leftMs: 22 * MIN } })
+  assert.deepEqual(units.queue[0], { id: null, title: 'Knight rows', text: 'Knight rows (for Units; about 30 min)', minutes: 30, after: null, branch: null, notes: [], refined: null, pictures: [], why: { reason: 'busy', worker: 'Units', leftMs: 22 * MIN } })
   // The plan stops at the first step without a time: what follows it cannot be placed.
   assert.deepEqual(units.ahead, [
     { from: NOW, to: NOW + 22 * MIN, title: 'Archer', isQueued: false },

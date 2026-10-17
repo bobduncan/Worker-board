@@ -503,7 +503,7 @@ const queueAsk = (step, sent, now) => {
  * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
  * step's refine block shows the round it asked for, for half an hour at most.
  */
-function refineAsk(step, sent, now) {
+export function refineAsk(step, sent, now) {
   if (step.id === null) return null
   const message = sent.findLast(one => one.command === 'refine' && one.about === step.id)
   const ask = removalAsk(message, now, REFINE_OPEN_MS)
@@ -841,7 +841,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   const lanes = cards.map(lane => {
     const mine = lane.isLeftover ? [] : queued.filter(step => step.worker === lane.name)
-    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, pictures: picturesOf(allWords(step)), why: whyNot(step, lane) })) }
+    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, refined: step.refined ?? null, pictures: picturesOf(allWords(step)), why: whyNot(step, lane) })) }
     return {
       ...withQueue,
       folders: lane.isLeftover ? [] : (folders ?? []).filter(folder => owner(folder) === lane.name),

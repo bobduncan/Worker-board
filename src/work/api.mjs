@@ -207,7 +207,11 @@ const said = (item, w, what) => appendHistory(item, w.who, what, w.now)
 /** Lines added under the step, as the backlog shows them. */
 const underStep = (item, added) => {
   const next = copy(item)
-  next.sections.set('Context', [...(item.sections.get('Context') ?? []), ...added.map(one => `  ${one.trim()}`)])
+  const context = item.sections.get('Context') ?? []
+  const lines = added.map(one => `  ${one.trim()}`)
+  // B293: above the refine block's mark, so a line added later is never read as part of the block.
+  const mark = context.findIndex(one => one.trim() === REFINED_MARK.trim())
+  next.sections.set('Context', mark < 0 ? [...context, ...lines] : [...context.slice(0, mark), ...lines, ...context.slice(mark)])
   return next
 }
 
@@ -905,8 +909,11 @@ async function answer(body, w) {
   // An ask that stands on the backlog itself (an @you step) shows the answer under its line.
   if (of === null && !/^Q\d+$/.test(id)) item = underStep(item, [`Answered by you on the worker board on ${at(w.now)}: ${short}`])
   item = said(item, w, `answered: ${short}`)
+  const isRefine = valueOf(found.item, 'Via') === 'refine'
   const done = await answerStep(w, item, found.text, of, step => {
     let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
+    // B293: a refine question answered here is answered in the step's refine block too, as in the step's window.
+    if (isRefine) mine = withRefineAnswer(mine, valueOf(found.item, 'Title') ?? '', short, w)
     if (stateOf(mine) === 'waiting on you') {
       const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
       if (goesOn.ok) mine = goesOn.item
@@ -917,6 +924,24 @@ async function answer(body, w) {
   const owner = valueOf(found.item, 'Owner')
   const wake = owner === null || !/^Q\d+$/.test(id) ? null : { to: owner, id, title: valueOf(found.item, 'Title') ?? '', text: text.join('\n') }
   return done.ok ? { ok: true, result: { ...done.result, wake } } : done
+}
+
+/**
+ * B293: the step with the person's answer to its refine question `title` written into its refine block (" Answer:
+ * ..." behind the question, refineText.mjs), read back as refineText does; the step as it was when the question is
+ * no longer in the block.
+ */
+function withRefineAnswer(step, title, words, w) {
+  const index = blockQuestions(step).indexOf(title)
+  if (index < 0) return step
+  const id = valueOf(step, 'Id')
+  const written = answerRefine(`## -\n${stepLine(step)}\n${stepNotes(step).join('\n')}\n`, id, [{ index, answer: words }], '')
+  const back = written.ok ? migrateBacklog(written.text, { now: w.now }).items.get(id) : undefined
+  if (back === undefined || !back.sections.has('Refined')) return step
+  const next = copy(step)
+  next.sections.set('Refined', back.sections.get('Refined'))
+  put(next, 'Refined', valueOf(back, 'Refined'))
+  return next
 }
 
 /** B299: the person read a note under Information: it is read, and leaves the list. */
