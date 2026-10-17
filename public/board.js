@@ -4720,7 +4720,7 @@ function drawTalk(state) {
 
 $('messages').addEventListener('click', event => {
   const bubble = event.target.closest('.bubble[data-key]')
-  if (bubble === null || window.getSelection().toString() !== '') return
+  if (bubble === null || window.getSelection().toString() !== '' || event.target.closest('[data-zoom]') !== null) return
   if (bubble.classList.toggle('is-open')) openBubbles.add(bubble.dataset.key)
   else openBubbles.delete(bubble.dataset.key)
 })
@@ -4992,9 +4992,12 @@ $('main-say').addEventListener('submit', async event => {
   slot.problem = null
   problems.delete('main-talk')
   sending.add('main-talk')
-  const picture = slot.picture === null ? null : await keepSlotPicture(slot)
+  const pending = slot.picture
+  const picture = pending === null ? null : await keepSlotPicture(slot)
   sending.delete('main-talk')
-  if (slot.picture === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk')
+  // Taken away or pasted anew while it was kept: nothing is sent, and the new one stays.
+  if (slot.picture !== pending) return drawMainTalk(board)
+  if (pending === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk')
   if (!problems.has('main-talk')) {
     $('main-text').value = ''
     setSlotPicture(slot, null)
@@ -6480,11 +6483,15 @@ $('say').addEventListener('submit', async event => {
   slot.problem = null
   problems.delete('talk')
   sending.add('talk')
-  const picture = slot.picture === null ? null : await keepSlotPicture(slot)
+  $('say-send').disabled = true
+  const pending = slot.picture
+  const picture = pending === null ? null : await keepSlotPicture(slot)
   sending.delete('talk')
-  if (slot.picture !== null && picture === null) return slot.redraw()
+  $('say-send').disabled = false
+  // Not kept, or taken away or pasted anew meanwhile: nothing is sent, and what is in the box stays.
+  if (slot.picture !== pending || (pending !== null && picture === null)) return slot.redraw()
   await send({ to: board.advisor.name, text, ...(picture === null ? {} : { picture }) }, null)
-  if (!problems.has('talk')) setSlotPicture(slot, null)
+  if (!problems.has('talk') && slot.picture === pending) setSlotPicture(slot, null)
 })
 
 $('say-text').addEventListener('keydown', event => {

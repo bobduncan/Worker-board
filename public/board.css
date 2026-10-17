@@ -659,7 +659,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .say .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
 .say .main-picture-remove:hover { border-color: #ff8a8a; color: #ff8a8a; }
 .talk-picture { display: block; width: auto; max-width: 240px; margin-top: 8px; }
-.talk-picture img { width: auto; max-width: 100%; max-height: 180px; aspect-ratio: auto; object-fit: contain; }
+.picture.talk-picture img { width: auto; max-width: 100%; max-height: 180px; aspect-ratio: auto; object-fit: contain; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; white-space: nowrap; cursor: pointer; }
 .check input { accent-color: var(--free); width: 15px; height: 15px; margin: 0; }
 .need.is-closed { opacity: 0.6; }

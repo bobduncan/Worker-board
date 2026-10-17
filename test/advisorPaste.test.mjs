@@ -96,4 +96,11 @@ test('the Advisor\'s chat sends the picture with the words and shows it in the m
   assert.ok(message.includes("frame.classList.add('talk-picture')"))
   assert.match(script, /picture: message\.picture \?\? null,\n\s+note: message\.via === 'board'/)
   assert.match(script, /picture: typed\.picture \?\? null/)
+  // The review's findings: Send is off while the picture is kept; a picture changed meanwhile is neither sent nor
+  // taken away; a click on a picture does not fold the message; a message's picture is shown whole.
+  assert.ok(submit.includes("$('say-send').disabled = true\n  const pending = slot.picture"))
+  assert.ok(submit.includes('if (slot.picture !== pending || (pending !== null && picture === null)) return slot.redraw()'))
+  assert.match(script, /if \(slot\.picture !== pending\) return drawMainTalk\(board\)/)
+  assert.match(script, /\$\('messages'\)\.addEventListener\('click'[^]*?event\.target\.closest\('\[data-zoom\]'\) !== null\) return/)
+  assert.match(style, /\.picture\.talk-picture img \{[^}]*object-fit: contain/)
 })
