@@ -30,3 +30,27 @@ export const GUARDS = {
 
 /** The actions a move's `then` may name; the server carries them out (increment 2 and later). */
 export const ACTIONS = ['wake Owner', 'notify Main', 'check: base equals remote, branch gone, result named']
+
+/** The paths a step's "Touches:" lines name (under Context or a Touches section), each as written. */
+function touchesOf(item) {
+  const lines = [...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)]
+  return lines.flatMap(one => one.trim().match(/^Touches:\s*(.*)$/)?.[1].split(/[,;]\s*|\s+and\s+/) ?? [])
+    .map(one => one.replace(/^[-*]\s+/, '').replace(/[`.]+$/g, '').replace(/^`/, '').trim()).filter(Boolean)
+}
+
+/**
+ * The flow's `overlaps` for the server: the id of a taken or in-progress step whose Touches name a path the item's
+ * Touches name too (a folder covers what is in it), or null.
+ */
+export function overlapsIn(items) {
+  return item => {
+    const mine = touchesOf(item)
+    if (mine.length === 0) return null
+    const covers = (a, b) => a === b || b.startsWith(`${a.replace(/\/$/, '')}/`) || a.startsWith(`${b.replace(/\/$/, '')}/`)
+    for (const other of items.values()) {
+      if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || !['taken', 'in progress', 'waiting on you'].includes(valueOf(other, 'State'))) continue
+      if (touchesOf(other).some(path => mine.some(own => covers(own, path)))) return valueOf(other, 'Id')
+    }
+    return null
+  }
+}
