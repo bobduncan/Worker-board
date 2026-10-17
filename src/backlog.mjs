@@ -163,20 +163,27 @@ const REFINED_PARTS = {
   Summary: 'summary', Picture: 'picture', 'Part of': 'partOf', Size: 'size', 'What we build': 'build', 'Not in it': 'not',
 }
 const NAMED = /^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/
+/**
+ * B293: the lines the board itself writes under a step (asks made and answered, a report, a drop, the person's
+ * close or approval). Written after a refine block, as the work store did before B293, they end it.
+ */
+const BOARD_LINE = /^(?:Asked Q\d+ \(|Q\d+ (?:answered|withdrawn)\b|(?:Reported|Dropped|Closed|Approved|Done|Answered) by\b)/
 
 /** Where the refine block stands in a step's notes: `[start, end)` as indexes of `notes`, or null when it has none. */
 export function refinedSpan(notes) {
   const start = notes.findIndex(note => REFINED_HEAD.test(note.trim()))
   if (start < 0) return null
   let end = start + 1
-  // B293: what the picture shows may stand in brackets on the line after its path: that line is no closing note.
+  // B293: what the picture shows may stand in brackets on the line after its path, followed by more of the block:
+  // that line is no closing note.
   let part = null
   let hasCaption = false
   while (end < notes.length) {
     const line = notes[end].trim()
     const named = line.match(NAMED)
-    const isCaption = part === 'picture' && !hasCaption && line.startsWith('(')
-    if (!isCaption && ((named !== null && REFINED_PARTS[named[1]] === undefined) || line.startsWith('(') || REFINED_HEAD.test(line))) break
+    const after = notes[end + 1]?.trim().match(NAMED) ?? null
+    const isCaption = part === 'picture' && !hasCaption && line.startsWith('(') && after !== null && REFINED_PARTS[after[1]] !== undefined
+    if (!isCaption && ((named !== null && REFINED_PARTS[named[1]] === undefined) || line.startsWith('(') || REFINED_HEAD.test(line) || BOARD_LINE.test(line))) break
     if (named !== null && REFINED_PARTS[named[1]] !== undefined) {
       part = REFINED_PARTS[named[1]]
       hasCaption = named[2].includes('(')

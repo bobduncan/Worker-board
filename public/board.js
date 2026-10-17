@@ -2753,7 +2753,9 @@ function drawDetails(state) {
   const isReady = refine?.classList.contains('is-ready') === true
   // A refine with a summary describes the step: no "nothing more is written" above it.
   const isSummed = isReady || (refine !== null && (refined?.summary ?? '') !== '')
-  if (isItemShown) left.append(...itemParts.filter(part => part.key !== 'history').map(part => itemPart(part, strip)))
+  // B293: a refine's goal stands in the head already, as its chip: not a second time here.
+  const isGoalInHead = (refined?.partOf ?? '') !== ''
+  if (isItemShown) left.append(...itemParts.filter(part => part.key !== 'history' && !(part.key === 'goal' && isGoalInHead)).map(part => itemPart(part, strip)))
   else {
     if (isReady) left.append(refine)
     if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section(isReady ? 'Notes' : 'Description', described))

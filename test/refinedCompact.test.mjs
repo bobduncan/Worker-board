@@ -218,6 +218,33 @@ test('the review\'s findings: a caption on its own line, a path in backticks, a 
   assert.match(done.text, /\n {2}A gate on the east side\? Advised: no Answer: yes\n {2}- Paint it white\? Advised: yes Answer: no\n/)
 })
 
+test('the second review: the board\'s own lines after a block end it, and a lone caption line at its end is a closing note', () => {
+  const text = [
+    '## Meadow\n',
+    '- [ ] B32 Build the barn (for Units; about 2 h)\n',
+    '  Refined (round 1, by Oracle, 2026-10-17 11:00):\n',
+    '  Summary: A barn for the winter.\n',
+    '  Questions:\n',
+    '  - Red? Advised: yes, it is seen from afar\n',
+    '  What we build:\n',
+    '  - A barn of wood.\n',
+    '  Asked Q4 (decide): Red? Advised: yes, it is seen from afar\n',
+    '  Q4 answered by you on 2026-10-17 at 11:06: no\n',
+    '  Closed by you on the worker board on 2026-10-17 at 11:10.\n',
+    '- [ ] B33 Paint the barn\n',
+    '  Refined (round 1, by Oracle, 2026-10-17 11:00):\n',
+    '  Picture: pictures/barn/v1.png\n',
+    '  (Merged on 2026-10-17 at 11:20)\n',
+  ].join('')
+  const [barn, paint] = parseBacklog(text).activities[0].steps
+  const refined = refinedOf(barn.notes)
+  assert.deepEqual(refined.questions.map(one => one.text), ['Red?'])
+  assert.deepEqual(refined.build, ['A barn of wood.'])
+  assert.equal(withoutRefined(barn.notes).length, 3)
+  assert.deepEqual(refinedOf(paint.notes).picture, { path: 'pictures/barn/v1.png', caption: '' })
+  assert.deepEqual(withoutRefined(paint.notes), ['(Merged on 2026-10-17 at 11:20)'])
+})
+
 test('the review\'s findings: refining a ready step again, and a finished step\'s block', () => {
   const steps = overview(parseBacklog(REFINING))[0].steps
   const state = { advisor: { name: 'Oracle' }, backlog: [{ name: 'Zebracorns', steps: steps.map(step => ({ ...step, refineAsk: null })) }] }
@@ -239,6 +266,8 @@ test('with the work store, the item\'s picture line is a path with what it shows
   assert.deepEqual(plain(item.pictureOfLine('none (a colour change only)')), { path: null, caption: '', note: 'a colour change only' })
   assert.match(script, /if \(part\.key === 'picture'\) return pictureSection\(pictureOfLine\(part\.lines\[0\]\)\)/)
   assert.match(script, /if \(part\.key === 'what'\) return section\('What we build', \[buildList\(part\.lines\)\]\)/)
+  // The goal shows once: as the head's chip when the refine names it.
+  assert.match(script, /itemParts\.filter\(part => part\.key !== 'history' && !\(part\.key === 'goal' && isGoalInHead\)\)/)
   // The refine's picture is not shown a second time under References, whichever part shows it.
   assert.match(script, /const refinedPicture = refined\?\.picture\?\.path \?\? null/)
 })
