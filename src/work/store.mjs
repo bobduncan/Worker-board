@@ -252,6 +252,38 @@ export async function writeStore(dir, { items, activities, preamble = [] }, fs =
   return { written, problems }
 }
 
+/** B300: what the board told the chats once (`<dir>/delivered.json`): a key per line sent, never sent again. */
+const DELIVERED = 'delivered.json'
+const keysIn = text => {
+  try {
+    const keys = JSON.parse(text ?? '{}')?.keys
+    return Array.isArray(keys) ? keys.filter(key => typeof key === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** B300: the keys of what was sent once ("B286 Units": the step delivered to that chat), as a set. */
+export async function readDelivered(dir, fs = files) {
+  return new Set(keysIn(await readOr(fs, join(dir, DELIVERED), null)))
+}
+
+/**
+ * B300: writes down that `key` was sent, before it is sent, so it never goes twice, also not after a restart of the
+ * board. `{ ok, added }`: `added` false when it was written down already (then it is not sent again); `ok` false when it
+ * could not be written (then it is not sent now).
+ */
+export async function addDelivered(dir, key, fs = files) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const before = await readOr(fs, join(dir, DELIVERED), null)
+    const keys = keysIn(before)
+    if (keys.includes(key)) return { ok: true, added: false }
+    const done = await putInPlace(join(dir, DELIVERED), `${JSON.stringify({ keys: [...keys, key] }, null, 1)}\n`, fs, before)
+    if (done.ok) return { ok: true, added: true }
+  }
+  return { ok: false, added: false }
+}
+
 /** B297: an item's file as it is now: `{ text, item }`, or null when there is none. */
 export async function readItemFile(dir, id, fs = files) {
   const text = await readOr(fs, join(dir, `${id}.md`), null)

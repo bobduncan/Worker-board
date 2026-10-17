@@ -301,9 +301,9 @@ const WAKE_PENDING_MS = 10 * 60_000
  */
 export function wakeFor(message, state, outbox, now, maxChars) {
   const main = state.restart?.main ?? null
-  // B195, B233: of the commands, only the answer to the Advisor's recommendation and a refine go to another chat than
-  // the main one.
-  if (main === null || message.to === main || ((message.command ?? null) !== null && message.command !== 'recommend' && message.command !== 'refine')) return null
+  // B195, B233: of the commands, only the answer to the Advisor's recommendation, a refine and (B300) the work store's
+  // line to a chat go to another chat than the main one.
+  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work'].includes(message.command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS
@@ -333,6 +333,15 @@ export async function withInstruction(message, file) {
  * its chat as `(answered on the worker board, HH:MM) Q12 "<title>": <answer>` (bridge.mjs, messageText). The answer
  * names the ask's own id, so it answers that ask whatever the chat did since.
  */
+/**
+ * B300: the board's one line to a chat that a step is its own now (the work store's reconciler, or the chat's own pull
+ * at the end of a turn): the chat runs `work next` and takes it. Typed as it is: it is the board's word, not the
+ * person's (bridge.mjs, messageText). `text` for another line of the reconciler's to the step's Owner.
+ */
+export const workWords = (to, id, text = `work: ${id} is yours; run work next`) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'work', about: id, text,
+})
+
 export const answerWords = wake => ({
   to: wake.to, ask: `work:${wake.id}`, step: wake.id, title: String(wake.title ?? '').slice(0, 200), version: null, verdict: null, text: String(wake.text ?? ''),
 })

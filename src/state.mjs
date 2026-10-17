@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
+import { ASK_MS, GRACE_MS } from './config.mjs'
 import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue, refinedAt, refinedKey, refineStateOf } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
@@ -20,6 +21,7 @@ import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { informationOf, instructionsOf, storeNeeds, storeWaits } from './work/lists.mjs'
+import { reconcile } from './work/reconcile.mjs'
 import { flowOfStep, itemOfStep, shadowBacklog } from './work/shadow.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
@@ -42,6 +44,8 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
 const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined)\b/
+/** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
+const LANE_FLAGS = ['stuck', 'check failed', 'card']
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -1002,6 +1006,18 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     off: Number.isFinite(board?.offSince) && Number.isFinite(board?.startedAt) && now - board.startedAt < HOUR ? { from: board.offSince, to: board.startedAt } : null,
   }
 
+  const chats = lanes.map(lane => ({
+    ...lane,
+    isRunning: lane.isLeftover ? null : runningOf(lane.name),
+    // B143: the newest ask to remove this worker; the main chat and a leftover have none.
+    removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
+  }))
+  // B300: once the store is the truth, the reconciler holds the store against the lanes (work/reconcile.mjs): the
+  // server carries out its moves and lines (work/deliver.mjs), the page shows its flags. Null while it is a shadow.
+  const reconciled = waits === null ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS }, prefix })
+  const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
+  const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
+
   return {
     readAt: now,
     refreshSeconds: config.refreshSeconds,
@@ -1014,12 +1030,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     taskTimes: taskTimesOf(taskTimes),
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
-    chats: lanes.map(lane => ({
-      ...lane,
-      isRunning: lane.isLeftover ? null : runningOf(lane.name),
-      // B143: the newest ask to remove this worker; the main chat and a leftover have none.
-      removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
-    })),
+    // B300: each with the reconciler's flags on it (none while the store is a shadow).
+    chats: chats.map(lane => ({ ...lane, flags: flagsOf(lane.name) })),
+    // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
+    // server carries out; empty and null while the store is a shadow.
+    workFlags: (reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, says: reconciled.flags.filter(flag => typeof flag.say === 'string') },
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)).map(step => ({ ...step, why: whyNot(step, null) })),
     // B83: the newest ask to stop each worker's task, and to move or unqueue each queued step, open while on its way
@@ -1031,8 +1047,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     forYou: [
       ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, waits }),
       // B299: the store's asks, once it is the truth, answered through POST /api/work.
-      ...storeNeeds(raw.work, { now, names: [...names, ...(advisorChat === undefined ? [] : [advisorChat.name])], prefix, answerOf: id => answerOf(sent, id) }),
-    ].sort((a, b) => (b.at ?? 0) - (a.at ?? 0)),
+      // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
+      ...storeNeeds(raw.work, { now, names: [...names, ...(advisorChat === undefined ? [] : [advisorChat.name])], prefix, answerOf: id => answerOf(sent, id) })
+        .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
+    ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)),
     // B299: notes and reports for the person, once the store is the truth.
     information: informationOf(raw.work, now),
     // B296: the work store beside the backlog: shadow or truth, its items, and whether it reads back as the backlog.

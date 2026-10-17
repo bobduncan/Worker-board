@@ -1333,3 +1333,8 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .queue-change { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .queue-change select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; }
 .queue-change .quiet-button { margin-right: 0; }
+
+/* B300: the reconciler's flags on a lane. */
+.lane-flag { margin: 4px 0 0; padding: 3px 8px; border-left: 3px solid var(--waiting); font-size: 13px; }
+.lane-flag.is-problem { border-left-color: #c0504d; }
+.lane-flag .choice { margin-left: 6px; }

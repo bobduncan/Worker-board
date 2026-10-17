@@ -7,6 +7,7 @@
 // action that changes something is refused, and only `next` and `list` answer.
 
 import { minutesOf } from '../backlog.mjs'
+import { workWords } from '../say.mjs'
 import { acceptRefine, answerRefine } from '../tick.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
@@ -27,12 +28,12 @@ export const NOT_TRUTH = 'The store is not the truth yet: the cutover has not ru
  */
 export const BOARD_ANSWERS_ASKS = true
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'answered-in-chat'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'answered-in-chat', 'pull'])
 /** What only the person does, on the board's page; and what only the server does. */
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept'])
-const SERVER = new Set(['check'])
+const SERVER = new Set(['check', 'advance'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -901,8 +902,35 @@ async function refineText(body, w) {
   return changed(next)
 }
 
+/**
+ * B300: a chat that holds no step asks for its next one at the end of a turn (the Workers mod): the line that wakes it
+ * (`work: B286 is yours; run work next`, with `wake`) when a step queued for it may be taken now, else nothing. It
+ * changes nothing: the server sends the line once (src/work/deliver.mjs), and the chat's own take moves the step.
+ */
+function pull(body, w) {
+  const steps = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, w.who, w.prefix))
+  const held = steps.find(item => ['taken', 'in progress', 'waiting on you'].includes(stateOf(item)))
+  if (held !== undefined) return { ok: true, result: { text: '', id: valueOf(held, 'Id'), wake: null, changed: false } }
+  for (const item of steps.filter(one => stateOf(one) === 'queued').sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
+    if (!mayMove(w.store.flow, item, 'taken', 'server', flowCtx(w, [item], [w.who])).ok) continue
+    const id = valueOf(item, 'Id')
+    return { ok: true, result: { text: workWords(w.who, id).text, id, wake: { to: w.who, id }, changed: false } }
+  }
+  return { ok: true, result: { text: '', id: null, wake: null, changed: false } }
+}
+
+/** B300: the board moves a step as the flow lets the server (the reconciler's moves). */
+async function advance(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const moved = move(found.item, line(body.to, 40), 'server', w)
+  if (!moved.ok) return moved
+  const done = await save(ordered(moved.item), found.text, w)
+  return done.ok ? changed(ordered(moved.item)) : done
+}
+
 const CHANGE = {
-  take, step, ask, withdraw, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick, instruction,
+  take, step, ask, withdraw, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,
