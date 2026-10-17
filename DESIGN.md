@@ -351,6 +351,12 @@ back walks the zoom. Read-only for now: the drawn tree (B257), editing (B256) an
 map (B260) come later; the settings `brainstorms`, `goalAsks` and `goalsHistory` are there for them. Pictures on
 the real file: `art-inbox/board-goals/b255-top.png` and `b255-in-goal.png`.
 
+**A goal's id everywhere on the map (B284).** Every box of the diagram, every row of the outline, every crumb and the
+frame's head name the goal by its id before its title, "G17 The Advisor's work…", the id in a colour of its own
+(`goalLabel`, `goalLabelNodes`), so a goal the person or the Advisor names by its id is found at a glance. A
+milestone keeps its own mark after the id ("G2 M1 · The loop is fun"); a ↗ reference box or row has the arrow before
+it; the top crumb, "Goals", has no id. The goal's title in `goals.md` is unchanged: renaming edits the title alone.
+
 **Editing the goal map (B256).** The person, 2026-10-15: "what is really important for me is the ability to quickly
 reorder things and to abstract things away, and change abstraction level." The Goals part changes `goals.md` at once,
 one change at a time, by the goal's id (`src/goalsWrite.mjs`): the file is read anew right before, the change made on

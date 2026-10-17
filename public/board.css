@@ -155,6 +155,9 @@ button, textarea, select { font: inherit; color: inherit; }
 .goal-box.is-before .goal-box-rect { stroke: var(--free); stroke-width: 3; stroke-dasharray: 0 384 92 20; }
 .goal-box.is-after .goal-box-rect { stroke: var(--free); stroke-width: 3; stroke-dasharray: 0 142 92 400; }
 .goal-box-title { font-size: 12.5px; font-weight: 600; }
+/* B284: a goal's id before its title, in the diagram, the outline, the breadcrumb and the frame. */
+.goal-box-id { fill: #8fa3c4; font-weight: 700; }
+.goal-id { color: #8fa3c4; font-weight: 700; font-variant-numeric: tabular-nums; }
 .goal-box-meta { font-size: 11px; fill: var(--muted) !important; }
 .goal-box-state { font-size: 10.5px; fill: var(--muted) !important; }
 .goal-box.is-now .goal-box-state { fill: var(--waiting) !important; }

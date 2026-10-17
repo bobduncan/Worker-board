@@ -3185,6 +3185,25 @@ function goalTreeLayout(goals, focusId, width) {
   return { width, height: Math.max(...bottoms) + 20, frame, boxes, lines, arrows, ghosts, moreGhosts }
 }
 
+/**
+ * B284: a goal as the map names it: its id before its title ("G17 The Advisor's work…"), so it can be named by its id
+ * anywhere; a milestone keeps its own "M1 ·" after the id. The top of the map (no id) is its title alone, and a title
+ * that already starts with its id does not say it twice.
+ */
+function goalLabel(node) {
+  const id = typeof node?.id === 'string' ? node.id : ''
+  const title = String(node?.title ?? '')
+  return id === '' || title === id || title.startsWith(`${id} `) ? title : `${id} ${title}`
+}
+
+/** B284: a drawn line of a goal's label in its parts: what stands before the id ("↗ "), the id, and the rest. */
+function goalIdSplit(line, id) {
+  const lead = line.startsWith('↗ ') ? '↗ ' : ''
+  const after = line.slice(lead.length)
+  if (typeof id !== 'string' || id === '' || !(after === id || after.startsWith(`${id} `))) return { lead: '', id: '', rest: line }
+  return { lead, id, rest: after.slice(id.length) }
+}
+
 /** A title in at most two lines of `most` characters, cut at a space; what does not fit ends in "…". */
 function goalTitleLines(title, most) {
   if (title.length <= most) return [title]
@@ -3326,7 +3345,9 @@ function drawGoals(state) {
   if (focus !== null) back.dataset.goal = crumb.at(-2).id ?? ''
   fill($('goals-crumb'), [back, ...crumb.flatMap((step, place) => {
     const isHere = place === crumb.length - 1
-    const part = isHere ? el('span', 'goals-here', step.title) : el('button', 'goals-link', step.title)
+    // B284: each goal with its id; the top ("Goals") has none.
+    const part = isHere ? el('span', 'goals-here') : el('button', 'goals-link')
+    part.append(...goalLabelNodes(step))
     if (!isHere) part.type = 'button'
     // B256: a crumb also takes a dropped goal, as its last goal inside.
     part.dataset.goal = step.id ?? ''
@@ -3368,7 +3389,7 @@ function drawGoals(state) {
   if (focus !== null) {
     const head = el('div', 'goals-frame-head')
     const isRenaming = goalsUi.editing?.kind === 'rename' && goalsUi.editing.id === focus.id
-    head.append(el('span', `goal-dot is-${focus.state}`), isRenaming ? goalEditorBox(goals) : el('b', 'goals-frame-title', focus.title), el('span', `goals-frame-state is-${focus.state}`, GOAL_STATES[focus.state] ?? focus.state))
+    head.append(el('span', `goal-dot is-${focus.state}`), isRenaming ? goalEditorBox(goals) : goalFrameTitle(focus), el('span', `goals-frame-state is-${focus.state}`, GOAL_STATES[focus.state] ?? focus.state))
     const lines = goalFrameLines(goals, focus)
     const summary = el('div', 'goals-frame-line')
     // Unfolded, the lines say it all: the folded line goes.
@@ -3429,7 +3450,9 @@ function drawGoals(state) {
     const dot = canEdit && !row.isRef ? goalButton(`goal-dot is-${row.state}`, '', { goalDot: row.id }) : el('span', `goal-dot is-${row.state}`)
     if (canEdit && !row.isRef) dot.title = `${GOAL_STATES[row.state]}: click for ${GOAL_STATES[goalNextState(row.state)]}`
     const isRenaming = goalsUi.editing?.kind === 'rename' && goalsUi.editing.id === row.id && !row.isRef && !row.isFocus
-    const title = isRenaming ? goalEditorBox(goals) : el('button', 'goal-title', row.isRef ? `↗ ${row.title}` : row.title)
+    // B284: its id first.
+    const title = isRenaming ? goalEditorBox(goals) : el('button', 'goal-title')
+    if (!isRenaming) title.append(...goalLabelNodes(row, row.isRef ? '↗ ' : ''))
     if (!isRenaming) {
       title.type = 'button'
       title.title = row.isRef ? 'Its home is elsewhere: zoom into it there' : 'Zoom in · Enter adds the next goal · F2 renames · drag to move'
@@ -3508,15 +3531,35 @@ function svgText(x, y, words, className) {
 }
 const cut = (words, most) => (words.length <= most ? words : `${words.slice(0, most - 1)}…`)
 
+/** B284: a goal's label as page nodes: its id in a span of its own colour, then its title; `lead` before them ("↗ "). */
+function goalLabelNodes(node, lead = '') {
+  const parts = goalIdSplit(`${lead}${goalLabel(node)}`, node.id)
+  return parts.id === '' ? [`${lead}${goalLabel(node)}`] : [parts.lead, el('span', 'goal-id', parts.id), parts.rest].filter(part => part !== '')
+}
+
+/** B284: the title in the head of the frame of the goal zoomed into, with its id. */
+function goalFrameTitle(focus) {
+  const title = el('b', 'goals-frame-title')
+  title.append(...goalLabelNodes(focus))
+  return title
+}
+
 function goalBoxGroup(goals, box) {
   const node = goalById(goals, box.id)
   const counts = node.counts
-  const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${node.title}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
+  const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${goalLabel(node)}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
   g.append(svgEl('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: 8 }, 'goal-box-rect'))
   const title = svgEl('text', { x: box.x + 10, y: box.y + 21 }, 'goal-box-title')
-  goalTitleLines(box.kind === 'ref' ? `↗ ${node.title}` : node.title, 21).forEach((line, index) => {
+  // B284: its id first, in a colour of its own.
+  goalTitleLines(`${box.kind === 'ref' ? '↗ ' : ''}${goalLabel(node)}`, 21).forEach((line, index) => {
     const span = svgEl('tspan', index === 0 ? {} : { x: box.x + 10, dy: 15 })
-    span.textContent = line
+    const parts = index === 0 ? goalIdSplit(line, node.id) : { lead: '', id: '', rest: line }
+    if (parts.id === '') span.textContent = line
+    else {
+      const id = svgEl('tspan', {}, 'goal-box-id')
+      id.textContent = parts.id
+      span.append(parts.lead, id, parts.rest)
+    }
     title.append(span)
   })
   g.append(title)
@@ -3804,7 +3847,7 @@ function goalMenuChoices(goals, node) {
   if (node.parent !== null && wanted.length === 0) list.append(goalButton('goals-choice', 'The top: a goal of its own', { moveInto: '' }))
   for (const other of into.slice(0, 20)) {
     const button = goalButton('goals-choice', '', { moveInto: other.id })
-    button.append(el('b', '', other.title), el('small', 'muted', ` · ${goalById(goals, other.parent)?.title ?? 'at the top'}`))
+    button.append(el('b', '', goalLabel(other)), el('small', 'muted', ` · ${goalById(goals, other.parent)?.title ?? 'at the top'}`))
     list.append(button)
   }
   if (into.length > 20) list.append(el('small', 'muted', `${into.length - 20} more: type a word of the title`))
