@@ -259,16 +259,17 @@ export function withDone(chat: ChatFile): ChatFile {
   return { ...chat, task: null }
 }
 
-/** The chat after it sent another chat a message: with a task open, that is its report. */
+/** B301: the chat after the board took its `work report`: its task is reported, and its card clears when the turn ends. */
 export function withSend(chat: ChatFile): ChatFile {
   return chat.task === null ? chat : { ...chat, task: { ...chat.task, isReported: true } }
 }
 
 /**
- * What a message a chat's model sends another chat is: its report, which ends its task, or a note. What goes to
- * another worker by its name (`others`) is never the report. Else by its first word when it has one of the three
- * ("Report", "Note", "Question"); else a message to the main chat by its name is the report, and one to anybody
- * else, or to an address that names nobody, is a note. `list` names the main chat.
+ * What a message a chat's model sends another chat is: a report, or a note (a note or a question, after which the chat
+ * waits for that chat). What goes to another worker by its name (`others`) is a note. Else by its first word when it
+ * has one of the three ("Report", "Note", "Question"); else a message to the main chat by its name is a report, and one
+ * to anybody else, or to an address that names nobody, is a note. `list` names the main chat. B301: a report message
+ * ends nothing: a step ends with `work report`.
  */
 export function sentKind({ to, text, list, others = [] }: { to: string; text: string; list: ChatList | null; others?: readonly string[] }): 'report' | 'note' {
   const name = to.replace(/\s\[[^\]]*\]$/, '').trim().toLowerCase()
@@ -439,44 +440,19 @@ export function chatNote(me: ChatFile, tool: string): string {
     + 'lists yours, and the flow file says who moves an item and when. '
   if (me.role === 'main') {
     return `${shared}Your card clears when you call "done" together with the last tool call of the request, or when `
-      + 'you record the next request. Handing a task to a worker is not a report. A worker that has grown large is '
-      + 'compacted by itself when the turn in which it reported a task ends. When the task after the one you hand over '
-      + `continues the same work, open your message with "Task from ${me.name} (more follows):" and the worker is not `
-      + 'compacted in between.'
+      + `you record the next request. You hand a step to a worker with ${work} action "queue": the board delivers it; no `
+      + 'message carries a task. A worker that has grown large is compacted by itself when the turn in which it reported '
+      + 'a step ends, unless another step is queued for it.'
   }
-  return `${shared}Your card clears by itself when you report to the main chat with SendMessage and your turn ends: `
-    + `start that message with "Report from ${me.name}:". A message to the main chat that is not your final report `
-    + `starts with "Note from ${me.name}:" or "Question from ${me.name}:", and then the card stays; a message to `
-    + 'another worker never clears it. When there is no report to send, call "done" together with your last tool call.'
-}
-
-/** Where the person's own words come from: typed here or on another device, or typed in for them by a mod. */
-const PERSON_KINDS: readonly string[] = ['composer', 'bridge', 'sdk', 'plugin']
-
-/**
- * A task the main chat hands over, as it arrives at a worker: a message of the main chat whose first line opens as
- * a task ("Task from ...", "Next task from ...", "Two tasks from ..."). `moreFollows` when that line says that the
- * task after this one continues the same work ("(more follows)"): the chat is then not compacted in between. Null
- * for anything else: a note, another worker's message, what the person types.
- */
-export function handOver(text: string, origin: { kind?: string } | undefined, list: ChatList | null): { moreFollows: boolean } | null {
-  // What the person types is never a hand-over, whatever it reads like, a pasted frame too: only what the app
-  // brings in from elsewhere counts, in the frame it puts around another chat's message, with the main chat's name.
-  if (list === null || origin?.kind === undefined || PERSON_KINDS.includes(origin.kind)) return null
-  const tag = /<cross-session-message\b[^>]*\bname="([^"]*)"[^>]*>\s*([^\n]*)/.exec(text)
-  if (tag === null) return null
-  const [, name = '', first = ''] = tag
-  if (name.trim().toLowerCase() !== `${list.prefix}${list.main}`.toLowerCase()) return null
-  // "Task from", "Next task from", "Two tasks from", behind whatever marks stand before it ("**Task from").
-  if (!/^[^a-z]{0,8}(?:\w+\s+){0,2}tasks?\s+from\b/i.test(first)) return null
-
-  return { moreFollows: /\(more follows\)/i.test(first) }
+  return `${shared}Your card clears by itself when you report your step with ${work} action "report" and your turn `
+    + 'ends; no message to another chat clears it or ends a step. When you worked on no step, call "done" together with '
+    + 'your last tool call.'
 }
 
 /**
  * Why a chat is NOT compacted when the turn in which it reported its task has ended, in a few words; null when it
- * is to be compacted. Only a worker at rest: its task reported and cleared, larger than `above` tokens, and no word
- * from the main chat that more of the same work follows (the chat would have to read the same files again). B227: a
+ * is to be compacted. Only a worker at rest: its task reported and cleared, larger than `above` tokens, and (B301) no
+ * next step the board named in its answer to the report (the chat would have to read the same files again). B227: a
  * question its answer leaves with the person no longer keeps it, since nearly every report asks one: the compaction
  * keeps open questions word for word (`compactKeep`). The engine allows a compaction only between turns,
  * so this is the moment before the next task.

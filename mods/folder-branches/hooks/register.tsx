@@ -10,7 +10,7 @@ import type { ChatFile, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } f
 import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_PATH, boardStarts, parseBoard, parseTaken } from './board'
 import type { Board, BoardStart } from './board'
 import {
-  BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, handOver, chatText, chatsSummary, fileName,
+  BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, sentKind, sessionOf, status, uniqueByName,
   withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
@@ -81,16 +81,14 @@ let isCardSeen = false
 const TELL_MS = 20000
 /** True once the chat sent another chat a note or a question in this turn: it then waits for that chat. */
 let hasAsked = false
-/** True once the chat reported its task to the main chat in this turn. */
+/** B301: true once the chat reported its step with the work tool in this turn (`work report`, taken by the board). */
 let hasReported = false
 /**
- * True when the task handed over last said that more of the same work follows: no compaction after its report. It
- * holds for that one report, and it is not kept over a restart of the app: the chat is then compacted between the
- * two parts after all, which costs it a second reading and nothing else.
+ * B301: true when the board answered that report with the chat's next step (it holds another step queued or taken):
+ * more of the same work follows, so no compaction after it. Not kept over a restart of the app: the chat is then
+ * compacted between the two after all, which costs it a second reading and nothing else.
  */
 let moreFollows = false
-/** The same word of a hand-over that came in while a turn ran: it counts once that turn has ended. Null: none came. */
-let followsNext: boolean | null = null
 /** True while the worker board is asked, so two ticks never take at once. */
 let isTaking = false
 /** The board's messages typed in this process: one the board hands out again is not typed again. */
@@ -99,8 +97,6 @@ const typedIds = new Set<string>()
 let turnStartedAt: number | null = null
 /** B298: true once the board was told that this turn ended: a second end of the same turn tells it nothing. */
 let isTurnEndTold = true
-/** Review of B298: until when the board's store is known not to be the truth yet (a 409): nothing is asked till then. */
-let notTruthUntil = 0
 /** Review of B298: true once the board named this chat's open instructions in this process. */
 let isOpenKnown = false
 /** B298: this chat's open instructions, as the board last answered them. */
@@ -375,21 +371,15 @@ async function workOnBoard($: EngineInterface, fields: Record<string, unknown>):
 
 /**
  * B298: one call of the work tool made by the mod itself (an instruction filed, a turn ended): the board's answer as
- * fields, or null when there is none (no board, a store that is not the truth yet, a refusal). Silent: nothing changes
- * for the chat when the board does not take it.
+ * fields, or null when there is none (no board, no work store, a refusal). Silent: nothing changes for the chat when
+ * the board does not take it; the board says on its own page what is wrong.
  */
 async function workQuietly($: EngineInterface, fields: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   try {
     if (myself === null) await withinTime($, changeMine($, () => null))
-    const now = await $.clock.now()
-    if (now < notTruthUntil) return null
     // Review of B298: a board that hangs or starts anew holds the person's prompt a moment at most.
     const answer = await withinTime($, workOnBoard($, fields))
-    if (answer === null) return null
-    if (!answer.ok) {
-      if (answer.status === 409 && /not the truth yet/i.test(answer.text)) notTruthUntil = now + NOT_TRUTH_MS
-      return null
-    }
+    if (answer === null || !answer.ok) return null
     const read: unknown = JSON.parse(answer.text)
     if (typeof read !== 'object' || read === null || Array.isArray(read)) return null
     const open = openFrom(read)
@@ -405,8 +395,6 @@ async function workQuietly($: EngineInterface, fields: Record<string, unknown>):
 
 /** Review of B298: how long the mod's own calls to the board may hold a prompt, a turn's end or a form. */
 const BOARD_WAIT_MS = 1500
-/** Review of B298: how long a store that is not the truth yet is not asked again. */
-const NOT_TRUTH_MS = 5 * 60_000
 
 /** Review of B298: the answer of `run`, or null when it takes longer than the board may hold anything. */
 async function withinTime<T>($: EngineInterface, run: Promise<T>): Promise<T | null> {
@@ -842,7 +830,7 @@ const WORK_TOOL = {
     + 'do; put the "For you" block it answers into your answer. "withdraw" ("id", "why"): take your own ask back when '
     + 'it is no longer needed; a step that waited on it goes on. "answered-in-chat" ("id", "text"): the person answered '
     + 'one of your asks here in the chat: their words, so the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
-    + 'never a question. "report" ("id", "result", "merged"): your step is done; the board checks it and tells the main '
+    + 'never a question. "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
     + 'chat. "block" and "unblock" ("id", "on"). "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
     + '"for", "after", "about"): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "questions") and "refined" ("id", "what"): '
@@ -984,9 +972,6 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // B63: a task of the main chat arrives. The engine allows no compaction here (it would run under the turn that is
-  // about to start), so the hand-over only says whether more of the same work follows; the compaction itself runs
-  // when the turn in which the task is reported has ended.
   on('prompt.submit', async ($, e, next) => {
     // B298: the person's words are filed on the worker board before the turn sees them, also while a turn runs (the app
     // holds them until then): nothing they say is lost. Beside the prompt, for the model only, its id and the person's
@@ -1000,17 +985,6 @@ export const register: Register = on => {
       } else if (!isOpenKnown && myself !== null) await workQuietly($, { action: 'next' })
       const open = instructionsLine(openInstructions)
       if (open !== null) context.push(open)
-    }
-    try {
-      const dir = await findChatsDir($)
-      const list = dir === null ? null : parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
-      const task = handOver(e.text, e.origin, list)
-      // Delivered into a running turn, it counts once that turn has ended: until then the task before it is the one
-      // whose report is awaited.
-      if (task !== null && (e.turnId !== undefined || isInTurn)) followsNext = task.moreFollows
-      else if (task !== null) moreFollows = task.moreFollows
-    } catch {
-      // the last word on it stands
     }
 
     return next(context.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...context] })
@@ -1080,16 +1054,12 @@ export const register: Register = on => {
       if (e.agentId === undefined) {
         isInTurn = false
         await say($, 'waiting', e.reason)
-        // B63: the task was reported in this turn and the turn has ended: the moment a large chat is compacted.
-        // Both words are used up here, so neither a second end of the same turn nor a later task finds them.
+        // B63: the step was reported in this turn (B301: `work report`) and the turn has ended: the moment a large chat
+        // is compacted. Both words are used up here, so neither a second end of the same turn nor a later step finds them.
         const isReported = hasReported && e.reason === 'answer'
         const at = { moreFollows }
         hasReported = false
-        if (isReported) moreFollows = false
-        if (followsNext !== null) {
-          moreFollows = followsNext
-          followsNext = null
-        }
+        moreFollows = false
         if (isReported) await compactAfter($, at).catch(err => tell($, `Not compacted after this task: ${reason(err)}`))
         // B298: a turn that answered has ended: the board marks the instructions filed before it and still open as missed.
         if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
@@ -1097,8 +1067,8 @@ export const register: Register = on => {
           const since = turnStartedAt
           // B300: a worker that holds nothing pulls with the same call, once per turn: when a step queued for it may be
           // taken now, the board puts its line ("work: B286 is yours; run work next") into the outbox once, and it is
-          // typed here at once. All of it holds the turn's end 1.5 s at most; while the store is not the truth the board
-          // refuses, and the mod asks again only after five minutes.
+          // typed here at once. All of it holds the turn's end 1.5 s at most; a board without a work store refuses, and
+          // nothing changes for the chat (the board says so on its page).
           await withinTime($, (async () => {
             const pulls = await holdsNothing($)
             const ended = await workQuietly($, { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}) })
@@ -1143,24 +1113,19 @@ export const register: Register = on => {
     }
   })
 
-  // A message this chat's model sends another chat while it has a task is its report: the task ends with the turn.
+  // A note or a question this chat's model sends another chat while it has a task: the card then says it waits for that
+  // chat. B301: no message ends a task; a step ends with `work report` (below).
   on('session.send', async ($, e, next) => {
     const sent = await next(e)
     try {
       if (sent.isDelivered && e.origin.kind === 'model' && e.agentId === undefined && !(await isOwnAgent($, e.to))) {
-        // A report to the main chat ends the task; a note, a question, or a message to another worker does not.
         const dir = await findChatsDir($)
         const list = dir === null ? null : parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
         const others = list === null ? [] : (await readChats($).catch((): ChatRow[] => [])).filter(row => row.role !== 'main').map(row => row.name)
         if (sentKind({ to: e.to, text: e.text, list, others }) === 'note') hasAsked = true
-        else {
-          hasReported = true
-          // The main chat hands work out with its messages: for it, a message is no report.
-          await changeMine($, chat => (chat.role === 'main' || chat.task === null || chat.task.isReported ? null : withSend(chat)))
-        }
       }
     } catch {
-      // the message went out; the line is cleared by hand then
+      // the message went out
     }
 
     return sent
@@ -1244,6 +1209,14 @@ export const register: Register = on => {
     // B298: a close (or next) tells which of the person's instructions stay open.
     const open = openFrom(read)
     if (open !== null) openInstructions = open
+    // B301: the board took the report: the step is done for this chat. Its card clears when the turn ends, and a large
+    // chat is compacted then, unless the board names its next step (more of the same work follows).
+    if (action === 'report') {
+      hasReported = true
+      moreFollows = typeof read.more === 'string' && read.more !== ''
+      await changeMine($, chat => (chat.task === null || chat.task.isReported ? null : withSend(chat)))
+      return { result: text }
+    }
     if (action !== 'take' && action !== 'step') return { result: text }
     isCardSeen = true
     const card = {

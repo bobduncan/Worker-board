@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { ChatFile, ChatTask } from '../types'
 import {
-  LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactWhy, handOver, sentKind, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
+  LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactWhy, sentKind, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
   withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, recordedLine,
 } from './chats'
@@ -336,12 +336,13 @@ describe('which chats are in the list', () => {
     for (const note of [worker, main]) {
       for (const part of ['"plan"', '"names"', '"minutes"', '"stepMinutes"', '"step"', 'at the start of every request', 'never as a step of their own', 'survives a compaction']) expect(note).toContain(part)
     }
-    expect(worker).toContain('clears by itself when you report')
-    expect(worker).toContain('"Report from Units:"')
-    expect(worker).toContain('"Question from Units:"')
-    expect(main).toContain('Handing a task to a worker is not a report')
-    // The main chat can keep a worker from being compacted between two tasks on the same work.
-    expect(main).toContain('"Task from Main (more follows):"')
+    // B301: a step ends with the work tool's report, never with a message; a step is handed out with "queue".
+    expect(worker).toContain('clears by itself when you report your step with mcp__folder-branches__work action "report"')
+    expect(worker).toContain('no message to another chat clears it or ends a step')
+    expect(worker).not.toContain('Report from')
+    expect(main).toContain('mcp__folder-branches__work action "queue"')
+    expect(main).toContain('no message carries a task')
+    expect(main).not.toContain('Task from')
     // B297: one line names the work tool, and that the flow file says who moves an item.
     for (const note of [worker, main]) for (const part of ['mcp__folder-branches__work', '"next"', 'flow file']) expect(note).toContain(part)
     // The note is part of the system prompt: it reads the same whatever the chat is doing.
@@ -350,25 +351,6 @@ describe('which chats are in the list', () => {
 })
 
 describe('a large chat is compacted after it reported its task', () => {
-  const list = { prefix: 'Game - ', main: 'Main' }
-  const from = (name: string, body: string): string => `Another Claude session sent a message:\n<cross-session-message from="local_84e3" name="${name}">\n${body}\n</cross-session-message>`
-
-  test('a hand-over is a message of the main chat that opens as a task; it says when more of the same work follows', () => {
-    expect(handOver(from('Game - Main', 'Task from Game - Main: the knight'), { kind: 'peer' }, list)).toEqual({ moreFollows: false })
-    expect(handOver(from('Game - Main', 'Task from Game - Main (more follows): the knight, part one'), { kind: 'peer' }, list)).toEqual({ moreFollows: true })
-    expect(handOver(from('Game - Main', 'Two tasks from Game - Main: a and b'), { kind: 'peer' }, list)).toEqual({ moreFollows: false })
-    expect(handOver(from('Game - Main', '**Task from Game - Main (more follows):** the knight, part one'), { kind: 'peer-send-message' }, list)).toEqual({ moreFollows: true })
-    // A note of the main chat that only has the word in it is no hand-over.
-    expect(handOver(from('Game - Main', 'Task detail from Game - Main: use sheet B'), { kind: 'peer' }, list)).toBeNull()
-    // A note of the main chat, a task from another worker, and what the person types are no hand-over.
-    expect(handOver(from('Game - Main', 'From Game - Main, no task: thanks'), { kind: 'peer' }, list)).toBeNull()
-    expect(handOver(from('Game - Features', 'Task from Game - Features: merge this'), { kind: 'peer' }, list)).toBeNull()
-    expect(handOver('Task from Game - Main: typed by hand', { kind: 'composer' }, list)).toBeNull()
-    // The frame itself, pasted by the person or typed in for them, is theirs all the same.
-    for (const kind of ['composer', 'bridge', 'sdk', 'plugin']) expect(handOver(from('Game - Main', 'Task from Game - Main (more follows): x'), { kind }, list)).toBeNull()
-    expect(handOver(from('Game - Main', 'Task from Game - Main: x'), undefined, list)).toBeNull()
-    expect(handOver(from('Game - Main', 'Task from Game - Main: x'), { kind: 'peer' }, null)).toBeNull()
-  })
 
   test('it is compacted only when it is large, at rest, and no more of the same work follows', () => {
     const at = { tokens: 400_000, above: 250_000, moreFollows: false }
