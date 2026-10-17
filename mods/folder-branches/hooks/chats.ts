@@ -576,3 +576,33 @@ export function recordedLine(filed: readonly string[], missed: readonly OpenInst
   if (left.length > 0) parts.push(`Still open from earlier turns: ${left.map(one => `${one.id} (missed ${one.turns} turn${one.turns === 1 ? '' : 's'})`).join(', ')}.`)
   return parts.length === 0 ? null : parts.join(' ')
 }
+
+/** B299: one question of the app's question form, as the worker board files it: its words and its options. */
+export type FormQuestion = { text: string; options: string[] }
+
+/** B299: the questions an AskUserQuestion call asks (`questions: [{ question, options: [{ label }] }]`), at most four. */
+export function formQuestions(input: unknown): FormQuestion[] {
+  const list = typeof input === 'object' && input !== null ? (input as { questions?: unknown }).questions : undefined
+  if (!Array.isArray(list)) return []
+  return list.slice(0, 4).flatMap(one => {
+    const text = typeof one === 'object' && one !== null ? (one as { question?: unknown }).question : undefined
+    if (typeof text !== 'string' || text.trim() === '') return []
+    const raw = (one as { options?: unknown }).options
+    const options = Array.isArray(raw) ? raw.map(option => (typeof option === 'object' && option !== null ? (option as { label?: unknown }).label : option)).filter((label): label is string => typeof label === 'string' && label.trim() !== '') : []
+    return [{ text: text.trim(), options }]
+  })
+}
+
+/** B299: what the person chose in the app's form for a question, from the tool's result (`answers` by question); '' for none. */
+export function formAnswer(result: unknown, question: string): string {
+  const answers = typeof result === 'object' && result !== null ? (result as { answers?: unknown }).answers : undefined
+  if (typeof answers !== 'object' || answers === null) return ''
+  const given = (answers as Record<string, unknown>)[question]
+  if (Array.isArray(given)) return given.filter(one => typeof one === 'string').join(', ')
+  return typeof given === 'string' ? given : ''
+}
+
+/** B299: the step a chat's card names first ("B12 Give the golem ..."), for an ask under it; null when none. */
+export function cardStep(chat: ChatFile | null): string | null {
+  return chat?.task?.text.match(/\bB\d+\b/)?.[0] ?? null
+}

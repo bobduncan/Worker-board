@@ -11,7 +11,7 @@ import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_PATH, 
 import type { Board, BoardStart } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, handOver, chatText, chatsSummary, fileName,
-  foldersAbove, hasLeft, instructionsLine, isAgentId, isFiled, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, sentKind, sessionOf, status, uniqueByName,
+  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, sentKind, sessionOf, status, uniqueByName,
   withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
@@ -391,6 +391,26 @@ async function workQuietly($: EngineInterface, fields: Record<string, unknown>):
   } catch {
     return null
   }
+}
+
+/** B299: files the questions of the app's question form on the board as asks: `[{ id, text }]` of those it took. */
+async function fileForm($: EngineInterface, input: unknown): Promise<{ id: string; text: string }[]> {
+  const filed: { id: string; text: string }[] = []
+  try {
+    const questions = formQuestions(input)
+    if (questions.length === 0) return filed
+    const dir = await findChatsDir($)
+    const of = dir === null ? null : cardStep(await readChat($, dir, await $.session.id()))
+    for (const question of questions) {
+      const ask = { action: 'ask', kind: 'decide', via: 'form', text: question.text, options: question.options }
+      // Under the card's step when the board takes it there, else on its own.
+      const made = (of === null ? null : await workQuietly($, { ...ask, of })) ?? await workQuietly($, ask)
+      if (typeof made?.id === 'string') filed.push({ id: made.id, text: question.text })
+    }
+  } catch {
+    // the form is asked all the same
+  }
+  return filed
 }
 
 /** Tells the board what became of the messages this chat took: typed here, or not. */
@@ -774,7 +794,7 @@ const CHAT_TOOL = {
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
   'pictures', 'play', 'to', 'result', 'merged', 'on', 'title', 'activity', 'goal', 'for', 'after', 'about', 'as', 'why', 'summary', 'picture', 'size',
-  'questions', 'what']
+  'questions', 'what', 'advice']
 
 /** B297: the tool a chat works its items with: the worker board's work store. */
 const WORK_TOOL = {
@@ -785,7 +805,7 @@ const WORK_TOOL = {
     + 'instructions and your steps, the first in full. "take" ("id", "branch"): start a step queued for you; it also '
     + 'names your card after the step. "step" ("id", "step", "names", "minutes", "stepMinutes"): the step of your plan '
     + "you are on, as the chat tool's \"plan\" and \"step\", which it writes to your card too. \"ask\" (\"of\" the step, \"kind\" "
-    + 'decide, look, provide or do, "blocking", "text", "options", "pictures", "play"): something only the person can '
+    + 'decide, look, provide or do, "blocking", "text", "options", "advice", "pictures", "play"): something only the person can '
     + 'do; put the "For you" block it answers into your answer. "withdraw" ("id", "why"): take your own ask back when '
     + 'it is no longer needed; a step that waited on it goes on. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question. "report" ("id", "result", "merged"): your step is done; the board checks it and tells the main '
@@ -808,7 +828,8 @@ const WORK_TOOL = {
       kind: { type: 'string', enum: ['decide', 'look', 'provide', 'do'], description: 'ask: what you ask of the person.' },
       blocking: { type: 'boolean', description: 'ask: true when your work waits for the answer.' },
       text: { type: 'string', description: 'ask, note, new: the words.' },
-      options: { type: 'array', items: { type: 'string' }, description: 'ask: the options, your advice marked.' },
+      options: { type: 'array', items: { type: 'string' }, description: 'ask: the options, each with its letter ("A thin").' },
+      advice: { type: 'string', description: 'ask: the option you advise, in a few words ("B").' },
       pictures: { type: 'array', items: { type: 'string' }, description: 'ask: pictures to look at, as paths in the project.' },
       play: { type: 'string', description: "ask: where to play it, as the board's play link names it." },
       to: { type: 'string', enum: ['you', 'main'], description: 'note: the person or the main chat.' },
@@ -1056,14 +1077,25 @@ export const register: Register = on => {
   })
 
   // A question to the person holds the turn: the list says whose move it is.
+  // B299: each question is filed on the worker board as an ask of kind decide (the app's form: answered in the chat
+  // only), under the step the card names when the board takes it there, so the board shows it too; once the form is
+  // answered, or closed without an answer, the board is told.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     await say($, 'asking')
+    const filed = await fileForm($, e)
+    let result: unknown
     try {
-      return await next(e)
+      const out = await next(e)
+      result = out
+      return out
     } finally {
       // An interrupted turn has ended by now: its file is not set back to working.
       if (isInTurn) await say($, 'working')
+      for (const one of filed) {
+        const answer = formAnswer((result as { result?: unknown } | undefined)?.result, one.text)
+        await workQuietly($, answer === '' ? { action: 'withdraw', id: one.id, why: 'the question form was closed without an answer' } : { action: 'answered-in-chat', id: one.id, text: answer })
+      }
     }
   })
 

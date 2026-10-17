@@ -54,10 +54,13 @@ type World = {
   /** B297: each call of the work tool that reached the board, and what the board answers it. */
   worked: string[]
   workAnswer: { status: number; text: string }
+  /** B299: what the person picks in the app's question form, by question; the board's answers to the work tool, in turn. */
+  formAnswers: Record<string, string>
+  workAnswers: { status: number; text: string }[]
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' } }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -130,7 +133,7 @@ function stand(on: On, w: World): void {
   on('tool.call', { tool: 'AskUserQuestion' }, () => {
     w.whileAsked = fileOf(w)
 
-    return { result: { answers: {} } }
+    return { result: { answers: w.formAnswers } }
   })
   on('fs.exists', (_$, e) => {
     const path = slashed(e.path)
@@ -169,8 +172,9 @@ function stand(on: On, w: World): void {
     if (w.up !== null && !w.up.some(address => e.url.startsWith(address))) return { deny: 'ECONNREFUSED' }
     if (e.url.endsWith('/api/bridge/work')) {
       w.worked.push(e.init?.body ?? '')
+      const answer = w.workAnswers.shift() ?? w.workAnswer
 
-      return { value: { status: w.workAnswer.status, ok: w.workAnswer.status === 200, headers: {}, text: w.workAnswer.text } }
+      return { value: { status: answer.status, ok: answer.status === 200, headers: {}, text: answer.text } }
     }
     if (e.url.endsWith('/api/bridge/typed')) {
       w.reported.push(e.init?.body ?? '')
@@ -1230,5 +1234,55 @@ describe('B298: the person\'s words are filed on the worker board as instruction
     const composed = await $.prompt.compose(COMPOSE)
     expect(composed.sections.some(section => section.id === 'folder-branches:instructions')).toBe(false)
     expect(w.toasts).toEqual([])
+  })
+})
+
+describe('B299: a question asked with the app’s form stands on the worker board too', () => {
+  const BOARD = 'C:/Web/project/.claude/board.json'
+  const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
+  const FORM = { tool: 'AskUserQuestion', questions: [{ question: 'Which port?', header: 'Port', multiSelect: false, options: [{ label: '4320', description: 'free' }, { label: '4330', description: 'taken' }] }] }
+  const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
+  const working = { units: { name: 'Units', role: 'worker' as const, state: 'waiting' as const, task: task('B12 Give the golem', 1, 3, 20), at: 0 } }
+
+  test('it is filed as a decide ask under the card’s step, and the answer given in the form follows', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(working), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'Q4', text: '> **For you**' }) }
+    w.formAnswers = { 'Which port?': '4320' }
+    await $.tool.call(FORM as never)
+    expect(sent(w)).toEqual([
+      { action: 'ask', kind: 'decide', via: 'form', text: 'Which port?', options: ['4320', '4330'], of: 'B12', chat: 'Units', session: 'units' },
+      { action: 'answered-in-chat', id: 'Q4', text: '4320', chat: 'Units', session: 'units' },
+    ])
+  })
+
+  test('refused under the step it stands alone; a form closed without an answer is withdrawn', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(working), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswers = [{ status: 409, text: 'B12 is Board’s' }, { status: 200, text: JSON.stringify({ id: 'Q5' }) }]
+    await $.tool.call(FORM as never)
+    expect(sent(w).map(one => [one.action, one.of ?? null, one.id ?? null])).toEqual([['ask', 'B12', null], ['ask', null, null], ['withdraw', null, 'Q5']])
+  })
+
+  test('while the store is not the truth nothing is filed and the form is asked as before', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 409, text: 'The store is not the truth yet: the cutover has not run' }
+    const asked = await $.tool.call(FORM as never)
+    expect(asked.result).toEqual({ answers: {} })
+    expect(sent(w).map(one => one.action)).toEqual(['ask'])
+    expect(w.whileAsked?.state).toBe('asking')
   })
 })
