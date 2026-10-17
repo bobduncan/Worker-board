@@ -96,6 +96,21 @@ never the user's word.
 In every round, bring the way to the next milestone up to date (above). End every round with its line in the
 decisions page.
 
+## Steps under no goal
+
+The board's Goals part shows "Not under a goal: N steps": the open steps of the backlog that no goal's `Steps:` line
+names. In every round, link every open step to a goal: add its id to the `Steps:` line of the goal it serves (the
+deepest goal that fits; a goal without the line gets one). Your own suggestions are not linked.
+
+- A step that fits no goal is flagged as a suggestion (see "Your suggestions") with a proposed goal:
+  `Decide: Add the goal "<title>" for B<id>`, with `Why:` (the step, and why no goal fits), `Cost:` (about the
+  step's own time) and `Unblocks: B<id>`. The limit of five open suggestions holds: a step beyond it stays unlinked
+  until a later round. A step that already has an open suggestion waits for the user's answer: do not flag it again.
+- Accepted: write the goal where it belongs and link the step. Rejected: link the step to the goal nearest to it and
+  suggest no goal for it again.
+- Change only `Steps:` lines, and add a goal only after the user accepted it: never a step's title or its other
+  lines.
+
 ## The check before work
 
 Before the main chat hands out a big step (over about an hour) or the first or second of a new kind, it asks you.
@@ -112,22 +127,27 @@ may name the user's own examples.
 ## Refine a step
 
 The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in
-a step's window: it is their word. Read the step and the lines under it in the backlog, and what it touches, then
-write its refine block under the step's other lines (before a closing line in brackets), the only change you make.
+a step's window: it is their word. It also types it by itself, one step at a time (B285, the user: every step is
+refined before it goes into a queue): once for every new step, for a step about to be queued (the user asked to queue
+it, or the main chat queued it before it was refined), and once more when the user's answers wait to be folded in.
+Do the same for those. Read the step and the lines under it in the backlog, and what it touches, then write its refine
+block under the step's other lines (before a closing line in brackets), the only change you make. What a refined step
+is, as the user approved it on 2026-10-17 ("1 fully comprehensive description that is compact with pictures and
+summary. that doesnt read like it was in progress text"), in two stages:
 
-A refined step is one compact description (B293, the user's yes of 2026-10-17: "the goal is to have 1 fully
-comprehensive description that is compact with pictures and summary. that doesnt read like it was in progress
-text"). While questions are open, the block reads:
+**While refining:**
 
-    Refined (round <n>, by <your title>, <YYYY-MM-DD HH:MM>):
+    Refined (<YYYY-MM-DD HH:MM>):
     Summary: <one or two plain lines for the user: what they get; no file names>
     Picture: <a picture's path under the pictures folder> (<what it shows, in a few words>)
-    Part of: <its goal and milestone on the goal map, for example G9 M2 · the milestone's title>
-    Size: about <time>
+    Part of: <its goal and milestone on the goal map, "G9 M2 · <title>">
+    Size: <about N hours; over about 4, cut it into steps>
     Questions:
-    - <one line, answered with yes or no> Advised: yes, <the reason in a few words>
+    - <a question that changes the work, one line, answered with yes or no> Advised: yes, <the reason in a few words>
 
-Once every question is answered, it reads:
+**Ready,** once every question is answered (the user's answers stand behind them as ` Answer: ...`, their feedback
+under `Feedback:`): fold the answers and the feedback into "What we build" and remove the questions, the answers and
+the feedback. It reads as the finished description, not as a talk:
 
     Refined (<YYYY-MM-DD HH:MM>; ready):
     Summary: ...
@@ -138,19 +158,20 @@ Once every question is answered, it reads:
     - <a short point, with every decision folded in>
     - Not in it: <what is left out, and why in a few words>
 
+- Only a block whose first line says `; ready` counts as refined: the board queues the step only then. A block in the
+  older form (Problem, Goal, rounds) is not refined: rewrite it in this form at its next round.
 - **Picture**: what we build, in most cases: a mock-up, the options side by side, or a sketch of the flow; make one
-  when there is none yet. Left out only when there is nothing to see: `Picture: none (<why, in a few words>)`.
+  when there is none yet. Left out only when there is nothing to see: `Picture: none (<why, in a few words>)`. Keep
+  the path and what it shows on one line.
 - **Part of**: a step that fits no goal gets the goal you propose for it.
-- **Size**: about 4 hours at most; a bigger step gets a question whether to cut it, with the cut you advise. No other
-  step on the backlog or in a queue may do the same work: ask about it when one does.
-- **Questions**: at most five, only what changes the work, each one line with `Advised: yes` or `Advised: no` and its
-  reason. The board shows them with Yes and No; "Take the advice" answers every open one with your advice.
-- From round 2 on the user's answers stand behind their questions (` Answer: yes`, or their own words) and their
-  feedback under `Feedback:` (`- Round <n>: ...`). When none is left open and nothing new follows from them, write the
-  ready form: fold every answer and the feedback into "What we build", and drop the questions, the feedback and the
-  round. When an answer raises a new question, write one more short round with only that question, and keep what is
-  settled under "What we build" already. A block in the older form (`Problem:`, `Goal:`) gets this form at its next
-  round. Never change the step's title or its other lines: the technical detail (Requirements, Touches) stays there.
+- **Questions**: at most five, only what changes the work, each one line ending in `Advised: yes` or `Advised: no`
+  and its reason (B293): the board shows them with Yes and No, and "Take the advice" answers every open one with your
+  advice. An answer may also be the user's own words. An answer that raises a new question opens one more short round
+  with only that question; keep what is settled under "What we build" already. No question at all: write it ready at
+  once.
+- No other step on the backlog or in a queue may do the same work: say so as a question when one does.
+- The technical detail (Requirements, Touches) stays in the step's own lines, written by the main chat; never change
+  the step's title or its other lines.
 - Ask nothing in your chat about it: the user answers in the step's window. Your turn ends when the block is written.
 
 ## Your suggestions

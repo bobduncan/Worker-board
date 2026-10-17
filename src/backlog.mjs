@@ -285,6 +285,51 @@ function addRefined(refined, part, line, isMore) {
     : { text: advised[1].trim(), answer, advice: advised[2].toLowerCase(), why: advised[3].trim() })
 }
 
+/**
+ * B285: whether a step is refined, so it may go into a queue: its block's head says "; ready" (what "refined" means,
+ * approved by the person on 2026-10-17: the Advisor folded every answer into one compact description). A block
+ * without it, also one in the older form with every question answered, is not refined; nor is a step without one.
+ */
+export function isRefined(refined) {
+  return refined !== null && refined !== undefined && refined.ready === true
+}
+
+/**
+ * B285, B286: where a step stands in its refine: `none` (no block), `asking` (the Advisor works on it: `refineAsk`
+ * is open), `answers` (questions wait for the person's answers), `answered` (none open, or accepted, but not folded
+ * in yet: the Advisor's next round makes it ready) or `ready` (its head says "; ready"). `step` holds `refined` and
+ * `refineAsk`.
+ */
+export function refineStateOf(step) {
+  if (step.refineAsk?.isOpen === true) return 'asking'
+  const refined = step.refined ?? null
+  if (refined === null) return 'none'
+  if (refined.ready === true) return 'ready'
+  return refined.accepted === null && refined.questions.some(question => question.answer === null) ? 'answers' : 'answered'
+}
+
+/**
+ * B285: a short key of a refine block as it stands (its round, head, parts, questions with their answers, feedback),
+ * null for none: an ask remembers the block it was made about, and a block that changed since answers it.
+ */
+export function refinedKey(refined) {
+  if (refined === null || refined === undefined) return null
+  let hash = 0x811c9dc5
+  for (const char of JSON.stringify(refined)) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0
+  return hash.toString(36)
+}
+
+/**
+ * B285: when the block's head says it was written (its date and time, on this PC's clock), in ms; null when it does
+ * not say.
+ */
+export function refinedAt(refined) {
+  const at = refined?.at ?? null
+  if (at === null) return null
+  const ms = Date.parse(at.replace(' ', 'T'))
+  return Number.isFinite(ms) ? ms : null
+}
+
 /** B233: a step's notes without its refine block, which the step's window shows apart. */
 export function withoutRefined(notes) {
   const span = refinedSpan(notes)

@@ -5,12 +5,12 @@ import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue } from './backlog.mjs'
+import { allWords, closedForYou, forYou, inProgress, noteSections, overview, parseBacklog, queue, refinedAt, refinedKey, refineStateOf } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList, reportsOf } from './finished.mjs'
-import { goalCounts, parseGoals } from './goals.mjs'
+import { goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, parseUsageHistory, pauseNote, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
@@ -19,7 +19,7 @@ import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
-import { backgroundRunning, conversation, doingNow, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
+import { backgroundRunning, conversation, doingNow, finishedBetween, lastFinish, lastReport, parseTail, saysDone, taskOrigin, taskStart, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -31,8 +31,15 @@ const SEEN_MS = 30_000
 /** B161: the mark under a line typed on the board (bridge.mjs, `messageText`), and how many lines of the talk are kept. */
 const TYPED_MARK = /\n?\(typed on the worker board, \d{1,2}:\d{2}\)\s*$/
 const TALK_MESSAGES = 40
+/** B281: the mark before an answer given on the board (bridge.mjs, `messageText`): the board's, not the person's words. */
+const ANSWERED_MARK = /^\(answered on the worker board, \d{1,2}:\d{2}\)\s*/
+/** B281: what the board adds to an answer given on it (bridge.mjs, `messageText`): a picture's place, and what to do with a verdict. */
+const BOARD_LINES = /^(?:Picture: |Pick this up: )/
+const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)$/
+/** B281: how much of the person's feedback a task window gets: one line. */
+const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined)\b/
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -135,6 +142,50 @@ export function heldBy({ plan, handOver, background, step, isCompleted = false, 
   if (background > 0 && !isDone) return { why: 'background', text: 'Its turn has ended; background work it started is still running.' }
   if (step !== null) return { why: 'branch', text: `Its turn has ended; its branch ${step.branch} is still open.` }
   return null
+}
+
+/**
+ * B281: a note line that does not say what a step is: who has it or how far it is, the person's answers to a quick
+ * check (choices, not the ask), or a head for files, tests or the requirements.
+ */
+const STEP_STATUS = /^(?:handed (?:to|over)|in progress|done on|approved|refined|picked up|paused|moved|split|kept|queued|held|parked|merge \d|back on|taken out|accepted|was:|your (?:answers?|choice|yes|no|approval)\b|not handed out\b|later\b)/i
+/** B281: a head with words after it ("Plan: ...", "Problem: ...", "Touches: ..."): a part of a step's notes, not what it is. */
+const NOTE_HEAD = /^(?!your words\b)[A-Z][A-Za-z /]{1,28}:\s/
+
+/** B281: "Your words (board, 18:26, ...): the ask" without its lead: the words after the first colon outside brackets. */
+function withoutLead(line) {
+  if (!/^your words\b/i.test(line)) return line
+  let depth = 0
+  for (let at = 0; at < line.length; at++) {
+    if (line[at] === '(') depth += 1
+    else if (line[at] === ')') depth = Math.max(0, depth - 1)
+    else if (line[at] === ':' && depth === 0) return line.slice(at + 1).trim() || line
+  }
+  return line
+}
+
+/**
+ * B281: what a backlog step is, in a line: the first line of its notes that says so (see STEP_STATUS), a point's dash
+ * left off, the person's own words without their lead. Null when its notes have none.
+ */
+function aboutLine(notes = []) {
+  for (const note of notes) {
+    const line = String(note).trim().replace(/^[-*]\s+/, '')
+    if (line === '' || STEP_STATUS.test(line.replace(/^\(/, '')) || NOTE_HEAD.test(line) || /^[A-Z][A-Za-z /]{1,28}:$/.test(line)) continue
+    return withoutLead(line)
+  }
+  return null
+}
+
+/**
+ * B281: the person's feedback in one line: the board's marks around an answer or a line typed there left off, a
+ * picture's place, and the lines joined with " · "; at most FEEDBACK_CHARS.
+ */
+function feedbackLine(words) {
+  const lines = String(words ?? '').replace(TYPED_MARK, '').replace(ANSWERED_MARK, '').split('\n')
+    .map(line => line.trim().replace(BOARD_CLOSE, '')).filter(line => line !== '' && line !== '[picture]' && !BOARD_LINES.test(line))
+  const one = lines.join(' · ').replace(/\s+/g, ' ')
+  return one.length > FEEDBACK_CHARS ? `${one.slice(0, FEEDBACK_CHARS - 1).trimEnd()}…` : one
 }
 
 /**
@@ -255,7 +306,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, reports: null, compaction: null, unanswered: null, idle: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, reports: null, compaction: null, unanswered: null, idle: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -312,9 +363,29 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // B151: the message that gave it the task it is on, as it arrived, for the window a click on its lane opens; with
   // the backlog step it is on, else the first open one that message names.
   const isOnTask = task !== null && (state === 'working' || state === 'suspended' || state === 'interrupted')
-  const given = !isOnTask || scan === null ? null : taskOrigin(scan, main, Number.isFinite(task.startedAt) ? task.startedAt + 2 * MIN : Infinity)
+  // B281: while the main chat's hand-over is open it is the task, also when the person's words came after it and the
+  // chat named its task anew for them (B231's window showed those words as its task).
+  const openHandOver = !isOnTask || scan === null || chat.isMain ? null : taskStart(scan, main)
+  const until = openHandOver?.at ?? (Number.isFinite(task?.startedAt) ? task.startedAt + 2 * MIN : Infinity)
+  // B281: the person's words that opened its turn (only a sure opening: words the tail cannot see the turn before of
+  // may be a remark in the middle of a turn). They are feedback on the task given before them, unless the chat
+  // finished that task in between (it reported, or said "Done: yes"): then they are the task.
+  const opening = !isOnTask || scan === null ? null : turnStart(scan, { prefix })
+  const words = opening?.by === 'you' && opening.isSure ? opening : null
+  let given = !isOnTask || scan === null ? null : taskOrigin(scan, main, until)
+  if (words !== null) {
+    const before = taskOrigin(scan, main, words.at - 1)
+    const isOn = before !== null && !finishedBetween(scan, main, before.at, words.at)
+    // Its card named the task anew for the feedback, so its start is the feedback's: the task is the one before.
+    if (isOn && (given === null || given.at >= words.at)) given = before
+    // A task it finished: the words started a new one.
+    if (!isOn && given !== null && given.at < words.at) given = taskOrigin(scan, main, words.at)
+  }
   const givenStep = given === null ? null
     : (task.stepId === null ? null : stepById(task.stepId)) ?? (given.text.split('\n')[0].match(/\bB\d+\b/g) ?? []).map(id => stepById(id)).find(one => one !== null) ?? null
+  // B281: the person's words after the task was given: the feedback it is on now.
+  const after = given?.at ?? task?.startedAt ?? Infinity
+  const feedback = words !== null && words.at > after ? { at: words.at, text: feedbackLine(words.words ?? words.title) } : null
   return {
     ...base,
     state,
@@ -349,7 +420,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     unanswered: quietMs === null || entries === null ? null : unanswered(entries),
     // B262: since when its turn has ended, and whether the app or its transcript says so.
     idle,
-    givenTask: given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title } },
+    givenTask: given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title, about: givenStep.about ?? null } },
+    feedback,
     suspended: paused,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).
     usage: entries === null ? [] : usageReadings([...(typeof tail.usage === 'string' ? parseTail(tail.usage, false) : []), ...entries]),
@@ -406,13 +478,17 @@ function removalAsk(message, now, openMs = REMOVE_OPEN_MS) {
  * after it arrived for an hour at most: the main chat writes the step's "(for ...)" note, and a queued step asks
  * nothing more. After that hour, or when it did not arrive, the step can be asked again.
  */
-const queueAsk = (step, sent, now) => (step.status !== 'open' || step.id === null ? null
-  : removalAsk(sent.findLast(message => message.command === 'queue' && message.about === step.id), now, QUEUE_OPEN_MS))
+const queueAsk = (step, sent, now) => {
+  if (step.status !== 'open' || step.id === null) return null
+  const message = sent.findLast(one => one.command === 'queue' && one.about === step.id)
+  // B285: an ask held on the board until the step is refined stays open.
+  if (message?.state === 'held') return { at: message.at, state: 'held', isOpen: true }
+  return removalAsk(message, now, QUEUE_OPEN_MS)
+}
 
 /**
  * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
- * step's refine block shows the round it asked for, for half an hour at most. B293: a ready block names no round
- * ("Refined (<date time>; ready):"): one written in a minute after the ask's answers it too.
+ * step's refine block shows the round it asked for, for half an hour at most.
  */
 export function refineAsk(step, sent, now) {
   if (step.id === null) return null
@@ -420,9 +496,12 @@ export function refineAsk(step, sent, now) {
   const ask = removalAsk(message, now, REFINE_OPEN_MS)
   if (ask === null) return null
   const round = Number.isInteger(message.round) ? message.round : 1
-  const written = String(step.refined?.at ?? '').match(/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)$/)
-  const writtenAt = written === null ? null : new Date(+written[1], written[2] - 1, +written[3], +written[4], +written[5]).getTime()
-  const isWritten = (step.refined?.round ?? 0) >= round || (writtenAt !== null && writtenAt > Math.floor(message.at / 60_000) * 60_000)
+  // B285: the newer form's head names no round: a block that changed since the ask (`before`, its key then) answers it
+  // too; an ask from before that key, a block written since it (to the minute).
+  const written = refinedAt(step.refined)
+  const isWritten = (step.refined?.round ?? 0) >= round || (message.before !== undefined
+    ? refinedKey(step.refined) !== message.before
+    : written !== null && written >= Math.floor(message.at / MIN) * MIN)
   return { ...ask, round, isOpen: ask.isOpen && !isWritten }
 }
 
@@ -673,7 +752,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const openSteps = backlog.activities.flatMap(activity => activity.steps).filter(one => !one.isDone && !one.isYou && one.id !== null)
   const stepById = (id, whose = null) => {
     const one = openSteps.find(found => found.id === id && (whose === null || found.worker === null || found.worker === whose))
-    return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch }
+    return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch, about: aboutLine(one.notes) }
   }
   const read = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf, stepById }))
   const advisorCard = advisorChat === undefined ? null : card(advisorChat, raw, context)
@@ -931,15 +1010,20 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).
     backlog: overview(backlog, { underWay: onNow }).map(activity => ({
       ...activity,
-      steps: activity.steps.map(step => ({
-        ...step,
-        pictures: picturesOf(allWords(step)),
-        needId: step.status !== 'you' ? null : step.id === null ? stepId(`${activity.name}\n${step.text}`) : `backlog:${step.id}`,
-        // B181: whether the main chat was asked to hand it out, for a step nobody has.
-        queueAsk: queueAsk(step, sent, now),
+      steps: activity.steps.map(step => {
         // B233: whether the Advisor was asked to refine it and has not written that round yet.
-        refineAsk: refineAsk(step, sent, now),
-      })),
+        const asked = refineAsk(step, sent, now)
+        return {
+          ...step,
+          pictures: picturesOf(allWords(step)),
+          needId: step.status !== 'you' ? null : step.id === null ? stepId(`${activity.name}\n${step.text}`) : `backlog:${step.id}`,
+          // B181: whether the main chat was asked to hand it out, for a step nobody has.
+          queueAsk: queueAsk(step, sent, now),
+          refineAsk: asked,
+          // B285, B286: where its refine stands.
+          refineState: refineStateOf({ refined: step.refined, refineAsk: asked }),
+        }
+      }),
     })),
     // The open steps in the backlog that end in @you.
     backlogForYou: forYou(backlog).map(step => stepCard(step, false)),
@@ -1013,7 +1097,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     goals: (() => {
       if (goalMap === null) return null
       const counts = goalCounts(goalMap, backlog)
-      return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })) }
+      // B289: with the open steps no goal names.
+      return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })), unlinked: unlinkedSteps(goalMap, backlog, config.advisorSuggestions) }
     })(),
     goalsFile: config.goals,
   }

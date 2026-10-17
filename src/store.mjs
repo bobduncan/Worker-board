@@ -37,7 +37,8 @@ const TAKEN_SHOWN_MS = 10 * 60_000
  * so nothing typed long ago turns up in a chat; an answer to a request waits for its chat much longer (`answerMs`).
  */
 // A step asked of the main chat from the Design tab waits as long as an answer does: the main chat may be closed.
-export const isLate = (message, now, keep) => now - message.at > (isAnswer(message) || message.command === 'step' ? keep.answerMs : keep.messageMs)
+// B285: so does the word that a step the main chat queued is refined: it waits until the main chat takes it.
+export const isLate = (message, now, keep) => now - message.at > (isAnswer(message) || message.command === 'step' || message.command === 'refined' ? keep.answerMs : keep.messageMs)
 
 /**
  * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never
@@ -48,6 +49,8 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
   return messages
     .map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
     .filter(message => message.state === 'waiting'
+      // B285: a queue ask held on the board until its step is refined stays known as long as it is held.
+      || message.state === 'held'
       // What did not arrive is shown for a while.
       || ((message.state === 'expired' || message.state === 'failed') && now - message.at < shownMs)
       // An answer that was taken or typed keeps its request closed.
@@ -107,6 +110,14 @@ function storeOver(lines, messages, alive, write) {
         throw error
       }
       return taken.map(message => ({ ...message }))
+    },
+    /** B285: changes a message the board holds (a held queue ask let go or dropped), written down like the others. */
+    async update(id, fields) {
+      const message = messages.find(one => one.id === id)
+      if (message === undefined) return false
+      Object.assign(message, fields)
+      await write.outbox([{ id, ...fields }])
+      return true
     },
     /** What the mod says became of the messages a chat took: typed into the chat, or not. */
     async settle(to, { typed = [], failed = [] }, now) {

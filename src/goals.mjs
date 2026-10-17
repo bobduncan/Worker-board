@@ -151,6 +151,24 @@ function stepStates(backlog) {
 }
 
 /**
+ * B289: the open steps of the backlog that no goal's "Steps:" line names, in the backlog's order, `{ id, title }`:
+ * what the Advisor still has to link to a goal. A step without an id cannot be named in a goal, and the Advisor's own
+ * suggestions (its group, the setting `advisorSuggestions`) are not work yet.
+ */
+export function unlinkedSteps(goals, backlog, suggestions = 'Advisor suggestions') {
+  const named = new Set(goals.nodes.flatMap(node => node.steps))
+  const seen = new Set()
+  return (backlog?.activities ?? []).filter(activity => (activity.name ?? '').trim().toLowerCase() !== suggestions.toLowerCase())
+    .flatMap(activity => activity.steps)
+    .filter(step => {
+      if (step.isDone || step.id === null || named.has(step.id) || seen.has(step.id)) return false
+      seen.add(step.id)
+      return true
+    })
+    .map(step => ({ id: step.id, title: step.title }))
+}
+
+/**
  * Each node's counters over its subtree by home position (`children`; an "Also part of" counts under its home only):
  * the nodes inside, the steps (each backlog id once per node, even when two children name it) done, open or unknown
  * (not on the backlog), and the Missing lines. An id used twice is walked once, so a file with that mistake cannot

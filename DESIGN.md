@@ -123,6 +123,20 @@ correct". Both windows of B151 and B149 open with a part set apart, a header in 
 - *The task*, at most two lines: the line "In short: ..." of the hand-over when it has one, else its first line
   without its frame ("Task from Game - Main: B12, ..." and "About 1 h" fall away), else the step's title, else the
   card's topic (`shortTask`).
+- B281, in the window of a working worker on a backlog step: above those two lines the step itself, "B231 · its
+  title", and the two lines say what the step is: the hand-over's "In short: ..." line, else its first line; when
+  that only names the step again, the step's own first line in the backlog that says what it is, not who has it,
+  how far it is, the person's answers or a head's part such as "Plan: ..." (`stepTask`, the state's `step.about`).
+  The task is the main chat's hand-over while that is open, also when the person's words came later and the worker
+  named its card anew for them (the person, 2026-10-17, of B231's window, which showed their answer as the task: "I
+  want the task to be clear, recap the original task briefly and state it's busy with feedback on this task").
+- B281, when the person's words opened the worker's turn after it was given its task (typed in its chat, or an
+  answer or a line given on the board, without the board's mark), a part of its own under the task:
+  *Now on your feedback (HH:MM)*, their words in one line (at most two on screen; the board's own lines, such as a
+  picture's place or "Tick this step in the backlog.", left off), set apart by an amber bar on its left. Not when the
+  main chat or another chat opened the turn, nor for words the board cannot see opened a turn (a remark in the middle
+  of one), nor after the worker finished the task before them (it reported, or said "Done: yes"): those words are
+  its new task. A task without a step keeps the words above, with the same part.
 - In the window of a working worker, *Its plan*: its steps by name, done ones with ✓ and the current one with ▶, and
   "Step 4 of 5 · 13 min left" (`planOf`). In the window of a finished worker, *What I did*: the plain sentences of its
   "What I did" line (`plainWords`).
@@ -250,12 +264,33 @@ per question: the advice (its reason on hover) and Yes / No; a pick is kept unti
 back. "Send answers" writes the picks and the feedback and asks the next round; "Take the advice" (in place of "Accept
 as refined") writes the advice as the answer to every open question the person did not pick, and says which question
 has none to take. Once ready, the description stands first in the window, with no box, and the step's own lines follow
-as its "Notes"; its foot has "Refine again". A ready block names no round, so a refine ask counts as written once a
-block is written in a minute after it (`refineAsk`). Blocks in the older form (Problem, Goal, questions with a field)
+as its "Notes"; its foot has "Refine again". A ready block names no round: a refine ask counts as written once the
+block changed since the ask (B285, `refineAsk`). Blocks in the older form (Problem, Goal, questions with a field)
 still show as before; the server still writes "accepted" for them, though no button asks it any more. The window of a
 step in a worker's queue shows the same description to read (its questions are answered from the Backlog tab), and
 a finished step keeps its description without questions. A ready step refined again tells the Advisor to check it
 against the backlog and the goals, since no new answers stand in it.
+
+**Refined before a queue (B285).** The person, on goal G17 (2026-10-17): "every item on the backlog automatically Before
+it gets put in the queue. if main wants to put it in the queue automatically/directly, refine it first". A step is
+refined when the first line of its block says "; ready" (the person approved what "refined" means on 2026-10-17: one
+compact description with a summary, a picture, its goal, its size and "What we build", the answers folded in; the
+older form, also answered or accepted, is not refined; `src/backlog.mjs`, `isRefined`; the new lines stay inside the
+block).
+At every look the board that delivers does by itself (`src/refineGate.mjs`), only while no refine is open, the person's
+neither: it sends one step to the Advisor in the Refine button's words, first a step the person asked to queue, then
+a step the main chat queued before it was refined, then a new step (above the highest one on the backlog at its first
+look, kept in `data/refine-gate.json`), each until it is ready: once with no block, and once more each time its block
+stands answered and not ready (an ask remembers the block it was about, `before`); never the person's steps, finished
+ones or steps in progress, and never a block with questions open, which waits for the person's answers. The board's
+own asks stop at three per step that arrived and three that did not, with 15 minutes after one that did not. "Add to queue" on a step that is not refined is held on the
+board ("Refine, then queue") and goes to the main chat by itself once the step is refined; it is dropped when the step
+is finished, queued or gone. Without an Advisor nothing is held. A step the main chat queued before it was refined is said to it once it is
+(`step refined`, Step, For; the board keeps the steps it saw queued while not refined), so it hands the step out then
+(roles/main.md, point 0). Old steps are refined when they
+are about to be queued, not all at once; the steps that were queued already at the first look go as before (kept
+with `since` as `queuedBefore`), so a board that starts refining does not send the whole queue to the Advisor.
+Without a Workers mod nothing of this runs.
 
 **Stop, move or take out of the queue (B83).** The person, 2026-10-14, of the two choices: "1. A" (stop lets the worker
 reach a safe point: work committed and pushed, nothing new started) and "2. A" (the main chat makes the change). A
@@ -356,6 +391,20 @@ zooms out; the focus is in the address (`#advice/goals/G2`), so a link opens the
 back walks the zoom. Read-only for now: the drawn tree (B257), editing (B256) and the Next milestone part from the
 map (B260) come later; the settings `brainstorms`, `goalAsks` and `goalsHistory` are there for them. Pictures on
 the real file: `art-inbox/board-goals/b255-top.png` and `b255-in-goal.png`.
+
+**A goal's id everywhere on the map (B284).** Every box of the diagram, every row of the outline, every crumb and the
+frame's head name the goal by its id before its title, "G17 The Advisor's work…", the id in a colour of its own
+(`goalLabel`, `goalLabelNodes`), so a goal the person or the Advisor names by its id is found at a glance. A
+milestone keeps its own mark after the id ("G2 M1 · The loop is fun"); a ↗ reference box or row has the arrow before
+it; the top crumb, "Goals", has no id. The goal's title in `goals.md` is unchanged: renaming edits the title alone.
+
+**Steps under no goal (B289).** Under the map, folded, one line "Not under a goal: N steps" (or "Every open step is
+under a goal"): the open backlog steps with an id that no goal's `Steps:` line names, in the backlog's order
+(`unlinkedSteps` in `src/goals.mjs`, the state's `goals.unlinked`); the Advisor's own suggestions are left out, as
+they are not work yet. Opened, each step stands as a row with its id and title, and a click opens the step's window.
+An open list stays open while the board redraws. The Advisor links them: roles/advisor.md, "Steps under no goal",
+has it add every open step to the `Steps:` line of the goal it serves at every round, and flag one that fits no goal
+as a suggestion with a proposed goal.
 
 **Editing the goal map (B256).** The person, 2026-10-15: "what is really important for me is the ability to quickly
 reorder things and to abstract things away, and change abstraction level." The Goals part changes `goals.md` at once,

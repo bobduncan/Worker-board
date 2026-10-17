@@ -107,6 +107,14 @@ button, textarea, select { font: inherit; color: inherit; }
 .goals-sep { color: var(--unknown); }
 .goals-here { font-weight: 600; }
 .goals-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+/* B289: the open steps no goal names, folded under the map. */
+.goals-unlinked { margin: 12px 6px 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.goals-unlinked summary { cursor: pointer; color: var(--muted); }
+.goals-unlinked[open] summary { margin-bottom: 6px; }
+.goals-unlinked-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.goals-unlinked-row { display: flex; gap: 10px; align-items: baseline; border: 0; background: none; padding: 3px 6px; border-radius: 5px; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.goals-unlinked-row:hover, .goals-unlinked-row:focus-visible { background: var(--inset); }
+.goals-unlinked-row .step-id { flex: none; min-width: 3.4em; color: #9db8e8; font-weight: 700; font-variant-numeric: tabular-nums; }
 .goals-problems { margin: 10px 6px 0; padding: 6px 10px; border: 1px solid #6b4a1f; border-radius: 6px; color: var(--waiting); font-size: 13px; }
 .goals-frame { margin: 12px 0 4px; padding: 10px 14px; border: 2px solid var(--waiting); border-radius: 8px; background: var(--inset); }
 .goals-frame-head { display: flex; align-items: center; gap: 10px; }
@@ -147,6 +155,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .goal-box.is-done .goal-box-rect, .goal-tree-frame.is-done .goal-frame-rect { stroke: var(--working); }
 .goal-box.is-ref .goal-box-rect { stroke-dasharray: 3 3; fill: none; }
 .goal-box.is-ref text { fill: var(--muted); }
+.goal-box.is-ref .goal-box-id { fill: inherit; }
 .goal-box:hover .goal-box-rect, .goal-box.is-hover .goal-box-rect, .goal-box:focus-visible .goal-box-rect { fill: #182640; }
 .goal-box.is-chosen .goal-box-rect { fill: #1d2a3f; stroke: #8fb4ff; }
 .goal-box.is-lift { opacity: .4; }
@@ -155,6 +164,9 @@ button, textarea, select { font: inherit; color: inherit; }
 .goal-box.is-before .goal-box-rect { stroke: var(--free); stroke-width: 3; stroke-dasharray: 0 384 92 20; }
 .goal-box.is-after .goal-box-rect { stroke: var(--free); stroke-width: 3; stroke-dasharray: 0 142 92 400; }
 .goal-box-title { font-size: 12.5px; font-weight: 600; }
+/* B284: a goal's id before its title, in the diagram, the outline, the breadcrumb and the frame. */
+.goal-box-id { fill: #8fa3c4; font-weight: 700; }
+.goal-id { color: #8fa3c4; font-weight: 700; font-variant-numeric: tabular-nums; }
 .goal-box-meta { font-size: 11px; fill: var(--muted) !important; }
 .goal-box-state { font-size: 10.5px; fill: var(--muted) !important; }
 .goal-box.is-now .goal-box-state { fill: var(--waiting) !important; }
@@ -1206,6 +1218,11 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .task-brief { background: #14233a; border: 1px solid #2a4a7d; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
 .task-brief h3 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #9db8e8; font-weight: 700; margin-bottom: 4px; }
 .task-brief .brief-task { font-size: 16px; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+/* B281: the backlog step the task is, above what it is; the person's feedback the worker is on, set apart by a bar. */
+.task-brief .brief-head { font-size: 13.5px; font-weight: 700; color: #c9d7f0; margin-bottom: 2px; overflow-wrap: anywhere; }
+.task-brief .brief-part:has(.brief-feedback) { border-left: 3px solid var(--waiting, #e0a33a); padding-left: 10px; }
+.task-brief .brief-part:has(.brief-feedback) h3 { color: #f0c27a; }
+.task-brief .brief-feedback { font-size: 15px; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .task-brief .brief-text { font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
 .task-brief .brief-plan { font-size: 14.5px; line-height: 1.5; }
 .task-brief .brief-plan .is-done { color: var(--muted); }

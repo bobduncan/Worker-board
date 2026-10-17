@@ -2248,9 +2248,28 @@ function shortTask(given, stepTitle = null, topic = null) {
       .trim()
     if (first !== '') words = first
   }
-  const chosen = (words ?? stepTitle ?? topic ?? '').trim()
+  return twoLines(words ?? stepTitle ?? topic ?? '')
+}
+
+/** A task's words for the window's two lines: with a capital, cut at SHORT_TASK_CHARS. */
+function twoLines(words) {
+  const chosen = String(words).trim()
   const capital = chosen.charAt(0).toUpperCase() + chosen.slice(1)
   return capital.length > SHORT_TASK_CHARS ? `${capital.slice(0, SHORT_TASK_CHARS - 1).trimEnd()}…` : capital
+}
+
+/**
+ * B281: what the backlog step a task is about is, in at most two lines: as shortTask finds it in the message (its
+ * "In short: ..." line, else its first line), unless that only names the step again: then the step's own first line
+ * in the backlog that says what it is (`step.about`). The person, 2026-10-17: "I want the task to be clear, recap the
+ * original task briefly".
+ */
+function stepTask(given, step, topic = null) {
+  const said = shortTask(given, step.title, topic)
+  const bare = text => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '')
+  // The message's first line that only names the step again says nothing the head does not.
+  const isTitle = bare(said) === '' || bare(step.title).includes(bare(said)) || bare(said).includes(bare(step.title))
+  return isTitle && typeof step.about === 'string' && step.about.trim() !== '' ? twoLines(step.about) : said
 }
 
 /**
@@ -2311,8 +2330,13 @@ function laneWindowOf(lane, now, mainTitle) {
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
     given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
     step: given?.step ?? null,
-    // B157: the top part: the task in one short sentence, and its plan in plain words.
-    task: shortTask(given?.text ?? null, given?.step?.title ?? null, task === null || task.text === '' ? null : task.text),
+    // B157: the top part: the task in one short sentence, and its plan in plain words. B281: for a backlog step, the
+    // step's id and title above it, and what the step is; the person's feedback the worker is on as a part apart.
+    taskHead: (given?.step ?? null) === null ? null : `${given.step.id} · ${given.step.title}`,
+    task: (given?.step ?? null) === null
+      ? shortTask(given?.text ?? null, null, task === null || task.text === '' ? null : task.text)
+      : stepTask(given.text, given.step, task === null || task.text === '' ? null : task.text),
+    feedback: (lane.feedback ?? null) === null ? null : { title: `Now on your feedback (${clock(lane.feedback.at)})`, text: lane.feedback.text },
     plan: planOf(lane, now),
     standing: [
       ...(line === null ? [] : [line.label]),
@@ -2330,8 +2354,9 @@ function laneWindowOf(lane, now, mainTitle) {
  */
 const LANE_PARTS = {
   main: [
-    // B157: on top, set apart: the task in at most two lines, and its plan in plain words.
-    view => briefPart([['The task', [briefTask(view.task)]], ['Its plan', planNodes(view.plan)]]),
+    // B157: on top, set apart: the task in at most two lines, and its plan in plain words. B281: the step it is on,
+    // and the person's feedback it is on now in a part of its own.
+    view => briefPart([['The task', taskNodes(view)], [view.feedback?.title ?? '', feedbackNodes(view.feedback)], ['Its plan', planNodes(view.plan)]]),
     // B157: below, folded: the task as it was given, its backlog step, where it stands.
     view => foldedDetails([
       section('Its task as it was given', view.given === null
@@ -2358,6 +2383,12 @@ function briefPart(rows) {
 
 /** B157: the task in its two lines; a window without one says so. */
 const briefTask = task => el('p', `brief-task${task === '' ? ' muted' : ''}`, task === '' ? 'The board does not know the task yet.' : task)
+
+/** B281: a working worker's task: the backlog step it is on ("B231 · title"), then what it is in two lines. */
+const taskNodes = view => [...(view.taskHead === null ? [] : [el('p', 'brief-head', view.taskHead)]), briefTask(view.task)]
+
+/** B281: the person's feedback the worker is on, in at most two lines; nothing when it is on none. */
+const feedbackNodes = feedback => (feedback === null ? [] : [el('p', 'brief-feedback', feedback.text)])
 
 /** B157: a plan as one line of its steps (done ones struck through, the current one marked) and its step and time. */
 function planNodes(plan) {
@@ -3115,7 +3146,8 @@ function goalLinkChoices(goals, id, name, words) {
     seen.add(other.id)
     if (other.id === id || has.includes(other.id)) return false
     if (name === 'Also part of' && (other.id === node.parent || goalInside(goals, id, other.id))) return false
-    const title = other.title.toLowerCase()
+    // B284: found by its id too ("G17").
+    const title = goalLabel(other).toLowerCase()
     return wanted.every(word => title.includes(word))
   }).map(other => ({ id: other.id, title: other.title, where: goalById(goals, other.parent)?.title ?? null }))
 }
@@ -3185,10 +3217,47 @@ function goalTreeLayout(goals, focusId, width) {
   return { width, height: Math.max(...bottoms) + 20, frame, boxes, lines, arrows, ghosts, moreGhosts }
 }
 
-/** A title in at most two lines of `most` characters, cut at a space; what does not fit ends in "…". */
+/**
+ * B284: a goal as the map names it: its id before its title ("G17 The Advisor's work…"), so it can be named by its id
+ * anywhere; a milestone keeps its own "M1 ·" after the id. The top of the map (no id) is its title alone, and a title
+ * that already starts with its id does not say it twice.
+ */
+function goalLabel(node) {
+  const id = typeof node?.id === 'string' ? node.id : ''
+  const title = String(node?.title ?? '')
+  return id === '' || title === id || title.startsWith(`${id} `) ? title : `${id} ${title}`
+}
+
+/**
+ * B289: the part under the goal map with the open steps no goal names: its line ("Not under a goal: 3 steps") and the
+ * steps, each with its id and title. Null without the list (no goal map).
+ */
+function unlinkedView(unlinked) {
+  if (!Array.isArray(unlinked)) return null
+  const count = unlinked.length
+  return {
+    summary: count === 0 ? 'Every open step is under a goal' : `Not under a goal: ${count} step${count === 1 ? '' : 's'}`,
+    rows: unlinked.map(step => ({ id: step.id, title: step.title.charAt(0).toUpperCase() + step.title.slice(1) })),
+  }
+}
+
+/** B284: a drawn line of a goal's label in its parts: what stands before the id ("↗ "), the id, and the rest. */
+function goalIdSplit(line, id) {
+  const lead = line.startsWith('↗ ') ? '↗ ' : ''
+  const after = line.slice(lead.length)
+  if (typeof id !== 'string' || id === '' || !(after === id || after.startsWith(`${id} `))) return { lead: '', id: '', rest: line }
+  return { lead, id, rest: after.slice(id.length) }
+}
+
+/**
+ * A title in at most two lines of `most` characters, cut at a space; what does not fit ends in "…". B284: never at
+ * the space after a goal's id, so "G17" never stands alone on a line.
+ */
 function goalTitleLines(title, most) {
   if (title.length <= most) return [title]
-  const cut = title.lastIndexOf(' ', most)
+  const lead = /^(?:↗ )?G\d+ /.exec(title)?.[0].length ?? 0
+  const space = title.lastIndexOf(' ', most)
+  const cut = space < lead ? -1 : space
   const shorten = words => (words.length <= most ? words : `${words.slice(0, most - 1)}…`)
   if (cut <= 0) return [shorten(title)]
   return [title.slice(0, cut).trimEnd(), shorten(title.slice(cut + 1).trimStart())]
@@ -3281,7 +3350,7 @@ function goalChoicesList(goals) {
   if (choices.length === 0) list.append(el('span', 'muted', 'No goal fits those words.'))
   for (const choice of choices) {
     const button = goalButton('goals-choice', '', { linkTarget: choice.id })
-    button.append(el('b', '', choice.title), el('small', 'muted', choice.where === null ? ' · at the top' : ` · in ${choice.where}`))
+    button.append(el('b', '', goalLabel(choice)), el('small', 'muted', choice.where === null ? ' · at the top' : ` · in ${choice.where}`))
     list.append(button)
   }
   return list
@@ -3297,6 +3366,7 @@ function goalEditorRow(goals, depth) {
 function drawGoals(state) {
   const goals = state.goals ?? null
   const canEdit = canEditGoals(state)
+  drawUnlinked(goals)
   // B257: the view buttons say what shows at this width (a phone shows the outline unless the diagram is chosen).
   showGoalsViews()
   if (goals === null || (goals.nodes.length === 0 && goals.problems.length === 0)) {
@@ -3326,7 +3396,9 @@ function drawGoals(state) {
   if (focus !== null) back.dataset.goal = crumb.at(-2).id ?? ''
   fill($('goals-crumb'), [back, ...crumb.flatMap((step, place) => {
     const isHere = place === crumb.length - 1
-    const part = isHere ? el('span', 'goals-here', step.title) : el('button', 'goals-link', step.title)
+    // B284: each goal with its id; the top ("Goals") has none.
+    const part = isHere ? el('span', 'goals-here') : el('button', 'goals-link')
+    part.append(...goalLabelNodes(step))
     if (!isHere) part.type = 'button'
     // B256: a crumb also takes a dropped goal, as its last goal inside.
     part.dataset.goal = step.id ?? ''
@@ -3368,7 +3440,7 @@ function drawGoals(state) {
   if (focus !== null) {
     const head = el('div', 'goals-frame-head')
     const isRenaming = goalsUi.editing?.kind === 'rename' && goalsUi.editing.id === focus.id
-    head.append(el('span', `goal-dot is-${focus.state}`), isRenaming ? goalEditorBox(goals) : el('b', 'goals-frame-title', focus.title), el('span', `goals-frame-state is-${focus.state}`, GOAL_STATES[focus.state] ?? focus.state))
+    head.append(el('span', `goal-dot is-${focus.state}`), isRenaming ? goalEditorBox(goals) : goalFrameTitle(focus), el('span', `goals-frame-state is-${focus.state}`, GOAL_STATES[focus.state] ?? focus.state))
     const lines = goalFrameLines(goals, focus)
     const summary = el('div', 'goals-frame-line')
     // Unfolded, the lines say it all: the folded line goes.
@@ -3429,7 +3501,9 @@ function drawGoals(state) {
     const dot = canEdit && !row.isRef ? goalButton(`goal-dot is-${row.state}`, '', { goalDot: row.id }) : el('span', `goal-dot is-${row.state}`)
     if (canEdit && !row.isRef) dot.title = `${GOAL_STATES[row.state]}: click for ${GOAL_STATES[goalNextState(row.state)]}`
     const isRenaming = goalsUi.editing?.kind === 'rename' && goalsUi.editing.id === row.id && !row.isRef && !row.isFocus
-    const title = isRenaming ? goalEditorBox(goals) : el('button', 'goal-title', row.isRef ? `↗ ${row.title}` : row.title)
+    // B284: its id first.
+    const title = isRenaming ? goalEditorBox(goals) : el('button', 'goal-title')
+    if (!isRenaming) title.append(...goalLabelNodes(row, row.isRef ? '↗ ' : ''))
     if (!isRenaming) {
       title.type = 'button'
       title.title = row.isRef ? 'Its home is elsewhere: zoom into it there' : 'Zoom in · Enter adds the next goal · F2 renames · drag to move'
@@ -3508,15 +3582,56 @@ function svgText(x, y, words, className) {
 }
 const cut = (words, most) => (words.length <= most ? words : `${words.slice(0, most - 1)}…`)
 
+/** B289: the open steps no goal names, folded under the map; a row opens the step's window. */
+function drawUnlinked(goals) {
+  const box = $('goals-unlinked')
+  const view = unlinkedView(goals?.unlinked)
+  box.hidden = view === null
+  if (view === null) return
+  // Drawn anew only when it changed, so a list the person opened stays open.
+  once('goals-unlinked', view, () => {
+    const list = el('div', 'goals-unlinked-list')
+    for (const row of view.rows) {
+      const button = el('button', 'goals-unlinked-row')
+      button.type = 'button'
+      button.dataset.unlinkedStep = row.id
+      button.title = 'Show the step'
+      button.append(el('span', 'step-id', row.id), el('span', 'goals-unlinked-title', row.title))
+      list.append(button)
+    }
+    fill(box, [el('summary', '', view.summary), view.rows.length === 0 ? null : list])
+  })
+}
+
+/** B284: a goal's label as page nodes: its id in a span of its own colour, then its title; `lead` before them ("↗ "). */
+function goalLabelNodes(node, lead = '') {
+  const parts = goalIdSplit(`${lead}${goalLabel(node)}`, node.id)
+  return parts.id === '' ? [`${lead}${goalLabel(node)}`] : [parts.lead, el('span', 'goal-id', parts.id), parts.rest].filter(part => part !== '')
+}
+
+/** B284: the title in the head of the frame of the goal zoomed into, with its id. */
+function goalFrameTitle(focus) {
+  const title = el('b', 'goals-frame-title')
+  title.append(...goalLabelNodes(focus))
+  return title
+}
+
 function goalBoxGroup(goals, box) {
   const node = goalById(goals, box.id)
   const counts = node.counts
-  const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${node.title}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
+  const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${goalLabel(node)}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
   g.append(svgEl('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: 8 }, 'goal-box-rect'))
   const title = svgEl('text', { x: box.x + 10, y: box.y + 21 }, 'goal-box-title')
-  goalTitleLines(box.kind === 'ref' ? `↗ ${node.title}` : node.title, 21).forEach((line, index) => {
+  // B284: its id first, in a colour of its own.
+  goalTitleLines(`${box.kind === 'ref' ? '↗ ' : ''}${goalLabel(node)}`, 21).forEach((line, index) => {
     const span = svgEl('tspan', index === 0 ? {} : { x: box.x + 10, dy: 15 })
-    span.textContent = line
+    const parts = index === 0 ? goalIdSplit(line, node.id) : { lead: '', id: '', rest: line }
+    if (parts.id === '') span.textContent = line
+    else {
+      const id = svgEl('tspan', {}, 'goal-box-id')
+      id.textContent = parts.id
+      span.append(parts.lead, id, parts.rest)
+    }
     title.append(span)
   })
   g.append(title)
@@ -3563,7 +3678,16 @@ function drawGoalTree(state) {
     const frame = layout.frame
     const g = svgEl('g', { 'data-goal': frame.id }, `goal-tree-frame is-${focus.state}`)
     g.append(svgEl('rect', { x: frame.x, y: frame.y, width: frame.w, height: frame.h, rx: 10 }, 'goal-frame-rect'))
-    g.append(svgText(14, 26, cut(focus.title, Math.floor(frame.w / 9)), 'goal-frame-title'))
+    // B284: the goal's id first, in its own colour.
+    const head = svgText(14, 26, '', 'goal-frame-title')
+    const parts = goalIdSplit(cut(goalLabel(focus), Math.floor(frame.w / 9)), focus.id)
+    if (parts.id === '') head.textContent = parts.rest
+    else {
+      const id = svgEl('tspan', {}, 'goal-box-id')
+      id.textContent = parts.id
+      head.append(id, parts.rest)
+    }
+    g.append(head)
     g.append(svgText(14, 48, cut(`${GOAL_STATES[focus.state]} · ${goalCounter(focus.counts)}`, Math.floor(frame.w / 7)), 'goal-frame-meta'))
     svg.append(g)
   }
@@ -3574,9 +3698,10 @@ function drawGoalTree(state) {
   const top = id => (shown.has(id) ? { x: shown.get(id).x + shown.get(id).w / 2, y: shown.get(id).y } : { x: layout.frame.x + layout.frame.w / 2, y: layout.frame.h })
   for (const arrow of layout.arrows) svg.append(goalArrow(top(arrow.from), top(arrow.to), shown.has(arrow.to)))
   for (const ghost of layout.ghosts) {
-    const g = svgEl('g', { 'data-goal': ghost.id, tabindex: 0, role: 'button', 'aria-label': `${ghost.title} enables this: go there` }, 'goal-ghost')
+    const g = svgEl('g', { 'data-goal': ghost.id, tabindex: 0, role: 'button', 'aria-label': `${goalLabel(ghost)} enables this: go there` }, 'goal-ghost')
     g.append(svgEl('rect', { x: ghost.x, y: ghost.y, width: ghost.w, height: ghost.h, rx: 6 }))
-    g.append(svgText(ghost.x + 8, ghost.y + 21, cut(`↗ ${ghost.title}`, 13), ''))
+    // B284: its id first, the part that still fits a narrow box.
+    g.append(svgText(ghost.x + 8, ghost.y + 21, cut(`↗ ${goalLabel(ghost)}`, 13), ''))
     svg.append(g)
     const from = { x: ghost.x, y: ghost.y + ghost.h / 2 }
     for (const target of ghost.arrowTo) {
@@ -3727,7 +3852,8 @@ window.addEventListener('pointermove', event => {
   if (!press.lifted) {
     if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 6) return
     press.lifted = true
-    press.follower = el('div', 'goal-tree-follower', goalById(board.goals, press.id)?.title ?? press.id)
+    const lifted = goalById(board.goals, press.id)
+    press.follower = el('div', 'goal-tree-follower', lifted === null ? press.id : goalLabel(lifted))
     document.body.append(press.follower)
   }
   document.querySelector(`#goals-diagram [data-goal="${press.id}"]`)?.classList.add('is-lift')
@@ -3800,11 +3926,11 @@ function goalMenuChoices(goals, node) {
   const list = el('div', 'goals-choices')
   list.id = 'goals-menu-choices'
   const wanted = goalsUi.menuWords.toLowerCase().split(/\s+/).filter(Boolean)
-  const into = goals.nodes.filter(other => other.id !== node.parent && goalDropTarget(goals, node.id, other.id, 'into') !== null && wanted.every(word => other.title.toLowerCase().includes(word)))
+  const into = goals.nodes.filter(other => other.id !== node.parent && goalDropTarget(goals, node.id, other.id, 'into') !== null && wanted.every(word => goalLabel(other).toLowerCase().includes(word)))
   if (node.parent !== null && wanted.length === 0) list.append(goalButton('goals-choice', 'The top: a goal of its own', { moveInto: '' }))
   for (const other of into.slice(0, 20)) {
     const button = goalButton('goals-choice', '', { moveInto: other.id })
-    button.append(el('b', '', other.title), el('small', 'muted', ` · ${goalById(goals, other.parent)?.title ?? 'at the top'}`))
+    button.append(el('b', '', goalLabel(other)), el('small', 'muted', ` · ${goalById(goals, other.parent)?.title ?? 'at the top'}`))
     list.append(button)
   }
   if (into.length > 20) list.append(el('small', 'muted', `${into.length - 20} more: type a word of the title`))
@@ -4020,6 +4146,14 @@ async function goalsMove(id, target) {
   if (target === null) return
   await sendGoals({ command: 'move', id, parent: target.parent, index: target.index })
 }
+
+// B289: a step under no goal opens its window.
+$('goals-unlinked').addEventListener('click', event => {
+  const row = event.target.closest('[data-unlinked-step]')
+  if (row === null || board === null) return
+  const step = (board.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === row.dataset.unlinkedStep)
+  if (step !== undefined) openDetails({ step: step.key })
+})
 
 $('goals-crumb').addEventListener('click', event => {
   const link = event.target.closest('button[data-goal]')
@@ -5284,6 +5418,12 @@ function queuePart(step, state, isLong) {
   const mainTitle = state.workers.mainTitle ?? main
   const key = `queue:${step.id}`
   const ask = step.queueAsk ?? null
+  // B285: a step goes into a queue only once refined; until then the ask waits on the board.
+  if (ask?.isOpen === true && ask.state === 'held') {
+    const part = el('span', 'step-queue is-asked', isLong ? `Asked at ${clock(ask.at)}: the Advisor refines it first, then it goes to ${mainTitle} by itself.` : `Refine, then queue`)
+    part.title = `Asked at ${clock(ask.at)}: refined first, then handed to ${mainTitle}`
+    return part
+  }
   if (ask?.isOpen === true) {
     const where = ask.state === 'delivered' ? `in ${mainTitle}'s chat` : `on its way to ${mainTitle}`
     const part = el('span', 'step-queue is-asked', isLong ? `Asked at ${clock(ask.at)}, ${where}: it shows as queued once its note names a worker.` : `Asked ${clock(ask.at)}`)
@@ -5295,12 +5435,14 @@ function queuePart(step, state, isLong) {
   button.type = 'button'
   button.dataset.queueStep = step.id
   button.disabled = sending.has(key)
-  button.title = problems.get(key) ?? `Ask ${mainTitle} to hand it to a worker`
+  // B285: a step that is not refined is refined by the Advisor first (`refineState`, backlog.mjs refineStateOf).
+  const isRefined = step.refineState === 'ready'
+  button.title = problems.get(key) ?? (isRefined ? `Ask ${mainTitle} to hand it to a worker` : `The Advisor refines it first, then ${mainTitle} hands it to a worker`)
   // Every row has one: the step it is for is in its name.
   button.setAttribute('aria-label', `${button.textContent}: ${step.id} ${step.title}`)
   if (!isLong) return button
   const line = el('div', 'step-queue-line')
-  line.append(button, el('span', 'muted', `${mainTitle} picks the worker, or what it waits for.`))
+  line.append(button, el('span', 'muted', isRefined ? `${mainTitle} picks the worker, or what it waits for.` : `Not refined yet: the Advisor refines it first, then ${mainTitle} picks the worker.`))
   if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
   return line
 }

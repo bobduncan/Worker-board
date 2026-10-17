@@ -88,7 +88,7 @@ test('a working lane carries the task as it was given, with the backlog step it 
   const units = lane(working)
   assert.equal(units.state, 'working')
   assert.equal(units.task.text, 'Zebracorn walk')
-  assert.deepEqual(units.givenTask, { by: 'main', at: NOW - 50 * MIN, text: HAND_OVER, step: { id: 'B12', title: 'The zebracorn\'s walk' } })
+  assert.deepEqual(units.givenTask, { by: 'main', at: NOW - 50 * MIN, text: HAND_OVER, step: { id: 'B12', title: 'The zebracorn\'s walk', about: null } })
 })
 
 test('a lane that is free, or waits for the person, carries none: its window is another one, or there is none', () => {
@@ -116,7 +116,7 @@ test('the window shows the card\'s task in its head, the task as it was given, i
   const view = plain(page.laneWindowOf(units, NOW, 'Game - Main'))
   assert.deepEqual([view.code, view.title, view.chips], ['B12', 'Zebracorn walk', [{ text: 'Working', tone: 'kind' }, { text: 'Worker: Units', tone: 'to' }]])
   assert.deepEqual(view.given, { from: `Handed over by Game - Main, ${page.clock(NOW - 50 * MIN)}`, text: HAND_OVER })
-  assert.deepEqual(view.step, { id: 'B12', title: 'The zebracorn\'s walk' })
+  assert.deepEqual(view.step, { id: 'B12', title: 'The zebracorn\'s walk', about: null })
   assert.deepEqual(view.standing, ['Step 2 of 3: Views, 6 min left', `ETA: 18 min left, until ${page.clock(NOW + 18 * MIN)}`, 'Now: Draw the sheet'])
 })
 
