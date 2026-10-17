@@ -108,3 +108,16 @@ test('the reconciler never moves against the flow: a flow without the server\'s 
   const done = run([review, step('B286', 'queued', { Owner: 'Units' })], [lane('Units'), lane('Support')], { flow })
   assert.deepEqual([done.moves, done.deliveries], [[], []])
 })
+
+test('review: a chat that ended its turn with Done: yes while its step is still held is flagged on its lane, once per turn', () => {
+  const held = [step('B12', 'in progress', { Owner: 'Units', Since: '2026-10-17 11:00' })]
+  const said = lane('Units', 'working', { saidDone: { at: NOW - 5 * MIN } })
+  const flags = run(held, [said]).flags.filter(flag => flag.kind === 'unreported')
+  assert.deepEqual(flags, [{ kind: 'unreported', id: 'B12', chat: 'Units', text: 'Units ended its turn with Done: yes but B12 is still in progress: run work report', button: null, turn: NOW - 5 * MIN }])
+  // Waiting on the person or taken: the same, with its state.
+  assert.match(run([step('B12', 'waiting on you', { Owner: 'Units' })], [said]).flags.find(flag => flag.kind === 'unreported').text, /B12 is still waiting on you: run work report$/)
+  // No flag without that answer, for a step taken after it, or once the step was reported.
+  assert.equal(run(held, [lane('Units', 'working')]).flags.some(flag => flag.kind === 'unreported'), false)
+  assert.equal(run([step('B12', 'in progress', { Owner: 'Units', Since: '2026-10-17 11:58' })], [said]).flags.some(flag => flag.kind === 'unreported'), false)
+  assert.equal(run([step('B12', 'review', { Owner: 'Units' })], [said]).flags.some(flag => flag.kind === 'unreported'), false)
+})

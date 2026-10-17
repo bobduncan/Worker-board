@@ -46,7 +46,7 @@ const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
 const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
-const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card']
+const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'unreported']
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -287,7 +287,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, saidDone: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -411,6 +411,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // B301: its last answer asks the person in a "For you" block, and the store holds no ask of it since that turn
     // began: shown as a warning under Needs your attention, never read as a question.
     unfiled: unfiledAsk(entries, scan, turn, waits, chat.name, prefix),
+    // B301, the review: its last answer closed with "+ Done:   yes", and when: the reconciler flags a step still held.
+    saidDone: isDone ? { at: entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null } : null,
   }
 }
 

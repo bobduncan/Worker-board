@@ -80,6 +80,19 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     flags.push({ kind: 'stuck', id, chat: lane.name, text: `${id}: ${lane.name} holds it but is not running`, button: `Start ${lane.name}` })
   }
 
+  // B301, the review: a chat whose last answer closed with "Done: yes" (`saidDone`, the answer's time) while the store
+  // still holds its step: it ended its turn without `work report`, and nothing else would end the step. One flag per
+  // turn (`turn`), on its lane; none for a step it took after that answer.
+  for (const item of ok.filter(one => HOLDS.includes(stateOf(one)))) {
+    const lane = laneOf(valueOf(item, 'Owner'))
+    const at = lane?.saidDone?.at
+    if (!Number.isFinite(at)) continue
+    const since = sinceMs(valueOf(item, 'Since'))
+    if (Number.isFinite(since) && since >= Math.floor(at / MIN) * MIN) continue
+    const id = valueOf(item, 'Id')
+    flags.push({ kind: 'unreported', id, chat: lane.name, text: `${lane.name} ended its turn with Done: yes but ${id} is still ${stateOf(item)}: run work report`, button: null, turn: at })
+  }
+
   // An ask open with Blocking yes for longer than the ask time: it stands first under Needs your attention; nothing is
   // sent again.
   const asks = [...items.values()].filter(item => kindOf(item) === 'ask' && stateOf(item) === 'open' && valueOf(item, 'Blocking') === 'yes')

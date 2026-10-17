@@ -7,6 +7,7 @@ import test from 'node:test'
 
 import { answer, fromChat, step, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
+import { storeFromText } from '../src/work/read.mjs'
 import { buildState } from './withStore.mjs'
 import { parseTail, saysDone } from '../src/transcript.mjs'
 
@@ -30,12 +31,14 @@ const app = name => JSON.stringify({
 const card = JSON.stringify({ name: 'Worker 1', role: 'worker', state: 'waiting', task: { text: 'Board restart for the user', step: 1, steps: 2, left: 5 * MIN, isReported: false }, at: NOW - 3 * MIN })
 
 function lane(lines, { plan = card, backlog = '' } = {}) {
+  // The store was made an hour ago: its steps were taken before the turns below.
+  const work = storeFromText(backlog, { now: NOW - 60 * MIN })
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: [app('Main'), app('Worker 1')],
     tails: { 'cli-Worker 1': { text: lines.join('\n'), isCut: false, modifiedAt: NOW - 2 * MIN } },
     planLineTexts: { 'cli-Worker 1': plan },
-    backlogText: backlog, adviceText: null, folders: null, askTexts: [], pictureLists: {},
+    work, adviceText: null, folders: null, askTexts: [], pictureLists: {},
   }
   return buildState(raw, { lines: [], outbox: [], runs: [], now: NOW, config }).chats.find(chat => chat.name === 'Worker 1')
 }
@@ -98,6 +101,8 @@ test('only what the chat holds itself is overruled: a step the store holds in pr
   const backlog = '## A\n- [ ] B12 The archer (for Worker 1) (branch feature/archer)\n'
   const worker = lane([...asked, answer(NOW - 3 * MIN, closing(YES))], { plan: '', backlog })
   assert.deepEqual([worker.state, worker.between], ['working', 'Its turn has ended; its branch feature/archer is still open.'])
+  // Review: it said Done without work report: its lane says so, and what to run.
+  assert.deepEqual(worker.flags.map(flag => [flag.kind, flag.text]), [['unreported', 'Worker 1 ended its turn with Done: yes but B12 is still in progress: run work report']])
   // B301: a "Task from" message of the main chat holds nothing: the store says what the worker is on.
   const handed = [fromChat(NOW - 20 * MIN, 'Game - Main', 'Task from Game - Main: backlog step B12, the archer. About 1 h.'), step(NOW - 19 * MIN, 'Draw'), toolResult(NOW - 18 * MIN)]
   assert.deepEqual(lane([...handed, ...asked, answer(NOW - 3 * MIN, closing(YES))], { plan: '' }).state, 'free')
