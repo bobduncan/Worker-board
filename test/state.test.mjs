@@ -353,7 +353,7 @@ test('a step for you in the backlog is a card of its kind, answered to the worke
   const backlog = '## Art\n- [ ] Verify: the walk is smooth (Game - Units) @you\n- [ ] Decide: the bridge @you\n- [ ] Provide: the plan @you\n- [ ] Do: quit the app @you\n- [ ] Pick a name @you\n'
   const state = build({ apps: [app('Main'), app('Units')], backlog, outbox: [] })
   assert.deepEqual(state.backlogForYou.map(step => [step.kind, step.asks, step.title, step.from]), [
-    ['verify', 'verify', 'the walk is smooth (Game - Units)', 'Units'],
+    ['verify', 'verify', 'the walk is smooth', 'Units'],
     ['input', 'decide', 'the bridge', 'Main'],
     ['input', 'provide', 'the plan', 'Main'],
     ['do', 'do', 'quit the app', 'Main'],
@@ -620,10 +620,10 @@ test('the demo shows the second design: six lanes with their queues, three reque
   ])
   assert.deepEqual([state.forYou[1].game.branch, state.forYou[1].game.folder, state.forYou[1].game.url], ['main', 'game', null])
   assert.deepEqual(state.backlogForYou.map(step => [step.title, step.kind, step.from, step.pictures]), [
-    ['the jump feels right (picture in art-inbox/jump)', 'verify', 'Main', ['art-inbox/jump/jump-arc.png']],
+    ['the jump feels right', 'verify', 'Main', ['art-inbox/jump/jump-arc.png']],
     ['quit and reopen the app once', 'do', 'Main', []],
     // B173: an Advisor suggestion is answered under For you; the answer goes to the main chat, which hands it out.
-    ['Make a unit template before the second unit (Advisor)', 'input', 'Main', []],
+    ['Make a unit template before the second unit', 'input', 'Main', []],
   ])
 
   assert.deepEqual([state.advisor.name, state.advisor.state, state.advisor.messages.length], ['Advisor', 'free', 4])

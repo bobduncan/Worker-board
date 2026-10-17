@@ -12,6 +12,7 @@ export const DEFAULT_FLOW = {
     moves: [
       { from: 'new', to: 'refined', by: 'advisor', when: 'refined is ready' },
       { from: 'refined', to: 'queued', by: 'main', sets: ['Owner', 'Blocked by', 'Estimate'], when: 'Touches overlaps no taken step' },
+      { from: 'refined', to: 'queued', by: 'server', when: 'a queue was asked before its refine' },
       { from: 'queued', to: 'taken', by: 'server', when: 'Blocked by all done and Owner free', then: 'wake Owner' },
       { from: 'queued', to: 'refined', by: ['main', 'person'] },
       { from: 'queued', to: 'new', by: ['main', 'person'] },
@@ -79,7 +80,9 @@ export function mayMove(flow, item, to, by, ctx = {}) {
   if (moves.length === 0) return { ok: false, why: `${id}: no move from ${from} to ${to} (flow.json)` }
   const mine = moves.filter(move => byList(move.by).includes(by))
   if (mine.length === 0) {
-    const who = [...new Set(moves.flatMap(move => byList(move.by)))].join(' or ')
+    // B303: the board's own moves are named only when nobody else may make that move.
+    const all = [...new Set(moves.flatMap(move => byList(move.by)))]
+    const who = (all.some(one => one !== 'server') ? all.filter(one => one !== 'server') : all).join(' or ')
     return { ok: false, why: `${id}: only ${who} ${VERBS[to] ?? `moves to ${to}`} a ${kind} (flow.json)` }
   }
   const held = mine.find(move => move.when === undefined || GUARDS[move.when]?.(item, ctx) === true)

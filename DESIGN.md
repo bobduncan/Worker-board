@@ -1139,6 +1139,27 @@ and does not pretend.
 - **The demo and the tests** make their stores in memory from their backlog texts (`storeFromText`;
   `test/withStore.mjs`), as `--make-store` would.
 
+## A queue asked before the refine (B303)
+
+Seen live on 2026-10-17: the main chat made a step with `work new`, queued it at once and got "no move from new to
+queued"; the refine gate sent the step to the Advisor, but the queue was lost, and once refined nobody queued it.
+
+- **The wish is kept** (`src/work/api.mjs`, `queue`): a `queue` the flow refuses only because the step is not refined
+  yet (it is new; the one who asks could queue it once it is refined, and the flow lets the board queue it then) is
+  not refused: the step gets the head line `Queue when refined: for <chat>; after <...>; about <...>` and the History
+  line "queue asked before its refine: ...", and the answer says "B302 is not refined yet: the Advisor refines it
+  first, then the board queues it for Board by itself." Every other refusal stays one: a worker, a step done or
+  queued, a bad `about`, a flow without the board's move below.
+- **The refine gate** (`src/refineGate.mjs`) counts such a step as one the main chat queued: it sends it to the
+  Advisor in that turn (a new step and an old one alike); the step's window item carries `queueWhenRefined`.
+- **Once refined** (the Advisor's `refined`, or a refine the person's answers or accept leave ready) the board queues
+  it by itself, as the server, with what was asked: Owner, Blocked by or Waits for, Estimate; the wish goes; History
+  "server: refined → queued" and "server: queued for Board; ... (asked by Main before its refine)". The flow's move
+  for it: `{ "from": "refined", "to": "queued", "by": "server", "when": "a queue was asked before its refine" }`
+  (the guard in `guards.mjs`), in the default flow and `examples/work/flow.json`. When the flow did not let it at
+  the refine, the reconciler names the move later and `advance` carries the wish out the same way.
+- **A refusal's "only ... may"** names the server only when nobody else makes that move ("only main queues a step").
+
 ## The bridge
 
 1. The person types on the board. The page sends it to the server, which keeps it as "waiting".
@@ -1161,6 +1182,20 @@ Safety, because what arrives is typed into a chat that can change files:
   teammate's report and never counts as the person's word.
 - What remains: any program running as the person on this PC could type through it. Such a program can already
   change the files the chats read.
+
+## A step's title without its note (B292)
+
+The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont
+understand why this is happening." Every note in brackets at the end of a step's line is no part of its title on the
+board, whatever it starts with: the main chat's "(for Units; after B12; about 1 h)", "(later; not handed out)",
+"(not handed out; after today; ...)", a chat's name, where its pictures are; two in a row too (`closingNotes` in
+`src/backlog.mjs`). Their parts are still read from every note: who it is for, after what, how long; the step's
+words keep the notes, so what reads them (a step held back, the pictures it points to) finds them. The work store
+keeps the titles it migrated with their notes (`lineFields` in `src/work/line.mjs` reads only "(for ...)" as
+fields), so the line it writes back still says the same step; a lane named after such a title, or after a card
+named so, drops the note (`withoutNote` in board.js). Of two steps the store holds in progress for one worker, its
+lane shows the one its card names, else the one it took last, never one it was taken off. And a worker whose last
+answer closed "- Done:   partly" or "no" is between two turns, not free, whatever the app calls its turn.
 
 ## What it does not do
 
