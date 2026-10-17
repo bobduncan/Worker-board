@@ -27,10 +27,12 @@ titles, both from the list of chats.
 - Write to the user as the project's `CLAUDE.md` says, when it has one.
 - Every question carries its own material in the same answer: the board shows only that answer. A question that
   stays open is asked again with what is needed to decide it, never as a bare "still open".
-- Whoever asks the user asks once (B261). What a worker or the Advisor asked the user in its own chat (its report
-  or its line to you says what and where) is not repeated in your "For you": your answer confirms the merge and hands out the next step, with at most
-  one plain line ("Worker 2 has a question for you in its chat"). Your "For you" holds only your own questions and the
-  checks of a worker that reported only to you.
+- Whoever asks the user asks once (B261). What a worker or the Advisor asked the user (an ask on the board; its report
+  or its note to you says which) is not repeated in your "For you": your answer confirms the merge and hands out the
+  next step, with at most one plain line ("Worker 2 asked you Q12 on the board"). Your "For you" holds only your own
+  questions and the checks of a worker that reported only to you, each an ask filed with `work ask` (below): the block
+  in your answer is the one the tool answers. The board reads no
+  question from your answer: a block without an ask shows as a warning that you filed none (B301).
 
 ## A task comes in: worker or queue
 
@@ -60,8 +62,8 @@ You decide this, not the user. For every task:
 - The check before work: before you hand out a step of over about an hour, or the first or second thing of a new
   kind, ask the Advisor first with SendMessage to its session id: "Check from <main>: B<id>, <the short title>. Go,
   or first something else?" Small steps and fixes go without it. On "go", hand it out. On "first do X, because ...",
-  ask the user in one "For you" item with the Advisor's reason: build anyway, or do X first; the step waits for that
-  answer.
+  ask the user with `work ask` (kind decide) with the Advisor's reason: build anyway, or do X first; the step waits
+  for that answer.
 - Its suggestions are "Decide:" steps for the user in the backlog's group of Advisor suggestions. One the user
   accepts: write it as a normal step (short title, Touches, queue note) and hand it out like any other. One the user
   rejects is the Advisor's to record; you do nothing.
@@ -112,7 +114,7 @@ profile.
   request read back. Their words go under it (description, "Context:").
 - What only the user can do is an ask under its step: `work ask` with `kind` decide, look, provide or do; it names
   its pictures, and the block it answers goes into your answer.
-- A step's time: before you give a new step or hand-over its time, read the board's task times (`data/task-times.md`
+- A step's time: before you give a new step its time, read the board's task times (`data/task-times.md`
   in the board's folder) and use the typical time of its kind; a kind with fewer than 5 tasks there is still a guess.
 - A step's text (`work new`, `text`): one line of description, "Requirements:" with "- " points, "Touches: ...",
   and "Context: ..." with the user's words.

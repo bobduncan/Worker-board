@@ -7,17 +7,19 @@ time. Every name, path and word of a project comes from its settings or its own 
 
 ## What a chat writes, and the board reads
 
+B301: the board reads no task, no end of a task and no question from a chat's words. A step comes from the work store
+and ends with `work report`; what the person must answer is an ask of the store (`work ask`). The few words below are
+read only for what the store does not hold.
+
 | The words | Who writes them, where | What the board makes of them | Read in |
 |---|---|---|---|
-| `Report from <name>: B<id> ...` (first line) | a worker, a message to the main chat, by any address or tool | the task is finished once the turn ends after it; the first B-id is the finished step | `src/transcript.mjs` (`isReportTo`), `src/finished.mjs` (`reportsOf`) |
-| `Note from <name>: ...`, `Question from <name>: ...` | a worker, to the main chat | a message mid-task; a note or question sent and followed by the turn's end also ends the task | `src/transcript.mjs` |
-| `Note from <name>: paused for the limit until HH:MM` (exactly this first line) | a worker that stops for the plan's limit | the worker shows as "Suspended" until that time | `src/limits.mjs` (`PAUSED`, `pauseNote`) |
-| A closing block whose last line is `+ Done:   yes` (or `- Done:   no, ...`, `- Done:   partly, ...`) at the very end of an answer | every chat, at the end of an answer to the person | "yes": the chat is done and free, whatever its card says | `src/transcript.mjs` (`saysDone`), `src/state.mjs` |
-| `**Task:** ...` and `**What I did:** ...` as the answer's first two lines | a worker that finished with something for the person | the task and the result in the worker's window | `src/handover.mjs` |
-| A quote block titled `> **For you**`, items numbered, each starting `**Answer:**` or `**Do:**` | every chat, above its closing block | the person's items in the worker's window and under For you; the Advisor's last answer with one stands there too, answered straight in its chat (B275) | `src/handover.mjs`, `src/state.mjs` (`advisorWaiting`) |
-| `[See the picture: ...](http://127.0.0.1:<port>/#picture=<picture folder>/<file>)` | in a For you item | a button that opens the picture on the board | `src/handover.mjs`, `public/board.js` |
-| `[Play it: ...](http://127.0.0.1:<port>/#play=<branch>&<settings>)` | in a For you item | a button that starts that branch's game (only a project with a game) | `src/handover.mjs`, `public/board.js` |
-| The AskUserQuestion or ExitPlanMode tool | any chat | the chat waits for the person | `src/transcript.mjs` (`ASKING_TOOLS`) |
+| `Note from <name>: paused for the limit until HH:MM` (exactly this first line) | a worker that stops for the plan's limit | the worker shows as "Suspended" until that time (the store holds no pause) | `src/limits.mjs` (`PAUSED`, `pauseNote`) |
+| A closing block whose last line is `+ Done:   yes` (or `- Done:   no, ...`, `- Done:   partly, ...`) at the very end of an answer | every chat, at the end of an answer to the person | "yes": the chat is done and free, whatever its card says (a card is the chat's own, not the store's) | `src/transcript.mjs` (`saysDone`), `src/state.mjs` |
+| `**Task:** ...` and `**What I did:** ...` as the answer's first two lines | a worker that finished with something for the person | shown in its answer's window, as its words | `src/handover.mjs` |
+| A quote block titled `> **For you**`, items numbered, each starting `**Answer:**` or `**Do:**` | every chat, above its closing block; `work ask` answers it for the chat's answer | no question: when a chat's last answer ends with one and it filed no ask in that turn (and holds none open), Needs your attention shows the warning "<chat> wrote questions in its chat but filed no ask", with a button to its chat | `src/handover.mjs` (`asksAtEnd`), `src/state.mjs` (`unfiledAsk`) |
+| `[See the picture: ...](http://127.0.0.1:<port>/#picture=<picture folder>/<file>)`, `[Play it: ...](http://127.0.0.1:<port>/#play=<branch>&<settings>)` | in a For you item (`work ask` writes them from its `pictures` and `play`) | the board opens at that picture, or starts that branch's game, when the link is opened | `public/board.js` |
+| `Note from <name>: ...`, `Question from <name>: ...` | a worker, a message to the main chat | the Workers mod notes that the worker waits for the main chat; it ends nothing | the Workers mod (`sentKind`) |
+| The AskUserQuestion or ExitPlanMode tool | any chat | the chat waits for the person; the Workers mod files each question as an ask | `src/transcript.mjs` (`ASKING_TOOLS`), the Workers mod |
 
 ## The files the chats keep
 
@@ -27,7 +29,7 @@ time. Every name, path and word of a project comes from its settings or its own 
 | `.claude/chats/<session>.json` | each chat, its card (by the Workers mod's tool) | `task: { text, step, steps, names, left, stepLeft, since, isReported }`; `left: true` when it left the list | `src/planLines.mjs` |
 | `.claude/chats/own/<name>.json` (B210) | a chat without the Workers mod, its card itself; `<name>` in small letters, other characters "-" | the same fields, with `minutes` and `stepMinutes` for the times; the file's time when it has no `at`. Read only when the mod's card is not there | `src/planLines.mjs` (`ownCard`), `src/sources.mjs` |
 | `.claude/asks/<id>.json` | a chat that needs the person in a fixed form | `id, from, kind (input, verify, intervene), title, text, at, state, options, pictures, run, checks, tried` | `src/asks.mjs` |
-| the work store (setting `work`, `.claude/work` unless set) | the board alone, on the chats' `work` calls and the person's clicks | one file per item, `flow.json`, `activities.json`, `last-ids.json`, `truth.json`: see "The work store" below | `src/work/` |
+| the work store (setting `work`, `.claude/work` unless set) | the board alone, on the chats' `work` calls and the person's clicks | one file per item, `flow.json`, `activities.json`, `last-ids.json`: see "The work store" below | `src/work/` |
 | the backlog (setting `backlog`) | the board, as the store's view; nobody edits it | see below | `src/backlog.mjs`, `src/work/view.mjs` |
 | `.claude/restart.md` | the main chat on "prepare restart" | who was on what; the board only looks whether it is there | `src/sources.mjs` |
 | `.claude/board.json` | the board | where the board is and its key, for the Workers mod | `server.mjs` |
@@ -55,7 +57,7 @@ tool answers with the record: work from it, not from a message.
 | `work ask` (`of`, `kind` decide, look, provide or do, `blocking`, `text`, `options`, `pictures`, `play`) | any chat | something only the person can do, `Q<n>` under the step; blocking moves the step to waiting on you. It answers the "For you" block for your answer |
 | `work withdraw Q<id>` (`why`) | the chat that asked | the ask is withdrawn; a step that waited only on it goes on. A step waiting on you is reported only after its asks are answered or withdrawn |
 | `work note` (`to` you or main, `text`, `of`) | any chat | information, never a question: `N<n>` |
-| `work report B<id>` (`result`, `merged`) | a worker | in progress to review; the board checks the base branch against its remote and that the branch is gone, writes it in History, and tells the main chat |
+| `work report B<id>` (`result`, `merged`) | a worker | in progress to review; the board checks the base branch against its remote and that the branch is gone, writes it in History, and tells the main chat. The only way a step ends: the worker's card clears when its turn ends |
 | `work block` / `unblock B<id>` (`on`) | the main chat, a worker | what the step waits on (`Blocked by`) |
 | `work new` (`title`, `activity`, `goal`, `text`) | the main chat, a worker, the Advisor | a new step `B<n>`, state new |
 | `work queue B<id>` (`for`, `after`, `about`) | the main chat | a refined step into a worker's queue |
@@ -66,10 +68,12 @@ tool answers with the record: work from it, not from a message.
 
 ## The backlog
 
-After the cutover (`node tools/migrate-backlog.mjs --cutover`) the board writes this file from the work store after
-every change, its first line `<!-- generated by the worker board from <work folder>; edit nothing here -->`, and
-nobody edits it. It keeps the form below, so whatever reads it reads what the store says; a line `[store] <Key>:
-<value> · ...` under a step holds what the step's line cannot say. Before the cutover the chats edit it as below.
+The board writes this file from the work store after every change, its first line `<!-- generated by the worker
+board from <work folder>; edit nothing here -->`, and nobody edits it; the board never reads it. It keeps the form
+below; a line `[store] <Key>: <value> · ...` under a step holds what the step's line cannot say. A project gets its
+store once: from a backlog in this form with `node tools/migrate-backlog.mjs --backlog <file> --work <folder>
+--make-store`, or an empty one with `--work <folder> --init`. Without a store the board shows no work and says on top
+what to run.
 
 
 | The words | Meaning | Read in |
@@ -82,7 +86,7 @@ nobody edits it. It keeps the form below, so whatever reads it reads what the st
 | `later`, `not handed out`, `not queued` in brackets | held back: in no queue | `src/backlog.mjs` (`isHeldBack`) |
 | `(branch <name>)` at the very end | the step is in progress on that branch | `src/backlog.mjs` |
 | Indented lines under a step; `Requirements:`, `Context:` ... as sections | the step's details | `src/backlog.mjs` (`noteSections`) |
-| `Refined (round <n>, by <name>, <date time>; accepted <date time>):` under a step, then `Problem:`, `Goal:`, `Questions:` (a point per question, ` Answer: ...` behind it once answered), `Feedback:` (`- Round <n>: ...`) | B233: a step's refine block; the Advisor writes it, the board adds the person's answers, feedback and "accepted"; any other named line or a line in brackets ends it, but `Summary:`, `Picture:`, `Part of:`, `Size:` and `What we build:` stay in it (B285) | `src/backlog.mjs` (`refinedOf`), `src/tick.mjs` (`answerRefine`, `acceptRefine`) |
+| `Refined (round <n>, by <name>, <date time>; accepted <date time>):` under a step, then `Problem:`, `Goal:`, `Questions:` (a point per question, ` Answer: ...` behind it once answered), `Feedback:` (`- Round <n>: ...`) | B233: a step's refine block; the Advisor writes it, the board adds the person's answers, feedback and "accepted"; any other named line or a line in brackets ends it, but `Summary:`, `Picture:`, `Part of:`, `Size:` and `What we build:` stay in it (B285) | `src/backlog.mjs` (`refinedOf`), `src/work/refineText.mjs` (`answerRefine`, `acceptRefine`), through the work API |
 | `Refined (<date time>; ready):`, then `Summary:`, `Picture:`, `Part of:`, `Size:`, `What we build:` (while refining `Questions:` instead of `What we build:`) | B285: the approved form of a refine block (roles/advisor.md); only a head with `; ready` makes the step refined, so it may go into a queue; until then the board refines it first, and once more to fold answers in | `src/backlog.mjs` (`isRefined`, `refineStateOf`), `src/refineGate.mjs` |
 | The group named by the setting `advisorSuggestions` | the Advisor's open suggestions on its tab | `src/state.mjs` |
 

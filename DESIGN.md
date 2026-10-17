@@ -77,10 +77,9 @@ for a little after it was typed in, although the chat no longer waits, so you se
 **A working worker opens on a click (B151).** The person, 2026-10-14: "I want to be able to click on any worker that
 is working and in the popup show what it's original task is". A click on the lane of a worker that works (also one
 that is suspended, cut off, or between two turns) opens a window: in its head the task as its card names it; then
-the task as it was given, the main chat's hand-over as it arrived in that chat ("Task from ...", also one that came
-in the middle of a turn) or what the person typed there, with when (`taskOrigin` in `src/transcript.mjs`: the
-newest such message at or before the task's start, kept to 6000 characters); the backlog step it is on, or the
-first open one that message names; and where it stands now, its step line, its time and what it does. This is the
+the task as it was given: the step the work store holds for it, else what the person typed there, with when
+(`taskOrigin` in `src/transcript.mjs`: the newest such words at or before the task's start, kept to 6000 characters;
+B301: the main chat's "Task from ..." message is no longer read); the step it is on; and where it stands now, its step line, its time and what it does. This is the
 one place the board shows words a person or a chat typed, on the person's own wish; the lane keeps the card's
 short task (B82), and the window of a worker that waits stays as B100 has it. The window is built from parts
 (`LANE_PARTS` in `public/board.js`, main column and side column), so a later window adds its own. `#task=<worker>`
@@ -101,13 +100,11 @@ preferably as a popup in the board to verify. same with the game not a feature b
   CLAUDE.md. `parseHandover` in `src/handover.mjs` reads it, and the closing block apart (`closingOf`); the words
   come from a chat, so a picture's path and a branch are kept to plain characters, and the board decides on its own
   whether it shows a picture.
-- *The window* is B100's window of a worker that waits, when its answer has the form: its title says it finished;
-  "Its task" (its own Task line, and the main chat's hand-over folded under it; what the person typed to it is
-  never shown, as B100 has it); "What it did"; "For you", one card per item with its links and its own answer (Yes
-  or No, or Done, and words), which the window gathers in the answer box as "1. yes" / "2. no: ..." / "3. done",
-  where the person can still change them before one Send; "Its whole answer", folded; and on the right its closing
-  block as three rows, Done in green or red. An answer without the form keeps B100's window, its closing block
-  also shown apart.
+- *The window* is B100's window, when the answer has the form: "Its task" (its own Task line; what the person typed
+  to it is never shown, as B100 has it); "What it did"; "Its whole answer", folded; and its closing block as three
+  rows, Done in green or red. B301: its "For you" items are no longer offered as questions with Yes/No/Done answers:
+  what waits for the person is the work store's asks (`work ask`, which writes the block for the chat), and an answer
+  that ends with a block but filed no ask is a warning under Needs your attention, whose window is this one.
 - *The links.* "See the picture" opens it in the board's own popup. "Play it" starts the game from the working
   folder that holds the branch (main included) on a port of its own, in a new tab, with the settings in its address,
   so it opens where the change shows; it ends by itself as "Open the game" does. The same links in a chat open the
@@ -120,16 +117,16 @@ the context, what the ask was and what the solution is ... a header for further 
 collapsed by default", and of the mock-up: "I want the what I did to be non technical and highover. the detail it
 correct". Both windows of B151 and B149 open with a part set apart, a header in capitals over each row:
 
-- *The task*, at most two lines: the line "In short: ..." of the hand-over when it has one, else its first line
-  without its frame ("Task from Game - Main: B12, ..." and "About 1 h" fall away), else the step's title, else the
-  card's topic (`shortTask`).
+- *The task*, at most two lines: the line "In short: ..." of the words that gave it when they have one, else their
+  first line, else the step's title, else the card's topic (`shortTask`). B301: those words are the person's; a hand-over
+  message gives no task.
 - B281, in the window of a working worker on a backlog step: above those two lines the step itself, "B231 · its
-  title", and the two lines say what the step is: the hand-over's "In short: ..." line, else its first line; when
-  that only names the step again, the step's own first line in the backlog that says what it is, not who has it,
+  title", and the two lines say what the step is: the step's own first line that says what it is, not who has it,
   how far it is, the person's answers or a head's part such as "Plan: ..." (`stepTask`, the state's `step.about`).
-  The task is the main chat's hand-over while that is open, also when the person's words came later and the worker
-  named its card anew for them (the person, 2026-10-17, of B231's window, which showed their answer as the task: "I
-  want the task to be clear, recap the original task briefly and state it's busy with feedback on this task").
+  B301: the step the work store holds for the worker is the task, also when the person's words came later and the
+  worker named its card anew for them (the person, 2026-10-17, of B231's window, which showed their answer as the
+  task: "I want the task to be clear, recap the original task briefly and state it's busy with feedback on this
+  task"); those words are the feedback.
 - B281, when the person's words opened the worker's turn after it was given its task (typed in its chat, or an
   answer or a line given on the board, without the board's mark), a part of its own under the task:
   *Now on your feedback (HH:MM)*, their words in one line (at most two on screen; the board's own lines, such as a
@@ -154,24 +151,19 @@ the information i need to approve. i think it works for for workers, but not for
 asks the person as part of its talk with them, not as a finished task, so its window (`mainParts`) differs from a
 worker's:
 
-- *When* (B290): only when its last answer ends with a "For you" block (`asksAtEnd`: after it only a rule and the
-  closing block; a title written a little off still counts), or it asked with the app's question form. The app counts
-  the main chat as waiting after every answer; a plain report asks nothing, stands nowhere under Needs your attention,
-  and the main chat is free, not "Waiting for you" and not held by its own card (the person, 2026-10-17: "I dont see a
-  question. or its not clear what you want"). A block quoted earlier in an answer is someone else's: the questions are
-  the last block's. A question it asked before and did not ask again in its last answer stands no longer: the main chat
-  asks an open question anew in each answer.
+- *When*: it asked with the app's question form (B301: or it holds an open blocking ask of the work store). The app
+  counts the main chat as waiting after every answer; a plain report asks nothing, stands nowhere under Needs your
+  attention, and the main chat is free, not "Waiting for you" and not held by its own card (B290, the person,
+  2026-10-17: "I dont see a question. or its not clear what you want"). B301: its "For you" block makes it wait no
+  more; its questions are asks. A block at the very end of its last answer (`asksAtEnd`) with no ask filed is the
+  warning "Main wrote questions in its chat but filed no ask", with a button to Talk to Main.
 - *The head* says "Main needs your answer" (also its card), not "Finished: its task".
 - *On top*, set apart: "You asked", its closing block's Prompt line, and "Where it stands", its Done line in green or
   red.
 - *What you decide on*: its answer itself, open, drawn as in Talk to Main, without its "For you" block and its closing
   block (`material` in `parseHandover`); it scrolls on its own when long.
-- *Needs your attention*: its questions. A question that lists its choices ("- **A:** ...") shows them under it, with
-  its advice, and gets A/B/C buttons; one whose words name them ("A, B or C?") gets the buttons alone; the window types
-  "1. A" in the answer box as it types "1. yes".
-- *Details*, folded: its closing block, and for a question it first asked in an earlier answer a button to Talk to
-  Main, which holds all its answers. The board does not guess which earlier answer that was, as the main chat words
-  a question anew each time; the main chat puts the material of each question in the answer that asks it.
+- B301: no questions with A/B/C buttons any more: the asks are the cards, with their options and advice.
+- *Details*, folded: its closing block, and a button to Talk to Main, which holds all its answers.
 
 "For you" is "Needs your attention" everywhere on the board: the right side's tab and its panel, the Backlog tab's
 filter, a step's state and the windows. The chats keep writing their block as "> **For you**"; the board reads it
@@ -183,14 +175,12 @@ also shows in this attention tab it can talk to 'me' directly instead or always 
 question stands under Needs your attention like a worker's, and the answer is typed straight into its chat, never
 through the main chat:
 
-- *When* (`advisorWaiting` in `src/state.mjs`): the app says it waits, it asked with the app's question form (answered
-  in its chat only), or its turn has ended with a "For you" block in its last answer, which the app does not always
-  count as waiting.
-- *Not* for a turn the board itself started: a round of its clock, a refine, an answer to a recommendation. What such a
-  turn asks has its own place: the suggestions on the backlog, the step's window, the way to the next milestone.
-- *Its card* says "Advisor needs your answer", with the app's line of what it needs, else its first question. *Its
-  window* is the main chat's (`mainParts`): what you asked, where it stands, its answer, its questions with their
-  advice and links; under Details a button opens its chat on the Advisor tab.
+- *When* (B301): it files an ask of the work store (`work ask`), which stands under Needs your attention like any
+  ask, or it asked with the app's question form (answered in its chat only). A "For you" block in its last answer
+  without an ask is the warning "Advisor wrote questions in its chat but filed no ask", with a button that opens its
+  chat on the Advisor tab. (`advisorWaiting`, which read the block and passed over the board's own turns, is gone.)
+- *Its window* is the main chat's (`mainParts`): what you asked, where it stands, its answer; under Details a button
+  opens its chat on the Advisor tab.
 - *Once*: its job text says it asks in its own chat and tells the main chat in one line only what it asked; the main
   chat does not ask it again (B261). The Advisor stays off the lanes. The pictures:
   `art-inbox/worker-board/b275/2026-10-17-b275-advisor-under-attention.png` and `...-advisor-window.png`.
@@ -826,12 +816,13 @@ in `art-inbox/worker-board/b262/`.
 - **How long tasks really take (B185).** The person, 2026-10-14, after a simple task showed 60 minutes: "i only want
   structural improvements to improve the accuracy". `src/taskTimes.mjs` reads each worker's transcript, the past once
   and then only what it gained (an offset per transcript, kept in `data/task-times.json`; the tools' answers are
-  skipped unread, so a 200 MB transcript takes under a second). A task runs from the main chat's hand-over to the
-  worker's "Report from" message; a further message about the same step goes on with it. Only the time its turns run
+  skipped unread, so a 200 MB transcript takes under a second). B301: a task runs from the worker's own `work take
+  B<id>` to its `work report B<id>` (the work tool's calls, never a message's words); a second take of the same step
+  goes on with it. Only the time its turns run
   counts: waiting for the person, in a queue or with the board off does not; work sent to the background counts until
   the app starts the chat again (up to an hour); half an hour without a line in a turn does not. A task paused for the
-  limit, or never reported, is left out. The area is `board`, `art` or `game`, from the hand-over's "Touches:" line,
-  else its words. The board writes `data/task-times.md`, the list the main chat and the workers read before they give
+  limit, or never reported, is left out. The area is `board`, `art` or `game`, from the step's "Touches:" line in the
+  store, else its words; its estimate is the step's. The board writes `data/task-times.md`, the list the main chat and the workers read before they give
   a time (per area: how many tasks, the typical working time, how far estimates were off; an area under 5 tasks is
   still a guess), and shows "Estimates lately: 7x too high" on the Overview (its tooltip per area) and "estimate 1 h,
   took 6 min" in the Backlog tab's "Recently finished". The tasks of one step are one there. Nothing is kept by hand.
@@ -839,13 +830,13 @@ in `art-inbox/worker-board/b262/`.
 - An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminds a working chat to renew it.
 - A lane's main figure is the time left ("24 min left"); the clock time it ends at is the small one (B95). A time
   that has run out says by how much ("12 min over").
-- A working worker always has a time: its own, else the "about <time>" of its backlog step, else the one in its
-  hand-over; the last two count from the task's start and say where they are from. A worker that works with none
-  of the three is a fault, shown in the warning colour ("No time"). The main chat has no task to time.
-- One turn can hold several tasks. A task a chat names starts no earlier than its last message to the main chat,
-  and when the board still showed another task the chat had named, it starts when it was named (B94).
-- A hand-over that arrives while a chat works is not a user entry in the transcript: the app keeps it with the
-  turn as a queued command. The board reads it as a hand-over just the same.
+- A working worker always has a time: its own, else the estimate of its step in the store, counted from the task's
+  start and saying where it is from (B301: a hand-over's time is no longer read). A worker that works with neither is
+  a fault, shown in the warning colour ("No time"). The main chat has no task to time.
+- One turn can hold several tasks. When the board still showed another task the chat had named, a task starts when it
+  was named (B94).
+- A message that arrives while a chat works is not a user entry in the transcript: the app keeps it with the turn as
+  a queued command; it opens and ends no turn.
 - The steps of a task are one line in the lane (B108): which step of how many, the step's name and the time left for
   that step ("2/5 · Sheet and two views · 12 min left"), from `task.stepLeft` in the chat's card (B107). It counts
   down while the chat works; a step without a time says so. The names of all steps, the current one marked, open
@@ -854,8 +845,8 @@ in `art-inbox/worker-board/b262/`.
 ## The queue
 
 A step a worker is on is in progress, not queued, also when the step names no branch (a check, a comparison, a
-merge): the step that names its branch, else the open step of its own that its task record names by id, else the
-one its hand-over names (B94).
+merge): the step the work store holds taken, in progress or waiting on the person for it, else the open step of its
+own that its task record names by id (B94; B301: a hand-over names none).
 
 
 The queue stays in the backlog, so there is one list. The main chat writes each queued step so the board can read
@@ -867,17 +858,14 @@ for the first chat its words named: Main's queue held B126 "(later; not handed o
 Verify steps. Now a step is queued only when its note names a worker ("(for Units; ...)"), wherever it stands; never
 a step for the person (@you), and never one marked "later", "not handed out" or "not queued" in brackets. A step
 under "Next to hand out" without a worker waits for the main chat; one for a worker the board does not know is
-"Queued for nobody". And a worker's message whose first line starts "Report from" ends its task, whatever address or
-tool sent it (the main chat's name, its local id or pipe address, the app's send_message): Game - Support's report of
-B168 went to the main chat's local id, and the board kept its hand-over open, so Support showed as working.
+"Queued for nobody". (B301: a worker's message no longer ends its task: a step ends with `work report`.)
 
-## The work store (B296, increment 1: a shadow of the backlog)
+## The work store (B296, increment 1: the store, the migration, the flow)
 
 The design: `.claude/specs/2026-10-17-work-store-design.md` in the project; the plan beside it in `.claude/plans`.
 The work moves from prose (the backlog's lines) into records: one file per item in the folder of the setting `work`
-(`.claude/work` unless set), a state per item, and the flow of states as data. Increment 1 builds the store and runs
-it as a **shadow**: the backlog file stays the truth, the chats edit it as before, and the board proves at every
-refresh that the store says the same.
+(`.claude/work` unless set), a state per item, and the flow of states as data. Increment 1 built the store and ran it
+as a shadow of the backlog; B301 removed the shadow (below): the store is the one source of the work.
 
 - **An item** (`src/work/item.mjs`): `<id>.md`, a head of `Key: value` lines up to the first blank line (keys fixed
   per kind: step, ask, instruction, note; `Id`, `Kind`, `State`, `Since` always; `-` is none), then `## ` sections
@@ -914,22 +902,15 @@ refresh that the store says the same.
   `<id>.claim` file that only one process can create; an id never comes back), `appendHistory`, `writeStore` (only
   the files whose text changed; Since and History carried only within one step; a step with an id that left the
   backlog keeps its file and is named as a problem, never deleted; an id-less step's file, only ever a copy of its
-  line, goes with it; `last-ids.json` never lowered), `truth.json` (`shadow` here).
-- **The shadow** (`src/work/shadow.mjs`): at every refresh the server migrates the backlog's text into the store
-  when its hash changed, one write at a time: a refresh that comes during a write leaves its text, the newest is
-  written next, and the backlog is read anew right before each write. An item keeps its `Since` and History while its state stays; a state that changed gets a
-  History line "queued → done (the backlog says so)". The store is read again after a write, else every 30 s. The
-  state takes its backlog from the store while it reads back as the same backlog, else from the file; a store that
-  cannot be read puts one line on top of the board. Only the board that delivers writes the store; a copy writes
-  only when its settings give it a store folder of its own outside the project (`isOwnWork`), and else reads.
-- **What you see**: under the Backlog tab's head one line, "Store: shadow · 370 items · in step with the backlog"
-  (or how many steps differ, and the problems on hover); in a step's window a part "Flow": the strip of states with
-  the step's own marked, and the moves out of it with who makes each.
-- **The command**: `node tools/migrate-backlog.mjs --backlog <file> --work <folder> [--dry-run]` prints the counts,
-  the problems, the parity, the steps in flight and the goal map's step ids the store lacks; the real run refuses a
-  folder that is not empty. `--cutover` is increment 2's (below).
+  line, goes with it; `last-ids.json` never lowered).
+- **What you see**: under the Backlog tab's head one line, "Store · 370 items · backlog.md is its view" (the problems
+  on hover); in a step's window a part "Flow": the strip of states with the step's own marked, and the moves out of it
+  with who makes each.
+- **The command**: `node tools/migrate-backlog.mjs --backlog <file> --work <folder>` prints the counts, the problems,
+  the parity, the steps in flight and the goal map's step ids the store lacks, and writes nothing (B301: see there for
+  `--make-store` and `--init`).
 
-## The work store, increment 2 (B297): the API, the view, the cutover
+## The work store, increment 2 (B297): the API, the view
 
 - **The API** (`src/work/api.mjs`, `workApi(body, ctx)`): every action of the `work` tool and the page, one request at
   a time per store folder (two takes of one step never interleave). The chats: `next` (my open instructions, then my
@@ -941,9 +922,10 @@ refresh that the store says the same.
   `refined` (the Advisor's block in today's form). The person, on the page: `answer`, `tick` (close, approve, done: a
   step in review is done, any other dropped; an ask answered), `delete`, `refine-answer`, `refine-accept`. The board:
   `check`. Every move asks the flow (`mayMove`) and writes `<from> → <to>` in History; a file whose head is broken is
-  refused with its line, never moved. **While truth.json says "shadow", every change is refused** ("The store is not
-  the truth yet: the cutover has not run"); `next` and `list` answer.
-- **The view** (`src/work/view.mjs`): once the store is the truth, backlog.md is written from it after every change,
+  refused with its line, never moved. B301: a store folder that is not there or cannot be read is refused with 503
+  and the board's line for it (`work/read.mjs`, `storeFault`); a file that changed meanwhile is 409, one that cannot be
+  written 500.
+- **The view** (`src/work/view.mjs`): backlog.md is written from the store after every change,
   in today's form, its first line `<!-- generated by the worker board from <work folder>; edit nothing here -->`.
   What a step's line cannot say (taken, review, a goal, Blocked by beside Waits for) stands in one line under it,
   `[store] State: taken · Goal: G17` (`adapter.mjs`, `storeLine`), and the migration reads it back: the view
@@ -955,37 +937,33 @@ refresh that the store says the same.
   from the steps' "Touches:" lines. After a report the board runs its own check (`src/work/check.mjs`: each
   repository's base equals its remote, the branch is gone, a result is named) and writes it to History; a passed
   check closes the step by the default flow. The board that delivers writes backlog.md; a copy with a store of its own
-  writes the view into that folder; a copy without one only reads. The shadow never writes a store that is the truth,
-  and the board then shows the store; the Backlog tab's line says "backlog.md is its view", or how many of its steps
-  a hand edit changed.
+  writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
+  view".
 - **The board's own writers** (`src/tick.mjs`): closing, deleting, the person's refine answers and the board's tick of
-  merged work go through the API as the person once the store is the truth; before, they write backlog.md as always.
+  merged work go through the API as the person (B301: only so; the writers of backlog.md's lines are gone, and the
+  refine-text helpers live in `src/work/refineText.mjs`).
 - **The work tool** (the Workers mod, `hooks/register.tsx`): `work` beside `chat`, registered in every chat of the list;
   each call goes to `/api/bridge/work` as this chat (its name and session are the mod's to give, never the call's) and
   answers the board's text, or one line when the board is down or refuses. `take` names the card after the step and
   `step` moves the card as the chat tool's `plan` and `step` do; a subagent may only read (`next`, `list`). The note
   every chat gets names the tool in one line.
-- **The cutover** (`node tools/migrate-backlog.mjs --backlog <file> --work <folder> --cutover [--dry-run] [--chats
-  <folder>]`): the final migration into the store, the old file kept as `backlog.before-store.md`, truth.json
-  `{"truth":"store","since":...}`, the view written. It first proves parity and the view's round trip and refuses
-  otherwise, and refuses a store that is the truth already or a backlog that changed while it ran. It prints the steps
-  in flight (id, state, owner, branch) and each chat card with a task beside the store's state of the step it names,
-  "<- check" where they disagree. The dry run prints the same and writes nothing.
-- **The review's findings** (before any cutover): the chat that asked may `withdraw` its ask (the step goes on; a
+- **Making the store** (B301's `--make-store`, the cutover of 2026-10-17 by another name: `node tools/migrate-backlog.mjs
+  --backlog <file> --work <folder> --make-store [--dry-run] [--chats <folder>]`): the migration into an empty folder,
+  the old file kept as `backlog.before-store.md`, the view written. It first proves parity and the view's round trip
+  and refuses otherwise, and refuses a backlog that changed while it ran. It prints the steps in flight (id, state,
+  owner, branch) and each chat card with a task beside the store's state of the step it names, "<- check" where they
+  disagree. The dry run prints the same and writes nothing.
+- **The review's findings**: the chat that asked may `withdraw` its ask (the step goes on; a
   report from waiting on you is refused until then); `take` claims a step in progress that names nobody ("claimed"),
-  and the cutover's table marks such steps; the person's close is `done` from any state (flow.json: `* → done` by the
+  and the table of `--make-store` marks such steps; the person's close is `done` from any state (flow.json: `* → done` by the
   person), dropped only through `drop`; `answer` and `withdraw` write the step first and put it back when the ask
   cannot be written (500, nothing changed); a chat asks only under its own step or one nobody holds (Main and the
-  person under any). The cutover reads the store back after writing it and stays a shadow on any difference, writes
-  the view from the store it checked, and refuses while `BOARD_ANSWERS_ASKS` (`src/work/api.mjs`, set by B299 once the
-  board lists and answers the store's asks) is false or the board in `board.json` does not answer `/api/bridge/work`.
+  person under any). `--make-store` reads the store back after writing it and leaves backlog.md as it is on any
+  difference, and writes the view from the store it checked.
   The view keeps the hash of what it wrote (`<work>/view.json`): a backlog.md edited by hand since is kept beside it
   as `backlog.edited-<date>-<time>.md` before the view is written, and the board's top line names it while it is there.
 
 ## The work store, increment 3 (B298): every word of the person's is filed
-
-Everything here acts only once truth.json says "store"; while it says "shadow" the API refuses (409), the mod swallows
-that without a word, and the page, the state and the chats are as before.
 
 - **Instructions** (`api.mjs`): `instruction` files the person's words to a chat as `I<n>` (`Chat`, `State: open`,
   `Since` to the second, `Via: chat | board`, `Text` in one line, the words in full under `## Text`) and answers
@@ -1003,8 +981,9 @@ that without a word, and the page, the state and the chats are as before.
   turns)"; the composed system prompt never changes with them, so it stays cached (review). On `turn.complete`
   (reason answer, the chat's own turn, once) it sends `turn-ended` with the turn's start; `Filed` keeps the
   millisecond an instruction was filed, so a line typed a moment after the turn began is not counted for it. Every call
-  of the mod's own to the board waits 1.5 s at most and goes on without it; a 409 "not the truth yet" is remembered
-  for five minutes, so a shadow costs no call per prompt. A chat started anew asks once (`next`) for its open ones.
+  of the mod's own to the board waits 1.5 s at most and goes on without it; a refusal (B301: a board without a work
+  store answers 503) changes nothing for the chat, and the next call asks again. A chat started anew asks once
+  (`next`) for its open ones.
 - **A line typed on the board** (`say.mjs`, `withInstruction`): Talk to Main or a line to any chat is filed as the
   person's instruction first and goes with its id at its end ("Queue the menu [I17]"); an answer to a request and the
   board's own words are not filed.
@@ -1013,9 +992,6 @@ that without a word, and the page, the state and the chats are as before.
   ones closed within a day, grey, with "→ <Closed as>". The main chat's name opens the talk with it.
 
 ## The work store, increment 4 (B299): asks by kind, the three lists
-
-As increment 3: every change below acts only once truth.json says "store". While it says "shadow", the board reads the
-chats' answers for questions and waiting exactly as before (tests run both).
 
 - **Asks** (`api.mjs`): `ask` answers the "For you" block in the project's form: one numbered item, "**Answer:**"
   (decide, look) or "**Do:**" (provide, do), the options with the advice (`advice`: "A thin or B thick; I advise B"),
@@ -1037,17 +1013,13 @@ chats' answers for questions and waiting exactly as before (tests run both).
   `POST /api/work` `answer` (the page's `sendWork`), after which the board types into the chat that asked
   `(answered on the worker board, HH:MM) Q12 "<title>": <answer>` (`say.mjs`, `answerWords`). **Information** lists the
   notes and reports, unread first, each with **Read**. A chat waits for the person only when it asked with the app's
-  question form or holds an open blocking ask: its answers are no longer read for "For you" blocks (the main chat's and
-  the Advisor's neither), and a chat's own card stands only for an app form the mod could not file.
-  `BOARD_ANSWERS_ASKS` is true: the cutover no longer waits for this.
+  question form or holds an open blocking ask: its answers are not read for "For you" blocks (the main chat's and the
+  Advisor's neither), and a chat's own card stands only for an app form the mod could not file.
 - **The step window** (`itemOfStep`, the page's `itemPartsOf`): a step of the store shows its item: Summary on top, the
   picture, the goal chip, the flow strip, What we build, then Requirements and Touches folded, History last. A lane
   names its step by the store's title, not the card's short topic.
 
 ## The work store, increment 5 (B300): pull delivery and the reconciler
-
-As before: everything below acts only once truth.json says "store"; as a shadow the board, the chats and the mod do
-what they did (tests run both).
 
 - **The reconciler** (`work/reconcile.mjs`, pure): `reconcile({ store, flow, lanes, now, times, prefix })` →
   `{ moves, deliveries, flags }`, one rule per row of the spec's section 7. Since a chat's `take` moves queued → taken
@@ -1063,10 +1035,9 @@ what they did (tests run both).
   B281 is queued"). The flow's other moves by the server whose guard holds are made (a review closed once its check
   passed and its look is answered); the reconciler never names a move the flow does not allow.
 - **The state** (`state.mjs`) runs it at every build: the lanes carry `flags`, the state `workFlags` and `reconciled`
-  (moves, deliveries, and the lines the flags say to their chats). Once the store is the truth a lane's task is the step
-  the store holds for its chat (with or without a branch; a step in progress holds an ended turn as "between two
-  turns"), and the main chat's "Task from" lines are read no more (`transcript.mjs` `taskOrigin(..., { handOvers:
-  false })`; `HANDS_OVER` stays until the cutover).
+  (moves, deliveries, and the lines the flags say to their chats). A lane's task is the step the store holds for its
+  chat (with or without a branch; a step in progress holds an ended turn as "between two turns"); the main chat's
+  "Task from" lines are not read (B301 removed their reading, `HANDS_OVER`, altogether).
 - **Delivery** (`work/deliver.mjs`, `server.mjs`): every refresh (`refreshSeconds`) the board that writes the store
   carries `reconciled` out: the moves through the API as the server (action `advance`), and each line into the outbox
   once per key ("B286 Units"), written down in the store's `delivered.json` before it is sent, so never twice, also
@@ -1076,7 +1047,7 @@ what they did (tests run both).
 - **Pull** (`api.mjs` `pull`, the mod's `turn.complete`): a worker whose card holds no task asks once per turn that
   answered; the API answers the line when a step queued for it may be taken now (the chat counted free), else nothing;
   the server sends it under the same key (nothing when sent before) and the mod takes it at once. The call goes through
-  the mod's 1.5 s race; a 409 (shadow) is swallowed.
+  the mod's 1.5 s race.
 - **The page**: a lane's flag is a line, with the button "Start <chat>" (`data-start`: the board's start words to the
   main chat); the lines on top stand in the store note; an old ask first, whatever the order.
 - **The review's findings**: a line's key is the step, its owner and when it was queued for that owner (`Since`), so a
@@ -1088,10 +1059,52 @@ what they did (tests run both).
   check's line once the step left review) is withdrawn (`dropped`), with the start it asked of the main chat when
   nothing else waits for that chat. A step queued for a chat that has been free longer than the grace time and not
   taken is flagged ("B286 queued for Units, Units free, not taken"). The mod's turn end is one call (`turn-ended` with
-  `pull: true`, the pull's answer in `pull`), held 1.5 s at most in all; a 409 keeps it quiet for five minutes. The
-  button "Start <chat>" does not open the lane's window.
-- The job texts (`roles/main.md` "Queue a step", `protocol.md` without the `Task from` row, `README.md`) are held in
-  the branch's last commit, "B300: job texts (merge only with the cutover)".
+  `pull: true`, the pull's answer in `pull`), held 1.5 s at most in all. The button "Start <chat>" does not open the
+  lane's window.
+
+## The work store is required (B301)
+
+The person, 2026-10-17: "I want to prevent confusing behavior. I rather have it fail." Until B301 every path of the
+store was gated on `truth.json` saying "store", with the old reading kept for a shadow. The live project runs on the
+store, so the old paths are gone; where the board fell back silently, it now says on top of the page what is wrong
+and does not pretend.
+
+- **Gone**: the shadow (`src/work/shadow.mjs`, its per-refresh migration of backlog.md, `truth.json`, the API's 409
+  "not the truth yet" and the mod's five-minute memory of it); building anything from `parseBacklog(backlog.md)` (the
+  backlog file is not read by the board at all: the queue, in progress, the steps for the person and the Backlog tab
+  come from the store, through the adapter); the main chat's "Task from" hand-over (`HANDS_OVER`, `taskStart`,
+  `handOvers` in `transcript.mjs`, the mod's `handOver()` and "(more follows)"); "Report from" ending a task (in the
+  board, `lastReport`, `lastFinish`, `reportsOf`; in the mod, a message to the main chat no longer marks the card
+  reported); the "For you" block as what waits for the person (`advisorWaiting`, B290's reading, the window's items
+  with Yes/No/Done and A/B/C answers); the writers of backlog.md's lines in `tick.mjs` (tick, delete, the refine
+  block); the cutover's checks for a running board and `BOARD_ANSWERS_ASKS`.
+- **Where it was**: a step ends with `work report`: the mod marks the card reported on the board's yes, clears it when
+  the turn ends, and compacts a large worker then, unless the board's answer names its next step (`more`: another step
+  queued or taken for it). A lane's task, its time and its window come from the store's step; the window's task as
+  it was given is the person's words only. The finished list dates a step from its History line "→ done"; task times
+  run from the worker's own `work take` to its `work report` (the work tool's calls in its transcript). The board's
+  writers go through the work API only (`src/work/refineText.mjs` holds the refine-text helpers).
+- **What fails, and how it shows** (`src/work/read.mjs`, `storeKeeper`, `storeFault`, `storeBacklog`): no store folder
+  ("No work store in <folder>: the board shows no work. In the board's folder, make it from the backlog with ...
+  --make-store, or make an empty one with ... --init."), or one that cannot be read ("The work store <folder> cannot be
+  read (<code>) ..."): that line stands on top of the board, the backlog, queues and asks are empty (nothing is drawn
+  from backlog.md), the reconciler does nothing, and the work API answers 503 with the same line. A broken item file,
+  an id twice or a state the flow does not know: one line on top names the folder and the file; the item is shown as
+  it is and not moved. A store folder without `activities.json` is named the same way. A write that fails is 500, one
+  that met a change made meanwhile 409.
+- **A chat that wrote questions in its chat but filed no ask** (`unfiledAsk` in `state.mjs`): its turn has ended, its
+  last answer ends with a "For you" block (`asksAtEnd`), it holds no open ask, and no ask of its own was filed or
+  answered since that turn began. Needs your attention shows the warning "<chat> wrote questions in its chat but filed
+  no ask" (kind `unfiled`), with a button to its chat: Talk to Main, the Advisor's chat on its tab, or, for a worker,
+  the card's window with its answer. The app's question form is filed by the mod as before, so it counts.
+- **Kept, and why**: "Note from <name>: paused for the limit until HH:MM" (the store holds no pause; the lane shows
+  "Suspended"); the closing block's "+ Done:   yes" (a card is the chat's own, not the store's: a chat that is done is
+  free whatever its card says); "Note from"/"Question from" messages (the mod only notes that the worker waits for
+  the main chat); the "Task"/"What I did" lines and the closing block, shown in a chat's answer window as its words.
+- **Making a store**: `tools/migrate-backlog.mjs --make-store` (the cutover's checks, into an empty folder) or
+  `--init` (an empty store: one activity, the default flow). Without a mode the command only reports.
+- **The demo and the tests** make their stores in memory from their backlog texts (`storeFromText`;
+  `test/withStore.mjs`), as `--make-store` would.
 
 ## The bridge
 
@@ -1122,7 +1135,7 @@ Safety, because what arrives is typed into a chat that can change files:
 - It does not call an AI service, with one exception since 2026-10-12: on the Design tab, on the person's click, it
   starts Codex to make a picture of an idea (see "The Design tab" above). Apart from that, only typing through the
   bridge and the advisor use the plan's usage.
-- It does not change the backlog, the game's folders or git. (B296: it writes the work store beside the backlog, a shadow of it.)
+- It does not change the game's folders or git. (B301: it writes the work store, and backlog.md only as its view.)
 
 ## Build order
 

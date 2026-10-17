@@ -88,20 +88,25 @@ person sent was copied, and into which chat to paste it.
   the words, pictures to look at, choices with the recommended one marked, how to play the change, and the answer:
   a text field and **Send**, or **Approve** / **Reject** with a reason, or **Done**. A card shows where its answer is
   (waiting for its chat, handed over, typed in, copied to paste). **Show closed** shows answered ones; the steps
-  from the backlog fold under "From the backlog". Once the work store is the truth (B298, B299): the store's asks are
-  the cards (Decide, Look, Provide or Do, "blocks B1 · Board waits", a **Play it** link), answered into the store;
-  under them **Information** (notes and reports, each with **Read**) and **Open instructions** (the person's words
-  per chat: missed ones red, closed ones grey with what came of them).
+  from the backlog fold under "From the backlog". The work store's asks are the cards (B298, B299: Decide, Look,
+  Provide or Do, "blocks B1 · Board waits", a **Play it** link), answered into the store; under them **Information**
+  (notes and reports, each with **Read**) and **Open instructions** (the person's words per chat: missed ones red,
+  closed ones grey with what came of them). B301: no card comes from a chat's words; a chat that wrote questions in
+  its chat without filing an ask is a warning card, "<chat> wrote questions in its chat but filed no ask", with a
+  button to its chat (Talk to Main, the Advisor's chat, or a worker's answer in the card's window).
+- **On top:** a line when the work store is not there or cannot be read (B301: naming its folder and the command that
+  makes it; the board then shows no work), or a file in it is broken (naming the file).
 - **The side, "Talk to Main"** (`02-talk-to-main.png`): the person's talk with the main chat: what they typed (also
   in the chat itself) and its answers with times, the main chat's "For you" block and closing block drawn as such;
   lines on their way marked so. A box with **Send to Main**; Ctrl+V adds a picture, shown small until it is sent.
 
 ## The windows
 
-- **A worker's task** (`03-task-window.png`, a click on a lane or `#task=<name>`): its task as it was handed over,
-  its plan with the steps done and to come, and the details.
-- **A finished worker's answer:** its "Task" and "What I did" lines, its "For you" items with buttons for their
-  pictures and play links, and the rest of its answer.
+- **A worker's task** (`03-task-window.png`, a click on a lane or `#task=<name>`): the step the work store holds for
+  it (else what the person typed), the person's feedback it is on, its plan with the steps done and to come, and the
+  details.
+- **A worker's answer:** its "Task" and "What I did" lines and the rest of its answer, as its words; its "For you"
+  items are no questions to answer here (B301).
 - **A step of the backlog:** its words, its notes in sections, its branch, its pictures, and **Add to queue**.
 - **A picture** (`04-picture-popup.png`, a click on any picture or `#picture=<path>`): the picture large with its
   path; a click closes it.
