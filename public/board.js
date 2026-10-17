@@ -1173,20 +1173,12 @@ $('lanes').addEventListener('click', event => {
 
 /**
  * B83: in the window of a step in a worker's queue: "Move to" another worker, and "Take out of the queue" (it stays on
- * the backlog without a worker). Both ask the main chat, which writes the backlog and tells the workers (the person,
- * 2026-10-14: "2. A"). An ask on its way says so. Nothing for a step without an id.
+ * the backlog without a worker). B301, the review: both change the work store at once through the work API, as the
+ * person (`requeue`, `unqueue`); the board delivers the step to its new worker. Nothing for a step without an id.
  */
 function queueChangePart(lane, step, state) {
-  const main = state.workers?.main ?? null
-  if (main === null || typeof step?.id !== 'string') return null
-  const mainTitle = state.workers.mainTitle ?? main
+  if (typeof step?.id !== 'string') return null
   const key = `change:${step.id}`
-  const part = el('div', 'queue-change')
-  const ask = state.changeAsks?.steps?.[step.id] ?? null
-  if (ask?.isOpen === true) {
-    part.append(el('span', 'muted', `Asked at ${clock(ask.at)}: ${mainTitle} makes the change and tells the workers.`))
-    return part
-  }
   const others = (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover && one.name !== lane.name)
   if (others.length > 0) {
     const move = el('button', 'quiet-button', 'Move to')
@@ -1208,7 +1200,7 @@ function queueChangePart(lane, step, state) {
   out.dataset.unqueueStep = step.id
   out.disabled = sending.has(key)
   out.title = 'It stays on the backlog, without a worker'
-  part.append(out, el('span', 'muted', `${mainTitle} makes the change and tells the workers.`))
+  part.append(out, el('span', 'muted', 'The work store changes at once; the board delivers the step to its new worker.'))
   if (problems.has(key)) part.append(el('p', 'problem', problems.get(key)))
   return part
 }
@@ -1216,13 +1208,12 @@ function queueChangePart(lane, step, state) {
 // B83: the queue's changes from a step's window.
 $('details').addEventListener('click', event => {
   const button = event.target.closest('[data-move-step], [data-unqueue-step]')
-  const main = board?.workers?.main ?? null
-  if (button === null || main === null) return
+  if (button === null) return
   const id = button.dataset.moveStep ?? button.dataset.unqueueStep
   button.disabled = true
-  if (button.dataset.moveStep === undefined) return send({ to: main, command: 'unqueue', step: id }, `change:${id}`)
+  if (button.dataset.moveStep === undefined) return sendWork({ action: 'unqueue', id }, `change:${id}`)
   const target = [...$('details').querySelectorAll('[data-move-target]')].find(pick => pick.dataset.moveTarget === id)?.value ?? ''
-  return send({ to: main, command: 'move', step: id, target }, `change:${id}`)
+  return sendWork({ action: 'requeue', id, for: target }, `change:${id}`)
 })
 
 // B143: "✕ Remove" asks at once for a free worker with nothing queued, else opens (or closes) the warning;

@@ -13,6 +13,8 @@ export const DEFAULT_FLOW = {
       { from: 'new', to: 'refined', by: 'advisor', when: 'refined is ready' },
       { from: 'refined', to: 'queued', by: 'main', sets: ['Owner', 'Blocked by', 'Estimate'], when: 'Touches overlaps no taken step' },
       { from: 'queued', to: 'taken', by: 'server', when: 'Blocked by all done and Owner free', then: 'wake Owner' },
+      { from: 'queued', to: 'refined', by: ['main', 'person'] },
+      { from: 'queued', to: 'new', by: ['main', 'person'] },
       { from: 'taken', to: 'in progress', by: 'worker' },
       { from: 'in progress', to: 'waiting on you', by: 'worker', when: 'an ask with Blocking yes is open' },
       { from: 'waiting on you', to: 'in progress', by: 'server', when: 'its asks are answered', then: 'wake Owner' },

@@ -61,6 +61,9 @@ test('a move from "*" is allowed from every state', () => {
 test('nextMoves lists the moves out of the item\'s state, who makes them and when', () => {
   assert.deepEqual(nextMoves(DEFAULT_FLOW, step('queued')), [
     { to: 'taken', by: ['server'], when: 'Blocked by all done and Owner free' },
+    // B301, the review: out of its queue (unqueue), back to refined or new.
+    { to: 'refined', by: ['main', 'person'], when: null },
+    { to: 'new', by: ['main', 'person'], when: null },
     { to: 'done', by: ['person'], when: null },
     { to: 'dropped', by: ['person', 'main'], when: null },
   ])

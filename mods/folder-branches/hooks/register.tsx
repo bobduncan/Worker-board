@@ -11,7 +11,7 @@ import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_PATH, 
 import type { Board, BoardStart } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName,
-  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, sentKind, sessionOf, status, uniqueByName,
+  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, sessionOf, status, uniqueByName,
   withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
@@ -790,7 +790,7 @@ const CHAT_TOOL = {
     + 'few words; or "steps", only how many there are), "minutes" (the working time still expected for the whole '
     + 'task, roughly) and "stepMinutes" (for the step it is on). "step" moves to the next step, or to the one in '
     + '"step"; with "minutes" and "stepMinutes" it also sets the times still expected. '
-    + '"done" clears the card (a worker\'s clears by itself when it reports to the main chat and its turn ends). '
+    + '"done" clears the card (a worker\'s clears by itself when it reports its step with the work tool and its turn ends). '
     + 'Call it together with another tool call, never alone. "list" reads the line of every chat. '
     + '"join" puts this chat in the list as "name" with "role" main or worker, and "leave" takes it out (with '
     + '"name", the chat of that name instead: one that was closed for good): only when the person or the main chat '
@@ -832,13 +832,14 @@ const WORK_TOOL = {
     + 'one of your asks here in the chat: their words, so the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question. "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
     + 'chat. "block" and "unblock" ("id", "on"). "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
-    + '"for", "after", "about"): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
+    + '"for", "after", "about"), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
+    + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "questions") and "refined" ("id", "what"): '
     + 'the Advisor. "list": every item.',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'list'] },
+      action: { type: 'string', enum: ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'list'] },
       id: { type: 'string', description: 'The item: B12 (a step), Q3 (an ask), I4 (an instruction).' },
       branch: { type: 'string', description: 'take: the branch you work the step on.' },
       step: { type: 'integer', description: 'step: the step of your plan you are on now.' },
@@ -1113,17 +1114,12 @@ export const register: Register = on => {
     }
   })
 
-  // A note or a question this chat's model sends another chat while it has a task: the card then says it waits for that
-  // chat. B301: no message ends a task; a step ends with `work report` (below).
+  // A message this chat's model sends another chat while it has a task: the card then says it waits for that chat.
+  // B301: no message ends a task, whatever its words; a step ends with `work report` (below).
   on('session.send', async ($, e, next) => {
     const sent = await next(e)
     try {
-      if (sent.isDelivered && e.origin.kind === 'model' && e.agentId === undefined && !(await isOwnAgent($, e.to))) {
-        const dir = await findChatsDir($)
-        const list = dir === null ? null : parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
-        const others = list === null ? [] : (await readChats($).catch((): ChatRow[] => [])).filter(row => row.role !== 'main').map(row => row.name)
-        if (sentKind({ to: e.to, text: e.text, list, others }) === 'note') hasAsked = true
-      }
+      if (sent.isDelivered && e.origin.kind === 'model' && e.agentId === undefined && !(await isOwnAgent($, e.to))) hasAsked = true
     } catch {
       // the message went out
     }

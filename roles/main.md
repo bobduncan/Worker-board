@@ -73,7 +73,9 @@ You decide this, not the user. For every task:
 ## Queue a step
 
 - Queueing is the hand-over: `work queue B<id>` with `for` (the worker), `after` (what it waits for) and `about` (its
-  time). You send no task text. The board delivers it: once the step may be taken and its worker is free, the board
+  time). A queued step goes to another worker with `work requeue B<id>` (`for`), and out of its queue with `work
+  unqueue B<id>` (back to refined, or new); the user does the same with "Move to" and "Take out of the queue" on the
+  board, and the board delivers the step to its new worker (B301). You send no task text. The board delivers it: once the step may be taken and its worker is free, the board
   types one line into the worker's chat, "work: B<id> is yours; run work next", and the worker reads the step with
   `work next`. A worker that ends a turn with nothing in progress asks the board itself; a worker that is not running
   is started through you (the board types `start "<name>"` into you).
@@ -146,10 +148,6 @@ profile.
 - `stop task` with "Name: ...", "Task: ..." and "Why: ...": the user stops that worker's task. Ask the worker to stop
   at a safe point (work committed and pushed, nothing new started) and to say where it left off; put its step back
   as it now stands (open, or queued again when the user says so), and tell the user in one line.
-- `move step` with "Step: B<id> <title>", "From: ..." and "To: ...": change the step's "(for ...)" note to the new
-  worker, and tell both workers in one line each (the old one drops it from its plans, the new one gets it queued).
-- `unqueue step` with "Step: B<id> <title>" and "From: ...": take the worker's name out of the step's note, so it
-  stays on the backlog without a worker, and tell that worker in one line.
 - `advisor recommendation: yes` with "Recommended: ..." (and "Step: B<id>" when it is on the backlog, "Why: ..."): the
   user said yes to the Advisor's next step on its tab. Make it a step with `work new` when it is not there, then
   queue it as any task. A "no" goes to the Advisor, not to you.

@@ -265,26 +265,6 @@ export function withSend(chat: ChatFile): ChatFile {
 }
 
 /**
- * What a message a chat's model sends another chat is: a report, or a note (a note or a question, after which the chat
- * waits for that chat). What goes to another worker by its name (`others`) is a note. Else by its first word when it
- * has one of the three ("Report", "Note", "Question"); else a message to the main chat by its name is a report, and one
- * to anybody else, or to an address that names nobody, is a note. `list` names the main chat. B301: a report message
- * ends nothing: a step ends with `work report`.
- */
-export function sentKind({ to, text, list, others = [] }: { to: string; text: string; list: ChatList | null; others?: readonly string[] }): 'report' | 'note' {
-  const name = to.replace(/\s\[[^\]]*\]$/, '').trim().toLowerCase()
-  const isNamed = (short: string): boolean => list !== null && (name === `${list.prefix}${short}`.toLowerCase() || name === short.toLowerCase())
-  const isMain = list !== null && isNamed(list.main)
-  if (!isMain && others.some(other => isNamed(other))) return 'note'
-  // The first word, as a whole word, behind whatever marks stand before it ("**Question:**", "> Report").
-  const first = /^[^a-z]{0,8}(report|note|question)\b/i.exec(text)?.[1]?.toLowerCase()
-  if (first === 'report') return 'report'
-  if (first !== undefined) return 'note'
-
-  return isMain ? 'report' : 'note'
-}
-
-/**
  * The chat as a turn of its main conversation starts: a report from an earlier turn that was cut short no longer
  * counts, so only a report in this turn ends the task. Null when there is nothing to change.
  */
@@ -477,11 +457,11 @@ export function asksPerson(answer: string): boolean {
 
 /** What the compaction after a reported task is told to keep, for the chat of that name. */
 export function compactKeep(name: string, main: string): string {
-  return `This chat is "${name}", a worker in a project where the main chat "${main}" hands out the tasks and gets the reports. `
-    + 'Its task is reported and the next one comes later, so keep what the next task needs and drop the step by step of finished ones. Keep, in this order: '
+  return `This chat is "${name}", a worker in a project where the main chat "${main}" queues the steps in the worker board's store and the board delivers them. `
+    + 'Its step is reported (work report) and the next one comes later, so keep what the next step needs and drop the step by step of finished ones. Keep, in this order: '
     + `(1) who this chat is: its name ${name}, its role, and that it reports to ${main}; `
     + '(2) the rules it works by: the working agreement, how answers to the person are written, and the rules of the backlog (ids, the kinds Verify, Decide, Provide and Do, the lines under a step); '
-    + `(3) every task ${main} handed it that it has not reported yet, in the words of the hand-over; `
+    + '(3) every step the store holds for it that it has not reported yet, by its id and title (work next lists them), and the person\'s words on it; '
     + '(4) what the person decided or asked for that is not built yet, in their own words, with the date; '
     + '(5) every question or action it put to the person that is still open, word for word and with its number, so that an answer like "1 yes, 2 no" can still be read; '
     + '(6) its open work: branches, folders, servers it started, and what its last report named as still open; '

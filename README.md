@@ -159,7 +159,7 @@ work it with the Workers mod's `work` tool (`roles\protocol.md`, "The work store
 against `flow.json`, and it writes `backlog.md` from the store as a view after every change; nobody edits it, and the
 board never reads it. The Backlog tab says in one line how many items the store holds; a step's window shows where
 the step stands in the flow. A hand edit of `backlog.md` is kept beside it as `backlog.edited-<date>-<time>.md`, and
-the board says so on its top line. The Workers mod needs version 0.13.0 or newer: run `npm run setup` and start the
+the board says so on its top line. The Workers mod needs version 0.13.1 or newer: run `npm run setup` and start the
 chats anew.
 
 **Making the store.** `node tools/migrate-backlog.mjs --work <folder> --init` makes an empty one (step 4).

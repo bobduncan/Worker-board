@@ -61,6 +61,8 @@ tool answers with the record: work from it, not from a message.
 | `work block` / `unblock B<id>` (`on`) | the main chat, a worker | what the step waits on (`Blocked by`) |
 | `work new` (`title`, `activity`, `goal`, `text`) | the main chat, a worker, the Advisor | a new step `B<n>`, state new |
 | `work queue B<id>` (`for`, `after`, `about`) | the main chat | a refined step into a worker's queue |
+| `work requeue B<id>` (`for`) | the main chat, the person ("Move to") | a queued step to another worker's queue; the board delivers it anew |
+| `work unqueue B<id>` | the main chat, the person ("Take out of the queue") | a queued step out of its queue: refined (or new), without a worker |
 | `work close I<id>` (`as`) | any chat | an instruction is done, and what came of it |
 | `work drop B<id>` (`why`) | the main chat | the step is dropped |
 | `work refine B<id>` (`summary`, `picture`, `goal`, `size`, `questions`), `work refined B<id>` (`what`) | the Advisor | the refine block, and its ready form; refined moves a new step to refined |
@@ -109,8 +111,6 @@ Typed by the Workers mod as the person's own words; each line below is the board
 | `queue step from the backlog` / `Step: B<id> <title>` | the person puts a step in a queue; for a step not refined yet the board holds it until the step is (B285) | `src/say.mjs`, `src/refineGate.mjs` |
 | `step refined` / `Step: B<id> <title>` / `For: <worker>` (to the main chat) | B285: a step the main chat queued before it was refined is refined now: hand it out | `src/say.mjs` (`refinedWords`), `src/refineGate.mjs` |
 | `stop task` / `Name:` / `Task:` / `Why:` | the person stops a worker's task (it reaches a safe point) | `src/say.mjs` (`stopWords`) |
-| `move step` / `Step: B<id> <title>` / `From:` / `To:` | the person moves a queued step to another worker | `src/say.mjs` (`moveWords`) |
-| `unqueue step` / `Step: B<id> <title>` / `From:` | the person takes a step out of a worker's queue | `src/say.mjs` (`unqueueWords`) |
 | `advisor recommendation: yes` (to the main chat) or `: no` with `Reason:` (to the Advisor) / `Recommended:` / `Step:` / `Why:` | the person answers the Advisor's recommendation on the way to the next milestone | `src/say.mjs` (`recommendWords`) |
 | `refine step` / `Step: B<id> <title>` / `Round: <n>` (to the Advisor) | the person asks the Advisor to refine a step (round 1), or again after their answers and feedback, which stand in the step's refine block already; the board sends it by itself too, one at a time: for a new step once, for a step about to be queued, and once more to fold answers in (B285) | `src/say.mjs` (`refineWords`), `src/refineGate.mjs` |
 | `Round from the board's clock: morning` (or `weekly`), with the job and the project's settings under it | the Advisor's rounds; never the person's word | `src/rounds.mjs` |

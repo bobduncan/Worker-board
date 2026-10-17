@@ -1010,11 +1010,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, says: reconciled.flags.filter(flag => typeof flag.say === 'string') },
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)).map(step => ({ ...step, why: whyNot(step, null) })),
-    // B83: the newest ask to stop each worker's task, and to move or unqueue each queued step, open while on its way
-    // and for a while after it arrived, so the page asks once.
+    // B83: the newest ask to stop each worker's task, open while on its way and for a while after it arrived, so the
+    // page asks once. (B301: a queued step is moved or taken out through the work API at once.)
     changeAsks: {
       stop: Object.fromEntries(lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => [lane.name, removalAsk(sent.findLast(message => message.command === 'stop' && message.about === lane.name), now)]).filter(([, ask]) => ask !== null)),
-      steps: Object.fromEntries(lanes.flatMap(lane => lane.queue ?? []).filter(step => typeof step.id === 'string').map(step => [step.id, removalAsk(sent.findLast(message => (message.command === 'move' || message.command === 'unqueue') && message.about === step.id), now)]).filter(([, ask]) => ask !== null)),
     },
     forYou: [
       ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, waits }),

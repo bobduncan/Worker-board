@@ -267,11 +267,11 @@ reach a safe point: work committed and pushed, nothing new started) and "2. A" (
 worker's "⋯" menu has "■ Stop its task" for a worker on a task; it asks once ("Stop its task? It finishes what runs,
 saves and shares its work, and starts nothing new." with "Stop it" and "Keep going"), then types `stop task` (Name,
 Task, Why) into the main chat. The window of a step in a queue (the main chat's queue too) has "Move to" with a list
-of the other workers and "Take out of the queue"; they type `move step` (Step, From, To) and `unqueue step` (Step,
-From). The board writes nothing into the backlog: the main chat changes the step's note and tells the workers
-(`roles/main.md`, `roles/protocol.md`). Each ask is shown as asked while it is on its way and for a while after
-(`changeAsks` in the state); the server reads the worker and the step from its own state and refuses a stop that was
-not confirmed, a step no queue holds, or a move to the same worker or to the main chat. A click on "⋯" no longer
+of the other workers and "Take out of the queue"; B301 (the review): they change the work store at once through the
+work API as the person (`requeue` with `for`, `unqueue`, Main and the person only; flow.json: queued → refined or
+new), and the board delivers the step to its new worker; no words go to the main chat for them. A stop is shown as
+asked while it is on its way and for a while after (`changeAsks` in the state); the server reads the worker from its
+own state and refuses a stop that was not confirmed. A click on "⋯" no longer
 also opens the worker's window. The picture: `art-inbox/worker-board/b83/2026-10-14-b83-stop-move.png`.
 
 **The Workers panel (B159).** After the picture the person agreed on the Design tab

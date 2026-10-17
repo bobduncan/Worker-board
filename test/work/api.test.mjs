@@ -413,3 +413,32 @@ test('review 7: a chat asks only under its own step, or one nobody holds; Main a
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('review: requeue gives a queued step to another chat, unqueue takes it out of its queue; Main and the person only', async () => {
+  const { dir, board, main, person } = await fresh()
+  try {
+    assert.deepEqual(await board({ action: 'requeue', id: 'B1', for: 'Support' }), { ok: false, status: 403, why: 'Only main or person may requeue.' })
+    assert.deepEqual(await board({ action: 'unqueue', id: 'B1' }), { ok: false, status: 403, why: 'Only main or person may unqueue.' })
+    const moved = await main({ action: 'requeue', id: 'B1', for: 'Support' })
+    assert.equal(moved.ok, true, moved.why)
+    const one = await item(dir, 'B1')
+    // Queued anew for its new chat: delivered anew (its Since is the requeue's).
+    assert.deepEqual(['State', 'Owner', 'Since'].map(key => valueOf(one, key)), ['queued', 'Support', '2026-10-17 11:06'])
+    assert.equal((await history(dir, 'B1')).at(-1), '- 2026-10-17 11:06 Main: requeued for Support (was Board)')
+    assert.deepEqual(await main({ action: 'requeue', id: 'B1', for: 'Team - Support' }), { ok: false, status: 409, why: 'B1 is queued for Support already.' })
+    assert.equal((await main({ action: 'requeue', id: 'B1' })).status, 400)
+    assert.deepEqual(await main({ action: 'requeue', id: 'B4', for: 'Board' }), { ok: false, status: 409, why: 'B4 is in progress, not queued: only a queued step moves to another chat.' })
+    // Out of the queue: back to new, or to refined for a refined step, without a chat.
+    const out = await person({ action: 'unqueue', id: 'B2' })
+    assert.equal(out.ok, true, out.why)
+    const two = await item(dir, 'B2')
+    assert.deepEqual(['State', 'Owner'].map(key => valueOf(two, key)), ['new', null])
+    assert.equal((await history(dir, 'B2')).at(-1), '- 2026-10-17 11:06 person: queued → new (unqueued; was for Board)')
+    await main({ action: 'queue', id: 'B5', for: 'Support' })
+    await main({ action: 'unqueue', id: 'B5' })
+    assert.equal(valueOf(await item(dir, 'B5'), 'State'), 'refined')
+    assert.equal((await main({ action: 'unqueue', id: 'B4' })).status, 409)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

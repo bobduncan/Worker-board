@@ -23,7 +23,7 @@ import { writeView } from './view.mjs'
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
 const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull'])
 /** What only the person does, on the board's page; and what only the server does. */
@@ -35,6 +35,8 @@ const ROLES = {
   unblock: ['main', 'worker', 'person'],
   new: ['main', 'worker', 'advisor', 'person'],
   refine: ['advisor', 'main'],
+  requeue: ['main', 'person'],
+  unqueue: ['main', 'person'],
 }
 /** The order of a chat's own steps in `next`: what it works on first. */
 const MINE = ['in progress', 'waiting on you', 'taken', 'review', 'queued']
@@ -589,6 +591,42 @@ async function queue(body, w) {
   return done.ok ? changed(next) : done
 }
 
+/**
+ * B301, the review: Main or the person gives a queued step to another chat (the page's "Move to"): its Owner changes,
+ * it stays queued, and its Since is now, so the board delivers it anew to the new chat. Only a queued step.
+ */
+async function requeue(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  const owner = line(body.for, 80)
+  if (owner === '') return refuse(400, 'Name the chat it goes to in "for".')
+  const state = stateOf(found.item)
+  if (state !== 'queued') return refuse(409, `${id} is ${state}, not queued: only a queued step moves to another chat.`)
+  const was = valueOf(found.item, 'Owner')
+  if (was !== null && plain(was, w.prefix) === plain(owner, w.prefix)) return refuse(409, `${id} is queued for ${was} already.`)
+  const item = put(put(copy(found.item), 'Owner', owner), 'Since', stamp(w.now))
+  const next = ordered(said(item, w, `requeued for ${owner}${was === null ? '' : ` (was ${was})`}`))
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next) : done
+}
+
+/**
+ * B301, the review: Main or the person takes a queued step out of its queue (the page's "Take out of the queue"): back
+ * to refined when its refine is ready, else to new (flow.json), without a chat; it stays on the backlog.
+ */
+async function unqueue(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const was = valueOf(found.item, 'Owner')
+  const to = valueOf(found.item, 'Refined') === 'ready' ? 'refined' : 'new'
+  const moved = move(found.item, to, w.role, w, flowCtx(w, [found.item]), ` (unqueued${was === null ? '' : `; was for ${was}`})`)
+  if (!moved.ok) return moved
+  const next = ordered(put(moved.item, 'Owner', null))
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next) : done
+}
+
 /** An instruction is closed, and what came of it is said. */
 async function close(body, w) {
   const found = await load(body.id, w, { kind: ['instruction'] })
@@ -952,7 +990,7 @@ async function advance(body, w) {
 }
 
 const CHANGE = {
-  take, step, ask, withdraw, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
+  take, step, ask, withdraw, note, report, check, new: make, queue, requeue, unqueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,

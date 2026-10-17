@@ -833,6 +833,8 @@ describe('a working chat never stays without a time on its card', () => {
     await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: the archer is merged and pushed.', ...BY_MODEL })
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    // Review: whatever its words, a message to another chat is no report: the card says the chat waits for that chat.
+    expect(fileOf(w)?.task?.asked).toBe(true)
     await $.turn.start({ text: 'go on', turnId: 't2' })
     w.workAnswer = { status: 409, text: 'B12 waits on Q4: withdraw it (work withdraw Q4) or wait for the answer.' }
     expect((await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'the archer' })).result).toBe('B12 waits on Q4: withdraw it (work withdraw Q4) or wait for the answer.')

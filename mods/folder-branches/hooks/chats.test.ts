@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { ChatFile, ChatTask } from '../types'
 import {
-  LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactWhy, sentKind, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
+  LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
   withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, recordedLine,
 } from './chats'
@@ -242,32 +242,6 @@ describe('which chats are in the list', () => {
     expect(withState({ ...after, state: 'waiting' }, 'working', NOW).task).toEqual(task('Skeleton Archer', 2, 5, 20))
   })
 
-  test('what a message to another chat is: a report to the main chat, or a note', () => {
-    const list = { prefix: 'Game - ', main: 'Main' }
-    // To the main chat by its name, and not marked otherwise: the report.
-    expect(sentKind({ to: 'Game - Main', text: 'The archer is merged.', list })).toBe('report')
-    expect(sentKind({ to: 'game - main [3fa9c1]', text: 'Done.', list })).toBe('report')
-    // Marked by its first word, to whomever and however it is addressed.
-    expect(sentKind({ to: 'local_84e3310d', text: 'Report from Game - Units: the archer is merged.', list })).toBe('report')
-    expect(sentKind({ to: 'Game - Main', text: ' Question from Game - Units: sheet A or B?', list })).toBe('note')
-    expect(sentKind({ to: 'Game - Main', text: 'Note from Game - Units: the sheet is ready for a look.', list })).toBe('note')
-    // To another worker, or to an address that names nobody: not the report, so the card stays.
-    expect(sentKind({ to: 'Game - Support', text: 'B92 is ready to merge.', list })).toBe('note')
-    expect(sentKind({ to: 'local_27aa2346-7fd6', text: 'B92 is ready to merge.', list })).toBe('note')
-    expect(sentKind({ to: 'Game - Main', text: 'x', list: null })).toBe('note')
-    // The first word counts as a whole word, behind any markup or quote, in any case.
-    expect(sentKind({ to: 'Game - Main', text: '**Question:** which sheet?', list })).toBe('note')
-    expect(sentKind({ to: 'local_84e3310d', text: '> REPORT from Game - Units: merged.', list })).toBe('report')
-    expect(sentKind({ to: 'Game - Main', text: 'Noted, all of it is merged.', list })).toBe('report')
-    expect(sentKind({ to: 'Game - Support', text: 'Reporting back later, still on it.', list })).toBe('note')
-    // What goes to another worker by its name is never the report, whatever its first word.
-    const others = ['Support', 'Features']
-    expect(sentKind({ to: 'Game - Support', text: 'Report on the sheet: it is ready to merge.', list, others })).toBe('note')
-    expect(sentKind({ to: 'features [3fa9c1]', text: 'Report on the sheet: it is ready to merge.', list, others })).toBe('note')
-    expect(sentKind({ to: 'Game - Main', text: 'Report from Game - Units: merged.', list, others })).toBe('report')
-    expect(sentKind({ to: 'local_84e3310d', text: 'Report from Game - Units: merged.', list, others })).toBe('report')
-  })
-
   test('a report from a turn that was cut short does not count for the next turn', () => {
     const reported = withSend(chat('Units', 'working', task('Skeleton Archer', 2, 5, 20)))
     // Interrupted after the report: the card stays, as before.
@@ -325,6 +299,12 @@ describe('which chats are in the list', () => {
     // A card that was not touched in this request may be the one before: it is asked about, by its topic.
     expect(cardOld(chat('Units', 'working', task('Archer', 2, 3, 10)), tool)).toContain('"Archer"')
     expect(cardOld(chat('Units', 'working'), tool)).toBeNull()
+  })
+
+  test('B301: what the compaction after a report keeps names the steps of the store, not a hand-over', () => {
+    const keep = compactKeep('Game - Units', 'Game - Main')
+    expect(keep).toContain('every step the store holds for it that it has not reported yet')
+    expect(keep).not.toContain('hand-over')
   })
 
   test('a chat in the list is told how to keep its line', () => {
