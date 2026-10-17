@@ -115,3 +115,17 @@ test('the state lists the finished steps from the store\'s lines, its moves to d
   raw.work.items.get('B2').sections.set('History', ['- 2026-10-14 08:00 server: migrated from the backlog'])
   assert.deepEqual(buildState(raw, { now: at(14, 10, 30), config }).finished.map(one => one.id), ['B1'])
 })
+
+test('review: the board notes what it sees ticked only from a store it can read, and with the store\'s time of the move to done', async () => {
+  const { seenFromState } = await import('../src/finished.mjs')
+  const steps = [{ id: 'B1', status: 'done', doneAt: at(14, 9, 20) }, { id: 'B2', status: 'done', doneAt: null }, { id: 'B3', status: 'open', doneAt: null }]
+  const state = ok => ({ store: { ok }, backlog: [{ steps }] })
+  // A store that cannot be read shows no steps: nothing is noted, not now and not as a burst once it is back.
+  assert.equal(seenFromState(null, state(false), at(14, 10)), null)
+  assert.equal(seenFromState(null, { store: null, backlog: [] }, at(14, 10)), null)
+  // Read: the move to done gives the time; a step without one is noted as seen now.
+  const kept = { B9: { at: at(13, 8), isFirstLook: false } }
+  assert.deepEqual(seenFromState(kept, state(true), at(14, 10)), { ...kept, B1: { at: at(14, 9, 20), isFirstLook: false }, B2: { at: at(14, 10), isFirstLook: false } })
+  // The very first look: a step with the store's time keeps it as a real time.
+  assert.deepEqual(seenFromState(null, state(true), at(14, 10)), { B1: { at: at(14, 9, 20), isFirstLook: false }, B2: { at: at(14, 10), isFirstLook: true } })
+})

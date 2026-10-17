@@ -981,6 +981,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   }))
   // B300: the reconciler holds the store against the lanes (work/reconcile.mjs): the server carries out its moves and
   // lines (work/deliver.mjs), the page shows its flags. Null while the store cannot be read.
+  // B301: when each step of the store went done, for the finished list and the board's own notes (finished.mjs).
+  const doneAtOf = doneTimes(raw.work, prefix)
   const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS }, prefix })
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
@@ -993,7 +995,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     counts,
     // B155: the steps finished last, newest first, with when (and from where the board knows it) and who. B301: the
     // store says when a step went done, not a chat's report.
-    finished: finishedList(backlog, { stored: doneTimes(raw.work, prefix), seen: finishedSeen ?? {}, prefix }),
+    finished: finishedList(backlog, { stored: doneAtOf, seen: finishedSeen ?? {}, prefix }),
     // B185: how long finished tasks really took, per area and lately, and per step its estimate and working time.
     taskTimes: taskTimesOf(taskTimes),
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
@@ -1040,6 +1042,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           refineAsk: asked,
           // B285, B286: where its refine stands.
           refineState: refineStateOf({ refined: step.refined, refineAsk: asked }),
+          // B301: when the store moved it to done, or null.
+          doneAt: step.id === null ? null : doneAtOf.get(step.id)?.at ?? null,
           // B296: where it stands in the flow (flow.json), for the strip in its window.
           flow: flowOfStep(raw.work, step.key),
           // B299: the step as the store holds it, for its window.

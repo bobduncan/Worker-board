@@ -40,7 +40,7 @@ import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
-import { seenTicks } from './src/finished.mjs'
+import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
 import { answerWords, checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
@@ -949,9 +949,9 @@ async function main(args) {
     const look = () => readState().then(async state => {
       await tick(store, state, clock())
       await measureTasks(state).catch(() => {})
-      // B155: the steps it sees ticked for the first time, with when.
-      const done = (state.backlog ?? []).flatMap(activity => activity.steps).filter(step => step.status === 'done' && step.id !== null).map(step => step.id)
-      const next = seenTicks(finishedSeen, done, clock())
+      // B155: the steps it sees ticked for the first time, with when. B301: only from a store it can read, and with
+      // the store's own time of each step's move to done.
+      const next = seenFromState(finishedSeen, state, clock())
       if (next !== finishedSeen) {
         await writeFile(FINISHED_FILE, JSON.stringify(next))
         finishedSeen = next

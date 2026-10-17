@@ -37,11 +37,25 @@ export const doneIdsOf = backlog => backlog.activities.flatMap(activity => activ
  * ticked at the board's very first look (`before` is null) was ticked before it: that time says nothing. The same
  * object comes back when nothing is new, so nothing has to be written.
  */
-export function seenTicks(before, done, now) {
-  if (before === null) return Object.fromEntries(done.map(id => [id, { at: now, isFirstLook: true }]))
+export function seenTicks(before, done, now, doneAt = {}) {
+  // B301: a step whose move to done the store dated keeps that time, also at the first look: it is a real time.
+  const noted = (id, isFirstLook) => [id, Number.isFinite(doneAt[id]) ? { at: doneAt[id], isFirstLook: false } : { at: now, isFirstLook }]
+  if (before === null) return Object.fromEntries(done.map(id => noted(id, true)))
   const added = done.filter(id => before[id] === undefined)
   if (added.length === 0) return before
-  return { ...before, ...Object.fromEntries(added.map(id => [id, { at: now, isFirstLook: false }])) }
+  return { ...before, ...Object.fromEntries(added.map(id => noted(id, false))) }
+}
+
+/**
+ * B301, the review: what the board notes as seen ticked at one look of its state (`seenTicks`), only while its work
+ * store could be read: a store that cannot be read shows no steps, and a store read again afterwards would otherwise
+ * be noted as a burst of steps finished at that moment. Each step's own time of its move to done (`doneAt`) wins.
+ * `before` comes back unchanged when nothing is to be noted.
+ */
+export function seenFromState(before, state, now) {
+  if (state?.store?.ok !== true) return before
+  const steps = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => step.status === 'done' && typeof step.id === 'string')
+  return seenTicks(before, steps.map(step => step.id), now, Object.fromEntries(steps.filter(step => Number.isFinite(step.doneAt)).map(step => [step.id, step.doneAt])))
 }
 
 /**
