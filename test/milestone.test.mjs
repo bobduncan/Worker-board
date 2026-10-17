@@ -203,5 +203,5 @@ test('the page: the Advisor tab in four parts under their buttons, the way first
   // The answers: yes to the main chat, no with its reason to the Advisor; the way is drawn anew while one is sent.
   assert.match(script, /send\(\{ to: board\.workers\.main, command: 'recommend', about: rec\.id, answer: 'yes' \}, 'recommend'\)/)
   assert.match(script, /send\(\{ to: board\.advisor\.name, command: 'recommend', about: rec\.id, answer: 'no', reason: wayReason\.trim\(\) \}, 'recommend'\)/)
-  assert.match(script, /once\('way', \[state\.milestone \?\? null, state\.goalsFile \?\? null, state\.workers\?\.main \?\? null, state\.advisor\?\.name \?\? null, sending\.has\('recommend'\), problems\.get\('recommend'\) \?\? null\], \(\) => drawWay\(state\)\)/)
+  assert.match(script, /once\('way', \[state\.milestone \?\? null, state\.goalsFile \?\? null, state\.workers\?\.main \?\? null, state\.advisor\?\.name \?\? null, sending\.has\('recommend'\), problems\.get\('recommend'\) \?\? null, state\.advisor\?\.roundRuns \?\? null, sending\.has\('recheck'\), problems\.get\('recheck'\) \?\? null\], \(\) => drawWay\(state\)\)/)
 })

@@ -91,6 +91,10 @@ button, textarea, select { font: inherit; color: inherit; }
 #view-advice[data-pane="chat"] > .talk { display: flex; flex: 1; width: min(900px, calc(100% - 36px)); }
 #view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
 .advisor-tabs { display: flex; gap: 8px; padding: 14px 18px 0; flex: none; }
+/* B288: "Re-check the goals now" in the Next milestone part's head. */
+.way-recheck { align-self: flex-start; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.way-recheck:disabled { opacity: 0.55; cursor: default; }
+.way-recheck.is-error { border-color: #b4553c; }
 /* B286: the Refine part: the steps by where their refine stands, a row each that opens the step's window. */
 .advisor-refine { margin: 14px 18px 16px; max-width: 1240px; }
 .refine-group > summary { cursor: pointer; font-weight: 600; margin: 12px 0 4px; }

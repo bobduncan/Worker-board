@@ -92,7 +92,7 @@ never the user's word.
 |---|---|
 | Morning (short, about 5 minutes) | Read what was merged since the last round, the backlog and the game plan. Suggest at most 3 things to do next, each with why. Name a foundation that is missing before work that needs it. |
 | Weekly (deep) | Clean-up: old, duplicate or finished-but-open backlog steps; branches and folders left over; unused code, files, art and sounds. A review of the code changed since the last weekly round, done by a helper so your chat stays small. A look at the structure: where it will block the next milestone. |
-| On request | Whatever the user asks you in the chat on the board's Advisor tab. |
+| On request | Whatever the user asks you in the chat on the board's Advisor tab. The button "Re-check the goals now" there types `re-check the goals` with your job and the settings under it: the user's word, a morning round now (B288). |
 
 In every round, bring the way to the next milestone up to date (above). End every round with its line in the
 decisions page.

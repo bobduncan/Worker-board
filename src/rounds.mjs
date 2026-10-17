@@ -56,20 +56,42 @@ export function roundsNow({ now, kept, morningRound = '09:00', weeklyRound = tru
   return { kept: { ...after, morning: now }, round: 'morning', skipped: null }
 }
 
-/**
- * The words typed into the Advisor's chat for a round: the clock's line, then where its job and this project's
- * settings are, so the same job description serves any game.
- */
-export function roundText(round, { board, config }) {
+/** B288: the first line of a round the person asks for with the Advisor tab's button. */
+export const RECHECK_HEAD = 're-check the goals'
+
+/** Where the Advisor's job and the project's settings are, a line each, for a round. */
+function settingLines({ board, config }) {
   const inGame = path => (config.gameRepo === '' ? path : join(config.gameRepo, ...path.split('/')))
   return [
-    `${HEAD} ${round}`,
     `Your job: ${join(board, 'roles', 'advisor.md')}`,
     config.gameRepo === '' ? null : `The game's repository: ${config.gameRepo}`,
     `The game plan: ${inGame(config.gamePlan)}`,
     `Your decisions: ${inGame(config.advisorDecisions)}`,
     config.advisorReadFirst.length === 0 ? null : `Read first: ${config.advisorReadFirst.join(', ')}`,
     `The backlog: ${config.project === '' ? config.backlog : join(config.project, ...config.backlog.split('/'))} (your suggestions under "${config.advisorSuggestions}")`,
+  ]
+}
+
+/**
+ * B288: the words typed into the Advisor's chat when the person asks for a round now (the Advisor tab's "Re-check the
+ * goals now"): their word, marked as typed on the board, never the clock's line.
+ */
+export function recheckText({ board, config }) {
+  return [
+    RECHECK_HEAD,
+    'The user asks for a round now: bring the way to the next milestone and the goal map up to date, as in a morning round.',
+    ...settingLines({ board, config }),
+  ].filter(line => line !== null).join('\n')
+}
+
+/**
+ * The words typed into the Advisor's chat for a round: the clock's line, then where its job and this project's
+ * settings are, so the same job description serves any game.
+ */
+export function roundText(round, { board, config }) {
+  return [
+    `${HEAD} ${round}`,
+    ...settingLines({ board, config }),
     'This line is the worker board\'s clock, not the user\'s word.',
   ].filter(line => line !== null).join('\n')
 }

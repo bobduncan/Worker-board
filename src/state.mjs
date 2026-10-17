@@ -861,6 +861,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           .map(one => (one.via === 'board' ? { ...one, ...splitPicture(one.text.replace(TYPED_MARK, '').trim(), config.pictureRoots[0]) } : one)),
       // Typed on the board to the advisor and not in its chat yet.
       pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null && (message.command ?? null) === null),
+      // B288: a round runs from when it is sent, by the clock or on the person's request, while it is on its way, and
+      // after it arrived while the Advisor is still at work on it (an hour at most).
+      roundRuns: (() => {
+        const last = sent.findLast(message => message.to === advisorChat.name && (message.command === 'round' || message.command === 'recheck'))
+        if (last === undefined) return false
+        if (last.state === 'waiting' || last.state === 'taken') return true
+        return last.state === 'delivered' && state === 'working' && now - (last.deliveredAt ?? last.at) < HOUR
+      })(),
     }
   }
 
