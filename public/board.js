@@ -16,6 +16,8 @@ const KINDS = {
   verify: { sign: '✓', tag: 'Verification needed' },
   intervene: { sign: '!', tag: 'Intervention needed' },
   do: { sign: '→', tag: 'Only you can do' },
+  // B301: a chat wrote questions in its chat but filed no ask: a warning, with the way to its chat.
+  unfiled: { sign: '!', tag: 'No ask filed' },
 }
 /** What a step in the backlog says it asks of the person. */
 const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
@@ -209,6 +211,35 @@ function appNote(moved, clockOf) {
 }
 // appnote:end
 
+// store:start
+/**
+ * B296: the line under the Backlog tab's head about the work store, the one source of the work: how many items it holds
+ * and that backlog.md is its view (`store` from the state). Null without a store.
+ */
+function storeLine(store) {
+  if (store === null || store === undefined) return null
+  const problems = store.problems ?? []
+  if (store.ok !== true) return { tone: 'problem', text: `Store: ${store.why}`, problems }
+  const parts = ['Store', `${store.items} item${store.items === 1 ? '' : 's'}`, 'backlog.md is its view']
+  if (problems.length > 0) parts.push(`${problems.length} problem${problems.length === 1 ? '' : 's'}`)
+  return { tone: problems.length > 0 ? 'warn' : 'ok', text: parts.join(' · '), problems }
+}
+
+/**
+ * B296, B301: the note on top about the work store: it is not there or cannot be read (`store.why`, naming its folder
+ * and what to run; the board then shows no work, and nothing from backlog.md instead); a file in it the board cannot
+ * read (the reconciler's lines, naming the folder and the file); or backlog.md was edited by hand, the edit kept beside
+ * it (`store.kept`). Null: none.
+ */
+function storeNote(store, workFlags = []) {
+  if (store !== null && store !== undefined && store.ok !== true) return { tone: 'problem', text: store.why }
+  // B300: the reconciler's lines on top: a file it cannot read, an id twice, a state the flow does not know.
+  if (workFlags.length > 0) return { tone: 'problem', text: `The work store${typeof store?.dir === 'string' ? ` ${store.dir}` : ''}: ${workFlags.join(' · ')}. Such an item is shown as it is and not moved: fix the file by hand.` }
+  if (typeof store?.kept === 'string') return { tone: 'warn', text: `backlog.md was edited by hand. The board wrote it anew from the work store and kept the edited file as ${store.kept}: carry what it adds over with the work tool, then delete it.` }
+  return null
+}
+// store:end
+
 function drawAppNote(state) {
   const shown = appNote(state.appMoved ?? null, clock)
   const note = $('app-note')
@@ -216,6 +247,14 @@ function drawAppNote(state) {
   if (shown === null) return
   note.className = `app-note is-${shown.tone}`
   note.textContent = shown.text
+}
+
+/** B296, B301: the note on top about the work store (see `storeNote`). */
+function drawStoreNote(state) {
+  const shown = storeNote(state.store ?? null, state.workFlags ?? [])
+  const note = $('store-note')
+  note.hidden = shown === null
+  if (shown !== null) note.textContent = shown.text
 }
 
 /** The note on top (see `updateView`). */
@@ -509,12 +548,12 @@ function timeOf(lane, now) {
   if (eta === null) {
     // The main chat hands out work and answers: it has no task to time.
     return lane.isWithoutTime === true
-      ? { label: 'ETA', main: 'No time', tone: 'fault', small: soFar, from: null, title: 'This worker works without a time: it gave none, its step names none, and its hand-over named none.' }
+      ? { label: 'ETA', main: 'No time', tone: 'fault', small: soFar, from: null, title: 'This worker works without a time: it gave none, and its step names none.' }
       : { label: '', main: 'Working', tone: 'muted', small: soFar, from: null }
   }
   const from = eta.isOwn !== false ? null : {
-    text: eta.from === 'handover' ? 'from its hand-over' : `from ${lane.task?.stepId ?? 'its step'}`,
-    title: `The worker gave no estimate of its own: this is the time its ${eta.from === 'handover' ? 'hand-over' : 'backlog step'} names, counted from when the task started.`,
+    text: `from ${lane.task?.stepId ?? 'its step'}`,
+    title: 'The worker gave no estimate of its own: this is the time its step names, counted from when the task started.',
   }
   // Overdue stays overdue, with how far over as its figure.
   if (eta.isOverdue) return { label: 'Overdue', main: `${span(now - eta.at)} over`, tone: 'bad', small: [`was ${clock(eta.at)}`], from }
@@ -665,11 +704,8 @@ function drawMore(lane, state) {
     if (task.firstEstimateMs !== null) list.append(el('li', '', `First estimate ${span(task.firstEstimateMs)}, worked ${span(task.workedMs)}`))
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
     if (task.source === 'unrecorded') list.append(el('li', 'muted', 'It has recorded no task yet: no topic, no steps and no time.'))
-    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the backlog step that names its branch.'))
-    if (lane.eta !== null && lane.eta.isOwn === false) {
-      const [where, minutes] = lane.eta.from === 'handover' ? ['its hand-over', task.handMinutes] : [task.stepId ?? 'its step', task.stepMinutes]
-      list.append(el('li', 'muted', `It gave no estimate: ${where} says ${about(minutes)}, counted from the start.`))
-    }
+    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the step the work store holds for it.'))
+    if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
     if (task.source === 'plan' && (task.stepId ?? null) !== null) list.append(el('li', 'muted', `It is on step ${task.stepId} of the backlog.`))
   }
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
@@ -705,6 +741,23 @@ function freeLine(lane, clock = null) {
   return `${ready} · ${when}, from ${idle.from === 'app' ? 'the app' : 'the transcript'}`
 }
 // lanefree:end
+
+// laneflags:start
+/**
+ * B300: the reconciler's flags on a lane (`lane.flags`), each a line, and for a chat that holds work but does not run a
+ * button "Start <chat>" that asks the main chat to start it (the board's own start words; `data-start`). No button
+ * without a main chat, for the main chat itself, or while an ask to start it is on its way (`restart.starting`).
+ */
+function laneFlags(lane, restart = null) {
+  const main = restart?.main ?? null
+  const isAsked = (restart?.starting ?? []).some(one => one.chat === lane.name && one.state !== 'expired' && one.state !== 'failed')
+  return (lane.flags ?? []).map(flag => ({
+    text: flag.text,
+    tone: flag.kind === 'card' ? 'warn' : 'problem',
+    button: flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
+  }))
+}
+// laneflags:end
 
 function drawLane(lane, state) {
   const isOpen = openLanes.has(lane.name)
@@ -790,6 +843,18 @@ function drawLane(lane, state) {
   }
   const alerts = alertsOf(lane, state)
   if (alerts.length > 0) what.append(el('p', 'alert', alerts.join(' · ')))
+  for (const flag of laneFlags(lane, state.restart ?? null)) {
+    const line = el('p', `lane-flag is-${flag.tone}`, flag.text)
+    if (flag.button !== null) {
+      const start = el('button', 'choice', flag.button.isAsked ? `${flag.button.label}: asked` : flag.button.label)
+      start.type = 'button'
+      start.dataset.start = flag.button.start
+      start.disabled = flag.button.isAsked || sending.has(`start:${flag.button.start}`)
+      start.title = `Asks ${state.restart.main} to start it`
+      line.append(' ', start)
+    }
+    what.append(line)
+  }
   if (removal.line !== null) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
   if (problems.has(`remove:${lane.name}`)) what.append(el('p', 'remove-line is-problem', problems.get(`remove:${lane.name}`)))
 
@@ -1108,20 +1173,12 @@ $('lanes').addEventListener('click', event => {
 
 /**
  * B83: in the window of a step in a worker's queue: "Move to" another worker, and "Take out of the queue" (it stays on
- * the backlog without a worker). Both ask the main chat, which writes the backlog and tells the workers (the person,
- * 2026-10-14: "2. A"). An ask on its way says so. Nothing for a step without an id.
+ * the backlog without a worker). B301, the review: both change the work store at once through the work API, as the
+ * person (`requeue`, `unqueue`); the board delivers the step to its new worker. Nothing for a step without an id.
  */
 function queueChangePart(lane, step, state) {
-  const main = state.workers?.main ?? null
-  if (main === null || typeof step?.id !== 'string') return null
-  const mainTitle = state.workers.mainTitle ?? main
+  if (typeof step?.id !== 'string') return null
   const key = `change:${step.id}`
-  const part = el('div', 'queue-change')
-  const ask = state.changeAsks?.steps?.[step.id] ?? null
-  if (ask?.isOpen === true) {
-    part.append(el('span', 'muted', `Asked at ${clock(ask.at)}: ${mainTitle} makes the change and tells the workers.`))
-    return part
-  }
   const others = (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover && one.name !== lane.name)
   if (others.length > 0) {
     const move = el('button', 'quiet-button', 'Move to')
@@ -1143,7 +1200,7 @@ function queueChangePart(lane, step, state) {
   out.dataset.unqueueStep = step.id
   out.disabled = sending.has(key)
   out.title = 'It stays on the backlog, without a worker'
-  part.append(out, el('span', 'muted', `${mainTitle} makes the change and tells the workers.`))
+  part.append(out, el('span', 'muted', 'The work store changes at once; the board delivers the step to its new worker.'))
   if (problems.has(key)) part.append(el('p', 'problem', problems.get(key)))
   return part
 }
@@ -1151,13 +1208,12 @@ function queueChangePart(lane, step, state) {
 // B83: the queue's changes from a step's window.
 $('details').addEventListener('click', event => {
   const button = event.target.closest('[data-move-step], [data-unqueue-step]')
-  const main = board?.workers?.main ?? null
-  if (button === null || main === null) return
+  if (button === null) return
   const id = button.dataset.moveStep ?? button.dataset.unqueueStep
   button.disabled = true
-  if (button.dataset.moveStep === undefined) return send({ to: main, command: 'unqueue', step: id }, `change:${id}`)
+  if (button.dataset.moveStep === undefined) return sendWork({ action: 'unqueue', id }, `change:${id}`)
   const target = [...$('details').querySelectorAll('[data-move-target]')].find(pick => pick.dataset.moveTarget === id)?.value ?? ''
-  return send({ to: main, command: 'move', step: id, target }, `change:${id}`)
+  return sendWork({ action: 'requeue', id, for: target }, `change:${id}`)
 })
 
 // B143: "✕ Remove" asks at once for a free worker with nothing queued, else opens (or closes) the warning;
@@ -1195,7 +1251,7 @@ $('workers-panel').addEventListener('click', event => {
 // given. The queue, the unfolded details, its step line and its remove control keep their own clicks.
 $('lanes').addEventListener('click', event => {
   const card = event.target.closest('.lane.is-working, .lane.is-suspended, .lane.is-interrupted')
-  if (card === null || board === null || event.target.closest('.queue, .more, .step-line, .remove-button, .remove-warning, .lane-menu') !== null) return
+  if (card === null || board === null || event.target.closest('.queue, .more, .step-line, .remove-button, .remove-warning, .lane-menu, .lane-flag') !== null) return
   openDetails({ lane: card.dataset.lane, task: true })
 })
 
@@ -1203,7 +1259,7 @@ $('lanes').addEventListener('click', event => {
 // queue and the unfolded details keep their own clicks.
 $('lanes').addEventListener('click', event => {
   const card = event.target.closest('.lane.is-waiting')
-  if (card === null || board === null || event.target.closest('.queue, .more, .remove-button, .remove-warning, .lane-menu') !== null) return
+  if (card === null || board === null || event.target.closest('.queue, .more, .remove-button, .remove-warning, .lane-menu, .lane-flag') !== null) return
   const id = needOfLane(board.forYou, card.dataset.lane)
   if (id !== null) openDetails({ need: id })
 })
@@ -1391,6 +1447,7 @@ function answerPart(need, state, isFolded) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
+  if (need.kind === 'unfiled') return [...parts, ...talkButton(need)]
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
@@ -1427,6 +1484,17 @@ function answerPart(need, state, isFolded) {
   else parts.push(text, buttons)
   if (problems.has(need.id)) parts.push(el('p', 'problem', problems.get(need.id)))
   return parts
+}
+
+/**
+ * B301: the way to the chat of a warning that it wrote questions without filing an ask: Talk to Main, the Advisor's
+ * chat on its tab, or, for a worker, this card's window with its last answer.
+ */
+function talkButton(need) {
+  const open = el('button', 'choice', need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`)
+  open.type = 'button'
+  open.dataset.openTalk = need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id
+  return [open]
 }
 
 /** The options of a request: a button under its picture for each that has one, plain buttons for the others. */
@@ -1560,6 +1628,90 @@ function listBox(title, lines) {
   return box
 }
 
+// storeasks:start
+/** B299: what an ask of the work store says of itself (`Q<n>`): its own kind, what it blocks, its play link. */
+const STORE_ASKS = { decide: 'Decide', look: 'Look', provide: 'Provide', do: 'Do' }
+function storeAskParts(need, isRunning = null) {
+  if (need.workId === undefined) return null
+  const blocks = need.blocks.length > 0
+    ? `blocks ${need.blocks.map(one => `${one.step}${one.owner === null ? '' : ` · ${one.owner} waits`}`).join(', ')}`
+    : need.of === null ? null : `on ${need.of}${need.ofTitle === null ? '' : ` ${need.ofTitle}`}`
+  return {
+    id: need.workId,
+    tag: `${STORE_ASKS[need.asks] ?? 'Decide'}${need.isRefine ? ' · refine' : ''}`,
+    blocks,
+    play: need.play === null ? null : `/#play=${need.play}`,
+    // Review of B299: a question of the app's form whose chat does not run (not seen for a while) can be withdrawn here.
+    withdraw: need.isForm === true && isRunning === false && (need.answer ?? null) === null,
+  }
+}
+
+/** B299: the Information list: notes and reports, unread first, one line each; read ones fade. */
+function informationRows(list) {
+  return (list ?? []).map(one => ({
+    id: one.id, text: one.text, isRead: one.isRead,
+    head: `${one.from ?? 'the board'}${one.to === 'main' ? ' → Main' : ''}${one.about === null ? '' : ` · ${one.about}`}`,
+    at: one.since,
+  }))
+}
+// storeasks:end
+
+/** B299: the parts of a store ask's card under its head: what it blocks, its play link (one of the app's form says
+ * "Answer in its chat" in its answer part). */
+function storeAskLines(need, state) {
+  const parts = storeAskParts(need, (state.chats ?? []).find(chat => chat.name === need.from)?.isRunning ?? (state.advisor?.name === need.from ? state.advisor.isRunning ?? null : null))
+  if (parts === null) return []
+  const out = []
+  if (parts.withdraw) {
+    const button = el('button', 'choice', sending.has(need.id) ? 'Withdrawing…' : 'Withdraw')
+    button.type = 'button'
+    button.dataset.withdraw = need.workId
+    button.title = `${need.from} does not run, and only its chat can take this answer: withdraw the question.`
+    button.disabled = sending.has(need.id)
+    out.push(button)
+  }
+  if (parts.blocks !== null) out.push(el('p', `ask-blocks${need.blocking ? ' is-blocking' : ''}`, parts.blocks))
+  if (parts.play !== null) {
+    const link = el('a', 'run')
+    link.href = parts.play
+    link.target = '_blank'
+    link.rel = 'noreferrer noopener'
+    link.append(icon('open'), 'Play it')
+    out.push(link)
+  }
+  return out
+}
+
+/** B299: the part "Information" under Needs your attention: what the chats told the person; "Read" puts it away. */
+function drawInformation(state) {
+  const rows = informationRows(state.information)
+  if (rows.length === 0) return null
+  const unread = rows.filter(row => !row.isRead).length
+  const part = el('section', 'information')
+  const head = el('h3', '', 'Information')
+  head.append(el('small', 'muted', unread === 0 ? 'all read' : `${unread} new`))
+  part.append(head)
+  for (const row of rows) {
+    if (row.isRead && !showsClosed()) continue
+    const line = el('div', `info${row.isRead ? ' is-read' : ''}`)
+    line.dataset.info = row.id
+    const words = el('p', '')
+    words.append(el('b', '', row.head), ' ', row.text)
+    line.append(words, el('small', 'muted', row.at === null ? row.id : `${row.id} · ${ago(row.at, state.readAt)}`))
+    if (!row.isRead) {
+      const read = el('button', 'choice', sending.has(`read:${row.id}`) ? 'Reading…' : 'Read')
+      read.type = 'button'
+      read.dataset.read = row.id
+      read.disabled = sending.has(`read:${row.id}`)
+      line.append(read)
+    }
+    const problem = problems.get(`read:${row.id}`)
+    if (problem !== undefined) line.append(el('p', 'problem', problem))
+    part.append(line)
+  }
+  return part
+}
+
 function drawNeed(need, state) {
   const kind = KINDS[need.kind]
   const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${isClosed(need) ? ' is-closed' : isAnswered(need) ? ' is-answered' : ''}`)
@@ -1570,9 +1722,9 @@ function drawNeed(need, state) {
   head.title = 'Show the details'
   const top = el('header', 'need-top')
   if (isStep(need)) top.append(el('span', 'kind', kind.sign), need.step === null ? '' : el('b', '', need.step), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
-  else top.append(el('span', 'kind', kind.sign), el('b', '', need.from), el('span', 'tag', kind.tag), since(need.at, state.readAt))
+  else top.append(el('span', 'kind', kind.sign), el('b', '', need.from ?? 'the board'), el('span', 'tag', storeAskParts(need)?.tag ?? kind.tag), since(need.at, state.readAt))
   head.append(top, el('h4', '', need.title))
-  card.append(head)
+  card.append(head, ...storeAskLines(need, state))
   if (need.text !== '') card.append(el('p', '', need.text))
   card.append(...optionParts(need))
 
@@ -1600,7 +1752,8 @@ function ordered(needs) {
   const list = [...needs].sort((a, b) => newness(b) - newness(a))
   if (order === 'oldest') list.reverse()
   if (order === 'worker') list.sort((a, b) => (a.from ?? '').localeCompare(b.from ?? '') || newness(b) - newness(a))
-  return list
+  // B300: a blocking ask that waited longer than the board's ask time stands first, whatever the order.
+  return list.sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true))
 }
 // order:end
 
@@ -1635,6 +1788,76 @@ function refocus(box, id) {
 
 const focusedNeed = box => (box.contains(document.activeElement) ? document.activeElement.closest('.need')?.dataset.id ?? null : null)
 
+// instructions:start
+/**
+ * B298: the person's words filed as instructions, per chat, for the part "Open instructions" under Needs your
+ * attention: each chat's missed ones first (a turn of the chat ended with them open: red), then the open ones, then the
+ * ones closed lately (grey, with what came of them). `list` is the state's `instructions`; empty without the store.
+ */
+function instructionGroups(list) {
+  const groups = new Map()
+  for (const one of list ?? []) {
+    const tone = one.closedAs !== null && one.closedAs !== undefined ? 'closed' : one.isMissed ? 'missed' : 'open'
+    const note = tone === 'closed' ? `→ ${one.closedAs}` : tone === 'missed' ? `missed ${one.turns} turn${one.turns === 1 ? '' : 's'}` : 'new'
+    const row = { id: one.id, text: one.text, tone, note, at: one.since ?? null, via: one.via ?? 'chat' }
+    if (!groups.has(one.chat)) groups.set(one.chat, [])
+    groups.get(one.chat).push(row)
+  }
+  const rank = { missed: 0, open: 1, closed: 2 }
+  return [...groups].map(([chat, rows]) => ({
+    chat, rows: rows.sort((a, b) => rank[a.tone] - rank[b.tone]), missed: rows.filter(row => row.tone === 'missed').length, open: rows.filter(row => row.tone !== 'closed').length,
+  })).sort((a, b) => b.missed - a.missed || b.open - a.open || a.chat.localeCompare(b.chat))
+}
+// instructions:end
+
+/** B298: the part "Open instructions": the person's words per chat; a click on the main chat's opens the talk with it. */
+function drawInstructions(state) {
+  const groups = instructionGroups(state.instructions ?? [])
+  if (groups.length === 0) return null
+  const open = groups.reduce((sum, group) => sum + group.open, 0)
+  const part = el('section', 'instructions')
+  const head = el('h3', '', 'Open instructions')
+  head.append(el('small', 'muted', open === 0 ? 'all closed' : `${open} open`))
+  part.append(head)
+  for (const group of groups) {
+    const box = el('div', 'instruction-chat')
+    const name = el('b', '', group.chat)
+    if (group.chat === state.restart?.main) {
+      name.dataset.showSide = 'main'
+      name.title = 'Open the talk with the main chat'
+      name.classList.add('is-link')
+    }
+    box.append(name)
+    for (const row of group.rows) {
+      const line = el('p', `instruction is-${row.tone}`)
+      line.append(el('span', 'instruction-id', row.id), el('span', 'instruction-text', row.text), el('small', 'instruction-note', row.at === null || row.tone === 'closed' ? row.note : `${row.note} · ${ago(row.at, state.readAt)}`))
+      box.append(line)
+    }
+    part.append(box)
+  }
+  return part
+}
+
+// B298: the main chat's name over its instructions opens the talk with it. B299: "Read" puts a note away.
+$('needs').addEventListener('click', event => {
+  const side = event.target.closest('.instructions [data-show-side]')
+  if (side !== null) showSide(side.dataset.showSide)
+  // B301: a warning's way to its chat.
+  const talk = event.target.closest('[data-open-talk]')
+  if (talk !== null) {
+    const where = talk.dataset.openTalk
+    if (where === 'main') showSide('main')
+    else if (where === 'advisor') {
+      show('advice')
+      showAdvisorPane('chat')
+    } else openDetails({ need: where })
+  }
+  const read = event.target.closest('[data-read]')
+  if (read !== null) sendWork({ action: 'read', id: read.dataset.read }, `read:${read.dataset.read}`)
+  const withdraw = event.target.closest('[data-withdraw]')
+  if (withdraw !== null) sendWork({ action: 'withdraw', id: withdraw.dataset.withdraw, why: 'its chat does not run' }, `work:${withdraw.dataset.withdraw}`)
+})
+
 function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
@@ -1645,7 +1868,7 @@ function drawNeeds(state) {
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   const cards = ordered(showsClosed() ? state.forYou : open).map(need => drawNeed(need, state))
   const none = open.length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
-  fill(box, [none, ...cards, drawLegacy(state)])
+  fill(box, [none, ...cards, drawLegacy(state), drawInformation(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
 }
@@ -1653,7 +1876,7 @@ function drawNeeds(state) {
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
 // A card is closed two minutes after its answer was typed: the minute is part of what is drawn.
-const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
+const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
@@ -1705,6 +1928,8 @@ function takeAnswers(box) {
     if (verdict === 'reject' && text === '') return fail(id, 'Say why you reject it: the worker needs to know what to change.')
     if (verdict === null && text === '') return fail(id, 'This needs your words.')
     openForms.delete(id)
+    // B299: an ask of the work store is answered in the store; the board wakes the chat that asked.
+    if (need.workId !== undefined) return sendWork({ action: 'answer', id: need.workId, verdict, text }, id)
     send({ to: need.from, ask: id, verdict, text }, id)
   })
 }
@@ -1821,6 +2046,43 @@ function refinedChips(refined, isDone = false) {
     ...(refined.ready ? [{ text: 'Ready', tone: 'ready' }] : open > 0 ? [{ text: `${open} question${open === 1 ? '' : 's'} for you`, tone: 'wait' }] : []),
   ]
 }
+/**
+ * B296: the strip of a step's states in its window, from the flow file (flow.json) of the work store: each state, the
+ * step's own marked, those before it passed; and the moves out of it, who makes each and what must hold first. Null
+ * without the store.
+ */
+function flowStripOf(flow) {
+  if (flow === null || flow === undefined) return null
+  const at = flow.states.indexOf(flow.state)
+  return {
+    states: flow.states.map((name, index) => ({ name, tone: index === at ? 'now' : at >= 0 && index < at ? 'past' : 'later' })),
+    state: flow.state,
+    isKnown: at >= 0,
+    next: flow.next.map(move => `${move.to}, by ${move.by.join(' or ')}${move.when === null ? '' : ` when ${move.when}`}`),
+  }
+}
+
+// item:start
+/**
+ * B299: the parts of a step's window from the work store, in their order: the Summary on top, the picture, the
+ * goal chip, the flow strip, What we build, then Requirements and Touches folded, History last. `item` is the state's
+ * `item` of the step; only the parts it has.
+ */
+function itemPartsOf(item, hasFlow) {
+  if (item === null || item === undefined) return []
+  const parts = [
+    item.summary.length > 0 ? { key: 'summary', title: 'Summary', lines: item.summary, isFolded: false } : null,
+    item.picture !== null ? { key: 'picture', title: 'Picture', lines: [item.picture], isFolded: false } : null,
+    item.goal !== null ? { key: 'goal', title: 'Goal', lines: [item.goal], isFolded: false } : null,
+    hasFlow ? { key: 'flow', title: 'Flow', lines: [], isFolded: false } : null,
+    item.what.length > 0 ? { key: 'what', title: 'What we build', lines: item.what, isFolded: false } : null,
+    item.requirements.length > 0 ? { key: 'requirements', title: 'Requirements', lines: item.requirements, isFolded: true } : null,
+    item.touches.length > 0 ? { key: 'touches', title: 'Touches', lines: item.touches, isFolded: true } : null,
+    item.history.length > 0 ? { key: 'history', title: 'History', lines: item.history, isFolded: false } : null,
+  ]
+  return parts.filter(part => part !== null)
+}
+// item:end
 // window:end
 
 // waiting:start
@@ -1865,10 +2127,8 @@ function waitingOf(need, now) {
     words: waits?.handover?.rest ?? waits?.words ?? '',
     saidAt: waits?.at ?? null,
     where,
-    // B149: the parts of its answer when it finished a task with something left for the person (`handover`), and
-    // the message that gave it that task (`given`).
+    // B149: the parts of its answer when it finished a task with something left for the person (`handover`).
     handover: waits?.handover ?? null,
-    given: waits?.given ?? null,
     // B169: the main chat's window shows what the person decides on (`mainParts`).
     isMain: need.isMain === true,
     // B275: so does the Advisor's, which asks the person as part of its talk with them.
@@ -1879,20 +2139,6 @@ function waitingOf(need, now) {
 /** B149: whether a finished worker's answer has the parts of the agreed form, so the window shows them. */
 const hasForm = handover => handover !== null && (handover.items.length > 0 || handover.task !== null || handover.did !== null)
 
-/**
- * B149: the answer the window types for the items of a finished worker's "For you" block, as the person answers in
- * a chat: one line per item answered, "1. yes", "2. no: it slides at the corner", "3. done". `answers` holds per
- * item number `{ verdict: 'yes' | 'no' | 'done' | null, words }`.
- */
-function handoverAnswer(items, answers) {
-  return items.map(item => {
-    const given = answers.get(item.n) ?? { verdict: null, words: '' }
-    const words = String(given.words ?? '').replace(/\s+/g, ' ').trim()
-    if (given.verdict === null && words === '') return null
-    return `${item.n}. ${[given.verdict, words].filter(part => part !== null && part !== '').join(': ')}`
-  }).filter(line => line !== null).join('\n')
-}
-
 /** B149: the closing block's lines, to show as a small table: `[label, words, tone]`; tone 'good' or 'bad' for Done. */
 function closingRows(closing) {
   if (closing === null) return []
@@ -1902,26 +2148,22 @@ function closingRows(closing) {
 // waiting:end
 
 /**
- * B149: the parts of a finished worker's window when its answer has the agreed form: its task as it was given,
- * what it did, and what it needs from the person, numbered, each with its links and its own answer; its whole
- * answer folded; its closing block on the right. `{ main, side }`, each a list of sections.
+ * B149: the parts of a worker's answer window when its answer has the agreed form: its task as its own Task line says,
+ * what it did, its whole answer folded, and its closing block. `{ main, side }`, each a list of sections.
  */
-function handoverParts(waiting, needId) {
-  const { handover, given } = waiting
+function handoverParts(waiting) {
+  const { handover } = waiting
   // B157: on top, set apart: the task in at most two lines, and what it did in plain words (a technical sentence
   // is left out there; the folded details have its whole answer).
   const did = plainWords(handover.did)
   const main = [briefPart([
-    ['The task', [briefTask(shortTask(handover.task ?? given?.text ?? null, null, waiting.task[0] ?? null))]],
+    ['The task', [briefTask(shortTask(handover.task, null, waiting.task[0] ?? null))]],
     ['What I did', did === '' ? [] : [el('p', 'brief-text', did)]],
   ])]
 
-  if (handover.items.length > 0) main.push(itemsPart(handover.items, waiting, needId))
-  // B157: below, folded: the message as it was given, its whole answer, its closing block.
+  // B301: its "For you" items are not shown as questions to answer here: what waits for the person is the store's asks.
+  // B157: below, folded: its whole answer, its closing block.
   main.push(foldedDetails([
-    given === null ? null : section('Its task as it was given', [
-      el('small', 'muted', `Given by ${given.by === 'you' ? 'you' : 'the main chat'} at ${clock(given.at)}`), rich(el('div', 'said-words'), given.text),
-    ]),
     waiting.words === '' ? null : section(`Its whole answer${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`, [rich(el('div', 'said-words'), waiting.words)]),
     ...closingParts(handover.closing),
   ]))
@@ -1930,12 +2172,12 @@ function handoverParts(waiting, needId) {
 
 /**
  * B169: the window of the main chat that waits for the person. The person, 2026-10-14: "This 'for you' tab, doesnt
- * contain the information i need to approve. i think it works for for workers, but not for the main chat", and of
- * the mock-up "1. yes". On top what the person asked it (its closing block's Prompt) and where that stands (Done);
- * then its answer itself, open: what the person decides on; then its questions, with the choices it lists; its
- * closing block folded, and for a question it first asked in an earlier answer, the way to Talk to Main ("2. yes: A").
+ * contain the information i need to approve. i think it works for for workers, but not for the main chat". On top what
+ * the person asked it (its closing block's Prompt) and where that stands (Done); then its answer itself, open; its
+ * closing block folded, and the way to Talk to Main. B301: the questions of its "For you" block are not offered as
+ * questions to answer here: what waits for the person is the store's asks.
  */
-function mainParts(waiting, needId) {
+function mainParts(waiting) {
   const handover = waiting.handover
   const closing = handover?.closing ?? null
   const asked = closing?.prompt ?? ''
@@ -1949,12 +2191,11 @@ function mainParts(waiting, needId) {
     ]))
   }
   const material = handover?.material ?? waiting.words
-  if (material !== '') main.push(section(`What you decide on${waiting.saidAt === null ? '' : ` · its answer of ${clock(waiting.saidAt)}`}`, [drawTalkText(el('div', 'main-material'), material)]))
-  if (handover !== null && handover.items.length > 0) main.push(itemsPart(handover.items, waiting, needId, true))
+  if (material !== '') main.push(section(`Its answer${waiting.saidAt === null ? '' : ` of ${clock(waiting.saidAt)}`}`, [drawTalkText(el('div', 'main-material'), material)]))
   // B275: what it asked with the app's own form, or the plan it asks to have approved: answered in its chat.
   const form = formParts(waiting)
   if (form.length > 0) main.push(section('What it asks in its chat', [...form, el('p', 'muted', 'It asked with the app\'s own question form: that one takes its answer only in its chat.')]))
-  if (material === '' && (handover?.items.length ?? 0) === 0 && form.length === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
+  if (material === '' && form.length === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
   const open = el('button', 'link-button', waiting.isAdvisor ? 'Open its chat on the Advisor tab' : `Open Talk to ${board?.mainTalk?.name ?? 'Main'}`)
   open.type = 'button'
   // B275: the Advisor's window leads to the talk with it, on its own tab.
@@ -1962,80 +2203,13 @@ function mainParts(waiting, needId) {
   else open.dataset.showSide = 'main'
   main.push(foldedDetails([
     ...closingParts(closing),
-    section('Asked before', [el('p', 'muted', 'A question it first asked in an earlier answer: all its answers are in the talk with it.'), open]),
+    section('Its talk', [el('p', 'muted', 'All its answers are in the talk with it.'), open]),
   ]))
   return { main, side: [] }
 }
 
 /** B169: words with a capital first letter, as a line of the window starts. */
 const capitalized = text => text.charAt(0).toUpperCase() + text.slice(1)
-
-/**
- * B149: the items of a "For you" block, numbered, each with its links and its own answer: Yes or No, Done, or (B169,
- * the main chat's window, `withChoices`) the choices it lists, shown under its question with its advice.
- */
-function itemsPart(items, waiting, needId, withChoices = false) {
-  const answers = itemAnswers.get(needId) ?? new Map()
-  const list = el('ol', 'handover-items')
-  for (const item of items) {
-    const li = el('li', 'handover-item')
-    li.dataset.item = String(item.n)
-    const ask = el('p', 'handover-ask')
-    ask.append(el('b', '', `${item.n}. ${item.kind === 'do' ? 'Do' : 'Answer'}: `), withChoices ? capitalized(item.ask ?? item.text) : item.text)
-    li.append(ask)
-    const choices = withChoices ? item.options ?? [] : []
-    if (choices.some(choice => choice.text !== null)) {
-      const listed = el('ul', 'handover-options')
-      for (const choice of choices) {
-        const row = el('li')
-        row.append(el('b', '', `${choice.key}: `), choice.text ?? '')
-        listed.append(row)
-      }
-      li.append(listed)
-    }
-    if (withChoices && (item.note ?? '') !== '') li.append(el('p', 'handover-note', item.note))
-    // B132: a project without a game has nothing to play: its play links are left out.
-    for (const link of item.links.filter(one => one.kind === 'picture' || board?.hasGame !== false)) {
-      const open = el('button', 'handover-link', link.kind === 'picture' ? link.label : `▶  ${link.label}`)
-      open.type = 'button'
-      if (link.kind === 'picture') {
-        open.dataset.zoom = link.path
-        open.dataset.caption = link.label
-        open.title = `Opens the picture here: ${link.path}`
-      } else {
-        open.dataset.play = link.branch
-        open.dataset.settings = link.settings
-        open.disabled = starting.has(`play:${link.branch}`)
-        open.title = 'Starts the game with this work in a new tab, where the change shows. It stops by itself after you close the tab.'
-      }
-      li.append(open)
-      if (link.kind === 'play' && problems.has(`play:${link.branch}`)) li.append(el('p', 'problem', problems.get(`play:${link.branch}`)))
-    }
-    if (waiting.where === 'here') {
-      const mine = answers.get(item.n) ?? { verdict: null, words: '' }
-      const row = el('div', 'handover-answer')
-      for (const verdict of choices.length > 0 ? choices.map(choice => choice.key) : item.kind === 'do' ? ['done'] : ['yes', 'no']) {
-        const pick = el('button', `choice${mine.verdict === verdict ? ' is-chosen' : ''}`, verdict.charAt(0).toUpperCase() + verdict.slice(1))
-        pick.type = 'button'
-        pick.dataset.itemVerdict = verdict
-        pick.setAttribute('aria-pressed', String(mine.verdict === verdict))
-        row.append(pick)
-      }
-      const words = el('input')
-      words.type = 'text'
-      words.value = mine.words
-      words.maxLength = 500
-      words.placeholder = item.kind === 'do' || choices.length > 0 ? 'Your words, if any…' : 'Your words (needed for No)…'
-      words.dataset.itemWords = ''
-      words.setAttribute('aria-label', `Your answer to ${item.n}`)
-      row.append(words)
-      li.append(row)
-    }
-    list.append(li)
-  }
-  // B169: the person, 2026-10-14: "lets rename 'For you' to 'Need your attention'", and "everywhere".
-  return section('Needs your attention', [list, ...(waiting.where === 'here' ? [el('p', 'muted', 'Your answers gather in the box below; change it there if you like, then send.')] : [])])
-}
 
 /** B149: the closing block of a worker's answer as three lines, Done in green or red; nothing when it has none. */
 function closingParts(closing) {
@@ -2044,19 +2218,6 @@ function closingParts(closing) {
   const list = el('dl', 'closing-rows')
   for (const [label, words, tone] of rows) list.append(el('dt', 'muted', label), el('dd', tone === '' ? '' : `is-${tone}`, words))
   return [section('Its closing block', [list])]
-}
-
-/** B149: what the person chose per item of a finished worker's "For you" block, per window; it stays in this page only. */
-const itemAnswers = new Map()
-
-/** B149: the answer box of the window shows what the items' answers make, and keeps it as the draft. */
-function gatherAnswers(box, needId) {
-  const need = everyNeed(board).find(one => one.id === needId)
-  const items = need?.waits?.handover?.items ?? []
-  const text = handoverAnswer(items, itemAnswers.get(needId) ?? new Map())
-  drafts.set(needId, text)
-  const area = box.querySelector('.details-foot textarea')
-  if (area !== null) area.value = text
 }
 
 $('details').addEventListener('click', event => {
@@ -2072,31 +2233,7 @@ $('details').addEventListener('click', event => {
     closeDetails()
     show('advice')
     showAdvisorPane(advisor.dataset.showAdvisor)
-    return
   }
-  const pick = event.target.closest('[data-item-verdict]')
-  if (pick === null || detailsOf?.need === undefined) return
-  const n = Number(pick.closest('[data-item]').dataset.item)
-  const answers = itemAnswers.get(detailsOf.need) ?? new Map()
-  const mine = answers.get(n) ?? { verdict: null, words: '' }
-  // A second click takes the choice back.
-  const verdict = mine.verdict === pick.dataset.itemVerdict ? null : pick.dataset.itemVerdict
-  answers.set(n, { ...mine, verdict })
-  itemAnswers.set(detailsOf.need, answers)
-  for (const other of pick.parentElement.querySelectorAll('[data-item-verdict]')) {
-    other.classList.toggle('is-chosen', other.dataset.itemVerdict === verdict)
-    other.setAttribute('aria-pressed', String(other.dataset.itemVerdict === verdict))
-  }
-  gatherAnswers($('details'), detailsOf.need)
-})
-
-$('details').addEventListener('input', event => {
-  if (!event.target.matches('[data-item-words]') || detailsOf?.need === undefined) return
-  const n = Number(event.target.closest('[data-item]').dataset.item)
-  const answers = itemAnswers.get(detailsOf.need) ?? new Map()
-  answers.set(n, { ...(answers.get(n) ?? { verdict: null }), words: event.target.value })
-  itemAnswers.set(detailsOf.need, answers)
-  gatherAnswers($('details'), detailsOf.need)
 })
 
 /** B100: the questions a chat asked with the app's own form, with the options it offers, and the plan it asks to have approved. */
@@ -2117,9 +2254,9 @@ function formParts(waiting) {
 /** B100: the two parts of a waiting worker's window: its task, and what it wants from the person. */
 function waitingParts(waiting, needId = null) {
   // B169: the main chat, which asks the person as part of its talk with them; B275: the Advisor too.
-  if (waiting.isMain || waiting.isAdvisor) return mainParts(waiting, needId)
+  if (waiting.isMain || waiting.isAdvisor) return mainParts(waiting)
   // B149: a finished worker whose answer has the agreed form.
-  if (hasForm(waiting.handover)) return handoverParts(waiting, needId)
+  if (hasForm(waiting.handover)) return handoverParts(waiting)
   const task = waiting.task.map((line, index) => el('p', index === 0 ? `waiting-topic${waiting.hasTask ? '' : ' muted'}` : 'muted', line))
   const wants = []
   if (waiting.summary !== '') wants.push(el('p', 'waiting-summary', waiting.summary))
@@ -2224,6 +2361,8 @@ const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interru
 function laneTaskOf(lane) {
   const task = lane.task ?? null
   const code = lane.givenTask?.step?.id ?? task?.stepId ?? null
+  // B299: a step of the store is named by its title as the store holds it, never by the card's short topic.
+  if (typeof task?.title === 'string' && task.title !== '') return { code, text: task.title }
   if (task === null || (task.text ?? '') === '') return { code, text: null }
   return { code, text: code === null ? task.text : task.text.replace(new RegExp(`^${code}[:,]?\\s+`), '') }
 }
@@ -2312,10 +2451,10 @@ function planOf(lane, now) {
 
 /**
  * B151: what the window of a working worker's lane shows (also one that is suspended, cut off, or between two turns):
- * in its head the task as its card names it; then the task as it was given (`given`: the main chat's hand-over as it
- * arrived in that chat, or what the person typed there, with when), the backlog step that message is about, and
- * where it stands now (`standing`: its step line, its time, what it does). Null for a lane whose window this is
- * not: a free one, or one that waits for the person (that one opens what it waits for, B100).
+ * in its head the task as its card names it; then the task as it was given (`given`: what the person typed there,
+ * with when; B301: the step the work store holds for it has no words of its own), the step it is on, and where it
+ * stands now (`standing`: its step line, its time, what it does). Null for a lane whose window this is not: a free
+ * one, or one that waits for the person (that one opens what it waits for, B100).
  */
 function laneWindowOf(lane, now, mainTitle) {
   const chip = LANE_WINDOW_STATES[lane.state]
@@ -2328,14 +2467,15 @@ function laneWindowOf(lane, now, mainTitle) {
     code: laneTaskOf(lane).code,
     title: laneTaskOf(lane).text ?? 'Task not recorded yet',
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
-    given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
+    // B301: only the person's words give a task; the main chat's messages give none.
+    given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
     step: given?.step ?? null,
     // B157: the top part: the task in one short sentence, and its plan in plain words. B281: for a backlog step, the
     // step's id and title above it, and what the step is; the person's feedback the worker is on as a part apart.
     taskHead: (given?.step ?? null) === null ? null : `${given.step.id} · ${given.step.title}`,
     task: (given?.step ?? null) === null
       ? shortTask(given?.text ?? null, null, task === null || task.text === '' ? null : task.text)
-      : stepTask(given.text, given.step, task === null || task.text === '' ? null : task.text),
+      : given.by === 'step' ? stepTask('', given.step) : stepTask(given.text, given.step, task === null || task.text === '' ? null : task.text),
     feedback: (lane.feedback ?? null) === null ? null : { title: `Now on your feedback (${clock(lane.feedback.at)})`, text: lane.feedback.text },
     plan: planOf(lane, now),
     standing: [
@@ -2521,6 +2661,24 @@ function noteParts(notes) {
   }
 }
 
+/** B296: the flow of the step a window shows: a Backlog tab's step carries it; another is found by its id. */
+function flowFor(step, need, state) {
+  if (step !== null && step.flow !== undefined) return step.flow
+  const id = step?.id ?? (need !== null && isStep(need) ? need.step ?? null : null)
+  if (id === null) return null
+  return (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === id)?.flow ?? null
+}
+
+/** B296: the strip of states, the step's own marked, and the moves out of it. */
+function flowPart(strip) {
+  const row = el('ol', 'flow-strip')
+  for (const one of strip.states) row.append(el('li', `flow-state is-${one.tone}`, one.name))
+  const parts = [row]
+  if (!strip.isKnown) parts.push(el('p', 'warn', `It is "${strip.state}", a state the flow file does not know.`))
+  if (strip.next.length > 0) parts.push(el('p', 'muted flow-next', `Next: ${strip.next.join(' · ')}`))
+  return section('Flow', parts)
+}
+
 function drawDetails(state) {
   const box = $('details')
   const subject = subjectOf(state)
@@ -2551,7 +2709,9 @@ function drawDetails(state) {
   const head = detailsHead(view, el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), now)
 
   // The left column, the wider one: what it is about and what to look at
-  const notes = noteParts(view.notes)
+  // B299: a step of the store shows its Touches in the item's folded part, not a second time among the notes.
+  const itemNow = need === null ? itemFor(subject.step ?? step ?? null, state) : null
+  const notes = noteParts((itemNow?.touches.length ?? 0) > 0 ? view.notes.filter(note => note.title !== 'Touches') : view.notes)
   // A request a chat filed has its own text. A step of the backlog is one line, which is the title above; what
   // describes it further are the lines written under it.
   const words = need !== null && !isStep(need) && need.text !== '' ? [el('p', '', need.text)] : []
@@ -2565,17 +2725,29 @@ function drawDetails(state) {
   if (waitingShown !== null) left.append(...waitingShown.main)
   // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
   // has them on the right.
-  // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback. B293: once ready
-  // it is the step's description, first; the step's own lines follow as its notes.
-  // A step in a worker's queue shows its refine to read; it is answered in its window on the Backlog tab.
+  // B296: where the step stands in the flow (flow.json), from the work store.
+  const strip = flowStripOf(flowFor(subject.step ?? step ?? null, need, state))
+  // B299: a step's window shows its item from the work store: Summary, picture, goal, the strip, What we
+  // build, Requirements and Touches folded; its History comes last.
+  const itemParts = itemPartsOf(itemNow, strip !== null)
+  const isItemShown = itemParts.length > 0
+  // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback. B293: without
+  // the store's item, once ready it is the step's description, first, and the step's own lines follow as its notes;
+  // with the item, its Summary, picture and What we build stand above, and the refine part holds the questions. A
+  // step in a worker's queue shows its refine to read; it is answered in its window on the Backlog tab.
   const refined = subject.step?.refined ?? (need === null ? step?.refined ?? null : null)
-  const refine = subject.step !== undefined ? refinePart(subject.step, state) : refined !== null ? refineToRead(refined) : null
+  const refine = subject.step !== undefined ? refinePart(subject.step, state, isItemShown)
+    : refined !== null && !isItemShown ? refineToRead(refined) : null
   const isReady = refine?.classList.contains('is-ready') === true
   // A refine with a summary describes the step: no "nothing more is written" above it.
   const isSummed = isReady || (refine !== null && (refined?.summary ?? '') !== '')
-  if (isReady) left.append(refine)
-  if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section(isReady ? 'Notes' : 'Description', described))
-  else if (!view.hasNotes && !isSummed) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
+  if (isItemShown) left.append(...itemParts.filter(part => part.key !== 'history').map(part => itemPart(part, strip)))
+  else {
+    if (isReady) left.append(refine)
+    if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section(isReady ? 'Notes' : 'Description', described))
+    else if (!view.hasNotes && !isSummed) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
+    if (strip !== null) left.append(flowPart(strip))
+  }
   if (refine !== null && !isReady) left.append(refine)
   left.append(...notes.named)
   if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
@@ -2586,6 +2758,8 @@ function drawDetails(state) {
     ...need.pictures.map(path => ({ path, caption: '' })),
   ]
   if (shown.length > 0) left.append(section('References', drawReferences(shown)))
+  const history = itemParts.find(part => part.key === 'history')
+  if (history !== undefined) left.append(itemPart(history, strip))
 
   // The right column: where its files lie, and what to check. Only what the step really has.
   const right = el('div', 'details-side')
@@ -2645,6 +2819,27 @@ function drawDetails(state) {
     field.focus()
     field.setSelectionRange(field.value.length, field.value.length)
   }
+}
+
+/** B299: a step's item as the store holds it, for its window: from the Backlog tab's step, else found by its id. */
+function itemFor(step, state) {
+  if (step === null || step === undefined) return null
+  if (step.item !== undefined) return step.item
+  return (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id !== null && one.id === step.id)?.item ?? null
+}
+
+/** B299: one part of a step's item in its window (see itemPartsOf). */
+function itemPart(part, strip) {
+  if (part.key === 'flow') return flowPart(strip)
+  if (part.key === 'picture') return section('Picture', drawReferences([{ path: part.lines[0], caption: '' }]))
+  if (part.key === 'goal') return el('p', 'chip is-goal', `Goal: ${part.lines[0]}`)
+  if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
+  if (part.isFolded) {
+    const box = el('details', 'item-fold')
+    box.append(el('summary', '', `${part.title} (${part.lines.length})`), listOf(part.lines))
+    return box
+  }
+  return section(part.title, [listOf(part.lines)])
 }
 
 function listOf(lines) {
@@ -2768,19 +2963,6 @@ function openPicture(path, caption) {
 document.addEventListener('click', event => {
   const frame = event.target.closest('[data-zoom]')
   if (frame !== null) openPicture(frame.dataset.zoom, frame.dataset.caption)
-})
-
-// B149: "Play it" in a finished worker's window: the tab is opened with the click itself, as for "Open the game".
-document.addEventListener('click', event => {
-  const link = event.target.closest('[data-play]')
-  if (link === null) return
-  let tab = null
-  try {
-    tab = window.open('about:blank', '_blank')
-  } catch {
-    // Stopped by the browser: said below.
-  }
-  play(link.dataset.play, link.dataset.settings ?? '', { tab })
 })
 
 // B208: a phone is a screen up to 600 px wide, as the style sheet has it.
@@ -5253,7 +5435,7 @@ resizable($('talk-resizer'), $('view-advice'), 'chat-width', 500)
 // B155: the steps finished last, newest first, at the top of the Backlog tab. The person, 2026-10-14: "i want a
 // chronological list of backlog items that were recently finish desc, so latest items first."
 
-const FINISHED_HOW = { line: 'its line in the backlog', report: 'its report to the main chat', seen: 'the board saw it ticked', day: 'only the day is known' }
+const FINISHED_HOW = { line: 'its line in the backlog', store: 'its move to done in the work store', seen: 'the board saw it ticked', day: 'only the day is known' }
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /**
@@ -5578,13 +5760,15 @@ function holding(tag, className, ...children) {
  * the summary, the picture, and one line per question with the advice and Yes / No; once ready, the step's
  * description itself (`is-ready`): the summary, the picture and what we build, with no box, no rounds and no questions.
  */
-function refinePart(step, state) {
+function refinePart(step, state, isItemShown = false) {
   const advisor = state.advisor?.name ?? null
   const view = refineView(step, advisor)
   const working = view?.working == null ? null
     : el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'}. It shows here once written.`)
   // A ready description stays, also once the step is finished; so does a finished step's summary, without its questions.
   const isDescribed = step.refined?.ready === true || (step.status === 'done' && hasNewForm(step.refined))
+  // With the store's item shown, the description stands above already: only "refining again" is said here.
+  if (isDescribed && isItemShown) return working === null ? null : holding('section', 'details-part refine', working)
   if (isDescribed) {
     const box = el('section', 'details-part refined is-ready')
     box.append(...refinedParts(step.refined))
@@ -5606,7 +5790,8 @@ function refinePart(step, state) {
       heading.append(el('small', '', `${view.meta}${view.isAccepted ? ' · accepted' : ''}`))
       box.append(heading)
     }
-    box.append(...refinedParts(refined))
+    // With the store's item shown, its Summary and picture stand above: not twice.
+    box.append(...refinedParts(isItemShown ? { ...refined, summary: '', picture: null, pictureNote: '', build: [] } : refined))
     if (refined.questions.length > 0) box.append(refineQuestions(step, refined, view))
     if (refined.feedback.length > 0) {
       box.append(el('span', 'refine-tag', 'Your feedback so far'), listOf(refined.feedback))
@@ -5813,6 +5998,15 @@ function askQueue(button) {
 
 function drawCoordinate(state) {
   const activities = state.backlog ?? []
+  // B296: one line about the work store; its problems on hover.
+  const store = storeLine(state.store ?? null)
+  const storeBox = $('coordinate-store')
+  storeBox.hidden = store === null
+  if (store !== null) {
+    storeBox.className = `coordinate-store is-${store.tone}`
+    storeBox.textContent = store.text
+    storeBox.title = store.problems.join('\n')
+  }
   const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked, hideBusy: $('coordinate-busy').checked })
   // B250: how many steps the box hides, so none seems lost.
   $('coordinate-busy-count').textContent = $('coordinate-busy').checked ? `(${list.hidden} hidden)` : ''
@@ -6562,6 +6756,7 @@ function draw(state) {
   drawTop(state)
   drawUpdate(state)
   drawAppNote(state)
+  drawStoreNote(state)
   drawMainGame(state)
   drawLimits(state)
   drawRestart(state)
@@ -6675,6 +6870,34 @@ async function send(message, id) {
   }
   await read()
   if (id === null) $('messages').scrollTop = $('messages').scrollHeight
+}
+
+/**
+ * B299: one action of the person on the work store (POST /api/work: the token, the origin, JSON): an answer to an
+ * ask, a note read. Its problem shows where `key` says, as for `send`.
+ */
+async function sendWork(body, key) {
+  sending.add(key)
+  problems.delete(key)
+  redrawNeeds()
+  let problem = null
+  try {
+    const answer = await fetch('/api/work', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
+      body: JSON.stringify(body),
+    })
+    if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
+    else showPaste((await answer.json().catch(() => null))?.paste ?? null)
+  } catch {
+    problem = 'the board\'s server does not answer'
+  }
+  sending.delete(key)
+  if (problem === null) {
+    drafts.delete(key)
+    chosen.delete(key)
+  } else problems.set(key, `Not sent: ${problem}`)
+  await read()
 }
 
 // paste:start

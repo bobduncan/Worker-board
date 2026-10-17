@@ -13,7 +13,7 @@ import { answer, user } from '../fixtures/lines.mjs'
 import { messageText } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { checkSay } from '../src/say.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
 const NOW = Date.UTC(2026, 9, 17, 10, 0)

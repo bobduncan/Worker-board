@@ -12,7 +12,7 @@ import { answer, user } from '../fixtures/lines.mjs'
 import { messageText } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { checkSay } from '../src/say.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 import { isTalkPicture, keepTalkPicture, splitPicture, talkPictureName } from '../src/talkPicture.mjs'
 
 const MIN = 60_000

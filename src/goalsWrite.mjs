@@ -1,14 +1,48 @@
 // B256: every change to goals.md as text → text, by id, every other line untouched (spec 2026-10-15, sections 1 and
 // 3), and `editGoals`, which writes one change to the file: read anew right before, written beside and put in place
-// (tick.mjs `rewrite`), with a copy of the file before the first change of a day and an undo of the last twenty.
+// (`rewrite`), with a copy of the file before the first change of a day and an undo of the last twenty.
 // A goal's block is its line and every following line indented deeper; its own lines are the block's lines that are
 // not inside a child's block.
+import { randomBytes } from 'node:crypto'
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { GOAL_LINE, LAST_LINE, nextGoalId, parseGoals } from './goals.mjs'
-import { rewrite } from './tick.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access }
+
+/**
+ * B221: a file with one change made to it (`change`: the text before, as latin1, to `{ ok, text }` or `{ ok: false,
+ * why }`), read anew right before, written beside and put in its place in one move, and started again from the file
+ * when somebody else wrote it in between. The bytes are handled one to one (latin1), so every byte the change does not
+ * touch stays what it was. Answers `{ ok: true }`, or `{ ok: false, why }`: the change's why, `gone` or `write`.
+ */
+export async function rewrite(file, change, fs) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let before
+    try {
+      before = (await fs.readFile(file)).toString('latin1')
+    } catch {
+      return { ok: false, why: 'gone' }
+    }
+    const ticked = change(before)
+    if (!ticked.ok) return ticked
+    const beside = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+    try {
+      await fs.writeFile(beside, Buffer.from(ticked.text, 'latin1'), { flag: 'wx' })
+      if ((await fs.readFile(file)).toString('latin1') !== before) {
+        await fs.rm(beside, { force: true })
+        continue
+      }
+      await fs.rename(beside, file)
+      return { ok: true }
+    } catch {
+      await fs.rm(beside, { force: true }).catch(() => {})
+      return { ok: false, why: 'write' }
+    }
+  }
+  return { ok: false, why: 'write' }
+}
+
 const refuse = why => ({ ok: false, why })
 const STATE_MARK = { open: ' ', now: '~', done: 'x' }
 const LINKS = ['Enables', 'Also part of']

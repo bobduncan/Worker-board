@@ -12,7 +12,7 @@ import vm from 'node:vm'
 import { answer, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parseHandover } from '../src/handover.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const NOW = Date.UTC(2026, 9, 14, 12, 0)
 const MIN = 60_000
@@ -91,10 +91,10 @@ function waitingMain(lines) {
   return buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config })
 }
 
-test('the main chat that waits says it needs an answer, not that it finished a task, and says it is the main chat', () => {
+test('B301: the main chat\'s "For you" block without an ask is a warning, not a finished task, and says it is the main chat', () => {
   const state = waitingMain([typed(NOW - 6 * MIN, 'go on with the songs'), answer(NOW - 4 * MIN, MAIN_ANSWER)])
   const need = state.forYou.find(one => one.from === 'Lead')
-  assert.equal(need.title, 'Lead needs your answer')
+  assert.deepEqual([need.kind, need.title], ['unfiled', 'Lead wrote questions in its chat but filed no ask'])
   assert.equal(need.isMain, true)
   assert.equal(need.waits.handover.items.length, 3)
   assert.equal(need.waits.handover.closing.prompt, 'the zebracorn\'s songs, part 2')
@@ -108,26 +108,23 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('waiting')}\nObject.assign(this, { waitingOf, handoverAnswer })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('waiting')}\nObject.assign(this, { waitingOf })`, page)
 
-test('the window knows the main chat, and a chosen letter is typed as the answer', () => {
-  const need = { id: 'chat:Lead:1', isMain: true, canAnswer: true, answer: null, text: '', task: null, waits: { at: NOW, words: MAIN_ANSWER, questions: [], plan: null, handover: parseHandover(MAIN_ANSWER), given: null } }
+test('the window knows the main chat', () => {
+  const need = { id: 'unfiled:Lead:1', isMain: true, canAnswer: false, answer: null, text: '', task: null, waits: { at: NOW, words: MAIN_ANSWER, questions: [], plan: null, handover: parseHandover(MAIN_ANSWER) } }
   assert.equal(page.waitingOf(need, NOW).isMain, true)
   assert.equal(page.waitingOf({ ...need, isMain: undefined }, NOW).isMain, false)
-  const items = parseHandover(MAIN_ANSWER).items
-  assert.equal(page.handoverAnswer(items, new Map([[1, { verdict: 'A', words: '' }], [3, { verdict: 'C', words: 'and soon' }]])), '1. A\n3. C: and soon')
 })
 
-test('the main chat\'s window: what you asked and where it stands, its answer open, its questions, the rest folded', () => {
+test('the main chat\'s window: what you asked and where it stands, its answer open, the rest folded; B301: no questions to answer', () => {
   // B275: the Advisor's window is drawn the same way.
-  assert.match(script, /if \(waiting\.isMain \|\| waiting\.isAdvisor\) return mainParts\(waiting, needId\)\n\s+\/\/ B149: a finished worker/)
-  const parts = script.slice(script.indexOf('function mainParts'), script.indexOf('function itemsPart'))
-  for (const words of ["['You asked',", "['Where it stands',", 'What you decide on', 'drawTalkText(el(\'div\', \'main-material\'), material)', 'itemsPart(handover.items, waiting, needId, true)', "section('Asked before'", 'open.dataset.showSide = \'main\'', '...closingParts(closing)']) {
+  assert.match(script, /if \(waiting\.isMain \|\| waiting\.isAdvisor\) return mainParts\(waiting\)\n\s+\/\/ B149: a finished worker/)
+  const parts = script.slice(script.indexOf('function mainParts'), script.indexOf('const capitalized'))
+  for (const words of ["['You asked',", "['Where it stands',", 'Its answer', 'drawTalkText(el(\'div\', \'main-material\'), material)', "section('Its talk'", 'open.dataset.showSide = \'main\'', '...closingParts(closing)']) {
     assert.ok(parts.includes(words), words)
   }
-  // A worker's window keeps its items as they were: Yes or No, or Done, and its words on one line.
-  assert.match(script, /if \(handover\.items\.length > 0\) main\.push\(itemsPart\(handover\.items, waiting, needId\)\)/)
-  assert.match(script, /const choices = withChoices \? item\.options \?\? \[\] : \[\]/)
+  // B301: neither window offers the items of a "For you" block as questions to answer.
+  assert.doesNotMatch(script, /itemsPart|data-item-verdict|handoverAnswer/)
   // From the window to the talk with the main chat.
   assert.match(script, /const side = event\.target\.closest\('\[data-show-side\]'\)\n\s+if \(side !== null\) \{\n\s+closeDetails\(\)\n\s+showSide\(side\.dataset\.showSide\)/)
   assert.match(style, /\.main-material \{[^}]*max-height: 42vh[^}]*overflow: auto/)
@@ -138,7 +135,6 @@ test('"For you" is "Needs your attention" on the board: the tab, its panel, the 
   assert.match(html, /<h2 id="inbox-title" class="sr-only">Needs your attention<\/h2>/)
   assert.match(script, /\['you', 'Needs your attention'\]/)
   assert.match(script, /you: 'Needs your attention'/)
-  assert.match(script, /return section\('Needs your attention', \[list/)
   assert.ok(!/>For you</.test(html) && !/^(?!\s*\/\/).*'For you'/m.test(script), 'no "For you" left for the person to see')
   // On one line, also when the right side is at its narrowest.
   assert.match(style, /\.side-tab \{ white-space: nowrap; \}/)

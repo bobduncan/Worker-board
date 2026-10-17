@@ -13,7 +13,7 @@ import vm from 'node:vm'
 import { overview, parseBacklog, queue, refinedOf, withoutRefined } from '../src/backlog.mjs'
 import { checkSay } from '../src/say.mjs'
 import { refineAsk } from '../src/state.mjs'
-import { answerRefine } from '../src/tick.mjs'
+import { answerRefine } from '../src/work/refineText.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const script = await readFile(join(HERE, '..', 'public', 'board.js'), 'utf8')
@@ -181,7 +181,10 @@ test('the review\'s findings: a step in a worker\'s queue carries its block apar
   // The lane's queue in the board's state carries it to the page, where the window draws it to read.
   const stateSource = await readFile(join(HERE, '..', 'src', 'state.mjs'), 'utf8')
   assert.match(stateSource, /notes: step\.notes, refined: step\.refined \?\? null, pictures:/)
-  assert.match(script, /: refined !== null \? refineToRead\(refined\) : null/)
+  assert.match(script, /: refined !== null && !isItemShown \? refineToRead\(refined\) : null/)
+  // B299: with the store's item shown above, the refine part holds the questions only, and a ready one nothing more.
+  assert.match(script, /if \(isDescribed && isItemShown\) return working === null \? null : holding\('section', 'details-part refine', working\)/)
+  assert.match(script, /refinedParts\(isItemShown \? \{ \.\.\.refined, summary: '', picture: null, pictureNote: '', build: \[\] \} : refined\)/)
 })
 
 test('the review\'s findings: a caption on its own line, a path in backticks, a dash before the reason, a lone "Not in it:"', () => {

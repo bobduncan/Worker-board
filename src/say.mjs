@@ -61,24 +61,6 @@ const stopWords = (to, name, task) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'stop', about: name,
   text: `stop task\nName: ${name}\nTask: ${task}\nWhy: stopped with the button`,
 })
-const moveWords = (to, step, from, target) => ({
-  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'move', about: step.id,
-  text: `move step\nStep: ${stepLine(step)}\nFrom: ${from}\nTo: ${target}`,
-})
-const unqueueWords = (to, step, from) => ({
-  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'unqueue', about: step.id,
-  text: `unqueue step\nStep: ${stepLine(step)}\nFrom: ${from}`,
-})
-
-/** B83: the worker whose queue holds the step with this id, and the step; null when no queue holds it. */
-function queuedStep(state, id) {
-  for (const lane of state.chats ?? []) {
-    const step = (lane.queue ?? []).find(one => typeof one.id === 'string' && one.id === id)
-    if (step !== undefined && !lane.isLeftover) return { lane, step }
-  }
-  return null
-}
-
 /**
  * B181: the word that asks the main chat to hand out a step of the backlog that nobody has. The main chat picks the
  * worker or what the step waits for, and writes the step's "(for ...)" note; the board writes nothing into the
@@ -173,7 +155,7 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'move', 'unqueue', 'refine'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
     // B233: the one command that goes to the Advisor only.
@@ -192,9 +174,9 @@ export function checkSay(body, state, maxChars) {
       const holds = (state.advisor ?? null) !== null && !isRefined(step.refined)
       return { ok: true, message: { ...queueWords(body.to, step), ...(holds ? { held: true } : {}) } }
     }
-    // B83: the person stops a worker's task (after confirming once, `sure`), moves a queued step to another worker,
-    // or takes it out of its queue. What the worker does and what the step is are read here, from the board's own
-    // state: the page names the worker, the step's id and the other worker only. One ask at a time each.
+    // B83: the person stops a worker's task (after confirming once, `sure`). What the worker does is read here, from the
+    // board's own state: the page names the worker only. One ask at a time. (B301: moving a queued step and taking it out
+    // of its queue are the work API's `requeue` and `unqueue`, no words to the main chat.)
     if (body.command === 'stop') {
       const lane = (state.chats ?? []).find(chat => chat.name === body.chat && !chat.isLeftover && !chat.isMain)
       if (lane === undefined) return refuse(409, 'That is no worker on the board.')
@@ -203,15 +185,6 @@ export function checkSay(body, state, maxChars) {
       if (body.sure !== true) return refuse(409, 'Confirm first: the worker stops at a safe point.')
       const task = [lane.task.stepId ?? null, lane.task.text ? `"${plainLine(lane.task.text)}"` : null].filter(Boolean).join(' ') || 'its task'
       return { ok: true, message: stopWords(body.to, plainLine(lane.name), task) }
-    }
-    if (body.command === 'move' || body.command === 'unqueue') {
-      const found = typeof body.step === 'string' ? queuedStep(state, body.step) : null
-      if (found === null) return refuse(409, 'No worker\'s queue holds that step.')
-      if (state.changeAsks?.steps?.[found.step.id]?.isOpen === true) return refuse(409, 'An earlier ask to change this step is still open.')
-      if (body.command === 'unqueue') return { ok: true, message: unqueueWords(body.to, found.step, plainLine(found.lane.name)) }
-      const target = (state.chats ?? []).find(chat => chat.name === body.target && !chat.isLeftover && !chat.isMain)
-      if (target === undefined || target.name === found.lane.name) return refuse(409, 'Move it to another worker on the board.')
-      return { ok: true, message: moveWords(body.to, found.step, plainLine(found.lane.name), plainLine(target.name)) }
     }
     // B124: the person asks for one more worker, or for three when there is none. One ask at a time.
     if (body.command === 'spawn') {
@@ -304,9 +277,9 @@ const WAKE_PENDING_MS = 10 * 60_000
  */
 export function wakeFor(message, state, outbox, now, maxChars) {
   const main = state.restart?.main ?? null
-  // B195, B233: of the commands, only the answer to the Advisor's recommendation and a refine go to another chat than
-  // the main one.
-  if (main === null || message.to === main || ((message.command ?? null) !== null && message.command !== 'recommend' && message.command !== 'refine')) return null
+  // B195, B233: of the commands, only the answer to the Advisor's recommendation, a refine and (B300) the work store's
+  // line to a chat go to another chat than the main one.
+  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work'].includes(message.command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS
@@ -314,3 +287,37 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   const checked = checkSay({ to: main, command: 'start', chat: message.to }, state, maxChars)
   return checked.ok ? checked.message : null
 }
+
+/**
+ * B298: a line the person typed on the board to a chat is filed as an instruction before it is kept for delivery, and
+ * carries its id at its end ("Make it blue [I17]"), so the chat closes the one it was given. `file(body)` is the work
+ * API as the person. An answer to a request and the board's own words are no instruction; when nothing is filed (no
+ * store, or the board only shows: the page says so on top), the line goes as it is, without an id.
+ */
+export async function withInstruction(message, file) {
+  if ((message.ask ?? null) !== null || (message.command ?? null) !== null) return message
+  const words = String(message.text ?? '').trim()
+  const text = words !== '' ? words : typeof message.picture === 'string' ? `(a picture: ${message.picture})` : ''
+  if (text === '') return message
+  const filed = await Promise.resolve().then(() => file({ action: 'instruction', chat: message.to, text })).catch(() => null)
+  if (filed?.ok !== true || typeof filed.result?.id !== 'string') return message
+  return { ...message, text: `${words}${words === '' ? '' : ' '}[${filed.result.id}]`, instruction: filed.result.id }
+}
+
+/**
+ * B299: the words that wake the chat whose ask the person answered on the board (the work API's `wake`): typed into
+ * its chat as `(answered on the worker board, HH:MM) Q12 "<title>": <answer>` (bridge.mjs, messageText). The answer
+ * names the ask's own id, so it answers that ask whatever the chat did since.
+ */
+/**
+ * B300: the board's one line to a chat that a step is its own now (the work store's reconciler, or the chat's own pull
+ * at the end of a turn): the chat runs `work next` and takes it. Typed as it is: it is the board's word, not the
+ * person's (bridge.mjs, messageText). `text` for another line of the reconciler's to the step's Owner.
+ */
+export const workWords = (to, id, text = `work: ${id} is yours; run work next`) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'work', about: id, text,
+})
+
+export const answerWords = wake => ({
+  to: wake.to, ask: `work:${wake.id}`, step: wake.id, title: String(wake.title ?? '').slice(0, 200), version: null, verdict: null, text: String(wake.text ?? ''),
+})

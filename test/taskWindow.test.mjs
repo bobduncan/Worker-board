@@ -1,5 +1,6 @@
-// B281: a task's window says what the task is, from the backlog step, and apart from it that the worker is on the
-// person's feedback when their words started its turn. The person, 2026-10-17, of B231's window: "I want the task to
+// B281: a task's window says what the task is, from the step (B301: the step the work store holds for the worker; a
+// hand-over message says nothing), and apart from it that the worker is on the person's feedback when their words
+// started its turn. The person, 2026-10-17, of B231's window: "I want the task to
 // be clear, recap the original task briefly and state it's busy with feedback on this task." Made-up samples only.
 
 import assert from 'node:assert/strict'
@@ -11,7 +12,7 @@ import vm from 'node:vm'
 
 import { answer, assistant, fromChat, step, tool, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
 const NOW = Date.UTC(2026, 9, 17, 10, 30)
@@ -65,11 +66,11 @@ const onFeedback = (words = FEEDBACK) => [
 
 // In the state
 
-test('the task stays the main chat\'s hand-over when the person\'s words started the turn, and those words are the feedback', () => {
+test('B301: the step the store holds is the task, not the hand-over; the person\'s words that started the turn are the feedback', () => {
   const units = lane(onFeedback())
   assert.equal(units.state, 'working')
   assert.deepEqual(units.givenTask, {
-    by: 'main', at: NOW - 50 * MIN, text: HAND_OVER,
+    by: 'step', at: null, text: '',
     step: { id: 'B12', title: 'The zebracorn\'s walk', about: 'The zebracorn walks in four directions on the big map, with its old idle kept.' },
   })
   assert.deepEqual(units.feedback, { at: NOW - 20 * MIN, text: '1. no: almost but his red square is actually 2 squares · 2. yes' })
@@ -95,7 +96,7 @@ test('an answer given on the worker board is the feedback without the board\'s m
 
 test('no feedback when the main chat\'s hand-over or another chat started the turn', () => {
   const handed = lane([fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER), step(NOW - 2 * MIN, 'Draw the sheet'), toolResult(NOW - MIN)], { plan: card(NOW - 49 * MIN, 'Zebracorn walk') })
-  assert.equal(handed.givenTask.by, 'main')
+  assert.equal(handed.givenTask.by, 'step')
   assert.equal(handed.feedback, null)
   const noted = lane([...onFeedback(), answer(NOW - 90 * 1000, 'Fixed.'), fromChat(NOW - 60 * 1000, 'Game - Main', 'Note from Game - Main: the art folder moved.'), step(NOW - 30 * 1000, 'Move')])
   assert.equal(noted.feedback, null)
@@ -129,14 +130,14 @@ test('a typed task stays the task when the worker named its card anew for the pe
   assert.deepEqual(units.feedback, { at: NOW - 20 * MIN, text: 'Brighter, please.' })
 })
 
-test('words after a task the worker finished are a new task, not feedback: it reported, or said "Done: yes"', () => {
+test('words after a task the worker finished are a new task, not feedback: it said "Done: yes" (B301: a report message is nothing)', () => {
   const report = assistant(NOW - 30 * MIN, 'tool_use', [tool('SendMessage', { to: 'Game - Main', message: 'Report from Units: B12 done.' })])
   const reported = [fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER), step(NOW - 49 * MIN, 'Draw'), report, answer(NOW - 29 * MIN, 'Reported.'), typed(NOW - 20 * MIN, 'Now make the quokkaberry glow.'), step(NOW - 2 * MIN, 'Glow'), toolResult(NOW - MIN)]
-  const after = lane(reported, { plan: card(NOW - 19 * MIN, 'Quokkaberry glow') })
+  const after = lane(reported, { plan: card(NOW - 19 * MIN, 'Quokkaberry glow'), backlogText: '' })
   assert.deepEqual([after.givenTask.by, after.givenTask.text, after.feedback], ['you', 'Now make the quokkaberry glow.', null])
   const done = answer(NOW - 29 * MIN, 'It walks.\n\n---\n\n```diff\n  Prompt: the walk\n  Who:    Game - Units\n+ Done:   yes\n```')
   const said = [fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER), step(NOW - 49 * MIN, 'Draw'), done, typed(NOW - 20 * MIN, 'Now make the quokkaberry glow.'), step(NOW - 2 * MIN, 'Glow'), toolResult(NOW - MIN)]
-  const next = lane(said, { plan: card(NOW - 19 * MIN, 'Quokkaberry glow') })
+  const next = lane(said, { plan: card(NOW - 19 * MIN, 'Quokkaberry glow'), backlogText: '' })
   assert.deepEqual([next.givenTask.by, next.givenTask.text, next.feedback], ['you', 'Now make the quokkaberry glow.', null])
 })
 
@@ -175,18 +176,19 @@ const plain = value => JSON.parse(JSON.stringify(value))
 test('the window names the step and what it is, and apart from it the feedback the worker is on, with its time', () => {
   const view = plain(page.laneWindowOf(lane(onFeedback()), NOW, 'Game - Main'))
   assert.equal(view.taskHead, 'B12 · The zebracorn\'s walk')
-  // The hand-over has no "In short:" line: the step's own first line says what it is.
+  // The step's own first line says what it is.
   assert.equal(view.task, 'The zebracorn walks in four directions on the big map, with its old idle kept.')
   assert.deepEqual(view.feedback, { title: `Now on your feedback (${page.clock(NOW - 20 * MIN)})`, text: '1. no: almost but his red square is actually 2 squares · 2. yes' })
-  // The task as it was given, folded below, is still the hand-over.
-  assert.deepEqual(view.given, { from: `Handed over by Game - Main, ${page.clock(NOW - 50 * MIN)}`, text: HAND_OVER })
+  // B301: no words were typed that gave it: the hand-over is not shown as its task.
+  assert.equal(view.given, null)
 })
 
-test('the hand-over\'s "In short:" line, or a first line that says more than the step\'s title, says what the step is', () => {
+test('B301: a hand-over\'s "In short:" line says nothing: what the step is comes from the store', () => {
   const short = lane(onFeedback().map((line, i) => (i === 0 ? fromChat(NOW - 50 * MIN, 'Game - Main', `${HAND_OVER}\nIn short: the zebracorn walks.`) : line)))
-  assert.equal(page.laneWindowOf(short, NOW, 'Game - Main').task, 'The zebracorn walks.')
-  const more = lane(onFeedback().map((line, i) => (i === 0 ? fromChat(NOW - 50 * MIN, 'Game - Main', 'Task from Game - Main: B12, a walk in four directions, the old idle kept. About 1 h.') : line)))
-  assert.equal(page.laneWindowOf(more, NOW, 'Game - Main').task, 'A walk in four directions, the old idle kept.')
+  assert.equal(page.laneWindowOf(short, NOW, 'Game - Main').task, 'The zebracorn walks in four directions on the big map, with its old idle kept.')
+  // Typed by the person, an "In short:" line says what a task without a step is.
+  const typedTask = lane([typed(NOW - 40 * MIN, 'Make the quokkaberry glow.\nIn short: a glowing quokkaberry.'), step(NOW - 2 * MIN, 'Glow'), toolResult(NOW - MIN)], { plan: card(NOW - 39 * MIN, 'Quokkaberry glow'), backlogText: '' })
+  assert.equal(page.laneWindowOf(typedTask, NOW, 'Game - Main').task, 'A glowing quokkaberry.')
 })
 
 test('a task without a step keeps today\'s words, with the same feedback part; a window without feedback has none', () => {

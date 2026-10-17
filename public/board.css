@@ -683,7 +683,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 
 .need { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--waiting); border-radius: 9px; padding: 12px 13px 13px; display: flex; flex-direction: column; gap: 9px; }
 .need.is-verify { border-left-color: var(--free); }
-.need.is-intervene { border-left-color: var(--warn); }
+.need.is-intervene, .need.is-unfiled { border-left-color: var(--warn); }
 .need-head { display: flex; flex-direction: column; gap: 9px; cursor: pointer; }
 .need-head:hover h4 { text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
 .need-top { display: flex; align-items: center; gap: 9px; }
@@ -691,9 +691,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .need-top time { margin-left: auto; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .kind { flex: none; width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; background: var(--waiting); color: #1c1403; font-weight: 800; }
 .is-verify .kind { background: #16294a; color: #7fb0ff; }
-.is-intervene .kind { background: #4a1d14; color: var(--warn); }
+.is-intervene .kind, .is-unfiled .kind { background: #4a1d14; color: var(--warn); }
 .tag { padding: 2px 9px; border-radius: 6px; background: var(--waiting); color: #1c1403; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
-.is-intervene .tag { background: var(--warn); }
+.is-intervene .tag, .is-unfiled .tag { background: var(--warn); }
 .need h4 { font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
 .need p { font-size: 14.5px; color: #c9d3e0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
@@ -745,6 +745,31 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .legacy { border: 1px dashed var(--line); border-radius: 9px; padding: 10px 12px; }
 .legacy summary { cursor: pointer; font-weight: 600; }
 .legacy summary small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+/* B299: a step's item in its window: the goal chip, Requirements and Touches folded. */
+.chip.is-goal { display: inline-block; margin: 0 0 8px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; }
+.item-fold { margin: 6px 0; }
+.item-fold summary { cursor: pointer; font-weight: 600; }
+/* B299: a store ask's card says what it blocks; Information lists what the chats told the person. */
+.ask-blocks { font-size: 12.5px; color: var(--muted); margin: 0; }
+.ask-blocks.is-blocking { color: var(--warn); }
+.information { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.information h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.info { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; margin: 6px 0; font-size: 13px; }
+.info p { margin: 0; }
+.info small { grid-column: 1; }
+.info button { grid-column: 2; grid-row: 1 / span 2; }
+.info.is-read { opacity: .6; }
+/* B298: the person's words filed as instructions, per chat: missed ones red, closed ones grey. */
+.instructions { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.instructions h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.instruction-chat { margin: 6px 0 10px; }
+.instruction-chat > b.is-link { cursor: pointer; text-decoration: underline dotted; }
+.instruction { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; margin: 4px 0; font-size: 13px; }
+.instruction-id { font-weight: 600; color: var(--muted); }
+.instruction-note { grid-column: 2; color: var(--muted); }
+.instruction.is-missed .instruction-id, .instruction.is-missed .instruction-note { color: var(--warn); }
+.instruction.is-missed { border-left: 3px solid var(--warn); padding-left: 6px; }
+.instruction.is-closed { opacity: .6; }
 .need.is-step { margin-top: 10px; padding: 10px 11px 11px; gap: 7px; }
 .need.is-step h4 { font-size: 14.5px; font-weight: 600; }
 .need.is-step .tag { background: var(--inset); color: var(--text); border: 1px solid var(--line); }
@@ -833,7 +858,7 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .details-head { flex: none; display: flex; gap: 16px; align-items: flex-start; padding: 20px 20px 16px 22px; border-bottom: 1px solid var(--line); }
 .details-head .kind { width: 40px; height: 40px; border-radius: 8px; font-size: 21px; }
 .details-head .kind.is-verify { background: #16294a; color: #7fb0ff; }
-.details-head .kind.is-intervene { background: #4a1d14; color: var(--warn); }
+.details-head .kind.is-intervene, .details-head .kind.is-unfiled { background: #4a1d14; color: var(--warn); }
 .details-head .kind.is-do { background: #12381f; color: var(--working); }
 .details-head .kind.is-queued { background: var(--inset); color: var(--text); border: 1px solid var(--line); }
 .details-names { flex: 1; min-width: 0; }
@@ -973,6 +998,16 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .coordinate-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
 .coordinate-top h1 { font-size: 22px; font-weight: 700; }
 .coordinate-top h1 small { margin-left: 8px; font-size: 14px; font-weight: 400; color: var(--muted); }
+/* B296: the line about the work store under the Backlog tab's head, and the strip of a step's states in its window. */
+.coordinate-store { margin: -6px 0 0; font-size: 13px; color: var(--muted); }
+.coordinate-store.is-ok::before { content: "● "; color: var(--working); }
+.coordinate-store.is-warn::before { content: "● "; color: var(--waiting); }
+.coordinate-store.is-problem { color: var(--warn); }
+.details-part .flow-strip { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.details-part .flow-state { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--muted); }
+.details-part .flow-state.is-past { color: var(--text); background: var(--inset); }
+.details-part .flow-state.is-now { border-color: var(--free); background: var(--free); color: #fff; font-weight: 600; }
+.flow-next { margin-top: 6px; font-size: 12px; }
 .coordinate-filters { display: flex; flex-wrap: wrap; gap: 6px; }
 .coordinate-filters .choice small { margin-left: 4px; color: var(--muted); }
 .coordinate-filters .choice.is-chosen small { color: inherit; }
@@ -1332,3 +1367,8 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .queue-change { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .queue-change select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; }
 .queue-change .quiet-button { margin-right: 0; }
+
+/* B300: the reconciler's flags on a lane. */
+.lane-flag { margin: 4px 0 0; padding: 3px 8px; border-left: 3px solid var(--waiting); font-size: 13px; }
+.lane-flag.is-problem { border-left-color: #c0504d; }
+.lane-flag .choice { margin-left: 6px; }

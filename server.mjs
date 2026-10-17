@@ -1,5 +1,6 @@
 // The worker board's server: one page, `GET /api/state`, `GET /api/picture`, `POST /api/say`,
-// `POST /api/game` and, for the Workers mod, `POST /api/bridge/take`; on this machine only.
+// `POST /api/game` and, for the Workers mod, `POST /api/bridge/take`; on this machine only. B297: the work store's API,
+// `POST /api/work` for the page and `POST /api/bridge/work` for the Workers mod's work tool.
 //
 //   node server.mjs                       real data
 //   node server.mjs --demo --port 4311    made-up data from fixtures/, to judge the page without the real files
@@ -27,9 +28,10 @@ import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
-import { BrokenConfig, configProblem, firstStart, followApp, loadConfig } from './src/config.mjs'
+import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
@@ -38,10 +40,10 @@ import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
-import { seenTicks } from './src/finished.mjs'
-import { freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
+import { seenFromState } from './src/finished.mjs'
+import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
-import { checkSay, spawnWhenAlone, wakeFor } from './src/say.mjs'
+import { answerWords, checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { roundText, roundsNow } from './src/rounds.mjs'
@@ -49,6 +51,11 @@ import { editStep, settleByBoard } from './src/tick.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
+import { overlapsIn, workApi } from './src/work/api.mjs'
+import { reportCheck } from './src/work/check.mjs'
+import { deliverWork, pullFor } from './src/work/deliver.mjs'
+import { storeKeeper } from './src/work/read.mjs'
+import { readStore } from './src/work/store.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { findGameFile } from './src/gameFile.mjs'
@@ -147,6 +154,8 @@ export function pictureKind(bytes) {
  *   `reference(bytes)` keeps a reference picture the person added to an idea, the same shape
  *   `talkPicture(bytes)` keeps a picture the person pasted into Talk to Main (B167), the same shape
  *   `goals(body)`      one change to the goal map (B256), the same shape
+ *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
+ *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
  */
 export function createBoard({
   token, getState, say, picture = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
@@ -157,6 +166,8 @@ export function createBoard({
   restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
   backlog = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   goals = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
 }) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
@@ -174,7 +185,7 @@ export function createBoard({
 
     const mayUse = sameText(req.headers['x-board-token'] ?? '', token)
 
-    if (pathname === '/api/bridge/take' || pathname === '/api/bridge/typed') {
+    if (pathname === '/api/bridge/take' || pathname === '/api/bridge/typed' || pathname === '/api/bridge/work') {
       // The mod is no page: it knows the key from the file the board wrote for it, and it can only take.
       const mayTake = bridgeKey !== null && sameText(req.headers['x-board-key'] ?? '', bridgeKey)
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -191,7 +202,7 @@ export function createBoard({
       } catch {
         return refuse(res, 400, 'Not JSON.')
       }
-      const taken = await (pathname === '/api/bridge/take' ? take : typed)(parsed)
+      const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
@@ -210,7 +221,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals') {
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/work') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -233,6 +244,10 @@ export function createBoard({
       }
       if (pathname === '/api/backlog') {
         const done = await backlog(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/work') {
+        const done = await work(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/goals') {
@@ -362,13 +377,59 @@ async function main(args) {
 
   // B110: an approval of merged work, and "Done" on what only the person could do, the board settles itself.
   const settle = (message, state) => settleByBoard(message, state, {
-    canWrite: !isDemo && !isShowOnly,
-    file: join(config.project, ...config.backlog.split('/')),
+    work: workWriters,
     branchesNow,
     now: clock(),
     say: sent => store.say(sent),
     newId: () => randomBytes(8).toString('hex'),
   })
+
+  // B296, B301: the work store, the one source of the work. Every board reads it; a store that is not there or cannot be
+  // read is said on top of the page (work/read.mjs, `storeFault`), and nothing is drawn from the backlog file instead.
+  const work = isDemo || config.project === '' ? async () => undefined : storeKeeper({ dir: workFolder(config), clock })
+  // B297: the work store's API (work/api.mjs): the page's actions as the person, the work tool's as its chat. Each
+  // change writes backlog.md anew as the store's view: the board that delivers writes the project's file; a copy with a
+  // store of its own (outside the project) writes the view into that folder, never the project's backlog. A copy
+  // without one only reads.
+  const workDir = isDemo || config.project === '' ? null : workFolder(config)
+  const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
+  const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
+  /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
+  const workCtx = async () => {
+    const state = await readState()
+    const lanes = (state.chats ?? []).filter(lane => !lane.isLeftover)
+    const roles = new Map(lanes.map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
+    if (state.advisor) roles.set(state.advisor.name, 'advisor')
+    const items = (await readStore(workDir).catch(() => ({ items: new Map() }))).items
+    return {
+      dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
+      freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
+      viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
+    }
+  }
+  const workReads = new Set(['next', 'list'])
+  /** One action on the store; after a change the board reads it anew, and after a report it runs its own check. */
+  const workAction = async (body, as) => {
+    if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
+    if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${homePort}/` }
+    const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }) })
+    if (done.ok && done.result.changed !== false) {
+      work.reset?.()
+      readState.reset()
+    }
+    if (done.ok && done.result.check !== undefined) {
+      const { id, branch, result } = done.result.check
+      const repos = [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
+      void reportCheck({ branch, result, repos, run: gitRunner() })
+        .then(async outcome => workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' }))
+        .then(() => {
+          work.reset?.()
+          readState.reset()
+        })
+        .catch(() => {})
+    }
+    return done
+  }
 
   let store
   let readRaw
@@ -400,7 +461,7 @@ async function main(args) {
     readRaw = async () => {
       // B273: the app may move its folder while the board runs: the board follows it.
       await followApp(config, process.env, process.platform).catch(() => false)
-      return readSources(config, folders, undefined, branches)
+      return readSources(config, folders, undefined, branches, work)
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
@@ -417,7 +478,7 @@ async function main(args) {
       readLines = () => lines.now
       readRaw = async () => {
         lines.now = await shared()
-        return readSources(config, folders, undefined, branches)
+        return readSources(config, folders, undefined, branches, work)
       }
     }
   }
@@ -558,17 +619,24 @@ async function main(args) {
   let measuring = false
   let hasList = false
   const measureTasks = async state => {
-    const main = { mainTitle: state.workers?.mainTitle ?? null, mainSession: state.chats.find(chat => chat.isMain)?.appSession ?? null }
-    if (measuring || main.mainTitle === null || typeof config.transcripts !== 'string') return
+    if (measuring || typeof config.transcripts !== 'string' || workDir === null) return
     measuring = true
     try {
+      // B301: a step's area and estimate as the store holds them.
+      const items = (await readStore(workDir).catch(() => ({ items: new Map() }))).items
+      const stepOf = id => {
+        const item = items.get(id)
+        if (item === undefined) return null
+        const words = [item.head.get('Title') ?? '', ...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)].join('\n')
+        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`) }
+      }
       const added = []
       for (const chat of state.chats) {
         if (chat.isMain || chat.isLeftover || typeof chat.session !== 'string' || !/^[\w-]+$/.test(chat.session)) continue
         const scan = taskTimes.scans[chat.session] ?? freshScan(chat.name)
         scan.worker = chat.name
         taskTimes.scans[chat.session] = scan
-        added.push(...await readOn(join(config.transcripts, `${chat.session}.jsonl`), scan, main))
+        added.push(...await readOn(join(config.transcripts, `${chat.session}.jsonl`), scan, stepOf))
       }
       if (added.length > 0) taskTimes.tasks = keptTasks(taskTimes.tasks, added)
       if (historyFrom === undefined) {
@@ -676,13 +744,15 @@ async function main(args) {
       // the clipboard for the person to paste into the chat, marked as typed on the board.
       const isCopied = state.bridge?.isMissing === true
       // B285: a queue ask for a step that is not refined yet waits on the board until it is (refineGate.mjs).
-      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
+      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
       const ticked = await settle(message, state)
       if (ticked !== null) {
         readState.reset()
         return ticked
       }
+      // B298: a line to a chat is filed as an instruction first and carries its id.
+      message = await withInstruction(message, body => workAction(body, 'person'))
       await store.say(message)
       if (isCopied) {
         readState.reset()
@@ -702,10 +772,11 @@ async function main(args) {
       const found = await findPicture(project, config.pictureRoots, path)
       return found === null ? null : { type: found.type, body: await readFile(found.file) }
     },
-    // B221: the person closes or deletes a step on the Backlog tab. Only the board that delivers writes the backlog.
+    // B221: the person closes or deletes a step on the Backlog tab, through the work API (the store, then its view).
     // B285: the state is read anew after a change, so an ask made next (Send answers · refine again) knows the block.
     backlog: async body => {
-      const done = await editStep(body, { canWrite: !isDemo && !isShowOnly, file: join(config.project, ...config.backlog.split('/')), now: clock() })
+      const done = await editStep(body, { now: clock(), work: workWriters })
+      work.reset?.()
       readState.reset()
       return done
     },
@@ -737,6 +808,44 @@ async function main(args) {
       return typeof page === 'string' && /^[0-9a-f]{4,40}$/.test(page) ? page : ''
     },
     bridgeKey,
+    // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
+    work: async body => {
+      const done = await workAction(body, 'person')
+      const wake = done.ok ? done.result.wake ?? null : null
+      if (wake !== null && !isShowOnly) {
+        const state = await readState()
+        const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].some(chat => chat.name === wake.to)
+        if (shown) {
+          const isCopied = state.bridge?.isMissing === true
+          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...answerWords(wake), state: isCopied ? 'copied' : 'waiting' }
+          await store.say(message)
+          const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+          if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
+          readState.reset()
+          if (isCopied) return { ok: true, result: { ...done.result, paste: { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
+        }
+      }
+      return done
+    },
+    // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
+    bridgeWork: async body => {
+      const state = await readState()
+      const checked = checkTake(body, state)
+      if (!checked.ok) return checked
+      const done = await workAction({ ...body, chat: checked.chat })
+      // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
+      // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
+      // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
+      const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
+      if (pulled === null || (pulled.wake ?? null) === null) return done
+      readState.reset()
+      const answered = await pullFor({
+        dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
+        newId: () => randomBytes(8).toString('hex'), keep,
+      })
+      if (answered.text !== '') readState.reset()
+      return { ok: true, result: body?.action === 'pull' ? answered : { ...done.result, pull: answered } }
+    },
     take: async body => {
       const checked = checkTake(body, await readState())
       // Who asks runs, also a chat the board shows another session for.
@@ -840,9 +949,9 @@ async function main(args) {
     const look = () => readState().then(async state => {
       await tick(store, state, clock())
       await measureTasks(state).catch(() => {})
-      // B155: the steps it sees ticked for the first time, with when.
-      const done = (state.backlog ?? []).flatMap(activity => activity.steps).filter(step => step.status === 'done' && step.id !== null).map(step => step.id)
-      const next = seenTicks(finishedSeen, done, clock())
+      // B155: the steps it sees ticked for the first time, with when. B301: only from a store it can read, and with
+      // the store's own time of each step's move to done.
+      const next = seenFromState(finishedSeen, state, clock())
       if (next !== finishedSeen) {
         await writeFile(FINISHED_FILE, JSON.stringify(next))
         finishedSeen = next
@@ -899,6 +1008,33 @@ async function main(args) {
     }).catch(() => {})
     look()
     setInterval(look, TICK_MS)
+  }
+
+  // B300: the reconciler at every refresh: the server's moves through the work API, and
+  // each chat's line that a step is its own, once (src/work/deliver.mjs). Only a board that writes the store: the one
+  // that delivers, or a copy with a store of its own (whose outbox no chat takes from).
+  if (!isDemo && historyFrom === undefined && workWriters !== null) {
+    let isReconciling = false
+    const reconcileNow = async () => {
+      if (isReconciling) return
+      isReconciling = true
+      try {
+        const state = await readState()
+        const done = await deliverWork({
+          state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
+          newId: () => randomBytes(8).toString('hex'), keep,
+        })
+        if (done.moved.length + done.sent.length + done.withdrawn.length > 0) {
+          work.reset?.()
+          readState.reset()
+        }
+      } catch {
+        // tried again at the next refresh
+      } finally {
+        isReconciling = false
+      }
+    }
+    setInterval(reconcileNow, Math.max(5, config.refreshSeconds) * 1000)
   }
 }
 

@@ -15,7 +15,7 @@ import { parseConfig } from '../src/config.mjs'
 import { parseBacklog } from '../src/backlog.mjs'
 import { milestoneWay } from '../src/milestone.mjs'
 import { checkSay } from '../src/say.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN

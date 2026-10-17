@@ -7,7 +7,7 @@ import test from 'node:test'
 import { answer, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { checkSay, spawnWhenAlone } from '../src/say.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -120,14 +120,14 @@ test('B131, B137: an empty board says what it looks for and where, from the sett
   const settings = { project: 'C:/p', backlog: '.claude/backlog.md' }
   const ok = { prefix: 'Team - ', main: 'Lead', problem: null }
   const listFile = join('C:/p', '.claude', 'chats', 'list.json')
-  assert.deepEqual(lookingFor({ list: ok, prefix: 'Team - ', config: settings, chats: 2, hasBacklog: true }), [])
-  assert.deepEqual(lookingFor({ list: { prefix: null, main: null, problem: 'missing' }, prefix: '', config: settings, chats: 0, hasBacklog: false }), [
+  assert.deepEqual(lookingFor({ list: ok, prefix: 'Team - ', config: settings, chats: 2 }), [])
+  assert.deepEqual(lookingFor({ list: { prefix: null, main: null, problem: 'missing' }, prefix: '', config: settings, chats: 0 }), [
     `No list of chats: the board looks for ${listFile}. Copy examples/list.json there and set "prefix" (how the project's chat titles start) and "main" (the main chat's name).`,
-    `No backlog yet: the board reads ${join('C:/p', '.claude', 'backlog.md')}.`,
   ])
-  assert.deepEqual(lookingFor({ list: { prefix: null, main: null, problem: 'broken' }, prefix: '', config: settings, chats: 0, hasBacklog: true }), [`The list of chats ${listFile} is not valid JSON.`])
-  assert.deepEqual(lookingFor({ list: ok, prefix: 'Team - ', config: settings, chats: 0, hasBacklog: true }), ['No chat of this project yet: the board shows the open chats in C:/p whose titles start with "Team - ".'])
-  assert.deepEqual(lookingFor({ list: ok, prefix: '', config: { ...settings, project: '' }, chats: 0, hasBacklog: false }), ['The settings name no "project": the board looks for everything in that folder.'])
+  // B301: a missing work store is said on top of the page (state.store), not among these lines.
+  assert.deepEqual(lookingFor({ list: { prefix: null, main: null, problem: 'broken' }, prefix: '', config: settings, chats: 0 }), [`The list of chats ${listFile} is not valid JSON.`])
+  assert.deepEqual(lookingFor({ list: ok, prefix: 'Team - ', config: settings, chats: 0 }), ['No chat of this project yet: the board shows the open chats in C:/p whose titles start with "Team - ".'])
+  assert.deepEqual(lookingFor({ list: ok, prefix: '', config: { ...settings, project: '' }, chats: 0 }), ['The settings name no "project": the board looks for everything in that folder.'])
   // Without a list the state has no main chat and no main chat's title to guess.
   const empty = build({ chats: ['Main'], listText: null })
   assert.deepEqual([empty.workers.main, empty.workers.mainTitle, empty.chats.length], [null, null, 0])

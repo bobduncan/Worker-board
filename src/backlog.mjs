@@ -23,7 +23,7 @@ function workerOf(text, forWhom, prefix, names) {
 }
 
 /** "about 40 min", "about 2 h", "about 1 h 30 min", "about 1.5 hours" as minutes. */
-function minutesOf(part) {
+export function minutesOf(part) {
   const found = part.match(/^about\s+(?:(\d+(?:\.\d+)?)\s*h(?:ours?|rs?)?\b)?\s*(?:(\d+)\s*min(?:utes?|s)?\b)?/i)
   if (found === null || (found[1] === undefined && found[2] === undefined)) return null
   return Math.round(Number(found[1] ?? 0) * 60 + Number(found[2] ?? 0))
@@ -38,7 +38,7 @@ export function aboutMinutes(text) {
   return null
 }
 
-function parseStep(isDone, rest, { prefix, names }) {
+export function parseStep(isDone, rest, { prefix, names }) {
   const isYou = /(^|\s)@you\s*$/.test(rest)
   // A step starts with its id ("B14"): the person names a step by it, and it never changes.
   const lead = rest.match(/^(B\d+)\s+/)
@@ -346,7 +346,7 @@ export function allWords(step) {
  * B172: a step held back by a mark in brackets: "(later; not handed out)", "(not queued: ...)", "(for Units; later)".
  * Words of the title ("Build B12 later") are no mark.
  */
-const isHeldBack = step => [...step.text.matchAll(/\(([^()]*)\)/g)]
+export const isHeldBack = step => [...step.text.matchAll(/\(([^()]*)\)/g)]
   .flatMap(found => found[1].split(';').map(part => part.trim()))
   .some(part => /^(?:later|not handed out|not queued)\b/i.test(part))
 
@@ -369,13 +369,6 @@ export function queue(backlog, { underWay = new Set() } = {}) {
     .filter(step => step.id === null || !underWay.has(step.id))
     // B293: its refine block apart, as on the Backlog tab, so its window draws it the same way.
     .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(withoutRefined(notes)), refined: refinedOf(notes) }))
-}
-
-/** The steps being worked on: the open ones that name their own branch, with the worker and the time their note gives. */
-export function inProgress(backlog) {
-  return backlog.activities.flatMap(activity =>
-    open(activity).filter(step => step.ownBranch !== null && !step.isYou)
-      .map(({ id, text, title, worker, ownBranch, minutes }) => ({ id, text, title, worker, branch: ownBranch, minutes, activity: activity.name })))
 }
 
 /**

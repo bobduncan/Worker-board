@@ -1,16 +1,15 @@
-// B185: how long the tasks the main chat hands out really take, so the times it and the workers give follow that
-// instead of a guess. The person, 2026-10-14, after a simple task showed 60 minutes: "i only want structural
-// improvements to improve the accuracy". Each worker's transcript is read once from its start (the past), then only
-// what was added since. A task runs from the main chat's hand-over to the worker's report, and only the time its
-// turns run counts: waiting for the person, in a queue, or while the board was off does not. A task paused for the
-// limit, or never reported, is left out. Nothing is kept by hand: the list updates itself, for the board and for the
-// chats that give times (`listText`, in the board's data folder).
+// B185: how long the steps the workers take really take, so the times the chats give follow that instead of a guess.
+// The person, 2026-10-14, after a simple task showed 60 minutes: "i only want structural improvements to improve the
+// accuracy". Each worker's transcript is read once from its start (the past), then only what was added since. B301: a
+// task runs from the worker's own `work take B<id>` to its `work report B<id>` (the work tool's calls, not the words
+// of a message), and only the time its turns run counts: waiting for the person, in a queue, or while the board was
+// off does not. A task paused for the limit, or never reported, is left out. Nothing is kept by hand: the list updates
+// itself, for the board and for the chats that give times (`listText`, in the board's data folder).
 
 import { open } from 'node:fs/promises'
 
-import { aboutMinutes } from './backlog.mjs'
 import { PAUSED } from './limits.mjs'
-import { HANDS_OVER, endsTurn, hasToolResult, isCommandText, parseTail, peerMessage, textOf } from './transcript.mjs'
+import { endsTurn, hasToolResult, isCommandText, parseTail, textOf } from './transcript.mjs'
 
 const MIN = 60_000
 /** How many finished tasks the list keeps, and how many make an area's numbers worth going by. */
@@ -27,8 +26,8 @@ const BACKGROUND_MS = 60 * MIN
 export const freshScan = worker => ({ worker, offset: 0, turnAt: null, lastAt: null, endedAt: null, task: null })
 
 /**
- * The area of a task, from the main chat's hand-over: its "Touches:" line names the board's files or the game's,
- * else its words say art or the board. `board`, `art` or `game`.
+ * The area of a task, from its step's words: its "Touches:" line names the board's files or the game's, else its
+ * words say art or the board. `board`, `art` or `game`.
  */
 export function areaOf(body) {
   const touches = body.match(/^\s*Touches:(.*)$/im)?.[1] ?? ''
@@ -48,6 +47,11 @@ function opensTurn(entry) {
   return !entry.isMeta && !entry.isCompactSummary && !isCommandText(textOf(entry))
 }
 
+/** B301: the work tool's calls in an entry, as `{ action, id }` (the Workers mod registers it as "<mod>__work"). */
+const workCalls = entry => entry.blocks
+  .filter(block => block.type === 'tool_use' && /(?:^|__)work$/.test(block.name ?? '') && typeof block.input?.action === 'string' && typeof block.input?.id === 'string')
+  .map(block => ({ action: block.input.action, id: block.input.id.trim() }))
+
 /** The words a chat sent with a tool, when it sent any. */
 const sentFirstLines = entry => entry.blocks
   .filter(block => block.type === 'tool_use')
@@ -57,9 +61,9 @@ const sentFirstLines = entry => entry.blocks
 /**
  * Walks entries of one worker's transcript in order, on from where the last walk stopped (`scan`, changed in place),
  * and returns the tasks it saw finished: `{ step, steps, worker, area, estimateMin, startedAt, reportedAt, workMs }`.
+ * `stepOf(id)` gives a step's `{ area, estimateMin }` as the store holds it, or null.
  */
-export function walk(entries, scan, { mainTitle, mainSession = null }) {
-  const mains = [mainTitle, mainSession].filter(Boolean)
+export function walk(entries, scan, stepOf = () => null) {
   const finished = []
   const countTo = until => {
     const task = scan.task
@@ -87,22 +91,20 @@ export function walk(entries, scan, { mainTitle, mainSession = null }) {
       if (opensTurn(entry)) scan.turnAt = entry.at
     }
     if (opensTurn(entry) && scan.turnAt === null) scan.turnAt = entry.at
-    const message = peerMessage(entry)
-    if (message !== null && message.from !== null && mains.includes(message.from) && HANDS_OVER.test(message.body)) {
-      const first = message.body.trim().split('\n')[0] ?? ''
-      const steps = [...new Set(first.match(/\bB\d+\b/g) ?? [])]
-      // A further message about the step it is on (the person's answer, passed on) goes on with the same task; any
-      // other hand-over starts a new one, and a task before it that was never reported is left out.
-      const isSame = scan.task !== null && steps.some(step => scan.task.steps.includes(step))
-      if (!isSame) scan.task = { steps, area: areaOf(message.body), estimateMin: aboutMinutes(first), startedAt: entry.at, workMs: 0, countedTo: null, isPaused: false }
+    const calls = entry.type === 'assistant' ? workCalls(entry) : []
+    for (const take of calls.filter(call => call.action === 'take')) {
+      // A take of the step it is on goes on with the same task; a take of another starts a new one, and a task before it
+      // that was never reported is left out.
+      if (scan.task !== null && scan.task.steps.includes(take.id)) continue
+      const step = stepOf(take.id)
+      scan.task = { steps: [take.id], area: step?.area ?? 'game', estimateMin: step?.estimateMin ?? null, startedAt: entry.at, workMs: 0, countedTo: null, isPaused: false }
       if (scan.turnAt === null) scan.turnAt = entry.at
     }
     if (scan.task !== null && entry.type === 'assistant') {
-      const firsts = sentFirstLines(entry)
-      if (entry.error === 'rate_limit' || firsts.some(first => PAUSED.test(first))) scan.task.isPaused = true
-      // Only a report ends a task: a note or a question to the main chat in the middle of it (a mock-up shown, the
-      // person asked) does not, and the time until the person's answer comes back is waiting, not work.
-      if (firsts.some(first => /^Report from\b/.test(first))) {
+      if (entry.error === 'rate_limit' || sentFirstLines(entry).some(first => PAUSED.test(first))) scan.task.isPaused = true
+      // Only its report ends a task: a note or an ask in the middle of it does not, and the time until the person's
+      // answer comes back is waiting, not work.
+      if (calls.some(call => call.action === 'report' && scan.task.steps.includes(call.id))) {
         countTo(entry.at)
         finish(entry.at)
       }
@@ -124,7 +126,7 @@ const isWorthReading = line => !line.includes('"tool_result"') && (line.includes
  * Reads what a transcript gained since `scan.offset` and walks it; a line still being written is left for the next
  * read. The tasks it finished, or none when the file is gone.
  */
-export async function readOn(path, scan, main) {
+export async function readOn(path, scan, stepOf) {
   let file
   try {
     file = await open(path, 'r')
@@ -144,7 +146,7 @@ export async function readOn(path, scan, main) {
       const upTo = end < 0 ? (bytesRead === CHUNK ? bytesRead : 0) : end + 1
       if (upTo === 0) break
       const text = buffer.subarray(0, upTo).toString('utf8').split('\n').filter(isWorthReading).join('\n')
-      finished.push(...walk(parseTail(text, false), scan, main))
+      finished.push(...walk(parseTail(text, false), scan, stepOf))
       scan.offset += upTo
     }
   } finally {
@@ -219,7 +221,7 @@ export function listText(tasks, now) {
     '# How long tasks really take',
     '',
     `Written by the worker board on ${stamp.getFullYear()}-${two(stamp.getMonth() + 1)}-${two(stamp.getDate())} at ${two(stamp.getHours())}:${two(stamp.getMinutes())}; it updates itself, do not edit it.`,
-    'Working time only: from the main chat\'s hand-over to the worker\'s report, without the time spent waiting for the person.',
+    'Working time only: from the worker\'s take of a step to its report, without the time spent waiting for the person.',
     '',
     '| Area | Tasks | Typical time | Estimates were |',
     '| --- | --- | --- | --- |',
