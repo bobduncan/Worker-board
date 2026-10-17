@@ -457,6 +457,17 @@ function advisorWaiting(card, tail, prefix) {
   return { ...card, state: 'waiting', isAdvisor: true, needsYou: isOwn ? card.needsYou : null, waitingSince: waits.at, waitsFor: { ...waits, handover, given: null } }
 }
 
+/**
+ * B280: what was sent to a chat and is not in its chat yet, by kind: refines, rounds of the board's clock, and the
+ * person's words (a line typed to it, an answer to its question, an answer to its recommendation).
+ */
+function queuedFor(sent, name) {
+  const open = sent.filter(message => message.to === name && (message.state === 'waiting' || message.state === 'taken'))
+  const refines = open.filter(message => message.command === 'refine').length
+  const rounds = open.filter(message => message.command === 'round').length
+  return { refines, rounds, words: open.length - refines - rounds }
+}
+
 /** How long the card of a chat's question stays after its answer was typed in. The page hides it sooner. */
 const ANSWER_KEPT_MS = 10 * MIN
 
@@ -776,6 +787,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           .filter(message => !(message.from === 'you' && isClockLine(message.text))),
       // Typed on the board to the advisor and not in its chat yet.
       pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null && (message.command ?? null) === null),
+      // B280: its card on the Overview: its task as its own card names it, its time, why it is held between two
+      // turns, since when it is idle, whether it asks the person something, and what waits for it.
+      task: advisorCard.task,
+      eta: advisorCard.eta,
+      between: advisorCard.between,
+      idle: advisorCard.idle,
+      asksYou: advisorWaits !== null,
+      queued: queuedFor(sent, advisorChat.name),
     }
   }
 

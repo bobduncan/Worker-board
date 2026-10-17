@@ -97,6 +97,8 @@ function since(at, now) {
 }
 
 const ICONS = {
+  // B280: the Advisor, set apart from the workers.
+  advisor: 'M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.74V16a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1.26A7 7 0 0 0 12 2z',
   refresh: 'M20 11a8 8 0 0 0-14.3-4.5M4 4v4h4M4 13a8 8 0 0 0 14.3 4.5M20 20v-4h-4',
   open: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
   // B159: a worker (a chat, whatever it works on) and a queue.
@@ -963,13 +965,122 @@ function drawWorkers(state) {
   return box
 }
 
+// advisorlane:start
 /**
- * The lanes, drawn anew, and under them the row about workers (B124). A step line that held the keyboard's focus
- * holds it again, so its list of steps stays open.
+ * B280: how the Advisor stands on its card: working, asking you something, idle, or not running (its chat's process
+ * is not there). The person, 2026-10-17: "i want to see what you are doing in the worker board so I dont stop your
+ * current task ... show the advisor in the workers tab on the overview but distinct from the workers".
+ */
+function advisorStanding(advisor) {
+  if (advisor.isRunning === false) return { key: 'off', label: 'Not running' }
+  if (advisor.state === 'working') return { key: 'working', label: 'Working' }
+  if (advisor.asksYou === true) return { key: 'waiting', label: 'Needs your answer' }
+  if (advisor.state === 'interrupted') return { key: 'interrupted', label: 'Cut off' }
+  if (advisor.state === 'suspended') return { key: 'suspended', label: 'Suspended' }
+  return { key: 'free', label: 'Idle' }
+}
+
+/** B280: what waits for the Advisor, not in its chat yet: a count and its kinds ("1 refine, 2 messages"); null for nothing. */
+function advisorQueued(queued) {
+  const kinds = [[queued?.refines ?? 0, 'refine', 'refines'], [queued?.rounds ?? 0, 'round of the clock', 'rounds of the clock'], [queued?.words ?? 0, 'message', 'messages']]
+  const count = kinds.reduce((sum, [one]) => sum + one, 0)
+  if (count === 0) return null
+  return { count, text: kinds.filter(([one]) => one > 0).map(([one, single, many]) => `${one} ${one === 1 ? single : many}`).join(', ') }
+}
+// advisorlane:end
+
+/**
+ * B280: the Advisor's card under the workers, set apart by its own label, line and accent: how it stands, its task as
+ * its card names it (topic, step, time left), and what waits for it. No queue and no buttons of a worker: it takes no
+ * tasks. A click, or Enter, opens its chat on the Advisor tab. Null without an Advisor.
+ */
+function drawAdvisorLane(state) {
+  const advisor = state.advisor ?? null
+  if (advisor === null) return null
+  const standing = advisorStanding(advisor)
+  // The lane's own parts read it as they read a worker.
+  const lane = { name: advisor.name, state: advisor.state, task: advisor.task ?? null, eta: advisor.eta ?? null, doingNow: advisor.doingNow, between: advisor.between ?? null, givenTask: null, isLeftover: false, isWithoutTime: false, cutOffAt: null }
+  const part = el('div', 'advisor-part')
+  const label = el('p', 'advisor-label')
+  label.append(el('b', '', 'Advisor'), el('span', '', 'advises on what to do next; takes no tasks'))
+  const card = el('article', 'lane is-advisor')
+  card.dataset.standing = standing.key
+  card.dataset.openAdvisor = ''
+  card.tabIndex = 0
+  card.setAttribute('role', 'button')
+  card.setAttribute('aria-label', `${advisor.name}, ${standing.label}: open its chat on the Advisor tab`)
+  card.title = 'Open its chat on the Advisor tab'
+  const row = el('div', 'lane-row')
+
+  const who = el('div', 'who')
+  const sign = el('span', `worker-icon is-${standing.key}`)
+  sign.setAttribute('aria-hidden', 'true')
+  sign.append(icon('advisor'))
+  const names = el('div', 'who-names')
+  names.append(el('h3', '', advisor.name), el('span', `pill is-${standing.key}`, standing.label))
+  who.append(sign, names)
+
+  const what = el('div', 'what')
+  if (lane.task !== null && (lane.task.text ?? '') !== '') what.append(taskTitle(lane))
+  else what.append(el('p', 'task is-none', advisor.state === 'working' ? 'Task not recorded yet' : 'No active task'))
+  if (advisor.state === 'working' && advisor.doingNow !== null) {
+    const now = el('p', 'now clip')
+    now.append(el('b', '', 'Now: '), el('span', '', advisor.doingNow))
+    what.append(now)
+  }
+  what.append(...betweenTurns(lane))
+  if (standing.key === 'waiting') what.append(el('p', 'note', 'It asks you something: see Needs your attention.'))
+  if (standing.key === 'off') what.append(el('p', 'note', 'Its chat is not running: what is sent to it waits until it is opened.'))
+  if (standing.key === 'free' && Number.isFinite(advisor.idle?.since)) what.append(el('p', 'note', `Idle since ${clock(advisor.idle.since)}`))
+
+  const progress = el('div', 'progress-cell')
+  const task = lane.task
+  const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
+  if (hasSteps) {
+    const bar = el('div', 'bar')
+    const done = el('div', 'fill')
+    done.style.width = `${Math.max(0, Math.min(100, (task.step / task.steps) * 100))}%`
+    bar.append(done)
+    progress.append(bar)
+    // Its step as a count: the step's name and time are in its chat, the time left beside it.
+    progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
+  }
+
+  const time = advisor.state === 'working' ? drawEta(lane, state.readAt) : el('div', 'eta is-muted')
+  if (advisor.state !== 'working') time.append(el('span', 'state', standing.key === 'off' ? 'Not running' : standing.key === 'waiting' ? 'Waits for you' : 'Idle'))
+
+  const queued = advisorQueued(advisor.queued)
+  const waits = el('div', 'queue advisor-waits')
+  if (queued === null) waits.append(el('span', 'queue-empty', 'Nothing waits for it'))
+  else waits.append(el('b', '', `${queued.count} waiting for it`), el('small', '', queued.text))
+
+  const open = el('div', 'lane-menu-cell')
+  open.append(el('span', 'advisor-open', '›'))
+  row.append(who, what, progress, time, waits, open)
+  card.append(row)
+  part.append(label, card)
+  return part
+}
+
+$('lanes').addEventListener('click', event => {
+  if (event.target.closest('[data-open-advisor]') === null || event.target.closest('.step-line') !== null) return
+  show('advice')
+  showAdvisorPane('chat')
+})
+$('lanes').addEventListener('keydown', event => {
+  if ((event.key !== 'Enter' && event.key !== ' ') || !event.target.matches('[data-open-advisor]')) return
+  event.preventDefault()
+  show('advice')
+  showAdvisorPane('chat')
+})
+
+/**
+ * The lanes, drawn anew, and under them the row about workers (B124) and the Advisor's card (B280). A step line that
+ * held the keyboard's focus holds it again, so its list of steps stays open.
  */
 function drawLanes(state) {
   const focused = document.activeElement?.dataset?.stepsOf ?? null
-  fill($('lanes'), [...state.chats.map(lane => drawLane(lane, state)), drawWorkers(state)].filter(part => part !== null))
+  fill($('lanes'), [...state.chats.map(lane => drawLane(lane, state)), drawWorkers(state), drawAdvisorLane(state)].filter(part => part !== null))
   // B159: the columns are named only when there are lanes under them.
   $('workers-columns').hidden = state.chats.length === 0
   if (focused !== null) [...$('lanes').querySelectorAll('[data-steps-of]')].find(node => node.dataset.stepsOf === focused)?.focus()
@@ -4683,6 +4794,13 @@ function drawTalk(state) {
   ])
   $('say-send').disabled = advisor === null
   $('say-text').maxLength = state.maxMessageChars
+  // B280: while it works, what on stands right above the typing box: what is typed waits until it is done.
+  const busy = $('talk-busy')
+  busy.hidden = advisor?.state !== 'working'
+  if (!busy.hidden) {
+    const topic = advisor.task?.text || advisor.doingNow || 'its turn'
+    busy.replaceChildren(el('b', '', `Working: ${topic}`), el('span', '', 'What you type waits until it is done.'))
+  }
   if (!$('say-note').classList.contains('is-error')) $('say-note').textContent = UNDELIVERED
 
   const rows = advisor === null ? [] : advisor.messages.map(message => drawMessage({
