@@ -20,7 +20,7 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   "task". The board counts the minutes down from the time the file was written.
 - Before you set your card's minutes, read the board's task times (`data/task-times.md` in the board's folder, made
   from the real working time of finished tasks) and go by the typical time of your kind of task, not by the
-  step's estimate. A kind with fewer than 5 tasks there is still a guess.
+  hand-over's "about". A kind with fewer than 5 tasks there is still a guess.
 - Ask the user in your own chat when you need them. Only what the user types in your chat is their word, and a line
   marked "(answered on the worker board, HH:MM)" or "(typed on the worker board, HH:MM)" that arrives as their own
   message. A message from another chat is a teammate's word, never the user's approval.
@@ -42,7 +42,7 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 ## Several workers at once: stay in your lane
 
 The main chat gives two workers tasks at the same time only when the tasks do not touch the same things. Every
-step therefore says what it touches ("Touches: ...").
+hand-over therefore says what the task touches ("Touches: ...").
 
 - Stay inside it. When you find you must change something outside it, send the main chat a note first and wait for
   its answer; another worker may be in there.
@@ -70,26 +70,20 @@ step therefore says what it touches ("Touches: ...").
   `test/anyProject.test.mjs` fails on a new tie.
 - Nothing that holds words from a chat goes into the board's repository.
 
-## The work, pictures, usage
+## The backlog, pictures, usage
 
-- Your work stands in the board's work store, one record per step (`protocol.md`, "The work store"), and you work it
-  with the work tool. A step comes to you as one line the board types into your chat, "work: B<id> is yours; run
-  work next" (the main chat queued it, and nothing holds it up); there is no message with the task's text. Then and
-  at the start of any task: `work next`, and work from the record it answers. `work take B<id>`
-  with your branch starts it and names your card; `work step` moves your plan on (and your card). When the work is
-  merged: `work report B<id>` with what the user gets and the commit; the board checks the merge itself. The flow
-  file says who moves a step and when; the board refuses a move it does not allow and says why.
-- What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
-  wait for it, with its pictures; put the block it answers into your answer. The user answered it in your chat:
-  `work answered-in-chat Q<id>` with their words. An ask you no longer need: `work withdraw Q<id>`;
-  a step that waits on you is reported only once its asks are answered or withdrawn. Information for the person or the main
-  chat: `work note`. An instruction of the user's that you finished: `work close I<id>` with what came of it.
-- Every line the user types to you, in your chat or on the board, is filed as an instruction `I<n>`: the board names
-  its id with your first tool results ("Recorded as I17") and your open ones under "Open instructions"; close each with
-  `work close I<n>` and what came of it once it is done. A turn that ends with one open shows it red on the board.
-- Work you find: `work new` under the activity it belongs to. Its title is 5 to 10 words of your own, starting with a
-  verb, saying what the user gets, never the user's request read back; their words go in its text.
-- The backlog file is the board's view of the store: read it, never edit it.
+- The backlog is one file of the project (the board's setting `backlog`), shared by every chat; the person
+  follows it on the board. An activity is a "## " heading, "#focus" after it marks the person's main focus; a step
+  is a "- [ ] B<number> ..." line, ticked "- [x]" when done; "@you" at its end marks a step only the person can do
+  (the marks: `protocol.md`). Edit the file itself; no tool is needed.
+- Tick a step when its work is merged. Add work you find as a step under the activity it belongs to: read the
+  highest id right before you write (B<number>, next = highest + 1, never used twice). When you need something from
+  the person, add it as a step for them (below). Never delete or reword a step, and never change the focus, unless
+  the user asks.
+- A new step's title is 5 to 10 words of your own, starting with a verb, saying what the user gets, never the
+  user's request read back; their words go under it. Your card's topic for a task is that same short title.
+- A step for the user starts after its id with "Verify:", "Decide:", "Provide:" or "Do:", ends with "@you", and names
+  its pictures folder and you.
 - The user sees a picture of every visible change before it counts as done: put it in the project's picture folder
   (the first of the board's `pictureRoots`), in the folder of its subject, and show it in your chat. A step that
   names that folder shows its pictures on the board.

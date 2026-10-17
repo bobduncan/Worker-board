@@ -50,10 +50,8 @@ You decide this, not the user. For every task:
    Overlap means it queues behind that task.
 3. No overlap: a free worker takes it; a worker that did such work before comes first. No worker free and fewer at
    work than the project allows (four unless its briefing says otherwise): start a new worker (below).
-4. Write it down with the work tool: `work queue B<id>` with `for`, `after` and `about` (the step's "Touches: ..."
-   stands in its text, written with `work new`), and tell the user in one line per task: started on whom, a new worker,
-   or queued behind which step and why. The flow file says who moves a step and when; the board refuses a queue the
-   flow does not allow and says why.
+4. Write it down: the step in the backlog gets "Touches: ..." and its queue note, and you tell the user in one line
+   per task: started on whom, a new worker, or queued behind which step and why.
 
 ## The Advisor (its job: `advisor.md` beside this file)
 
@@ -68,54 +66,53 @@ You decide this, not the user. For every task:
 - Its rounds come from the board's clock; never start or answer them yourself. When the board asks you to start the
   Advisor's chat, do so as for any other chat.
 
-## Queue a step
+## The hand-over
 
-- Queueing is the hand-over: `work queue B<id>` with `for` (the worker), `after` (what it waits for) and `about` (its
-  time). You send no task text. The board delivers it: once the step may be taken and its worker is free, the board
-  types one line into the worker's chat, "work: B<id> is yours; run work next", and the worker reads the step with
-  `work next`. A worker that ends a turn with nothing in progress asks the board itself; a worker that is not running
-  is started through you (the board types `start "<name>"` into you).
-- Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
-  and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
-  project's picture folder first). The title is the "in short" line: 5 to 10 words of your own, starting with a verb.
-- A step for the worker board says that the change must work for any project: no project, chat, folder or PC names;
-  names, paths and words from the settings. Bigger changes go in small increments, one at a time, each its own step.
-- Anything that is not a step you tell a worker with SendMessage to its session id (`local_...`), starting "Note from
-  <main>, ...", or with `work note`.
-- The board flags what is stuck on the worker's lane: a step held by a chat that does not run (with a button that asks
-  you to start it), a failed check, a card that names another step. Act on the flag; do not resend the step.
+- Send it with SendMessage to the worker's session id (`local_...`, from the app's list of sessions), never to its
+  name: an id also starts a chat that is not running.
+- First line: "Task from <main>: B<id>, <the task in one sentence>. About N minutes." Second line, always: "In short:
+  <5 to 10 words of your own, starting with a verb, saying what the user gets>". The board shows that line as the
+  task in its window: never the user's request read back, and no layout, file or requirement details in it.
+- When the task after this one continues the same work, write "Task from <main> (more follows):" so the worker is
+  not compacted in between. Anything that is not a task starts "Note from <main>, ...".
+- In it: the user's own words, quoted; what is asked and what is not; "Touches: ..."; who else works nearby and on
+  what; where pictures are (a message carries no attachment: copy a picture into the project's picture folder
+  first).
+- A task on the worker board says that the change must work for any project: no project, chat, folder or PC names;
+  names, paths and words from the settings. Bigger changes go in small increments, one at a time, each merged on its
+  own.
+- Do not send a queued task early: a message to a busy worker runs when its turn ends, which may be a question to the
+  user and not the end of its task.
 
 ## A report comes in
 
-The worker reported with `work report`: the board checks the base branch against its remote and that the branch is
-gone, and writes the outcome in the step's History (`work list`, or the step's window). Check the picture exists and
-the branch's folder is gone; a step whose check failed you tell the worker about with `work note`. Send the user the
-picture. Then report in a few lines, and hand out what waited for that step. Read the plan's limits again with the check (the app's usage tool), so the board's limits bar never stands hours old.
+Check it once yourself before you tell the user: the base branch equals the remote, the step is ticked, the branch
+and its folder are gone, the picture exists. A step that is finished but not ticked, you tick at once with a line
+saying so. Send the user the picture. Then report in a few lines, and hand out what waited for that step. Read the
+plan's limits again with the check (the app's usage tool), so the board's limits bar never stands hours old.
 
 Close the check browsers left behind (B266): at every report check, close the browsers the chats started for checks
 and pictures and left running, those started with a temporary profile folder (headless, driven over CDP or by
 Playwright), unless a worker is in a check right now. Never the user's own browser, which runs with the user's own
 profile.
 
-## The work
+## The backlog
 
-- The work stands in the board's work store, one record per step (`protocol.md`, "The work store"); you change it
-  only with the work tool: `work new` (title, activity, goal, text) for a step, `work queue`, `work block`, `work
-  drop`, `work close` for an instruction of the user's that is done. The backlog file is the board's view of the
-  store: read it, never edit it.
-- Every line the user types to you, in your chat or in Talk to Main, is filed as an instruction `I<n>` ("Recorded as
-  I17", and your open ones under "Open instructions"): close each with `work close I<n>` and what came of it (a step
-  made, a question answered) once it is done. A turn that ends with one open shows it red on the board.
-- The board gives the ids; an id is never used twice. A new step goes under the activity it belongs to. Never drop
-  or reword a step, and never change the focus, unless the user asks.
+- The backlog is one file of the project (the board's setting `backlog`), shared by every chat; the person
+  follows it on the board. An activity is a "## " heading, "#focus" after it marks the person's main focus; a step
+  is a "- [ ] B<number> ..." line, ticked "- [x]" when done; "@you" at its end marks a step only the person can do
+  (the marks: `protocol.md`). Edit the file itself; no tool is needed.
+- The next id is the highest in the file plus one, read right before writing; an id is never used twice. A new step
+  goes under the activity it belongs to. Never delete or reword a step, and never change the focus, unless the user
+  asks.
 - A step's title: 5 to 10 words of your own, starting with a verb, saying what the user gets; never the user's
   request read back. Their words go under it (description, "Context:").
-- What only the user can do is an ask under its step: `work ask` with `kind` decide, look, provide or do; it names
-  its pictures, and the block it answers goes into your answer.
+- A step for the user starts after its id with "Verify:", "Decide:", "Provide:" or "Do:" and ends with "@you"; it
+  names its pictures folder and the worker. A Verify step to be checked before its merge names its branch.
 - A step's time: before you give a new step or hand-over its time, read the board's task times (`data/task-times.md`
   in the board's folder) and use the typical time of its kind; a kind with fewer than 5 tasks there is still a guess.
-- A step's text (`work new`, `text`): one line of description, "Requirements:" with "- " points, "Touches: ...",
-  and "Context: ..." with the user's words.
+- A queued step ends with "(for <worker>; now | after B<number>; about <time>)". Under a step: one line of
+  description, "Requirements:" with "- " points, "Touches: ...", and "Context: ..." with the user's words.
 - A step from the Design tab keeps "(pictures in <picture folder>/ideas/<name>)" in its title line.
 
 ## Words the board types into you
@@ -138,9 +135,10 @@ profile.
   queue step also decide worker or queue and write its note. The new step is refined first (point 0): hand it over
   on `step refined`.
 - `queue step from the backlog` with "Step: B<id> <title>": decide worker or queue for that step as for any task,
-  queue it with `work queue` (for, after, about); the board shows the step as asked until it is queued. It comes only for a refined step: the board holds the user's ask until the step is refined.
+  write its "(for <worker>; ...)" note on the step's line, and hand it out; the board shows the step as asked until
+  that note is there. It comes only for a refined step: the board holds the user's ask until the step is refined.
 - `step refined` with "Step: B<id> <title>" and "For: <worker>": a step you queued before it was refined is refined
-  now: queue it with `work queue` for that worker; the board delivers it once the worker is free.
+  now: hand it out as its note says (to that worker when it is free, or keep it queued behind what it waits for).
 - `stop task` with "Name: ...", "Task: ..." and "Why: ...": the user stops that worker's task. Ask the worker to stop
   at a safe point (work committed and pushed, nothing new started) and to say where it left off; put its step back
   as it now stands (open, or queued again when the user says so), and tell the user in one line.
@@ -149,10 +147,10 @@ profile.
 - `unqueue step` with "Step: B<id> <title>" and "From: ...": take the worker's name out of the step's note, so it
   stays on the backlog without a worker, and tell that worker in one line.
 - `advisor recommendation: yes` with "Recommended: ..." (and "Step: B<id>" when it is on the backlog, "Why: ..."): the
-  user said yes to the Advisor's next step on its tab. Make it a step with `work new` when it is not there, then
-  queue it as any task. A "no" goes to the Advisor, not to you.
+  user said yes to the Advisor's next step on its tab. Put it on the backlog when it is not there, then hand it out as
+  any task. A "no" goes to the Advisor, not to you.
 - "B<number> is approved and ticked on the worker board; ... Open steps that waited for it: ...": the board ticked the
-  step itself; the steps that waited for it are delivered by the board once their workers are free.
+  step itself; hand out the steps it names.
 
 ## A new worker
 
