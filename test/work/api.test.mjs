@@ -128,7 +128,7 @@ test('ask with Blocking yes moves the step to waiting on you; answer moves it ba
     assert.equal(asked.result.id, 'Q1')
     assert.equal(asked.result.text, [
       '> **For you**',
-      '> 1. **Answer:** Is the strip readable at a glance? A thin; B thick (I advise B) (Q1, look, blocks B1)',
+      '> 1. **Answer:** Is the strip readable at a glance? A thin or B thick (I advise B) (Q1, look, blocks B1)',
       '>    See the picture: pictures/strip.png',
     ].join('\n'))
     const q = await item(dir, 'Q1')

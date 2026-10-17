@@ -7,7 +7,9 @@ export const HEAD_KEYS = {
   // `Queue note` and `Line` keep what the backlog wrote when its words do not come back from the fields alone (see
   // migrate.mjs); `Asks` on a step keeps a "Decide:" a step without @you may start with.
   step: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Queue note', 'Line'],
-  ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Queue note', 'Line'],
+  // B299: `Advice` is the option the asking chat advises; `Via` says how it was asked: form (the app's question form,
+  // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of).
+  ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Advice', 'Via', 'Queue note', 'Line'],
   // B298: `Via` says where the words were typed (chat: in the chat's own box; board: on the worker board), `Missed` how
   // many of the chat's turns ended while it stood open.
   instruction: ['Id', 'Kind', 'Chat', 'State', 'Since', 'Via', 'Missed', 'Text', 'Closed as'],

@@ -71,7 +71,8 @@ export function storeAsBacklog(items, activities, { prefix = '', names = [] } = 
   return parseBacklog(backlogText(items, activities), { prefix, names })
 }
 
-const onBacklog = item => valueOf(item, 'Kind') === 'step' || (valueOf(item, 'Kind') === 'ask' && valueOf(item, 'Of') === null)
+// B299: an ask the store gave its own id (`Q<n>`) never stands on a backlog line, also one under no step.
+const onBacklog = item => valueOf(item, 'Kind') === 'step' || (valueOf(item, 'Kind') === 'ask' && valueOf(item, 'Of') === null && !/^Q\d+$/.test(valueOf(item, 'Id') ?? ''))
 
 /** What does not fit between the items and the activities: an id listed but not held, an item no activity lists. */
 export function storeProblems(items, activities) {

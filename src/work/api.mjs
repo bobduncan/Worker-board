@@ -23,11 +23,11 @@ export const NOT_TRUTH = 'The store is not the truth yet: the cutover has not ru
  */
 export const BOARD_ANSWERS_ASKS = false
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'answered-in-chat'])
 /** What only the person does, on the board's page; and what only the server does. */
-const PERSON = new Set(['answer', 'tick', 'delete', 'refine-answer', 'refine-accept'])
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept'])
 const SERVER = new Set(['check'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
@@ -285,23 +285,42 @@ async function step(body, w) {
   return done.ok ? changed(item, `${id}: ${words}.`) : done
 }
 
-/** The "For you" block an ask puts in the chat's answer, so chat and board say the same. */
-export function forYouBlock({ id, of, kind, blocking, title, options, pictures, play }, boardUrl = '') {
-  const verb = ['provide', 'do'].includes(kind) ? 'Do' : 'Answer'
-  const choice = options.length === 0 ? '' : ` ${options.join('; ')}`
-  const link = (words, hash) => (boardUrl === '' ? `${words}: ${hash.split('=').slice(1).join('=')}` : `[${words}](${boardUrl}/#${hash})`)
-  const extra = [
-    ...pictures.map(path => `>    ${link('See the picture', `picture=${path}`)}`),
-    ...(play === '' ? [] : [`>    ${link('Play it', `play=${play}`)}`]),
-  ]
-  return ['> **For you**', `> 1. **${verb}:** ${title}${choice} (${id}, ${kind}${blocking ? ', blocks ' : ' on '}${of})`, ...extra].join('\n')
+/** B299: a picture's name in a few words: its file's name without the folder and the extension. */
+const pictureName = path => String(path).split('/').at(-1).replace(/\.[A-Za-z0-9]+$/, '').replace(/[-_]+/g, ' ').trim()
+/** B299: where a play link starts the game, in a few words: its settings, else its branch. */
+const playWhere = play => {
+  const [branch, ...settings] = String(play).split('&')
+  return settings.length > 0 ? settings.join(', ').replaceAll('=', ' ') : branch
 }
 
-/** A question to the person under a step: a new ask `Q<n>`; a blocking one moves the step to waiting on you. */
+/**
+ * The "For you" block an ask puts in the chat's answer, so chat and board say the same. B299: in the project's form:
+ * one numbered item, "**Answer:**" (decide, look) or "**Do:**" (provide, do), the options with the advice ("A or B; I
+ * advise B"), the ask's id, kind and step, and under it one link per picture and per play, opening the board
+ * (`<boardUrl>/#picture=<path>`, `<boardUrl>/#play=<branch>&<settings>`); without the board's address, the plain path.
+ */
+export function forYouBlock({ id, of = null, kind, blocking = false, title, options = [], advice = '', pictures = [], play = '' }, boardUrl = '') {
+  const verb = ['provide', 'do'].includes(kind) ? 'Do' : 'Answer'
+  const choice = options.length === 0 ? (advice === '' ? '' : ` I advise ${advice}.`) : ` ${options.join(' or ')}${advice === '' ? '' : `; I advise ${advice}`}`
+  const where = of === null ? `${id}, ${kind}` : `${id}, ${kind}${blocking ? ', blocks ' : ' on '}${of}`
+  const link = (label, words, hash, plain) => (boardUrl === '' ? `${label}: ${plain}` : `[${label}: ${words}](${boardUrl}/#${hash})`)
+  const extra = [
+    ...pictures.map(path => `>    ${link('See the picture', pictureName(path), `picture=${path}`, path)}`),
+    ...(play === '' ? [] : [`>    ${link('Play it', playWhere(play), `play=${play}`, play)}`]),
+  ]
+  return ['> **For you**', `> 1. **${verb}:** ${title}${choice} (${where})`, ...extra].join('\n')
+}
+
+/**
+ * A question to the person under a step: a new ask `Q<n>`; a blocking one moves the step to waiting on you. B299: an
+ * ask may stand alone (`of` left out: a question the app's form asked while no step is the chat's); `advice` names the
+ * option the chat advises; `via: "form"` says the app's question form asked it (the mod files those).
+ */
 async function ask(body, w) {
-  const of = await load(body.of, w, { kind: ['step'] })
+  const isAlone = body.of === undefined || body.of === null || body.of === ''
+  const of = isAlone ? { ok: true, item: null, text: null } : await load(body.of, w, { kind: ['step'] })
   if (!of.ok) return of
-  const holder = valueOf(of.item, 'Owner')
+  const holder = isAlone ? null : valueOf(of.item, 'Owner')
   if (holder !== null && !['main', 'person'].includes(w.role) && !isOwner(of.item, w.who, w.prefix)) {
     return refuse(409, `${valueOf(of.item, 'Id')} is ${holder}'s: only ${holder}, the main chat or the person asks under it.`)
   }
@@ -313,19 +332,14 @@ async function ask(body, w) {
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
   const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
   const play = line(body.play, 300)
-  const stepId = valueOf(of.item, 'Id')
-  const id = await nextId(w.dir, 'Q', w.fs)
-  const title = line(text[0], 200)
-  let question = ordered({
-    head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', w.role === 'person' ? '-' : w.who], ['Activity', valueOf(of.item, 'Activity') ?? '-'],
-      ['Since', stamp(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', stepId],
-      ['Options', options.length === 0 ? '-' : options.join(' | ')]].filter(([, value]) => value !== '-')),
-    sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]])]),
-    problem: null,
-  })
-  question = said(question, w, `asked (${kind}${blocking ? ', blocking' : ''})`)
-  const wrote = await save(question, null, w)
-  if (!wrote.ok) return wrote
+  const advice = line(body.advice, 120)
+  const via = body.via === 'form' && w.role !== 'person' ? 'form' : null
+  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via })
+  if (!made.ok) return made
+  const { question, id, title } = made
+  const stepId = isAlone ? null : valueOf(of.item, 'Id')
+  const block = forYouBlock({ id, of: stepId, kind, blocking, title, options, advice, pictures, play }, w.boardUrl ?? '')
+  if (isAlone) return changed(question, block)
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
   let moved = ''
   if (blocking && stateOf(item) === 'in progress') {
@@ -335,7 +349,41 @@ async function ask(body, w) {
   }
   const done = await save(item, of.text, w)
   if (!done.ok) return done
-  return changed(question, `${forYouBlock({ id, of: stepId, kind, blocking, title, options, pictures, play }, w.boardUrl ?? '')}${moved}`)
+  return changed(question, `${block}${moved}`)
+}
+
+/** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null }) {
+  const id = await nextId(w.dir, 'Q', w.fs)
+  const title = line(text[0], 200)
+  let question = ordered({
+    head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', w.role === 'person' ? '-' : w.who], ['Activity', of === null ? '-' : valueOf(of, 'Activity') ?? '-'],
+      ['Since', stamp(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? '-' : valueOf(of, 'Id')],
+      ['Options', options.length === 0 ? '-' : options.join(' | ')], ['Advice', advice === '' ? '-' : advice], ['Via', via ?? '-']].filter(([, value]) => value !== '-')),
+    sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]])]),
+    problem: null,
+  })
+  question = said(question, w, `asked (${kind}${blocking ? ', blocking' : ''}${via === 'form' ? ', with the app\'s question form' : via === 'refine' ? ', refining' : ''})`)
+  const wrote = await save(question, null, w)
+  return wrote.ok ? { ok: true, question, id, title } : wrote
+}
+
+/**
+ * B299: the person answered in the chat a question the app's form asked (`via: form`): the mod records the answer, so
+ * the board no longer shows it as open. Only the chat that asked.
+ */
+async function answeredInChat(body, w) {
+  const found = await load(body.id, w, { kind: ['ask'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (valueOf(found.item, 'Via') !== 'form') return refuse(409, `${id} was not asked with the app's question form: the person answers it on the board.`)
+  if (!isOwner(found.item, w.who, w.prefix)) return refuse(409, `${id} is ${valueOf(found.item, 'Owner') ?? 'nobody'}'s.`)
+  if (stateOf(found.item) !== 'open') return { ok: true, result: { id, text: `${id} is ${stateOf(found.item)} already.`, changed: false } }
+  const text = lines(body.text)
+  const item = said(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), w, 'answered in its chat')
+  if (text.length > 0) item.sections.set('Answer', text)
+  const done = await save(item, found.text, w)
+  return done.ok ? changed(item) : done
 }
 
 /** Information, never a question: a note `N<n>` to the person or to the main chat. */
@@ -652,7 +700,45 @@ async function refine(body, w) {
   if (goal !== '') put(item, 'Goal', goal)
   const next = ordered(said(item, w, `refined, round ${round}`))
   const done = await save(next, found.text, w)
-  return done.ok ? changed(next) : done
+  if (!done.ok) return done
+  // B299: each question is an ask of kind decide under the step, so it stands under Needs your attention; the open
+  // ones of an earlier round are withdrawn, replaced by this round.
+  const stepId = valueOf(next, 'Id')
+  for (const old of refineAsksOf(w, stepId)) await settleAsk(w, old, 'withdrawn', null, `replaced by round ${round}`)
+  const asked = []
+  for (const question of questions) {
+    const made = await makeAsk(w, { of: next, kind: 'decide', text: [question], via: 'refine' })
+    if (made.ok) asked.push(made.id)
+  }
+  return changed(next, undefined, { asks: asked })
+}
+
+/** B299: the open asks of a step's refine (`Via: refine`), oldest first. */
+function refineAsksOf(w, stepId) {
+  return [...w.store.items.values()]
+    .filter(one => kindOf(one) === 'ask' && valueOf(one, 'Of') === stepId && valueOf(one, 'Via') === 'refine' && stateOf(one) === 'open')
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+}
+
+/** B299: an ask of a refine answered (with the person's words) or withdrawn, as its file holds it now. */
+async function settleAsk(w, ask, state, text, why) {
+  const found = await load(valueOf(ask, 'Id'), w, { kind: ['ask'] })
+  if (!found.ok || stateOf(found.item) !== 'open') return
+  const item = put(put(copy(found.item), 'State', state), 'Since', stamp(w.now))
+  if (text !== null) item.sections.set('Answer', [text])
+  await save(said(item, w, why), found.text, w)
+}
+
+/** B299: the questions of a refine block as written, without the answers written after them. */
+function blockQuestions(item) {
+  const out = []
+  let isIn = false
+  for (const one of item.sections.get('Refined') ?? []) {
+    const named = one.trim().match(/^([A-Z][A-Za-z /]{1,28}):/)
+    if (named !== null) isIn = named[1] === 'Questions'
+    else if (isIn && /^\s*[-*]\s+/.test(one)) out.push(line(one.trim().replace(/^[-*]\s+/, '').replace(/\s+Answer:\s.*$/, ''), 200))
+  }
+  return out
 }
 
 /** The Advisor folded every answer in: the block says "ready", What we build is written, and the step is refined. */
@@ -662,6 +748,9 @@ async function refined(body, w) {
   const id = valueOf(found.item, 'Id')
   const block = found.item.sections.get('Refined') ?? []
   if (block.length === 0) return refuse(409, `${id} has no refine block yet: refine it first.`)
+  // B299: a refine is ready only once the person answered its questions.
+  const waiting = refineAsksOf(w, id)
+  if (waiting.length > 0) return refuse(409, `${id}: ${waiting.map(one => `${valueOf(one, 'Id')} ("${valueOf(one, 'Title')}")`).join(', ')} ${waiting.length === 1 ? 'is' : 'are'} still open: the person answers first.`)
   const what = lines(body.what, 300).map(one => `- ${one.replace(/^[-*]\s+/, '').trim()}`)
   if (what.length === 0) return refuse(400, 'Say what we build in "what", one line per part.')
   const head = block[0].match(/^(\s*)Refined\s*(?:\(([^)]*)\))?\s*:\s*$/)
@@ -697,8 +786,14 @@ async function answer(body, w) {
   const found = await load(body.id, w, { kind: ['ask'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
-  if (stateOf(found.item) !== 'open') return refuse(409, `${id} is answered already.`)
-  const text = lines(body.text)
+  if (stateOf(found.item) !== 'open') return refuse(409, `${id} is ${stateOf(found.item)} already.`)
+  // B299: a question asked with the app's own form is answered there, in its chat.
+  if (valueOf(found.item, 'Via') === 'form') return refuse(409, `${id} was asked with the app's question form: answer it in ${valueOf(found.item, 'Owner') ?? 'its'}'s chat.`)
+  // B299: a look is approved or rejected, a do is done; the person's words follow the verdict.
+  const verdict = { approve: 'Approved', reject: 'Rejected', done: 'Done' }[body.verdict] ?? null
+  const words = lines(body.text)
+  if (body.verdict === 'reject' && words.length === 0) return refuse(400, 'Say why you reject it.')
+  const text = verdict === null ? words : [`${verdict}.${words.length === 0 ? '' : ` ${words[0].trim()}`}`, ...words.slice(1)]
   if (text.length === 0) return refuse(400, 'Give the answer in "text".')
   const short = line(text.join(' '), 200)
   const of = valueOf(found.item, 'Of')
@@ -706,9 +801,9 @@ async function answer(body, w) {
   put(item, 'Since', stamp(w.now))
   item.sections.set('Answer', text)
   // An ask that stands on the backlog itself (an @you step) shows the answer under its line.
-  if (of === null) item = underStep(item, [`Answered by you on the worker board on ${at(w.now)}: ${short}`])
+  if (of === null && !/^Q\d+$/.test(id)) item = underStep(item, [`Answered by you on the worker board on ${at(w.now)}: ${short}`])
   item = said(item, w, `answered: ${short}`)
-  return answerStep(w, item, found.text, of, step => {
+  const done = await answerStep(w, item, found.text, of, step => {
     let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
     if (stateOf(mine) === 'waiting on you') {
       const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
@@ -716,6 +811,20 @@ async function answer(body, w) {
     }
     return mine
   })
+  // B299: the chat that asked is woken with the answer (the server sends it); an ask the person made wakes nobody.
+  const owner = valueOf(found.item, 'Owner')
+  const wake = owner === null || !/^Q\d+$/.test(id) ? null : { to: owner, id, title: valueOf(found.item, 'Title') ?? '', text: text.join('\n') }
+  return done.ok ? { ok: true, result: { ...done.result, wake } } : done
+}
+
+/** B299: the person read a note under Information: it is read, and leaves the list. */
+async function read(body, w) {
+  const found = await load(body.id, w, { kind: ['note'] })
+  if (!found.ok) return found
+  if (stateOf(found.item) === 'read') return { ok: true, result: { id: valueOf(found.item, 'Id'), text: 'Read already.', changed: false } }
+  const item = said(put(put(copy(found.item), 'State', 'read'), 'Since', stamp(w.now)), w, 'read')
+  const done = await save(item, found.text, w)
+  return done.ok ? changed(item) : done
 }
 
 /**
@@ -780,12 +889,26 @@ async function refineText(body, w) {
   put(item, 'Refined', valueOf(back, 'Refined'))
   const next = said(item, w, w.action === 'refine-accept' ? 'accepted the refine' : 'answered the refine questions')
   const done = await save(next, found.text, w)
-  return done.ok ? changed(next) : done
+  if (!done.ok) return done
+  // B299: the refine's asks follow: each question answered here is answered; accepting answers the rest.
+  const questions = blockQuestions(found.item)
+  const answers = Array.isArray(body.answers) ? body.answers : []
+  for (const ask of refineAsksOf(w, id)) {
+    if (w.action === 'refine-accept') await settleAsk(w, ask, 'answered', 'Accepted as refined.', 'accepted as refined')
+    else {
+      const index = questions.indexOf(valueOf(ask, 'Title'))
+      const given = answers.find(one => one !== null && typeof one === 'object' && one.index === index)?.answer
+      if (index >= 0 && typeof given === 'string' && given.trim() !== '') await settleAsk(w, ask, 'answered', line(given, 1000), `answered in the step's window: ${line(given, 200)}`)
+    }
+  }
+  return changed(next)
 }
 
 const CHANGE = {
   take, step, ask, withdraw, note, report, check, new: make, queue, close, drop, refine, refined, answer, tick, instruction,
   'turn-ended': turnEnded,
+  'answered-in-chat': answeredInChat,
+  read,
   block: (body, w) => blockOn(body, w, true),
   unblock: (body, w) => blockOn(body, w, false),
   delete: remove,
