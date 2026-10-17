@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { answer, assistant, fromChat, step, tool, toolResult, typed, user } from '../fixtures/lines.mjs'
-import { inProgress, parseBacklog, queue } from '../src/backlog.mjs'
+import { parseBacklog, queue } from '../src/backlog.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { heldBy } from '../src/state.mjs'
 import { buildState } from './withStore.mjs'
@@ -79,13 +79,6 @@ test('the queue holds every open step that names a worker and no branch of its o
   // names no worker in its note, also under "Next to hand out" (B05, B09, B14, whose note names the main chat), and
   // a step marked "not queued", "later" or "not handed out", wherever the mark stands (B11, B14, B15).
   assert.deepEqual(queued.find(one => one.id === 'B03').notes, [{ title: 'Requirements', lines: [], points: ['three cards'] }])
-})
-
-test('the steps in progress: the open ones that name their own branch', () => {
-  assert.deepEqual(inProgress(parseBacklog(BACKLOG, NAMES)).map(one => [one.id, one.worker, one.branch, one.minutes, one.title]), [
-    ['B02', 'Features', 'feature/camera', 60, 'The camera'],
-    ['B07', 'Levels / Environment', 'feature/bridge', null, 'The bridge level'],
-  ])
 })
 
 // ---------------------------------------------------------------- the state the page asks for

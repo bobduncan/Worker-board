@@ -318,13 +318,6 @@ export function queue(backlog, { underWay = new Set() } = {}) {
     .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(notes) }))
 }
 
-/** The steps being worked on: the open ones that name their own branch, with the worker and the time their note gives. */
-export function inProgress(backlog) {
-  return backlog.activities.flatMap(activity =>
-    open(activity).filter(step => step.ownBranch !== null && !step.isYou)
-      .map(({ id, text, title, worker, ownBranch, minutes }) => ({ id, text, title, worker, branch: ownBranch, minutes, activity: activity.name })))
-}
-
 /**
  * Every open step only the person can do: what it asks of them (`verify`, `decide`, `provide`, `do`, or null when
  * the step does not say), and the worker it names, if any.
