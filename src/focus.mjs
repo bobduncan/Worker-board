@@ -6,14 +6,17 @@
 import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
-import { focusStage, nextGoalId, parseGoals } from './goals.mjs'
+import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
 import { addGoal, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
 
-/** The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar. */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk']
+/**
+ * The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar;
+ * B354: ask the partner for a goal's Done when.
+ */
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -92,6 +95,7 @@ async function move(body, ctx) {
   if (text === null) return refuse(404, 'There is no goal map to write into.')
   if (command === 'focus') return pick(body, text, ctx, goalsAt)
   if (!isId(body.id)) return refuse(400, 'Name the goal by its id (G12).')
+  if (command === 'done-when') return askDoneWhen(parseGoals(text).byId.get(body.id), ctx)
   const node = parseGoals(text).byId.get(body.id)
   if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt, parseGoals(text).focus)
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
@@ -218,6 +222,7 @@ async function pick(body, before, ctx, goalsAt) {
     const node = parseGoals(before).byId.get(body.id)
     if (node === undefined) return refuse(409, 'That goal is not in the map.')
     if (node.state === 'done') return refuse(409, 'That goal is done: pick an open one.')
+    if (!hasDoneWhen(node)) return refuse(409, NO_DONE_WHEN(node.id))
   }
   let id = isNew ? null : body.id
   let moved = false
@@ -227,14 +232,19 @@ async function pick(body, before, ctx, goalsAt) {
       id = nextGoalId(parseGoals(out))
       const added = addGoal(out, { parent: null, after: null, title: line, id })
       if (!added.ok) return added
-      out = raiseLastLine(added.text, id)
+      // B354: a new goal has no Done when yet: it waits in the map, not as the focus, while the partner writes one.
+      return { ok: true, text: raiseLastLine(added.text, id) }
     }
+    const now = parseGoals(out).byId.get(id)
+    if (now === undefined) return { ok: false, why: 'gone' }
+    if (!hasDoneWhen(now)) return { ok: false, why: 'doneWhen' }
     moved = parseGoals(out).focus !== id
     return setFocus(out, id)
   }, goalsAt)
-  if (!written.ok) return failed(written.why)
+  if (!written.ok) return written.why === 'doneWhen' ? refuse(409, NO_DONE_WHEN(id)) : failed(written.why)
   const node = parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id)
   if (node === undefined) return failed('gone')
+  if (isNew) return { ok: true, result: { id, isFocus: false }, words: focusWords('done-when', { to: ctx.partner.name, goal: node, words: oneLine(body.text, 2000), job: ctx.job }) }
   const talk = await talkFor(id, node, isNew ? oneLine(body.text, 2000) : 'I pick this goal as my focus.', ctx, goalsAt)
   if (!talk.ok) return talk
   const { thread, isNewThread } = talk
@@ -242,6 +252,20 @@ async function pick(body, before, ctx, goalsAt) {
   if (!moved && !isNewThread) return { ok: true, result: { ...result, unchanged: true }, words: null }
   const stage = focusStage(parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id) ?? node)
   return { ok: true, result, words: focusWords('focus', { to: ctx.partner.name, goal: node, thread, stage: STAGE_WORDS[stage], job: ctx.job }) }
+}
+
+/** B354: why a goal without a Done when is not picked. */
+const NO_DONE_WHEN = id => `${id} has no Done when yet: a goal becomes your focus once it says how you check it is done. Ask your partner to write it, or write it on the Goals part.`
+
+/**
+ * B354: the person's button for a goal without a Done when: the partner is asked to write one (`done when:`); the map
+ * is not changed. A goal that has one, is done or is not in the map is refused.
+ */
+function askDoneWhen(node, ctx) {
+  if (node === undefined) return refuse(409, 'That goal is not in the map.')
+  if (node.state === 'done') return refuse(409, `${node.id} is done already.`)
+  if (hasDoneWhen(node)) return refuse(409, `${node.id} has a Done when already: change it on the Goals part.`)
+  return { ok: true, result: { id: node.id }, words: focusWords('done-when', { to: ctx.partner.name, goal: node, job: ctx.job }) }
 }
 
 /**
@@ -252,6 +276,8 @@ async function pick(body, before, ctx, goalsAt) {
 async function vibeThere(command, node, words, ctx, goalsAt, say) {
   if (focusStage(node) !== 'run') return refuse(409, command === 'vibe-there-no' && node.vibeAgreed !== null ? 'The how is open again already.' : 'The how is not agreed: there is nothing to look at yet.')
   if (ctx.allDone !== true) return refuse(409, 'Not every part is done yet.')
+  // B354: a goal is ticked against its Done when; a focus picked before that rule may have none.
+  if (command === 'vibe-there-yes' && !hasDoneWhen(node)) return refuse(409, `${node.id} gets its tick only with a Done when that says how you check it: ask your partner to write it, or write it on the Goals part.`)
   if (command === 'vibe-there-no' && words === '') return refuse(400, 'Say what is missing, in your words.')
   let wrote = false
   const done = await changeGoalsFile(text => {

@@ -43,9 +43,11 @@ const GOALS = [
   '',
   '- [~] G1 A garden people visit',
   '  - [ ] G2 Benches that feel like home',
+  '    Done when: five visitors sit down unasked',
   '    Steps: B16',
   '  - [x] G3 The gate',
   '- [ ] G4 Lanterns',
+  '  Done when: every path is lit after dark',
   '',
 ].join('\n')
 const NOW = new Date(2026, 9, 18, 14, 5).getTime()
@@ -65,7 +67,7 @@ async function inVibe() {
 }
 
 test('the moves and the drafts it knows', () => {
-  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk'])
+  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when'])
   assert.deepEqual(FOCUS_DRAFTS, ['vibe-draft', 'how-draft'])
 })
 
@@ -105,15 +107,19 @@ test('a goal with a running thread reuses it; another focus replaces the line; a
   assert.equal((await focusMove({ command: 'focus' }, ctx(fs))).status, 400)
 })
 
-test('something new: the person\'s line becomes a goal at the top, the focus, and the thread\'s opening', async () => {
+test('something new: the person\'s line becomes a goal at the top; B354: the focus once its Done when is written', async () => {
   const fs = fakeFs({ [MAP]: latin(GOALS) })
   const made = await focusMove({ command: 'focus', text: '  A pond with fish   people feed ' }, ctx(fs))
   assert.equal(made.ok, true)
   assert.equal(made.result.id, 'G5')
   const map = mapOf(fs)
-  assert.deepEqual([map.focus, map.byId.get('G5').title, map.byId.get('G5').depth, map.lastGoal], ['G5', 'A pond with fish people feed', 0, 5])
-  assert.equal(threadsOf(fs)[0].thread.opening, 'A pond with fish people feed')
-  assert.match(made.words.text, /^focus: G5 A pond with fish people feed\n/)
+  assert.deepEqual([map.focus, map.byId.get('G5').title, map.byId.get('G5').depth, map.lastGoal], [null, 'A pond with fish people feed', 0, 5])
+  assert.match(made.words.text, /^done when: G5 A pond with fish people feed\n/)
+  fs.files[MAP] = latin(utf8(fs.files[MAP]).replace('- [ ] G5 A pond with fish people feed\n', '- [ ] G5 A pond with fish people feed\n  Done when: ten people feed the fish in one evening\n'))
+  const picked = await focusMove({ command: 'focus', id: 'G5' }, ctx(fs))
+  assert.equal(mapOf(fs).focus, 'G5')
+  assert.equal(threadsOf(fs)[0].thread.opening, 'I pick this goal as my focus.')
+  assert.match(picked.words.text, /^focus: G5 A pond with fish people feed\n/)
   assert.equal((await focusMove({ command: 'focus', text: '   ' }, ctx(fs))).status, 400)
 })
 

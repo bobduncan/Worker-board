@@ -124,6 +124,7 @@ const GOALS = [
   'Focus: G6',
   '',
   '- [~] G6 The polish you need to judge fun',
+  '    Done when: you judge a fight fun in one playthrough',
   '    Vibe: every fight reads at a glance',
   '    Vibe: hits feel heavy',
   '    Vibe agreed: 2026-10-18 10:00',
@@ -253,7 +254,7 @@ const ctx = (fs, extra = {}) => ({
 const mapOf = fs => parseGoals(utf8(fs.files[MAP]))
 
 test('the moves it knows hold the vibe-there answers (Focus 4: the talk bar after them)', () => {
-  assert.deepEqual(FOCUS_MOVES.slice(-3, -1), ['vibe-there-yes', 'vibe-there-no'])
+  assert.deepEqual(FOCUS_MOVES.slice(5, 8), ['vibe-there-yes', 'vibe-there-no', 'talk'])
 })
 
 test('Yes ticks the goal, clears the focus and types vibe there: yes, once', async () => {

@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto'
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
-import { FOCUS_LINE, GOAL_LINE, LAST_LINE, nextAskId, nextGoalId, parseGoals } from './goals.mjs'
+import { FOCUS_LINE, GOAL_LINE, LAST_LINE, hasDoneWhen, nextAskId, nextGoalId, parseGoals } from './goals.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access }
 
@@ -487,6 +487,8 @@ const WHY = {
   question: [400, 'Say what you want to know.'],
   none: [409, 'That ask is not under this goal, or has no answer to read yet.'],
   plan: [409, "That is the game plan's own line: change it through the plan."],
+  // B354: a goal is ticked against its Done when.
+  doneWhen: [409, 'A goal gets its tick only with a Done when that says how you check it: write it with "Done when…", or ask your partner to.'],
   encoding: [409, 'The map is not UTF-8 text: change it by hand first.'],
   tabs: [409, 'The map has lines indented with tabs: make them two spaces per level by hand first.'],
   write: [500, 'The goal map could not be written.'],
@@ -620,6 +622,7 @@ export async function editGoals(body, { canWrite, file, historyDir, now, fs = fi
     if (/^ *\t/m.test(text)) return refuse('tabs')
     const node = isId(body.id) ? parseGoals(text).byId.get(body.id) : undefined
     if (node?.fromPlan && PLAN_OWNS(body)) return refuse('plan')
+    if (body.command === 'state' && body.state === 'done' && node !== undefined && node.state !== 'done' && !hasDoneWhen(node)) return refuse('doneWhen')
     const done = change(text)
     if (!done.ok) return done
     const next = Buffer.from(done.text, 'utf8').toString('latin1')

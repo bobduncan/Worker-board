@@ -16,6 +16,9 @@ export const LAST_LINE = /^Last (id|ask):\s*[GA](\d+)\s*$/
 /** Focus 1: the focus goal, a head line before the first goal: "Focus: G6"; "Focus:" alone is none. */
 export const FOCUS_LINE = /^Focus:\s*(G\d+)?\s*$/
 
+/** B354: whether a goal has a Done when line with words in it: only then may it be the focus, or be ticked. */
+export const hasDoneWhen = node => typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== ''
+
 const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
 

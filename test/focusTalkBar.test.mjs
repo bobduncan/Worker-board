@@ -41,7 +41,7 @@ const utf8 = text => Buffer.from(text, 'latin1').toString('utf8')
 
 const MAP = 'C:/p/goals.md'
 const DIR = 'C:/p/talks'
-const GOALS = ['# Goals', 'Last id: G4', '', '- [ ] G2 Benches that feel like home', '- [ ] G4 Lanterns', ''].join('\n')
+const GOALS = ['# Goals', 'Last id: G4', '', '- [ ] G2 Benches that feel like home', '  Done when: five visitors sit down unasked', '- [ ] G4 Lanterns', '  Done when: every path is lit after dark', ''].join('\n')
 const NOW = new Date(2026, 9, 18, 15, 0).getTime()
 const ctx = fs => ({
   canWrite: true, goalsFile: MAP, historyDir: 'C:/p/history', brainstormDir: DIR, brainstormFolder: 'talks', now: NOW, fs,
