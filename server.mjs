@@ -479,6 +479,8 @@ async function main(args) {
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
+      // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
+      hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
     }
   }
   const workReads = new Set(['next', 'list'])

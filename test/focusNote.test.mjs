@@ -39,7 +39,7 @@ const ROLES = { Main: 'main', Features: 'worker', Partner: 'advisor' }
 async function fresh() {
   const dir = await mkdtemp(join(tmpdir(), 'focus-note-'))
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
-  const ctx = { dir, now: NOW + 60_000, prefix: 'Game - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set() }
+  const ctx = { dir, now: NOW + 60_000, prefix: 'Game - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(), hasGoal: id => id === 'G6' }
   const as = chat => body => workApi({ chat, ...body }, ctx)
   return { dir, partner: as('Partner'), main: as('Main'), person: body => workApi(body, { ...ctx, as: 'person' }) }
 }

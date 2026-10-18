@@ -88,7 +88,7 @@ function serial(dir, run) {
 
 /**
  * One action on the store. `body = { action, chat, ...fields }`; `ctx = { dir, fs, now, as, roleOf, freeChats,
- * overlaps, prefix, viewFile, boardUrl }`: `as` is 'person' (the page) or 'server' (the board itself), else the chat
+ * overlaps, prefix, viewFile, boardUrl, hasGoal }` (Focus 3: `hasGoal(id)`, whether the goal map holds that goal): `as` is 'person' (the page) or 'server' (the board itself), else the chat
  * of `body.chat` asks, in the role `roleOf(chat)` gives ('main', 'worker', 'advisor', or null: no chat of the list).
  * `freeChats` the chats free now, `overlaps(item)` the id of a taken step whose Touches overlap, `viewFile` the
  * backlog file the view is written to after a change (none: not written).
@@ -369,6 +369,9 @@ export function forYouBlock({ id, of = null, kind, blocking = false, title, opti
 async function ask(body, w) {
   // Focus 3: an ask of a goal (the partner's question on the focus) stands under no step; its Of names the goal.
   const goal = typeof body.of === 'string' && GOAL_ID.test(body.of) ? body.of : null
+  // The review: only the partner asks of a goal, and only of one in the goal map (`hasGoal`, from the board).
+  if (goal !== null && w.role !== 'advisor') return refuse(403, 'Only the partner asks of a goal; ask under a step.')
+  if (goal !== null && w.hasGoal?.(goal) !== true) return refuse(409, `${goal} is not in the goal map.`)
   const isAlone = goal !== null || body.of === undefined || body.of === null || body.of === ''
   const of = isAlone ? { ok: true, item: null, text: null } : await load(body.of, w, { kind: ['step'] })
   if (!of.ok) return of
@@ -481,6 +484,7 @@ async function note(body, w) {
 async function dailyNoteMade(body, w) {
   if (w.role !== 'advisor') return refuse(403, 'Only the partner writes the note of a goal (its daily note).')
   if ((body.to ?? 'you') !== 'you') return refuse(400, 'The note of a goal is to you, the person.')
+  if (w.hasGoal?.(body.of) !== true) return refuse(409, `${body.of} is not in the goal map.`)
   const decided = lines(body.decided, LINE_CHARS).map(one => line(one)).filter(Boolean).slice(0, 12)
   const needs = [...new Set((Array.isArray(body.needs) ? body.needs : typeof body.needs === 'string' ? body.needs.split(',') : []).map(one => line(String(one), 20)).filter(Boolean))]
   const text = lines(body.text)
