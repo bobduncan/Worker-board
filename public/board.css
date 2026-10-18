@@ -1635,12 +1635,13 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .settings-pop .version:empty { display: none; }
 
 .lane-row .free-since { color: var(--muted); }
-.workers-panel .queue-next { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-size: 14px; line-height: 1.35; text-align: left; }
+.workers-panel .queue-next { display: block; width: 100%; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-size: 14px; line-height: 1.35; text-align: left; }
 .workers-panel .queue-next:hover { border: 0; text-decoration: underline; text-decoration-color: var(--muted); }
 .workers-panel .queue-next:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; border-radius: 4px; }
-.queue-next .queue-text { display: inline; }
+.queue-next .queue-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .queue-id { color: #9db8e8; font-weight: 700; font-variant-numeric: tabular-nums; }
-.queue-next .why { display: inline; margin: 0; }
+.queue-next .why { display: inline; margin: 0; white-space: normal; overflow: visible; }
+.step-list .step-list-time { margin-left: 8px; }
 .advisor-waits-count { color: var(--text); }
 
 .info-resizer { flex: none; position: relative; height: 10px; border-top: 1px solid var(--line); outline: 0; cursor: row-resize; touch-action: none; }

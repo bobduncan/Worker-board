@@ -310,6 +310,10 @@ function drawSettings(state, cpu) {
 document.addEventListener('click', event => {
   if ($('settings').open && !$('settings').contains(event.target)) $('settings').open = false
 })
+// On a narrow screen the part stands fixed under the button: a scroll folds it, so it never floats away from it.
+window.addEventListener('scroll', () => {
+  if ($('settings').open && window.matchMedia('(max-width: 760px)').matches) $('settings').open = false
+}, { passive: true })
 $('settings').addEventListener('keydown', event => {
   if (event.key !== 'Escape' || !$('settings').open) return
   $('settings').open = false
@@ -773,7 +777,7 @@ function drawStepLine(lane, line) {
   const list = el('ol', 'step-list')
   for (const step of line.steps) {
     const item = el('li', `is-${step.state}`, step.name)
-    if (step.state === 'now') item.append(el('small', '', 'now'), el('span', `step-time is-${line.tone}`, line.time))
+    if (step.state === 'now') item.append(el('small', '', 'now'), el('span', `step-time step-list-time is-${line.tone}`, line.time))
     list.append(item)
   }
   box.append(now, list)
@@ -872,7 +876,7 @@ function drawMore(lane, state) {
   const free = freeLine(lane, clock)
   if (free !== null) list.append(el('li', '', free))
   const compacted = compactionLine(lane.compaction ?? null, clock)
-  if (compacted !== null) list.append(el('li', 'muted', `Workers mod: ${compacted.text}`))
+  if (compacted !== null) list.append(el('li', 'muted', compacted.title))
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
   for (const folder of lane.folders) list.append(el('li', '', folderLine(folder, now)))
   if (lane.lastActivityAt !== null) list.append(el('li', 'muted', `Last activity ${ago(lane.lastActivityAt, now)}`))
@@ -949,7 +953,7 @@ function drawLane(lane, state) {
     const note = el('small', 'compaction is-warning', compacted.text)
     note.title = compacted.title
     names.append(note)
-  } else if (compacted !== null) names.title = compacted.text
+  } else if (compacted !== null) names.title = compacted.title
   // B143: a worker can be removed; the main chat cannot. The board asks the main chat, which closes the worker.
   const main = state.workers?.mainTitle ?? 'the main chat'
   const removal = removalView(lane, main, state.readAt)
@@ -977,8 +981,16 @@ function drawLane(lane, state) {
   // turns are in the task's tooltip and in the details "⋯" unfolds.
   const what = el('div', 'what')
   const task = lane.task
+  const more = [
+    lane.state === 'working' && (lane.doingNow ?? null) !== null ? `Now: ${lane.doingNow}` : null,
+    lane.state === 'working' && (lane.between ?? null) !== null ? `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}` : null,
+  ].filter(Boolean)
   if (task === null) {
-    if (lane.state === 'working') what.append(el('p', 'task is-none', 'Task not recorded yet'))
+    if (lane.state === 'working') {
+      const none = el('p', 'task is-none', 'Task not recorded yet')
+      if (more.length > 0) none.title = more.join('\n')
+      what.append(none)
+    }
     const free = freeShort(lane, clock)
     if (free !== null) {
       const line = el('p', 'note free-since', free)
@@ -987,10 +999,6 @@ function drawLane(lane, state) {
     }
   } else {
     const title = taskTitle(lane)
-    const more = [
-      lane.state === 'working' && (lane.doingNow ?? null) !== null ? `Now: ${lane.doingNow}` : null,
-      lane.state === 'working' && (lane.between ?? null) !== null ? `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}` : null,
-    ].filter(Boolean)
     if (more.length > 0) title.title = [title.title, ...more].filter(Boolean).join('\n')
     what.append(title)
   }
@@ -1277,7 +1285,9 @@ function drawAdvisorLane(state) {
   } else if (advisor.state === 'working') what.append(el('p', 'task is-none', 'Task not recorded yet'))
   // B287: what it refines, as on the Advisor tab; under a task only when it is stopped and waits for Send again.
   const refine = advisorRefine(state.backlog)
-  if (refine !== null && hasTask && refine.canSend !== true) card.title = `${card.title}\n${refine.text}`
+  // What the row does not say, on hovering the card and its line.
+  const tip = []
+  if (refine !== null && hasTask && refine.canSend !== true) tip.push(refine.text)
   if (refine !== null && (!hasTask || refine.canSend === true)) {
     const line = el('p', 'advisor-lane-refine')
     line.append(el('span', `advisor-refine-state is-${refine.tone}`, refine.text))
@@ -1298,8 +1308,13 @@ function drawAdvisorLane(state) {
   if (standing.key === 'waiting' && !isSaid) what.append(el('p', 'note', 'It asks you something: see Needs your attention.'))
   if (standing.key === 'off') what.append(el('p', 'note', 'Its chat is not running: what is sent to it waits until it is opened.'))
   if (standing.key === 'free' && Number.isFinite(advisor.idle?.since)) {
-    if (isSaid) card.title = `${card.title}\nIdle since ${clock(advisor.idle.since)}`
+    if (isSaid) tip.push(`Idle since ${clock(advisor.idle.since)}`)
     else what.append(el('p', 'note', `idle since ${clock(advisor.idle.since)}`))
+  }
+  if (tip.length > 0) {
+    card.title = [card.title, ...tip].join('\n')
+    const first = what.firstElementChild
+    if (first !== null) first.title = [first.title, ...tip].filter(Boolean).join('\n')
   }
 
   const progress = el('div', 'progress-cell')
@@ -2027,6 +2042,8 @@ const openInfos = new Set()
  */
 function drawInformation(state) {
   const box = $('information')
+  // A note that is no longer there is no longer open.
+  for (const id of openInfos) if (!(state.information ?? []).some(one => one.id === id)) openInfos.delete(id)
   const rows = informationRows(state.information).filter(row => !row.isRead || showsClosed())
   const isEmpty = rows.length === 0 && (state.information ?? []).length === 0
   box.hidden = isEmpty
@@ -2035,6 +2052,8 @@ function drawInformation(state) {
   const top = box.scrollTop
   const focused = document.activeElement?.closest?.('#information [data-info-open]')?.dataset.infoOpen ?? null
   const unread = informationRows(state.information).filter(row => !row.isRead)
+  // All read, however: what held "Mark all read" back is said no more.
+  if (unread.length === 0) problems.delete('read:all')
   const part = el('section', 'information')
   const head = el('h3', '', 'Information')
   head.append(el('small', 'muted', unread.length === 0 ? 'all read' : `${unread.length} new`))
@@ -7520,27 +7539,36 @@ resizable($('talk-resizer'), $('view-advice'), 'chat-width', 500)
  * and back to the usual height with a double-click. The height is kept in this browser.
  */
 function resizableInformation(handle, side, usual) {
+  // The height the person chose, apart from the one that fits now: a window made narrow and wide again keeps it.
+  let wanted = usual
   let height = usual
   try {
-    height = Number(localStorage.getItem('information-height')) || usual
+    wanted = Number(localStorage.getItem('information-height')) || usual
   } catch {
     // Without storage the height is the usual one after each reload.
   }
-  const set = (next, isKept = true) => {
-    // Before the side is drawn (or on a phone) it has no height of its own: the height is kept as it is.
+  // Where the side flows under the Overview (a narrow window) it has no height of its own to share.
+  const flows = window.matchMedia('(max-width: 1250px)')
+  handle.setAttribute('aria-valuemin', '90')
+  /** Applies `next` as far as it fits; `isChosen`: the person chose it (it is kept, also in this browser). */
+  const set = (next, isChosen = true) => {
     const room = side.getBoundingClientRect().height
-    height = room > 0 ? infoHeightFit(next, room) : Math.round(next)
+    height = flows.matches || room <= 0 ? Math.round(next) : infoHeightFit(next, room)
     side.style.setProperty('--info-height', `${height}px`)
     handle.setAttribute('aria-valuenow', String(height))
-    if (!isKept) return
+    if (room > 0 && !flows.matches) handle.setAttribute('aria-valuemax', String(Math.max(90, Math.round(room - 120))))
+    if (!isChosen) return
+    wanted = height
     try {
       localStorage.setItem('information-height', String(height))
     } catch {
       // Not kept; it still applies until the page is closed.
     }
   }
-  set(height, false)
+  set(wanted, false)
   handle.addEventListener('pointerdown', event => {
+    // Only the main button drags.
+    if (event.button !== 0) return
     event.preventDefault()
     try {
       handle.setPointerCapture(event.pointerId)
@@ -7568,7 +7596,7 @@ function resizableInformation(handle, side, usual) {
     event.preventDefault()
   })
   handle.addEventListener('dblclick', () => set(usual))
-  window.addEventListener('resize', () => set(height, false))
+  window.addEventListener('resize', () => set(wanted, false))
 }
 
 resizableInformation($('info-resizer'), $('side-needs'), 260)

@@ -64,6 +64,17 @@ test('1: a note opens on click with all its words and its Read button; "Mark all
   assert.ok(!needs.includes('drawInformation(state), drawInstructions(state)'))
   assert.ok(needs.includes('drawInformation(state)'))
   assert.match(style, /\.info-line \{[^}]*white-space: nowrap/)
+  // Review of B307: a refusal of "Mark all read" goes once all is read; a note gone is no longer open.
+  assert.ok(part.includes("if (unread.length === 0) problems.delete('read:all')"))
+  assert.ok(part.includes('for (const id of openInfos) if (!(state.information ?? []).some(one => one.id === id)) openInfos.delete(id)'))
+})
+
+test('1: the chosen height outlives a window made narrow and wide again; only the main button drags', () => {
+  const handle = script.slice(script.indexOf('function resizableInformation'), script.indexOf("resizableInformation($('info-resizer')"))
+  assert.ok(handle.includes("window.addEventListener('resize', () => set(wanted, false))"))
+  assert.ok(handle.includes("const flows = window.matchMedia('(max-width: 1250px)')"))
+  assert.ok(handle.includes('if (event.button !== 0) return'))
+  assert.ok(handle.includes("handle.setAttribute('aria-valuemin', '90')"))
 })
 
 // 2 Worker rows
@@ -86,7 +97,8 @@ test('2: a free worker says since when it is free, in one line; the rest of what
 test('2: the compaction note shows only when something is wrong; else it is the name\'s tooltip', () => {
   const lane = script.slice(script.indexOf('function drawLane('), script.indexOf("$('lanes').addEventListener('click'"))
   assert.ok(lane.includes('if (compacted !== null && compacted.isWarning)'))
-  assert.ok(lane.includes('names.title = compacted.text'))
+  // The mod's own words, with the time, as B248 gave them.
+  assert.ok(lane.includes('names.title = compacted.title'))
   // Unfolded, the details still say it all.
   const more = script.slice(script.indexOf('function drawMore'), script.indexOf('function folderLine'))
   for (const words of ['freeLine(lane, clock)', 'compactionLine(lane.compaction ?? null, clock)', 'Now: ${lane.doingNow}', 'lane.between']) assert.ok(more.includes(words), words)
@@ -119,7 +131,7 @@ test('3: the time left once, in the column Left: "1 h 34", its end time and wher
 test('3: the step line keeps its time for the list that opens on hover, not on the row', () => {
   const draw = script.slice(script.indexOf('function drawStepLine'), script.indexOf('function betweenTurns'))
   assert.ok(!draw.includes("now.append(el('span', 'step-count', line.count), el('span', 'step-name', line.name), el('span', `step-time"))
-  assert.ok(draw.includes("item.append(el('small', '', 'now'), el('span', `step-time is-${line.tone}`, line.time))"))
+  assert.ok(draw.includes("item.append(el('small', '', 'now'), el('span', `step-time step-list-time is-${line.tone}`, line.time))"))
   assert.ok(draw.includes('now.title = line.label'))
   assert.deepEqual([...html.slice(html.indexOf('id="workers-columns"'), html.indexOf('id="lanes"')).matchAll(/<span>([^<]*)<\/span>/g)].map(found => found[1]),
     ['Worker', 'Task', 'Progress', 'Left', 'Next in queue', ''])
@@ -137,6 +149,9 @@ test('4: the next step in the queue by its id and title, and why it waits; nothi
   assert.equal(page.nextInQueue([{ ...step, why: null }]).why, null)
   const lane = script.slice(script.indexOf('function drawLane('), script.indexOf("$('lanes').addEventListener('click'"))
   assert.ok(!lane.includes("'Queue (0)'"))
+  // Two lines at most, cut on the words' own box (a button ignores it); why it waits wraps with them.
+  assert.match(style, /\.queue-next \.queue-text \{[^}]*-webkit-line-clamp: 2/)
+  assert.match(style, /\.queue-next \.why \{[^}]*white-space: normal/)
 })
 
 // 5 Header
