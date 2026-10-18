@@ -94,7 +94,10 @@ person sent was copied, and into which chat to paste it.
   (notes and reports, each with **Read**) and **Open instructions** (the person's words per chat: missed ones red,
   closed ones grey with what came of them). B301: no card comes from a chat's words; a chat that wrote questions in
   its chat without filing an ask is a warning card, "<chat> wrote questions in its chat but filed no ask", with a
-  button to its chat (Talk to Main, the Advisor's chat, or a worker's answer in the card's window).
+  button to its chat (Talk to Main, the Advisor's chat, or a worker's answer in the card's window). B308: a worker
+  that holds a step, has ended its turn with nothing running and filed no ask, for more than 5 minutes, is a hint
+  card of the same kind, "<chat> holds B269 but is not working and asked you nothing: it may wait for you", one per
+  chat, with the button to its answer; it goes when the chat works again, files an ask or reports.
 - **On top:** a line when the work store is not there or cannot be read (B301: naming its folder and the command that
   makes it; the board then shows no work), or a file in it is broken (naming the file).
 - **The side, "Talk to Main"** (`02-talk-to-main.png`): the person's talk with the main chat: what they typed (also

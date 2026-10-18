@@ -1256,7 +1256,8 @@ and does not pretend.
   last answer ends with a "For you" block (`asksAtEnd`), it holds no open ask, and no ask of its own was filed or
   answered since that turn began. Needs your attention shows the warning "<chat> wrote questions in its chat but filed
   no ask" (kind `unfiled`), with a button to its chat: Talk to Main, the Advisor's chat on its tab, or, for a worker,
-  the card's window with its answer. The app's question form is filed by the mod as before, so it counts.
+  the card's window with its answer. The app's question form is filed by the mod as before, so it counts. (B308: a
+  worker that holds a step, is not working and asked nothing at all is a hint of its own; see below.)
 - **Kept, and why**: "Note from <name>: paused for the limit until HH:MM" (the store holds no pause; the lane shows
   "Suspended"); the closing block's "+ Done:   yes" (a card is the chat's own, not the store's: a chat that is done is
   free whatever its card says); "Note from"/"Question from" messages (the mod only notes that the worker waits for
@@ -1267,8 +1268,8 @@ and does not pretend.
   looks for the turn's start in the tail and the longer look back, and warns all the same, saying so, when it cannot
   tell; an open ask of an earlier turn keeps it quiet no more. The board notes what it sees ticked (`data/finished.json`)
   only from a store it can read, with each step's own time of its move to done (`seenFromState`), so a store read again
-  is no burst. A chat whose last answer closed with "Done: yes" while the store still holds its step is flagged on its
-  lane ("... run work report"), one flag per turn. Moving a queued step and taking it out of its queue are the API's
+  is no burst. (A flag for a chat whose last answer closed with "Done: yes" while the store still held its step, "...
+  run work report", was here until B308: it misread "Done: yes".) Moving a queued step and taking it out of its queue are the API's
   `requeue` (`for`) and `unqueue` (Main and the person; flow.json: queued → refined or new), called by the page's
   buttons; the words `move step` and `unqueue step` go. The Workers mod 0.13.1: the work tool knows them; no message
   is a report (`sentKind` goes); the compaction keeps the store's steps.
@@ -1295,6 +1296,28 @@ queued"; the refine gate sent the step to the Advisor, but the queue was lost, a
   (the guard in `guards.mjs`), in the default flow and `examples/work/flow.json`. When the flow did not let it at
   the refine, the reconciler names the move later and `advance` carries the wish out the same way.
 - **A refusal's "only ... may"** names the server only when nobody else makes that move ("only main queues a step").
+
+## A worker that holds a step and asked nothing (B308)
+
+Seen live on 2026-10-18: lanes showed "Board ended its turn with Done: yes but B269 is still in progress: run work
+report" (and for B280, and Support for B31). The steps really were open: a chat's closing "+ Done:   yes" says it did
+what that turn asked, not that its step is finished. Meanwhile Board waited for the person's look on B269 and B280,
+said so only in prose in its chat, filed no ask and wrote no "For you" block, so Needs your attention showed nothing.
+
+- **The "Done: yes" flag is gone** (kind `unreported` in `src/work/reconcile.mjs`, the lane field `saidDone`). Kept:
+  "Done: yes" still makes a chat free whatever its own card says (B148), and a step the store holds for it still holds
+  it; the `stuck` flag ("B<id>: <chat> holds it but is not running", with **Start <chat>**) stays, as it reads the
+  chat's process, not its words.
+- **The hint** (`idle hold` in `reconcile.mjs`, from the lane's `resting` in `state.mjs`): a worker (not the main chat;
+  the Advisor has no lane) that holds steps taken or in progress, whose turn has ended with nothing running (no
+  command or subagent it left in the background, read as `heldBy` reads it, so "Done: yes" overrules one), that is
+  not cut off or suspended, and that holds no open ask of its own, for longer than `IDLE_HOLD_MS` (5 min, in
+  `src/config.mjs`, from the later of its turn's end and its steps' Since): Needs your attention shows one line per
+  chat, "<chat> holds B269 and B280 but is not working and asked you nothing: it may wait for you" (kind `idle`), with
+  the button to its answer in the card's window, as the warning that a chat filed no ask has. It counts in the number
+  of Needs your attention as that warning does. It has no answered state: it goes when the chat runs again, files an
+  ask, or reports. A chat whose answer ends with a "For you" block and filed no ask has that warning instead, not both.
+  Nothing of the chat's words is read for it.
 
 ## The bridge
 
