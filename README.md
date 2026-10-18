@@ -6,28 +6,28 @@ Windows and the Claude desktop app.
 
 ## Install
 
-You need Windows and the Claude desktop app, signed in and opened once, and an invitation to this repository on
-GitHub (it is private). Paste these two lines into PowerShell; git asks you to sign in to GitHub once. Without git,
-first run `winget install --id Git.Git -e` and open a new PowerShell window. Node 24 is installed for you when it is
-missing.
-
-```powershell
-git clone https://github.com/bobduncan/Worker-board.git "$HOME\worker-board"
-Get-Content -Raw "$HOME\worker-board\tools\install.ps1" | iex
-```
-
-Should the repository ever be public, one line does it all, git included:
+You need Windows and the Claude desktop app, signed in and opened once. The board is on GitHub for anyone: paste
+this line into PowerShell.
 
 ```powershell
 irm https://raw.githubusercontent.com/bobduncan/Worker-board/main/tools/install.ps1 | iex
 ```
 
-It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node with
-winget (without the Claude app it says where to get it and stops). It takes the board you just got (press Enter at
-"Where should the board go?"), installs the Workers mod, and asks your first project's name, folder and chats'
-prefix: the project, its own board and its icon on the desktop are made, and its board opens with one button that sets
-up the project's chats. Run the second line again at any time: it checks what is there and redoes nothing; with a
-project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1` before it only checks.
+It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node and git
+with winget (without the Claude app it says where to get it and stops). It gets the board into a folder of your choice
+(press Enter at "Where should the board go?" for the one it offers), installs the Workers mod, and asks your first
+project's name, folder and chats' prefix: the project, its own board and its icon on the desktop are made, and its
+board opens with one button that sets up the project's chats. Run the line again at any time: it checks what is there
+and redoes nothing; with a project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1` before it only
+checks.
+
+To read the script before it runs, with git on the PC: get the board first and run the script from it (at "Where
+should the board go?", press Enter when it offers the folder you cloned into, or type that folder):
+
+```powershell
+git clone https://github.com/bobduncan/Worker-board.git "$HOME\worker-board"
+Get-Content -Raw "$HOME\worker-board\tools\install.ps1" | iex
+```
 
 ## What the board is
 
@@ -74,7 +74,8 @@ and the briefings for the main chat and the workers.
    cd worker-board
    npm test
    ```
-   → the tests end with `fail 0`. `npm run demo -- --port 4311` shows the page with made-up data, if you
+   → the tests end with `fail 0`. They run on at most half the PC's cores (`tools/test.mjs`), so the PC stays
+   usable meanwhile. `npm run demo -- --port 4311` shows the page with made-up data, if you
    want to look first (Ctrl+C ends it).
 3. **The Workers mod (optional).** The board carries it, in `mods\folder-branches` (B251). In the board's folder:
    ```
@@ -315,7 +316,7 @@ and kept in `data\`; it is never printed or logged.
   (`git push origin --delete <branch>`), and prune (`git fetch --prune`).
 - Never force-push main.
 - Nothing that holds words from a chat goes into the repository: `data\` stays ignored, and the tests keep made-up
-  samples. Look at what a commit adds before you push it: the people invited to the repository read it.
+  samples. Look at what a commit adds before you push it: the repository is public, anyone can read it.
 
 ## Not yet portable
 

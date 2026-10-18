@@ -2060,6 +2060,32 @@ work divides itself) and, on 2026-10-18, kept all six (Q109).
    were painted simply at the first try.
 4. Not served yet: the tour (B348) adds them to the page.
 
+## Public for anyone (B349)
+
+The person, 2026-10-18 20:35 (Q107): "its ok to keep it public", which takes back B323's private repository (Q53,
+Q72). The README's Install speaks to anyone: what you need (Windows and the Claude app), the one line that fetches the
+install script from GitHub and gets the board, git included, and the git clone for whoever wants to read the script
+first. Nothing in it says private or invited; the Git part reminds that anyone reads what is pushed. Not in it: a
+license file (Q53 left it out).
+
+## The help tour (B348)
+
+G26, the person's brainstorm of 2026-10-18 ("i want a help me button in top right of screen and when you first open
+the worker board"): help you can follow in a minute, its pictures the paintings of B347.
+
+1. A round **?** at the far right of the bar of tabs, so it is there on every tab, opens the tour at its first card.
+2. Six cards in a dialog over the page: the painting (16:9), "number · title", one or two plain lines naming the
+   board's own parts (Initialise, the Focus tab, Go, Needs your attention), a dot per card, Back and Next; the last
+   card's button says Done. The arrow keys move; × and Escape close at any time. The painting's alt text says what it
+   shows, since the painting has no words.
+3. It opens by itself at the first read of a browser that has not seen it, on a plain address only: a link from a chat
+   (a picture, a game, a step, a tab) shows what it links to, and the demo, whose pictures the chats take, never opens
+   it. Closing it keeps `help-seen` in the browser (one board per port, so each project's board shows it once); a
+   browser that keeps nothing is not shown it every time.
+4. On a phone (600 px or narrower) the card fills the screen, its buttons at the bottom.
+5. The server serves the six paintings by name (`/help/<name>.webp`), nothing else from their folder.
+6. Not in it: help texts inside the board's own parts.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

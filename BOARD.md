@@ -76,7 +76,17 @@ chats** (B311: Off, Gentle, Strong, one click each; when not Off, how many proce
 below normal"; "not available here" off Windows; a listing that failed is one red line on top), the board's
 version and since when, "Last updated", and a refresh button. When the board's folder holds a newer version, a
 yellow note on top says so; a click starts the new version. Without the Workers mod a bar on top says that what the
-person sent was copied, and into which chat to paste it.
+person sent was copied, and into which chat to paste it. At the far right a round **?** opens the help tour (below).
+
+## The help tour (B348)
+
+Six cards over the page, one painting each (`public/help/`, B347) with its number, title and one or two lines: 1 set
+up a project, 2 pick a goal as your focus, 3 agree its vibe and how with your partner, 4 the work divides itself, 5
+answer what needs you, 6 check the result. **Back** (not on the first card), **Next** (**Done** on the last), a dot per
+card to jump to it, the arrow keys, and **×** or Escape to close at any time. It opens by itself the first time a
+browser opens the board, on a plain address only: never over a link from a chat (`#picture=`, `#play=`, a step, a
+tab) and never on the demo; once closed, the browser keeps that it was seen (`help-seen`), and it opens only from the
+**?**. On a phone the card fills the screen, its buttons at the bottom.
 
 ## Overview (`01-overview.png`)
 

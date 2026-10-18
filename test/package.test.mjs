@@ -14,7 +14,7 @@ const readme = readFileSync(join(ROOT, 'README.md'), 'utf8')
 test('package.json names Node 24 or newer, the five scripts, and no dependencies', () => {
   assert.equal(pkg.engines.node, '>=24')
   // B251: the tests are the board's own: the Workers mod's tests in mods/ run in its own test kit, not in Node's.
-  assert.deepEqual(pkg.scripts, { start: 'node server.mjs', demo: 'node server.mjs --demo', test: 'node --test "test/**/*.test.mjs"', setup: 'node setup.mjs', new: 'node tools/new-project.mjs' })
+  assert.deepEqual(pkg.scripts, { start: 'node server.mjs', demo: 'node server.mjs --demo', test: 'node tools/test.mjs', setup: 'node setup.mjs', new: 'node tools/new-project.mjs' })
   assert.equal(pkg.private, true)
   assert.deepEqual([pkg.dependencies, pkg.devDependencies], [undefined, undefined])
   assert.ok(Number(process.versions.node.split('.')[0]) >= 24, 'the Node running these tests is the one package.json asks for')
