@@ -902,6 +902,15 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     return { title: part.title, size: part.size, state, owner, done, total: known.length, ...(isHandout ? { waitsSince: since.length > 0 ? Math.max(...since) : null } : {}), ...(fix === null ? {} : { fixFirst: fix }) }
   })
   const left = parts.filter(part => part.state !== 'done').map(part => sizeMinutes(part.size)).filter(one => one !== null)
+  // B343: the goal's steps one by one, for the simple Overview: its parts' in order, then its own ("Steps:"), each once;
+  // a step the store does not hold, or one dropped, is not listed.
+  const stepList = [...new Set([...node.parts.flatMap(part => part.steps), ...node.steps])]
+    .map(id => steps.get(id)).filter(one => one !== undefined && one.head.get('State') !== 'dropped')
+    .map(one => {
+      const state = FINISHED.includes(one.head.get('State')) ? 'done' : UNDER_WAY.includes(one.head.get('State')) ? 'now' : 'next'
+      const owner = String(one.head.get('Owner') ?? '').replace(prefix, '').trim() || null
+      return { id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state, owner: state === 'done' ? null : owner }
+    })
   const own = (threads ?? []).filter(one => one.goal?.id === node.id)
   const thread = own.find(one => one.state === 'running') ?? (threads ?? []).find(one => one.path === node.brainstorm?.path) ?? own[0] ?? null
   return {
@@ -912,6 +921,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     vibePicture: node.vibePicture,
     vibeAgreed: node.vibeAgreed,
     parts,
+    steps: stepList,
     partnerDecides: node.partnerDecides,
     youDecide: node.youDecide,
     howAgreed: node.howAgreed,

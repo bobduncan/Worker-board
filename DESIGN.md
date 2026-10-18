@@ -1758,6 +1758,23 @@ make Information smaller or bigger. Nothing is gone: what leaves a row is in its
 6. The top bar: CPU for the chats, its processes and the board's version sit behind ⚙ (`#settings`), whose tooltip says
    the level and the version; a click elsewhere or Escape folds it; on a phone it opens across the screen.
 
+## The simple Overview (B327, B343)
+
+The Overview opens on Simple; Details, beside the title, is the Overview as it was, and the browser keeps the choice.
+B327 made Simple one narrow column; the person rejected it (Q70, 2026-10-18: "i expected it to be wider ... I want the
+workers and maybe what the current focus is with the tasks"). Since B343, after the agreed drawing
+(art-inbox/board-highover/simple-wide.png):
+1. The page's full width: the title and the bar on top (the focus goal by its id and title, its steps done and the
+   time left; the workers busy; the 5-hour limit and its reset), then three columns. Below 1100 px they stack.
+2. Your focus: its steps. The state's `focus.steps` (state.mjs focusState): the goal's steps one by one, its parts' in
+   order and then its own, each Done, Working or Next with its worker; the one at work also with its worker's time
+   left, read from that worker's lane while it works on that step. A step the store does not hold, or one dropped,
+   is not listed.
+3. Workers: every chat of the list but leftovers, with its step, a bar of its steps and its time left; one without work
+   says in a few words why (free, blocked, paused until 19:23, not running, cut off).
+4. Needs your attention as in Details, without "From the backlog", "Open instructions", the closed cards and the order
+   and closed switches: those stay under Details.
+
 ## Two projects side by side (B319)
 
 Two projects, each with its own copy of the board, run at once on one PC and never meet. The person, 2026-10-18 15:23:
@@ -1911,8 +1928,8 @@ click, then Enter.
    ready. The board knows the chat by its title, so it shows within a minute; the main chat is then asked for workers
    as before.
 3. Where they are: without a main chat, the box "No main chat yet" holds the buttons in place of the steps by hand;
-   with one and no Advisor, a box of its own above the workers; on the simple view (B327), which hides the workers,
-   under its bar. Each button has "Copy its first words" beside it, for when the app does not open from the link, and
+   with one and no Advisor, a box of its own above the workers; on the simple view (B327), whose workers column
+   (B343) has no buttons, under its bar. Each button has "Copy its first words" beside it, for when the app does not open from the link, and
    says for five minutes after its click that the chat was opened (review: no second chat unknowingly). The Advisor is
    offered only while the project is new (no worker yet) and never under the main chat's name; nothing without a
    prefix. Paths in the first words are written as the board's folder writes them.

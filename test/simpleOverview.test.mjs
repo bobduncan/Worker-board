@@ -24,15 +24,16 @@ const FOCUS = { id: 'G12', title: 'The loop is fun', stage: 'run', progress: { d
 
 test('the bar: the focus goal, its steps done and the time left, as the Focus page counts them', () => {
   const view = page.simpleView({ focus: FOCUS, counts: {}, limits: null }, AT)
-  assert.equal(view.bar.text, 'Focus G12 · 1 of 6 steps done · about 14 h left')
+  // B343: with the goal's title
+  assert.equal(view.bar.text, 'Focus G12 · The loop is fun · 1 of 6 steps done · about 14 h left')
   assert.equal(view.bar.percent, 17)
   assert.equal(view.bar.title, 'G12 · The loop is fun')
   // a goal done has no time left; a goal without steps is at 0
-  assert.equal(page.simpleView({ focus: { ...FOCUS, stage: 'done', progress: { done: 6, total: 6, minutesLeft: 0 } } }, AT).bar.text, 'Focus G12 · 6 of 6 steps done')
+  assert.equal(page.simpleView({ focus: { ...FOCUS, stage: 'done', progress: { done: 6, total: 6, minutesLeft: 0 } } }, AT).bar.text, 'Focus G12 · The loop is fun · 6 of 6 steps done')
   assert.equal(page.simpleView({ focus: { ...FOCUS, progress: { done: 0, total: 0, minutesLeft: null } } }, AT).bar.percent, 0)
   // before the run the Focus page shows no progress: the bar says the stage, without a count
-  assert.deepEqual(plain(page.simpleView({ focus: { ...FOCUS, stage: 'vibe', progress: { done: 0, total: 0, minutesLeft: null } } }, AT).bar), { text: 'Focus G12 · agreeing the vibe', percent: null, title: 'G12 · The loop is fun' })
-  assert.equal(page.simpleView({ focus: { ...FOCUS, stage: 'how' } }, AT).bar.text, 'Focus G12 · agreeing the how')
+  assert.deepEqual(plain(page.simpleView({ focus: { ...FOCUS, stage: 'vibe', progress: { done: 0, total: 0, minutesLeft: null } } }, AT).bar), { text: 'Focus G12 · The loop is fun · agreeing the vibe', percent: null, title: 'G12 · The loop is fun' })
+  assert.equal(page.simpleView({ focus: { ...FOCUS, stage: 'how' } }, AT).bar.text, 'Focus G12 · The loop is fun · agreeing the how')
   // no focus: no bar (B328 counts the next milestone then)
   assert.equal(page.simpleView({ focus: null }, AT).bar, null)
 })
@@ -69,8 +70,9 @@ test('the page has the switch, the bar, and styles that show only the simple par
   }
   assert.match(css, /#view-overview\[data-mode="details"\] #simple-bar/)
   assert.match(script, /localStorage[^\n]*overview-mode|overview-mode[^\n]*localStorage/)
-  // the width does not follow the Needs list; a click holds without storage; the view is set before the first read
-  assert.match(css, /#view-overview\[data-mode="simple"\]:not\(\[hidden\]\) \{[^}]*width: min\(860px, 100%\)/)
+  // the width does not follow the Needs list (B343: the full width, in a grid); a click holds without storage; the view
+  // is set before the first read
+  assert.match(css, /#view-overview\[data-mode="simple"\]:not\(\[hidden\]\) \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/)
   assert.match(script, /overviewChosen = overviewMode\(button\.dataset\.overviewMode\)/)
   assert.match(script, /\n\/\/ The chosen view from the start, before the board is first read\.\nshowOverviewMode\(\)/)
 })

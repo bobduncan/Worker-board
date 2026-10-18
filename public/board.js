@@ -517,7 +517,51 @@ function drawSimpleOverview(state) {
   const setup = setupChat(state)
   if (setup !== null) parts.push(setupBox(setup, hasOtherChats(state)))
   fill($('simple-bar'), parts)
+  drawSimpleColumns(state)
   showOverviewMode()
+}
+
+/** B343: the simple view's two columns beside Needs your attention: the focus goal's steps, and the workers. */
+function drawSimpleColumns(state) {
+  const steps = simpleSteps(state.focus ?? null, state.chats ?? [], state.readAt)
+  const focusHead = el('h2', 'simple-col-head', 'Your focus: its steps')
+  if (steps !== null) focusHead.append(el('small', 'muted', steps.goal))
+  const focusRows = steps === null ? [el('p', 'simple-none', 'No goal is your focus yet.')]
+    : steps.empty !== null ? [el('p', 'simple-none', steps.empty)]
+      : steps.rows.map(row => {
+        const line = el('div', `simple-row is-${row.tone}`)
+        const what = el('span', 'simple-what clip')
+        what.append(el('b', 'task-code', row.id), ' ', row.title)
+        what.title = `${row.id} ${row.title}`
+        line.append(el('span', `simple-state is-${row.tone}`, row.chip), what, el('span', 'simple-who', row.who ?? ''))
+        return line
+      })
+  fill($('simple-focus'), [focusHead, ...focusRows])
+  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt)
+  const workersHead = el('h2', 'simple-col-head', 'Workers')
+  workersHead.append(el('small', 'muted', workers.busy))
+  const workerRows = workers.rows.map(row => {
+    const line = el('div', `simple-row simple-worker is-${row.tone}`)
+    const middle = el('div', 'simple-task')
+    if (row.task === null) middle.append(el('span', 'muted', row.left))
+    else {
+      const what = el('span', 'simple-what clip')
+      if (row.code !== null) what.append(el('b', 'task-code', row.code), ' ')
+      what.append(row.task)
+      what.title = row.code === null ? row.task : `${row.code} ${row.task}`
+      middle.append(what)
+      if (row.percent !== null) {
+        const track = el('div', 'simple-track is-small')
+        const fillBar = el('span', '')
+        fillBar.style.width = `${row.percent}%`
+        track.append(fillBar)
+        middle.append(track)
+      }
+    }
+    line.append(el('b', 'simple-name', row.name), middle, el('b', 'simple-left', row.task === null ? '' : row.left))
+    return line
+  })
+  fill($('simple-workers'), [workersHead, ...(workerRows.length > 0 ? workerRows : [el('p', 'simple-none', 'No chats on the board yet.')])])
 }
 
 /**
@@ -918,7 +962,9 @@ function infoHeightFit(height, room) {
 // simpleoverview:start
 // B327: the Overview opens on a simple view (the person's four answers of 2026-10-18, brainstorm "Board easier day to
 // day"): one bar for the focus goal, how many workers are busy, the
-// 5-hour limit with its reset, and Needs your attention. Today's Overview is one click away under Details.
+// 5-hour limit with its reset, and Needs your attention. Today's Overview is one click away under Details. B343 (the
+// person's Q70): the full width, and under the bar three columns, the focus goal's steps, the workers, and Needs your
+// attention without the backlog, the instructions and what is closed (the agreed drawing "simple-wide").
 
 /**
  * What the simple view's bar and chips say. `focus`: the state's (null: none); `counts`: the head's counts (state.counts);
@@ -932,13 +978,14 @@ function simpleView({ focus = null, counts = {}, limits = null } = {}, now = Dat
   if (focus !== null && focus !== undefined && focus.stage !== 'run' && focus.stage !== 'done') {
     // the Focus page shows no progress before the run either
     const doing = focus.stage === 'how' ? 'agreeing the how' : 'agreeing the vibe'
-    bar = { text: `Focus ${focus.id} · ${doing}`, percent: null, title: `${focus.id} · ${focus.title}` }
+    bar = { text: `Focus ${focus.id} · ${focus.title} · ${doing}`, percent: null, title: `${focus.id} · ${focus.title}` }
   } else if (focus !== null && focus !== undefined) {
     const progress = focus.progress ?? { done: 0, total: 0, minutesLeft: null }
     const { done, total } = progress
     const left = focus.stage === 'done' ? null : focusTimeLeft(progress.minutesLeft)
     bar = {
-      text: `Focus ${focus.id} · ${done} of ${total} steps done${left === null ? '' : ` · about ${left} left`}`,
+      // B343: with the goal's title, as the agreed drawing has it
+      text: `Focus ${focus.id} · ${focus.title} · ${done} of ${total} steps done${left === null ? '' : ` · about ${left} left`}`,
       percent: total === 0 ? 0 : Math.round((done / total) * 100),
       title: `${focus.id} · ${focus.title}`,
     }
@@ -955,6 +1002,65 @@ function simpleView({ focus = null, counts = {}, limits = null } = {}, now = Dat
   }
   void now
   return { bar, busy: { text: `${busy} of ${all} workers busy`, isBusy: busy > 0 }, limit }
+}
+
+/** B343: a working chat's time left in a few words ("1 h 50", "10 min over"), or null when it gave none. */
+function simpleLeft(lane, now) {
+  const eta = lane.eta ?? null
+  if (lane.state !== 'working' || eta === null) return null
+  return eta.isOverdue === true || eta.isOver === true ? `${span(now - eta.at)} over` : span(eta.leftMs)
+}
+
+/**
+ * B343 (the person's Q70: "I want the workers and maybe what the current focus is with the tasks"): the simple view's
+ * first column, the focus goal's steps one by one (state.focus.steps): Done, Working or Next, who is on it, and for the
+ * one at work its worker's time left (that worker's lane, while it works on that step). `empty` says why there are
+ * none yet. Null without a focus.
+ */
+function simpleSteps(focus, chats = [], now = Date.now()) {
+  if (focus === null || focus === undefined) return null
+  const chips = { done: 'Done', now: 'Working', next: 'Next' }
+  const rows = (focus.steps ?? []).map(step => {
+    const lane = step.state !== 'now' || step.owner === null ? null : (chats ?? []).find(one => one.name === step.owner
+      && one.state === 'working' && [null, step.id].includes(laneTaskOf(one).code)) ?? null
+    const left = lane === null ? null : simpleLeft(lane, now)
+    const who = step.owner === null ? null : left === null ? step.owner : `${step.owner} · ${left}`
+    return { id: step.id, title: step.title, chip: chips[step.state] ?? 'Next', tone: chips[step.state] === undefined ? 'next' : step.state, who }
+  })
+  return { goal: focus.id, rows, empty: rows.length > 0 ? null : 'No steps yet: your partner makes them once you agree the how.' }
+}
+
+/** B343: what a chat's row says in place of its time when it does not work: a few plain words. */
+function simpleIdle(lane) {
+  if (lane.state === 'free') return 'free'
+  if (lane.state === 'working') return 'working'
+  if (lane.state === 'waiting') return 'blocked'
+  if (lane.state === 'suspended') return Number.isFinite(lane.suspended?.until) ? `paused until ${clock(lane.suspended.until)}` : 'paused'
+  if (lane.state === 'off') return 'not running'
+  if (lane.state === 'interrupted') return 'cut off'
+  return String(lane.state ?? '')
+}
+
+/**
+ * B343: the simple view's second column, the workers: each chat of the list (no leftover) with the step it is on, a bar
+ * of its steps and its time left; one without work says so in a few words. `busy`: "4 of 5 busy", by the head's counts.
+ */
+function simpleWorkers(chats = [], counts = {}, now = Date.now()) {
+  const all = Object.values(counts ?? {}).reduce((sum, n) => sum + (Number.isFinite(n) ? n : 0), 0)
+  const rows = (chats ?? []).filter(lane => lane.isLeftover !== true).map(lane => {
+    const task = lane.task ?? null
+    const { code, text } = task === null ? { code: null, text: null } : laneTaskOf(lane)
+    const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
+    return {
+      name: lane.name,
+      code,
+      task: text,
+      percent: hasSteps ? Math.round(Math.max(0, Math.min(1, task.step / task.steps)) * 100) : null,
+      left: simpleLeft(lane, now) ?? simpleIdle(lane),
+      tone: lane.state,
+    }
+  })
+  return { busy: `${counts?.working ?? 0} of ${all} busy`, rows }
 }
 
 /** The Overview's view: the person's choice kept in this browser, Simple unless they chose Details. */
