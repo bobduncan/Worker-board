@@ -481,6 +481,8 @@ async function main(args) {
       // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
+      // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
+      chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
