@@ -22,7 +22,7 @@ const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// focus:start'), script.indexOf('// focus:end'))}
 ${script.slice(script.indexOf('// coordinate:start'), script.indexOf('// coordinate:end'))}
-Object.assign(this, { advisorPartsShown, coordinateList, focusTalk, focusView, goalStepIds })`, made)
+Object.assign(this, { advisorPartsShown, coordinateList, focusAsk, focusCan, focusTalk, focusView, goalStepIds })`, made)
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
 
@@ -123,8 +123,9 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   assert.deepEqual(vibe.strip, [{ n: 1, label: 'The vibe', state: 'now' }, { n: 2, label: 'The how', state: 'next' }, { n: 3, label: 'The run', state: 'next' }])
   assert.equal(vibe.progress, null)
   assert.deepEqual(vibe.vibe, { title: 'The vibe so far', sub: 'draft, written by your partner', lines: ['you sit down without thinking', 'warm wood, never metal'], picture: 'pictures/bench.png', empty: null })
+  // Read-only (no partner, or a board that only shows): drawn, off, with why.
   assert.deepEqual(vibe.buttons.map(one => [one.label, one.isEnabled]), [['This is the vibe', false], ['Not yet', false]])
-  assert.ok(vibe.buttons.every(one => one.title === 'comes in the next part'))
+  assert.ok(vibe.buttons.every(one => one.title === 'This board only shows.'))
   const how = page.focusView(stateOf(map(AGREED, HOW)), goalsOf(map()))
   assert.equal(how.stage, 'how')
   assert.equal(how.head.vibeLine, 'you sit down without thinking · warm wood, never metal')
@@ -168,6 +169,7 @@ test('pick: no focus lists the open goals of the map to choose from; done asks f
   ])
   assert.equal(pick.pick.question, 'What do you want to work on?')
   assert.equal(pick.pick.isEnabled, false)
+  assert.equal(page.focusView(null, goalsOf(map()), { canWrite: true, whyNot: null }).pick.isEnabled, true)
   const done = page.focusView(stateOf(map().replace('- [~] G2', '- [x] G2')), goalsOf(map().replace('- [~] G2', '- [x] G2')))
   assert.equal(done.stage, 'done')
   assert.deepEqual(done.strip.map(one => one.state), ['done', 'done', 'done'])
@@ -210,4 +212,50 @@ test('the part has its place in the page: a section, its styles, and the tab nam
   assert.match(html, /data-tab="advice"><span class="tab-long">Focus<\/span><span class="tab-short">Focus<\/span><\/button>/)
   assert.match(css, /#view-advice\[data-pane="focus"\] > \.advisor-focus/)
   assert.match(script, /once\('focus', /)
+})
+
+const CAN = { canWrite: true, whyNot: null }
+
+test('Focus 2: the moves work on a board that writes, with a partner; each button says what it does or why not', () => {
+  assert.deepEqual(page.focusCan({ advisor: null, goalsEdit: { canWrite: true } }), { canWrite: false, whyNot: 'No partner chat is on the board: the setting advisor names none.' })
+  assert.deepEqual(page.focusCan({ advisor: { name: 'Partner' }, goalsEdit: { canWrite: false, whyNot: 'This board only shows. Change the map there.' } }), { canWrite: false, whyNot: 'This board only shows. Change the map there.' })
+  assert.deepEqual(page.focusCan({ advisor: { name: 'Partner' }, goalsEdit: { canWrite: true, whyNot: null } }), CAN)
+  const vibe = page.focusView(stateOf(map()), goalsOf(map()), CAN)
+  assert.deepEqual(vibe.buttons, [
+    { label: 'This is the vibe', act: 'vibe-agree', isEnabled: true, title: 'Agreed: your partner proposes the how next' },
+    { label: 'Not yet', act: 'vibe-not-yet', isEnabled: true, title: 'Say what is missing: your partner goes on talking' },
+  ])
+  // No vibe written yet: nothing to agree to.
+  const bare = page.focusView(stateOf(map().replace(/ {4}Vibe.*\n/g, '')), goalsOf(map()), CAN)
+  assert.deepEqual(bare.buttons.map(one => [one.act, one.isEnabled, one.title]), [['vibe-agree', false, 'Your partner writes the vibe here first, while you talk'], ['vibe-not-yet', true, 'Say what is missing: your partner goes on talking']])
+  const how = page.focusView(stateOf(map(AGREED, HOW)), goalsOf(map()), CAN)
+  assert.deepEqual(how.buttons.map(one => [one.label, one.act, one.isEnabled]), [['Go', 'how-go', true], ['Not yet', 'how-not-yet', true]])
+  assert.deepEqual(page.focusView(stateOf(map(AGREED)), goalsOf(map()), CAN).buttons.map(one => one.isEnabled), [false, true])
+  assert.deepEqual(page.focusView(stateOf(map(AGREED, HOW, RUN)), goalsOf(map()), CAN).buttons, [])
+  const pick = page.focusView(null, goalsOf(map()), CAN)
+  assert.deepEqual([pick.pick.isEnabled, pick.pick.title], [true, 'Make it your focus: you and your partner agree its vibe first'])
+})
+
+test('Focus 2: the talk answers the partner\'s open question here, as the Brainstorm part does; else it says who has the turn', () => {
+  assert.deepEqual(page.focusAsk(threads[0], { name: 'Partner', isRunning: true }), { question: { n: 3, why: null, picture: null, options: [] }, waiting: null })
+  const answered = brainstormsState([{ path: 'talks/b.md', text: THREAD + 'Answer (09:06): Other — no\n', at: 1 }], 'talks').threads[0]
+  assert.deepEqual(page.focusAsk(answered, { name: 'Partner', isRunning: true }), { question: null, waiting: 'Your partner is thinking…' })
+  assert.equal(page.focusAsk(answered, { name: 'Partner', isRunning: false }).waiting, 'Your partner\'s chat is not running: the main chat is asked to start it.')
+  assert.equal(page.focusAsk(answered, null).waiting, 'No partner chat is on the board.')
+  const withOptions = brainstormsState([{ path: 'talks/c.md', text: THREAD.replace('## Q3 (09:05)\nAnything else?\n', '## Q3 (09:05)\nHow heavy?\nWhy: it sets the sound.\n- A: a thud (advised)\n- B: a crack\nPicture: pictures/hits.png\n'), at: 1 }], 'talks').threads[0]
+  assert.deepEqual(page.focusAsk(withOptions, { name: 'Partner' }).question, { n: 3, why: 'it sets the sound.', picture: 'pictures/hits.png', options: [{ key: 'A', text: 'a thud', isAdvised: true }, { key: 'B', text: 'a crack', isAdvised: false }] })
+  const over = brainstormsState([{ path: 'talks/d.md', text: THREAD.replace('State: running', 'State: done'), at: 1 }], 'talks').threads[0]
+  assert.equal(page.focusAsk(over, { name: 'Partner' }).waiting, 'This talk is over: pick the goal again to start a new one.')
+  assert.equal(page.focusAsk(null, { name: 'Partner' }).question, null)
+})
+
+test('Focus 2: the page sends its moves to /api/goals and the talk\'s answers as the Brainstorm part does', () => {
+  assert.match(script, /fetch\('\/api\/goals', \{ method: 'POST'/)
+  assert.match(script, /command: 'focus', id: goal/)
+  assert.match(script, /command: 'focus', text: words\('new'\)/)
+  assert.match(script, /command: 'brainstorm-answer', thread: path, n/)
+  assert.match(script, /fetch\('\/api\/brainstorm', \{ method: 'POST'[^\n]+command: 'answer', path, n/)
+  assert.doesNotMatch(script.slice(script.indexOf('function focusView'), script.indexOf('// focus:end')), /comes in the next part'\)/)
+  assert.match(css, /\.focus-option\b/)
+  assert.match(css, /\.focus-note\b/)
 })
