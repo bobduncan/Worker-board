@@ -1160,6 +1160,19 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .step-state.is-queued { color: #cfe0ff; border-color: #2a4a7d; }
 .step-state.is-you { color: var(--ink); background: var(--waiting); border-color: var(--waiting); font-weight: 700; }
 .step-row.is-done .step-title { text-decoration: line-through; color: var(--muted); }
+/* B302: with "One list" off, the goals of the goal map as folding headers, nested by depth; their steps under them. */
+.coordinate-group.is-goals { padding-top: 4px; }
+.goal-head { width: 100%; display: flex; align-items: baseline; gap: 8px; padding: 8px 10px 8px calc(10px + var(--depth, 0) * 18px); text-align: left; font: inherit; font-size: 14px; font-weight: 600; color: var(--text); background: none; border: 0; border-top: 1px solid var(--line); cursor: pointer; }
+.goal-head:first-child { border-top: 0; }
+.goal-head:hover, .goal-head:focus-visible { background: var(--inset); outline: 0; }
+.goal-head.is-root { background: #121c2c; font-size: 15px; font-weight: 700; }
+.goal-head.is-milestone .goal-title { font-weight: 700; }
+.goal-head.is-none .goal-title { color: var(--waiting); }
+.goal-fold { width: 12px; color: var(--muted); }
+.goal-id { font-weight: 700; color: #7fb0ff; }
+.goal-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-count { font-size: 12.5px; font-weight: 400; color: var(--muted); white-space: nowrap; }
+.goal-steps > .step-row { padding-left: calc(10px + var(--depth, 0) * 18px); }
 /* B181: "Add to queue" on a step nobody has, over the row's last column, beside the row's own button */
 .step-line { position: relative; }
 .step-line > .step-queue { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }

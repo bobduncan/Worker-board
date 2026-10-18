@@ -204,6 +204,17 @@ Since B179 the tab opens as one list unless this browser turned the checkbox off
 away and back with a click on its head (a button that says whether the list is open), also kept in this browser.
 The person, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
 default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.jpg`.
+Since B302 the tab without "One list" groups the steps by the goal map, no longer by activity (the person,
+2026-10-17: "that these categories are the same as the goals/milstones the advisors knows"; of two pictures they
+chose A, nested as on the goal map). Each goal is a header with its G id, its title and how many of the steps shown
+under it are open ("· N done" too with "Show finished"), indented under its parent; its own steps first, then its
+goals. An id twice in the map counts once, the first, as everywhere on the board; a milestone is a goal taken from a
+part of the game plan other than its goal; the keyboard stays on a header when the list is drawn anew. A step stands
+under the first goal of the map whose `Steps:` names it; the rest, and the steps without an id, end the list under
+"Not under a goal". The roots and the milestones stand open, the other goals folded; a click on a header folds or
+unfolds it, kept in this browser. A goal with nothing shown under it is left out, so the filters, the search and
+"Show finished" work as before; each row keeps its activity in its hint. Without a goal map the tab groups by
+activity as before (`goalRows`, `drawGoalRows`). The picture: `art-inbox/worker-board/b302/2026-10-18-b302-backlog-by-goal.png`.
 Since B180 the search and the two checkboxes are one group at the end of the head, after the longer "Needs your
 attention" filter: at the board's usual width (1280 px and wider) the head is one line; narrower, the group moves to
 the next line whole, the two checkboxes side by side, never one alone. A step's state stays on one line. The picture:
