@@ -1109,7 +1109,12 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   main chat or the Advisor, in whose chat the person answered it; the person's words are required, and History says
   "<chat>: answered in its chat by the person: <words>"; a step that waited on it goes on as with the board's answer.
   Only the main chat withdraws such an ask, with a why. A worker closes only its own asks; an ask with an asking chat
-  stays that chat's. On the board, a form's question
+  stays that chat's.
+  B305: what a step's `Blocked by` names no longer holds it once it is done or dropped (a step) or answered or withdrawn
+  (an ask), for the board's delivery and for `next`. The guard is split: the board's move queued → taken (its wake of
+  the Owner) keeps "Blocked by all done and Owner free"; the worker's own `take` is the flow's move by the worker,
+  "Blocked by all done", so a chat still holding a step takes its next one. A flow.json without that move (made
+  before B305) keeps the board's move for `take`, the taking chat counted free; a refused take names what is open. On the board, a form's question
   whose chat does not run has a **Withdraw** button. `answer` (the person) names the ask's own
   id, so an answer given after the chat moved on answers that ask and no later one; a look takes approve or reject
   (with words), a do takes done; the answer says whom to wake (`wake`). `read` puts a note away.

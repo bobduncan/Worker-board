@@ -10,7 +10,7 @@ import { minutesOf } from '../backlog.mjs'
 import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
-import { CLEARED, overlapsIn } from './guards.mjs'
+import { blockersOpen, CLEARED, overlapsIn } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
@@ -259,9 +259,14 @@ async function take(body, w) {
   }
   if (state === 'queued') {
     if (owner === null || !isOwner(item, w.who, w.prefix)) return refuse(409, `${id} is queued for ${owner ?? 'nobody'}, not for ${w.who}.`)
-    // No reconciler moves it yet (increment 5): the chat that takes it is free for it.
-    const taken = move(item, 'taken', 'server', w, flowCtx(w, [item], [w.who]), ` (for ${w.who})`)
-    if (!taken.ok) return taken
+    // B305: the chat takes its own queued step once what blocks it is resolved (the flow's move by the worker), also
+    // while it still holds another. A flow.json without that move: the board's move, the chat taking it counted free.
+    const byChat = (w.store.flow.step?.moves ?? []).some(one => one.from === 'queued' && one.to === 'taken' && (Array.isArray(one.by) ? one.by : [one.by]).includes(w.role))
+    const taken = byChat ? move(item, 'taken', w.role, w) : move(item, 'taken', 'server', w, flowCtx(w, [item], [w.who]), ` (for ${w.who})`)
+    if (!taken.ok) {
+      const open = blockersOpen(item, flowCtx(w, [item])).map(one => `${one} is ${stateOf(w.store.items.get(one) ?? { head: new Map() }) ?? 'not in the store'}`)
+      return open.length === 0 ? taken : refuse(taken.status, `${taken.why}: ${open.join(', ')}`)
+    }
     item = taken.item
   }
   const started = move(item, 'in progress', w.role, w)

@@ -121,7 +121,8 @@ test('storeBacklog: the store as the backlog the board shows, with its line; an 
 test('the step window carries the flow strip and the item as the store holds them', () => {
   const work = storeFromText(BACKLOG, { now: NOW })
   const flow = flowOfStep(work, 'B10')
-  assert.deepEqual([flow.state, flow.states.length, flow.next.map(move => move.to)], ['queued', 9, ['taken', 'refined', 'new', 'done', 'dropped']])
+  // B305: two moves to taken: the board's delivery to a free Owner, and the worker's own take.
+  assert.deepEqual([flow.state, flow.states.length, flow.next.map(move => move.to)], ['queued', 9, ['taken', 'taken', 'refined', 'new', 'done', 'dropped']])
   assert.match(flowOfStep(work, '1:0').id, /^L-[0-9a-f]{8}$/)
   assert.equal(flowOfStep(work, '1:0').state, 'done')
   assert.deepEqual(flowOfStep(work, 'B13').states, ['open', 'answered', 'withdrawn'])

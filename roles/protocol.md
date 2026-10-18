@@ -53,7 +53,7 @@ tool answers with the record: work from it, not from a message.
 | The call | Who, by the default flow | What it does |
 |---|---|---|
 | `work next` | any chat | your open instructions, then your steps by state, each in one line; the first in full |
-| `work take B<id>` (`branch`) | a worker | a step queued for you: taken, then in progress, on that branch; names your card after it. A step in progress that names nobody is claimed by the worker on it |
+| `work take B<id>` (`branch`) | a worker | a step queued for you: taken, then in progress, on that branch; names your card after it. It needs only what the step is blocked by resolved (a step done or dropped, an ask answered or withdrawn), also while you still hold another step; a refusal names what is still open. A step in progress that names nobody is claimed by the worker on it |
 | `work step B<id>` (`step`, `names`, `minutes`, `stepMinutes`) | a worker | the step of your plan you are on: one History line, and your card |
 | `work ask` (`of`, `kind` decide, look, provide or do, `blocking`, `text`, `options`, `pictures`, `play`) | any chat | something only the person can do, `Q<n>` under the step; blocking moves the step to waiting on you. It answers the "For you" block for your answer |
 | `work withdraw Q<id>` (`why`) | the chat that asked; for an ask with no asking chat (carried over from the old backlog), the main chat, with a why | the ask is withdrawn; a step that waited only on it goes on. A step waiting on you is reported only after its asks are answered or withdrawn |
