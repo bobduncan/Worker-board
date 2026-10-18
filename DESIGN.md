@@ -14,7 +14,7 @@ workers and its own folders. The board as it is now, in general words:
 
 - How to set the board up and its settings: `README.md`.
 - The jobs of the chats the board works with, and the words they share with it: `roles/` (`main.md`,
-  `worker.md`, `advisor.md`, `protocol.md`).
+  `worker.md`, `partner.md` (the Advisor's, since Focus 2), `protocol.md`).
 - How the board was freed from its first project, and which mods it needs: `ANY-PROJECT-PLAN.md`, `MODS.md`.
 - What the board does and how it looks, to build it again: `BOARD.md` (B184).
 
@@ -260,7 +260,7 @@ item so it's not lost." Of three mock-ups they chose A (`art-inbox/board-refine/
 a step that is not finished has a "Refine" part under its description and a "Refine" button in its foot. The board
 types "refine step", "Step: <id> <title>" and "Round: <n>" into the Advisor's chat (the settings' `advisor`; without
 one the button says so), marked as typed on the worker board; a chat that is not running is started by the main chat,
-as for the person's other words. The Advisor writes the step's refine block under its lines (roles/advisor.md):
+as for the person's other words. The Advisor writes the step's refine block under its lines (roles/partner.md):
 "Refined (round <n>, by <name>, <date time>):", then "Problem:", "Goal:", "Questions:" with a point per question.
 The window shows the block apart from the step's other lines, with a box per question and one for feedback; "Send
 answers · refine again" writes the answers behind their questions (" Answer: ...") and the feedback as "- Round <n>:
@@ -286,7 +286,7 @@ that doesnt read like it was in progress text." The block now holds "Summary:", 
 it shows, or "none (why)"), "Part of:" (its goal and milestone) and "Size:", and while refining one-line questions
 with " Advised: yes|no, <why>" behind them. Once every answer is folded in, the Advisor writes it as "Refined (<date
 time>; ready):" with "What we build:" (points; "Not in it: ..." among them) and no questions, feedback or round
-(roles/advisor.md). The window's head shows the goal, the size and "N questions for you" or a green "Ready" in place of
+(roles/partner.md). The window's head shows the goal, the size and "N questions for you" or a green "Ready" in place of
 "Step". While refining, the box shows the summary, the picture as a thumbnail with "Open the picture ↗", and a line
 per question: the advice (its reason on hover) and Yes / No; a pick is kept until it is sent, a second click takes it
 back. "Send answers" writes the picks and the feedback and asks the next round; "Take the advice" (in place of "Accept
@@ -384,7 +384,7 @@ words did not ask for. The picture: `art-inbox/ideas/i-want-a-place/2026-10-14-b
 **The Advisor (B173).** Step 1 of the design the person approved on 2026-10-14
 (`.claude/specs/2026-10-14-advisor-design.md` in the project). Their rule: "information needed for how the advisor
 behavies is part of the worker board, but informaion i give it and what goes from there needs to be stored in the game
-repo itself." So the job description, in general words, is the board's `roles/advisor.md`. What one project sets is
+repo itself." So the job description, in general words, is the board's `roles/partner.md`. What one project sets is
 in `config.json`: `backlog`, `gamePlan`, `advisorDecisions`, `advisorReadFirst`, `advisorSuggestions`, `morningRound`
 ("" leaves it out), `weeklyRound` and `morningSkipPercent`. The paths stay inside their folder. The board's clock
 (`src/rounds.mjs`, written down in `data/rounds.json`) types `Round from the board's clock: morning` at the morning
@@ -405,7 +405,7 @@ milestone" first, then the game plan, the suggestions (with their count) and the
 in this browser. The person, 2026-10-14: "the main tab only shows some visual simplistic flow of where we roughly are
 till the next milestone, looking an the backlog whats already there or whats missing", with "visual diagrams" and
 "a recommendation to click yes no"; the chat is one of the parts ("i Do not want a 5th tab"). The Advisor writes the
-map in the game's repository (`milestoneMap`, JSON, its form in `roles/advisor.md`): the milestone, three to six
+map in the game's repository (`milestoneMap`, JSON, its form in `roles/partner.md`): the milestone, three to six
 steps with the backlog steps that serve each and what is missing from the backlog, and one recommendation.
 `src/milestone.mjs` counts each step against the backlog as it stands (done, open; an id not on the backlog counts
 as missing), so the numbers stay current between rounds. The page draws the steps as a row of boxes (done, part done,
@@ -421,7 +421,7 @@ done), the milestone itself the last box (⚑, its Done when with its own Steps 
 `Recommendation (R<n>):` line the recommendation (none without a title). A milestone without sub-goals says its way
 is not mapped yet. Which box is the milestone's never depends on a sub-goal's place, so adding one on the board
 (B256) cannot turn it into the milestone. The counts are the same as the JSON gave for the same content; the
-setting `milestoneMap` and the reading of `docs/advisor/milestone-map.json` are gone (`roles/advisor.md` says how the
+setting `milestoneMap` and the reading of `docs/advisor/milestone-map.json` are gone (`roles/partner.md` says how the
 Advisor keeps the way in `goals.md`). The picture: `art-inbox/board-goals/b260-next-milestone.png`.
 
 **The goal map, the outline (B255).** The person, 2026-10-15: "I dont want to be overwhelmed with too many things at
@@ -456,7 +456,7 @@ it; the top crumb, "Goals", has no id. The goal's title in `goals.md` is unchang
 under a goal"): the open backlog steps with an id that no goal's `Steps:` line names, in the backlog's order
 (`unlinkedSteps` in `src/goals.mjs`, the state's `goals.unlinked`); the Advisor's own suggestions are left out, as
 they are not work yet. Opened, each step stands as a row with its id and title, and a click opens the step's window.
-An open list stays open while the board redraws. The Advisor links them: roles/advisor.md, "Steps under no goal",
+An open list stays open while the board redraws. The Advisor links them: roles/partner.md, "Steps under no goal",
 has it add every open step to the `Steps:` line of the goal it serves at every round, and flag one that fits no goal
 as a suggestion with a proposed goal.
 
@@ -517,7 +517,7 @@ Advisor's chat (`goal-ask`, `src/say.mjs`, to the Advisor only; a chat that is n
 main chat, as any word to it). Only an ask that stands under that goal, not answered yet, is typed, in the map's own
 words; when the words do not reach the Advisor, the box keeps the ask with its words fixed and "Send again" types it
 again, never a second ask (the review of B258). The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
-(roles/advisor.md, "Asks from the goal map"; the page in `goalAsks`, `.claude/goal-asks`, beside the threads, not in
+(roles/partner.md, "Asks from the goal map"; the page in `goalAsks`, `.claude/goal-asks`, beside the threads, not in
 the game). The frame shows each ask as a violet block: the question with its id, time and "waiting for the Advisor",
 or the answer with the pictures it names and "More ↗" (the page in the board's file window, from the project's
 folder or the asks' folder), and the buttons "Make a step from this" (Talk to Main, prefilled with the goal, the ask
@@ -574,7 +574,7 @@ with " — " in it and "under G6 (words)" read, a left-out title compared as the
 lines the board cannot read show on the card.
 "Brainstorm this" stands in a goal's frame, its "…" menu and under an ask's answer (the answer becomes the opening).
 Needs your attention lists a question waiting and a proposal to tick under "Brainstorms", with the way to it, and
-counts them; so does the part's button. The Advisor's job: roles/advisor.md, "A brainstorm". On a phone the list
+counts them; so does the part's button. The Advisor's job: roles/partner.md, "A brainstorm". On a phone the list
 stands above the card, and the Advisor tab's buttons wrap. Pictures: `art-inbox/board-goals/b259-card.png` and
 `b259-proposal.png`.
 
@@ -585,7 +585,7 @@ beside it, so the plan fits on a screen; a part the person opened stays open whi
 web page opens in a new tab; a file opens read-only in a window of the board (`/api/game-file`, `src/gameFile.mjs`),
 read from the plan's own folder in the game, else from the project's folder (a plan may write its links that way),
 never from outside them, only text files and pictures of at most 1 MB; a picture opens in the picture popup. Links in
-a chat's words stay words. The Advisor keeps no open questions in the plan (`roles/advisor.md`). Pictures:
+a chat's words stay words. The Advisor keeps no open questions in the plan (`roles/partner.md`). Pictures:
 `art-inbox/worker-board/b218/`.
 
 **Whether a worker was compacted (B235).** The Workers mod 0.9.0 compacts a large worker after its report and writes `compacted: { at, before, after }` on its card, or writes `compactNote: { at, why }` when it does not. The board reads the newer of the two and shows one small line under the worker's name: "compacted at 16:40, from 820k to 95k tokens" in grey, or "not compacted at 16:40: <why>" in yellow; the whole line as its tooltip. Without the mod there is no such line. The picture: `art-inbox/worker-board/b235/`.
@@ -1405,6 +1405,47 @@ but [not] prevent my ability to play the game". A setting in the board's head, b
   list, the affinity mask for N cores, what is set and what is passed over, the Off pass, a failed listing, another
   platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
   replace.
+
+## The Focus tab, increment 2 (Focus 2): the vibe and how moves, and the partner
+
+The plan's Tasks 3 and 4 (spec `.claude/specs/2026-10-18-focus-partner-design.md`, sections 2, 3, 5 and 6). Pictures
+beside the mockup `focus-vibe.png`: `art-inbox/focus-mockups/inc2-vibe.png`, `inc2-how.png`.
+
+- **The moves** (`src/focus.mjs`, `focusMove`, through `POST /api/goals`; one at a time): `focus` (`id`, or `text`
+  for something new: a goal at the top, `Last id` raised) writes `Focus:` and starts the goal's brainstorm thread, or
+  goes on with the one that runs about it (`editThread` start, linked under the goal); `vibe-agree` (the focus in the
+  vibe stage, with a draft) and `how-go` (the how stage, with parts) write `Vibe agreed` / `How agreed` once;
+  `vibe-not-yet` and `how-not-yet` carry the person's words and write nothing. A refusal names why (no partner, a
+  board that only shows, not the focus, the wrong stage, no draft yet, no words).
+- **The words** (`src/say.mjs`, `focusWords`): `focus: G<n> <title>` / `Thread:` / `Stage:` / `Your job: <board>/roles/partner.md,
+  "The focus"`; `vibe: agreed`, `vibe: not yet`, `how: go`, `how: not yet` with `Goal:` and `Thread:` (the not-yets
+  with `Words:`). The move answers them, or null when it changed nothing: the server puts them into the outbox as the
+  person's word (no Workers mod: copied, the page pastes), and `wakeFor` asks the main chat to start a partner that is
+  not running (Review Focus 5). Two clicks on "This is the vibe", also at once: one line, one word (Review Focus 3).
+- **The drafts**: `vibe-draft` (`lines`, `picture`; refused once the vibe is agreed) and `how-draft` (`parts`,
+  `partnerDecides`, `youDecide`; once the how is agreed only the parts' steps may change). The partner sends them with
+  `tools/focus-draft.mjs`, which reads the board's address and key from the project's `.claude/board.json`:
+  `/api/goals` with `X-Board-Key` takes only these two (403 for anything else); the page's token route takes all.
+- **A copy** (the review of Focus 1): a copy whose `goals`, `brainstorms` and `goalsHistory` are whole paths outside
+  the project (`isOwnMap`) writes that map, its threads and the focus, and keeps the words in its own outbox, which no
+  chat takes; the project's map stays the delivering board's.
+- **The page** (`focus:start`): `focusCan` (a partner and a board that writes, else why), `focusView` with working
+  buttons (`act`, `isEnabled`, `title`), `focusAsk` (the open question, its options, why and picture, or who has the
+  turn). Drawn by `drawFocus` with `focusUi` (a move on its way, its line, the Not yet box, the words of each box and
+  the option picked, kept while the page redraws); `focusAct` sends the moves, `focusAnswer` writes the answer into
+  the thread (`/api/brainstorm`) and types `brainstorm answer` (`/api/say`), as the Brainstorm part does.
+- **The partner** (`roles/partner.md`, from the Advisor's job, which keeps refining, goal linking and rounds): "The
+  focus" in three moves (talk until the vibe is clear and keep the draft, never build; on `vibe: agreed` propose the
+  how; on `how: go` make the steps with `work new` and the goal, refine them itself, write their ids into the parts,
+  and `work note --to main` "Queue for G<n> ..."), and "Planning questions from the main chat". `roles/partner.md`
+  only points there; the rounds and every place the board names the job say `partner.md`. `roles/main.md`: planning
+  questions go to the partner; its queue notes are queued as any task. `roles/protocol.md`: the map's focus lines and
+  the new words. The project's `.claude/main-briefing.md` needs one line of its own (the main chat's).
+- The review of Focus 1, fixed here: a part whose step is in review is in progress; an unknown part, and the way back
+  to the tab, open the first part `advisorParts` shows; an empty `advisorParts` is named as broken.
+- Tests: `test/focusFlow.test.mjs` (each move, the words, Review Focus 3 and 5, the drafts, the key route),
+  `test/focusDraft.test.mjs` (the tool), `test/focusPage.test.mjs` (the buttons, the talk's open question),
+  `test/partnerJob.test.mjs` (the job texts and where the board names them).
 
 ## The Focus tab, increment 1 (Focus 1): read-only from goals.md
 

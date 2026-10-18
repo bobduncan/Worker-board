@@ -6686,7 +6686,7 @@ function focusTalkCard(state, can) {
   }
   card.append(list)
   if (ask.question !== null) {
-    if (ask.question.why) card.append(el('p', 'muted focus-why', `Your partner asks because ${ask.question.why}`))
+    if (ask.question.why) card.append(el('p', 'muted focus-why', `Why: ${ask.question.why}`))
     if (ask.question.options.length > 0) {
       const options = el('div', 'focus-options')
       for (const option of ask.question.options) {
@@ -6852,6 +6852,9 @@ function drawFocus(state) {
   const active = document.activeElement
   const typing = box.contains(active) && active.id in FOCUS_BOXES ? { id: active.id, at: active.selectionStart } : null
   fill(box, parts)
+  // The talk shows its newest lines: the partner's open question stands at its end.
+  const bubbles = box.querySelector('.focus-bubbles')
+  if (bubbles !== null) bubbles.scrollTop = bubbles.scrollHeight
   const again = typing === null ? null : $(typing.id)
   if (again !== null && !again.disabled) {
     again.focus()

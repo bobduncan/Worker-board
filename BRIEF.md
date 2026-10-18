@@ -6,7 +6,7 @@
 >
 > - How to set the board up and its settings: `README.md`.
 > - The jobs of the chats the board works with, and the words they share with it: `roles/` (`main.md`,
->   `worker.md`, `advisor.md`, `protocol.md`).
+>   `worker.md`, `partner.md` (the Advisor's, since Focus 2), `protocol.md`).
 > - How the board was freed from its first project, and which mods it needs: `ANY-PROJECT-PLAN.md`, `MODS.md`.
 
 A brief for Codex. Build what is described here, in this folder, and nothing outside it.
