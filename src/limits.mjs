@@ -108,7 +108,43 @@ export function limitStop(entries) {
 export const PAUSED = /\bpaused\s+for\s+the\s+(?:[\w-]+\s+)?limit\b/i
 
 /**
- * A worker's own pause for the limit: `{ at, until }` when its last word to the main chat says in its first line
+ * B312: what a pause line says of its limit: which window (`week` when its first line pauses for the week's limit,
+ * else `fiveHour`) and how full it was, in percent: the figure after that window's name in the note's words, else the
+ * only figure the words hold; null when they name none the board can tie to it.
+ */
+function pauseLimit(words) {
+  const first = words.trim().split('\n')[0]
+  const limit = /\bpaused\s+for\s+the\s+week/i.test(first) ? 'week' : 'fiveHour'
+  const name = limit === 'week' ? /\bweek\w*\b[^%\n;]*?(\d{1,3})\s*%/i : /\b(?:5|five)[\s-]*hours?\b[^%\n;]*?(\d{1,3})\s*%/i
+  const named = words.match(name)
+  const all = [...words.matchAll(/(\d{1,3})\s*%/g)]
+  const percent = named !== null ? Number(named[1]) : all.length === 1 ? Number(all[0][1]) : null
+  return { limit, percent: percent !== null && percent <= 100 ? percent : null }
+}
+
+const FIVE_HOURS = 5 * 60 * MIN
+const WEEK = 7 * 24 * 60 * MIN
+/** Below this percent a limit counts as back, when the pause named none. */
+export const PAUSE_BACK_PERCENT = 50
+
+/**
+ * B312: whether a worker's own pause for the limit (`{ limit, since, percent }`, from its note) is over before the time
+ * it named, by the limits as the board read them (`limitsOf`): a reading of that window taken after the pause began
+ * shows the window reset since (the window it reads began after the pause's start) or its use below the percent the
+ * note named (below PAUSE_BACK_PERCENT when it named none). Without a reading taken after the pause it stands; so it
+ * does when the board only works out that a known reset has passed (`resetAt`): nothing was read since.
+ */
+export function pauseLifted(pause, limits) {
+  const limit = limits?.[pause?.limit] ?? null
+  if (limit === null || limit.resetAt != null || !Number.isFinite(limit.at) || !(limit.at > pause.since)) return false
+  const span = pause.limit === 'week' ? WEEK : FIVE_HOURS
+  if (Number.isFinite(limit.resetsAt) && limit.resetsAt - span > pause.since) return true
+  return Number.isFinite(limit.used) && limit.used < (Number.isFinite(pause.percent) ? pause.percent : PAUSE_BACK_PERCENT)
+}
+
+/**
+ * A worker's own pause for the limit: `{ at, until, limit, percent }` (B312: its window and how full, `pauseLimit`)
+ * when its last word to the main chat says in its first line
  * "paused for the limit", with the clock time after "until" when it names one. The note stands until the worker
  * works again after the turn that sent it, or tells the main chat something else. Only that fixed phrase is
  * looked for; the note's words stay in the chat.
@@ -127,9 +163,10 @@ export function pauseNote(entries, mainTitle) {
     }
     for (const block of entry.blocks) {
       if (block.type !== 'tool_use' || block.name !== 'SendMessage' || !mains.includes(block.input?.to)) continue
-      const first = (typeof block.input.message === 'string' ? block.input.message : '').trim().split('\n')[0]
+      const words = typeof block.input.message === 'string' ? block.input.message : ''
+      const first = words.trim().split('\n')[0]
       const until = first.match(/\buntil\s+(.*)$/i)
-      note = PAUSED.test(first) ? { at: entry.at, until: until === null ? null : clockAfter(entry.at, until[1]) } : null
+      note = PAUSED.test(first) ? { at: entry.at, until: until === null ? null : clockAfter(entry.at, until[1]), ...pauseLimit(words) } : null
     }
     if (note !== null && endsTurn(entry)) hasEnded = true
   }
@@ -174,8 +211,9 @@ export function safePointNote(entries, mains, since) {
 /**
  * B310: a worker's pause for the limit filed as a work note to the main chat (`work note --to main`), as `pauseNote`
  * reads the message form. `notes` are the chat's notes to the main chat in the store, `{ at, text }` (`at` its Since,
- * to the minute). The newest decides: `{ at, isPaused: true, until }` when its first line is the pause line, with the
- * clock time after "until" (the next such time after the note), else `{ at, isPaused: false }`: it told the main chat
+ * to the minute). The newest decides: `{ at, isPaused: true, until, limit, percent }` when its first line is the pause
+ * line, with the clock time after "until" (the next such time after the note) and (B312) the window and how full it
+ * was (`pauseLimit`), else `{ at, isPaused: false }`: it told the main chat
  * something else. Null without notes, or when the pause no longer stands: after the note's minute the chat did work
  * of its own (`entries`: a tool that does not only coordinate, as for the safe point) or sent the main chat
  * (`mains`: its title and the app's id for it) a message. Whether its turn has ended is the caller's.
@@ -196,7 +234,7 @@ export function storePause(notes, entries, mains) {
     }
   }
   const until = first.match(/\buntil\s+(.*)$/i)
-  return { at: newest.at, isPaused: true, until: until === null ? null : clockAfter(newest.at, until[1]) }
+  return { at: newest.at, isPaused: true, until: until === null ? null : clockAfter(newest.at, until[1]), ...pauseLimit(String(newest.text ?? '')) }
 }
 
 /** One limit as the board shows it, or null when nothing is known of it. */

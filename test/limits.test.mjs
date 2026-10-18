@@ -102,11 +102,11 @@ test('a chat that went on after the stop is not held, and a stop of another kind
 test('a worker that told the main chat "paused for the limit" and ended its turn is held, until the time it named', () => {
   const lines = [fromChat(at(21), MAIN, 'Task from Game - Main: the zebracorn.'), step(at(21, 1), 'Build'), toolResult(at(21, 2)),
     ...toMain(at(22, 40), 'Note from Game - Units: paused for the limit until 23:40.\nThe work is committed and pushed.'), answer(at(22, 41), 'I stop here.')]
-  assert.deepEqual(pauseNote(entries(lines), MAIN), { at: at(22, 40), until: at(23, 40) })
+  assert.deepEqual(pauseNote(entries(lines), MAIN), { at: at(22, 40), until: at(23, 40), limit: 'fiveHour', percent: null })
   const tomorrow = [...toMain(at(22, 40), 'Note from Game - Units: Paused for the 5-hour limit until 1:40am'), answer(at(22, 41), 'I stop here.')]
-  assert.deepEqual(pauseNote(entries(tomorrow), MAIN), { at: at(22, 40), until: at(1, 40, 13) })
+  assert.deepEqual(pauseNote(entries(tomorrow), MAIN), { at: at(22, 40), until: at(1, 40, 13), limit: 'fiveHour', percent: null })
   const noTime = [...toMain(at(22, 40), 'Note from Game - Units: paused for the session limit, at 86%.'), answer(at(22, 41), 'I stop here.')]
-  assert.deepEqual(pauseNote(entries(noTime), MAIN), { at: at(22, 40), until: null })
+  assert.deepEqual(pauseNote(entries(noTime), MAIN), { at: at(22, 40), until: null, limit: 'fiveHour', percent: 86 })
 })
 
 test('the pause is over once the worker works again, and a later word to the main chat replaces it', () => {
@@ -170,6 +170,6 @@ test('with nothing to go by there is no figure, and one window can be known with
 
 test('B291: a pause sent to the main chat by the app\'s id for it counts as by its title', () => {
   const byId = [...toMain(at(22, 40), 'Note from Game - Units: paused for the limit until 23:40.', 'local_main-1'), answer(at(22, 41), 'I stop here.')]
-  assert.deepEqual(pauseNote(entries(byId), [MAIN, 'local_main-1']), { at: at(22, 40), until: at(23, 40) })
+  assert.deepEqual(pauseNote(entries(byId), [MAIN, 'local_main-1']), { at: at(22, 40), until: at(23, 40), limit: 'fiveHour', percent: null })
   assert.equal(pauseNote(entries(byId), MAIN), null)
 })

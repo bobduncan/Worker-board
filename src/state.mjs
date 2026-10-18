@@ -13,7 +13,7 @@ import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
-import { limitStop, limitsOf, parseUsageHistory, pauseNote, safePointNote, storePause, usageReadings } from './limits.mjs'
+import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, safePointNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
 import { approvalRoute } from './tick.mjs'
@@ -288,7 +288,7 @@ function finishedWith(waits) {
   return { ...waits, handover: parseHandover(waits.words) }
 }
 
-function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, waits, notes = new Map(), restartSince = null }) {
+function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, waits, notes = new Map(), restartSince = null, pauseOver = () => false }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
@@ -341,13 +341,15 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const sent = canPause ? pauseNote(entries, mains) : null
   const filed = canPause ? storePause(notes.get(chat.name.toLowerCase()), scan ?? entries, mains) : null
   const word = [sent, filed].filter(Boolean).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
-  const note = word === null || word.isPaused === false ? null : word
+  // B312: a pause whose limit a newer reading shows back (`pauseOver`, settled once the limits are known) is over.
+  const told = word === null || word.isPaused === false ? null : word
+  const note = told !== null && pauseOver({ limit: told.limit ?? 'fiveHour', since: told.at, percent: told.percent ?? null }) ? null : told
   // B291: it sent the main chat its safe-point line since "prepare restart": stopped for the restart, whatever its
   // transcript's tail shows (a turn cut off, then the stop word answered, can look as if it still runs).
   const safe = stop !== null || note !== null || entries === null || chat.isMain ? null
     : safePointNote(scan ?? entries, [main.mainTitle, main.mainSession].filter(Boolean), restartSince)
   const paused = stop !== null ? { by: 'app', limit: stop.limit, since: stop.at, named: stop.resetsAt }
-    : note !== null ? { by: 'note', limit: 'fiveHour', since: note.at, named: note.until }
+    : note !== null ? { by: 'note', limit: note.limit ?? 'fiveHour', since: note.at, named: note.until, percent: note.percent ?? null }
       : safe !== null ? { by: 'restart', limit: null, since: safe.at, named: null } : null
   const state = paused !== null ? 'suspended' : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // No sign of life is about a turn that runs: between two turns a chat writes nothing.
@@ -478,7 +480,7 @@ function unfiledAsk(entries, scan, turn, waits, name, prefix) {
  */
 function heldUntil(paused, limits, now) {
   if (paused === null) return null
-  const { named, ...held } = paused
+  const { named, percent, ...held } = paused
   // B291: stopped for a restart, it waits for "resume", not for a limit.
   if (held.by === 'restart') return { ...held, until: null, isBack: false }
   if (named !== null) return { ...held, until: named, isBack: named <= now }
@@ -828,12 +830,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const branch = item.head.get('Branch')
     return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' ? null : branch, about: null }
   }
-  const read = found.filter(chat => !isAdvisor(chat)).map(chat => card(chat, raw, { ...context, stepOf: stepOfChat, stepById }))
-  const advisorCard = advisorChat === undefined ? null : card(advisorChat, raw, context)
+  const workerChats = found.filter(chat => !isAdvisor(chat))
+  const firstRead = workerChats.map(chat => card(chat, raw, { ...context, stepOf: stepOfChat, stepById }))
+  const firstAdvisor = advisorChat === undefined ? null : card(advisorChat, raw, context)
 
   // B113: the plan's limits, from what is on this machine: the app's own file, what any chat looked up, and a
-  // chat the app stopped. Reading them asks no chat and costs nothing.
-  const everyone = advisorCard === null ? read : [...read, advisorCard]
+  // chat the app stopped. Reading them asks no chat and costs nothing. A pause by a note changes none of these.
+  const everyone = firstAdvisor === null ? firstRead : [...firstRead, firstAdvisor]
   const limits = limitsOf({
     sample: parseUsageHistory(raw.usageText ?? null),
     readings: everyone.flatMap(one => one.usage),
@@ -841,6 +844,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     now,
     warnAt: config.limitWarnPercent,
   })
+  // B312: a worker's own pause for the limit ends early once a reading taken after it shows that limit back
+  // (limits.mjs `pauseLifted`): its card is read again as if it had not paused, so it is free (or between two turns)
+  // as any chat, for the hand-out and the "may wait for you" hint too.
+  const pauseOver = pause => pauseLifted(pause, limits)
+  const isLifted = lane => lane?.suspended?.by === 'note' && pauseOver({ limit: lane.suspended.limit, since: lane.suspended.since, percent: lane.suspended.percent })
+  const read = firstRead.map((lane, at) => (isLifted(lane) ? card(workerChats[at], raw, { ...context, stepOf: stepOfChat, stepById, pauseOver }) : lane))
+  const advisorCard = isLifted(firstAdvisor) ? card(advisorChat, raw, { ...context, pauseOver }) : firstAdvisor
   // B299: a lane on a step of the store shows the step's title as the store holds it.
   // B292: without the note in brackets a migrated title kept.
   const titleOf = id => {

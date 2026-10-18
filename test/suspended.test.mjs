@@ -137,13 +137,14 @@ test('after that time the worker is still suspended, and the board says the limi
   assert.deepEqual([lane(note, 'Features').state, lane(note, 'Features').suspended.until, lane(note, 'Features').suspended.isBack], ['suspended', at(23, 40), true])
   const stop = build({ tails: { Features: tail(stopped) }, now: later })
   assert.deepEqual([lane(stop, 'Features').state, lane(stop, 'Features').suspended.isBack, stop.limits.fiveHour.level], ['suspended', true, 'ok'])
-  // A pause without a time: the reset the board knew has passed, or a new window of five hours began since.
+  // A pause without a time: the reset the board knew has passed (nothing read since: it stays suspended), or (B312)
+  // a reading after the pause shows a new window of five hours began since: it is free.
   const reading = when => usageResult(when, { fiveHour: { used: 6, resetsAt: at(23, 40) } })
   const passed = build({ tails: { Features: tail(paused('')), Main: tail([step(at(18, 49), 'Look'), reading(at(18, 50)), answer(at(18, 51), 'Done.')]) }, now: later })
   assert.deepEqual([lane(passed, 'Features').suspended.until, lane(passed, 'Features').suspended.isBack], [at(23, 40), true])
   const next = usageResult(at(23, 45), { fiveHour: { used: 1, resetsAt: at(4, 40, 13) } })
   const began = build({ tails: { Features: tail(paused('')), Main: tail([step(at(23, 44), 'Look'), next, answer(at(23, 46), 'Done.')]) }, now: later })
-  assert.deepEqual([lane(began, 'Features').suspended.until, lane(began, 'Features').suspended.isBack], [null, true])
+  assert.deepEqual([lane(began, 'Features').state === 'suspended', lane(began, 'Features').suspended], [false, null])
 })
 
 test('a worker that works again is not suspended, and the main chat cannot pause by a note to itself', () => {
