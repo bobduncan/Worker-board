@@ -20,6 +20,7 @@ const BACKLOG = [
   '- [ ] B1 Draw the strip (for Board; about 1 h)',
   '- [ ] B2 Keep the cards apart (for Support; about 30 min)',
   '- [ ] B7 An unrefined step',
+  '- [ ] B9 Pick the colour of the strip @you',
   '',
 ].join('\n')
 const ROLES = { Main: 'main', Board: 'worker', Support: 'worker', Advisor: 'advisor' }
@@ -30,7 +31,7 @@ async function fresh() {
   await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
   const ctx = { dir, now: NOW + 60_000, prefix: 'Team - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(['Board', 'Support']), boardUrl: URL }
   const as = chat => body => workApi({ chat, ...body }, ctx)
-  return { dir, board: as('Board'), support: as('Support'), advisor: as('Advisor'), person: body => workApi(body, { ...ctx, as: 'person' }) }
+  return { dir, main: as('Main'), board: as('Board'), support: as('Support'), advisor: as('Advisor'), person: body => workApi(body, { ...ctx, as: 'person' }) }
 }
 const item = async (dir, id) => (await readStore(dir)).items.get(id)
 const state = async (dir, id) => valueOf(await item(dir, id), 'State')
@@ -176,6 +177,88 @@ test('B293: a refine question answered under Needs your attention is answered in
     const after = await item(dir, 'B7')
     const again = refinedOf(parseBacklog(`## Board work\n${stepLine(after)}\n${stepNotes(after).join('\n')}\n`).activities[0].steps[0].notes)
     assert.deepEqual(again.questions.map(one => one.answer), ['no', 'yes'])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+// B305: an ask carried over from the old backlog has no asking chat; the person answers it in the main chat or the
+// Advisor's, and that chat closes it with their words. Made-up samples only.
+test('B305: an ask with no asking chat is closed in the main chat or the Advisor\'s with the person\'s words; a worker may not', async () => {
+  const { dir, main, advisor, board } = await fresh()
+  try {
+    assert.equal(valueOf(await item(dir, 'B9'), 'Owner'), null)
+    assert.equal(await state(dir, 'B9'), 'open')
+    // A worker may not close an ask that is not its own.
+    const refused = await board({ action: 'answered-in-chat', id: 'B9', text: 'blue' })
+    assert.equal(refused.status, 409)
+    assert.match(refused.why, /no asking chat: only the main chat or the Advisor/)
+    // The person's words are needed.
+    assert.equal((await main({ action: 'answered-in-chat', id: 'B9' })).status, 400)
+    const done = await main({ action: 'answered-in-chat', id: 'B9', text: 'blue (2026-10-17)' })
+    assert.equal(done.ok, true, done.why)
+    const b9 = await item(dir, 'B9')
+    assert.equal(valueOf(b9, 'State'), 'answered')
+    assert.deepEqual(b9.sections.get('Answer'), ['blue (2026-10-17)'])
+    assert.equal(b9.sections.get('History').at(-1), '- 2026-10-17 11:06 Main: answered in its chat by the person: blue (2026-10-17)')
+    const store = await readStore(dir)
+    assert.deepEqual(storeProblems(store.items, store.activities), [])
+    // The Advisor may do the same with another one; an Owner of "-" is no asking chat either.
+    const again = await readStore(dir)
+    again.items.get('B9').head.set('State', 'open')
+    again.items.get('B9').head.set('Owner', '-')
+    await writeStore(dir, again, undefined, { now: NOW })
+    const byAdvisor = await advisor({ action: 'answered-in-chat', id: 'B9', text: 'green, said in the Advisor\'s chat' })
+    assert.equal(byAdvisor.ok, true, byAdvisor.why)
+    assert.equal((await item(dir, 'B9')).sections.get('History').at(-1), '- 2026-10-17 11:06 Advisor: answered in its chat by the person: green, said in the Advisor\'s chat')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('B305: an ask with an asking chat stays that chat\'s to close, also for the main chat and the Advisor', async () => {
+  const { dir, main, advisor, board } = await fresh()
+  try {
+    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
+    assert.equal((await main({ action: 'answered-in-chat', id: 'Q1', text: 'thick' })).status, 409)
+    assert.equal((await advisor({ action: 'answered-in-chat', id: 'Q1', text: 'thick' })).status, 409)
+    assert.equal((await main({ action: 'withdraw', id: 'Q1', why: 'gone' })).status, 409)
+    assert.equal(await state(dir, 'Q1'), 'open')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('B305: the step an ask with no asking chat blocked goes on when the main chat closes it', async () => {
+  const { dir, main, board } = await fresh()
+  try {
+    await board({ action: 'take', id: 'B1' })
+    await board({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Thin or thick?' })
+    assert.equal(await state(dir, 'B1'), 'waiting on you')
+    const store = await readStore(dir)
+    store.items.get('Q1').head.delete('Owner')
+    await writeStore(dir, store, undefined, { now: NOW })
+    const done = await main({ action: 'answered-in-chat', id: 'Q1', text: 'thick, the person said on 2026-10-17' })
+    assert.equal(done.ok, true, done.why)
+    assert.equal(await state(dir, 'Q1'), 'answered')
+    assert.equal(await state(dir, 'B1'), 'in progress')
+    assert.ok((await item(dir, 'B1')).sections.get('Context').some(one => /Q1 answered in Main's chat by the person on .*: thick, the person said on 2026-10-17$/.test(one.trim())))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('B305: withdraw of an ask with no asking chat: the main chat only, with a why', async () => {
+  const { dir, main, advisor, board } = await fresh()
+  try {
+    assert.equal((await board({ action: 'withdraw', id: 'B9', why: 'gone' })).status, 409)
+    assert.equal((await advisor({ action: 'withdraw', id: 'B9', why: 'gone' })).status, 409)
+    assert.equal((await main({ action: 'withdraw', id: 'B9' })).status, 400)
+    const done = await main({ action: 'withdraw', id: 'B9', why: 'the strip has no colour any more' })
+    assert.equal(done.ok, true, done.why)
+    assert.equal(await state(dir, 'B9'), 'withdrawn')
+    assert.equal((await item(dir, 'B9')).sections.get('History').at(-1), '- 2026-10-17 11:06 Main: withdrawn: the strip has no colour any more')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
