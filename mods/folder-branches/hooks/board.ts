@@ -74,7 +74,9 @@ export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 
   // Fix first: a step marked as a fix for the worker board ("fix"), on new and queue.
   'priority',
   // Pause 2: a step's checkpoint, written with work step: the commit (a hash, or none) and the next action.
-  'commit', 'next']
+  'commit', 'next',
+  // B354: a step's standard on refine, refined and new: "<kind> · <reference picture> · target <score>", or "none (<why>)".
+  'standard']
 
 /** What every chat in the list is told about the board, in the same words at every request. */
 export const BOARD_NOTE = ' The person also answers on their worker board, a page on this machine. What they answer or '

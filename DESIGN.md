@@ -2149,6 +2149,7 @@ agnostic. it just needs to have clear ways on defining the goal, but also verify
    are refused for a step whose title or text names a kind (its name or plural, whole words, any case) without one; the
    refusal names the kind's reference folder and definition of done. A chat whose work tool has no `standard` yet
    (its process started before the mod had it) gives it as a line of `what` starting "Standard:" (`withStandard`).
+   The Workers mod sends `standard` since 0.13.10 (the person's yes, Q142, 2026-10-18 22:33).
 5. The Focus page's run shows each part's standards (its steps', each once, none left out).
 6. Not in it: the checks themselves (the next parts of G11), the project's own definitions of done (B355).
 
