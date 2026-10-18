@@ -64,7 +64,7 @@ async function inVibe() {
 }
 
 test('the moves and the drafts it knows', () => {
-  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet'])
+  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no'])
   assert.deepEqual(FOCUS_DRAFTS, ['vibe-draft', 'how-draft'])
 })
 

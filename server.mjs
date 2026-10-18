@@ -46,7 +46,7 @@ import { parseHistory } from './src/history.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
-import { answerWords, checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
+import { answerWords, checkSay, focusWords, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -455,17 +455,39 @@ async function main(args) {
       now: clock(),
       partner: state.advisor ?? null,
       job: join(HERE, 'roles', 'partner.md'),
+      // Focus 3: "Is the vibe there?" is answered only once every part of the how is done, as the store says.
+      allDone: state.focus?.id === body?.id && state.focus.progress.total > 0 && state.focus.progress.done === state.focus.progress.total,
     })
     readState.reset()
     if (!done.ok || done.words === null) return done.ok ? { ok: true, result: done.result } : done
+    return toPartner(done.words, done.result, state)
+  }
+  /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
+  const toPartner = async (words, result, state) => {
     const isCopied = state.bridge?.isMissing === true
-    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...done.words, state: isCopied ? 'copied' : 'waiting' }
+    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
     await store.say(message)
     readState.reset()
-    if (isCopied) return { ok: true, result: { ...done.result, said: message.id, paste: { text: messageText(message, timeOf), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
+    if (isCopied) return { ok: true, result: { ...result, said: message.id, paste: { text: messageText(message, timeOf), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
     const wake = wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
     if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
-    return { ok: true, result: { ...done.result, said: message.id } }
+    return { ok: true, result: { ...result, said: message.id } }
+  }
+  /**
+   * Focus 3 (spec 2026-10-18, sections 5 and 6): the person's Undo of a line the partner decided for them, from the Focus
+   * page (`note` the daily note, `line` its words): the store marks it "undo asked", once (work/api.mjs `undo`), and only
+   * then the board types `undo: <line>` to the partner; a second Undo types nothing (Review Focus 4).
+   */
+  const undoNow = async body => {
+    const state = await readState()
+    const partner = state.advisor ?? null
+    if (partner === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
+    const done = await workAction({ action: 'undo', id: body?.note, line: body?.line }, 'person')
+    if (!done.ok) return done
+    if (done.result.changed === false) return { ok: true, result: { unchanged: true } }
+    const { of, line } = done.result.undo
+    const title = (state.goals?.nodes ?? []).find(node => node.id === of)?.title ?? ''
+    return toPartner(focusWords('undo', { to: partner.name, goal: { id: of, title }, words: line, note: done.result.id }), { id: done.result.id }, state)
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   const workCtx = async () => {
@@ -890,6 +912,7 @@ async function main(args) {
     // is read anew, so the page draws the file as it now is: also after a refusal, often a change made elsewhere.
     goals: async body => {
       if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
+      if (body?.command === 'note-undo') return undoNow(body)
       const done = await editGoals(body, {
         canWrite: writesMap,
         file: projectFile(config, 'goals'),
@@ -1088,7 +1111,7 @@ async function main(args) {
           weekReset: week?.resetsAt ?? week?.resetAt ?? null, fiveHour: state.limits?.fiveHour?.used ?? null,
         })
         if (next.round !== null) {
-          const message = { id: randomBytes(8).toString('hex'), at: now, to: state.advisor.name, ask: null, step: null, title: null, version: null, verdict: null, command: 'round', round: next.round, text: roundText(next.round, { board: HERE, config }), state: 'waiting' }
+          const message = { id: randomBytes(8).toString('hex'), at: now, to: state.advisor.name, ask: null, step: null, title: null, version: null, verdict: null, command: 'round', round: next.round, text: roundText(next.round, { board: HERE, config, focus: state.focus ?? null }), state: 'waiting' }
           await store.say(message)
           const wake = wakeFor({ ...message, command: null }, state, store.outbox(), now, config.maxMessageChars)
           if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })

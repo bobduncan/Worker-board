@@ -7,13 +7,13 @@ import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs
 
 import { editThread, parseThread } from './brainstorm.mjs'
 import { focusStage, nextGoalId, parseGoals } from './goals.mjs'
-import { addGoal, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, setFocus, setHow, setVibe } from './goalsWrite.mjs'
+import { addGoal, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, setFocus, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
 
 /** The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet. */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet']
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -86,6 +86,8 @@ async function move(body, ctx) {
   const node = parseGoals(text).byId.get(body.id)
   if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt)
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
+  // Focus 3: a second Yes to "Is the vibe there?" finds the goal ticked and the focus gone: nothing more.
+  if (command === 'vibe-there-yes' && node.state === 'done') return { ok: true, result: { unchanged: true }, words: null }
   if (parseGoals(text).focus !== body.id) return refuse(409, 'That goal is not your focus any more.')
   const say = async (kind, words = null) => focusWords(kind, { to: ctx.partner.name, goal: node, thread: await talkOf(node, ctx), words })
   const stage = focusStage(node)
@@ -101,6 +103,7 @@ async function move(body, ctx) {
     if (node.vibe.length === 0 && node.vibePicture === null) return refuse(409, 'Your partner has not written the vibe yet.')
     return agree(node, ctx, goalsAt, 'vibeAgreed', agreeVibe, () => say('vibe-agreed'))
   }
+  if (command === 'vibe-there-yes' || command === 'vibe-there-no') return vibeThere(command, node, words, ctx, goalsAt, say)
   // how-go
   if (node.vibeAgreed === null) return refuse(409, 'Agree the vibe first.')
   if (node.howAgreed !== null) return { ok: true, result: { unchanged: true }, words: null }
@@ -168,6 +171,31 @@ async function pick(body, before, ctx, goalsAt) {
   if (!moved && !isNewThread) return { ok: true, result: { ...result, unchanged: true }, words: null }
   const stage = focusStage(parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id) ?? node)
   return { ok: true, result, words: focusWords('focus', { to: ctx.partner.name, goal: node, thread, stage: STAGE_WORDS[stage], job: ctx.job }) }
+}
+
+/**
+ * Focus 3 (spec 2026-10-18, section 3): the person's answer to "Is the vibe there?", once every part is done
+ * (`ctx.allDone`, from the store). Yes ticks the goal and clears `Focus:`, once, and types `vibe there: yes`; No (with
+ * the person's words) takes `How agreed` away, so the partner proposes the how anew, and types `vibe there: no`.
+ */
+async function vibeThere(command, node, words, ctx, goalsAt, say) {
+  if (focusStage(node) !== 'run') return refuse(409, command === 'vibe-there-no' && node.vibeAgreed !== null ? 'The how is open again already.' : 'The how is not agreed: there is nothing to look at yet.')
+  if (ctx.allDone !== true) return refuse(409, 'Not every part is done yet.')
+  if (command === 'vibe-there-no' && words === '') return refuse(400, 'Say what is missing, in your words.')
+  let wrote = false
+  const done = await changeGoalsFile(text => {
+    const map = parseGoals(text)
+    const now = map.byId.get(node.id)
+    if (now === undefined) return { ok: false, why: 'gone' }
+    wrote = map.focus === node.id && focusStage(now) === 'run'
+    if (!wrote) return { ok: false, why: 'late' }
+    if (command === 'vibe-there-no') return reopenHow(text, node.id)
+    const ticked = setGoalState(text, node.id, 'done')
+    return ticked.ok ? setFocus(ticked.text, null) : ticked
+  }, goalsAt)
+  if (!wrote) return { ok: true, result: { unchanged: true }, words: null }
+  if (!done.ok) return failed(done.why)
+  return { ok: true, result: {}, words: await say(command, command === 'vibe-there-no' ? words : null) }
 }
 
 /** What the person agreed of a how: its parts (title, size) and what is decided by whom; the steps come after. */

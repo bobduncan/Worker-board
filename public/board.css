@@ -216,6 +216,24 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-note.is-error { border-color: #b4553c; background: #3a1d14; color: #ffd2c4; }
 .focus-not-yet { margin-top: 12px; }
 .focus-goals .goals-action:disabled { opacity: 0.55; cursor: default; }
+/* Focus 3: the run's note from the partner (decided lines with Undo, its questions), and "Is the vibe there?". */
+.focus-decided { display: flex; flex-direction: column; }
+.focus-decided li { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 9px 2px; border-bottom: 1px solid var(--line); }
+.focus-decided li span { min-width: 0; overflow-wrap: anywhere; }
+.focus-undo { flex: none; padding: 0; border: 0; background: none; color: #8fb4ff; font: inherit; cursor: pointer; }
+.focus-undo:hover:not(:disabled) { text-decoration: underline; }
+.focus-undo:disabled { cursor: default; opacity: 0.7; }
+.focus-undo.is-asked { color: var(--muted); font-style: italic; }
+.focus-ask { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
+.focus-ask b { overflow-wrap: anywhere; }
+.focus-ask-options { display: flex; flex-wrap: wrap; gap: 10px; }
+.focus-answer { min-width: 7em; padding: 9px 18px; border: 1px solid var(--free); border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.focus-answer.is-advised { background: #1d4b9a; color: #dbe9ff; }
+.focus-answer:disabled { opacity: 0.55; cursor: default; }
+.focus-ask-pictures { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.focus-ask-pictures .picture { display: block; width: 100%; }
+.focus-there { border-color: var(--working); }
+.focus-there h3 { color: var(--working); }
 /* B255: the goal map's outline (spec 2026-10-15): one level at a time, the rest folded and dimmed. */
 .advisor-goals { margin: 14px 18px 16px; max-width: 1240px; }
 .goals-head { display: flex; align-items: center; gap: 12px; padding: 4px 6px 10px; border-bottom: 1px solid var(--line); }

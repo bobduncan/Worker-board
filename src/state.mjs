@@ -22,6 +22,7 @@ import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
+import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { refineStop } from './refineGate.mjs'
@@ -779,7 +780,7 @@ const UNDER_WAY = ['taken', 'in progress', 'waiting on you', 'review']
  * done of all, and the minutes the sizes of the parts not done name. `thread`: the goal's brainstorm, the vibe and how
  * talk: a running thread about it first, else the one its Brainstorm line names.
  */
-export function focusState(goalMap, items, threads, prefix) {
+export function focusState(goalMap, items, threads, prefix, partner = null) {
   const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
   if (node === null) return null
   const steps = new Map((items ?? []).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one]))
@@ -807,7 +808,42 @@ export function focusState(goalMap, items, threads, prefix) {
     howAgreed: node.howAgreed,
     progress: { done: parts.filter(part => part.state === 'done').length, total: parts.length, minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0) },
     thread: thread?.path ?? null,
+    ...focusRun(node, items ?? [], prefix, partner),
   }
+}
+
+/** Whether an option is the one advised: its text, or its letter ("B" of "B thick"). */
+const isAdvisedOption = (option, advice) => advice !== null && (option === advice || option.toLowerCase().startsWith(`${advice.toLowerCase()} `))
+
+/**
+ * Focus 3 (spec 2026-10-18, sections 3 to 5, the run): what the partner (the chat `partner` names, the setting
+ * advisor) keeps for the person on the focus goal `node`. `note`: its newest daily note of the goal (dailyNote.mjs),
+ * or null. `needs`: its open asks of the goal or of the goal's steps (its own and its parts'), those the note names
+ * first, then by id; each with its options (the advised one marked) and its pictures.
+ */
+function focusRun(node, items, prefix, partner) {
+  const plain = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
+  const isPartner = item => partner !== null && plain(valueOf(item, 'From') ?? valueOf(item, 'Owner')) === plain(partner)
+  const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
+  const newest = items.filter(item => isDailyNote(item) && valueOf(item, 'Of') === node.id && valueOf(item, 'To') === 'you' && isPartner(item))
+    .sort((a, b) => (sinceMs(valueOf(b, 'Since')) || 0) - (sinceMs(valueOf(a, 'Since')) || 0) || byId(valueOf(b, 'Id'), valueOf(a, 'Id')))[0]
+  const note = newest === undefined ? null : dailyNote(newest)
+  const ofs = new Set([node.id, ...node.steps, ...node.parts.flatMap(part => part.steps)])
+  const named = note?.needs ?? []
+  const rank = id => (named.includes(id) ? named.indexOf(id) : named.length)
+  const needs = items.filter(item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'open' && ofs.has(valueOf(item, 'Of')) && isPartner(item))
+    .sort((a, b) => rank(valueOf(a, 'Id')) - rank(valueOf(b, 'Id')) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+    .map(item => {
+      const advice = valueOf(item, 'Advice')
+      return {
+        id: valueOf(item, 'Id'),
+        title: valueOf(item, 'Title') ?? '',
+        asks: valueOf(item, 'Asks') ?? 'decide',
+        options: (valueOf(item, 'Options') ?? '').split(' | ').map(one => one.trim()).filter(Boolean).map(label => ({ label, isAdvised: isAdvisedOption(label, advice) })),
+        pictures: (valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),
+      }
+    })
+  return { note, needs }
 }
 
 export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], now, config }) {
@@ -1321,7 +1357,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     brainstorms,
     brainstormNeeds: brainstormNeeds(brainstorms.threads),
     // Focus 1 (spec 2026-10-18): the focus goal for the Focus part, and the parts the tab's bar shows.
-    focus: focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix),
+    focus: focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, config.advisor ?? null),
     advisorParts: config.advisorParts,
   }
 }

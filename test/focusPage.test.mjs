@@ -143,7 +143,7 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   assert.deepEqual(run.progress, { text: '2 of 4 done · about 3 h left', percent: 50 })
 })
 
-test('the run shows the parts with progress and who is on each, never a step id; the note waits for the next part', () => {
+test('the run shows the parts with progress and who is on each, never a step id; the note card waits for the partner\'s note', () => {
   const run = page.focusView(stateOf(map(AGREED, HOW, RUN)), goalsOf(map()))
   assert.deepEqual(run.run.parts, [
     { title: 'Draw the bench', chip: 'Done', tone: 'done', percent: 100, owner: null },
@@ -154,7 +154,8 @@ test('the run shows the parts with progress and who is on each, never a step id;
   assert.equal(run.run.stepsOf, 'G2')
   assert.doesNotMatch(JSON.stringify(run.run), /\bB\d+\b/)
   assert.doesNotMatch(JSON.stringify(run.head), /\bB\d+\b/)
-  assert.equal(run.note, 'Your partner writes a note here each morning: what it decided for you, and what needs you. It comes in the next part.')
+  // Focus 3: the note card, empty until the partner writes its daily note.
+  assert.equal(run.note.empty, 'No note yet: your partner writes one each morning, with what it decided for you and what needs you.')
 })
 
 test('pick: no focus lists the open goals of the map to choose from; done asks for the next one', () => {

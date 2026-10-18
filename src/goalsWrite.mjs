@@ -458,6 +458,9 @@ export const agreeVibe = (text, id, at) => agreeOnce(text, id, 'Vibe agreed', VI
 /** Focus 1: `How agreed: <at>`, once, after the how's lines. */
 export const agreeHow = (text, id, at) => agreeOnce(text, id, 'How agreed', HOW, at)
 
+/** Focus 3: the goal's `How agreed` line taken away (the vibe is not there yet: the how is talked about again). */
+export const reopenHow = (text, id) => replaceOwn(text, id, ['How agreed'], [])
+
 const pad = value => String(value).padStart(2, '0')
 /** This machine's day, as the copy is named. */
 const dayOf = ms => `${new Date(ms).getFullYear()}-${pad(new Date(ms).getMonth() + 1)}-${pad(new Date(ms).getDate())}`

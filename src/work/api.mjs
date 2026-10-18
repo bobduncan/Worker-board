@@ -17,6 +17,7 @@ import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
 import { openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
+import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } from './dailyNote.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { writeView } from './view.mjs'
 
@@ -24,11 +25,11 @@ import { writeView } from './view.mjs'
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo'])
 /** What only the person does, on the board's page; and what only the server does. */
-const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck'])
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo'])
 const SERVER = new Set(['check', 'advance'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
@@ -340,7 +341,9 @@ export function forYouBlock({ id, of = null, kind, blocking = false, title, opti
  * option the chat advises; `via: "form"` says the app's question form asked it (the mod files those).
  */
 async function ask(body, w) {
-  const isAlone = body.of === undefined || body.of === null || body.of === ''
+  // Focus 3: an ask of a goal (the partner's question on the focus) stands under no step; its Of names the goal.
+  const goal = typeof body.of === 'string' && GOAL_ID.test(body.of) ? body.of : null
+  const isAlone = goal !== null || body.of === undefined || body.of === null || body.of === ''
   const of = isAlone ? { ok: true, item: null, text: null } : await load(body.of, w, { kind: ['step'] })
   if (!of.ok) return of
   const holder = isAlone ? null : valueOf(of.item, 'Owner')
@@ -357,11 +360,11 @@ async function ask(body, w) {
   const play = line(body.play, 300)
   const advice = line(body.advice, 120)
   const via = body.via === 'form' && w.role !== 'person' ? 'form' : null
-  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via })
+  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal })
   if (!made.ok) return made
   const { question, id, title } = made
   const stepId = isAlone ? null : valueOf(of.item, 'Id')
-  const block = forYouBlock({ id, of: stepId, kind, blocking, title, options, advice, pictures, play }, w.boardUrl ?? '')
+  const block = forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play }, w.boardUrl ?? '')
   if (isAlone) return changed(question, block)
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
   let moved = ''
@@ -376,12 +379,12 @@ async function ask(body, w) {
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
-async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null }) {
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null }) {
   const id = await nextId(w.dir, 'Q', w.fs)
   const title = line(text[0], 200)
   let question = ordered({
     head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', w.role === 'person' ? '-' : w.who], ['Activity', of === null ? '-' : valueOf(of, 'Activity') ?? '-'],
-      ['Since', stamp(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? '-' : valueOf(of, 'Id')],
+      ['Since', stamp(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? goal ?? '-' : valueOf(of, 'Id')],
       ['Options', options.length === 0 ? '-' : options.join(' | ')], ['Advice', advice === '' ? '-' : advice], ['Via', via ?? '-']].filter(([, value]) => value !== '-')),
     sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]])]),
     problem: null,
@@ -428,6 +431,7 @@ async function answeredInChat(body, w) {
 
 /** Information, never a question: a note `N<n>` to the person or to the main chat. */
 async function note(body, w) {
+  if (typeof body.of === 'string' && GOAL_ID.test(body.of)) return dailyNoteMade(body, w)
   const to = body.to === 'main' ? 'main' : body.to === 'you' || body.to === undefined ? 'you' : null
   if (to === null) return refuse(400, '"to" is you or main.')
   const text = lines(body.text)
@@ -438,6 +442,53 @@ async function note(body, w) {
   }
   const made = await makeNote(w, to, text, body.of === undefined ? null : body.of)
   return made.ok ? changed(made.item, `${valueOf(made.item, 'Id')}: noted for ${to === 'you' ? 'the person' : 'the main chat'}.`) : made
+}
+
+/**
+ * Focus 3 (spec 2026-10-18, section 5): the partner's daily note on a goal (`of` G<n>): to the person, `decided` (one
+ * line each, what it settled for them) and `needs` (the ids of its asks), `text` if any. Only the partner (the role
+ * advisor) writes one.
+ */
+async function dailyNoteMade(body, w) {
+  if (w.role !== 'advisor') return refuse(403, 'Only the partner writes the note of a goal (its daily note).')
+  if ((body.to ?? 'you') !== 'you') return refuse(400, 'The note of a goal is to you, the person.')
+  const decided = lines(body.decided, LINE_CHARS).map(one => line(one)).filter(Boolean).slice(0, 12)
+  const needs = [...new Set((Array.isArray(body.needs) ? body.needs : typeof body.needs === 'string' ? body.needs.split(',') : []).map(one => line(String(one), 20)).filter(Boolean))]
+  const text = lines(body.text)
+  if (decided.length === 0 && needs.length === 0 && text.length === 0) return refuse(400, 'Say what you decided for the person in "decided", or which asks need them in "needs".')
+  for (const id of needs) {
+    if (!/^Q\d+$/.test(id) || kindOf(w.store.items.get(id) ?? { head: new Map([['Kind', 'none']]) }) !== 'ask') return refuse(409, `${id} is no ask in the store: name your asks under "needs" by their ids (Q12).`)
+  }
+  const id = await nextId(w.dir, 'N', w.fs)
+  const head = text.length > 0 ? line(text.join(' '))
+    : `Today's note on ${body.of}: ${decided.length} decided for you, ${needs.length} need${needs.length === 1 ? 's' : ''} you`
+  const item = said({
+    head: new Map([['Id', id], ['Kind', 'note'], ['From', w.who], ['To', 'you'], ['Of', body.of], ['State', 'unread'], ['Since', stamp(w.now)], ['Text', head]]),
+    sections: new Map([...(text.length === 0 ? [] : [['Text', text]]), [DECIDED, decided.map(one => `- ${one}`)], [NEEDS, needs.map(one => `- ${one}`)]]),
+    problem: null,
+  }, w, 'noted (the daily note)')
+  const done = await save(item, null, w)
+  return done.ok ? changed(item, `${id}: today's note on ${body.of} for the person.`) : done
+}
+
+/**
+ * Focus 3: the person's Undo of a line the partner decided for them (`line`, in the daily note `id`): the line stands
+ * under "Undo asked" with its time, once; the server then types `undo: <line>` to the partner. A second Undo of the
+ * same line changes nothing and types nothing (Review Focus 4).
+ */
+async function undo(body, w) {
+  const found = await load(body.id, w, { kind: ['note'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (!isDailyNote(found.item)) return refuse(409, `${id} is no daily note of a goal: nothing in it can be undone.`)
+  const wanted = line(body.line)
+  if (!decidedOf(found.item).includes(wanted)) return refuse(409, `${id} decided no such thing: "${wanted.slice(0, 80)}".`)
+  if (undoneOf(found.item).includes(wanted)) return { ok: true, result: { id, text: 'Undo was asked already.', changed: false } }
+  const item = copy(found.item)
+  item.sections.set(UNDONE, [...(found.item.sections.get(UNDONE) ?? []), `- ${wanted} (${stamp(w.now)})`])
+  const next = said(item, w, `undo asked: ${line(wanted, 200)}`)
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next, undefined, { undo: { of: valueOf(next, 'Of'), from: valueOf(next, 'From'), line: wanted } }) : done
 }
 
 async function makeNote(w, to, text, of) {
@@ -540,7 +591,8 @@ async function withdraw(body, w) {
  */
 async function answerStep(w, item, text, of, change) {
   let step = null
-  if (of !== null) {
+  // Focus 3: an ask of a goal has no step to follow.
+  if (of !== null && !GOAL_ID.test(of)) {
     step = await load(of, w, { kind: ['step'] })
     if (!step.ok) return step
     const mine = change(step.item)
@@ -1169,4 +1221,5 @@ const CHANGE = {
   delete: remove,
   'refine-answer': refineText,
   'refine-accept': refineText,
+  undo,
 }

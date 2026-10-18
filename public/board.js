@@ -6502,10 +6502,42 @@ function focusView(focus, goals, can = null) {
       })),
       stepsOf: focus.id,
     }
-    view.note = 'Your partner writes a note here each morning: what it decided for you, and what needs you. It comes in the next part.'
+    view.note = focusNoteView(focus, allowed, why)
+    const { done, total } = focus.progress
+    view.vibeThere = total > 0 && done === total ? {
+      question: 'Is the vibe there?',
+      vibe: focus.vibe,
+      buttons: [
+        button('Yes', 'vibe-there-yes', true, 'The goal is done: your partner asks for your next focus'),
+        button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
+      ],
+    } : null
   }
   if (stage === 'done') view.pick = pickOf(`${focus.id} is done. What do you want to work on next?`)
   return view
+}
+
+/** Focus 3: at most this many of the partner's questions show under "Needs you"; the rest as "and n more". */
+const FOCUS_NEEDS_SHOWN = 3
+
+/**
+ * Focus 3 (spec 2026-10-18, sections 3 and 4): the run's right card, "Today's note from your partner": the newest daily
+ * note's decided lines, each with Undo (off once asked: "undo asked"), and "Needs you": the partner's open questions on
+ * the focus, three at most, then "and n more". `allowed` and `why` as focusView's.
+ */
+function focusNoteView(focus, allowed, why) {
+  const note = focus.note ?? null
+  const needs = focus.needs ?? []
+  const undo = one => (one.undoAsked
+    ? { label: 'undo asked', isEnabled: false, title: 'You asked your partner to undo this' }
+    : { label: 'Undo', isEnabled: allowed, title: allowed ? 'Ask your partner to undo this' : why })
+  return {
+    title: 'Today\'s note from your partner',
+    decided: note === null ? [] : note.decided.map(one => ({ text: one.text, note: note.id, undo: undo(one) })),
+    needs: needs.slice(0, FOCUS_NEEDS_SHOWN),
+    more: needs.length > FOCUS_NEEDS_SHOWN ? `and ${needs.length - FOCUS_NEEDS_SHOWN} more` : null,
+    empty: note === null && needs.length === 0 ? 'No note yet: your partner writes one each morning, with what it decided for you and what needs you.' : null,
+  }
 }
 
 /**
@@ -6712,7 +6744,7 @@ function focusTalkCard(state, can) {
 /** The box of "Not yet" under the buttons: what is missing, in the person's words, sent to the partner. */
 function focusNotYet(stage, can) {
   const box = el('div', 'focus-not-yet')
-  box.append(focusSay(stage === 'vibe' ? 'What is missing from the vibe?' : 'What does not fit in the how?', 'focus-say', { box: 'focus-not-yet-words', act: 'send-not-yet', label: 'Send to your partner', isEnabled: can.canWrite, title: can.whyNot }))
+  box.append(focusSay(stage === 'vibe' ? 'What is missing from the vibe?' : stage === 'there' ? 'What is missing? Your partner changes the how.' : 'What does not fit in the how?', 'focus-say', { box: 'focus-not-yet-words', act: 'send-not-yet', label: 'Send to your partner', isEnabled: can.canWrite, title: can.whyNot }))
   return box
 }
 
@@ -6795,6 +6827,72 @@ function focusPickCard(view) {
   return card
 }
 
+/**
+ * Focus 3: "Today's note from your partner": what it decided for you, each line with Undo (or "undo asked"), and what
+ * needs you: its open questions on the focus, each with its options (the advised one marked) and its pictures.
+ */
+function focusNoteCard(view) {
+  const card = el('section', 'focus-card focus-daily')
+  card.append(el('h3', '', view.note.title))
+  if (view.note.empty !== null) card.append(el('p', 'muted', view.note.empty))
+  if (view.note.decided.length > 0) {
+    card.append(el('h4', '', 'Decided for you'))
+    const list = el('ul', 'focus-decided')
+    for (const one of view.note.decided) {
+      const row = el('li', '')
+      const undo = el('button', `focus-undo${one.undo.isEnabled ? '' : ' is-asked'}`, one.undo.label)
+      undo.type = 'button'
+      undo.disabled = !one.undo.isEnabled || focusUi.busy
+      undo.title = one.undo.title
+      undo.dataset.focusUndo = one.text
+      undo.dataset.focusNote = one.note
+      row.append(el('span', '', one.text), undo)
+      list.append(row)
+    }
+    card.append(list)
+  }
+  if (view.note.needs.length > 0) {
+    card.append(el('h4', '', 'Needs you'))
+    for (const ask of view.note.needs) {
+      const box = el('div', 'focus-ask')
+      box.append(el('b', '', ask.title))
+      if (ask.options.length > 0) {
+        const options = el('div', 'focus-ask-options')
+        for (const option of ask.options) {
+          const button = el('button', `focus-answer${option.isAdvised ? ' is-advised' : ''}`, option.isAdvised ? `${option.label} (advised)` : option.label)
+          button.type = 'button'
+          button.disabled = focusUi.busy || board?.goalsEdit?.canWrite !== true
+          button.dataset.focusAnswer = ask.id
+          button.dataset.focusLabel = option.label
+          options.append(button)
+        }
+        box.append(options)
+      } else box.append(el('p', 'muted', 'Answer it under Needs your attention, on the Overview.'))
+      if (ask.pictures.length > 0) {
+        const pictures = el('div', 'focus-ask-pictures')
+        for (const path of ask.pictures) pictures.append(picture(path, ask.title))
+        box.append(pictures)
+      }
+      card.append(box)
+    }
+    if (view.note.more !== null) card.append(el('p', 'muted', view.note.more))
+  }
+  return card
+}
+
+/** Focus 3: every part done: "Is the vibe there?" with the agreed vibe, Yes, and No with a box for what is missing. */
+function focusVibeThereCard(view, can) {
+  const card = el('section', 'focus-card focus-there')
+  card.append(el('h3', '', view.vibeThere.question))
+  const lines = el('ul', 'focus-ticks')
+  for (const line of view.vibeThere.vibe) lines.append(el('li', '', line))
+  const buttons = el('div', 'focus-buttons')
+  view.vibeThere.buttons.forEach((one, index) => buttons.append(focusButton(one, index === 0 ? 'focus-yes' : 'focus-no')))
+  card.append(lines, buttons)
+  if (focusUi.notYet === 'there') card.append(focusNotYet('there', can))
+  return card
+}
+
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
 function drawFocus(state) {
   const can = focusCan(state)
@@ -6834,9 +6932,10 @@ function drawFocus(state) {
     if (view.stage === 'run') {
       const left = el('div', 'focus-column')
       left.append(focusRunCard(view), focusSay('Talk to your partner about this goal…', 'focus-say is-slim'))
-      const note = el('section', 'focus-card focus-note')
-      note.append(el('h3', '', "Today's note from your partner"), el('p', 'muted', view.note))
-      body.append(left, note)
+      const right = el('div', 'focus-column')
+      if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can))
+      right.append(focusNoteCard(view))
+      body.append(left, right)
     } else {
       const right = view.stage === 'vibe' ? focusVibeCard(view) : focusHowCard(view)
       const buttons = el('div', 'focus-buttons')
@@ -6885,11 +6984,11 @@ async function sendFocus(body, done) {
  * Brainstorm part does); "This is the vibe", "Go", and "Not yet" with the person's words. The board writes goals.md and
  * types the word to the partner (src/focus.mjs); one move at a time.
  */
-async function focusAct(act, goal = null) {
+async function focusAct(act, goal = null, extra = null) {
   const focus = board?.focus ?? null
   if (focusUi.busy) return
-  if (act === 'vibe-not-yet' || act === 'how-not-yet') {
-    const stage = act === 'vibe-not-yet' ? 'vibe' : 'how'
+  if (act === 'vibe-not-yet' || act === 'how-not-yet' || act === 'vibe-there-no') {
+    const stage = act === 'vibe-not-yet' ? 'vibe' : act === 'how-not-yet' ? 'how' : 'there'
     focusUi.notYet = focusUi.notYet === stage ? null : stage
     redrawFocus()
     return $('focus-not-yet-words')?.focus()
@@ -6907,15 +7006,39 @@ async function focusAct(act, goal = null) {
     else if (act === 'how-go' && focus !== null) await sendFocus({ command: 'how-go', id: focus.id }, 'Go: your partner makes the steps, and the main chat hands them out.')
     else if (act === 'send-not-yet' && focus !== null && focusUi.notYet !== null) {
       if (words('notYet') === '') focusUi.note = { isProblem: true, text: 'Say what is missing, in your words.' }
-      else if (await sendFocus({ command: focusUi.notYet === 'vibe' ? 'vibe-not-yet' : 'how-not-yet', id: focus.id, text: words('notYet') }, 'Sent to your partner: the talk goes on.') !== null) {
+      else if (focusUi.notYet === 'there') {
+        // Focus 3: the vibe is not there yet: the how opens again, with the person's words.
+        if (await sendFocus({ command: 'vibe-there-no', id: focus.id, text: words('notYet') }, 'Sent to your partner: it proposes a changed how.') !== null) {
+          focusUi.words.notYet = ''
+          focusUi.notYet = null
+        }
+      } else if (await sendFocus({ command: focusUi.notYet === 'vibe' ? 'vibe-not-yet' : 'how-not-yet', id: focus.id, text: words('notYet') }, 'Sent to your partner: the talk goes on.') !== null) {
         focusUi.words.notYet = ''
         focusUi.notYet = null
       }
     } else if (act === 'talk' && focus !== null) await focusAnswer(focus)
+    // Focus 3: the run's moves: the vibe is there; Undo of a decided line; an answer to the partner's question.
+    else if (act === 'vibe-there-yes' && focus !== null) await sendFocus({ command: 'vibe-there-yes', id: focus.id }, 'The goal is done. Your partner asks for your next focus.')
+    else if (act === 'undo' && focus !== null && extra !== null) await sendFocus({ command: 'note-undo', id: focus.id, note: extra.note, line: extra.line }, 'Your partner is asked to undo it.')
+    else if (act === 'answer' && extra !== null) await focusAnswerAsk(extra.id, extra.label)
   } finally {
     focusUi.busy = false
     redrawFocus()
   }
+}
+
+/** Focus 3: an option of the partner's question under "Needs you", answered in the store; the board wakes the partner. */
+async function focusAnswerAsk(id, label) {
+  try {
+    const answer = await fetch('/api/work', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ action: 'answer', id, text: label }) })
+    if (answer.ok) {
+      focusUi.note = { isProblem: false, text: `Answered: ${label}. Your partner is told.` }
+      showPaste((await answer.json().catch(() => null))?.paste ?? null)
+    } else focusUi.note = { isProblem: true, text: `Not answered: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
+  } catch {
+    focusUi.note = { isProblem: true, text: 'Not answered: the board\'s server does not answer.' }
+  }
+  await read()
 }
 
 /** The person's answer to the partner's open question: written under it in the thread, then typed to the partner. */
@@ -6961,6 +7084,11 @@ $('advisor-focus').addEventListener('click', event => {
   }
   const act = event.target.closest('[data-focus-act]')
   if (act !== null && !act.disabled) focusAct(act.dataset.focusAct, act.dataset.focusGoal ?? null)
+  // Focus 3: Undo of a line of the partner's note; an option of its question.
+  const undo = event.target.closest('[data-focus-undo]')
+  if (undo !== null && !undo.disabled) focusAct('undo', null, { note: undo.dataset.focusNote, line: undo.dataset.focusUndo })
+  const answer = event.target.closest('[data-focus-answer]')
+  if (answer !== null && !answer.disabled) focusAct('answer', null, { id: answer.dataset.focusAnswer, label: answer.dataset.focusLabel })
 })
 // The words typed stay while the page is drawn anew; Enter sends a box's words, Shift+Enter makes a new line.
 $('advisor-focus').addEventListener('input', event => {
