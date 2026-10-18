@@ -311,11 +311,19 @@ older form, also answered or accepted, is not refined; `src/backlog.mjs`, `isRef
 block).
 At every look the board that delivers does by itself (`src/refineGate.mjs`), only while no refine is open, the person's
 neither: it sends one step to the Advisor in the Refine button's words, first a step the person asked to queue, then
-a step the main chat queued before it was refined, then a new step (above the highest one on the backlog at its first
+a step the main chat queued before it was refined, then (B312) a step, also an old one, the person answered on after
+its block was last written (an ask under it, its refine questions, or accepting the refine, by the step's History),
+then a new step (above the highest one on the backlog at its first
 look, kept in `data/refine-gate.json`), each until it is ready: once with no block, and once more each time its block
 stands answered and not ready (an ask remembers the block it was about, `before`); never the person's steps, finished
 ones or steps in progress, and never a block with questions open, which waits for the person's answers. The board's
-own asks stop at three per step that arrived and three that did not, with 15 minutes after one that did not. "Add to queue" on a step that is not refined is held on the
+own asks stop at three per step that arrived and three that did not, with 15 minutes after one that did not; B312:
+only the rounds sent since the person last answered on the step count (`refineStop`), so a new answer gets its fold
+round. Seen live 2026-10-18: the person answered Q31 under B35 at 13:01, the Advisor's card said "Your answers on B35
+wait for it", and nothing was sent, as B35 was an old step not about to be queued. A step the board stopped on has
+the refine state `stopped`: the Advisor's card says "Refine of B35 stopped after 3 rounds without new answers" with a
+button "Send again" (one round, in the Refine button's words; the person's rounds never count towards the cap), and
+the Advisor tab's Refine list has a group for it. "Add to queue" on a step that is not refined is held on the
 board ("Refine, then queue") and goes to the main chat by itself once the step is refined; it is dropped when the step
 is finished, queued or gone. Without an Advisor nothing is held. A step the main chat queued before it was refined is said to it once it is
 (`step refined`, Step, For; the board keeps the steps it saw queued while not refined), so it hands the step out then
@@ -655,7 +663,15 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   chat (`work note --to main`; seen live 2026-10-18, Units' lane said it worked on); the newer of its last message and
   its last note to the main chat decides, a note's time read from its Since (to the minute; "until" is the next such
   clock time after it). A note's pause stands until, after the note's minute, the chat uses a tool of its own work or
-  sends the main chat a message: its card, the work tool, the app's recap and a look at the limits are no work. A
+  sends the main chat a message: its card, the work tool, the app's recap and a look at the limits are no work.
+  B312: a worker's own pause also ends early once a reading of the limits taken after it (the board's own: the app's
+  usage file, a chat's look at its limits; `src/limits.mjs`, `pauseLifted`) shows the window it paused for back: that
+  window began after the pause (its reset time minus its length lies past the pause's start), or its use is below the
+  percent the note names for it (the figure after "5-hour" or "week", else the only one; below 50% when it names
+  none). Then the chat counts as not paused at all: free, or between two turns, with the hand-out and the "may wait
+  for you" hint as for any chat. Seen live 2026-10-18: Units paused at 11:39 "until 14:40" at 92%, the limit reset at
+  13:00, and its lane said Suspended until 14:40. Without a reading after the pause (also when the board only works
+  out that a reset it knew of has passed), the pause stands. "paused for the weekly limit" pauses for the week. A
   suspended chat gets no step delivered and is no "may wait for you" hint. The lane says who held it and when it goes on; the time
   column shows that time. Nothing starts a chat by itself: once the time has passed the lane says the limit is
   back and the chat has not gone on, in the warning colour. A suspended chat asks the person nothing.
