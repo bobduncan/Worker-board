@@ -1115,6 +1115,13 @@ function drawAdvisorLane(state) {
     what.append(now)
   }
   what.append(...betweenTurns(lane))
+  // B287: what it refines, as on the Advisor tab.
+  const refine = advisorRefine(state.backlog)
+  if (refine !== null) {
+    const line = el('p', 'advisor-lane-refine')
+    line.append(el('span', `advisor-refine-state is-${refine.tone}`, refine.text))
+    what.append(line)
+  }
   if (standing.key === 'waiting') what.append(el('p', 'note', 'It asks you something: see Needs your attention.'))
   if (standing.key === 'off') what.append(el('p', 'note', 'Its chat is not running: what is sent to it waits until it is opened.'))
   if (standing.key === 'free' && Number.isFinite(advisor.idle?.since)) what.append(el('p', 'note', `Idle since ${clock(advisor.idle.since)}`))

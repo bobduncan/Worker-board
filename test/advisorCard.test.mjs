@@ -129,6 +129,13 @@ test('the card stands under the workers, set apart, with no queue or worker butt
   assert.match(style, /\.lane\.is-advisor:focus-visible/)
 })
 
+test('B287: the card says what it refines, as the Advisor tab does', () => {
+  const card = script.slice(script.indexOf('function drawAdvisorLane'), script.indexOf('function drawLanes'))
+  assert.ok(card.includes('const refine = advisorRefine(state.backlog)'))
+  assert.ok(card.includes("el('span', `advisor-refine-state is-${refine.tone}`, refine.text)"))
+  assert.match(style, /\.advisor-lane-refine \{/)
+})
+
 test('while it works, the Advisor tab says on what, right above the typing box, and that what you type waits', () => {
   assert.match(html, /<div class="messages" id="messages"><\/div>\n\s+<p class="talk-busy" id="talk-busy" role="status" hidden><\/p>\n\s+<form class="say" id="say">/)
   assert.ok(script.includes("busy.hidden = advisor?.state !== 'working'"))

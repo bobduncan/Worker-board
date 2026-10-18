@@ -1527,6 +1527,7 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .lane.is-advisor .worker-icon.is-free { color: var(--advisor); }
 .pill.is-off { background: var(--unknown); }
 .lane.is-advisor .pill.is-free { background: var(--advisor); color: #052322; }
+.advisor-lane-refine { margin: 6px 0 0; }
 .advisor-waits { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .advisor-waits b { color: var(--text); }
 .advisor-waits small { color: var(--muted); }
