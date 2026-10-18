@@ -24,6 +24,7 @@ import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
+import { pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { refineStop } from './refineGate.mjs'
 import { flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
@@ -467,6 +468,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     task,
     // When a chat that was cut off last wrote.
     cutOffAt: wasCutOff ? lastWriteAt : null,
+    // Pause and resume (spec 2026-10-18): when its last turn began, so the board knows who started one after a resume.
+    turnAt: turnStartedAt,
     eta,
     // A worker that works and has no time from anywhere: a fault to fix, and shown as one. The main chat hands
     // out work and answers the person; it has no task to time.
@@ -1313,6 +1316,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     && !toMain.some(message => message.at > lastCopied.at && message.state !== 'copied' && (message.command ?? null) === (lastCopied.command ?? null))
   const wordTaken = takenAt(word)
   const wordState = word?.state === 'copied' && wordTaken !== null ? 'delivered' : word?.state
+  // Pause and resume (spec 2026-10-18): once pause.json is there, the old reading of a restart (the word "prepare
+  // restart", restart.md, "resume") no longer shows; the pause banner says how it stands.
+  const pauseRecord = workOk ? raw.work.pause ?? null : null
+  const isOldRestart = pauseRecord === null
   const restart = {
     main: main === undefined ? null : main.name,
     interrupted: live.filter(lane => lane.state === 'interrupted').map(lane => lane.name),
@@ -1322,16 +1329,16 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     starting: [...new Map(sent
       .filter(message => message.command === 'start' && typeof message.about === 'string' && now - message.at < 10 * MIN)
       .map(message => [message.about, { chat: message.about, at: message.at, state: message.state }])).values()],
-    prepared: Number.isFinite(raw.restartNote?.at) ? { at: raw.restartNote.at } : null,
+    prepared: isOldRestart && Number.isFinite(raw.restartNote?.at) ? { at: raw.restartNote.at } : null,
     // B291: the workers still at work; the main chat does the preparing, and a worker that sent its line is suspended.
-    preparing: word?.command === 'prepare restart' ? {
+    preparing: isOldRestart && word?.command === 'prepare restart' ? {
       at: word.at, state: wordState, working: live.filter(lane => lane.state === 'working' && !lane.isMain).map(lane => lane.name),
       // When the last worker sent its safe-point line: restart.md written before it does not count yet.
       lastLine: Math.max(0, ...live.filter(lane => lane.suspended?.by === 'restart').map(lane => lane.suspended.since)) || null,
     } : null,
     // B315: one only copied stays until the main chat has taken it, or it no longer matters (stillMatters); a handed one
     // shows as handed for a quarter of an hour.
-    resuming: word?.command === 'resume' && ((word.state === 'copied' && wordTaken === null && matters(word)) || now - (wordTaken ?? word.at) < 15 * MIN) ? { at: word.at, state: wordState } : null,
+    resuming: isOldRestart && word?.command === 'resume' && ((word.state === 'copied' && wordTaken === null && matters(word)) || now - (wordTaken ?? word.at) < 15 * MIN) ? { at: word.at, state: wordState } : null,
     // B315: the word to the main chat that was only copied and is not in its chat yet: what to paste, into which chat
     // (its title from the list of chats), the app's id for it, and whether it runs now.
     copied: !isOpenCopy ? null : {
@@ -1347,6 +1354,15 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B143: the newest ask to remove this worker; the main chat and a leftover have none.
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
   }))
+  // Pause and resume (spec 2026-10-18): what the pause banner says, from pause.json and the lanes' facts alone; with the
+  // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the
+  // board typed "resume" into it since the resume.
+  const pause = pauseRecord === null ? null : {
+    ...pauseFacts({ pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...(advisorCard === null ? [] : [advisorCard])], prefix }),
+    main: main === undefined ? null : { name: main.name, title: context.main.mainTitle ?? main.name, session: main.appSessionId ?? null, isRunning: runningOf(main.name) },
+    typedAt: main === undefined || !Number.isFinite(pauseRecord.since) ? null
+      : sent.findLast(message => message.to === main.name && message.command === 'resume' && Number.isFinite(message.at) && message.at >= pauseRecord.since)?.at ?? null,
+  }
   // B300: the reconciler holds the store against the lanes (work/reconcile.mjs): the server carries out its moves and
   // lines (work/deliver.mjs), the page shows its flags. Null while the store cannot be read.
   // B301: when each step of the store went done, for the finished list and the board's own notes (finished.mjs).
@@ -1447,6 +1463,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     today: today(lines.map(line => (line.source === 'prompt' || line.source === 'handover' ? { ...line, task: null } : line)), { from, to: now, names })
       .map((lane, index) => ({ ...lane, ahead: live[index].ahead })),
     restart,
+    pause,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many
     // workers there are, and the newest ask for workers.
     workers: (() => {

@@ -180,13 +180,13 @@ test('5: how old the limits\' figure is shows only when it is old; else it is in
 
 // 6 Top bar
 
-test('6: CPU for the chats, its processes and the board\'s version sit behind a ⚙ button; Prepare restart and the time stay', () => {
+test('6: CPU for the chats, its processes and the board\'s version sit behind a ⚙ button; Pause all (Prepare restart before) and the time stay', () => {
   const bar = html.slice(html.indexOf('<nav class="tabs"'), html.indexOf('</nav>', html.indexOf('<nav class="tabs"')))
   const settings = bar.slice(bar.indexOf('<details class="settings" id="settings"'), bar.indexOf('</details>'))
   assert.ok(settings.includes('<summary class="icon-button settings-button"'))
   assert.ok(settings.includes('id="cpu"') && settings.includes('id="cpu-count"') && settings.includes('id="version"'))
-  assert.ok(!settings.includes('id="prepare-restart"') && !settings.includes('id="updated"'))
-  assert.ok(bar.indexOf('id="prepare-restart"') < bar.indexOf('id="settings"') && bar.indexOf('id="settings"') < bar.indexOf('id="updated"'))
+  assert.ok(!settings.includes('id="pause-all"') && !settings.includes('id="updated"'))
+  assert.ok(bar.indexOf('id="pause-all"') < bar.indexOf('id="settings"') && bar.indexOf('id="settings"') < bar.indexOf('id="updated"'))
   // It closes on a click elsewhere and on Escape; it hides when it has nothing to show.
   assert.ok(script.includes("$('settings').open = false"))
   assert.match(style, /\.settings-pop \{[^}]*position: absolute/)

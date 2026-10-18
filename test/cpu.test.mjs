@@ -248,8 +248,8 @@ test('the level is set only from the board\'s own page', async t => {
 
 test('the head shows the level, and how many processes it applies to when not Off', async () => {
   const [script, html] = await Promise.all([readFile(join(HERE, '..', 'public', 'board.js'), 'utf8'), readFile(join(HERE, '..', 'public', 'index.html'), 'utf8')])
-  // Beside Prepare restart, one button per level.
-  assert.match(html, /id="prepare-restart"[^]*?<div class="cpu" id="cpu"[^]*?data-cpu="off"[^]*?data-cpu="gentle"[^]*?data-cpu="strong"/)
+  // Beside Pause all (Prepare restart before), one button per level.
+  assert.match(html, /id="pause-all"[^]*?<div class="cpu" id="cpu"[^]*?data-cpu="off"[^]*?data-cpu="gentle"[^]*?data-cpu="strong"/)
   const page = {}
   vm.runInNewContext(`${script.slice(script.indexOf('// cpu:start'), script.indexOf('// cpu:end'))}\nthis.cpuView = cpuView`, page)
   const cpu = { available: true, level: 'off', count: 0, fault: null, cores: 24, strongCores: 12 }

@@ -49,8 +49,8 @@ let board = null
 let timer = null
 /** When the board stopped answering; null while it answers. */
 let awaySince = null
-/** True while the person is asked whether they really want to prepare a restart. */
-let isAskingRestart = false
+/** True while the person is asked whether they really want to pause all chats. */
+let isAskingPause = false
 
 // Small helpers
 
@@ -770,19 +770,48 @@ function drawLimits(state) {
 
 // A restart of the app
 
+// pause:start
 /**
- * What the board knows about a restart of the app, above the lanes: that it was off, who was cut off, how the
- * preparing stands, and the one button that brings the workers back. The main chat does the work: the buttons
- * type "prepare restart" and "resume" into its chat. Nothing is shown when there is nothing to say.
+ * Pause and resume (spec 2026-10-18): what the banner says of the pause (`state.pause`), from the board's facts alone:
+ * while pausing who still works and who holds a step with no checkpoint since the pause, then "Safe to restart"; after
+ * Resume all who has not started a turn yet, and the link that opens the main chat when it does not run (`link`).
+ * Nothing once all are back (running).
+ */
+function pauseLines(pause) {
+  if (pause === null || pause === undefined || pause.state === 'running') return []
+  if (pause.state === 'pausing') {
+    if (pause.isSafe) return [{ tone: 'ready', text: `Safe to restart: paused since ${clock(pause.since)}, no chat is working and every step held has its checkpoint. You can quit Claude now.` }]
+    const parts = [
+      pause.working.length === 0 ? null : `still working: ${pause.working.join(', ')}`,
+      pause.unsaved.length === 0 ? null : `holding a step with no checkpoint since the pause: ${pause.unsaved.map(one => `${one.chat} (${one.id})`).join(', ')}`,
+    ].filter(part => part !== null)
+    return [{ tone: '', text: `Pausing since ${clock(pause.since)}: ${parts.join('; ')}.` }]
+  }
+  const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.id})`).join(', ')}.` }]
+  const main = pause.main ?? null
+  if (main === null || pause.waiting.length === 0) return lines
+  if (main.isRunning === true) {
+    if (Number.isFinite(pause.typedAt)) lines.push({ tone: 'muted', text: `Typed "resume" into ${main.name} at ${clock(pause.typedAt)}: it wakes each chat that holds a step.` })
+    return lines
+  }
+  const open = { tone: 'alert', text: `${main.title} is not running: open it; its Workers mod tells it whom to wake.` }
+  lines.push(typeof main.session === 'string' && main.session !== '' ? { ...open, link: { label: `Open ${main.title}`, href: `claude://claude.ai/epitaxy/${main.session}` } } : open)
+  return lines
+}
+// pause:end
+
+/**
+ * What the board knows about a restart of the app, above the lanes: that it was off, who was cut off, how the pause
+ * stands (pause.json, spec 2026-10-18), and Resume all. "Pause all" and "Resume all" write the pause through the
+ * page's work API; the Workers mod of each chat reads it. Nothing is shown when there is nothing to say.
  */
 function drawRestart(state) {
   const restart = state.restart ?? null
+  const pause = state.pause ?? null
   const box = $('restart')
-  const prepare = $('prepare-restart')
-  prepare.hidden = restart === null || restart.main === null
-  // B130: the main chat by its title from the list of chats.
-  prepare.title = `Before you quit Claude: ${state.workers?.mainTitle ?? 'the main chat'} asks every working chat to stop at a safe point and writes down who was on what`
-  prepare.disabled = sending.has('restart')
+  const pauseAll = $('pause-all')
+  pauseAll.hidden = restart === null || restart.main === null || pause?.state === 'pausing'
+  pauseAll.disabled = sending.has('restart')
   if (restart === null || restart.main === null) {
     box.hidden = true
     return
@@ -800,7 +829,7 @@ function drawRestart(state) {
   if (restart.interrupted.length > 0) parts.push(line('alert', `Cut off in the middle of a task: ${restart.interrupted.join(', ')}.`))
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
   const down = restart.notRunning ?? []
-  const isAtHand = restart.off !== null || restart.interrupted.length > 0 || restart.prepared !== null || restart.resuming !== null
+  const isAtHand = restart.off !== null || restart.interrupted.length > 0 || restart.prepared !== null || restart.resuming !== null || (pause !== null && pause.state !== 'running')
   if (isAtHand && down.includes(restart.main)) parts.push(line('alert', `${restart.main} is not running: open its chat first, the buttons here type into it.`))
   if (isAtHand && down.some(name => name !== restart.main)) {
     parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
@@ -815,11 +844,29 @@ function drawRestart(state) {
     parts.push(row)
   }
 
-  if (isAskingRestart) {
+  if (isAskingPause) {
     const ask = el('div', 'restart-ask')
-    ask.append(line('', `Prepare a restart? ${restart.main} asks every working chat to stop at a safe point and writes down who was on what.`), button('Yes, prepare', '', 'prepare restart'), button('No', 'is-quiet', 'cancel'))
+    ask.append(line('', 'Pause all chats? Each chat commits its work, writes its checkpoint and ends its turn; nothing new starts.'), button('Yes, pause', '', 'pause-all'), button('No', 'is-quiet', 'cancel'))
     parts.push(ask)
   }
+  // Pause and resume: the pause's own lines, with Resume all while pausing.
+  for (const one of pauseLines(pause)) {
+    if (one.link === undefined) {
+      parts.push(line(one.tone, one.text))
+      continue
+    }
+    const row = el('div', 'restart-ask')
+    const open = el('a', 'button', one.link.label)
+    open.href = one.link.href
+    row.append(line(one.tone, one.text), open)
+    parts.push(row)
+  }
+  if (pause?.state === 'pausing') {
+    const row = el('div', 'restart-ask')
+    row.append(button('Resume all', pause.isSafe ? 'is-quiet' : '', 'resume'), el('small', 'muted', 'Every chat goes on from its checkpoint.'))
+    parts.push(row)
+  }
+  // Before pause.json: the old reading of a restart, for now (the state leaves it out once pause.json is there).
   const preparing = restart.preparing
   if (preparing !== null) {
     // B291: written after the last worker's safe-point line too, so it holds what every worker said.
@@ -841,9 +888,9 @@ function drawRestart(state) {
     else parts.push(line('muted', `"Resume" was handed to ${restart.main} at ${clock(resuming.at)}: it brings the workers back.`))
   }
   // Resuming is offered when there is somebody to bring back: a chat that was cut off, or a restart that was prepared.
-  if ((restart.interrupted.length > 0 || restart.prepared !== null) && (resuming === null || resuming.state === 'expired' || resuming.state === 'failed')) {
+  if (pause === null && (restart.interrupted.length > 0 || restart.prepared !== null) && (resuming === null || resuming.state === 'expired' || resuming.state === 'failed')) {
     const row = el('div', 'restart-ask')
-    row.append(button(restart.interrupted.length > 0 ? `Resume all (${restart.interrupted.length} cut off)` : 'Resume all', '', 'resume'), el('small', 'muted', `${restart.main} does the resuming: its chat must be open.`))
+    row.append(button(restart.interrupted.length > 0 ? `Resume all (${restart.interrupted.length} cut off)` : 'Resume all', '', 'resume'), el('small', 'muted', `${restart.main} wakes each chat that holds a step.`))
     parts.push(row)
   }
   if (problems.has('restart')) parts.push(line('problem', problems.get('restart')))
@@ -3017,15 +3064,18 @@ function fail(id, why) {
 
 takeAnswers($('needs'))
 takeAnswers($('details'))
-$('prepare-restart').addEventListener('click', () => {
-  isAskingRestart = true
+$('pause-all').addEventListener('click', () => {
+  isAskingPause = true
   redrawNeeds()
 })
 $('restart').addEventListener('click', event => {
   const button = event.target.closest('[data-restart]')
   if (button === null || board === null || board.restart.main === null) return
-  isAskingRestart = false
+  isAskingPause = false
   if (button.dataset.restart === 'cancel') return redrawNeeds()
+  // Pause and resume (spec 2026-10-18): both write pause.json; the board types "resume" into a main chat that runs.
+  if (button.dataset.restart === 'pause-all') return sendWork({ action: 'pause-all' }, 'restart')
+  if (button.dataset.restart === 'resume') return sendWork({ action: 'resume-all' }, 'restart')
   // B315: the word that was only copied, on the clipboard again.
   if (button.dataset.restart === 'copy') {
     const words = board.restart.copied?.text ?? ''
