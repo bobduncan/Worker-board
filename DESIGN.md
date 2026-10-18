@@ -1824,6 +1824,29 @@ the checks and an icon now, a real installer (.exe, signed) later. Part 2 of G12
    `%APPDATA%\Claude` is no sign of the app (an uninstall leaves it). The PATH gets winget's new entries added, never
    replaced. The check-only test takes this PC as it is.
 
+## A new project's first chats (B322)
+
+Right after a new project is made, its main chat and its Advisor are opened in its folder with their names. Part 4 of
+G12's how. What the Claude desktop app allows from outside (read in the app's own code, 2026-10-18): its link
+`claude://code/new?q=<first words>&folder=<folder>` opens a new chat of the Code tab in that folder with its first
+words ready (up to 14,336 characters); nothing from outside sends them or names a chat (the app's session tools rename
+and message chats but start none, and a chip or a routine needs a click of its own). So it is the middle way: one
+click, then Enter.
+
+1. `chatsToOpen` (public/board.js, region `openchats`): the chats the project lacks, its main chat while the list has
+   none and its Advisor while the settings name one and none is open, each with `openChatLink` and `firstWords`. None on
+   the demo or a board that only shows (`openChats` in the state is null there: the board's folder, the project's
+   name, the Advisor's name).
+2. The first words: the chat names itself with its exact title (the app's `set_session_title`, session "self"), joins
+   the list (the Workers mod's `chat join`, when it is there), reads its job (`roles/main.md` or `roles/partner.md`),
+   `roles/protocol.md`, the main chat also `.claude/main-briefing.md`, and the project's `CLAUDE.md`, and says it is
+   ready. The board knows the chat by its title, so it shows within a minute; the main chat is then asked for workers
+   as before.
+3. Where they are: without a main chat, the box "No main chat yet" holds the buttons in place of the steps by hand;
+   with one and no Advisor, a box of its own above the workers. Each button has "Copy its first words" beside it, for
+   when the app does not open from the link.
+4. Not in it: the workers' chats (the main chat starts those, as before).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

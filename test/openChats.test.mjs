@@ -69,6 +69,10 @@ test('chatsToOpen: the main chat and the Advisor while the project has none, eac
   }
 })
 
+test('the page\'s script as a whole has no syntax error (the tests above run parts of it only)', () => {
+  assert.doesNotThrow(() => new vm.Script(script, { filename: 'board.js' }))
+})
+
 test('the box is drawn on the Overview with each chat\'s button and a copy of its first words', () => {
   assert.match(script, /function drawOpenChats\(state\)/)
   assert.match(script, /drawOpenChats\(state\), drawWorkers\(state\)/)

@@ -1287,25 +1287,34 @@ function chatsToOpen(state) {
 }
 // openchats:end
 
-/** B322: the box on the Overview that opens the chats a new project still lacks (see `chatsToOpen`), or null. */
-function drawOpenChats(state) {
-  const chats = chatsToOpen(state)
-  if (chats.length === 0) return null
-  const box = el('section', 'open-chats')
-  box.append(el('h3', '', chats.length === 1 ? `Open ${chats[0].title}` : 'Open the project\'s chats'))
-  box.append(el('p', 'open-chats-about', 'Each button opens a new chat in the Claude app, in this project\'s folder, with its first words ready: press Enter there. The chat names itself, and shows here within a minute.'))
-  for (const chat of chats) {
+/** B322: one row per chat to open: its button, which opens it in the Claude app, and a copy of its first words. */
+function openChatRows(chats, folder) {
+  return chats.map(chat => {
     const row = el('div', 'open-chats-row')
     const link = el('a', 'open-chats-button', `Open ${chat.title}`)
     link.href = chat.link
-    link.title = `A new chat in ${state.workers.project}`
+    link.title = `A new chat in ${folder}`
     const copy = el('button', 'open-chats-copy', 'Copy its first words')
     copy.type = 'button'
     copy.dataset.copyWords = chat.words
-    copy.title = `If the app does not open: start a new chat in ${state.workers.project}, paste these words and send them.`
+    copy.title = `If the app does not open: start a new chat in ${folder}, paste these words and send them.`
     row.append(link, copy)
-    box.append(row)
-  }
+    return row
+  })
+}
+
+const OPEN_ABOUT = 'Each button opens a new chat in the Claude app, in this project\'s folder, with its first words ready: press Enter there. The chat names itself, and shows here within a minute.'
+
+/**
+ * B322: the box on the Overview that opens the Advisor a project still lacks once it has its main chat (see
+ * `chatsToOpen`); without a main chat the box "No main chat yet" holds the buttons. Null when nothing is to open.
+ */
+function drawOpenChats(state) {
+  if (state.workers?.main === null) return null
+  const chats = chatsToOpen(state)
+  if (chats.length === 0) return null
+  const box = el('section', 'open-chats')
+  box.append(el('h3', '', `Open ${chats[0].title}`), el('p', 'open-chats-about', OPEN_ABOUT), ...openChatRows(chats, state.workers.project))
   return box
 }
 
@@ -1393,7 +1402,10 @@ function drawWorkers(state) {
   const box = el(isRow ? 'div' : 'section', isRow ? 'lane-add' : 'empty-workers')
   if (shown.title !== null) box.append(el('h3', '', shown.title))
   if (shown.text !== null) box.append(el('p', '', shown.text))
-  if (shown.steps.length > 0) {
+  // B322: without a main chat, the buttons that open it (and the Advisor) in the Claude app take the place of the steps.
+  const opening = shown.kind === 'none' ? chatsToOpen(state) : []
+  if (opening.length > 0) box.append(el('p', 'open-chats-about', OPEN_ABOUT), ...openChatRows(opening, state.workers.project))
+  else if (shown.steps.length > 0) {
     const list = el('ol')
     for (const parts of shown.steps) {
       const item = el('li')
