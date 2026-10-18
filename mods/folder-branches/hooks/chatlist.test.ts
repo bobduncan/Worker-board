@@ -1161,6 +1161,20 @@ describe('B297: the work tool asks the worker board', () => {
     expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'], chat: 'Units', session: 'units' })
   })
 
+  test('Fix first: new and queue carry priority fix to the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'B330 queued for Units.' }) }
+    await $.tool.call({ tool: WORK, action: 'queue', id: 'B330', for: 'Units', priority: 'fix' } as never)
+    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'queue', id: 'B330', for: 'Units', priority: 'fix', chat: 'Units', session: 'units' })
+    await $.tool.call({ tool: WORK, action: 'new', title: 'Fix the lane', activity: 'Board', priority: 'fix' } as never)
+    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'new', title: 'Fix the lane', activity: 'Board', priority: 'fix', chat: 'Units', session: 'units' })
+  })
+
   test('Focus 3: the partner writes its daily note with decided and needs, sent to the board', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })

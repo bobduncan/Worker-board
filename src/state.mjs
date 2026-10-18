@@ -21,7 +21,7 @@ import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
-import { sinceMs, valueOf } from './work/item.mjs'
+import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
 import { reconcile } from './work/reconcile.mjs'
@@ -837,6 +837,21 @@ export function handoutNeeds(focus, main, now) {
 }
 
 /**
+ * Fix first: the board fix a focus part waits for, or null. A part's step queued (not itself a fix) whose owner works on
+ * a board fix (taken, in progress, waiting on the person) or has one queued, which goes before it: that fix's id, the
+ * one under way first, else the lowest.
+ */
+function fixAhead(known, steps, prefix) {
+  const plain = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
+  const own = new Set(known.map(one => one.head.get('Id')))
+  const owners = new Set(known.filter(one => one.head.get('State') === 'queued' && !isFix(one) && (one.head.get('Owner') ?? '') !== '').map(one => plain(one.head.get('Owner'))))
+  if (owners.size === 0) return null
+  const fixes = [...steps.values()].filter(one => isFix(one) && !own.has(one.head.get('Id')) && owners.has(plain(one.head.get('Owner'))) && ['taken', 'in progress', 'waiting on you', 'queued'].includes(one.head.get('State')))
+    .sort((a, b) => Number(a.head.get('State') === 'queued') - Number(b.head.get('State') === 'queued') || a.head.get('Id').localeCompare(b.head.get('Id'), 'en', { numeric: true }))
+  return fixes[0]?.head.get('Id') ?? null
+}
+
+/**
  * Focus 1 (spec 2026-10-18, sections 4 and 5): the focus goal as the Focus page draws it, or null without a goal map,
  * without a focus, or with one that is no longer in the map (the page then asks to pick one). Its stage and lines from
  * goals.md; each part's progress from its steps in the store (`items`): all finished → done; one taken, in progress,
@@ -862,7 +877,8 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     const state = known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isHandout ? 'handout' : isRefining ? 'refining' : 'next'
     const owner = busy === undefined ? null : String(busy.head.get('Owner') ?? '').replace(prefix, '').trim() || null
     const since = unsent.map(one => sinceMs(one.head.get('Since'))).filter(Number.isFinite)
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, ...(isHandout ? { waitsSince: since.length > 0 ? Math.max(...since) : null } : {}) }
+    const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, ...(isHandout ? { waitsSince: since.length > 0 ? Math.max(...since) : null } : {}), ...(fix === null ? {} : { fixFirst: fix }) }
   })
   const left = parts.filter(part => part.state !== 'done').map(part => sizeMinutes(part.size)).filter(one => one !== null)
   const own = (threads ?? []).filter(one => one.goal?.id === node.id)
@@ -1111,7 +1127,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   const lanes = cards.map(lane => {
     const mine = lane.isLeftover ? [] : queued.filter(step => step.worker === lane.name)
-    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, refined: step.refined ?? null, pictures: picturesOf(allWords(step)), why: whyNot(step, lane) })) }
+    const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, refined: step.refined ?? null, pictures: picturesOf(allWords(step)), why: whyNot(step, lane), ...(step.isFix === true ? { isFix: true } : {}) })) }
     return {
       ...withQueue,
       folders: lane.isLeftover ? [] : (folders ?? []).filter(folder => owner(folder) === lane.name),

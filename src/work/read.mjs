@@ -5,7 +5,7 @@
 
 import { storeAsBacklog, storeProblems } from './adapter.mjs'
 import { DEFAULT_FLOW, nextMoves, statesOf } from './flow.mjs'
-import { valueOf } from './item.mjs'
+import { isFix, valueOf } from './item.mjs'
 import { migrateBacklog } from './migrate.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
 import { readStore } from './store.mjs'
@@ -84,6 +84,8 @@ function withStepAsks(backlog, items) {
   for (const step of backlog.activities.flatMap(activity => activity.steps)) {
     const item = step.id === null ? undefined : items.get(step.id)
     step.stepAsks = item === undefined ? [] : refineAsksOf(items, item)
+    // Fix first: a step marked as a board fix goes first in its queue and on the Backlog tab, with a chip.
+    step.isFix = item !== undefined && isFix(item)
   }
   return backlog
 }

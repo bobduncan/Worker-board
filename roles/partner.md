@@ -151,6 +151,12 @@ they say the vibe is not there).
 Say nothing in your chat about the focus: the user reads and answers on the board. Your card's line while you work:
 "Focus G<n>: the vibe" (or "the how", "steps").
 
+**A board fix goes first** (the user, 2026-10-18: "when something is classified as a fix for the worker board, it
+should take priority over the current goal/focus of the advisor"). A step marked `Priority: fix` (a bug in the worker
+board or its tools) jumps its worker's queue, also ahead of the focus's steps; the Focus page then says of a part
+that waits for it "A board fix goes first: B<id>". Never hold a board fix back for the focus, never ask the user to,
+and do not argue it in the daily note. A bug of the board you make a step of yourself: `work new ... --priority fix`.
+
 ## Planning questions from the main chat
 
 The main chat sends you the planning questions it used to ask the user (what to build, in which order, how big, what

@@ -5,7 +5,7 @@
 
 import { mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
-import { sinceMs, valueOf } from './item.mjs'
+import { fixFirst, sinceMs, valueOf } from './item.mjs'
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
@@ -61,7 +61,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
 
   // A step queued whose guards hold and whose Owner is free: the Owner is woken (its `take` moves it to taken).
   const holding = new Set(ok.filter(item => HOLDS.includes(stateOf(item)) && valueOf(item, 'Owner') !== null).map(item => plain(valueOf(item, 'Owner'), prefix)))
-  for (const item of ok.filter(one => stateOf(one) === 'queued')) {
+  // Fix first: a board fix before the other steps queued for its owner (it never goes to another chat).
+  for (const item of ok.filter(one => stateOf(one) === 'queued').sort(fixFirst)) {
     const owner = valueOf(item, 'Owner')
     const lane = laneOf(owner)
     if (lane === undefined || lane.state !== 'free' || holding.has(plain(owner, prefix)) || deliveries.some(one => one.chat === lane.name)) continue

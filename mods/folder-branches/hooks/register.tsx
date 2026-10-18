@@ -831,8 +831,8 @@ const WORK_TOOL = {
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
     + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question; the partner\'s daily note on the focus goal is a note to you with "of" G<n>, "decided" and "needs". "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
-    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
-    + '"for", "after", "about"), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
+    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority"): a new step. "queue" ("id", '
+    + '"for", "after", "about", "priority"; "priority" fix: a fix for the worker board, first in its worker\'s queue), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
     + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "questions") and "refined" ("id", "what"): '
     + 'the Advisor. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
@@ -882,6 +882,7 @@ const WORK_TOOL = {
       decided: { type: 'array', items: { type: 'string' }, description: 'note of a goal (the daily note): what you decided for the person, one short line each.' },
       needs: { type: 'array', items: { type: 'string' }, description: 'note of a goal (the daily note): the ids of your open asks that need the person (Q12).' },
       from: { type: 'string', description: "rename: the chat's old name." },
+      priority: { type: 'string', enum: ['fix'], description: 'new, queue: "fix" marks the step a fix for the worker board (the main chat, the partner): it goes first in its worker\'s queue.' },
     },
     required: ['action'],
   },

@@ -7,7 +7,9 @@ export const HEAD_KEYS = {
   // `Queue note` and `Line` keep what the backlog wrote when its words do not come back from the fields alone (see
   // migrate.mjs); `Asks` on a step keeps a "Decide:" a step without @you may start with. B303: `Queue when refined`
   // keeps a queue asked before the step's refine ("for Board; after B293; about 1.5 h"); the board carries it out.
-  step: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
+  // Fix first: `Priority: fix` marks a step as a fix for the worker board; it goes first wherever the board picks the
+  // next step (its owner's queue, `work next`, the delivery), and stays with its owner.
+  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
   // B299: `Advice` is the option the asking chat advises; `Via` says how it was asked: form (the app's question form,
   // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of).
   ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Advice', 'Via', 'Queue note', 'Line'],
@@ -101,8 +103,16 @@ export function validateHead(head, kind = head.get('Kind')) {
   if (asks !== undefined && asks !== '-' && !ASK_KINDS.includes(asks)) return `Asks is not decide, look, provide or do: ${asks}`
   const blocking = head.get('Blocking')
   if (blocking !== undefined && !['yes', 'no', '-'].includes(blocking)) return `Blocking is not yes or no: ${blocking}`
+  const priority = head.get('Priority')
+  if (priority !== undefined && !['fix', '-', ''].includes(priority)) return `Priority is not fix: ${priority}`
   return null
 }
+
+/** Fix first: whether a step is marked as a fix for the worker board (`Priority: fix`). */
+export const isFix = item => item?.head?.get('Priority') === 'fix'
+
+/** Fix first: the order in which the board picks steps: a fix before the others, else as they stood. */
+export const fixFirst = (a, b) => Number(isFix(b)) - Number(isFix(a))
 
 /** A head value, or null for none: a missing key, '' and '-' all mean none. */
 export function valueOf(item, key) {

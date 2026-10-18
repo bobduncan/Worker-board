@@ -11,7 +11,7 @@ import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
-import { ASK_KINDS, HEAD_KEYS, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
+import { ASK_KINDS, HEAD_KEYS, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault } from './read.mjs'
@@ -204,7 +204,8 @@ function oneLine(item, items) {
   const waits = [open.length > 0 ? `after ${open.join(', ')}` : null, waiting].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
   const turns = missed > 0 ? `, missed ${missed} turn${missed === 1 ? '' : 's'}` : ''
-  return `- ${valueOf(item, 'Id')} ${stateOf(item)}${turns}${waits.length > 0 ? ` (${waits.join('; ')})` : ''}: ${valueOf(item, 'Title') ?? valueOf(item, 'Text') ?? ''}`
+  const fix = isFix(item) ? ', board fix' : ''
+  return `- ${valueOf(item, 'Id')} ${stateOf(item)}${fix}${turns}${waits.length > 0 ? ` (${waits.join('; ')})` : ''}: ${valueOf(item, 'Title') ?? valueOf(item, 'Text') ?? ''}`
 }
 
 /** `next`: the chat's open instructions, then its steps by state, each in one line; the first in full. */
@@ -244,7 +245,8 @@ function steady(body, w, chat) {
   const told = items.filter(item => kindOf(item) === 'instruction' && stateOf(item) === 'open' && plain(valueOf(item, 'Chat'), w.prefix) === plain(chat, w.prefix))
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   const mine = items.filter(item => kindOf(item) === 'step' && MINE.includes(stateOf(item)) && isOwner(item, chat, w.prefix))
-    .sort((a, b) => MINE.indexOf(stateOf(a)) - MINE.indexOf(stateOf(b)) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+    // Fix first: within a state, a board fix before the others (it jumps the queue, it stops no work under way).
+    .sort((a, b) => MINE.indexOf(stateOf(a)) - MINE.indexOf(stateOf(b)) || fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   const all = [...told, ...mine]
   const open = openOf(chat, w)
   if (all.length === 0) return { ok: true, result: { text: `Nothing is yours, ${chat}: no instruction is open and no step is taken, in progress or queued for you.`, items: [], open, changed: false } }
@@ -773,6 +775,8 @@ async function make(body, w) {
   if (read.title !== title || read.isYou || read.owner !== null || read.branch !== null || read.asks !== null || read.id !== null) {
     return refuse(400, 'The title would not read back as written: leave out an id at its start, "Verify:" and the like, brackets at its end and @you.')
   }
+  const priority = priorityOf(body, w)
+  if (!priority.ok) return priority
   const activitiesText = await readActivitiesText(w.dir, w.fs)
   const id = await nextId(w.dir, 'B', w.fs)
   let item = said(ordered({
@@ -780,6 +784,7 @@ async function make(body, w) {
     sections: new Map(lines(body.text).length === 0 ? [] : [['Context', lines(body.text).map(one => `  ${one.trim()}`)]]),
     problem: null,
   }), w, 'made')
+  if (priority.fix) item = ordered(markedFix(item, w))
   if (fromHow !== null) {
     const ready = copy(item)
     for (const [name, value] of fromHow.sections) ready.sections.set(name, value)
@@ -800,6 +805,21 @@ async function make(body, w) {
   return changed(item)
 }
 
+/** Fix first: who marks a step as a fix for the worker board (`priority: 'fix'` on new and queue). */
+const FIX_ROLES = ['main', 'advisor', 'person']
+
+/** Fix first: the call's `priority`: `{ ok, fix }`, or a refusal (another value; a chat that may not mark it). */
+function priorityOf(body, w) {
+  const value = line(body.priority, 20).toLowerCase()
+  if (value === '') return { ok: true, fix: false }
+  if (value !== 'fix') return refuse(400, '"priority" is fix, or left out.')
+  if (!FIX_ROLES.includes(w.role)) return refuse(403, 'Only the main chat, the partner or the person marks a step as a board fix.')
+  return { ok: true, fix: true }
+}
+
+/** Fix first: the step marked as a board fix, with its History line; as it was when it is one already. */
+const markedFix = (item, w) => (isFix(item) ? item : said(put(item, 'Priority', 'fix'), w, 'marked a board fix'))
+
 /** Main queues a refined step for a chat: Owner, Blocked by or Waits for, Estimate. */
 async function queue(body, w) {
   return warned(await queueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning)
@@ -819,6 +839,19 @@ async function queueStep(body, w) {
   const about = line(body.about, 40).replace(/^about\s+/i, '')
   if (about !== '' && minutesOf(`about ${about}`) === null) return refuse(400, '"about" is a time such as "1 h" or "40 min".')
   const words = [`for ${owner}`, after === '' ? null : `after ${after}`, about === '' ? null : `about ${about}`].filter(Boolean).join('; ')
+  const priority = priorityOf(body, w)
+  if (!priority.ok) return priority
+  const fixed = item => (priority.fix ? markedFix(item, w) : item)
+  // Fix first: a step queued already for that chat is only marked as a board fix; it keeps its place in the flow.
+  if (priority.fix && stateOf(found.item) === 'queued') {
+    const id = valueOf(found.item, 'Id')
+    const was = valueOf(found.item, 'Owner')
+    if (was === null || plain(was, w.prefix) !== plain(owner, w.prefix)) return refuse(409, `${id} is queued for ${was ?? 'no chat'}: give it to ${owner} with requeue first, then mark it.`)
+    if (isFix(found.item)) return { ok: true, result: { id, text: `${id} is a board fix already.`, changed: false } }
+    const next = ordered(fixed(copy(found.item)))
+    const done = await save(next, found.text, w)
+    return done.ok ? changed(next) : done
+  }
   const moved = move(found.item, 'queued', w.role, w)
   // B309: a refined step with asks under it that count as its refine questions (open, or answered and not folded in
   // yet) is not refined for the queue: the wish is kept, and the board queues it once the Advisor folded them in.
@@ -829,7 +862,7 @@ async function queueStep(body, w) {
     const why = open.length > 0
       ? `waits for ${open.join(', ')}: the person answers, the Advisor folds it in`
       : `waits for the Advisor to fold in the answers to ${pending.map(one => one.id).join(', ')}`
-    const next = ordered(said(put(copy(found.item), 'Queue when refined', words), w, `${QUEUE_ASKED}: ${words}`))
+    const next = ordered(fixed(said(put(copy(found.item), 'Queue when refined', words), w, `${QUEUE_ASKED}: ${words}`)))
     const done = await save(next, found.text, w)
     return done.ok ? changed(next, `${id} ${why}, then the board queues it for ${owner} by itself.`, { queueWhenRefined: words }) : done
   }
@@ -838,11 +871,11 @@ async function queueStep(body, w) {
     // B303: not refined yet: the wish is kept on the step; the refine gate sends it to the Advisor, and once it is
     // refined the board queues it by itself (`queueAsked`).
     const id = valueOf(found.item, 'Id')
-    const next = ordered(said(put(copy(found.item), 'Queue when refined', words), w, `${QUEUE_ASKED}: ${words}`))
+    const next = ordered(fixed(said(put(copy(found.item), 'Queue when refined', words), w, `${QUEUE_ASKED}: ${words}`)))
     const done = await save(next, found.text, w)
     return done.ok ? changed(next, `${id} is not refined yet: the Advisor refines it first, then the board queues it for ${owner} by itself.`, { queueWhenRefined: words }) : done
   }
-  const next = ordered(said(queuedAs(moved.item, { owner, after, about }), w, `queued ${words}`))
+  const next = ordered(fixed(said(queuedAs(moved.item, { owner, after, about }), w, `queued ${words}`)))
   const done = await save(next, found.text, w)
   return done.ok ? changed(next) : done
 }
@@ -1403,7 +1436,7 @@ function pull(body, w) {
   const steps = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, w.who, w.prefix))
   const held = steps.find(item => ['taken', 'in progress', 'waiting on you'].includes(stateOf(item)))
   if (held !== undefined) return { ok: true, result: { text: '', id: valueOf(held, 'Id'), since: null, wake: null, changed: false } }
-  for (const item of steps.filter(one => stateOf(one) === 'queued').sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
+  for (const item of steps.filter(one => stateOf(one) === 'queued').sort((a, b) => fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
     if (!mayMove(w.store.flow, item, 'taken', 'server', flowCtx(w, [item], [w.who])).ok) continue
     const id = valueOf(item, 'Id')
     // When it was queued for this chat: a step queued anew is delivered anew (work/deliver.mjs, deliveryKey).

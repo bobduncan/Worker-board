@@ -70,7 +70,9 @@ export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 
   // Focus 3: the partner's daily note on the focus goal.
   'decided', 'needs',
   // B313: the chat a rename moves the work from.
-  'from']
+  'from',
+  // Fix first: a step marked as a fix for the worker board ("fix"), on new and queue.
+  'priority']
 
 /** What every chat in the list is told about the board, in the same words at every request. */
 export const BOARD_NOTE = ' The person also answers on their worker board, a page on this machine. What they answer or '

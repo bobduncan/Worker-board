@@ -1460,6 +1460,29 @@ were stranded: the store refuses a take or a report from a chat under another na
   more under the new name, and the waiting line under the old name is withdrawn as for any step no longer that chat's;
   copying the keys would leave the renamed chat without its line.
 
+## Fix first: a board fix goes first
+
+The person, 2026-10-18: "also when something is classified as a fix for the worker board, it should take priority
+over the current goal/focus of the advisor".
+
+- **The mark**: a step's head may hold `Priority: fix` (the only value; `src/work/item.mjs`, `isFix`, `fixFirst`). The
+  work API sets it with `priority: 'fix'` on `new` and on `queue` (also for a queue asked before the refine), with the
+  History line "marked a board fix"; for a step queued already for that chat, `queue` with `priority` only marks it.
+  The main chat, the partner (role advisor) and the person mark a step; a worker is refused. The Workers mod's work
+  tool carries the field (0.13.8). The main chat marks every step it makes from a bug the person reports in the board
+  or in a chat's tools for the board (roles/main.md).
+- **It stays with its owner and jumps that owner's queue**; it is never given to another free chat. Wherever the board
+  picks the next step, a fix comes first: the reconciler's delivery (`reconcile.mjs`: the queued steps sorted fix first,
+  so a free owner is woken for its fix; a fix that may not be taken yet, blocked or waiting, holds nothing back), the
+  chat's pull at its turn's end (`pull`), and `work next` (within a state, so a step in progress is not set aside;
+  its line reads "B<id> queued, board fix: ...").
+- **On the page**: the lanes' queues (`backlog.mjs`, `queue`: fix first; each step `isFix`) and the column "Next in
+  queue" show a small "fix" chip; the Backlog tab shows the chip and puts an open fix first in its group, also in "One
+  list".
+- **The Focus page**: a part not under way whose queued step (not itself a fix) has an owner that works on a fix, or has
+  one queued, says "A board fix goes first: B<id>" (`state.mjs`, `fixAhead`: the fix under way first, else the lowest
+  id). The partner's job text: a board fix is never held back for the focus, nor argued in the daily note.
+
 ## CPU for the chats (B311)
 
 The person, 2026-10-18, while playing the game: the workers made the PC lag; "i want the board to not completely stop

@@ -92,6 +92,13 @@ You decide this, not the user. For every task:
   types one line into the worker's chat, "work: B<id> is yours; run work next", and the worker reads the step with
   `work next`. A worker that ends a turn with nothing in progress asks the board itself; a worker that is not running
   is started through you (the board types `start "<name>"` into you).
+- A board fix goes first (the user, 2026-10-18: "when something is classified as a fix for the worker board, it should
+  take priority over the current goal/focus of the advisor"). A step you make from a bug the user reports in the worker
+  board, or in a chat's tools for the board (the Workers mod, its panes, the work tool), is a fix: make it with
+  `work new ... --priority fix`, or mark it when you queue it, `work queue B<id> ... --priority fix` (a step queued
+  already for that worker: the same call with its `for` only marks it). It stays with its worker and jumps that worker's
+  queue: the board delivers it first, `work next` lists it first, the lanes and the Backlog tab show it first with a
+  "fix" chip. Do not hold it back for the focus, and ask the partner nothing about it.
 - A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
