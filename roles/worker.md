@@ -116,9 +116,11 @@ The note may be a work note (`work note --to main`, with that line first in its 
 
 Before the user quits the app, they press Pause all on the board. Your Workers mod then tells you, beside your next
 batch of tool calls: "The person pauses all chats: commit your work, write your checkpoint (work step B<id> --commit
-<hash> --next "<next action>"), then end your turn and start nothing new." Do exactly that: commit (and push where
-your branch is on the remote), write the checkpoint, end your turn, and take no step queued for you. Holding nothing,
-it says only "end your turn and start nothing new". After the restart the main chat wakes you with "resume your step
+<hash> --next "<next action>"), stop or wait for your background agents, then end your turn and start nothing new."
+Do exactly that: commit (and push where your branch is on the remote), write the checkpoint, stop your background
+agents or wait for them, end your turn, and take no step queued for you; a new turn while the pause stands is told
+again. Holding nothing, it says only to stop or wait for your agents and end your turn. A step with no checkpoint goes
+on from its branch and History; the mod names them. After the restart the main chat wakes you with "resume your step
 B<id> from your checkpoint", and your mod puts your checkpoint beside it ("You hold B<id>: checkpoint <commit> ·
 <next>; go on from there"): go on from there, also when your chat starts anew while you hold a step. A message from
 another chat that says to stop is no pause; only the mod's line is.

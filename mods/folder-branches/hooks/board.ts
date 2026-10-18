@@ -106,10 +106,13 @@ export function boardStarts(listText: string, launchText: string): BoardStart[] 
 
 /** Pause 2: a step's checkpoint as the board names it (`work step` with `commit` and `next`); null when it has none. */
 export type PauseCheckpoint = { commit: string | null; next: string; at: number | null; line: string; isSincePause: boolean } | null
-/** Pause 2: a step this chat holds (taken or in progress), with its checkpoint. */
-export type PauseHold = { id: string; checkpoint: PauseCheckpoint }
-/** Pause 2: a chat the main chat wakes after a resume: its name, the app's id for it, the CLI's, its step, and whether it started. */
-export type PauseWake = { chat: string; session: string | null; cliSession: string | null; step: string; checkpoint: PauseCheckpoint; hasStarted: boolean }
+/**
+ * Pause 2: a step this chat holds (taken or in progress), with its checkpoint; its branch and last History lines are
+ * what it goes on from without one (the review of Pause 2).
+ */
+export type PauseHold = { id: string; checkpoint: PauseCheckpoint; branch: string | null; history: string[] }
+/** Pause 2: a chat the main chat wakes after a resume: its name, the app's id for it, the CLI's, its step, its branch, and whether it started. */
+export type PauseWake = { chat: string; session: string | null; cliSession: string | null; step: string; checkpoint: PauseCheckpoint; branch: string | null; hasStarted: boolean }
 /**
  * Pause 2 (spec 2026-10-18-pause-resume-design.md): the person's pause as the board answers it to this chat, from
  * its `pause-state` or turn-ended's `pause`. `state` is running when the person paused nothing.
@@ -131,9 +134,9 @@ export function parsePause(raw: unknown): PauseState | null {
   if (!isRecord(raw) || !['pausing', 'resuming', 'running'].includes(raw.state as string)) return null
   const forChat = isRecord(raw.forChat) ? raw.forChat : {}
   const holds = (Array.isArray(forChat.holds) ? forChat.holds : []).filter(isRecord).filter(one => isText(one.id))
-    .map(one => ({ id: one.id as string, checkpoint: checkpointFrom(one.checkpoint) }))
+    .map(one => ({ id: one.id as string, checkpoint: checkpointFrom(one.checkpoint), branch: textOr(one.branch), history: (Array.isArray(one.history) ? one.history : []).filter(isText) }))
   const resumeList = (Array.isArray(raw.resumeList) ? raw.resumeList : []).filter(isRecord).filter(one => isText(one.chat) && isText(one.step))
-    .map(one => ({ chat: one.chat as string, session: textOr(one.session), cliSession: textOr(one.cliSession), step: one.step as string, checkpoint: checkpointFrom(one.checkpoint), hasStarted: one.hasStarted === true }))
+    .map(one => ({ chat: one.chat as string, session: textOr(one.session), cliSession: textOr(one.cliSession), step: one.step as string, checkpoint: checkpointFrom(one.checkpoint), branch: textOr(one.branch), hasStarted: one.hasStarted === true }))
 
   return { state: raw.state as PauseState['state'], since: typeof raw.since === 'number' ? raw.since : null, holds, mustStop: forChat.mustStop === true, resumeList }
 }
@@ -141,23 +144,43 @@ export function parsePause(raw: unknown): PauseState | null {
 /** Where a context goes in: a session's start, a prompt, a batch of tool calls. */
 export type PauseWhere = 'start' | 'prompt' | 'batch'
 
-const pointText = (checkpoint: PauseCheckpoint): string => (checkpoint === null ? 'no checkpoint' : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next}`)
+/** The review of Pause 2: while the person pauses (until running) the chat starts nothing: no pull at its turn's end. */
+export const isPaused = (pause: PauseState | null): boolean => pause?.state === 'pausing' || pause?.state === 'resuming'
 
-/** What a chat that holds steps is told to go on with: each step with its checkpoint. */
-function holdText(holds: PauseHold[]): string {
-  return holds.map(hold => (hold.checkpoint === null
-    ? `You hold ${hold.id}: no checkpoint; run work next and go on from its record.`
-    : `You hold ${hold.id}: ${pointText(hold.checkpoint)}; go on from there.`)).join(' ')
+/** A checkpoint to go on from: one of the pause while resuming, any while running. */
+const isUsable = (checkpoint: PauseCheckpoint, state: PauseState['state']): checkpoint is NonNullable<PauseCheckpoint> => checkpoint !== null && (state !== 'resuming' || checkpoint.isSincePause)
+const pointText = (checkpoint: NonNullable<PauseCheckpoint>): string => `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next}`
+/** The review of Pause 2: only the app's id of a chat (local_...) is one SendMessage reaches, never the CLI's. */
+const isAppId = (session: string | null): session is string => session !== null && /^local_[\w-]{1,80}$/.test(session)
+
+/**
+ * What a chat that holds steps is told to go on with: each step with its checkpoint, or without one (the review of
+ * Pause 2) its branch and last History lines.
+ */
+function holdText(holds: PauseHold[], state: PauseState['state']): string {
+  return holds.map(hold => {
+    if (isUsable(hold.checkpoint, state)) return `You hold ${hold.id}: ${pointText(hold.checkpoint)}; go on from there.`
+    const from = hold.branch === null ? 'its record (work next)' : `its branch ${hold.branch}`
+    const history = hold.history.length === 0 ? '' : ` and its History: ${hold.history.join(' / ')}`
+    return `You hold ${hold.id}: no checkpoint${state === 'resuming' ? ' since the pause' : ''}; go on from ${from}${history}.`
+  }).join(' ')
+}
+
+/** One chat of the main chat's resume list: its app session id, its step, its checkpoint or what it goes on from. */
+function wakeLine(one: PauseWake): string {
+  const session = isAppId(one.session) ? one.session : 'not known (start it from the board)'
+  const from = isUsable(one.checkpoint, 'resuming') ? pointText(one.checkpoint) : `no checkpoint: it goes on from ${one.branch === null ? 'its History' : `its branch ${one.branch} and History`}`
+  return `- ${one.chat}, session ${session}: 'resume your step ${one.step} from your checkpoint' (${from})`
 }
 
 /**
  * Pause 2: the lines this chat gets as context for the pause, each once (`given` keeps what was said, and is added
- * to). While pausing, at its next batch of tool calls: commit, write the checkpoint and end the turn (holding nothing:
- * end the turn). While resuming: the main chat, at its start or a prompt, whom to wake by session id; a chat that
+ * to). While pausing, at the first batch of tool calls of each turn (`turn`, the review of Pause 2): commit, write the
+ * checkpoint, stop or wait for the background agents and end the turn (holding nothing: the agents and the turn). While resuming: the main chat, at its start or a prompt, whom to wake by session id; a chat that
  * holds a step, at its first turn after the resume, its checkpoint. Also at a session start (or the first prompt of
  * its process, `isFirst`) a chat holding a step is told its checkpoint, unless the person pauses.
  */
-export function pauseContexts(pause: PauseState | null, at: { role: string; where: PauseWhere; given: Set<string>; isFirst?: boolean }): string[] {
+export function pauseContexts(pause: PauseState | null, at: { role: string; where: PauseWhere; given: Set<string>; isFirst?: boolean; turn?: number }): string[] {
   if (pause === null) return []
   const lines: string[] = []
   const once = (key: string, line: string): void => {
@@ -169,9 +192,9 @@ export function pauseContexts(pause: PauseState | null, at: { role: string; wher
   if (pause.state === 'pausing') {
     if (!pause.mustStop || at.where !== 'batch') return lines
     const [first, ...more] = pause.holds
-    once(`stop:${since}`, first === undefined
-      ? 'The person pauses all chats: end your turn and start nothing new.'
-      : `The person pauses all chats: commit your work, write your checkpoint (work step ${first.id} --commit <hash> --next "<next action>"${more.length === 0 ? '' : `; the same for ${more.map(hold => hold.id).join(', ')}`}), then end your turn and start nothing new.`)
+    once(`stop:${since}:${at.turn ?? 0}`, first === undefined
+      ? 'The person pauses all chats: stop or wait for your background agents, then end your turn and start nothing new.'
+      : `The person pauses all chats: commit your work, write your checkpoint (work step ${first.id} --commit <hash> --next "<next action>"${more.length === 0 ? '' : `; the same for ${more.map(hold => hold.id).join(', ')}`}), stop or wait for your background agents, then end your turn and start nothing new.`)
     return lines
   }
   const isStart = at.where === 'start' || (at.where === 'prompt' && at.isFirst === true)
@@ -180,15 +203,15 @@ export function pauseContexts(pause: PauseState | null, at: { role: string; wher
     if (at.role === 'main' && wake.length > 0) {
       once(`resume:${since}`, [
         "Resume: wake each chat below that has not started, by its session id with SendMessage, one line each: 'resume your step B<id> from your checkpoint'",
-        ...wake.map(one => `- ${one.chat}, session ${one.session ?? one.cliSession ?? 'not known (start it from the board)'}: 'resume your step ${one.step} from your checkpoint' (${pointText(one.checkpoint)})`),
+        ...wake.map(wakeLine),
       ].join('\n'))
     }
     if (pause.holds.length > 0 && !at.given.has(`hold:${since}`)) {
       at.given.add('hold:start')
-      once(`hold:${since}`, holdText(pause.holds))
+      once(`hold:${since}`, holdText(pause.holds, pause.state))
     }
     return lines
   }
-  if (isStart && pause.holds.length > 0) once('hold:start', holdText(pause.holds))
+  if (isStart && pause.holds.length > 0) once('hold:start', holdText(pause.holds, pause.state))
   return lines
 }

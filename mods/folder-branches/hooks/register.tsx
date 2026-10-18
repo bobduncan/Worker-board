@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { ChatFile, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, parseBoard, parsePause, parseTaken, pauseContexts } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts } from './board'
 import type { Board, BoardStart, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -117,6 +117,15 @@ const PAUSE_MS = 20000
 const pauseGiven = new Set<string>()
 /** Pause 2: true until the first prompt of this process went in: a chat that holds a step learns its checkpoint then. */
 let isFirstPrompt = true
+/**
+ * The review of Pause 2: the turns of this session's main conversation, counted, so the stop line is said at the first
+ * batch of every turn while the person pauses; and whether the prompt that starts the next turn read the pause already
+ * (the turn's start then keeps that reading instead of dropping it: one reading per turn's start).
+ */
+let turnNumber = 0
+let isReadForTurn = false
+/** The review of Pause 2: where the mod's store keeps the resume a main chat was told of, so a new process says it no more. */
+const resumeGivenKey = (session: string): string => `pause-resume-given:${session}`
 
 function reason(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err)
@@ -443,8 +452,19 @@ async function pauseLines($: EngineInterface, where: PauseWhere, text = ''): Pro
     const isResume = where === 'prompt' && /\bresume\b/i.test(text)
     const isAsked = where !== 'prompt' || isFirst || isResume || pauseRead?.pause?.state !== 'running'
     const pause = isAsked ? await pauseNow($, isResume) : pauseRead?.pause ?? null
+    if (where === 'prompt' && isAsked && !isInTurn) isReadForTurn = true
+    // The review of Pause 2: the main chat is told whom to wake once per resume, also over a new process of its chat.
+    const resumeKey = pause?.state === 'resuming' && myself.role === 'main' ? `resume:${String(pause.since ?? 0)}` : null
+    const store = resumeKey === null ? null : resumeGivenKey(await $.session.id())
+    if (store !== null && resumeKey !== null && !pauseGiven.has(resumeKey)) {
+      const told = await withinTime($, $.store.get(store).catch(() => undefined))
+      if (told === pause?.since) pauseGiven.add(resumeKey)
+    }
+    const hadResume = resumeKey !== null && pauseGiven.has(resumeKey)
+    const lines = pauseContexts(pause, { role: myself.role, where, given: pauseGiven, isFirst, turn: turnNumber })
+    if (store !== null && resumeKey !== null && !hadResume && pauseGiven.has(resumeKey)) await $.store.set(store, pause?.since ?? 0).catch(() => undefined)
 
-    return pauseContexts(pause, { role: myself.role, where, given: pauseGiven, isFirst })
+    return lines
   } catch {
     return []
   }
@@ -1119,6 +1139,10 @@ export const register: Register = on => {
       isCardSeen = false
       hasAsked = false
       hasReported = false
+      // The review of Pause 2: each turn reads the pause anew at its first batch, unless its prompt just read it.
+      turnNumber += 1
+      if (!isReadForTurn) pauseRead = null
+      isReadForTurn = false
       // A report from a turn that was cut short does not count for this one.
       await changeMine($, chat => atTurnStart(chat)).catch(() => null)
     }
@@ -1152,7 +1176,8 @@ export const register: Register = on => {
           // nothing changes for the chat (the board says so on its page). B317: an answer that ends with a "For you" block
           // hands its items over in the same call; the board files those the chat filed no ask for (Via: chat).
           await withinTime($, (async () => {
-            const pulls = await holdsNothing($)
+            // The review of Pause 2: while the person pauses (until running) a free worker takes nothing new.
+            const pulls = !isPaused(pauseRead?.pause ?? null) && await holdsNothing($)
             const ended = await workQuietly($, { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}) })
             // Pause 2: the same answer carries the pause state: the next batch needs no call of its own.
             if (ended !== null) pauseRead = { pause: parsePause(ended.pause), at: await $.clock.now() }

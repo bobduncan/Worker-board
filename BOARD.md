@@ -62,11 +62,15 @@ A dark dashboard: dark blue panels with thin borders on an almost black page, wh
 
 The tabs **Overview**, **Advisor**, **Backlog**, **Design**; on the right **Pause all** (2026-10-18, in place of
 Prepare restart, which is gone with restart.md and the "Safe point:" lines: after a Yes it writes the work store's
-`pause.json`, and each chat's Workers mod (0.13.9) tells its chat at its next tool batch to write its checkpoint and
-end its turn; the restart banner says "Pausing since HH:MM: still working: ...; holding a step with no checkpoint
-since the pause: ...", then "Safe to restart", with **Resume all**; after Resume all it names who has not started a
+`pause.json`, and each chat's Workers mod (0.13.9) tells its chat at the first tool batch of each turn to write its
+checkpoint, stop or wait for its background agents and end its turn; until running the board hands out nothing that
+starts a turn, and what the person sends waits, "held until resume"; the restart banner says "Pausing since HH:MM: still
+working: ...; waiting for you (question form): ...; a line is being typed into: ...", then "Safe to restart", with a
+muted line for each step held with no checkpoint ("B313 (Board) has no checkpoint; it resumes from its branch and
+History."), and **Resume all**; after Resume all it names who has not started a
 turn yet, and when the main chat does not run a link **Open <its title>** that opens it in the app (its mod then
-gives it the list of whom to wake by session id, and each holder's mod its checkpoint); it goes once every chat
+gives it the list of whom to wake by session id, and each holder's mod its checkpoint; once its process runs and it
+has done nothing, the board types `resume` into it, once); it goes once every chat
 holding a step has started a turn; see DESIGN.md, "Pause and resume from the store"; B315: a word to
 the main chat that was only copied, because its chat did not run yet, stays on the restart banner, "Main's chat is not
 running yet: open Game - Main in the app (or click it in the sidebar) and paste with Ctrl+V", with **Copy again**

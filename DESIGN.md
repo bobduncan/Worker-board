@@ -953,6 +953,28 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   the partner write a checkpoint with every commit and stop as the mod's line says; the main chat wakes the holders
   from the mod's list and keeps no restart file (`roles/worker.md` "A pause of all chats", `roles/main.md`,
   `roles/partner.md`, `roles/protocol.md` "What the Workers mod puts beside a chat's turn").
+- *The review of Pause 2 (fix first, 2026-10-18).* A rule changed with it (the coordinator's, from the design's intent):
+  an app restart loses only a turn in flight; files on disk survive. So **Safe to restart** is no chat running a turn
+  (working, background work, a lane the board cannot read, as part 1 built), none in the app's question form ("waiting
+  for you (question form): <chat>", no longer "still working") and no line handed to a chat and not typed yet ("a line
+  is being typed into: <chat>", `pending` from the outbox's taken lines). A step held with no checkpoint since the pause
+  blocks nothing: the banner says it beside ("B313 (Board) has no checkpoint; it resumes from its branch and
+  History."), and `pause-state` gives each hold its `branch` and last three History lines (`history`; the resume list
+  its `branch`), which the mod's resume line uses instead: "You hold B313: no checkpoint since the pause; go on from its
+  branch <branch> and its History: <lines>." A checkpoint from before the pause counts as none while resuming. *While
+  pausing, until running*, the board hands out nothing that starts a turn: no delivery and no check's word or note-wake
+  (`deliverWork`), no pull (`pull`, also turn-ended's), no chat may be woken (`mayWake`), and a take hands out only the
+  board's own `resume` to the main chat (`store.take`'s `only`); the person's own lines and answers wait in the outbox,
+  shown "held until resume" (`isHeld` in the state), and do not grow late for the time the pause held them
+  (`heldMs`, `isLate` with `keep.pause`; running keeps `pausedSince`). After **Open <main>**: once the main chat's
+  process runs while resuming, it has had no turn since Resume all and the board typed no `resume` since, the board
+  types `resume` into it, once (`resumeRetypeTo`, `pause.main.hasActed`). The mod: the stop line goes in at the first
+  tool batch of every turn while pausing (once per turn), says "stop or wait for your background agents", and the
+  cached reading is dropped at each turn's start, unless that turn's prompt just read it (one reading per turn's
+  start); a free worker sends no pull while paused; the main chat's resume list goes in once per resume (keyed by
+  pause.json's since, kept in the mod's own store, `pause-resume-given:<session>`, so a new process of the main chat
+  does not say it again) and names only app session ids (`local_...`): a chat without one says "session not known
+  (start it from the board)".
 
 **The Design tab** (the person, 2026-10-12: "i want to be able to prompt an initial idea. let it build a visual in
 codex about what i want, present it to me, if i agree can add information to it what i want and put it either on

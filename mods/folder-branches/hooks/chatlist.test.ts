@@ -71,13 +71,15 @@ type World = {
   pauseReads: number
   /** The description each tool was registered with, by its name. */
   descriptions: Record<string, string>
+  /** The review of Pause 2: the mod's own store ($.store), across its processes. */
+  stored: Record<string, unknown>
 }
 
 /** Pause 2: the board's pause-state answer while nobody paused. */
 const RUNNING = { text: "The board's pause state: running.", state: 'running', since: null, forChat: { holds: [], mustStop: false }, resumeList: [] }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {} }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {} }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -159,6 +161,12 @@ function stand(on: On, w: World): void {
     const path = slashed(e.path)
 
     return { value: Object.keys(w.files).some(known => known === path || known.startsWith(`${path}/`)) }
+  })
+  on('store.get', (_$, e) => ({ value: w.stored[e.key] }))
+  on('store.set', (_$, e) => {
+    w.stored[e.key] = e.value
+
+    return { value: undefined }
   })
   on('fs.read', (_$, e) => {
     const text = w.files[slashed(e.path)]
@@ -1584,9 +1592,11 @@ describe('Pause 2: each chat reads the person\'s pause in its own calls to the b
     const result = await $.classic.PostToolBatch({ ...BATCH, ...more } as never)
     return result.additionalContext?.join('\n') ?? ''
   }
-  const STOP = 'The person pauses all chats: commit your work, write your checkpoint (work step B12 --commit <hash> --next "<next action>"), then end your turn and start nothing new.'
+  const STOP = 'The person pauses all chats: commit your work, write your checkpoint (work step B12 --commit <hash> --next "<next action>"), stop or wait for your background agents, then end your turn and start nothing new.'
   const units = (): Record<string, string> => ({ ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 1, 3, 30), at: 0 } }), [BOARD]: board })
+  const free = (): Record<string, string> => ({ ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
   const mainChat = (): Record<string, string> => ({ ...listed({ main: { name: 'Main', role: 'main', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
+  const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
 
   test('the work tool writes a checkpoint: its description says when, and commit and next reach the board', async ($, on) => {
     mock.clock(on)
@@ -1598,10 +1608,10 @@ describe('Pause 2: each chat reads the person\'s pause in its own calls to the b
     await $.turn.start({ text: 'go', turnId: 't1' })
     w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', text: 'B12: checkpoint 1a2b3c4 · write the tests.' }) }
     await $.tool.call({ tool: WORK, action: 'step', id: 'B12', commit: '1a2b3c4', next: 'write the tests' } as never)
-    expect(w.worked.map(body => JSON.parse(body) as Record<string, unknown>).filter(one => one.action === 'step')).toEqual([{ action: 'step', id: 'B12', commit: '1a2b3c4', next: 'write the tests', chat: 'Units', session: 'units' }])
+    expect(sent(w).filter(one => one.action === 'step')).toEqual([{ action: 'step', id: 'B12', commit: '1a2b3c4', next: 'write the tests', chat: 'Units', session: 'units' }])
   })
 
-  test('while the person pauses, a working chat is told once, at its next tool batch, to checkpoint and end its turn; one board call per 20 s', async ($, on) => {
+  test('while the person pauses, a working chat is told at the first tool batch of every turn to checkpoint and end it; one board call per 20 s', async ($, on) => {
     const clock = mock.clock(on)
     const w = world('units', units())
     stand(on, w)
@@ -1623,23 +1633,36 @@ describe('Pause 2: each chat reads the person\'s pause in its own calls to the b
     const before = w.pauseReads
     expect(await told($, { agent_id: 'a1b2c3d4e5' })).not.toContain('pauses all chats')
     expect(w.pauseReads).toBe(before)
+    // The review of Pause 2: the next turn drops the reading and is told again, at its first batch.
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await $.turn.start({ text: 'one more thing', turnId: 't2' })
+    const atStart = w.pauseReads
+    expect(await told($)).toContain(STOP)
+    expect(w.pauseReads).toBe(atStart + 1)
+    expect(await told($)).not.toContain('pauses all chats')
   })
 
-  test('a chat that holds nothing is told to end its turn; the pause in turn-ended\'s answer needs no call of its own', async ($, on) => {
+  test('a chat that holds nothing is told to end its turn; a free worker does not pull while the person pauses', async ($, on) => {
     mock.clock(on)
-    const w = world('main', mainChat())
+    const w = world('units', free())
     stand(on, w)
     await $.session.start(START)
     await $.turn.start({ text: 'go', turnId: 't1' })
-    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'No instruction was left open.', missed: [], open: [], pause: { state: 'pausing', since: SINCE, forChat: { holds: [], mustStop: true }, resumeList: [] } }) }
+    w.pauseAnswer = state('pausing')
+    expect(await told($)).toContain('The person pauses all chats: stop or wait for your background agents, then end your turn and start nothing new.')
     await $.turn.complete({ ...ENDED, turnId: 't1' })
-    const reads = w.pauseReads
-    await $.turn.start({ text: 'one more thing', turnId: 't2' })
-    expect(await told($)).toContain('The person pauses all chats: end your turn and start nothing new.')
-    expect(w.pauseReads).toBe(reads)
+    const ended = sent(w).find(one => one.action === 'turn-ended')
+    expect(ended?.pull).toBeUndefined()
+    // Running again: it pulls as before.
+    w.pauseAnswer = state('running')
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'No instruction was left open.', missed: [], open: [], pause: state('running') }) }
+    await $.turn.start({ text: 'go on', turnId: 't2' })
+    await told($)
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    expect(sent(w).filter(one => one.action === 'turn-ended').at(-1)?.pull).toBe(true)
   })
 
-  test('after Resume all the main chat is told whom to wake, by session id, when it starts; once', async ($, on) => {
+  test('after Resume all the main chat is told whom to wake, by app session id, when it starts; once per resume, also in a new process', async ($, on) => {
     mock.clock(on)
     const w = world('main', mainChat())
     w.pauseAnswer = state('resuming', [], [
@@ -1655,6 +1678,22 @@ describe('Pause 2: each chat reads the person\'s pause in its own calls to the b
     expect(said).not.toContain('Support')
     await $.prompt.submit({ text: 'resume', origin: { kind: 'plugin', asUser: true } } as never)
     expect(w.contexts[0]?.join('\n') ?? '').not.toContain('Resume: wake')
+    // The review of Pause 2: kept in the mod's store, so a process started anew in the same resume says it no more.
+    expect(w.stored['pause-resume-given:main']).toBe(SINCE)
+  })
+
+  test('a main chat already told of this resume in an earlier process is not told again; a new resume is told', async ($, on) => {
+    mock.clock(on)
+    const w = world('main', mainChat())
+    w.stored = { 'pause-resume-given:main': SINCE }
+    w.pauseAnswer = state('resuming', [], [{ chat: 'Units', session: 'local_units', cliSession: 'units', step: 'B12', checkpoint: POINT, hasStarted: false }])
+    stand(on, w)
+    await $.session.start(START)
+    const started = await $.classic.SessionStart({ source: 'startup', session_title: 'Game - Main' } as never)
+    expect(started.additionalContext?.join('\n') ?? '').not.toContain('Resume: wake')
+    w.pauseAnswer = { ...state('resuming', [], [{ chat: 'Units', session: 'local_units', cliSession: 'units', step: 'B12', checkpoint: POINT, hasStarted: false }]), since: SINCE + 3_600_000 }
+    await $.prompt.submit({ text: 'resume\n(typed on the worker board, 23:40)', origin: { kind: 'plugin', asUser: true } } as never)
+    expect(w.contexts.at(-1)?.join('\n') ?? '').toContain('Resume: wake')
   })
 
   test('a main chat that runs gets the list with the board\'s "resume"', async ($, on) => {
@@ -1663,12 +1702,12 @@ describe('Pause 2: each chat reads the person\'s pause in its own calls to the b
     stand(on, w)
     await $.session.start(START)
     await $.prompt.submit({ text: 'hello', ...ASKED } as never)
-    w.pauseAnswer = state('resuming', [], [{ chat: 'Units', session: 'local_units', cliSession: 'units', step: 'B12', checkpoint: null, hasStarted: false }])
+    w.pauseAnswer = state('resuming', [], [{ chat: 'Units', session: 'local_units', cliSession: 'units', step: 'B12', checkpoint: null, branch: 'b12-strip', hasStarted: false }])
     await $.prompt.submit({ text: 'resume\n(typed on the worker board, 22:40)', origin: { kind: 'plugin', asUser: true } } as never)
-    expect(w.contexts[1]?.join('\n') ?? '').toContain("- Units, session local_units: 'resume your step B12 from your checkpoint' (no checkpoint)")
+    expect(w.contexts[1]?.join('\n') ?? '').toContain("- Units, session local_units: 'resume your step B12 from your checkpoint' (no checkpoint: it goes on from its branch b12-strip and History)")
   })
 
-  test('a worker woken after the resume is told its checkpoint at its first turn; at a session start too, unless the person pauses', async ($, on) => {
+  test('a worker woken after the resume is told its checkpoint at its first turn, reading the pause once; at a session start too, unless the person pauses', async ($, on) => {
     mock.clock(on)
     const w = world('units', units())
     stand(on, w)
@@ -1677,10 +1716,26 @@ describe('Pause 2: each chat reads the person\'s pause in its own calls to the b
     const paused = await $.classic.SessionStart({ source: 'startup', session_title: 'Game - Units' } as never)
     expect(paused.additionalContext ?? []).toEqual([])
     w.pauseAnswer = state('resuming', [{ id: 'B12', checkpoint: POINT }])
+    const before = w.pauseReads
     await $.prompt.submit({ text: 'resume your step B12 from your checkpoint', origin: { kind: 'peer' } } as never)
     expect(w.contexts.at(-1)?.join('\n') ?? '').toContain('You hold B12: checkpoint 1a2b3c4 · write the tests; go on from there.')
+    // The review of Pause 2: the turn the words start reads the pause no second time at its first batch.
+    await $.turn.start({ text: 'resume your step B12 from your checkpoint', turnId: 't1' })
+    await told($)
+    expect(w.pauseReads).toBe(before + 1)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
     await $.prompt.submit({ text: 'and resume the next', origin: { kind: 'peer' } } as never)
     expect(w.contexts.at(-1)?.join('\n') ?? '').not.toContain('You hold B12')
+  })
+
+  test('a held step with no checkpoint resumes from its branch and History', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', units())
+    stand(on, w)
+    await $.session.start(START)
+    w.pauseAnswer = { ...state('resuming', [{ id: 'B12', checkpoint: null, branch: 'b12-strip', history: ['2026-10-18 22:10 Units: step 2/4, the strip'] }]), pausedSince: SINCE - 60_000 }
+    await $.prompt.submit({ text: 'resume your step B12 from your checkpoint', origin: { kind: 'peer' } } as never)
+    expect(w.contexts.at(-1)?.join('\n') ?? '').toContain('You hold B12: no checkpoint since the pause; go on from its branch b12-strip and its History: 2026-10-18 22:10 Units: step 2/4, the strip.')
   })
 
   test('a chat that starts while it holds a step goes on from its checkpoint', async ($, on) => {
