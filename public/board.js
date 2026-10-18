@@ -6726,6 +6726,53 @@ function coordinateList(activities, { filter = 'all', find = '', showDone = fals
     .map(one => one.step)
   return { groups: steps.length === 0 ? [] : [{ name: null, isFocus: false, isOne: true, steps }], counts, shown, hidden }
 }
+
+/**
+ * B302: the tab's list (`coordinateList`, by activity) regrouped under the goals of the goal map (`goals`: the state's
+ * `roots` and `nodes`), nested as there (the person's choice A, 2026-10-18), as rows in the order they are drawn:
+ * `{ kind: 'goal', id, title, depth, isMilestone, open, done, shown, under }` and `{ kind: 'step', step, depth, under }`
+ * (`under`: the goals it stands in, outermost first). A goal's own steps come before its goals. A step stands under
+ * the first goal of the map that names it; the steps under none, and those without an id, end the list under "Not
+ * under a goal" (`id` 'none', `isNone`). A goal with nothing shown under it is left out. Null without a goal map: the
+ * tab then groups by activity as before.
+ */
+function goalRows(list, goals) {
+  if (goals === null || goals === undefined || (goals.roots ?? []).length === 0) return null
+  const byId = new Map((goals.nodes ?? []).map(node => [node.id, node]))
+  const steps = list.groups.flatMap(group => group.steps.map(step => ({ ...step, activity: step.activity ?? group.name })))
+  const placed = new Set()
+  const seen = new Set()
+  const walk = (id, depth, under) => {
+    const node = byId.get(id)
+    if (node === undefined || seen.has(id)) return []
+    seen.add(id)
+    const inside = [...under, id]
+    const own = steps.filter(step => typeof step.id === 'string' && node.steps.includes(step.id) && !placed.has(step.id))
+    for (const step of own) placed.add(step.id)
+    const inner = node.children.flatMap(child => walk(child, depth + 1, inside))
+    if (own.length === 0 && inner.length === 0) return []
+    const shown = own.length + inner.filter(row => row.kind === 'step').length
+    const isMilestone = /^M\d/.test(node.fromPlan ?? '') || /^M\d+\b/.test(node.title)
+    return [
+      { kind: 'goal', id, title: node.title, depth, isMilestone, open: node.counts?.open ?? null, done: node.counts?.done ?? null, shown, under },
+      ...own.map(step => ({ kind: 'step', step, depth: depth + 1, under: inside })),
+      ...inner,
+    ]
+  }
+  const rows = goals.roots.flatMap(id => walk(id, 0, []))
+  const rest = steps.filter(step => typeof step.id !== 'string' || !placed.has(step.id))
+  if (rest.length > 0) {
+    rows.push({ kind: 'goal', id: 'none', title: 'Not under a goal', depth: 0, isMilestone: false, isNone: true, open: null, done: null, shown: rest.length, count: rest.length, under: [] })
+    rows.push(...rest.map(step => ({ kind: 'step', step, depth: 1, under: ['none'] })))
+  }
+  return rows
+}
+
+/** B302: whether a goal's header stands open: as the person left it (`folds`), else open for a root and a milestone. */
+function isGoalOpen(row, folds) {
+  if (typeof folds[row.id] === 'boolean') return folds[row.id]
+  return row.depth === 0 || row.isMilestone === true || row.isNone === true
+}
 // coordinate:end
 
 const STEP_STATES = { progress: 'In progress', queued: 'Queued', you: 'Needs your attention', open: 'Open', done: 'Finished' }
@@ -7150,44 +7197,110 @@ function drawCoordinate(state) {
     button.append(el('small', '', String(list.counts[name])))
     return button
   }))
-  const groups = list.groups.map(group => {
+  // B302: with "One list" off, the steps stand under the goals of the goal map; by activity only without one.
+  const rows = $('coordinate-one').checked ? null : goalRows(list, state.goals ?? null)
+  const groups = rows !== null ? drawGoalRows(rows, state) : list.groups.map(group => {
     const box = el('section', `coordinate-group${group.isFocus ? ' is-focus' : ''}${group.isOne ? ' is-one' : ''}`)
     const heading = el('h2', '', group.isOne ? 'Every step, newest first' : group.name)
     if (group.isFocus) heading.append(el('span', 'chip is-focus', 'Focus'))
     heading.append(el('small', '', String(group.steps.length)))
     box.append(heading)
-    for (const step of group.steps) {
-      const row = el('button', `step-row is-${step.status}`)
-      row.type = 'button'
-      row.dataset.openStep = step.key
-      row.title = [step.title, step.activity ?? null, 'Show the details'].filter(Boolean).join('\n')
-      row.append(
-        el('span', 'step-id', step.id ?? ''),
-        el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),
-        el('span', 'step-title', step.title),
-        el('span', 'step-worker', step.worker ?? (step.status === 'you' ? 'You' : '')),
-        el('span', 'step-branch', step.branch ?? ''),
-        el('span', `step-state is-${step.status}`, STEP_STATES[step.status] ?? step.status),
-        // Room for what B83 will put here (stop a task, move a queued step, take one out of a queue). B181's "Add to
-        // queue" stands over it, beside the row's own button: a button holds no other.
-        el('span', 'step-actions'),
-      )
-      const line = el('div', 'step-line')
-      line.append(row)
-      const queue = queuePart(step, state, false)
-      if (queue !== null) line.append(queue)
-      // B221: Close and Delete, shown on the row the pointer or the keyboard is on.
-      const edit = editPart(step, false)
-      if (edit !== null) {
-        line.append(edit)
-        if (queue !== null) line.classList.add('has-queue')
-      }
-      box.append(line)
-    }
+    for (const step of group.steps) box.append(coordinateLine(step, state))
     return box
   })
   fill($('coordinate-list'), groups.length > 0 ? groups : [el('p', 'muted', activities.length === 0 ? 'The backlog could not be read.' : 'No step matches.')])
 }
+
+/** A step's line on the Backlog tab: its row, which opens its window, with "Add to queue", Close and Delete beside it. */
+function coordinateLine(step, state) {
+  const row = el('button', `step-row is-${step.status}`)
+  row.type = 'button'
+  row.dataset.openStep = step.key
+  row.title = [step.title, step.activity ?? null, 'Show the details'].filter(Boolean).join('\n')
+  row.append(
+    el('span', 'step-id', step.id ?? ''),
+    el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),
+    el('span', 'step-title', step.title),
+    el('span', 'step-worker', step.worker ?? (step.status === 'you' ? 'You' : '')),
+    el('span', 'step-branch', step.branch ?? ''),
+    el('span', `step-state is-${step.status}`, STEP_STATES[step.status] ?? step.status),
+    // Room for what B83 will put here (stop a task, move a queued step, take one out of a queue). B181's "Add to
+    // queue" stands over it, beside the row's own button: a button holds no other.
+    el('span', 'step-actions'),
+  )
+  const line = el('div', 'step-line')
+  line.append(row)
+  const queue = queuePart(step, state, false)
+  if (queue !== null) line.append(queue)
+  // B221: Close and Delete, shown on the row the pointer or the keyboard is on.
+  const edit = editPart(step, false)
+  if (edit !== null) {
+    line.append(edit)
+    if (queue !== null) line.classList.add('has-queue')
+  }
+  return line
+}
+
+/**
+ * B302: the goals the person folded or opened on the Backlog tab, kept in this browser: `{ G3: true, G2: false }`;
+ * without storage, for as long as the page is open.
+ */
+let goalFoldsHere = {}
+function goalFolds() {
+  try {
+    const kept = JSON.parse(localStorage.getItem('backlog-goal-folds') ?? 'null')
+    if (kept !== null && typeof kept === 'object') return kept
+  } catch {
+    // No storage, or what it held is not readable: the folds of this page.
+  }
+  return { ...goalFoldsHere }
+}
+
+/**
+ * B302: the rows of `goalRows` as the tab shows them: a header per goal, which folds, indented by its depth, with its
+ * G id, its title and how many of its steps are open; under it its steps. What stands in a folded goal is not drawn.
+ */
+function drawGoalRows(rows, state) {
+  const folds = goalFolds()
+  const goals = new Map(rows.filter(row => row.kind === 'goal').map(row => [row.id, row]))
+  const box = el('section', 'coordinate-group is-goals')
+  for (const row of rows) {
+    if (row.under.some(id => !isGoalOpen(goals.get(id), folds))) continue
+    if (row.kind === 'step') {
+      const line = coordinateLine(row.step, state)
+      line.classList.add('goal-steps')
+      line.style.setProperty('--depth', String(row.depth))
+      box.append(line)
+      continue
+    }
+    const isOpen = isGoalOpen(row, folds)
+    const head = el('button', `goal-head${row.depth === 0 ? ' is-root' : ''}${row.isMilestone ? ' is-milestone' : ''}${row.isNone ? ' is-none' : ''}`)
+    head.type = 'button'
+    head.dataset.goalFold = row.id
+    head.setAttribute('aria-expanded', String(isOpen))
+    head.style.setProperty('--depth', String(row.depth))
+    const count = row.isNone ? String(row.count) : `${row.open ?? row.shown} open${row.isMilestone && (row.done ?? 0) > 0 ? ` · ${row.done} done` : ''}`
+    head.append(el('span', 'goal-fold', isOpen ? '▾' : '▸'), ...(row.isNone ? [] : [el('span', 'goal-id', row.id)]), el('span', 'goal-title', row.title), el('small', 'goal-count', count))
+    head.title = isOpen ? 'Fold this goal' : 'Unfold this goal'
+    box.append(head)
+  }
+  return [box]
+}
+
+// B302: a goal's header folds or unfolds it; this browser keeps it.
+$('coordinate-list').addEventListener('click', event => {
+  const head = event.target.closest('[data-goal-fold]')
+  if (head === null) return
+  const folds = goalFolds()
+  folds[head.dataset.goalFold] = head.getAttribute('aria-expanded') !== 'true'
+  goalFoldsHere = folds
+  try {
+    localStorage.setItem('backlog-goal-folds', JSON.stringify(folds))
+  } catch {
+    // Kept for this page only.
+  }
+  if (board !== null) drawCoordinate(board)
+})
 
 $('coordinate-filters').addEventListener('click', event => {
   const button = event.target.closest('[data-filter]')
@@ -7898,7 +8011,8 @@ function draw(state) {
   once('needs', needsData(state), () => drawNeeds(state))
   // B181: also when an "Add to queue" is on its way or was refused, and when the main chat it asks comes or goes.
   const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:')), state.workers?.main ?? null]
-  once('coordinate', [state.backlog ?? null, queueing], () => drawCoordinate(state))
+  // B302: the goal map too, which groups the tab when "One list" is off.
+  once('coordinate', [state.backlog ?? null, queueing, state.goals ?? null], () => drawCoordinate(state))
   // B155: today's times name no day, so the list is drawn anew when the day changes too.
   once('finished', [state.finished ?? null, state.taskTimes?.byStep ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
   drawDetails(state)

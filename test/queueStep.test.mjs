@@ -121,12 +121,12 @@ test('the page: the button stands beside a step\'s row, never inside it, and in 
   assert.match(part, /button\.disabled = sending\.has\(key\)/)
   assert.match(script, /send\(\{ to: main, command: 'queue', step: button\.dataset\.queueStep \}, `queue:\$\{button\.dataset\.queueStep\}`\)/)
   // The row: a line that holds the row's own button and, beside it, the queue's.
-  assert.match(script, /const line = el\('div', 'step-line'\)\n      line\.append\(row\)\n      const queue = queuePart\(step, state, false\)\n      if \(queue !== null\) line\.append\(queue\)/)
+  assert.match(script, /const line = el\('div', 'step-line'\)\n  line\.append\(row\)\n  const queue = queuePart\(step, state, false\)\n  if \(queue !== null\) line\.append\(queue\)/)
   // The window: in its foot, which then shows also for a step without an answer.
   assert.match(script, /const queue = need === null && subject\.step !== undefined \? queuePart\(subject\.step, state, true\) : null/)
   assert.match(script, /fill\(box, foot\.children\.length === 0 \? \[head, body\] : \[head, body, foot\]\)/)  // B221: also Close and Delete
   // The list is drawn anew when an ask is on its way or was refused, not only when the backlog changed.
-  assert.match(script, /once\('coordinate', \[state\.backlog \?\? null, queueing\], \(\) => drawCoordinate\(state\)\)/)
+  assert.match(script, /once\('coordinate', \[state\.backlog \?\? null, queueing, state\.goals \?\? null\], \(\) => drawCoordinate\(state\)\)/)
   // A click on it is handled before the row's own click, in the list and in the window.
   assert.equal((script.match(/const queue = event\.target\.closest\('\[data-queue-step\]'\)\n {2}if \(queue !== null\) return askQueue\(queue\)/g) ?? []).length, 2)
 })
