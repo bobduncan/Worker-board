@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 
 import { loadConfig } from './src/config.mjs'
 import { gitRunner } from './src/folders.mjs'
-import { resolvePort } from './src/ports.mjs'
+import { boardsFile, resolvePort } from './src/ports.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const HOST = '127.0.0.1'
@@ -46,8 +46,11 @@ async function main(args) {
   const passed = args.filter(arg => arg !== '--quiet')
   const given = passed.includes('--port') ? passed[passed.indexOf('--port') + 1] : undefined
   // The port the board takes, as the server works it out; a broken settings file is the server's to name.
-  const config = await loadConfig(join(HERE, 'config.json')).catch(() => ({ port: 4310 }))
-  const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner() })
+  const config = await loadConfig(join(HERE, 'config.json')).catch(() => ({ port: 4310, gamePort: 5300, project: '' }))
+  // B319: with the PC's list of boards, as the server reads it: another project's board may hold the configured port.
+  const isDemo = passed.includes('--demo')
+  const boards = isDemo || !config.project ? null : boardsFile()
+  const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project || null, gamePort: config.gamePort, boards })
   const url = `http://${HOST}:${port}/`
   if (await boardAt(port)) {
     if (!isQuiet) console.log(`The worker board runs already: ${url}`)

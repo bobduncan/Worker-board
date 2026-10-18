@@ -1592,6 +1592,34 @@ make Information smaller or bigger. Nothing is gone: what leaves a row is in its
 6. The top bar: CPU for the chats, its processes and the board's version sit behind ⚙ (`#settings`), whose tooltip says
    the level and the version; a click elsewhere or Escape folds it; on a phone it opens across the screen.
 
+## Two projects side by side (B319)
+
+Two projects, each with its own copy of the board, run at once on one PC and never meet. The person, 2026-10-18 15:23:
+"i can run 2 projects using the same worker board code without it interfering with eachother ... i can runt he worker
+board twice perhaps each using their own workers." Part 1 of G12's how; one board that shows several projects is not
+in it.
+
+1. The PC's list of boards, `boards.json` in `~/.worker-board` (`WORKER_BOARD_HOME` moves it), holds each project's
+   board: its port, the first port of its games, and what its config.json asked for (`src/ports.mjs`, the `boards`
+   region). A board writes itself into it once it listens, and `--launch-entry` does when it writes the entry; a
+   project folder that is gone leaves the list. A lock file keeps two boards that start at once from losing each other.
+2. The port (`chooseHome`): the one the project had, while config.json asks for the same and no other project holds
+   it; else the one asked for; else, when another project's board holds it, the next free port from there, passing over
+   ports something else listens on. The board says on its second line whose port it gave way to. The first project
+   keeps its port whoever comes later, so Lava Tactics' board keeps 4310. A new wish in config.json is chosen anew.
+3. Games: each project has a range of `GAME_SPAN` (100) ports from its first one, never meeting another project's; a
+   folder's game takes its place in it. A copy in another working folder of the same repository takes its project's
+   range, and its own port (from 4320, `data/port.json`) is never one another project's board holds.
+4. The chats: the Workers mod finds the board in the `.claude/board.json` of the project folder its chat was opened in,
+   and asks it with that board's own key, so a chat's card, answers and work reach its own project's board; the other
+   board refuses the key (proved with two project folders in the mod's tests and with two real boards).
+5. The Workers mod is one per PC. `npm run setup` never installs over a newer copy, and leaves a copy that came from
+   another board's folder to that folder. A board whose folder carries another version than the PC runs says so on top
+   of its page (`modNote`): not installed or older, run setup; newer, bring the board's folder up to date.
+6. The proof: `test/twoBoards.test.mjs` copies the board into two folders for two made-up projects, both configured on
+   the same port, runs them at once, and checks their ports, their notes and keys, the list, the second's launch entry,
+   and that the first takes its own port again after a restart.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

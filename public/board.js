@@ -217,6 +217,31 @@ function appNote(moved, clockOf) {
 }
 // appnote:end
 
+// modnote:start
+/**
+ * B319: the note on top when this board's folder carries another Workers mod than the PC runs (`mod`: `carried`,
+ * `installed`; one mod per PC, shared by every project's board). Null: the same, the demo, or nobody can tell.
+ */
+function modNote(mod) {
+  if (mod === null || mod === undefined || typeof mod.carried !== 'string' || mod.installed === undefined || mod.installed === mod.carried) return null
+  if (mod.installed === null) {
+    return { tone: 'problem', text: 'The Workers mod is not installed on this PC: the chats cannot reach this board. Run npm run setup in the board\'s folder, then quit the Claude app fully and open it again.' }
+  }
+  const newer = mod.installed.split('.').map(Number).reduce((by, part, at) => by || part - (Number(mod.carried.split('.')[at]) || 0), 0) > 0
+  if (newer) return { tone: 'info', text: `This PC runs the Workers mod ${mod.installed}, newer than the ${mod.carried} this board carries, and keeps it: bring the board's folder up to date to match.` }
+  return { tone: 'problem', text: `This board carries the Workers mod ${mod.carried}; this PC runs ${mod.installed}. Run npm run setup in the board's folder, then quit the Claude app fully and open it again.` }
+}
+
+function drawModNote(state) {
+  const shown = modNote(state.mod)
+  const note = $('mod-note')
+  note.hidden = shown === null
+  if (shown === null) return
+  note.className = `app-note is-${shown.tone}`
+  note.textContent = shown.text
+}
+// modnote:end
+
 // cpu:start
 /**
  * B311: the head's control "CPU for the chats" (`cpu` from the state: `available`, `level`, `count`, `fault`, `cores`,
@@ -9645,6 +9670,7 @@ function draw(state) {
   drawTop(state)
   drawUpdate(state)
   drawAppNote(state)
+  drawModNote(state)
   drawStoreNote(state)
   drawCpu(state)
   drawMainGame(state)

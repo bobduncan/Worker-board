@@ -7,6 +7,7 @@
 
 import { spawn } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 
 import { appFolder } from './config.mjs'
@@ -20,15 +21,18 @@ const RESTART = 'Now quit the Claude app fully (also from the system tray) and o
 
 const isFile = path => stat(path).then(found => found.isFile(), () => false)
 
-/** Version folders newest first: "2.1.10" before "2.1.9". */
-function newerFirst(a, b) {
-  const [left, right] = [a, b].map(name => name.split('.').map(part => Number(part) || 0))
+/** B319: above 0 when version `a` is newer than `b`, below when older, 0 when the same: "2.1.10" is newer than "2.1.9". */
+export function compareVersions(a, b) {
+  const [left, right] = [a, b].map(name => String(name).split('.').map(part => Number(part) || 0))
   for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const by = (right[index] ?? 0) - (left[index] ?? 0)
+    const by = (left[index] ?? 0) - (right[index] ?? 0)
     if (by !== 0) return by
   }
   return 0
 }
+
+/** Version folders newest first: "2.1.10" before "2.1.9". */
+const newerFirst = (a, b) => compareVersions(b, a)
 
 /**
  * Where the Claude app's own command-line program is: the newest under the app's folder
@@ -114,6 +118,16 @@ export function setupPlan({ copies, known, modsDir, version, platform = process.
         + 'Setup leaves it as it is: a second copy would clash. Nothing to do.'])
     }
     if (copy.version === version) return plan([], [`The Workers mod is installed: ${copy.id}, version ${version}, the one this board carries. Nothing to do.`])
+    // B319: the mod is one per PC, shared by every project's board: setup never installs over a newer copy, and one
+    // that came from another board's folder is updated from that folder.
+    if (compareVersions(copy.version, version) > 0) {
+      return plan([], [`The Workers mod on this PC is version ${copy.version}, newer than the ${version} this board carries. Setup leaves it as it is; `
+        + 'bring this board\'s folder up to date (git pull) to match.'])
+    }
+    if (known !== null && !samePlace(known.path, modsDir, platform)) {
+      return plan([], [`The Workers mod on this PC, version ${copy.version}, comes from another board's folder, ${known.path}; this board carries version ${version}. `
+        + 'Setup leaves it as it is: bring that board\'s folder up to date and run setup there.'])
+    }
     return plan([['plugin', 'marketplace', 'update', MARKETPLACE], ['plugin', 'update', boardId]],
       [`The Workers mod is updated from version ${copy.version} to version ${version}, the one this board carries.`])
   }
@@ -162,6 +176,36 @@ const lastWords = result => `${result.err}\n${result.out}`.split('\n').map(line 
 async function boardVersion(modsDir) {
   const manifest = parsed(await readFile(join(modsDir, MOD, '.claude-plugin', 'plugin.json'), 'utf8').catch(() => ''))
   return typeof manifest?.version === 'string' ? manifest.version : ''
+}
+
+/** B319: the app's list of installed plugins: in the person's `.claude` folder, or where CLAUDE_CONFIG_DIR says. */
+export function pluginsFile(env = process.env) {
+  return join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'plugins', 'installed_plugins.json')
+}
+
+/**
+ * B319: the Workers mod in the text of that list, from any marketplace: `{ id, version }`; null when the list holds
+ * none (it is not installed); undefined when the text is no such list (nobody can tell).
+ */
+export function installedVersion(text) {
+  const list = parsed(text)
+  if (list === null || typeof list !== 'object' || Array.isArray(list) || list.plugins === null || typeof list.plugins !== 'object' || Array.isArray(list.plugins)) return undefined
+  for (const [id, copies] of Object.entries(list.plugins)) {
+    if (!id.startsWith(`${MOD}@`) || !Array.isArray(copies)) continue
+    const found = copies.find(one => typeof one?.version === 'string' && one.version !== '')
+    if (found !== undefined) return { id, version: found.version }
+  }
+  return null
+}
+
+/**
+ * B319: the mod this board's folder carries (`carried`, null when it carries none) and the one the PC runs
+ * (`installed`: its version, null when none is installed, undefined when the list cannot be read).
+ */
+export async function modVersions({ modsDir, file }) {
+  const carried = (await boardVersion(modsDir)) || null
+  const found = installedVersion(await readFile(file, 'utf8').catch(() => ''))
+  return { carried, installed: found === undefined || found === null ? found : found.version }
 }
 
 /**

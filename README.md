@@ -209,6 +209,15 @@ without `--port`, it takes a port of its own from 4320 up, the same one every ti
 `data/port.json`), and says which; the board in the main folder keeps the port of `config.json`. A copy only
 shows: answers are given on the board in the main folder.
 
+## Two projects on one PC
+
+Each project has its own copy of the board (its own folder, its own `config.json`); both can run at once (B319). The
+first board that runs on a port keeps it for its project, in a list of the PC's boards (`~/.worker-board/boards.json`).
+A board whose port another project's board holds takes the next free one and says so; `node server.mjs
+--launch-entry` writes that port into the project's launch entry. Each project's games get their own range of 100
+ports. The Workers mod is installed once for the PC: run `npm run setup` in one board's folder; a board that carries
+another version says so on top of its page.
+
 ## What it reads (never changes)
 
 - the app's list of chats, and the last part of each project chat's transcript;

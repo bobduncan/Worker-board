@@ -7,8 +7,16 @@
 // A folder's launch entry (`node server.mjs --launch-entry`) names that same port, so the preview opens the right
 // address.
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+//
+// B319: two projects, each with its own copy of the board, run side by side on one PC. A list of the PC's boards
+// (`boards.json` in the person's home folder) holds each project's port and the first port of its games: a board
+// that runs on a port keeps it for its project from then on. A board whose configured port another project holds
+// takes the next free one from there, and games' ports in a range of their own (GAME_SPAN wide).
+
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
+import { homedir } from 'node:os'
+import { basename, dirname, join } from 'node:path'
 
 import { parseWorktrees } from './folders.mjs'
 import { pathKey } from './games.mjs'
@@ -76,17 +84,158 @@ export async function boardFolders(here, run) {
 /**
  * The port this board listens on (see `choosePort`), with the main folder of its repository. A port chosen now is
  * written down before the answer is given, so two copies started together do not both take it.
+ *
+ * B319: with `boards`, the PC's list (`boardsFile`), and the board's `project`: the main folder takes its project's
+ * port and games' port (see `chooseHome`, with `holder`, the project whose board holds the configured port), a copy
+ * never takes a port another project's board holds and starts its games in its project's range. Nothing is written
+ * into the list here: the board does that once it listens (`registerHome`). Without `boards` all is as before.
  */
-export async function resolvePort({ here, given, configured, run }) {
+export async function resolvePort({ here, given, configured, run, project = null, gamePort = null, boards = null, isBusy = portIsBusy }) {
   const folders = await boardFolders(here, run)
   const main = folders[0] ?? here
   const isMain = pathKey(main) === pathKey(here)
+  const listed = boards === null || project === null ? null : await readBoards(boards)
+  const own = listed?.find(one => pathKey(one.project) === pathKey(project)) ?? null
+  const elsewhere = listed?.filter(one => one !== own) ?? []
+  const games = listed === null ? {} : { gamePort: own?.gamePort ?? gamePort }
+  if (isMain && portArg(given) === null && listed !== null) {
+    const busy = []
+    for (;;) {
+      const home = chooseHome({ project, configured, gamePort, boards: listed, busy })
+      // A port of its own is checked before it is taken: something else may listen there. The one asked for is not.
+      if (home.why !== 'moved' || busy.length >= 50 || !(await isBusy(home.port))) return { ...home, main, isMain }
+      busy.push(home.port)
+    }
+  }
   const others = folders.filter(folder => pathKey(folder) !== pathKey(here) && pathKey(folder) !== pathKey(main))
-  const taken = (await Promise.all(others.map(readOwnPort))).filter(port => port !== null)
+  const taken = [...(await Promise.all(others.map(readOwnPort))).filter(port => port !== null), ...elsewhere.map(one => one.port)]
   const chosen = choosePort({ given: portArg(given), configured, isMain, own: isMain ? null : await readOwnPort(here), taken })
   if (chosen.why === 'new') await writeOwnPort(here, chosen.port)
-  return { ...chosen, main, isMain }
+  return { port: chosen.port, ...games, why: chosen.why, main, isMain }
 }
+
+// boards:start
+/** How many ports a project's games have from their first one: no two projects' ranges meet. */
+export const GAME_SPAN = 100
+
+/** The PC's list of boards: in the person's home folder, shared by every copy of the board; WORKER_BOARD_HOME moves it. */
+export function boardsFile(env = process.env) {
+  return join(env.WORKER_BOARD_HOME || join(homedir(), '.worker-board'), 'boards.json')
+}
+
+/** The boards the list's text holds: `{ project, folder, port, gamePort, asked }` each; anything else is left out. */
+export function parseBoards(text) {
+  let raw = null
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(raw?.boards)) return []
+  return raw.boards.filter(one => typeof one?.project === 'string' && one.project !== '' && isPort(one.port) && isPort(one.gamePort)).map(one => ({
+    project: one.project,
+    folder: typeof one.folder === 'string' ? one.folder : '',
+    port: one.port,
+    gamePort: one.gamePort,
+    // What the board's config.json asked for when it was given these: a new wish there is chosen anew.
+    asked: isPort(one.asked?.port) && isPort(one.asked?.gamePort) ? { port: one.asked.port, gamePort: one.asked.gamePort } : { port: one.port, gamePort: one.gamePort },
+  }))
+}
+
+/**
+ * The ports of a project's board, from what it asks for (`configured`, `gamePort`, its config.json) and the PC's
+ * `boards`: the ports it had before, while it still asks for the same and they are no other project's (`kept`, or
+ * `main` when they are the ones asked for); else the ones asked for, when no other project holds them (`main`); else
+ * the next free port from there, passing over the ones in `busy` (`moved`, with `holder`: the project whose board
+ * holds the one asked for). Its games' range never meets another project's.
+ */
+export function chooseHome({ project, configured, gamePort, boards, busy = [], platform = process.platform }) {
+  const key = path => pathKey(path, platform)
+  const own = boards.find(one => key(one.project) === key(project)) ?? null
+  const others = boards.filter(one => key(one.project) !== key(project))
+  const held = new Set(others.map(one => one.port))
+  const meets = first => others.some(one => first < one.gamePort + GAME_SPAN && one.gamePort < first + GAME_SPAN)
+  const isSameWish = own !== null && own.asked.port === configured && own.asked.gamePort === gamePort
+
+  let port = configured
+  let why = 'main'
+  if (isSameWish && !held.has(own.port)) {
+    port = own.port
+    why = own.port === configured ? 'main' : 'kept'
+  } else if (held.has(configured) || busy.includes(configured)) {
+    port = freePort([...held, ...busy], configured)
+    why = 'moved'
+  }
+  let games = isSameWish && !meets(own.gamePort) ? own.gamePort : gamePort
+  while (meets(games)) games += GAME_SPAN
+  const holder = why === 'moved' ? others.find(one => one.port === configured)?.project ?? null : null
+  return { port, gamePort: games, why, holder }
+}
+
+const isThere = path => stat(path).then(() => true, () => false)
+
+/** The boards of the PC's list whose project folder is still there: a project that is gone holds no port. */
+export async function readBoards(file) {
+  const boards = parseBoards(await readFile(file, 'utf8').catch(() => ''))
+  const there = await Promise.all(boards.map(one => isThere(one.project)))
+  return boards.filter((_one, at) => there[at])
+}
+
+const LOCK_WAIT_MS = 5000
+const LOCK_OLD_MS = 15_000
+
+/** Runs `work` while this process alone holds the list's lock, so two boards starting at once both stay in it. */
+async function withLock(file, work) {
+  const lock = `${file}.lock`
+  await mkdir(dirname(file), { recursive: true })
+  const until = Date.now() + LOCK_WAIT_MS
+  for (;;) {
+    try {
+      const handle = await open(lock, 'wx')
+      await handle.close()
+      break
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error
+      // A lock left by a board that ended in the middle is taken away once it is old.
+      const age = await stat(lock).then(found => Date.now() - found.mtimeMs, () => 0)
+      if (age > LOCK_OLD_MS) await rm(lock, { force: true })
+      else if (Date.now() > until) throw new Error(`The list of boards ${file} stays locked (${lock}).`)
+      else await new Promise(done => setTimeout(done, 25 + Math.random() * 50))
+    }
+  }
+  try {
+    return await work()
+  } finally {
+    await rm(lock, { force: true })
+  }
+}
+
+/**
+ * Writes a board into the PC's list (`{ project, folder, port, gamePort, asked }`), in the place of its project's
+ * entry. Projects that are gone leave the list. The file is written whole and then moved into place.
+ */
+export async function registerHome(file, board) {
+  return withLock(file, async () => {
+    const listed = await readBoards(file)
+    const mine = { project: board.project, folder: board.folder, port: board.port, gamePort: board.gamePort, asked: board.asked }
+    const at = listed.findIndex(one => pathKey(one.project) === pathKey(board.project))
+    const boards = at < 0 ? [...listed, mine] : listed.map((one, index) => (index === at ? mine : one))
+    const draft = `${file}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`
+    await writeFile(draft, `${JSON.stringify({ boards }, null, 2)}\n`)
+    await rename(draft, file)
+    return boards
+  })
+}
+
+/** True when something listens on the port on this machine already. */
+export function portIsBusy(port, host = '127.0.0.1') {
+  return new Promise(done => {
+    const probe = createServer()
+    probe.once('error', error => done(error?.code === 'EADDRINUSE' || error?.code === 'EACCES'))
+    probe.listen(port, host, () => probe.close(() => done(false)))
+  })
+}
+// boards:end
 
 const slashes = path => String(path).replace(/\\/g, '/')
 

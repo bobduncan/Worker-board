@@ -38,7 +38,8 @@ import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConf
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
-import { launchEntry, resolvePort, withEntry } from './src/ports.mjs'
+import { GAME_SPAN, boardsFile, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
+import { modVersions, pluginsFile } from './src/setup.mjs'
 import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
@@ -345,11 +346,21 @@ async function main(args) {
   // wins over both.
   // The port of the board that records, as the file names it: a second board points the person there.
   const homePort = config.port
-  const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner() })
+  // B319: the PC's list of boards keeps each project's port and its games' range, so two projects' boards run side by
+  // side; the demo is no project's and keeps out of it.
+  const boards = isDemo || config.project === '' ? null : boardsFile()
+  const asked = { port: config.port, gamePort: config.gamePort }
+  const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner(), project: config.project, gamePort: config.gamePort, boards })
   config.port = chosen.port
+  if (chosen.gamePort !== undefined) config.gamePort = chosen.gamePort
+  /** The main folder's board, on the port it was not given by hand: the one that keeps its project's place in the list. */
+  const isHome = boards !== null && chosen.isMain && chosen.why !== 'given'
+  const register = () => registerHome(boards, { project: config.project, folder: HERE, port: config.port, gamePort: config.gamePort, asked })
   if (args.includes('--launch-entry')) {
     // This folder's entry for the preview: named after the folder, with the port it listens on.
     if (config.project === '') return console.error('config.json names no project: there is no launch.json to write to.')
+    // B319: the port the entry names is kept for the project from now on.
+    if (isHome) await register().catch(error => console.error(`The list of boards could not be written: ${error.message}`))
     const file = join(config.project, '.claude', 'launch.json')
     const entry = launchEntry({ folder: HERE, port: config.port, node: process.execPath, main: chosen.main })
     await mkdir(join(config.project, '.claude'), { recursive: true })
@@ -556,6 +567,8 @@ async function main(args) {
   if (canRestart) process.on('disconnect', () => process.exit(0))
   const running = (await gitRunner()(['-C', HERE, 'rev-parse', '--short', 'HEAD']))?.trim() || null
   const versionNow = cached(() => readVersion(gitRunner(), HERE, running), VERSION_MS)
+  // B319: the Workers mod this folder carries against the one the PC runs (one per PC, for every project's board).
+  const modNow = isDemo ? async () => null : cached(() => modVersions({ modsDir: join(HERE, 'mods'), file: pluginsFile() }), VERSION_MS)
 
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
   const seen = bridgeKey === null ? null : { shown: {}, other: {} }
@@ -748,7 +761,7 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart } }
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow() }
     },
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
     design: body => designTurn(async () => {
@@ -977,7 +990,8 @@ async function main(args) {
       try {
         // A folder keeps its port from one start to the next, so the game finds what it saved in the browser.
         const place = ((await folders()) ?? []).findIndex(folder => pathKey(folder.path) === pathKey(checked.path))
-        const url = await games.start({ path: checked.path, port: config.gamePort + Math.max(0, place) })
+        // B319: inside its project's range, which no other project's board uses.
+        const url = await games.start({ path: checked.path, port: config.gamePort + (Math.max(0, place) % GAME_SPAN) })
         readState.reset()
         return { ok: true, result: { url } }
       } catch (error) {
@@ -1040,7 +1054,11 @@ async function main(args) {
           .catch(() => console.error('The board could not write .claude/board.json: answers will not reach the chats.'))
       }
     }
+    // B319: listening, it keeps its port and games' range for its project in the PC's list of boards.
+    if (isHome && historyFrom === undefined) await register().catch(error => console.error(`The list of boards could not be written: ${error.message}`))
     console.log(`Worker board: http://${HOST}:${config.port}/${isDemo ? '  (demo data)' : historyFrom === undefined ? '' : '  (shows another board\'s history, records none)'}`)
+    if (chosen.why === 'moved') console.log(`  Port ${homePort} belongs to the board of ${chosen.holder ?? 'another program'}: this project's board has ${config.port}, its games ${config.gamePort} up.`)
+    else if (chosen.why === 'kept') console.log(`  Port ${config.port} is this project's own in the PC's list of boards (${boards}); config.json asks for ${homePort}.`)
     // B135: which of the Claude app's folders it reads, found by itself or set.
     if (!isDemo) console.log(`  The Claude app's chats: ${config.appSessions || '(none found: set "appSessions")'}${typeof config.appFolder === 'string' ? ' (found by itself)' : ''}`)
     if (chosen.why === 'own' || chosen.why === 'new') console.log(`  Port ${config.port} is this folder's own (data/port.json); the board in the main folder has ${homePort}.`)

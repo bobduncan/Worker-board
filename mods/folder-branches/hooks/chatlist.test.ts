@@ -63,10 +63,13 @@ type World = {
   formCloses: boolean
   hangs: boolean
   contexts: string[][]
+  /** B319: the folder the session was opened in (the project's, unless set), and where each work call went, with its key. */
+  root?: string
+  workedAt: string[]
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -88,7 +91,7 @@ function fileOf(w: World, id = w.id): ChatFile | null {
 
 /** The engine beneath the mod: a folder of files, a clock the test moves, and the session's own answers. */
 function stand(on: On, w: World): void {
-  on('session.root', () => ({ value: ROOT }))
+  on('session.root', () => ({ value: w.root ?? ROOT }))
   on('session.id', () => ({ value: w.id }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -180,6 +183,7 @@ function stand(on: On, w: World): void {
     if (w.up !== null && !w.up.some(address => e.url.startsWith(address))) return { deny: 'ECONNREFUSED' }
     if (e.url.endsWith('/api/bridge/work')) {
       w.worked.push(e.init?.body ?? '')
+      w.workedAt.push(`${e.url} ${e.init?.headers?.['X-Board-Key'] ?? ''}`)
       if (w.hangs) return new Promise<never>(() => {})
       const answer = w.workAnswers.shift() ?? w.workAnswer
 
@@ -1472,4 +1476,36 @@ describe('B299: a question asked with the app\u2019s form stands on the worker b
     expect((await $.tool.call({ tool: 'mcp__folder-branches__work', action: 'answered-in-chat', id: 'Q7', text: 'yes, B' } as never)).result).toBe('Q7 answered in the chat.')
     expect(sent(w).at(-1)).toEqual({ action: 'answered-in-chat', id: 'Q7', text: 'yes, B', chat: 'Units', session: 'units' })
   })
+})
+
+describe('B319: two projects on one PC, each with its own board', () => {
+  // Two project folders, each with its list of chats and the note its own board wrote: another port, another key.
+  const projects = {
+    alpha: { root: 'C:\\Work\\alpha', url: 'http://127.0.0.1:4310', key: 'aa'.repeat(32) },
+    beta: { root: 'D:\\Work\\beta', url: 'http://127.0.0.1:4311', key: 'bb'.repeat(32) },
+  }
+  const files: Record<string, string> = {}
+  for (const one of Object.values(projects)) {
+    const at = slashed(one.root)
+    files[`${at}/.claude/chats/list.json`] = '{ "prefix": "Game - ", "main": "Main" }\n'
+    files[`${at}/.claude/board.json`] = JSON.stringify({ url: one.url, key: one.key, startedAt: 1 })
+  }
+
+  for (const [name, own] of Object.entries(projects)) {
+    test(`a chat of ${name} keeps its card in ${name}'s folder and works with ${name}'s board, never the other`, async ($, on) => {
+      mock.clock(on)
+      const w = world(`${name}-1`, { ...files })
+      w.root = own.root
+      stand(on, w)
+      await $.session.start({ ...START, cwd: own.root })
+      await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Worker 1' })
+      await $.turn.start({ text: 'go', turnId: 't1' })
+      await $.tool.call({ tool: 'mcp__folder-branches__work', action: 'next' })
+      expect(w.workedAt).toEqual([`${own.url}/api/bridge/work ${own.key}`])
+      // Its card is in its own project's list, under the same name a chat of the other project may have.
+      expect(Object.keys(w.files).filter(path => path.endsWith(`/${name}-1.json`))).toEqual([`${slashed(own.root)}/.claude/chats/${name}-1.json`])
+      // Whatever else it asked a board, it asked its own.
+      for (const asked of w.fetched) expect(`${asked.url.startsWith(own.url)} ${asked.key}`).toBe(`true ${own.key}`)
+    })
+  }
 })
