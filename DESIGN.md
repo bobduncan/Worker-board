@@ -1621,7 +1621,8 @@ The spec `.claude/specs/2026-10-18-focus-partner-design.md` and its plan (increm
   the run's parts without step ids, the pick list), `focusTalk` (the thread as bubbles), `goalStepIds` (the goal's
   Steps and Part steps and those of its goals inside) and `advisorPartsShown`. The part kept from last time that the
   bar no longer shows gives way to Focus; the chat opened from the Advisor's card still opens. The Backlog's
-  `coordinateList` takes `goal`: only those steps, finished ones too.
+  `coordinateList` takes `goal`: only those steps; their finished ones only with "Show finished", as without a goal
+  (B325).
 - **Drawn, off until increment 2**: "This is the vibe", "Not yet", "Go", the Pick buttons, the talk boxes and Send;
   the daily note is a line that says it comes next.
 - **A copy tries it apart**: `goals`, `brainstorms`, `goalAsks` and `goalsHistory` may be a whole path of their own,
