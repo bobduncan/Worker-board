@@ -236,6 +236,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-answer:disabled { opacity: 0.55; cursor: default; }
 .focus-ask-pictures { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .focus-ask-pictures .picture { display: block; width: 100%; }
+.focus-ask-pictures .picture img { aspect-ratio: auto; max-height: 190px; object-fit: contain; }
 .focus-there { border-color: var(--working); }
 .focus-there h3 { color: var(--working); }
 /* B255: the goal map's outline (spec 2026-10-15): one level at a time, the rest folded and dimmed. */

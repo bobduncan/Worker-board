@@ -1439,7 +1439,7 @@ Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mo
   today's note on it: ..." or "No focus: have the user pick one ...". The partner's job: `roles/partner.md`, "The daily
   note" (what it may decide without the person: small visual details, numbers, wording, the order of the parts; never a
   rule of the game, a new screen or more than about an hour's extra work).
-- The Workers mod's work tool 0.13.5: the fields `decided` and `needs`.
+- The Workers mod's work tool 0.13.6: the fields `decided` and `needs`.
 - Tests: `test/focusRun.test.mjs`, `test/focusNote.test.mjs`.
 
 ## The Focus tab, increment 2 (Focus 2): the vibe and how moves, and the partner
