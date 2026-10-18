@@ -86,8 +86,9 @@ person sent was copied, and into which chat to paste it.
 - **The side, "Needs your attention":** every request of a chat and every step of the backlog that is the person's,
   newest first (or by kind), each a card with who asks, the kind (Input needed, Verification needed, Do, Decide),
   the words, pictures to look at, choices with the recommended one marked, how to play the change, and the answer:
-  a text field and **Send**, or **Approve** / **Reject** with a reason, or **Done**. A card shows where its answer is
-  (waiting for its chat, handed over, typed in, copied to paste). **Show closed** shows answered ones; the steps
+  a text field and **Send**, or **Approve** / **Reject** with a reason, or **Done**. An answered card leaves the list at once
+  (B307); **Show closed** shows it again, dashed, with where its answer is (waiting for its chat, handed over, typed
+  in, copied to paste), beside the closed ones; the steps
   from the backlog fold under "From the backlog". The work store's asks are the cards (B298, B299: Decide, Look,
   Provide or Do, "blocks B1 · Board waits", a **Play it** link), answered into the store; under them **Information**
   (notes and reports, each with **Read**) and **Open instructions** (the person's words per chat: missed ones red,

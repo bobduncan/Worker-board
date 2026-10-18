@@ -40,7 +40,7 @@ test('the open refine questions are one line per step, the oldest step first, wi
 
 test('Needs your attention draws them as one line each, not a card per question, and counts a line once', () => {
   // The cards leave the refine questions out; the lines stand above them.
-  assert.match(script, /const shown = ordered\(\(showsClosed\(\) \? state\.forYou : open\)\.filter\(need => !isRefineQuestion\(need\)\)\)/)
+  assert.match(script, /const shown = ordered\(shownNeeds\(state\.forYou, showsClosed\(\)\)\.filter\(need => !isRefineQuestion\(need\)\)\)/)
   assert.match(script, /drawRefineNeeds\(state\), \.\.\.cards/)
   assert.match(script, /const cardsOpen = open\.filter\(need => !isRefineQuestion\(need\)\)/)
   assert.match(script, /const unanswered = cardsOpen\.filter\(need => !isAnswered\(need\)\)\.length \+ lines\.length/)

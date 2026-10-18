@@ -1422,19 +1422,19 @@ function sentLine(answer, to = null) {
 const isStep = need => need.activity !== undefined
 
 // closed:start
-/** An answered card stays in sight this long after its answer was typed into its chat. */
-const SHOWN_AFTER_TYPED_MS = 2 * 60_000
-const closedNow = () => (typeof board === 'object' && board !== null ? board.readAt : Date.now())
 const isLost = answer => answer.state === 'expired' || answer.state === 'failed'
 /** Answered here, and the answer is on its way or has arrived: the card no longer waits for the person. */
 const isAnswered = need => need.answer !== null && !isLost(need.answer)
 /**
- * Closed for the person: ticked in the backlog, or answered here and typed into its chat a little while ago. Until
- * then an answered card stays in sight and says where its answer is: it waits for its chat, was handed to it, was
- * typed. An answer that did not arrive opens the card again. Closed ones are hidden unless "Show closed" is ticked.
+ * Closed for the person: ticked in the backlog, or answered here (B307: at once, wherever its answer is; the person,
+ * 2026-10-18: "if I answer a question it shouldnt show up anymore"). An answer that did not arrive opens the card
+ * again. Closed ones are hidden unless "Show closed" is ticked.
  */
-const isClosed = (need, now = closedNow()) => need.isClosed === true
-  || (isAnswered(need) && need.answer.state === 'delivered' && now - (need.answer.deliveredAt ?? need.answer.at) > SHOWN_AFTER_TYPED_MS)
+const isClosed = need => need.isClosed === true || isAnswered(need)
+/** B307: the cards Needs your attention draws: the open ones, and with "Show closed" the answered and ticked ones too. */
+const shownNeeds = (needs, withClosed) => (withClosed ? needs : needs.filter(need => !isClosed(need)))
+/** How a card looks: ticked in the backlog (faded), answered here (dashed, its answer line says where it is), or open. */
+const needLook = need => (need.isClosed === true ? ' is-closed' : isAnswered(need) ? ' is-answered' : '')
 // closed:end
 const showsClosed = () => $('needs-closed').checked
 
@@ -1845,7 +1845,7 @@ function drawBrainstormNeeds(state) {
 
 function drawNeed(need, state) {
   const kind = KINDS[need.kind]
-  const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${isClosed(need) ? ' is-closed' : isAnswered(need) ? ' is-answered' : ''}`)
+  const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${needLook(need)}`)
   card.dataset.id = need.id
   // The head of a card opens its details.
   const head = el('div', 'need-head')
@@ -1894,7 +1894,7 @@ function drawLegacy(state) {
   if (open.length === 0 && closed.length === 0) return null
   const box = el('details', 'legacy')
   box.open = isLegacyOpen
-  // What still waits for the person: an answered step stays in sight until its answer has arrived, but is not counted.
+  // What still waits for the person: an answered step is among the closed ones (B307), and is not counted.
   const waiting = open.filter(step => !isAnswered(step))
   const counts = Object.keys(ASKS).map(asks => [ASKS[asks], waiting.filter(step => step.asks === asks).length]).filter(([, count]) => count > 0)
   const summary = el('summary', '', `From the backlog (${waiting.length})`)
@@ -2022,7 +2022,7 @@ function drawNeeds(state) {
   // B287: the refine questions count once per step, as their lines stand.
   const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
-  const shown = ordered((showsClosed() ? state.forYou : open).filter(need => !isRefineQuestion(need)))
+  const shown = ordered(shownNeeds(state.forYou, showsClosed()).filter(need => !isRefineQuestion(need)))
   // B300: a blocking ask that waited too long stands first, above the refine lines too.
   const oldCards = shown.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   const cards = shown.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
@@ -2034,7 +2034,7 @@ function drawNeeds(state) {
 
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
-// A card is closed two minutes after its answer was typed: the minute is part of what is drawn.
+// A card says how long ago it was filed: the minute is part of what is drawn.
 const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], state.goalAskNeeds ?? [], state.brainstormNeeds ?? [], state.goalsEdit?.canWrite ?? null, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */

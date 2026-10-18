@@ -56,8 +56,8 @@ writes in front of each what it asks of the person, and the board follows that: 
 to. Its answer goes to the worker the step names, else to the main chat, which keeps the backlog.
 
 **Closed is hidden.** What the person answered on the board, and the steps for them that are ticked in the
-backlog, are closed and not shown, unless they tick "Show closed" above the inbox. An answer that did not arrive in
-time opens its request again.
+backlog, are closed and not shown, unless they tick "Show closed" above the inbox. An answered card is closed at once
+(B307). An answer that did not arrive in time opens its request again.
 
 **Details on a click.** The head of a card, and a step in a lane's queue, open a window with everything known
 about it (`design/2026-10-12-codex-design-3-details.webp`): what it is and whose, a description, the pictures it
@@ -706,8 +706,10 @@ forbids touching the file. What is typed:
 | answers a chat that waits | `(answered on the worker board, 16:02) <their words>` |
 | types to the advisor | `<their words>` and `(typed on the worker board, 16:02)` |
 
-An answered card stays in sight until its answer was typed into its chat and two minutes more, and says where the
-answer is; it is no longer counted as waiting for the person. What is sent to a chat that is not running makes
+An answered card leaves Needs your attention at once and is no longer counted as waiting for the person (B307; the
+person, 2026-10-18: "if I answer a question it shouldnt show up anymore"). With "Show closed" ticked it stands among
+the closed ones in its answered look, dashed, and says where its answer is; an answer that did not arrive brings it
+back open. What is sent to a chat that is not running makes
 the board ask the main chat to start it (`start <name>`, with the id the app knows the chat by, at most every two
 minutes per chat; `wakeFor` in `src/say.mjs`); the card and the advisor's tab say that it was asked, or offer the
 button when it was not.
