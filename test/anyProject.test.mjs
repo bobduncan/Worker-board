@@ -63,3 +63,15 @@ test('the list of known ties only shrinks: a tie that is gone is taken off the l
   assert.deepEqual(stale, [])
   for (const [, , , part] of KNOWN) assert.ok(part >= 1 && part <= 8, 'each tie names a part of the plan')
 })
+
+test('B323: no path of this PC in any file of the repository: its docs, tests and samples use made-up paths', () => {
+  // The repository is read by strangers on GitHub (B323): what holds a path of the PC the board was built on is named.
+  const files = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n')
+    .filter(file => file !== '' && file !== 'test/anyProject.test.mjs' && !/\.(?:png|webp|jpe?g|ico|gif)$/i.test(file))
+  const found = files.filter(file => {
+    const text = readFileSync(join(ROOT, file), 'utf8')
+    KINDS.pc.lastIndex = 0
+    return KINDS.pc.test(text)
+  })
+  assert.deepEqual(found, [])
+})

@@ -87,6 +87,8 @@ test('projectFiles: the settings, the list of chats, an empty work store, the CL
   // The CLAUDE.md holds the answer rules; the briefings know the project, the board and the prefix.
   const claude = made.files['CLAUDE.md']
   for (const words of ['> **For you**', '**Answer:**', '**Do:**', '**Task:**', '**What I did:**', '+ Done:   yes', 'paused for the limit until HH:MM', 'Garden']) assert.ok(claude.includes(words), words)
+  // B323 review: a chat's name in the forms stays a chat's name, never the project's.
+  assert.ok(!/(?:Note|Question|Report) from Garden/.test(claude), 'the project\'s name stands where a chat\'s belongs')
   for (const file of ['CLAUDE.md', '.claude/main-briefing.md', '.claude/worker-briefing.md', 'README.md']) {
     assert.ok(!/<(project|board|prefix|name)>/.test(made.files[file]), `${file} keeps a placeholder`)
   }

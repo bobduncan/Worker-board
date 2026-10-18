@@ -8,7 +8,7 @@
 > something the worker board."
 
 **How to read this file (B138).** It is the history of the board's decisions, made while it was built for its
-first project, a game: the chat titles ("Game - Main", "Game - Board", ...), the folders (`C:\Web\...`,
+first project, a game: the chat titles ("Game - Main", "Game - Board", ...), the folders (the project's own folders,
 `art-inbox`) and the game's words in it are that project's. In another project read them as its main chat, its
 workers and its own folders. The board as it is now, in general words:
 
@@ -1739,7 +1739,7 @@ in it.
    it; else the one asked for; else, when another project's board holds it, the next free port from there, passing over
    ports something else listens on, the ports given by hand (4311, 4312: `HAND_PORTS`) and the copies' (4320 to 4419).
    The board says on its second line whose port it gave way to. The first project keeps its port whoever comes later,
-   so Lava Tactics' board keeps 4310. A new wish in config.json is chosen anew. A port the list does not give the
+   so the first project's board keeps 4310. A new wish in config.json is chosen anew. A port the list does not give the
    project yet is looked at first (review): when something listens there, it is taken only when that is the project's
    own board, as its `/api/board` says (`boardProject`), or, for a board of before it, as the project's own
    `.claude/board.json` says (`whoseBoard`); another project's board, or another program, keeps it.
@@ -1881,6 +1881,25 @@ click, then Enter.
    offered only while the project is new (no worker yet) and never under the main chat's name; nothing without a
    prefix. Paths in the first words are written as the board's folder writes them.
 4. Not in it: the workers' chats (the main chat starts those, as before).
+
+## Ready for strangers on GitHub (B323)
+
+Someone who finds the board on GitHub reads one page and knows what it is, what they need and the command to run.
+Part 5 of G12's how. The person's Q53 (15:33): the repository stays private, they invite whom they want, no license
+file. It was public on GitHub when this was built; Q72 (17:46): "A Make it private: invitees install with a git clone
+line" (the person makes it private on GitHub).
+
+1. The README opens with what the board is (three lines), Install (what you need: Windows, the Claude app and an
+   invitation; the two lines an invited person pastes, a git clone and the install script; the one line for when the
+   repository is ever public) and what the board is in more words; the steps by hand stand below under "By hand".
+2. The words the board reads travel with it: `examples/CLAUDE.md` (a new project's own, B320) is brought up to date
+   with the first project's rules in general words (a picture for every option, the play links, the plain first two
+   lines, the forms of a report and a note to the main chat); `roles/main.md`, `roles/worker.md` and the briefings
+   point to it when a project has none of its own.
+3. The README's "Not yet portable" list and `ANY-PROJECT-PLAN.md` say where it stands (B130 and B134 were done).
+4. No path of this PC in any file: the made-up paths of the tests are `D:\Work\...`, the history documents name the
+   first project's folders in words; `test/anyProject.test.mjs` checks every file of the repository (its own
+   patterns and pictures aside).
 
 ## What it does not do
 

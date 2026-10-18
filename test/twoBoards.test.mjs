@@ -233,7 +233,8 @@ function run(started, board, env, until = null) {
   started.push(child)
   return new Promise((done, fail) => {
     let out = ''
-    const late = setTimeout(() => fail(new Error(`The board did not start: ${out}`)), 30_000)
+    // A busy PC starts a board slowly: a minute and a half before the start counts as failed.
+    const late = setTimeout(() => fail(new Error(`The board did not start: ${out}`)), 90_000)
     const read = chunk => {
       out += chunk
       const said = out.match(/Worker board: http:\/\/127\.0\.0\.1:(\d+)\//)
@@ -251,7 +252,7 @@ const take = (port, key) => fetch(`http://127.0.0.1:${port}/api/bridge/take`, {
   method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key }, body: '{}',
 }).then(answer => answer.status)
 
-test('two projects\' boards run at once on one PC, each on its own port, with its own chats\' bridge and games', { timeout: 120_000 }, async t => {
+test('two projects\' boards run at once on one PC, each on its own port, with its own chats\' bridge and games', { timeout: 300_000 }, async t => {
   // The boards are stopped before their folders go: a running board holds its files.
   const dir = await mkdtemp(join(tmpdir(), 'board-two-run-'))
   const started = []

@@ -196,7 +196,7 @@ describe('which chats are in the list', () => {
   })
 
   test('the list is looked for in the folder of the session and each folder above it', () => {
-    expect(foldersAbove('C:\\Web\\project\\game')).toEqual(['C:\\Web\\project\\game', 'C:\\Web\\project', 'C:\\Web', 'C:'])
+    expect(foldersAbove('D:\\Work\\project\\game')).toEqual(['D:\\Work\\project\\game', 'D:\\Work\\project', 'D:\\Work', 'D:'])
     expect(foldersAbove('/home/me/app/')).toEqual(['/home/me/app', '/home/me', '/home', ''])
     expect(foldersAbove('\\\\server\\share\\app')).toEqual(['\\\\server\\share\\app'])
   })

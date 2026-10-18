@@ -3,6 +3,8 @@
 Every chat that works in this folder reads this file: the main chat and every worker. It is about how to write to
 the user. Each chat's job is in the worker board's job texts, `<board>\roles\` (`main.md`, `worker.md`, and the shared
 words in `protocol.md`); this project's own facts are in `.claude\main-briefing.md` and `.claude\worker-briefing.md`.
+The worker board reads parts of every answer (the For you block, the first two lines, the closing block): keep their
+words as written here.
 
 ## 1. Compact
 
@@ -21,22 +23,35 @@ block. Nothing else in the answer uses a quote block, and no question is left in
 
 - One line per item, numbered, so the user can answer "1 yes, 2 no".
 - Every item starts with **Answer:** or **Do:**.
-- A choice between options stands inside its item ("A ... or B ...; I advise A"). When the options differ in what
-  the user would see, every option gets its picture.
-- File each question with the work tool (`work ask`): it answers the block for you, and the user can answer it on
-  the worker board too.
+- A choice between options stands inside its item ("A ... or B ...; I advise A").
+- When the options differ in what the user would see or play, every option gets its picture: one picture with all
+  options side by side and labelled, or one link per option. Never a picture of the advised option alone.
+- File each question with the work tool (`work ask`): it writes the block for you, and the user can answer it on the
+  worker board too. A question only written in the chat is one the board cannot show.
 - No block when nothing is the user's.
 
 ## 3. A finished task with something left for the user
 
-The answer opens with two lines, in plain words for someone who forgot the context:
+When a task is finished and something is still the user's, the answer opens with two lines, and every item of the
+"For you" block carries a link to what the user needs to check it:
 
     **Task:** <the task as it was given, in one line, with its step id>
-    **What I did:** <one to three lines: what the user gets now, and what is not done>
+    **What I did:** <one to three lines in plain, non-technical words: what the user gets now, and what is not done>
 
-Then the "For you" block, each item with a link to what the user needs to check it, such as
-`[See the picture: <what it shows>](http://127.0.0.1:<port>/#picture=<folder>/<file>.png)`, which opens the picture on
-the worker board.
+    > **For you**
+    > 1. **Answer:** <the question, with your advice in a few words>
+    >    [See the picture: <what it shows>](http://127.0.0.1:<port>/#picture=<picture folder>/<file>.png)
+    > 2. **Answer:** <a check in the running work, with your advice>
+    >    [Play it: <where, in a few words>](http://127.0.0.1:<port>/#play=<branch>&<settings>)
+    > 3. **Do:** <the action, with where to click or what to type>
+
+- "Task:" and "What I did:" are the answer's first two lines. Both are high-level, for someone who forgot the context:
+  no file names, functions, commits or test counts there.
+- A link opens the worker board. `#picture=<path>` shows that picture in a popup on the board (a file under one of
+  the board's picture folders, the setting `pictureRoots`). `#play=<branch>&<settings>` starts the project's game,
+  when it has one, with that branch's work in a new tab; `main` is a branch too.
+- The board's window for a finished worker shows these parts and links.
+- An answer without anything for the user needs none of this.
 
 ## 4. The closing block
 
@@ -54,9 +69,16 @@ Every answer to the user ends with a rule and a `diff` block of three lines:
 
 ## 5. A worker that pauses for the limit
 
-All chats share one usage limit. A worker that stops because it runs low first brings its work to a safe point, then
-sends the main chat a note whose first line is exactly:
+All chats share one usage limit. A worker that stops because it runs low first brings its work to a safe point
+(committed, and pushed where its branch is on the remote), then sends the main chat a note whose first line is
+exactly:
 
     Note from <name of the chat>: paused for the limit until HH:MM
 
-HH:MM is the time it goes on. The worker board reads that first line and shows the worker as "Suspended" until then.
+HH:MM is the time it goes on. The worker board reads that first line and shows the worker as "Suspended" until then,
+so nothing else goes on that line.
+
+## What this does not change
+
+A note or a question from a worker to the main chat keeps its own form ("Note from <name of the chat>: ...", "Question
+from <name of the chat>: ..."), and a step is ended with the work tool (`work report`), never by a message.

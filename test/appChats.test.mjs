@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { boardChats, parseAppChat, parseList } from '../src/appChats.mjs'
 
-const PROJECT = 'C:\\Web\\game-project'
+const PROJECT = 'D:\\Work\\game-project'
 const RULES = { project: PROJECT, prefix: 'Game - ', main: 'Main' }
 
 const chat = (title, extra = {}) => ({
@@ -86,7 +86,7 @@ test('boardChats keeps the open chats of the project with the prefix, the main c
     chat('Game - Main', { createdAt: 300 }),
     chat('Game - Features', { createdAt: 100 }),
     chat('Game - Old', { isArchived: true }),
-    chat('Game - Elsewhere', { cwd: 'C:\\Web' }),
+    chat('Game - Elsewhere', { cwd: 'D:\\Work' }),
     chat('Notes'),
   ], RULES)
   assert.deepEqual(chats.map(c => c.name), ['Main', 'Features', 'Units'])
@@ -95,8 +95,8 @@ test('boardChats keeps the open chats of the project with the prefix, the main c
 
 test('boardChats counts a folder inside the project, whatever the case and the slashes', () => {
   const chats = boardChats([
-    chat('Game - Units', { cwd: 'c:/web/GAME-PROJECT/lava-tactics' }),
-    chat('Game - Near', { cwd: 'C:\\Web\\game-project-other' }),
+    chat('Game - Units', { cwd: 'd:/work/GAME-PROJECT/lava-tactics' }),
+    chat('Game - Near', { cwd: 'D:\\Work\\game-project-other' }),
   ], RULES)
   assert.deepEqual(chats.map(c => c.name), ['Units'])
 })
