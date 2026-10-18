@@ -18,6 +18,8 @@ const KINDS = {
   do: { sign: '→', tag: 'Only you can do' },
   // B301: a chat wrote questions in its chat but filed no ask: a warning, with the way to its chat.
   unfiled: { sign: '!', tag: 'No ask filed' },
+  // B308: a worker holds a step, is not working and asked nothing: a hint, with the way to its answer.
+  idle: { sign: '!', tag: 'May wait for you' },
 }
 /** What a step in the backlog says it asks of the person. */
 const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
@@ -1468,7 +1470,7 @@ function answerPart(need, state, isFolded) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
-  if (need.kind === 'unfiled') return [...parts, ...talkButton(need)]
+  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...talkButton(need)]
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
@@ -1509,7 +1511,8 @@ function answerPart(need, state, isFolded) {
 
 /**
  * B301: the way to the chat of a warning that it wrote questions without filing an ask: Talk to Main, the Advisor's
- * chat on its tab, or, for a worker, this card's window with its last answer.
+ * chat on its tab, or, for a worker, this card's window with its last answer. B308: also the hint that a worker holds a
+ * step but is not working and asked nothing.
  */
 function talkButton(need) {
   const open = el('button', 'choice', need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`)

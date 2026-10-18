@@ -10,6 +10,11 @@ import { isAbsolute, join, relative } from 'node:path'
  */
 export const GRACE_MS = 10 * 60_000
 export const ASK_MS = 60 * 60_000
+/**
+ * B308: a worker that holds a step, has ended its turn with nothing running and filed no ask, for longer than this, is
+ * a hint under Needs your attention: it may wait for the person.
+ */
+export const IDLE_HOLD_MS = 5 * 60_000
 
 const DEFAULTS = {
   /** B129: the project's name, the page's title; by default the project folder's name. */

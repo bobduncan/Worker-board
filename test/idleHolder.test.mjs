@@ -29,7 +29,8 @@ const app = name => JSON.stringify({
   createdAt: name.length, lastActivityAt: NOW - 5 * MIN, lastAssistantUuid: 'u-1',
 })
 
-const closing = done => `B269 is ready for your look on the copy.\n\n---\n\n\`\`\`diff\n  Prompt: the lanes\n  Who:    Game - Board\n${done}\n\`\`\``
+const block = done => `---\n\n\`\`\`diff\n  Prompt: the lanes\n  Who:    Game - Board\n${done}\n\`\`\``
+const closing = done => `B269 is ready for your look on the copy.\n\n${block(done)}`
 const YES = closing('+ Done:   yes')
 /** A turn that did what it was asked and ended `ago` minutes before now. */
 const ended = (ago, words = YES) => [typed(NOW - (ago + 10) * MIN, 'Show me B269.'), step(NOW - (ago + 9) * MIN, 'Build'), toolResult(NOW - (ago + 8) * MIN), answer(NOW - ago * MIN, words)]
@@ -90,6 +91,6 @@ test('no line for the main chat or the Advisor, nor within the idle time, nor be
   assert.deepEqual(hints(build({ Board: ended(3) })), [])
   assert.equal(hints(build({ Board: ended(6) })).length, 1)
   // Its answer asks in a "For you" block: the warning that it filed no ask says it already, once.
-  const asks = build({ Board: ended(10, `B269 is ready.\n\n> **For you**\n> 1. **Answer:** Do the lanes read well? I advise yes.\n\n${closing('- Done:   partly, waits for your look')}`) })
+  const asks = build({ Board: ended(10, `B269 is ready.\n\n> **For you**\n> 1. **Answer:** Do the lanes read well? I advise yes.\n\n${block('- Done:   partly, waits for your look')}`) })
   assert.deepEqual([hints(asks), asks.forYou.filter(need => need.from === 'Board').map(need => need.kind)], [[], ['unfiled']])
 })

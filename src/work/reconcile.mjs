@@ -28,10 +28,11 @@ const span = ms => {
 
 /**
  * `{ store, flow, lanes, now, times, prefix }` → `{ moves, deliveries, flags }`. `store` is readStore's answer (`items`,
- * `problems`), `flow` its flow, `lanes` the board's chats (`name`, `state`, `isRunning`, `isLeftover`, `lastActivityAt`,
- * `task`), `times` `{ graceMs, askMs }` (src/config.mjs). `moves`: `[{ id, to, why }]`; `deliveries`: `[{ id, chat,
- * why }]`, one per chat; `flags`: `[{ kind, id, chat, text, button }]`, a lane's when `chat` is set, else a line on top;
- * a flag with `say` tells its chat that once (`key`).
+ * `problems`), `flow` its flow, `lanes` the board's chats (`name`, `state`, `isMain`, `isRunning`, `isLeftover`,
+ * `lastActivityAt`, `task`, `resting`), `times` `{ graceMs, askMs, idleMs }` (src/config.mjs). `moves`: `[{ id, to, why
+ * }]`; `deliveries`: `[{ id, chat, why }]`, one per chat; `flags`: `[{ kind, id, chat, text, button }]`, a lane's when
+ * `chat` is set, else a line on top; a flag with `say` tells its chat that once (`key`); an `idle hold` flag (B308) also
+ * names all its chat's steps (`ids`) and is a hint under Needs your attention, not on the lane.
  */
 export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '' }) {
   const items = store.items ?? new Map()
@@ -93,17 +94,20 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     flags.push({ kind: 'stuck', id, chat: lane.name, text: `${id}: ${lane.name} holds it but is not running`, button: `Start ${lane.name}` })
   }
 
-  // B301, the review: a chat whose last answer closed with "Done: yes" (`saidDone`, the answer's time) while the store
-  // still holds its step: it ended its turn without `work report`, and nothing else would end the step. One flag per
-  // turn (`turn`), on its lane; none for a step it took after that answer.
-  for (const item of ok.filter(one => HOLDS.includes(stateOf(one)))) {
-    const lane = laneOf(valueOf(item, 'Owner'))
-    const at = lane?.saidDone?.at
-    if (!Number.isFinite(at)) continue
-    const since = sinceMs(valueOf(item, 'Since'))
-    if (Number.isFinite(since) && since >= Math.floor(at / MIN) * MIN) continue
-    const id = valueOf(item, 'Id')
-    flags.push({ kind: 'unreported', id, chat: lane.name, text: `${lane.name} ended its turn with Done: yes but ${id} is still ${stateOf(item)}: run work report`, button: null, turn: at })
+  // B308: a worker (never the main chat; the Advisor has no lane) that holds steps taken or in progress, whose turn has
+  // ended with nothing running (`resting`, state.mjs), that is not suspended and holds no open ask, for longer than the
+  // idle time: it may wait for the person without having said so where the board looks. One hint per chat, naming
+  // all its steps; it goes when the chat runs again, files an ask or reports. Nothing of its words is read.
+  const asking = new Set([...items.values()].filter(item => kindOf(item) === 'ask' && stateOf(item) === 'open' && valueOf(item, 'Owner') !== null).map(item => plain(valueOf(item, 'Owner'), prefix)))
+  for (const lane of live) {
+    if (lane.isMain === true || lane.state === 'suspended' || !Number.isFinite(lane.resting?.since) || asking.has(plain(lane.name, prefix))) continue
+    const mine = ok.filter(item => ['taken', 'in progress'].includes(stateOf(item)) && laneOf(valueOf(item, 'Owner')) === lane)
+    if (mine.length === 0) continue
+    const since = Math.max(lane.resting.since, ...mine.map(item => sinceMs(valueOf(item, 'Since'))).filter(Number.isFinite))
+    if (now - since < times.idleMs) continue
+    const ids = mine.map(item => valueOf(item, 'Id'))
+    const named = ids.length === 1 ? ids[0] : `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`
+    flags.push({ kind: 'idle hold', id: ids[0], ids, chat: lane.name, text: `${lane.name} holds ${named} but is not working and asked you nothing: it may wait for you`, button: null })
   }
 
   // An ask open with Blocking yes for longer than the ask time: it stands first under Needs your attention; nothing is

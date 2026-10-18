@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
-import { ASK_MS, GRACE_MS } from './config.mjs'
+import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
 import { allWords, closedForYou, minutesOf, forYou, noteSections, overview, queue, refinedAt, refinedKey, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
@@ -50,7 +50,7 @@ const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
 const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined|ask from the goal map|backlog step from the goal map)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
-const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'unreported', 'waits']
+const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'waits']
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -292,7 +292,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, saidDone: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -324,12 +324,13 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // B290: the app counts the main chat as waiting after every answer; that ended turn is free, and its own card does not
   // hold it either, as the main chat reports to nobody.
   const isMainIdle = chat.isMain && appState === 'waiting' && turn === 'ended'
+  const background = entries === null ? 0 : backgroundRunning(entries)
   const held = wasCutOff || ended !== 'free' ? null : heldBy({
     plan: isMainIdle ? null : plan, step,
     isCompleted: summary?.category === 'completed',
     isDone,
     isUnfinished,
-    background: entries === null ? 0 : backgroundRunning(entries),
+    background,
   })
   // B113: held by a limit of the plan. The app stopped it there, or the worker told the main chat that it paused
   // and its turn has ended. Until when is settled once the limits are known (`heldUntil`).
@@ -424,9 +425,23 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // B301: its last answer asks the person in a "For you" block, and the store holds no ask of it since that turn
     // began: shown as a warning under Needs your attention, never read as a question.
     unfiled: unfiledAsk(entries, scan, turn, waits, chat.name, prefix),
-    // B301, the review: its last answer closed with "+ Done:   yes", and when: the reconciler flags a step still held.
-    saidDone: isDone ? { at: entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null } : null,
+    // B308: its turn has ended with nothing running (no command or subagent it left in the background, as `heldBy`
+    // reads it: a "Done: yes" overrules one), it is not cut off or suspended: since when, and its last answer for the window. The reconciler
+    // names a worker that holds a step so, without an open ask, as one that may wait for the person.
+    resting: restingOf({ entries, turn, idle, isRunningOn: background > 0 && !isDone, isStopped: wasCutOff || paused !== null }),
   }
+}
+
+/**
+ * B308: a chat whose turn has ended and runs nothing: `{ since, at, words }` (since when, from the board's reading of
+ * the turn; its last answer and when), or null while it works, waits on the app's question form, was cut off, is
+ * suspended, or has a command or subagent running in the background (`isRunningOn`).
+ */
+function restingOf({ entries, turn, idle, isRunningOn, isStopped }) {
+  if (entries === null || turn !== 'ended' || isStopped || isRunningOn) return null
+  const said = waitingFor(entries)
+  const since = Number.isFinite(idle?.since) ? idle.since : said?.at
+  return Number.isFinite(since) ? { since, at: said?.at ?? since, words: said?.words ?? '' } : null
 }
 
 /**
@@ -560,7 +575,7 @@ function answerOf(outbox, id, version = null) {
  * question form that the mod could not file, and a chat that wrote questions in its chat without filing an ask is a
  * warning (`unfiled`) with the way to its chat, never a question to answer here.
  */
-function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null, waits }) {
+function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null, waits, idle = [] }) {
   const live = lanes.filter(lane => !lane.isLeftover)
   const names = new Set(live.map(lane => lane.name))
   // Work to verify is looked at in the game: on the branch the ask names, else on main.
@@ -616,6 +631,28 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       isAdvisor,
       // Where its chat is on the board: Talk to Main, the Advisor's tab, or a worker's last answer in this card's window.
       talk: lane.isMain === true ? 'main' : isAdvisor ? 'advisor' : 'window',
+    })
+  }
+  // B308: a worker that holds steps, has ended its turn with nothing running and asked nothing (the reconciler's `idle
+  // hold`): a hint with the way to its answer. A chat that wrote questions without an ask has that warning instead.
+  for (const flag of idle) {
+    const lane = live.find(one => one.name === flag.chat)
+    if (lane === undefined || lane.isMain === true || (lane.unfiled ?? null) !== null || (lane.resting ?? null) === null) continue
+    items.push({
+      id: `idle:${lane.name}:${lane.resting.since}`,
+      from: lane.name,
+      kind: 'idle',
+      title: flag.text,
+      text: `Its turn has ended and nothing of it runs, it holds ${flag.ids.length === 1 ? 'this step' : 'these steps'} in the work store, and no ask of it is open. It may wait for you without having filed a question: look at its last answer, and answer it in its chat, or ask it to file an ask with work ask or to report.`,
+      at: lane.resting.at,
+      ...blank,
+      version: null,
+      canAnswer: false,
+      task: cardOf(lane.task),
+      waits: { at: lane.resting.at, words: lane.resting.words, questions: [], plan: null, handover: parseHandover(lane.resting.words) },
+      isMain: false,
+      isAdvisor: false,
+      talk: 'window',
     })
   }
   for (const lane of advisorWaits === null ? live : [...live, advisorWaits]) {
@@ -1035,7 +1072,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // lines (work/deliver.mjs), the page shows its flags. Null while the store cannot be read.
   // B301: when each step of the store went done, for the finished list and the board's own notes (finished.mjs).
   const doneAtOf = doneTimes(raw.work, prefix)
-  const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS }, prefix })
+  const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix })
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
 
@@ -1066,7 +1103,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       stop: Object.fromEntries(lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => [lane.name, removalAsk(sent.findLast(message => message.command === 'stop' && message.about === lane.name), now)]).filter(([, ask]) => ask !== null)),
     },
     forYou: [
-      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, waits }),
+      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold') }),
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       ...storeNeeds(raw.work, { now, names: [...names, ...(advisorChat === undefined ? [] : [advisorChat.name])], prefix, answerOf: id => answerOf(sent, id) })
