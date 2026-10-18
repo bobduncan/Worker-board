@@ -199,7 +199,7 @@ test('the page: the Advisor tab in four parts under their buttons, the way first
   assert.match(html, /data-tab="advice"><span class="tab-long">Focus<\/span><span class="tab-short">Focus<\/span><\/button>/)
   assert.deepEqual([...html.matchAll(/data-advisor-pane="(\w+)"/g)].map(found => found[1]), ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'])
   assert.equal((html.match(/class="tab[^"]*" type="button" data-tab=/g) ?? []).length, 4)
-  assert.match(script, /const pane = ADVISOR_PANES\.includes\(name\) \? name : 'focus'/)
+  assert.match(script, /const pane = ADVISOR_PANES\.includes\(name\) \? name : advisorFirstPart\(board\?\.advisorParts\)/)
   // The answers: yes to the main chat, no with its reason to the Advisor; the way is drawn anew while one is sent.
   assert.match(script, /send\(\{ to: board\.workers\.main, command: 'recommend', about: rec\.id, answer: 'yes' \}, 'recommend'\)/)
   assert.match(script, /send\(\{ to: board\.advisor\.name, command: 'recommend', about: rec\.id, answer: 'no', reason: wayReason\.trim\(\) \}, 'recommend'\)/)
