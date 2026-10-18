@@ -38,8 +38,10 @@ test('the board names partner.md as the chat\'s job in its rounds, and nowhere n
 test('the partner keeps the Advisor\'s refining, goal linking and rounds, and adds the focus\'s three moves', () => {
   for (const kept of ['## Refine a step', '## Steps under no goal', '## Your rounds', '## A brainstorm', '## Asks from the goal map', 'Whoever asks the user asks once']) assert.ok(partner.includes(kept), kept)
   assert.match(partner, /## The focus/)
-  assert.match(partner, /node <board>\/tools\/focus-draft\.mjs vibe G<n> --line/)
-  assert.match(partner, /node <board>\/tools\/focus-draft\.mjs how G<n> --part/)
+  assert.match(partner, /`work vibe-draft` \(`goal` G<n>, `lines`, `picture`\)/)
+  assert.match(partner, /`work how-draft` \(`goal` G<n>, `parts`, `partnerDecides`, `youDecide`\)/)
+  // The partner, as every chat, never reads or uses the board's own file.
+  assert.doesNotMatch(partner, /board\.json|focus-draft/)
   assert.match(partner, /\*\*Nothing is built in this move\*\*/)
   assert.match(partner, /`vibe: agreed`/)
   assert.match(partner, /`vibe: not yet` with `Words: \.\.\.`/)
@@ -62,6 +64,7 @@ test('the main chat sends planning questions to the partner and queues the steps
 test('the protocol lists the focus\'s lines in the goal map and the words the board types to the partner', () => {
   for (const words of ['`Focus: G<n>`', '`Vibe: <one line>`', '`Vibe picture: <path>`', '`Vibe agreed: <date time>`', '`Part: <title> · <size> · steps B<n>, B<n>`', '`Partner decides: <one line>`', '`You decide: <one line>`', '`How agreed: <date time>`']) assert.ok(protocol.includes(words), words)
   for (const words of ['`focus: G<n> <title>`', '`vibe: agreed`', '`vibe: not yet`', '`how: go`', '`how: not yet`', '`Queue for G<n>']) assert.ok(protocol.includes(words), words)
-  assert.match(protocol, /tools\/focus-draft\.mjs/)
+  assert.match(protocol, /`work vibe-draft` \(`goal`, `lines`, `picture`\), `work how-draft` \(`goal`, `parts`, `partnerDecides`, `youDecide`\)/)
+  assert.doesNotMatch(protocol, /focus-draft/)
   assert.doesNotMatch(protocol, /advisor\.md/)
 })

@@ -170,6 +170,14 @@ async function pick(body, before, ctx, goalsAt) {
   return { ok: true, result, words: focusWords('focus', { to: ctx.partner.name, goal: node, thread, stage: STAGE_WORDS[stage], job: ctx.job }) }
 }
 
+/** "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
+function partOf(value) {
+  const [title = '', ...rest] = value.split(' · ').map(part => part.trim())
+  const steps = rest.find(part => /^steps\b/i.test(part))
+  const size = rest.find(part => !/^steps\b/i.test(part) && part !== '') ?? ''
+  return { title, size, steps: steps === undefined ? [] : steps.replace(/^steps\s*/i, '').split(/[,\s]+/).filter(one => /^B\d+$/.test(one)) }
+}
+
 /** What the person agreed of a how: its parts (title, size) and what is decided by whom; the steps come after. */
 const agreedOf = node => JSON.stringify([node.parts.map(part => [part.title, part.size]), node.partnerDecides, node.youDecide])
 
@@ -193,7 +201,9 @@ async function draft(body, node, ctx, goalsAt) {
     if (late) return refuse(409, 'The vibe is agreed: talk about the how now.')
     return done.ok ? { ok: true, result: {}, words: null } : failed(done.why)
   }
-  const how = { parts: body.parts, partnerDecides: body.partnerDecides ?? [], youDecide: body.youDecide ?? [] }
+  // A part as an object, or in the work tool's words: "<title> · <size> · steps B1, B2", as goals.md reads a Part line.
+  const parts = Array.isArray(body.parts) ? body.parts.map(part => (typeof part === 'string' ? partOf(part) : part)) : body.parts
+  const how = { parts, partnerDecides: body.partnerDecides ?? [], youDecide: body.youDecide ?? [] }
   if (!Array.isArray(how.parts) || !how.parts.every(part => part !== null && typeof part === 'object') || !isLines(how.partnerDecides) || !isLines(how.youDecide)) {
     return refuse(400, 'A how is its parts ({ title, size, steps }) and the lines of who decides what.')
   }

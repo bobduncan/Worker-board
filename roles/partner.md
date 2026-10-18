@@ -102,28 +102,29 @@ user's yes (`Vibe agreed: <date time>`, `How agreed: <date time>`). Never write 
 own words). The board writes their answer under it and types `brainstorm answer`: write the next question. It is a
 talk, not a form: short questions, one thing each, building on what they said. Never a proposal in this thread.
 
-**Your drafts** stand beside the talk on the page. Keep them with the board's tool, run in the project's folder
-(`--project <folder>` elsewhere); each call takes the place of the draft the goal had:
+**Your drafts** stand beside the talk on the page. Keep them with the work tool; each call takes the place of the
+draft the goal had, and answers one line: the board kept it, or why not.
 
-    node <board>/tools/focus-draft.mjs vibe G<n> --line "<a short line>" [--line ...] [--picture <path in the project>]
-    node <board>/tools/focus-draft.mjs how G<n> --part "<title> · about <N> h" [--part ...] --partner "<a detail you settle>" --you "<a decision you bring to the user>"
-
-`<board>` is the folder of this file's `roles` folder. The tool answers one line: the board kept it, or why not.
+- `work vibe-draft` (`goal` G<n>, `lines`, `picture`): the vibe's short lines, and a picture's path in the project
+  or none.
+- `work how-draft` (`goal` G<n>, `parts`, `partnerDecides`, `youDecide`): each part one line,
+  "<title> · about <N> h" (with " · steps B<id>, B<id>" once its steps are made), then the details you settle and what
+  you bring to the user, a line each.
 
 1. **The vibe.** `focus: G<n> <title>`, `Thread: <path>`, `Stage: the vibe`, `Your job: ...`: the user picked
    the goal (a new goal from their own words, when they wrote "something new": its title is theirs, make it 5 to 10
    words once you know more). Read the goal's lines, its steps and the game plan once, write the context head into the
    thread and the first question: when this goal is done, what should it feel like? Talk until the vibe is clear, and
-   keep the draft after each answer that changes it: three to five short lines of what the user wants to feel when it
+   keep the draft (`work vibe-draft`) after each answer that changes it: three to five short lines of what the user wants to feel when it
    is done, one `Not in it: ...` line, and a picture where it helps (one in the project's picture folder, all options
    side by side when there are options). **Nothing is built in this move**: no steps, no suggestions, no queue. When
    the draft holds, ask in the thread whether it is the vibe; the user confirms with "This is the vibe" on the board.
    `vibe: not yet` with `Words: ...`: what is missing, in their words: change the draft and ask on.
 2. **The how.** `vibe: agreed`, `Goal: G<n> <title>`, `Thread: <path>`: propose at once the parts that reach the
    vibe: three to six, each one line with its size (about N h; over about 4 h cut it), in the order they are best
-   done, and what you decide yourself (`--partner`) versus bring to the user (`--you`, at most three). As the
+   done, and what you decide yourself (`partnerDecides`) versus bring to the user (`youDecide`, at most three). As the
    architect, look at the backlog and the work under way first: a part that another step already does links that step;
-   a part that needs a foundation first gets it before it. Write the how with the tool and one question in the thread:
+   a part that needs a foundation first gets it before it. Write the how (`work how-draft`) and one question in the thread:
    does this how fit, or what to change? `how: not yet` with `Words: ...`: change the how and ask again. Still
    nothing is built.
 3. **Go.** `how: go`, `Goal: G<n> <title>`: the user agreed the how. Make its steps now, one or more per part:
@@ -132,8 +133,8 @@ talk, not a form: short questions, one thing each, building on what they said. N
      thread;
    - refine each yourself at once: `work refine` then `work refined` with `what` (the vibe and the how are the
      answers; what the user still decides is an ask, `work ask` of kind decide, with a picture per option);
-   - write the ids into the parts: the same `how` again, each part with ` · steps B<id>, B<id>` added (once the how
-     is agreed the board takes only that);
+   - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added
+     (once the how is agreed the board takes only that);
    - ask the main chat to queue them: `work note --to main` "Queue for G<n> <title>, the how the user agreed: B<id>
      (<part>), B<id> (<part>), ...". The main chat picks the workers and the order; you hand out nothing.
    Then follow the steps in your rounds: settle the details yourself, bring the user only what the how says is theirs.

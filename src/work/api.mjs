@@ -25,6 +25,11 @@ export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list'])
 const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck'])
+/**
+ * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
+ * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
+ */
+const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
 const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull'])
 /** What only the person does, on the board's page; and what only the server does. */
@@ -36,6 +41,8 @@ const ROLES = {
   unblock: ['main', 'worker', 'person'],
   new: ['main', 'worker', 'advisor', 'person'],
   refine: ['advisor', 'main'],
+  'vibe-draft': ['advisor'],
+  'how-draft': ['advisor'],
   requeue: ['main', 'person'],
   unqueue: ['main', 'person'],
 }
@@ -93,7 +100,7 @@ export function workApi(body, ctx) {
 async function act(body, ctx) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return refuse(400, 'Not a request.')
   const action = body.action
-  if (!READS.has(action) && !CHANGES.has(action)) return refuse(400, `No action "${String(action).slice(0, 40)}": ${[...READS, ...CHANGES].join(', ')}.`)
+  if (!READS.has(action) && !CHANGES.has(action) && !GOAL_MAP.has(action)) return refuse(400, `No action "${String(action).slice(0, 40)}": ${[...READS, ...CHANGES, ...GOAL_MAP].join(', ')}.`)
   let who
   let role
   if (ctx.as === 'person' || ctx.as === 'server') {
@@ -108,6 +115,7 @@ async function act(body, ctx) {
   if (PERSON.has(action) && role !== 'person') return refuse(403, 'Only the person does that, on the board.')
   if (SERVER.has(action) && role !== 'server') return refuse(403, 'Only the board does that.')
   if (ROLES[action] !== undefined && !ROLES[action].includes(role)) return refuse(403, `Only ${ROLES[action].join(' or ')} ${action === 'new' ? 'makes a step' : `may ${action}`}.`)
+  if (GOAL_MAP.has(action)) return goalDraft(body, ctx)
 
   let store
   try {
@@ -127,6 +135,24 @@ async function act(body, ctx) {
   // The view follows every change: whatever still reads backlog.md reads what the store says.
   const view = await writeView({ dir: ctx.dir, ...(await readStore(ctx.dir, ctx.fs)) }, ctx.viewFile, ctx.fs, { now })
   return { ok: true, result: { ...done.result, view: view.ok ? 'written' : view.why } }
+}
+
+/**
+ * Focus 2: a draft of the partner's, handed to the board's goal map (`ctx.goalDraft`, src/focus.mjs `focusMove`): the
+ * goal (`goal`), the vibe's `lines` and `picture`, or the how's `parts` ("<title> · <size> · steps B<n>"),
+ * `partnerDecides` and `youDecide`. Answers the board's refusal, or one line; the store is not changed.
+ */
+async function goalDraft(body, ctx) {
+  if (typeof ctx.goalDraft !== 'function') return refuse(409, 'This board keeps no goal map: nothing was kept.')
+  const goal = line(body.goal, 20)
+  if (!/^G\d+$/.test(goal)) return refuse(400, 'Name the focus goal: goal G<n>.')
+  const isVibe = body.action === 'vibe-draft'
+  const draft = isVibe
+    ? { command: 'vibe-draft', id: goal, lines: body.lines, ...(body.picture === undefined ? {} : { picture: body.picture }) }
+    : { command: 'how-draft', id: goal, parts: body.parts, ...(body.partnerDecides === undefined ? {} : { partnerDecides: body.partnerDecides }), ...(body.youDecide === undefined ? {} : { youDecide: body.youDecide }) }
+  const done = await ctx.goalDraft(draft)
+  if (!done.ok) return done
+  return { ok: true, result: { text: `The board keeps the ${isVibe ? 'vibe' : 'how'} of ${goal}: the Focus page shows it.`, changed: false } }
 }
 
 // ---- reading ----
