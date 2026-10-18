@@ -1064,6 +1064,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   answers yes or one line ("B285: only main queues a step (flow.json)"); `nextMoves` lists the moves out of a state.
   A `flow.json` in the store folder replaces the default; one that names an unknown guard or state is refused with
   its name and the default stands.
+  Focus 3: the partner (role advisor) and the main chat take, work and report a step queued for them as a worker
+  does: queued → taken ("Blocked by all done"), taken → in progress, in progress → waiting on you and → review, and
+  review → review are by worker, advisor and main, as the live project's flow.json has them.
 - **The migration** (`src/work/migrate.mjs`, `line.mjs`): every step line becomes an item. Its line is kept as
   fields: `Title`; `Owner`, `Blocked by` (a condition of only ids, "B12 and B13") or `Waits for` (any other condition,
   "after today's board work", verbatim), `Estimate` from "(for ...)"; `Branch` from "(branch x)"; `State` (done,

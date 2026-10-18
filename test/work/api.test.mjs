@@ -451,7 +451,7 @@ test('B305: a worker that still holds a step takes its next queued one; an older
       if (isOld) {
         // The flow file of a project made before B305: the server's move only; the chat taking it counts as free.
         const old = JSON.parse(await readFile(new URL('../../examples/work/flow.json', import.meta.url), 'utf8'))
-        old.step.moves = old.step.moves.filter(move => !(move.from === 'queued' && move.to === 'taken' && move.by === 'worker'))
+        old.step.moves = old.step.moves.filter(move => !(move.from === 'queued' && move.to === 'taken' && move.when === 'Blocked by all done'))
         await writeFile(join(dir, 'flow.json'), JSON.stringify(old, null, 2))
         assert.deepEqual((await readStore(dir)).problems, [])
       }
