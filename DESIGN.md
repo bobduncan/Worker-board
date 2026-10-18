@@ -1771,7 +1771,7 @@ workers and maybe what the current focus is with the tasks"). Since B343, after 
    left, read from that worker's lane while it works on that step. A step the store does not hold, or one dropped,
    is not listed.
 3. Workers: every chat of the list but leftovers, with its step, a bar of its steps and its time left; one without work
-   says in a few words why (free, blocked, paused until 19:23, not running, cut off).
+   says in a few words why (free, waits for you, paused until 19:23, not running, cut off).
 4. Needs your attention as in Details, without "From the backlog", "Open instructions", the closed cards and the order
    and closed switches: those stay under Details.
 

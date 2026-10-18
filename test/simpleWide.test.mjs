@@ -91,9 +91,10 @@ test('the workers column: each chat with its step, a bar of its steps and its ti
     { name: 'Worker 1', code: 'B329', task: 'Cliffs you cannot climb', percent: 40, left: '1 h 45', tone: 'working' },
     { name: 'Worker 2', code: 'B2', task: 'Step B2', percent: 25, left: '1 h 50', tone: 'working' },
     { name: 'Worker 3', code: null, task: null, percent: null, left: 'free', tone: 'free' },
-    // any other state in a few words: paused for the limit, blocked, not running, cut off
+    // any other state in a few words: paused for the limit, waiting for the person, not running, cut off
     { name: 'Worker 4', code: null, task: null, percent: null, left: `paused until ${page.clock(AT + 40 * MIN)}`, tone: 'suspended' },
   ])
+  assert.equal(page.simpleWorkers([lane('Worker 5', 'waiting'), lane('Worker 6', 'off')], {}, AT).rows.map(row => row.left).join(', '), 'waits for you, not running')
   // a leftover chat is not one of the workers
   assert.equal(page.simpleWorkers([...CHATS, { ...lane('Old', 'free'), isLeftover: true }], {}, AT).rows.length, 5)
 })

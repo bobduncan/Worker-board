@@ -1034,7 +1034,7 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
 function simpleIdle(lane) {
   if (lane.state === 'free') return 'free'
   if (lane.state === 'working') return 'working'
-  if (lane.state === 'waiting') return 'blocked'
+  if (lane.state === 'waiting') return 'waits for you'
   if (lane.state === 'suspended') return Number.isFinite(lane.suspended?.until) ? `paused until ${clock(lane.suspended.until)}` : 'paused'
   if (lane.state === 'off') return 'not running'
   if (lane.state === 'interrupted') return 'cut off'
