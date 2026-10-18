@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { GAME_SPAN, HAND_PORTS, OWN_PORTS_FROM, boardProject, boardsFile, chooseHome, parseBoards, portIsBusy, readBoards, registerHome, resolvePort } from '../src/ports.mjs'
+import { GAME_SPAN, HAND_PORTS, OWN_PORTS_FROM, boardProject, boardsFile, chooseHome, parseBoards, portIsBusy, readBoards, registerHome, resolvePort, whoseBoard } from '../src/ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const A = 'C:\\Work\\alpha'
@@ -130,6 +130,19 @@ test('resolvePort: a project new to the list does not take a port another board 
   // Once in the list it is not asked again: the list says the port is its own.
   await registerHome(file, entry(beta, 4310, 5300))
   assert.equal((await start({ isBusy: busy, identify: async () => alpha })).port, 4310)
+})
+
+test('whoseBoard: a board of before /api/board is the project\'s own when the project\'s board.json names its port', async t => {
+  const dir = await folder(t)
+  const project = join(dir, 'alpha')
+  await mkdir(join(project, '.claude'), { recursive: true })
+  const silent = async () => null
+  assert.equal(await whoseBoard(4310, project, silent), null)
+  await writeFile(join(project, '.claude', 'board.json'), JSON.stringify({ url: 'http://127.0.0.1:4310', key: 'ab'.repeat(32), startedAt: 1 }))
+  assert.equal(await whoseBoard(4310, project, silent), project)
+  assert.equal(await whoseBoard(4313, project, silent), null)
+  // What the board says itself comes first.
+  assert.equal(await whoseBoard(4310, project, async () => 'D:\\other'), 'D:\\other')
 })
 
 test('boardProject: the project of the board on a port, as its /api/board says; null for anything else', async t => {

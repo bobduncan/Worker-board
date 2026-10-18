@@ -90,7 +90,7 @@ export async function boardFolders(here, run) {
  * never takes a port another project's board holds and starts its games in its project's range. Nothing is written
  * into the list here: the board does that once it listens (`registerHome`). Without `boards` all is as before.
  */
-export async function resolvePort({ here, given, configured, run, project = null, gamePort = null, boards = null, isBusy = portIsBusy, identify = boardProject }) {
+export async function resolvePort({ here, given, configured, run, project = null, gamePort = null, boards = null, isBusy = portIsBusy, identify = port => whoseBoard(port, project) }) {
   const folders = await boardFolders(here, run)
   const main = folders[0] ?? here
   const isMain = pathKey(main) === pathKey(here)
@@ -143,6 +143,22 @@ export async function boardProject(port, host = '127.0.0.1') {
     const answer = await fetch(`http://${host}:${port}/api/board`, { signal: AbortSignal.timeout(1500) })
     const said = answer.ok ? await answer.json() : null
     return said?.board === 'worker-board' && typeof said.project === 'string' && said.project !== '' ? said.project : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whose board listens on the port, for `project`'s board that is starting: what the board says (`ask`, `boardProject`),
+ * else the project itself when its own `.claude/board.json` names the port (its board of before /api/board, still
+ * running); else null.
+ */
+export async function whoseBoard(port, project, ask = boardProject) {
+  const said = await ask(port)
+  if (said !== null) return said
+  try {
+    const note = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
+    return new URL(note.url).hostname === '127.0.0.1' && Number(new URL(note.url).port) === port ? project : null
   } catch {
     return null
   }

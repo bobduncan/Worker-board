@@ -1688,7 +1688,8 @@ in it.
    The board says on its second line whose port it gave way to. The first project keeps its port whoever comes later,
    so Lava Tactics' board keeps 4310. A new wish in config.json is chosen anew. A port the list does not give the
    project yet is looked at first (review): when something listens there, it is taken only when that is the project's
-   own board, as its `/api/board` says (`boardProject`); a board of before the list, or another program, keeps it.
+   own board, as its `/api/board` says (`boardProject`), or, for a board of before it, as the project's own
+   `.claude/board.json` says (`whoseBoard`); another project's board, or another program, keeps it.
 3. Games: each project has a range of `GAME_SPAN` (100) ports from its first one, never meeting another project's; a
    folder's game takes its place in it. A copy in another working folder of the same repository takes its project's
    range, and its own port (from 4320, `data/port.json`) is never one another project's board holds.
