@@ -74,20 +74,41 @@ test('the steps stand under the goals that name them, nested as on the goal map,
     '  - B21',
     '  - B22',
   ])
-  // A goal says how many of its steps are open, and a step keeps its activity.
+  // A goal says how many of the steps shown under it are open (B10 stands under G3, not G4), and a step keeps its activity.
   const g4 = rows.find(row => row.id === 'G4')
-  assert.equal(g4.open, 2)
+  assert.deepEqual([g4.open, g4.done], [1, 0])
+  assert.deepEqual([rows.find(row => row.id === 'G1').open, rows.find(row => row.id === 'G2').open], [3, 2])
   assert.equal(rows.find(row => row.kind === 'step' && row.step.id === 'B21').step.activity, 'Barn')
   const none = rows.find(row => row.id === 'none')
-  assert.deepEqual([none.title, none.count, none.isNone], ['Not under a goal', 2, true])
+  assert.deepEqual([none.title, none.open, none.isNone], ['Not under a goal', 2, true])
   // A goal with nothing shown under it is left out (G5 names only a step not on the backlog; G2's B12 is finished).
   assert.equal(rows.some(row => row.id === 'G5'), false)
+})
+
+test('the review: an id twice in the map keeps the first, as the board does; a milestone is any part of the plan', () => {
+  const twice = [
+    '- [ ] G1 A farm',
+    '  - [ ] G2 The first G2',
+    '    From the game plan: Phase 1',
+    '    Steps: B20',
+    '    - [ ] G3 Under the first',
+    '      Steps: B21',
+    '  - [ ] G2 The second G2',
+    '    Steps: B22',
+    '',
+  ].join('\n')
+  const { activities, goals } = view(BACKLOG, twice)
+  const rows = context.goalRows(context.coordinateList(activities, {}), goals)
+  assert.deepEqual(shape(rows), ['G1', '  G2 (M)', '    - B20', '    G3', '      - B21', 'none', '  - B10', '  - B11', '  - B22'])
+  assert.equal(rows.find(row => row.id === 'G2').title, 'The first G2')
 })
 
 test('the filters and the search work as today: only the goals that hold what is shown', () => {
   const { activities, goals } = view()
   const queued = context.goalRows(context.coordinateList(activities, { filter: 'queued' }), goals)
   assert.deepEqual(shape(queued), ['G1', '  G2 (M)', '    G3', '      - B10'])
+  // The counts follow what is shown: G1 holds one queued step here.
+  assert.equal(queued.find(row => row.id === 'G1').open, 1)
   const found = context.goalRows(context.coordinateList(activities, { find: 'cat' }), goals)
   assert.deepEqual(shape(found), ['none', '  - B22'])
   // Finished steps shown when asked for: B12 under G2.
@@ -114,5 +135,8 @@ test('the page draws the goals as folding headers and keeps the folds in this br
   assert.match(script, /const rows = \$\('coordinate-one'\)\.checked \? null : goalRows\(list, state\.goals \?\? null\)/)
   assert.match(script, /dataset\.goalFold = /)
   assert.match(script, /localStorage\.setItem\('backlog-goal-folds', /)
+  // The keyboard stays on a header when the list is drawn anew; the fold sign is not read out.
+  assert.match(script, /if \(focusedGoal !== null\) \$\('coordinate-list'\)\.querySelector\(`\[data-goal-fold="\$\{focusedGoal\}"\]`\)\?\.focus\(\)/)
+  assert.match(script, /sign\.setAttribute\('aria-hidden', 'true'\)/)
   for (const rule of ['.goal-head', '.goal-head.is-milestone', '.goal-head.is-none', '.goal-steps']) assert.ok(style.includes(rule), rule)
 })

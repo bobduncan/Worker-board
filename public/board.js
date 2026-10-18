@@ -6730,15 +6730,19 @@ function coordinateList(activities, { filter = 'all', find = '', showDone = fals
 /**
  * B302: the tab's list (`coordinateList`, by activity) regrouped under the goals of the goal map (`goals`: the state's
  * `roots` and `nodes`), nested as there (the person's choice A, 2026-10-18), as rows in the order they are drawn:
- * `{ kind: 'goal', id, title, depth, isMilestone, open, done, shown, under }` and `{ kind: 'step', step, depth, under }`
- * (`under`: the goals it stands in, outermost first). A goal's own steps come before its goals. A step stands under
+ * `{ kind: 'goal', id, title, depth, isMilestone, open, done, under }` and `{ kind: 'step', step, depth, under }`
+ * (`under`: the goals it stands in, outermost first; `open` and `done`: the steps shown under it, as they stand). A goal's own steps come before its goals. A step stands under
  * the first goal of the map that names it; the steps under none, and those without an id, end the list under "Not
  * under a goal" (`id` 'none', `isNone`). A goal with nothing shown under it is left out. Null without a goal map: the
  * tab then groups by activity as before.
  */
 function goalRows(list, goals) {
+  // How many of the steps shown under a goal are open, and how many finished (shown with "Show finished").
+  const counted = steps => ({ open: steps.filter(step => step.status !== 'done').length, done: steps.filter(step => step.status === 'done').length })
   if (goals === null || goals === undefined || (goals.roots ?? []).length === 0) return null
-  const byId = new Map((goals.nodes ?? []).map(node => [node.id, node]))
+  // An id twice in the map: the first one counts, as everywhere on the board (goals.mjs).
+  const byId = new Map()
+  for (const node of goals.nodes ?? []) if (!byId.has(node.id)) byId.set(node.id, node)
   const steps = list.groups.flatMap(group => group.steps.map(step => ({ ...step, activity: step.activity ?? group.name })))
   const placed = new Set()
   const seen = new Set()
@@ -6751,10 +6755,12 @@ function goalRows(list, goals) {
     for (const step of own) placed.add(step.id)
     const inner = node.children.flatMap(child => walk(child, depth + 1, inside))
     if (own.length === 0 && inner.length === 0) return []
-    const shown = own.length + inner.filter(row => row.kind === 'step').length
-    const isMilestone = /^M\d/.test(node.fromPlan ?? '') || /^M\d+\b/.test(node.title)
+    const below = [...own, ...inner.filter(row => row.kind === 'step').map(row => row.step)]
+    // A milestone: a goal taken from a part of the game plan other than its goal, as on the goal map.
+    const plan = String(node.fromPlan ?? '').trim()
+    const isMilestone = plan !== '' && !/^the goal$/i.test(plan)
     return [
-      { kind: 'goal', id, title: node.title, depth, isMilestone, open: node.counts?.open ?? null, done: node.counts?.done ?? null, shown, under },
+      { kind: 'goal', id, title: node.title, depth, isMilestone, ...counted(below), under },
       ...own.map(step => ({ kind: 'step', step, depth: depth + 1, under: inside })),
       ...inner,
     ]
@@ -6762,7 +6768,7 @@ function goalRows(list, goals) {
   const rows = goals.roots.flatMap(id => walk(id, 0, []))
   const rest = steps.filter(step => typeof step.id !== 'string' || !placed.has(step.id))
   if (rest.length > 0) {
-    rows.push({ kind: 'goal', id: 'none', title: 'Not under a goal', depth: 0, isMilestone: false, isNone: true, open: null, done: null, shown: rest.length, count: rest.length, under: [] })
+    rows.push({ kind: 'goal', id: 'none', title: 'Not under a goal', depth: 0, isMilestone: false, isNone: true, ...counted(rest), under: [] })
     rows.push(...rest.map(step => ({ kind: 'step', step, depth: 1, under: ['none'] })))
   }
   return rows
@@ -7208,7 +7214,10 @@ function drawCoordinate(state) {
     for (const step of group.steps) box.append(coordinateLine(step, state))
     return box
   })
+  // B302: a goal's header the keyboard was on keeps the focus when the list is drawn anew.
+  const focusedGoal = $('coordinate-list').contains(document.activeElement) ? document.activeElement.dataset?.goalFold ?? null : null
   fill($('coordinate-list'), groups.length > 0 ? groups : [el('p', 'muted', activities.length === 0 ? 'The backlog could not be read.' : 'No step matches.')])
+  if (focusedGoal !== null) $('coordinate-list').querySelector(`[data-goal-fold="${focusedGoal}"]`)?.focus()
 }
 
 /** A step's line on the Backlog tab: its row, which opens its window, with "Add to queue", Close and Delete beside it. */
@@ -7279,8 +7288,11 @@ function drawGoalRows(rows, state) {
     head.dataset.goalFold = row.id
     head.setAttribute('aria-expanded', String(isOpen))
     head.style.setProperty('--depth', String(row.depth))
-    const count = row.isNone ? String(row.count) : `${row.open ?? row.shown} open${row.isMilestone && (row.done ?? 0) > 0 ? ` · ${row.done} done` : ''}`
-    head.append(el('span', 'goal-fold', isOpen ? '▾' : '▸'), ...(row.isNone ? [] : [el('span', 'goal-id', row.id)]), el('span', 'goal-title', row.title), el('small', 'goal-count', count))
+    // What stands under it as shown: the filters and the search count, as the rows do.
+    const count = `${row.open} open${row.done > 0 ? ` · ${row.done} done` : ''}`
+    const sign = el('span', 'goal-fold', isOpen ? '▾' : '▸')
+    sign.setAttribute('aria-hidden', 'true')
+    head.append(sign, ...(row.isNone ? [] : [el('span', 'goal-id', row.id)]), el('span', 'goal-title', row.title), el('small', 'goal-count', count))
     head.title = isOpen ? 'Fold this goal' : 'Unfold this goal'
     box.append(head)
   }
