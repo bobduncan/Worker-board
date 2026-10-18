@@ -21,8 +21,8 @@ board opens with one button that sets up the project's chats. Run the line again
 and redoes nothing; with a project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1` before it only
 checks.
 
-To read the script before it runs, get the board with git first and run it from there (press Enter at "Where should
-the board go?" to keep the board you got):
+To read the script before it runs, with git on the PC: get the board first and run the script from it (at "Where
+should the board go?", press Enter when it offers the folder you cloned into, or type that folder):
 
 ```powershell
 git clone https://github.com/bobduncan/Worker-board.git "$HOME\worker-board"
