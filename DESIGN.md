@@ -1803,6 +1803,13 @@ the checks and an icon now, a real installer (.exe, signed) later. Part 2 of G12
    of boards, B319), it names them and only offers another.
 6. The tests (`test/install.test.mjs`) run the script's parts through Windows PowerShell as `iex` does, by
    `WORKER_BOARD_TEST`, which calls one part inside the script's scope; nothing is installed.
+7. Review: winget's own words and questions show (`| Out-Host`), with `--source winget` and the terms accepted, which
+   the question says; a winget that fails is said with where to get the program. An older Node found first after an
+   upgrade points to nodejs.org rather than to running again. A typed folder loses its quotes, takes `~` and the folder
+   PowerShell is in, and no last `\` (`Resolve-TypedFolder`). The board's folder is remembered
+   (`installed.json` beside the PC's list), so a second run offers that one rather than cloning a second. An empty
+   `%APPDATA%\Claude` is no sign of the app (an uninstall leaves it). The PATH gets winget's new entries added, never
+   replaced. The check-only test takes this PC as it is.
 
 ## What it does not do
 

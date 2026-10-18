@@ -70,17 +70,45 @@ test('the board\'s folder: one that holds a board is kept as it is; a new or emp
   await writeFile(join(dir, 'board', 'package.json'), JSON.stringify({ name: 'worker-board' }))
   assert.equal(ask(join(dir, 'board')), 'board')
   // The folder the board goes into unless the person names another; WORKER_BOARD_FOLDER sets it.
-  assert.match(part('Get-DefaultFolder'), /\\worker-board$/)
-  assert.equal(part('Get-DefaultFolder', { WORKER_BOARD_FOLDER: 'E:\\boards\\wb' }), 'E:\\boards\\wb')
+  const home = { WORKER_BOARD_HOME: join(dir, 'pc') }
+  assert.match(part('Get-DefaultFolder', home), /\\worker-board$/)
+  assert.equal(part('Get-DefaultFolder', { ...home, WORKER_BOARD_FOLDER: 'E:\\boards\\wb' }), 'E:\\boards\\wb')
+  // Review: the folder of a board installed before is the one offered again, so a second run never clones a second.
+  assert.equal(part(`Save-BoardFolder '${join(dir, 'board')}'; Get-DefaultFolder`, home), join(dir, 'board'))
+  await rm(join(dir, 'board'), { recursive: true })
+  assert.match(part('Get-DefaultFolder', home), /\\worker-board$/)
+})
+
+test('a typed folder: quotes, ~, a folder relative to the one PowerShell is in, and a last \\ are taken as meant', { skip: !isWindows }, async t => {
+  const dir = await folder(t)
+  const typed = (text, base = dir) => part(`Resolve-TypedFolder '${text.replaceAll("'", "''")}' '${base}'`)
+  assert.equal(typed('"D:\\My Boards\\"'), 'D:\\My Boards')
+  assert.equal(typed("'D:\\My Boards'"), 'D:\\My Boards')
+  assert.equal(typed('  D:\\x\\  '), 'D:\\x')
+  assert.equal(typed('D:\\'), 'D:\\')
+  assert.equal(typed('board'), join(dir, 'board'))
+  assert.equal(typed('..\\board'), join(dirname(dir), 'board'))
+  assert.match(typed('~\\boards'), /\\boards$/)
+  assert.ok(!typed('~\\boards').includes('~'))
 })
 
 test('the projects on this PC: from the list of boards (B319), those whose folder is still there', { skip: !isWindows }, async t => {
   const dir = await folder(t)
-  const file = join(dir, 'boards.json')
-  assert.equal(part(`@(Get-Projects '${file}').Count`), '0')
+  const home = { WORKER_BOARD_HOME: dir }
+  assert.equal(part('@(Get-Projects).Count', home), '0')
   await mkdir(join(dir, 'garden'))
-  await writeFile(file, JSON.stringify({ boards: [{ project: join(dir, 'garden'), port: 4313, gamePort: 5400 }, { project: join(dir, 'gone'), port: 4314, gamePort: 5500 }] }))
-  assert.equal(part(`(Get-Projects '${file}') -join ';'`), join(dir, 'garden'))
+  await writeFile(join(dir, 'boards.json'), JSON.stringify({ boards: [{ project: join(dir, 'garden'), port: 4313, gamePort: 5400 }, { project: join(dir, 'gone'), port: 4314, gamePort: 5500 }] }))
+  assert.equal(part('(Get-Projects) -join \';\'', home), join(dir, 'garden'))
+})
+
+test('winget is asked with its terms named in the question, shows its own words, and a failure is said', async () => {
+  const text = await readFile(SCRIPT, 'utf8')
+  assert.match(text, /& winget \$verb --id \$id --exact --source winget --accept-source-agreements --accept-package-agreements \| Out-Host/)
+  assert.match(text, /accepts the terms/)
+  assert.match(text, /if \(\$LASTEXITCODE -ne 0\)/)
+  // The hint when the mod is not installed is a command that runs whatever PowerShell lets scripts do.
+  assert.ok(!text.includes('npm run setup in its folder'))
+  assert.match(text, /node setup\.mjs/)
 })
 
 test('the Claude desktop app is found where it installs, else the script says where to get it', { skip: !isWindows }, async t => {
@@ -96,9 +124,13 @@ test('the Claude desktop app is found where it installs, else the script says wh
 test('a check only: one line for each of Windows, the Claude app, Node and git, and nothing is changed', { skip: !isWindows }, () => {
   const checked = run({ WORKER_BOARD_CHECK: '1' })
   assert.equal(checked.status, 0, checked.out)
-  for (const line of [/\[ok\] Windows/, /\[ok\] The Claude desktop app/, new RegExp(`\\[ok\\] Node ${process.versions.node.split('.')[0]}`), /\[ok\] git/, /Check only: nothing was changed\./]) {
-    assert.match(checked.out, line)
-  }
+  assert.match(checked.out, /\[ok\] Windows/)
+  // Review: whatever this PC has; without the app the check stops there and says where to get it.
+  if (part('[string](Find-ClaudeApp)') === '') return assert.match(checked.out, /\[!!\] The Claude desktop app is not installed: get it from https:\/\/claude\.ai\/download/)
+  for (const line of [/\[ok\] The Claude desktop app/, /\[(ok|--)\] Node/, /\[(ok|--)\] git/, /Check only: nothing was changed\./]) assert.match(checked.out, line)
+  // A check is a check: 0 or no is no check.
+  assert.equal(part('[string](Test-IsCheck)', { WORKER_BOARD_CHECK: '0' }), 'False')
+  assert.equal(part('[string](Test-IsCheck)', { WORKER_BOARD_CHECK: '1' }), 'True')
 })
 
 test('the README holds the one command', async () => {

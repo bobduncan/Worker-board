@@ -11,8 +11,10 @@
 #   $env:WORKER_BOARD_FOLDER  where the board goes (asked; the folder worker-board in your home folder unless set)
 #   $env:WORKER_BOARD_REPO    the repository it is cloned from (the board's own on GitHub unless set)
 #   $env:WORKER_BOARD_CHECK   1: only check, change nothing
+#   $env:WORKER_BOARD_HOME    where the PC's list of boards is (the folder .worker-board in your home folder unless set)
 #
-# It runs in a scope of its own, so nothing it sets stays in your PowerShell, and it never closes the window.
+# It runs in a scope of its own and never closes the window. The one thing it leaves in your PowerShell: a program
+# winget installs is added to this window's PATH, so it is found at once.
 
 & {
   $ErrorActionPreference = 'Stop'
@@ -51,16 +53,45 @@
       $classic = Join-Path $env:LOCALAPPDATA 'AnthropicClaude'
       if (Test-Path -LiteralPath $classic) { return $classic }
     }
-    if ($env:APPDATA) {
-      $roaming = Join-Path $env:APPDATA 'Claude'
-      if (Test-Path -LiteralPath $roaming) { return $roaming }
-    }
+    # Review: %APPDATA%\Claude is not asked: an uninstalled app leaves it behind.
   }
 
-  # The folder the board goes into unless you name another.
+  # Where the PC's list of boards (B319) and what this script remembers are.
+  function Get-BoardsHome {
+    if ($env:WORKER_BOARD_HOME) { return $env:WORKER_BOARD_HOME }
+    return (Join-Path $HOME '.worker-board')
+  }
+
+  # The folder the board goes into unless you name another: the one it was installed in before, while it holds it.
   function Get-DefaultFolder {
     if ($env:WORKER_BOARD_FOLDER) { return $env:WORKER_BOARD_FOLDER }
+    $remembered = Join-Path (Get-BoardsHome) 'installed.json'
+    if (Test-Path -LiteralPath $remembered) {
+      try {
+        $folder = (Get-Content -Raw -LiteralPath $remembered | ConvertFrom-Json).board
+        if ($folder -and (Get-BoardFolderState $folder) -eq 'board') { return $folder }
+      } catch { }
+    }
     return (Join-Path $HOME 'worker-board')
+  }
+
+  # Remembers the board's folder, so a run again offers it.
+  function Save-BoardFolder([string]$folder) {
+    $place = Get-BoardsHome
+    New-Item -ItemType Directory -Force -Path $place | Out-Null
+    @{ board = $folder } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $place 'installed.json') -Encoding UTF8
+  }
+
+  # A folder as typed: without quotes around it (Explorer's Copy as path), ~ for the home folder, relative to the folder
+  # PowerShell is in, without a last \ (git takes `D:\My Boards\"` for a quote).
+  function Resolve-TypedFolder([string]$typed, [string]$base) {
+    $text = $typed.Trim()
+    if ($text.Length -ge 2 -and (($text[0] -eq '"' -and $text[-1] -eq '"') -or ($text[0] -eq "'" -and $text[-1] -eq "'"))) { $text = $text.Substring(1, $text.Length - 2).Trim() }
+    if ($text -eq '~') { $text = $HOME } elseif ($text -match '^~[\\/]') { $text = Join-Path $HOME $text.Substring(2) }
+    if (-not [IO.Path]::IsPathRooted($text)) { $text = Join-Path $base $text }
+    $full = [IO.Path]::GetFullPath($text)
+    if ($full.Length -gt 3) { $full = $full.TrimEnd('\') }
+    return $full
   }
 
   # 'board' when the folder holds the board already, 'empty' when it is new or empty, else 'other'.
@@ -76,16 +107,23 @@
   }
 
   # The projects of the PC's list of boards (B319) whose folder is still there.
-  function Get-Projects([string]$file) {
+  function Get-Projects {
+    $file = Join-Path (Get-BoardsHome) 'boards.json'
     if (-not (Test-Path -LiteralPath $file)) { return @() }
     try { $list = Get-Content -Raw -LiteralPath $file | ConvertFrom-Json } catch { return @() }
     return @($list.boards | Where-Object { $_.project -and (Test-Path -LiteralPath $_.project) } | ForEach-Object { $_.project })
   }
 
-  # The PATH as Windows has it now, so a program winget just installed is found in this window.
+  # The PATH as Windows has it now added to this window's, so a program winget just installed is found here; what the
+  # window had stays.
   function Update-SessionPath {
-    $env:Path = (@([Environment]::GetEnvironmentVariable('Path', 'Machine'), [Environment]::GetEnvironmentVariable('Path', 'User')) | Where-Object { $_ }) -join ';'
+    $have = @($env:Path -split ';' | Where-Object { $_ })
+    $new = @(@([Environment]::GetEnvironmentVariable('Path', 'Machine'), [Environment]::GetEnvironmentVariable('Path', 'User')) -join ';' -split ';' | Where-Object { $_ -and ($have -notcontains $_) })
+    if ($new.Count -gt 0) { $env:Path = (@($have) + $new) -join ';' }
   }
+
+  # Only `1`, `true` or `yes` asks for a check only.
+  function Test-IsCheck { @('1', 'true', 'yes') -contains "$env:WORKER_BOARD_CHECK".Trim().ToLower() }
 
   function Read-YesNo([string]$question, [bool]$yes = $true) {
     $answer = Read-Host ("{0} [{1}]" -f $question, $(if ($yes) { 'Y/n' } else { 'y/N' }))
@@ -99,11 +137,16 @@
       Write-Line '!!' "$what is needed, and winget is not here to install it: get it from $download, then run this again."
       return $false
     }
-    if (-not (Read-YesNo "Install $what with winget now?")) {
+    if (-not (Read-YesNo "$(if ($verb -eq 'upgrade') { 'Bring' } else { 'Install' }) $what with winget now? (This accepts the terms of winget's source and of the package.)")) {
       Write-Line '!!' "$what is needed: get it from $download, then run this again."
       return $false
     }
-    & winget $verb --id $id --exact
+    # winget's own words show (review): its questions and its progress go to the screen, never into this function's answer.
+    & winget $verb --id $id --exact --source winget --accept-source-agreements --accept-package-agreements | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+      Write-Line '!!' "winget could not $verb $what (code $LASTEXITCODE): get it from $download, then run this again."
+      return $false
+    }
     Update-SessionPath
     return $true
   }
@@ -114,7 +157,7 @@
   }
 
   function Install-WorkerBoard {
-    $isCheck = [bool]$env:WORKER_BOARD_CHECK
+    $isCheck = Test-IsCheck
     Write-Host 'The worker board: checking this PC.'
 
     if (-not (Test-IsWindows)) { Write-Line '!!' 'This needs Windows.'; return }
@@ -134,7 +177,8 @@
       Write-Line '--' $(if ($node) { "Node $node is older than $NODE_MAJOR." } else { 'Node is not installed.' })
       if (-not (Install-WithWinget "Node $NODE_MAJOR" 'OpenJS.NodeJS.LTS' $NODE_DOWNLOAD $(if ($node) { 'upgrade' } else { 'install' }))) { return }
       $node = Test-Node
-      if (-not ($node -ge $NODE_MAJOR)) { Write-Line '!!' "Node $NODE_MAJOR is still not found: close this window, open a new PowerShell and run this again."; return }
+      # Review: another Node found first (from nodejs.org, nvm and the like) is not one winget brings up to date.
+      if (-not ($node -ge $NODE_MAJOR)) { Write-Line '!!' "Node $NODE_MAJOR is still not the one found here$(if ($node) { " (Node $node is)" }): install Node $NODE_MAJOR from $NODE_DOWNLOAD (or remove the older Node), open a new PowerShell and run this again."; return }
       Write-Line 'ok' "Node $node"
     }
 
@@ -151,9 +195,9 @@
 
     # The board: kept as it is when it is there, else cloned into a folder of your choice.
     $default = Get-DefaultFolder
-    $folder = if ($env:WORKER_BOARD_FOLDER) { $default } else { Read-Host "Where should the board go? [$default]" }
-    if ([string]::IsNullOrWhiteSpace($folder)) { $folder = $default }
-    $folder = [IO.Path]::GetFullPath($folder.Trim())
+    $typed = if ($env:WORKER_BOARD_FOLDER) { $default } else { Read-Host "Where should the board go? [$default]" }
+    if ([string]::IsNullOrWhiteSpace($typed)) { $typed = $default }
+    $folder = Resolve-TypedFolder $typed $PWD.Path
     switch (Get-BoardFolderState $folder) {
       'board' { Write-Line 'ok' "The board is there already: $folder (to bring it up to date: git -C `"$folder`" pull)" }
       'empty' {
@@ -163,16 +207,18 @@
         if ($LASTEXITCODE -ne 0) { Write-Line '!!' "git could not get the board from $repo."; return }
         Write-Line 'ok' "The board: $folder"
       }
-      default { Write-Line '!!' "$folder holds something else: name an empty folder, or one that holds the board."; return }
+      default { Write-Line '!!' "$folder holds something else: name an empty folder, or one that holds the board. (A run cut off while getting the board leaves part of it: delete that folder and run this again.)"; return }
     }
+
+    Save-BoardFolder $folder
 
     # The Workers mod, one per PC: setup recognises a copy that is there and never installs over a newer one.
     Write-Line '..' 'The Workers mod'
     & node (Join-Path $folder 'setup.mjs')
-    if ($LASTEXITCODE -ne 0) { Write-Line '--' 'The Workers mod is not installed (see above): the board works without it, and npm run setup in its folder tries again.' }
+    if ($LASTEXITCODE -ne 0) { Write-Line '--' "The Workers mod is not installed (see above): the board works without it, and node setup.mjs in $folder tries again." }
 
     # The first project; run again, it only offers another.
-    $projects = Get-Projects (Join-Path (Join-Path $HOME '.worker-board') 'boards.json')
+    $projects = @(Get-Projects)
     if ($projects.Count -gt 0) {
       Write-Line 'ok' ("Projects on this PC: {0}" -f ($projects -join ', '))
       if (-not (Read-YesNo 'Make another project now?' $false)) { Write-Host 'Done: each project has its icon "<name> board" on the desktop.'; return }
