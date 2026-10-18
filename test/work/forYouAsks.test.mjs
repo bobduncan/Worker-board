@@ -72,8 +72,8 @@ test('an item the chat filed this turn, one it still holds open, or one naming a
   }
 })
 
-test('B362: an item in the chat\'s own words that names an open ask by its Q id, in any form, files nothing new', async () => {
-  const { dir, board, person } = await fresh()
+test('B362: an item in the chat\'s own words that names an open ask of its own by its Q id, in any form, files nothing new', async () => {
+  const { dir, board, main, person } = await fresh()
   try {
     await board({ action: 'take', id: 'B1' }, NOW + MIN)
     await board({ action: 'ask', of: 'B1', kind: 'decide', text: 'Which strip do you want?', options: ['A thin', 'B thick'], advice: 'B' }, NOW + 3 * MIN)
@@ -90,10 +90,17 @@ test('B362: an item in the chat\'s own words that names an open ask by its Q id,
     const later = await board({ action: 'turn-ended', since: NOW + 6 * MIN, forYou: [{ ...DECIDE, text: ['Thin or thick?', 'It is Q1 again.'], ref: null }] }, NOW + 7 * MIN)
     assert.deepEqual(later.result.asked, [])
     assert.equal((await readStore(dir)).items.has('Q2'), false)
-    // An id that is no open ask (unknown, or answered) does not hold a new question back; nor does a word like Q10x.
+    // The review: while Q1 is open, an id that is not it as a word of its own (Q1x, B-Q1, the unknown Q10) holds nothing back.
+    const near = await board({ action: 'turn-ended', since: NOW + 8 * MIN, forYou: [worded('Is the Q1x mark clear?'), worded('Is the B-Q1 lane wide enough?'), worded('Which colour, A red or B blue? (Q10)')] }, NOW + 9 * MIN)
+    assert.deepEqual(near.result.asked, ['Q2', 'Q3', 'Q4'])
+    // Another chat's open ask named for context does not hold the chat's own new question back.
+    const { result: { id: theirs } } = await main({ action: 'ask', kind: 'decide', text: 'Keep the old lanes?' }, NOW + 10 * MIN)
+    const context = await board({ action: 'turn-ended', since: NOW + 11 * MIN, forYou: [worded(`If ${theirs} is yes, should the old lanes glow too?`)] }, NOW + 12 * MIN)
+    assert.deepEqual(context.result.asked, ['Q6'])
+    // An answered ask holds no new question back.
     await person({ action: 'answer', id: 'Q1', text: 'B' })
-    const fresher = await board({ action: 'turn-ended', since: NOW + 30 * MIN, forYou: [worded('After Q1, which colour for the strip, A red or B blue? (Q9)'), worded('Is the Q1x mark clear?')] }, NOW + 31 * MIN)
-    assert.deepEqual(fresher.result.asked, ['Q2', 'Q3'])
+    const fresher = await board({ action: 'turn-ended', since: NOW + 30 * MIN, forYou: [worded('After Q1, which width for the strip, A narrow or B wide?')] }, NOW + 31 * MIN)
+    assert.deepEqual(fresher.result.asked, ['Q7'])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

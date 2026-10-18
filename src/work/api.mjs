@@ -1128,9 +1128,14 @@ const askKey = value => line(String(value ?? '').replace(/\[([^\]\n]*)\]\([^)\s]
   .toLowerCase().replace(/[\s.?!:;,]+$/, '')
 /** B317: two asks' words are the same question: equal, or one the start of the other (a title is cut, advice added). */
 const sameAsk = (a, b) => a === b || (a.length >= 12 && b.startsWith(a)) || (b.length >= 12 && a.startsWith(b))
-/** B362: whether an item's lines name an open ask of the store by its id, anywhere in them, as a word of its own. */
-const namesOpenAsk = (text, w) => text.some(words => [...words.matchAll(/(?<![\w-])(Q\d{1,6})(?![\w-])/g)]
-  .some(([, id]) => { const named = w.store.items.get(id); return named !== undefined && kindOf(named) === 'ask' && stateOf(named) === 'open' }))
+/**
+ * B362: whether an item's lines name an open ask of the chat's own by its id, anywhere in them, as a word of its own.
+ * The review: only its own, so a new question that names another chat's ask for context is still filed.
+ */
+const namesOpenAsk = (text, w) => text.some(words => [...words.matchAll(/(?<![\w-])(Q\d{1,6})(?![\w-])/g)].some(([, id]) => {
+  const named = w.store.items.get(id)
+  return named !== undefined && kindOf(named) === 'ask' && stateOf(named) === 'open' && isOwner(named, w.who, w.prefix)
+}))
 /** B317: when an ask was filed: its first History line (to the minute), else its Since. */
 const askedMs = item => sinceMs((item.sections.get('History') ?? [])[0]?.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s/)?.[1] ?? valueOf(item, 'Since'))
 
@@ -1155,8 +1160,8 @@ async function askForYou(value, since, w) {
     const kind = one.kind ?? 'decide'
     const text = lines(one.text)
     if (!ASK_KINDS.includes(kind) || text.length === 0) continue
-    // B362: an item in the chat's own words that names an open ask by its id ("(Q128, under B356)", "Q128: ...") asks
-    // that question again: nothing new.
+    // B362: an item in the chat's own words that names an open ask of its own by its id ("(Q128, under B356)",
+    // "Q128: ...") asks that question again: nothing new.
     if (namesOpenAsk(text, w)) continue
     const key = askKey(text[0])
     if (key === '' || known.some(other => sameAsk(other, key))) continue
