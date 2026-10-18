@@ -80,5 +80,5 @@ so nothing else goes on that line.
 
 ## What this does not change
 
-A report, note or question from a worker to the main chat keeps its own form ("Report from <name>: ...", "Note from
-<name>: ...", "Question from <name>: ..."), and a step is ended with the work tool (`work report`), never by a message.
+A note or a question from a worker to the main chat keeps its own form ("Note from <name of the chat>: ...", "Question
+from <name of the chat>: ..."), and a step is ended with the work tool (`work report`), never by a message.

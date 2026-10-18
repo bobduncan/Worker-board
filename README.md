@@ -7,8 +7,9 @@ Windows and the Claude desktop app.
 ## Install
 
 You need Windows and the Claude desktop app, signed in and opened once, and an invitation to this repository on
-GitHub (it is private). Paste these two lines into PowerShell; git asks you to sign in to GitHub once (without git,
-first `winget install --id Git.Git -e`). Node 24 is installed for you when it is missing.
+GitHub (it is private). Paste these two lines into PowerShell; git asks you to sign in to GitHub once. Without git,
+first run `winget install --id Git.Git -e` and open a new PowerShell window. Node 24 is installed for you when it is
+missing.
 
 ```powershell
 git clone https://github.com/bobduncan/Worker-board.git "$HOME\worker-board"
@@ -21,13 +22,12 @@ Should the repository ever be public, one line does it all, git included:
 irm https://raw.githubusercontent.com/bobduncan/Worker-board/main/tools/install.ps1 | iex
 ```
 
-It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node and
-git with winget (without the Claude app it says where to get it and stops). Then it gets the board into a folder you
-choose (`worker-board` in your home folder unless you say otherwise), installs the Workers mod, and asks your first
-project's name, folder and chats' prefix: the project, its own board and its icon on the desktop are made, and its
-board opens with buttons that open the project's first chats (B321, B320, B322). Run it again at any time: it checks
-what is there and redoes nothing; with a project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1`
-before the command only checks.
+It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node with
+winget (without the Claude app it says where to get it and stops). It takes the board you just got (press Enter at
+"Where should the board go?"), installs the Workers mod, and asks your first project's name, folder and chats'
+prefix: the project, its own board and its icon on the desktop are made, and its board opens with one button that sets
+up the project's chats. Run the second line again at any time: it checks what is there and redoes nothing; with a
+project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1` before it only checks.
 
 ## What the board is
 
@@ -38,16 +38,10 @@ with the steps finished last at its top) and Design (an idea becomes a picture m
 board does and how it looks, part by part with screenshots: `BOARD.md`; the agreed design: `DESIGN.md`. How the chats
 answer you and the words the board reads from them: `examples/CLAUDE.md` and `roles/protocol.md`.
 
-> **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
-> or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
-> settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on a new tie; the ties known
-> today are listed there, each with the part of `ANY-PROJECT-PLAN.md` that removes it, and that list only shrinks.
-> The user, 2026-10-14: "first ensure that its clear to all future work that this is the constraint if i develop
-> something the worker board."
-
 ## By hand
 
-What the install does, step by step, for a PC where you want to do it yourself.
+The same by hand. These steps set up the board inside one project's folder; the install puts it in your home folder
+and gives each project its own copy (A new project in one click, below).
 
 ### What you need
 
@@ -289,6 +283,15 @@ also needs the page's own origin and a JSON body, so another website in your bro
 accepted only for a request that is open and only to the chat that asked. What a chat said is shown on the page
 and kept in `data\`; it is never printed or logged.
 
+## Working on the board itself
+
+> **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
+> or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
+> settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on a new tie; the ties known
+> today are listed there, each with the part of `ANY-PROJECT-PLAN.md` that removes it, and that list only shrinks.
+> The user, 2026-10-14: "first ensure that its clear to all future work that this is the constraint if i develop
+> something the worker board."
+
 ## Git
 
 `origin` is https://github.com/bobduncan/Worker-board.git. For every chat that works on the board:
@@ -297,7 +300,7 @@ and kept in `data\`; it is never printed or logged.
   (`git push origin --delete <branch>`), and prune (`git fetch --prune`).
 - Never force-push main.
 - Nothing that holds words from a chat goes into the repository: `data\` stays ignored, and the tests keep made-up
-  samples. Look at what a commit adds before you push it: the repository is public.
+  samples. Look at what a commit adds before you push it: the people invited to the repository read it.
 
 ## Not yet portable
 

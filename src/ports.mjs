@@ -242,7 +242,8 @@ export async function readBoards(file) {
   return boards.filter((_one, at) => there[at])
 }
 
-const LOCK_WAIT_MS = 5000
+// Long enough for a busy PC: a board that cannot take the lock does not write itself into the list.
+const LOCK_WAIT_MS = 20_000
 const LOCK_OLD_MS = 15_000
 
 /** Runs `work` while this process alone holds the list's lock, so two boards starting at once both stay in it. */

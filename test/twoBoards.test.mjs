@@ -251,7 +251,7 @@ const take = (port, key) => fetch(`http://127.0.0.1:${port}/api/bridge/take`, {
   method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key }, body: '{}',
 }).then(answer => answer.status)
 
-test('two projects\' boards run at once on one PC, each on its own port, with its own chats\' bridge and games', { timeout: 120_000 }, async t => {
+test('two projects\' boards run at once on one PC, each on its own port, with its own chats\' bridge and games', { timeout: 300_000 }, async t => {
   // The boards are stopped before their folders go: a running board holds its files.
   const dir = await mkdtemp(join(tmpdir(), 'board-two-run-'))
   const started = []
