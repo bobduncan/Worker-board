@@ -20,24 +20,25 @@ import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } fro
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
-import { readNamesFile, writeNames } from './store.mjs'
+import { readNamesFile, readPauseFile, writeNames, writePause } from './store.mjs'
+import { checkpointLine, pauseAnswer } from './pause.mjs'
 import { writeView } from './view.mjs'
 
 // B300: kept here for those who import them from the API.
 export { overlapsIn, sinceMs }
 
-const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename'])
+const READS = new Set(['next', 'list', 'pause-state'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
  */
 const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed'])
 /** What only the person does, on the board's page; and what only the server does. */
-const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo'])
-const SERVER = new Set(['check', 'advance'])
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all'])
+const SERVER = new Set(['check', 'advance', 'resumed'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -158,6 +159,7 @@ async function act(body, ctx) {
   const w = { ...ctx, store, now, who, role, action }
   if (action === 'next') return next(body, w)
   if (action === 'list') return list(w)
+  if (action === 'pause-state') return { ok: true, result: pauseStateOf(w) }
   const done = await CHANGE[action](body, w)
   // B317: a turn's end that filed the asks of the chat's "For you" block shows them on the view, as an ask does.
   const isOffView = OFF_VIEW.has(action) && !(done.ok && done.result.asked?.length > 0)
@@ -379,12 +381,26 @@ async function take(body, w) {
   return done.ok ? changed(ordered(item), undefined, { title: valueOf(item, 'Title') }) : done
 }
 
-/** A step of the chat's plan on the step it holds: one History line (the mod writes the card). */
+/**
+ * A step of the chat's plan on the step it holds: one History line (the mod writes the card). Pause and resume (spec
+ * 2026-10-18): with `commit` (a hash, or none) and `next` (the next action, one line) it is the step's checkpoint,
+ * `Checkpoint: <commit> · <next> · <date time>` in its head and one History line; a taken step takes one too.
+ */
 async function step(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
-  if (!isOwner(found.item, w.who, w.prefix) || !['in progress', 'waiting on you'].includes(stateOf(found.item))) return refuse(409, `${id} is not in progress for ${w.who}: take it first.`)
+  const isCheckpoint = body.commit !== undefined || body.next !== undefined
+  const isPlan = ['step', 'steps', 'names', 'name', 'minutes'].some(key => body[key] !== undefined) || !isCheckpoint
+  const states = isPlan ? ['in progress', 'waiting on you'] : ['taken', 'in progress', 'waiting on you']
+  if (!isOwner(found.item, w.who, w.prefix) || !states.includes(stateOf(found.item))) return refuse(409, `${id} is not in progress for ${w.who}: take it first.`)
+  const checkpoint = isCheckpoint ? checkpointOfBody(body) : null
+  if (checkpoint !== null && !checkpoint.ok) return checkpoint
+  if (!isPlan) {
+    const item = ordered(said(put(copy(found.item), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
+    const done = await save(item, found.text, w)
+    return done.ok ? changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.`) : done
+  }
   const names = Array.isArray(body.names) ? body.names.map(one => line(one, 60)).filter(Boolean) : []
   const total = names.length > 0 ? names.length : Number.isInteger(Number(body.steps)) && Number(body.steps) > 0 ? Number(body.steps) : null
   const number = body.step === undefined ? null : Number(body.step)
@@ -392,9 +408,40 @@ async function step(body, w) {
   const minutes = body.minutes === undefined ? null : Number(body.minutes)
   const name = number !== null ? names[number - 1] ?? line(body.name, 60) : line(body.name, 60)
   const words = [number === null ? 'a new plan' : `step ${number}${total === null ? '' : `/${total}`}`, name === '' || name === undefined ? null : name, Number.isFinite(minutes) && minutes > 0 ? `about ${Math.round(minutes)} min left` : null].filter(Boolean).join(', ')
-  const item = said(found.item, w, words)
+  const planned = said(found.item, w, words)
+  const item = checkpoint === null ? planned : ordered(said(put(copy(planned), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
   const done = await save(item, found.text, w)
-  return done.ok ? changed(item, `${id}: ${words}.`) : done
+  return done.ok ? changed(item, `${id}: ${words}.${checkpoint === null ? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.`}`) : done
+}
+
+/** A checkpoint's fields from work step: `{ ok, commit, next }` (commit "none" when not given), or a refusal. */
+function checkpointOfBody(body) {
+  const commit = line(body.commit ?? '', 60)
+  const next = line(body.next ?? '', LINE_CHARS)
+  if (commit !== '' && commit.toLowerCase() !== 'none' && !/^[0-9a-f]{4,40}$/i.test(commit)) return refuse(400, '"commit" is the commit hash, or none.')
+  if (next === '') return refuse(400, '"next" is the next action, in one line.')
+  return { ok: true, commit: commit === '' ? 'none' : commit.toLowerCase() === 'none' ? 'none' : commit, next }
+}
+
+/** Pause and resume (spec 2026-10-18): the pause state for the asking chat (pause.mjs `pauseAnswer`), with a line of words. */
+function pauseStateOf(w) {
+  const answer = pauseAnswer({ pause: w.store.pause ?? null, items: w.store.items, lanes: w.lanes ?? [], prefix: w.prefix ?? '', chat: w.who, role: w.role })
+  const when = Number.isFinite(answer.since) ? ` since ${stamp(answer.since).slice(11)}` : ''
+  return { text: `The board's pause state: ${answer.state}${when}.`, ...answer }
+}
+
+/** The person's Pause all and Resume all, and the board's own "running" once every holder is back: pause.json. */
+async function pauseWrite(body, w) {
+  const now = await readPauseFile(w.dir, w.fs)
+  const to = { 'pause-all': 'pausing', 'resume-all': 'resuming', resumed: 'running' }[w.action]
+  // Pausing again keeps the first time; only a resume becomes running.
+  if ((to === 'pausing' && now.record?.state === 'pausing') || (to === 'running' && now.record?.state !== 'resuming')) {
+    return { ok: true, result: { text: `The pause state stays ${now.record?.state ?? 'running'}.`, pause: now.record, changed: false } }
+  }
+  const record = { state: to, since: w.now, by: w.role }
+  const done = await writePause(w.dir, record, w.fs, { expected: now.text })
+  if (!done.ok) return refuse(/could not be written/.test(done.why) ? 500 : 409, `${done.why}; try again.`)
+  return { ok: true, result: { text: `The pause state is ${to} since ${stamp(w.now).slice(11)}.`, pause: record, changed: true } }
 }
 
 /** B299: a picture's name in a few words: its file's name without the folder and the extension. */
@@ -1045,7 +1092,9 @@ async function turnEnded(body, w) {
   const text = `${missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`}${filedLine}`
   // The review of B300: with `pull`, the same call answers the chat's pull (one call at a turn's end).
   const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
-  return { ok: true, result: { text, missed, open, changed: missed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...(pulled === undefined ? {} : { pull: pulled }) } }
+  // Pause and resume (spec 2026-10-18): the same call answers the pause state, so the mod needs no call of its own.
+  const { text: _words, ...pause } = pauseStateOf({ ...w, who: chat })
+  return { ok: true, result: { text, missed, open, changed: missed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...(pulled === undefined ? {} : { pull: pulled }), pause } }
 }
 
 const MINUTE = 60_000
@@ -1510,4 +1559,7 @@ const CHANGE = {
   'refine-accept': refineText,
   undo,
   rename,
+  'pause-all': pauseWrite,
+  'resume-all': pauseWrite,
+  resumed: pauseWrite,
 }

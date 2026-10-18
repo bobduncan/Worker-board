@@ -14,6 +14,7 @@ import { parseItem, serializeItem, validateHead, valueOf } from './item.mjs'
 import { isLegacyId } from './line.mjs'
 import { heldLine } from './names.mjs'
 import { stamp } from './migrate.mjs'
+import { PAUSE_FILE, parsePause } from './pause.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, readdir }
 const ITEM_FILE = /^([A-Z]\d+|L-[0-9a-f]{8})\.md$/
@@ -106,7 +107,9 @@ export async function readStore(dir, fs = files) {
     const said = heldLine(held, items)
     if (said !== null) problems.push({ file: NAMES, line: said })
   }
-  return { exists: true, items, ...listed, lastIds, flow: read.flow, problems, viewKept }
+  // Pause and resume (spec 2026-10-18): the person's pause.json, null while there is none (or it cannot be read).
+  const pause = parsePause(await readOr(fs, join(dir, PAUSE_FILE), null))
+  return { exists: true, items, ...listed, lastIds, flow: read.flow, problems, viewKept, pause }
 }
 
 /** Writes one item to `<dir>/<Id>.md`; with `expected` (the file's text the change was made from) only while it holds that. */
@@ -337,5 +340,18 @@ export async function readNamesFile(dir, fs = files) {
 export async function writeNames(dir, record, fs = files, { expected } = {}) {
   await fs.mkdir(dir, { recursive: true })
   return putInPlace(join(dir, NAMES), `${JSON.stringify(record, null, 1)}
+`, fs, expected)
+}
+
+/** Pause and resume (spec 2026-10-18): `<dir>/pause.json` as it is now (`record`, null for none) with its text. */
+export async function readPauseFile(dir, fs = files) {
+  const text = await readOr(fs, join(dir, PAUSE_FILE), null)
+  return { record: parsePause(text), text }
+}
+
+/** Writes pause.json (`{ state, since, by }`), only while the file still holds `expected` (the text it was read from). */
+export async function writePause(dir, record, fs = files, { expected } = {}) {
+  await fs.mkdir(dir, { recursive: true })
+  return putInPlace(join(dir, PAUSE_FILE), `${JSON.stringify(record)}
 `, fs, expected)
 }

@@ -8,8 +8,9 @@ export const HEAD_KEYS = {
   // migrate.mjs); `Asks` on a step keeps a "Decide:" a step without @you may start with. B303: `Queue when refined`
   // keeps a queue asked before the step's refine ("for Board; after B293; about 1.5 h"); the board carries it out.
   // Fix first: `Priority: fix` marks a step as a fix for the worker board; it goes first wherever the board picks the
-  // next step (its owner's queue, `work next`, the delivery), and stays with its owner.
-  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
+  // next step (its owner's queue, `work next`, the delivery), and stays with its owner. Pause and resume (spec
+  // 2026-10-18): `Checkpoint` is the holder's last checkpoint, "<commit or none> · <next action> · <date time>".
+  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
   // B299: `Advice` is the option the asking chat advises; `Via` says how it was asked: form (the app's question form,
   // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of).
   ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Advice', 'Via', 'Queue note', 'Line'],
