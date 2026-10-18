@@ -2203,9 +2203,13 @@ worker for another try, until the attempts stall; only then the person's call, w
 10. The review's findings: the result check counts from the step's last report (a report anew asks anew); a History
     line is read by its words, whoever wrote it; "Not in it" lines and a Standard of none ask for no check. A failed
     step is through once every fix of it is done or dropped and one at least done, with no point waiting for the
-    person (`fixesThrough`): the guard reads it, so a fix closed by the person's tick or the board's own move lets the
+    person (`fixesThrough`; the second review: only the fix that check made, named in its line): the guard reads it,
+    so a fix closed by the person's tick or the board's own move lets the
     reconciler close the step too; only dropped fixes do not, and the partner checks it anew. One fix at a time: a
     `checked` while a fix is open is refused; a fix made for a step that could not be written is taken back.
+    The second review: a History line counts by the words right after who wrote it, so free words cannot fake a check;
+    a fix that is done while its step is not through (a point for the person, or reported since) has the partner
+    asked for that step again (`closeFixed` answers it, the server's `askResultCheck` types it).
 
 ## What it does not do
 

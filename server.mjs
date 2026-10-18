@@ -535,6 +535,20 @@ async function main(args) {
       hasPartner: (state.advisor ?? null) !== null,
     }
   }
+  /**
+   * B356: the partner is asked for a step's result check (`check step`), as every board word to it: copied without the
+   * Workers mod, and woken through the main chat when its chat does not run. Nothing without a partner on the board.
+   */
+  const askResultCheck = async step => {
+    const state = await readState()
+    if ((state.advisor ?? null) === null) return
+    const isCopied = state.bridge?.isMissing === true
+    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checkStepWords(state.advisor.name, step, join(HERE, 'roles', 'partner.md')), state: isCopied ? 'copied' : 'waiting' }
+    await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
+    const wake = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+    if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
+    readState.reset()
+  }
   const workReads = new Set(['next', 'list', 'pause-state'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
@@ -542,6 +556,8 @@ async function main(args) {
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${homePort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
     const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
+    // B356, the second review: a fix's check that leaves the step it fixes in review asks the partner for that step again.
+    if (done.ok && done.result.resultCheck !== undefined) await askResultCheck(done.result.resultCheck).catch(() => {})
     if (done.ok && done.result.changed !== false) {
       work.reset?.()
       readState.reset()
@@ -556,14 +572,7 @@ async function main(args) {
         .then(async outcome => workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' }))
         .then(async checked => {
           // B356: the board's check passed and the step waits for its result check: the partner is asked for it.
-          if (checked?.ok !== true || checked.result.resultCheck === undefined) return
-          const state = await readState()
-          if ((state.advisor ?? null) === null) return
-          const isCopied = state.bridge?.isMissing === true
-          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checkStepWords(state.advisor.name, checked.result.resultCheck, join(HERE, 'roles', 'partner.md')), state: isCopied ? 'copied' : 'waiting' }
-          await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
-          const wake = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-          if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
+          if (checked?.ok === true && checked.result.resultCheck !== undefined) await askResultCheck(checked.result.resultCheck)
         })
         .then(() => {
           work.reset?.()

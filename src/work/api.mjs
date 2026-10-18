@@ -779,10 +779,11 @@ async function check(body, w) {
   }
   const done = await save(item, found.text, w)
   if (!done.ok) return done
-  if (stateOf(item) === 'done') await closeFixed(item, w)
+  const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
   // B356: the board's check passed and the step waits for its result check, none asked yet: the server asks the partner.
   const isWaiting = passed && stateOf(item) === 'review' && needsResultCheck(item) && resultCheckOf(item) === null
-  return changed(item, undefined, isWaiting ? { resultCheck: { id: valueOf(item, 'Id'), title: valueOf(item, 'Title'), owner: valueOf(item, 'Owner') } } : {})
+  const ask = isWaiting ? { id: valueOf(item, 'Id'), title: valueOf(item, 'Title'), owner: valueOf(item, 'Owner') } : recheck
+  return changed(item, undefined, ask === null ? {} : { resultCheck: ask })
 }
 
 /**
@@ -799,7 +800,7 @@ async function checked(body, w) {
   if (stateOf(found.item) !== 'review') return refuse(409, `${id} is ${stateOf(found.item)}: only a step in review is checked.`)
   // The review: one fix at a time; its own check closes this step once it is done.
   const open = fixesOf(id, w.store.items).filter(one => !['done', 'dropped'].includes(stateOf(one))).map(one => valueOf(one, 'Id'))
-  if (open.length > 0) return refuse(409, `${id} has an open fix, ${open.join(', ')}: check that one once it is reported; ${id} is done with it.`)
+  if (open.length > 0) return refuse(409, `${id} has an open fix, ${open.join(', ')}: check that one once it is reported; the board asks for ${id} again after it, when ${id} is not done with it.`)
   const evidence = line(body.evidence, 300)
   if (evidence === '') return refuse(400, 'Name the evidence picture in "evidence", by its path, or "none (<why>)".')
   const read = parsePoints(body.points)
@@ -833,12 +834,15 @@ async function checked(body, w) {
     if (fix !== null) await undoFix(fix, w)
     return done
   }
-  if (stateOf(item) === 'done') await closeFixed(item, w)
-  return changed(item, undefined, fix === null ? {} : { fix })
+  const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
+  return changed(item, undefined, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : { resultCheck: recheck }) })
 }
 
 /** B356, the review: a fix step taken back: its file and its place in its activity. */
 async function undoFix(id, w) {
+  // The second review: only while nobody took it up yet.
+  const made = await load(id, w, { kind: ['step'] })
+  if (!made.ok || stateOf(made.item) !== 'queued') return
   await removeItem(w.dir, id, w.fs).catch(() => {})
   const text = await readActivitiesText(w.dir, w.fs)
   const store = await readStore(w.dir, w.fs).catch(() => null)
@@ -905,20 +909,26 @@ async function closeFixed(item, w) {
   let fixed = item
   for (let depth = 0; depth < 10; depth += 1) {
     const originId = valueOf(fixed, 'Fix of')
-    if (originId === null) return
+    if (originId === null) return null
     const found = await load(originId, w, { kind: ['step'] })
-    if (!found.ok || stateOf(found.item) !== 'review') return
+    if (!found.ok || stateOf(found.item) !== 'review') return null
     // Read anew: the fix that was just written is done in the files, not yet in the store this call read. The review:
-    // every fix through, and no point of its check waiting for the person.
+    // the fix its last check made is done, and no point of the check waits for the person.
     const items = (await readStore(w.dir, w.fs)).items
-    if (!fixesThrough(found.item, items)) return
+    if (!fixesThrough(found.item, items)) {
+      // The second review: the step is not through (a point for the person, a report since): with no fix of it open,
+      // the partner checks it again, so it does not wait in review for nobody.
+      const open = fixesOf(originId, items).some(one => !['done', 'dropped'].includes(stateOf(one)))
+      return open ? null : { id: originId, title: valueOf(found.item, 'Title'), owner: valueOf(found.item, 'Owner') }
+    }
     let origin = appendHistory(found.item, 'server', `result check passed: its fix ${valueOf(fixed, 'Id')} is done`, w.now)
     const closed = move(origin, 'done', 'server', { ...w, store: { ...w.store, items } }, flowCtx({ ...w, store: { ...w.store, items } }, [origin]))
     if (closed.ok) origin = closed.item
     const done = await save(origin, found.text, w)
-    if (!done.ok || stateOf(origin) !== 'done') return
+    if (!done.ok || stateOf(origin) !== 'done') return null
     fixed = origin
   }
+  return null
 }
 
 /** Blocked by: one more step, or one less. B306: unblock without "on" clears what the step waits for (`Waits for`). */

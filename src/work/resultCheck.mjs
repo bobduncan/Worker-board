@@ -37,29 +37,37 @@ export function parsePoints(value) {
 }
 
 /**
- * The words that follow who wrote a History line ("- <date time> <who>: <words>"), found by what they say, so a
- * chat whose name holds a ":" is read right (the review).
+ * The words of a History line ("- <date time> <who>: <words>"): what follows the first ": " after the time. The
+ * second review: only there, so free words further on ("no longer waits for: result check passed") never count; a
+ * chat whose name holds a ":" is not read, which fails safe (its step waits).
  */
-const said = (line, pattern) => line.replace(HISTORY_TIME, '').match(new RegExp(`(?:^|:\\s)(${pattern.source})`))?.[1] ?? null
+const wordsOf = line => line.replace(HISTORY_TIME, '').match(/^.*?:\s(.*)$/)?.[1] ?? ''
 const historyOf = item => item?.sections?.get('History') ?? []
-const RESULT = /result check (?:passed|failed|waits)\b/
-/** A report's History line: its move to review, or "reported again". */
-const REPORTED = /(?:^|:\s)(?:in progress → review|reported again)\s*$/
+const RESULT = /^result check (?:passed|failed|waits)\b/
+/** A report's History line: a move to review, or "reported again". */
+const REPORTED = /^(?:\S[^:]* → review\b|reported again\b)/
+
+/** The words of the step's History since its last report: a report anew asks for a check anew (the review). */
+function sinceReport(item) {
+  const words = historyOf(item).map(wordsOf)
+  return words.slice(Math.max(0, words.findLastIndex(one => REPORTED.test(one))))
+}
+
+/** The step's last result check line since its last report, or undefined. */
+const lastResult = item => sinceReport(item).filter(one => RESULT.test(one)).at(-1)
 
 /**
  * Where the step's last result check since its last report stands: 'passed', 'failed', 'waits' (for the person), or
- * null (none yet). The review: a report anew asks for a check anew.
+ * null (none yet).
  */
 export function resultCheckOf(item) {
-  const lines = historyOf(item)
-  const from = lines.findLastIndex(one => REPORTED.test(one.replace(HISTORY_TIME, '')))
-  const last = lines.slice(Math.max(0, from)).map(one => said(one, RESULT)).filter(Boolean).at(-1)
+  const last = lastResult(item)
   return last === undefined ? null : last.startsWith('result check passed') ? 'passed' : last.startsWith('result check failed') ? 'failed' : 'waits'
 }
 
 /** Whether the board's own check (git) passed last: its History's last "check passed", "failed" or "pending". */
 export function gitCheckPassed(item) {
-  const last = historyOf(item).map(one => said(one, /check (?:passed|failed|pending)\b/)).filter(Boolean).at(-1)
+  const last = historyOf(item).map(wordsOf).filter(one => /^check (?:passed|failed|pending)\b/.test(one)).at(-1)
   return last !== undefined && last.startsWith('check passed')
 }
 
@@ -67,13 +75,15 @@ export function gitCheckPassed(item) {
 export const fixesOf = (id, items) => [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'step' && valueOf(one, 'Fix of') === id)
 
 /**
- * The review of B356: a step whose result check failed counts as checked once its fixes are through: every fix of it
- * done or dropped, one at least done, and no point of its last check waiting for the person.
+ * The review of B356: a step whose result check failed counts as checked once the fix that check made is done, and no
+ * point of the check waits for the person. The second review: only that fix, named in the check's own line ("fix B<n>
+ * for ..."), so a fix of an earlier round counts for nothing; a dropped one counts for nothing either.
  */
 export function fixesThrough(item, items) {
   if (resultCheckOf(item) !== 'failed' || (checkedOf(item)?.points ?? []).some(one => one.verdict === 'ask')) return false
-  const fixes = fixesOf(valueOf(item, 'Id'), items)
-  return fixes.length > 0 && fixes.every(one => ['done', 'dropped'].includes(valueOf(one, 'State'))) && fixes.some(one => valueOf(one, 'State') === 'done')
+  const fix = lastResult(item).match(/; fix (B\d+) for\b/)?.[1]
+  const made = fix === undefined ? undefined : items?.get(fix)
+  return made !== undefined && valueOf(made, 'Fix of') === valueOf(item, 'Id') && valueOf(made, 'State') === 'done'
 }
 
 /**
