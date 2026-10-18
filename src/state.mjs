@@ -819,9 +819,13 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
     const busy = known.find(one => UNDER_WAY.includes(one.head.get('State')))
     // Focus 4: steps made but none handed out yet (new or refined, none queued): the part waits for the main chat.
-    const unsent = known.filter(one => NOT_HANDED.includes(one.head.get('State')))
-    const isHandout = busy === undefined && unsent.length > 0 && !known.some(one => one.head.get('State') === 'queued')
-    const state = known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isHandout ? 'handout' : 'next'
+    // The review: a step the main chat queued before its refine ("Queue when refined") waits for its refine, not for it.
+    const held = known.filter(one => NOT_HANDED.includes(one.head.get('State')))
+    const unsent = held.filter(one => (one.head.get('Queue when refined') ?? '') === '')
+    const isWaiting = busy === undefined && !known.some(one => one.head.get('State') === 'queued')
+    const isHandout = isWaiting && unsent.length > 0
+    const isRefining = isWaiting && !isHandout && held.length > 0
+    const state = known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isHandout ? 'handout' : isRefining ? 'refining' : 'next'
     const owner = busy === undefined ? null : String(busy.head.get('Owner') ?? '').replace(prefix, '').trim() || null
     const since = unsent.map(one => sinceMs(one.head.get('Since'))).filter(Number.isFinite)
     return { title: part.title, size: part.size, state, owner, done, total: known.length, ...(isHandout ? { waitsSince: since.length > 0 ? Math.max(...since) : null } : {}) }

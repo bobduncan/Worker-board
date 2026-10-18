@@ -75,3 +75,15 @@ test('steps waiting longer than the grace time: one hint under Needs your attent
   const stateFile = readFile(join(ROOT, 'src', 'state.mjs'), 'utf8')
   return stateFile.then(text => assert.match(text, /\.\.\.handoutNeeds\(focus, /))
 })
+
+test('the review\'s findings: a step the main chat queued before its refine waits for its refine, and no hint is for the person', () => {
+  const asked = parseItem('Id: B1\nKind: step\nTitle: Step B1\nState: new\nSince: 2026-10-18 11:10\nQueue when refined: for Units; about 1 h\n')
+  const state = run([asked, step('B3', 'refined', '2026-10-18 11:10')])
+  assert.deepEqual(state.parts.map(part => part.state), ['refining', 'handout', 'next', 'next'])
+  assert.equal(state.parts[0].waitsSince, undefined)
+  const view = focusView(state, { nodes: [] }, { canWrite: true })
+  assert.deepEqual([view.run.parts[0].chip, view.run.parts[0].tone], ['Waiting for its refine, then the board queues it', 'refining'])
+  const later = AT('2026-10-18 11:10') + GRACE_MS + 1
+  assert.deepEqual(handoutNeeds(run([asked]), 'Main', later), [])
+  assert.match(handoutNeeds(state, 'Main', later)[0].text, /steps of Heavier hits,/)
+})

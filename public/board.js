@@ -6731,7 +6731,7 @@ function focusView(focus, goals, can = null, ui = {}) {
   }
   if (stage === 'run') {
     // Focus 4: a part whose steps are made but not handed out yet waits for the main chat.
-    const chips = { done: 'Done', now: 'In progress', next: 'Next', handout: 'Waiting for the main chat to hand it out' }
+    const chips = { done: 'Done', now: 'In progress', next: 'Next', handout: 'Waiting for the main chat to hand it out', refining: 'Waiting for its refine, then the board queues it' }
     view.run = {
       title: 'The how',
       parts: focus.parts.map(part => ({

@@ -1462,7 +1462,9 @@ Spec 2026-10-18, sections 2 and 4; plan Task 7; picture `art-inbox/focus-mockups
   person's Read under Information is the State, apart. A board that only shows marks nothing.
 - **Waiting for the main chat** (`focusState`): a part whose steps are made but none is queued or under way (new or
   refined) is `handout` with `waitsSince`; the page says "Waiting for the main chat to hand it out", and after the grace
-  time `handoutNeeds` puts a hint under Needs your attention with the way to Talk to Main.
+  time `handoutNeeds` puts a hint under Needs your attention with the way to Talk to Main. The review: a step queued before its
+  refine (`Queue when refined`) is the board's to queue: its part is `refining`, "Waiting for its refine, then the board
+  queues it", and no hint.
 - **Chat names** (`work/api.mjs` `chatName`): queue and requeue `for`, rename `from` and `to`, a note's `to` and the
   asking chat lose the list's prefix and match a chat of the list (`chats`, from the board) in any case; an unknown one
   is taken with a warning line naming the known ones (the review: a worker about to be started is not on the list yet).
