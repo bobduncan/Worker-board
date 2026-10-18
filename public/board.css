@@ -189,6 +189,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-chip.is-done { border-color: #2d6b47; color: var(--working); background: #0f2a1d; }
 .focus-chip.is-now { border-color: var(--free); color: #8fb4ff; background: #13254a; }
 .focus-chip.is-next { border-color: #3a4a63; color: var(--text); }
+.focus-chip.is-handout { border-color: #6b5a2a; color: var(--waiting); background: #2a2310; }
 .focus-owner { align-self: flex-end; color: var(--muted); }
 .focus-steps { margin-top: 16px; padding: 12px 2px 0; width: 100%; border: 0; border-top: 1px solid var(--line); background: none; color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
 .focus-steps:hover { color: var(--text); }

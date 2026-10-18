@@ -14,6 +14,9 @@ import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 /** The key under which a step's line to its chat is sent once: the step, the chat, and when it was queued for it. */
 export const deliveryKey = (id, chat, since = '') => [id, chat, since].filter(Boolean).join(' ')
 
+/** Focus 4: the key under which the main chat is woken for a note, once. */
+export const noteKey = (id, chat) => `note ${id} ${chat}`
+
 /** One send at a time per store folder, in this process (the board is the store's only writer). */
 const turns = new Map()
 function oneAtATime(dir, run) {
@@ -96,10 +99,15 @@ async function withdrawStale({ dir, outbox, prefix, fs }) {
   const gone = []
   for (const message of waiting) {
     const item = items.get(message.about)
-    const isOwners = item !== undefined && value(item, 'Owner') !== null && plain(value(item, 'Owner'), prefix) === plain(message.to, prefix)
     const state = value(item, 'State')
-    const holds = message.kind === 'check' ? state === 'review' : !['done', 'dropped'].includes(state)
-    if (isOwners && holds) continue
+    // Focus 4: a note's line holds while the note is unread.
+    if (message.kind === 'note') {
+      if (item !== undefined && state === 'unread') continue
+    } else {
+      const isOwners = item !== undefined && value(item, 'Owner') !== null && plain(value(item, 'Owner'), prefix) === plain(message.to, prefix)
+      const holds = message.kind === 'check' ? state === 'review' : !['done', 'dropped'].includes(state)
+      if (isOwners && holds) continue
+    }
     await outbox.update(message.id, { state: 'dropped' })
     gone.push(message)
   }
@@ -127,6 +135,8 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   const lines = [
     ...(plan.deliveries ?? []).map(one => ({ key: deliveryKey(one.id, one.chat, one.since), words: workWords(one.chat, one.id) })),
     ...(plan.says ?? []).map(one => ({ key: one.key, words: { ...workWords(one.chat, one.id, one.say), kind: 'check' } })),
+    // Focus 4: an unread note to the main chat, once per note.
+    ...(plan.notes ?? []).map(one => ({ key: noteKey(one.id, one.chat), words: { ...workWords(one.chat, one.id, `work: note ${one.id} from ${one.from} for you; run work next`), kind: 'note' } })),
   ]
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })

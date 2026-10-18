@@ -492,7 +492,8 @@ async function main(args) {
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${homePort}/` }
-    const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }) })
+    // Focus 4: a board that only shows reads the main chat's notes without marking them read.
+    const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
     if (done.ok && done.result.changed !== false) {
       work.reset?.()
       readState.reset()

@@ -182,9 +182,35 @@ function oneLine(item, items) {
 }
 
 /** `next`: the chat's open instructions, then its steps by state, each in one line; the first in full. */
-function next(body, w) {
+async function next(body, w) {
   const chat = w.role === 'person' || w.role === 'server' ? line(body.chat, 80) : w.who
   if (chat === '') return refuse(400, 'Name the chat.')
+  // Focus 4: the main chat's unread notes come first, and are read once shown (the board woke it for them).
+  const notes = w.role === 'main' && w.onlyShows !== true ? await readNotes(chat, w) : { text: '', ids: [] }
+  const found = steady(body, w, chat)
+  if (!found.ok || notes.ids.length === 0) return found
+  return { ok: true, result: { ...found.result, text: `${notes.text}\n\n${found.result.text}`, notes: notes.ids, changed: true } }
+}
+
+/** Focus 4: the unread notes to the main chat, each in one line, marked read; `{ text, ids }`. */
+async function readNotes(chat, w) {
+  const unread = [...w.store.items.values()].filter(item => kindOf(item) === 'note' && stateOf(item) === 'unread' && plain(valueOf(item, 'To'), w.prefix) === 'main')
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  const ids = []
+  const shown = []
+  for (const item of unread) {
+    const found = await load(valueOf(item, 'Id'), w, { kind: ['note'] })
+    if (!found.ok) continue
+    const words = found.item.sections.get('Text') ?? []
+    shown.push(`- ${valueOf(item, 'Id')} from ${valueOf(item, 'From') ?? 'the board'}: ${words.length > 0 ? words.join(' ') : valueOf(item, 'Text') ?? ''}`)
+    const done = await save(said(put(put(copy(found.item), 'State', 'read'), 'Since', stamp(w.now)), w, 'read (work next)'), found.text, w)
+    if (done.ok) ids.push(valueOf(item, 'Id'))
+  }
+  return { text: shown.length === 0 ? '' : `Notes for you, ${chat}:\n${shown.join('\n')}`, ids }
+}
+
+/** `next` without the notes: the chat's open instructions, then its steps by state. */
+function steady(body, w, chat) {
   const items = [...w.store.items.values()]
   const told = items.filter(item => kindOf(item) === 'instruction' && stateOf(item) === 'open' && plain(valueOf(item, 'Chat'), w.prefix) === plain(chat, w.prefix))
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))

@@ -48,10 +48,10 @@ test('a part is in progress, with its owner, while a step is taken, in progress,
   }
 })
 
-test('else a part is next: steps queued, refined or new, or none known to the store', () => {
+test('else a part is next: steps queued, or none known to the store; Focus 4: made but not handed out, it waits for the main chat', () => {
   const state = run([step('B3', 'queued', 'Game - Units'), step('B4', 'new'), step('B5', 'done')])
-  assert.deepEqual(state.parts.map(part => part.state), ['next', 'next', 'next', 'next'])
-  // A part half done with nobody on it is next, its bar half full.
+  assert.deepEqual(state.parts.map(part => part.state), ['next', 'next', 'handout', 'next'])
+  // A part half done with nobody on it and its other step not handed out waits, its bar half full.
   assert.deepEqual([state.parts[2].done, state.parts[2].total], [1, 2])
 })
 

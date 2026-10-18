@@ -20,6 +20,8 @@ const KINDS = {
   unfiled: { sign: '!', tag: 'No ask filed' },
   // B308: a worker holds a step, is not working and asked nothing: a hint, with the way to its answer.
   idle: { sign: '!', tag: 'May wait for you' },
+  // Focus 4: the focus's steps made but not handed out by the main chat: a hint, with the way to it.
+  handout: { sign: '!', tag: 'Waits for the main chat' },
 }
 /** What a step in the backlog says it asks of the person. */
 const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
@@ -1795,7 +1797,7 @@ function answerPart(need, state, isFolded) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
-  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...talkButton(need)]
+  if (need.kind === 'unfiled' || need.kind === 'idle' || need.kind === 'handout') return [...parts, ...talkButton(need)]
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
@@ -6728,7 +6730,8 @@ function focusView(focus, goals, can = null, ui = {}) {
     view.progress = { text: `${done} of ${total} done${left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
   }
   if (stage === 'run') {
-    const chips = { done: 'Done', now: 'In progress', next: 'Next' }
+    // Focus 4: a part whose steps are made but not handed out yet waits for the main chat.
+    const chips = { done: 'Done', now: 'In progress', next: 'Next', handout: 'Waiting for the main chat to hand it out' }
     view.run = {
       title: 'The how',
       parts: focus.parts.map(part => ({
