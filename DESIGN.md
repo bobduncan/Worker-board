@@ -762,6 +762,17 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   board says how the preparing stands: who still works, and "Ready" when every chat is at rest and the file is
   written. A message from the main chat reaches a chat in the middle of its turn; what the board types waits
   until a chat is idle, which is why the main chat does the messaging.
+- *Stopped once its safe-point line is in (B291).* The person, 2026-10-17, with a banner that still said "Still
+  working: Support, Features" after all five chats had sent their "Safe point:" line: "board says we are still
+  waiting put on backlog to fix/investigate this issue", and "part of B291 is that i want the workers to show status
+  suspended." Why: "Still working" was read only from each chat's transcript, and a turn cut off by the main chat,
+  then the stop word answered, looks as if it runs; the lines themselves were never read (and a word to the main chat
+  by the app's id for it, not its title, was not known as one, nor for a pause). Now a worker whose word to the main
+  chat, by its title or its id, starts with `Note from <name>: Safe point:` after the person's `prepare restart` (no
+  `resume` after it) has stopped (`safePointNote`): its lane says "Suspended" ("Stopped for the restart at HH:MM ·
+  waits for Resume"), until it works again after that turn. The banner names only the chats with no line yet ("Still
+  working (no safe point yet): ..."), then "Everyone stopped: safe to restart" once the main chat wrote restart.md,
+  and says when it last wrote that file.
 
 **The Design tab** (the person, 2026-10-12: "i want to be able to prompt an initial idea. let it build a visual in
 codex about what i want, present it to me, if i agree can add information to it what i want and put it either on

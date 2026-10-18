@@ -778,6 +778,26 @@ test('the restart: who was cut off, what was prepared, and how long the board wa
   assert.equal(build({ apps: [app('Units')] }).restart.main, null)
 })
 
+test('B291: a worker that sent its safe-point line after the prepare word is suspended and no longer still working', () => {
+  const prepare = { id: 'p1', at: NOW - 10 * MIN, to: 'Main', ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
+  const toMain = (when, message, to) => [assistant(when, 'tool_use', [tool('SendMessage', { to, message })]), toolResult(when + 1000)]
+  // Units: its turn was cut off, it took the stop word and sent its line, and its tail still looks busy.
+  const units = [typed(NOW - 30 * MIN, 'Go'), step(NOW - 20 * MIN, 'Build'), fromChat(NOW - 9 * MIN, 'Game - Main', 'prepare restart'),
+    ...toMain(NOW - 8 * MIN, 'Note from Game - Units: Safe point: B12 at b12 1a2b3c4; next: the tests.', 'local_Main')]
+  const state = build({
+    apps: [app('Main'), app('Units'), app('Features')],
+    tails: { Units: tail(units), Features: tail(running) },
+    outbox: [prepare],
+    restartNote: { at: NOW - 2 * MIN },
+  })
+  assert.equal(chatNamed(state, 'Units').state, 'suspended')
+  assert.deepEqual([chatNamed(state, 'Units').suspended.by, chatNamed(state, 'Units').suspended.since], ['restart', NOW - 8 * MIN])
+  assert.deepEqual(state.restart.preparing.working, ['Features'])
+  // A line from before the prepare word says nothing about this restart.
+  const old = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(units) }, outbox: [{ ...prepare, at: NOW - 5 * MIN }] })
+  assert.notEqual(chatNamed(old, 'Units').state, 'suspended')
+})
+
 test('a turn that kept writing after its chat\'s file said waiting is alive, not interrupted', () => {
   // The file says waiting since 8 minutes ago (the turn before ended then); the open turn wrote a minute ago.
   // A turn opened by a slash command or a background notice has no opening of its own, so the file looks newer

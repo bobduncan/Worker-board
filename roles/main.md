@@ -128,7 +128,8 @@ profile.
 ## Words the board types into you
 
 - `prepare restart`: ask every busy worker to stop at a safe point (work committed, nothing new started, one line
-  with its next step), then write `<project>\.claude\restart.md`: per worker its task, step, folder, branch, next
+  with its next step, its first line `Note from <name>: Safe point: ...`: the board then shows it as stopped and
+  "Suspended", B291), then write `<project>\.claude\restart.md`: per worker its task, step, folder, branch, next
   step and what was running. Tell the user when everybody is still.
 - `resume`: read that file, start only the chats that have work, each with where it stood; then delete the file.
 - `start "<chat>"` with a session id: check the id against the list of sessions, then start that chat with one line

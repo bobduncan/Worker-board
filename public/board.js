@@ -409,6 +409,8 @@ function whyText(why) {
 
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
 function heldText(held) {
+  // B291: stopped at a safe point for a restart of the app; it goes on when the person resumes.
+  if (held.by === 'restart') return `Stopped for the restart at ${clock(held.since)} · waits for Resume`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
   return `${who} · ${held.until === null ? 'no time known yet' : `goes on at ${clock(held.until)}`}`
@@ -485,7 +487,7 @@ function drawRestart(state) {
   if (isAtHand && down.some(name => name !== restart.main)) {
     parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
   }
-  if (restart.prepared !== null) parts.push(line('muted', `${restart.main} wrote down who was on what at ${clock(restart.prepared.at)} (restart.md).`))
+  if (restart.prepared !== null) parts.push(line('muted', `${restart.main} last wrote down who was on what at ${clock(restart.prepared.at)} (restart.md).`))
 
   if (isAskingRestart) {
     const ask = el('div', 'restart-ask')
@@ -497,9 +499,11 @@ function drawRestart(state) {
     const isWritten = restart.prepared !== null && restart.prepared.at >= preparing.at
     if (preparing.state === 'waiting') parts.push(line('', `"Prepare restart" waits for ${restart.main} to take it: its chat must be open.`))
     else if (preparing.state === 'expired' || preparing.state === 'failed') parts.push(line('problem', `"Prepare restart" did not reach ${restart.main}. Open its chat and press it again.`))
-    else if (preparing.working.length > 0) parts.push(line('', `Preparing the restart since ${clock(preparing.at)}. Still working: ${preparing.working.join(', ')}.`))
-    else if (isWritten) parts.push(line('ready', `Ready: every chat is at rest and ${restart.main} wrote down who was on what. You can quit Claude now.`))
-    else parts.push(line('', `Every chat is at rest. ${restart.main} has not written down who was on what yet.`))
+    // B291: a worker that sent its safe-point line counts as stopped (its lane says Suspended), whatever its
+    // transcript shows: only the chats with no line yet still work.
+    else if (preparing.working.length > 0) parts.push(line('', `Preparing the restart since ${clock(preparing.at)}. Still working (no safe point yet): ${preparing.working.join(', ')}.`))
+    else if (isWritten) parts.push(line('ready', `Everyone stopped: safe to restart. ${restart.main} wrote down who was on what; you can quit Claude now.`))
+    else parts.push(line('', `Everyone stopped. ${restart.main} has not written down who was on what yet.`))
   }
   const resuming = restart.resuming
   if (resuming !== null) {
@@ -537,6 +541,7 @@ function timeOf(lane, now) {
   if (lane.state === 'suspended') {
     // B113: held by the limit. The figure is when it goes on; once that has passed it needs a hand.
     const held = lane.suspended
+    if (held.by === 'restart') return plain('Waits for Resume', 'muted', 'Suspended')
     if (held.isBack) return plain(held.until === null ? 'Not gone on' : `since ${clock(held.until)}`, 'bad', 'Limit is back')
     return held.until === null ? plain('Suspended') : { label: 'Goes on', main: clock(held.until), tone: 'time', small: [`in ${span(held.until - now)}`], from: null }
   }
@@ -1083,7 +1088,9 @@ function removalView(lane, main, now) {
   if (lane.state === 'waiting') reasons.push(`It waits for you${what === null ? '' : ` on ${what}`}: your answer would no longer be taken.`)
   if (lane.state === 'suspended') {
     const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
-    reasons.push(`It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
+    // B291: stopped at a safe point for a restart, not for a limit.
+    const why = lane.suspended?.by === 'restart' ? 'It stopped for the restart' : `It paused for the limit${until}`
+    reasons.push(`${why}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }
   if (lane.state === 'interrupted') reasons.push(`It was cut off in the middle of ${what ?? 'its turn'}: that work would not be resumed.`)
   if (lane.state === 'unknown') reasons.push('The board cannot tell what it is doing.')

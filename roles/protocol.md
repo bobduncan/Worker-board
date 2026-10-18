@@ -13,6 +13,7 @@ read only for what the store does not hold.
 
 | The words | Who writes them, where | What the board makes of them | Read in |
 |---|---|---|---|
+| `Note from <name>: Safe point: ...` (as its first line, to the main chat, after the person's `prepare restart`) | a worker that stopped for a restart | B291: it counts as stopped, whatever its transcript shows: its lane says "Suspended" (waits for Resume) until it works again, and the restart banner names only the chats with no such line yet | `src/limits.mjs` (`SAFE_POINT`, `safePointNote`) |
 | `Note from <name>: paused for the limit until HH:MM` (exactly this first line) | a worker that stops for the plan's limit | the worker shows as "Suspended" until that time (the store holds no pause) | `src/limits.mjs` (`PAUSED`, `pauseNote`) |
 | A closing block whose last line is `+ Done:   yes` (or `- Done:   no, ...`, `- Done:   partly, ...`) at the very end of an answer | every chat, at the end of an answer to the person | "yes": the chat is done and free, whatever its card says (a card is the chat's own, not the store's); a step the store still holds for it then is flagged on its lane, "<chat> ended its turn with Done: yes but B<id> is still <state>: run work report" | `src/transcript.mjs` (`saysDone`), `src/state.mjs` |
 | `**Task:** ...` and `**What I did:** ...` as the answer's first two lines | a worker that finished with something for the person | shown in its answer's window, as its words | `src/handover.mjs` |
