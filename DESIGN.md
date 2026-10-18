@@ -1794,6 +1794,36 @@ the work stores itself as well." 15:26: "windows only and claude only ... with a
 6. The board is started at once (`startBoard`), and the form shows the link to it.
 7. Not in it: a game (added later in `config.json`), the first chats (B322), Mac.
 
+## Install with one command (B321)
+
+The person, 2026-10-18 15:26: "windows only and claude only. Preferably its own installer who checks if you have
+claude, windows, node installed in order to run the worker board. with an icon to run it." Q4 (15:28): one command with
+the checks and an icon now, a real installer (.exe, signed) later. Part 2 of G12's how.
+
+1. `tools/install.ps1`, run as the README says: `irm <its raw address on GitHub> | iex` in PowerShell. It runs in a
+   script block of its own (nothing it sets stays in the person's PowerShell) and never `exit`s (that would close the
+   window it was pasted into). Plain ASCII, so Windows PowerShell 5.1 reads it alike from GitHub and from a file.
+2. The checks, one line each (`[ok]`, `[--]`, `[!!]`): Windows; the Claude desktop app (`Find-ClaudeApp`: the Store's
+   package, `Packages\Claude_*`, `AnthropicClaude`, `%APPDATA%\Claude`; missing: where to get it, and it stops); Node 24
+   or newer and git (missing or old: offered with winget, `OpenJS.NodeJS.LTS` and `Git.Git`, the PATH read again
+   after; without winget, where to get them). `WORKER_BOARD_CHECK=1` only checks.
+3. The board: into the folder the person names (`worker-board` in the home folder unless said, `WORKER_BOARD_FOLDER`),
+   cloned from the board's repository (`WORKER_BOARD_REPO` to use another); a folder that holds the board already is
+   kept as it is (with the command that brings it up to date), one that holds anything else is refused.
+4. The Workers mod: `node setup.mjs` in it (B251, B319: one per PC, never over a newer copy); when it cannot, the board
+   works without it and the line says so.
+5. The project: the new-project flow (B320, `tools/new-project.mjs`). Run again with a project on the PC (the PC's list
+   of boards, B319), it names them and only offers another.
+6. The tests (`test/install.test.mjs`) run the script's parts through Windows PowerShell as `iex` does, by
+   `WORKER_BOARD_TEST`, which calls one part inside the script's scope; nothing is installed.
+7. Review: winget's own words and questions show (`| Out-Host`), with `--source winget` and the terms accepted, which
+   the question says; a winget that fails is said with where to get the program. An older Node found first after an
+   upgrade points to nodejs.org rather than to running again. A typed folder loses its quotes, takes `~` and the folder
+   PowerShell is in, and no last `\` (`Resolve-TypedFolder`). The board's folder is remembered
+   (`installed.json` beside the PC's list), so a second run offers that one rather than cloning a second. An empty
+   `%APPDATA%\Claude` is no sign of the app (an uninstall leaves it). The PATH gets winget's new entries added, never
+   replaced. The check-only test takes this PC as it is.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.
