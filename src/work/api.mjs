@@ -1045,20 +1045,34 @@ function blockQuestions(item) {
   for (const one of item.sections.get('Refined') ?? []) {
     const named = one.trim().match(/^([A-Z][A-Za-z /]{1,28}):/)
     if (named !== null) isIn = named[1] === 'Questions'
-    else if (isIn && /^\s*[-*]\s+/.test(one)) out.push(line(one.trim().replace(/^[-*]\s+/, '').replace(/\s+Answer:\s.*$/, ''), TEXT_CHARS))
+    // The review: kept with the answer written behind it, if any; questionIndex reads the question off its start, so a
+    // question that holds " Answer: " itself is never cut.
+    else if (isIn && /^\s*[-*]\s+/.test(one)) out.push(line(one.trim().replace(/^[-*]\s+/, ''), TEXT_CHARS))
   }
   return out
 }
 
+/** The whole words of an ask's question (its Text). */
+const askWords = ask => line((ask.sections.get('Text') ?? [])[0] ?? '', TEXT_CHARS)
+
 /**
  * Focus 3: the place of an ask's question among a refine block's questions (blockQuestions), or -1. By its whole words
- * (the ask's Text), else by its title: a title is cut at 200 characters, and a cut at a space once matched no question.
+ * (the ask's Text), with or without an answer behind it, else by its title: a title is cut at 200 characters, and a cut
+ * at a space once matched no question. The review: equal questions match by their place: the newest asks of the step's
+ * refine with these words (`w`'s store), in id order, are the block's equal questions in order.
  */
-function questionIndex(questions, ask) {
-  const whole = line((ask.sections.get('Text') ?? [])[0] ?? '', TEXT_CHARS)
+function questionIndex(questions, ask, w) {
+  const whole = askWords(ask)
   const title = line(valueOf(ask, 'Title') ?? '', 200)
-  const byWords = whole === '' ? -1 : questions.indexOf(whole)
-  return byWords >= 0 ? byWords : questions.findIndex(one => title !== '' && one.slice(0, 200).trim() === title)
+  const isIt = question => whole !== '' && (question === whole || question.startsWith(`${whole} Answer: `))
+  let found = questions.flatMap((question, index) => (isIt(question) ? [index] : []))
+  if (found.length === 0) found = questions.flatMap((question, index) => (title !== '' && question.slice(0, 200).trim() === title ? [index] : []))
+  if (found.length <= 1) return found[0] ?? -1
+  const twins = [...w.store.items.values()]
+    .filter(one => kindOf(one) === 'ask' && valueOf(one, 'Of') === valueOf(ask, 'Of') && valueOf(one, 'Via') === 'refine' && stateOf(one) !== 'withdrawn' && askWords(one) === whole)
+    .map(one => valueOf(one, 'Id')).sort(byId).slice(-found.length)
+  const at = twins.indexOf(valueOf(ask, 'Id'))
+  return at >= 0 ? found[at] : found[0]
 }
 
 /** The Advisor folded every answer in: the block says "ready", What we build is written, and the step is refined. */
@@ -1156,7 +1170,7 @@ async function answer(body, w) {
  * no longer in the block.
  */
 function withRefineAnswer(step, ask, words, w) {
-  const index = questionIndex(blockQuestions(step), ask)
+  const index = questionIndex(blockQuestions(step), ask, w)
   if (index < 0) return step
   const id = valueOf(step, 'Id')
   const written = answerRefine(`## -\n${stepLine(step)}\n${stepNotes(step).join('\n')}\n`, id, [{ index, answer: words }], '')
@@ -1248,7 +1262,7 @@ async function refineText(body, w) {
   for (const ask of refineAsksOf(w, id)) {
     if (w.action === 'refine-accept') await settleAsk(w, ask, 'answered', 'Accepted as refined.', 'accepted as refined')
     else {
-      const index = questionIndex(questions, ask)
+      const index = questionIndex(questions, ask, w)
       const given = answers.find(one => one !== null && typeof one === 'object' && one.index === index)?.answer
       if (index >= 0 && typeof given === 'string' && given.trim() !== '') await settleAsk(w, ask, 'answered', line(given, 1000), `answered in the step's window: ${line(given, 200)}`)
     }

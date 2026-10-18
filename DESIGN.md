@@ -1227,6 +1227,8 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   Focus 3: an ask and its question are matched by the ask's whole words (its Text), else by its title (`questionIndex`):
   a title cut at 200 characters on a space once matched no question, so the asks stayed open and the fold was refused.
   Both ways hold: a window answer answers the ask (a History line on it), an ask answered alone writes into the block.
+  The review of Focus 3: a question is read off the start of its line, so one holding " Answer: " still matches; equal
+  questions match by their place (the step's newest refine asks with those words, in id order).
 - **The lists** (`work/lists.mjs`, `state.mjs`): Needs your attention takes the store's open asks (and the ones
   answered within ten minutes, until their answer has arrived) as cards: the ask's kind, what it blocks and who waits
   ("blocks B1 · Board waits"), the options with the advised one marked, pictures, a Play link; answered through
