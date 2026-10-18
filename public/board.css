@@ -1978,3 +1978,13 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-done-when-line { color: var(--muted); }
 .focus-standard { align-self: flex-start; color: var(--muted); overflow-wrap: anywhere; }
 .focus-standard-picture { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; overflow-wrap: anywhere; }
+.focus-buttons { flex-wrap: wrap; }
+.focus-buttons .focus-ask-done-when { padding: 13px 18px; border: 1px solid var(--waiting); border-radius: 9px; background: transparent; color: var(--waiting); font-size: 15px; font-weight: 700; cursor: pointer; }
+.focus-buttons .focus-ask-done-when:disabled { opacity: 0.55; cursor: default; }
+/* B354 on a phone: the button says it already, so the note goes; the button moves under the goal when it does not fit. */
+@media (max-width: 600px) {
+  .focus-goals li { flex-wrap: wrap; row-gap: 4px; }
+  .focus-goals li .focus-goal-title { flex: 1 1 auto; }
+  .focus-goals li .focus-done-when:not(.is-asked) { display: none; }
+  .focus-goals li > .goals-action, .focus-goals li .focus-done-when.is-asked { margin-left: auto; white-space: nowrap; }
+}
