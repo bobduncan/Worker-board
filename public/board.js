@@ -784,6 +784,7 @@ function pauseLines(pause) {
     const parts = [
       pause.working.length === 0 ? null : `still working: ${pause.working.join(', ')}`,
       pause.unsaved.length === 0 ? null : `holding a step with no checkpoint since the pause: ${pause.unsaved.map(one => `${one.chat} (${one.id})`).join(', ')}`,
+      (pause.offBoard ?? []).length === 0 ? null : `held by a chat not on the board: ${pause.offBoard.map(one => `${one.id} (${one.title})`).join(', ')}`,
     ].filter(part => part !== null)
     return [{ tone: '', text: `Pausing since ${clock(pause.since)}: ${parts.join('; ')}.` }]
   }
@@ -794,8 +795,10 @@ function pauseLines(pause) {
     if (Number.isFinite(pause.typedAt)) lines.push({ tone: 'muted', text: `Typed "resume" into ${main.name} at ${clock(pause.typedAt)}: it wakes each chat that holds a step.` })
     return lines
   }
-  const open = { tone: 'alert', text: `${main.title} is not running: open it; its Workers mod tells it whom to wake.` }
-  lines.push(typeof main.session === 'string' && main.session !== '' ? { ...open, link: { label: `Open ${main.title}`, href: `claude://claude.ai/epitaxy/${main.session}` } } : open)
+  // The review of part 1: "not known yet" while no mod has asked the board; the link only for an app id (local_ and a uuid).
+  const open = { tone: 'alert', text: main.isRunning === false ? `${main.title} is not running: open it; its Workers mod tells it whom to wake.` : `Whether ${main.title} runs is not known yet: open it; its Workers mod tells it whom to wake.` }
+  const isAppId = typeof main.session === 'string' && /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(main.session)
+  lines.push(isAppId ? { ...open, link: { label: `Open ${main.title}`, href: `claude://claude.ai/epitaxy/${main.session}` } } : open)
   return lines
 }
 // pause:end
@@ -866,6 +869,12 @@ function drawRestart(state) {
     row.append(button('Resume all', pause.isSafe ? 'is-quiet' : '', 'resume'), el('small', 'muted', 'Every chat goes on from its checkpoint.'))
     parts.push(row)
   }
+  // The review of part 1: a chat that will never start (gone, or not to be resumed) ends the resume by the person's word.
+  if (pause?.state === 'resuming' && (pause.waiting ?? []).length > 0) {
+    const row = el('div', 'restart-ask')
+    row.append(button('End resume', 'is-quiet', 'end-resume'), el('small', 'muted', 'The board stops waiting for the chats not started yet.'))
+    parts.push(row)
+  }
   // Before pause.json: the old reading of a restart, for now (the state leaves it out once pause.json is there).
   const preparing = restart.preparing
   if (preparing !== null) {
@@ -888,7 +897,8 @@ function drawRestart(state) {
     else parts.push(line('muted', `"Resume" was handed to ${restart.main} at ${clock(resuming.at)}: it brings the workers back.`))
   }
   // Resuming is offered when there is somebody to bring back: a chat that was cut off, or a restart that was prepared.
-  if (pause === null && (restart.interrupted.length > 0 || restart.prepared !== null) && (resuming === null || resuming.state === 'expired' || resuming.state === 'failed')) {
+  // The review of part 1: after a cycle pause.json says running, which is no pause: the button shows as without it.
+  if ((pause === null || pause.state === 'running') && (restart.interrupted.length > 0 || restart.prepared !== null) && (resuming === null || resuming.state === 'expired' || resuming.state === 'failed')) {
     const row = el('div', 'restart-ask')
     row.append(button(restart.interrupted.length > 0 ? `Resume all (${restart.interrupted.length} cut off)` : 'Resume all', '', 'resume'), el('small', 'muted', `${restart.main} wakes each chat that holds a step.`))
     parts.push(row)
@@ -3077,6 +3087,7 @@ $('restart').addEventListener('click', event => {
   // Pause and resume (spec 2026-10-18): both write pause.json; the board types "resume" into a main chat that runs.
   if (button.dataset.restart === 'pause-all') return sendWork({ action: 'pause-all' }, 'restart')
   if (button.dataset.restart === 'resume') return sendWork({ action: 'resume-all' }, 'restart')
+  if (button.dataset.restart === 'end-resume') return sendWork({ action: 'end-resume' }, 'restart')
   // B315: the word that was only copied, on the clipboard again.
   if (button.dataset.restart === 'copy') {
     const words = board.restart.copied?.text ?? ''

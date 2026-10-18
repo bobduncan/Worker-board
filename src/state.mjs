@@ -470,6 +470,10 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     cutOffAt: wasCutOff ? lastWriteAt : null,
     // Pause and resume (spec 2026-10-18): when its last turn began, so the board knows who started one after a resume.
     turnAt: turnStartedAt,
+    // The review of part 1: why it counts as working between two turns (task, background, branch), and whether its
+    // transcript shows a turn open (also behind a "suspended" that may be stale).
+    heldBy: held?.why ?? null,
+    isTurnOpen: turn === 'running' && !wasCutOff,
     eta,
     // A worker that works and has no time from anywhere: a fault to fix, and shown as one. The main chat hands
     // out work and answers the person; it has no task to time.
@@ -1205,6 +1209,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       idle: advisorCard.idle,
       // Pause and resume (spec 2026-10-18): when its last turn began.
       turnAt: advisorCard.turnAt ?? null,
+      heldBy: advisorCard.heldBy ?? null,
+      isTurnOpen: advisorCard.isTurnOpen ?? false,
       // B301: it asks with the work store's asks; also when the app says it waits (its question form).
       asksYou: advisorWaits !== null || waits.asking.has(advisorChat.name.toLowerCase()),
       queued: queuedFor(sent, advisorChat.name, now),

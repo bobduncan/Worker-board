@@ -21,23 +21,23 @@ import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } fr
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPauseFile, writeNames, writePause } from './store.mjs'
-import { checkpointLine, pauseAnswer } from './pause.mjs'
+import { HELD, checkpointLine, pauseAnswer } from './pause.mjs'
 import { writeView } from './view.mjs'
 
 // B300: kept here for those who import them from the API.
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list', 'pause-state'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
  */
 const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume'])
 /** What only the person does, on the board's page; and what only the server does. */
-const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all'])
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume'])
 const SERVER = new Set(['check', 'advance', 'resumed'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
@@ -53,7 +53,6 @@ const ROLES = {
 }
 /** The order of a chat's own steps in `next`: what it works on first. */
 const MINE = ['in progress', 'waiting on you', 'taken', 'review', 'queued']
-const HELD = ['taken', 'in progress', 'waiting on you', 'review']
 const STEP_ID = /^B\d+$/
 const ANY_ID = /^(?:[A-Z]\d+|L-[0-9a-f]{8})$/
 const ONLY_IDS = /^B\d+(?:(?:\s*,\s*|\s+and\s+)B\d+)*$/
@@ -392,7 +391,8 @@ async function step(body, w) {
   const id = valueOf(found.item, 'Id')
   const isCheckpoint = body.commit !== undefined || body.next !== undefined
   const isPlan = ['step', 'steps', 'names', 'name', 'minutes'].some(key => body[key] !== undefined) || !isCheckpoint
-  const states = isPlan ? ['in progress', 'waiting on you'] : ['taken', 'in progress', 'waiting on you']
+  // A checkpoint stands on every step a chat holds (pause.mjs `HELD`), as the pause counts them.
+  const states = isPlan ? ['in progress', 'waiting on you'] : HELD
   if (!isOwner(found.item, w.who, w.prefix) || !states.includes(stateOf(found.item))) return refuse(409, `${id} is not in progress for ${w.who}: take it first.`)
   const checkpoint = isCheckpoint ? checkpointOfBody(body) : null
   if (checkpoint !== null && !checkpoint.ok) return checkpoint
@@ -433,7 +433,8 @@ function pauseStateOf(w) {
 /** The person's Pause all and Resume all, and the board's own "running" once every holder is back: pause.json. */
 async function pauseWrite(body, w) {
   const now = await readPauseFile(w.dir, w.fs)
-  const to = { 'pause-all': 'pausing', 'resume-all': 'resuming', resumed: 'running' }[w.action]
+  // The review of part 1: the person's End resume sets running too, for a chat that will never start.
+  const to = { 'pause-all': 'pausing', 'resume-all': 'resuming', resumed: 'running', 'end-resume': 'running' }[w.action]
   // Pausing again keeps the first time; only a resume becomes running.
   if ((to === 'pausing' && now.record?.state === 'pausing') || (to === 'running' && now.record?.state !== 'resuming')) {
     return { ok: true, result: { text: `The pause state stays ${now.record?.state ?? 'running'}.`, pause: now.record, changed: false } }
@@ -1562,4 +1563,5 @@ const CHANGE = {
   'pause-all': pauseWrite,
   'resume-all': pauseWrite,
   resumed: pauseWrite,
+  'end-resume': pauseWrite,
 }

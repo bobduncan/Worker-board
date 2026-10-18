@@ -918,13 +918,19 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   (`pause-all`, the person's only); no word is typed to Main. *Safe from facts* (`work/pause.mjs` `pauseFacts`):
   "Pausing since HH:MM: still working: <chats running a turn now>; holding a step with no checkpoint since the pause:
   <chat (B<id>)>", then "Safe to restart" once no chat runs a turn (a lane working, not only between two turns) and
-  every step held taken or in progress has a checkpoint at or after the pause; a step of a chat the board does not
-  show counts for nothing. *Resume:* **Resume all** writes `resuming` (`resume-all`; also with no pause.json, for a
+  every step held (taken, in progress, waiting on you or in review, as the work API holds it) has a checkpoint at or
+  after the pause, to the millisecond. Working also counts background work a chat started, a lane the board cannot
+  read, and a turn open behind a "suspended" that may be stale; a step held with no checkpoint by a chat the board
+  does not show is named apart ("held by a chat not on the board: B<id> (<title>)") and blocks Safe too (the review of
+  part 1). *Resume:* **Resume all** writes `resuming` (`resume-all`; also with no pause.json, for a
   chat that was cut off); when the main chat runs the board types `resume` into it, as before; when it does not, the
   banner says so with a link **Open <its title>**, `claude://claude.ai/epitaxy/<the app's id for it>` (title from the
   list of chats, the id from its app card), and its Workers mod reads the resume from the flag. The banner names each
   holder that has not started a turn since the resume (its last turn began after it, or it runs one now); once none
-  is left the board sets `running` (`resumed`, the server's only) and the banner goes. *The mod reads it* through
+  is left the board sets `running` (`resumed`, the server's only) and the banner goes; **End resume** (the person's
+  `end-resume`) does the same for a chat that will never start. `running` counts as no pause: the old "Resume all (N cut
+  off)" shows again. The link is built only for an app id (`local_` and a uuid); while no mod has asked the board, the
+  banner says whether the main chat runs is not known yet. *The mod reads it* through
   the bridge: `pause-state` on `/api/bridge/work`, and the same answer in `turn-ended`'s `pause` (part 2 builds the
   contexts). Once pause.json is there, the old banner's preparing, restart.md and resume lines no longer show.
 
