@@ -282,6 +282,14 @@ button, textarea, select { font: inherit; color: inherit; }
 .goals-views { display: flex; gap: 4px; }
 .goals-views button { padding: 3px 9px; border: 1px solid var(--line); border-radius: 6px; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
 .goals-views button[aria-pressed="true"] { color: var(--text); border-color: var(--free); background: #16294a; }
+/* B316: "Hide done" beside the views; on a phone behind the bar's "…". The line where hidden goals stood. */
+.goals-hide-wrap { display: flex; margin-left: 6px; }
+.goals-bar-more { display: none; }
+.goals-hidden-line { display: block; border: 0; background: none; padding: 3px 8px; color: var(--muted); font: inherit; font-size: 12.5px; font-style: italic; text-align: left; cursor: pointer; }
+.goals-hidden-line:hover, .goals-hidden-line:focus-visible { color: #8fb4ff; text-decoration: underline; }
+.goals-hidden-line.is-dim { opacity: .5; }
+.goal-tree .goal-hidden-text { font-size: 12px; font-style: italic; fill: var(--muted); cursor: pointer; }
+.goal-tree .goal-hidden-text:hover, .goal-tree .goal-hidden-text:focus-visible { fill: #8fb4ff; text-decoration: underline; outline: none; }
 .goal-tree { display: block; user-select: none; transform-origin: 0 0; transition: transform .25s ease, opacity .25s ease; }
 .goal-tree.is-gliding { opacity: .35; }
 .goal-tree text { font-family: inherit; fill: var(--text); }
@@ -491,6 +499,9 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 @media (max-width: 760px) {
   .goals-split { flex-direction: column; }
   .goals-diagram, #goals-resizer, .goals-views [data-goals-view="outline"] { display: none; }
+  .goals-views .goals-bar-more { display: inline-block; }
+  .goals-hide-wrap { display: none; margin-left: 0; }
+  .goals-hide-wrap.is-open { display: flex; }
   .goals-outline { width: auto; }
   .goals-split.is-diagram-only .goals-diagram { display: block; }
   .goals-split.is-diagram-only .goals-outline { display: none; }
