@@ -108,7 +108,7 @@ export const DEFAULTS = {
 /** B354: one kind of work of the settings, its paths inside the project. */
 const isKind = one => one !== null && typeof one === 'object' && !Array.isArray(one)
   && typeof one.kind === 'string' && /^[A-Za-z][A-Za-z0-9 -]{0,39}$/.test(one.kind.trim())
-  && ['done', 'reference'].every(key => typeof one[key] === 'string' && INSIDE.test(one[key].trim()))
+  && ['done', 'reference'].every(key => typeof one[key] === 'string' && INSIDE.test(one[key].trim()) && !one[key].trim().split('/').includes('.'))
 const kindOf = one => ({ kind: one.kind.trim().replace(/\s+/g, ' '), done: one.done.trim(), reference: one.reference.trim() })
 /** B354: the kinds as a list, each once (by name, any case). */
 const isKinds = value => Array.isArray(value) && value.every(isKind) && new Set(value.map(one => kindOf(one).kind.toLowerCase())).size === value.length

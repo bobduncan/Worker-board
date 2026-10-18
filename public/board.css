@@ -1987,4 +1987,5 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
   .focus-goals li .focus-goal-title { flex: 1 1 auto; }
   .focus-goals li .focus-done-when:not(.is-asked) { display: none; }
   .focus-goals li > .goals-action, .focus-goals li .focus-done-when.is-asked { margin-left: auto; white-space: nowrap; }
+  .focus-goals li .focus-done-when.is-asked + .goals-action { margin-left: 0; }
 }

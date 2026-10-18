@@ -32,6 +32,9 @@ test('the settings name the kinds: each with its definition of done and referenc
   assert.ok(configProblem(JSON.stringify({ kinds: 'creature' })).startsWith(wants))
   assert.ok(configProblem(JSON.stringify({ kinds: [{ kind: 'creature', done: 'C:/x.md', reference: 'art' }] })).startsWith(wants))
   assert.ok(configProblem(JSON.stringify({ kinds: [{ kind: '', done: 'a.md', reference: 'art' }] })).startsWith(wants))
+  // The second review: a "." folder never opens a picture, so it is no reference folder.
+  assert.ok(configProblem(JSON.stringify({ kinds: [{ kind: 'creature', done: 'a.md', reference: 'art/./refs' }] })).startsWith(wants))
+  assert.ok(configProblem(JSON.stringify({ kinds: [{ kind: 'creature', done: 'a.md', reference: '.' }] })).startsWith(wants))
   assert.ok(configProblem(JSON.stringify({ kinds: [KINDS[0], { ...KINDS[1], kind: 'Creature' }] })).startsWith(wants))
 })
 
@@ -41,6 +44,7 @@ test('a text names a kind by its name or its plural, as whole words in any case'
   assert.deepEqual(kindsNamed('Level up the leveling of creatures.', KINDS).map(one => one.kind), ['creature', 'level'])
   // The review: not inside a compound or a path; a y after a consonant takes ies.
   assert.deepEqual(kindsNamed('A high-level plan for art/levels/forest.png and menu-pieces.md', KINDS), [])
+  assert.deepEqual(kindsNamed('An _italic_ _level_', KINDS).map(one => one.kind), ['level'])
   assert.deepEqual(kindsNamed('Two enemies and a key', [{ kind: 'enemy', done: 'd.md', reference: 'r' }, { kind: 'key', done: 'd.md', reference: 'r' }]).map(one => one.kind), ['enemy', 'key'])
   assert.deepEqual(kindsNamed('The board\'s levelled menu', KINDS), [])
   assert.deepEqual(kindsNamed('Anything', []), [])

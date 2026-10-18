@@ -234,7 +234,8 @@ async function pick(body, before, ctx, goalsAt) {
       const added = addGoal(out, { parent: null, after: null, title: line, id })
       if (!added.ok) return added
       // B354: a new goal has no Done when yet: it waits in the map, not as the focus, while the partner writes one. The
-      // review: the person's words longer than its title stay under it, for the talk once it is picked.
+      // review: the person's words longer than its title stay under it (a note's first 300 characters; the partner's
+      // word carries them whole), for the talk once it is picked.
       const words = oneLine(body.text, 2000)
       const noted = words === line ? added : addGoalNote(added.text, id, `In your words: ${words}`)
       return noted.ok ? { ok: true, text: raiseLastLine(noted.text, id) } : noted

@@ -14,7 +14,7 @@ function namePattern(kind) {
   const words = kind.trim().split(/\s+/)
   const last = words.pop()
   const plural = /[^aeiou]y$/i.test(last) ? `${escape(last.slice(0, -1))}(?:y|ies)` : `${escape(last)}(?:s|es)?`
-  return new RegExp(`(?<![\\w/.-])${[...words.map(escape), plural].join('[\\s-]+')}(?![\\w/-]|\\.\\w)`, 'i')
+  return new RegExp(`(?<![A-Za-z0-9/.-])${[...words.map(escape), plural].join('[\\s-]+')}(?![A-Za-z0-9/-]|\\.\\w)`, 'i')
 }
 
 /** The kinds of the settings (`kinds`) a text names, in the settings' order. */
