@@ -354,7 +354,7 @@ async function main(args) {
   const boards = isDemo || config.project === '' ? null : boardsFile()
   const asked = { port: config.port, gamePort: config.gamePort }
   // The project as a whole path: the list is the PC's, read from every board's folder.
-  const home = config.project === '' ? null : resolve(config.project)
+  const home = config.project === '' ? null : resolve(HERE, config.project)
   const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner(), project: home, gamePort: config.gamePort, boards })
   config.port = chosen.port
   if (chosen.gamePort !== undefined) config.gamePort = chosen.gamePort

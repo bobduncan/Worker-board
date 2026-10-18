@@ -50,7 +50,7 @@ async function main(args) {
   // B319: with the PC's list of boards, as the server reads it: another project's board may hold the configured port.
   const isDemo = passed.includes('--demo')
   const boards = isDemo || !config.project ? null : boardsFile()
-  const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project || null, gamePort: config.gamePort, boards })
+  const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project ? resolve(HERE, config.project) : null, gamePort: config.gamePort, boards })
   const url = `http://${HOST}:${port}/`
   if (await boardAt(port)) {
     if (!isQuiet) console.log(`The worker board runs already: ${url}`)
