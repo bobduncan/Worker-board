@@ -239,7 +239,7 @@ export function configProblem(fileText) {
   if (has('morningRound') &&!(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
-  if (has('advisorParts') && !isAdvisorParts(raw.advisorParts)) return wrong('advisorParts', `a list of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
+  if (has('advisorParts') && !(isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0)) return wrong('advisorParts', `a list of one or more of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
   if (has('cpuLimit') && !(typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase()))) return wrong('cpuLimit', '"off", "gentle" or "strong"')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   return null

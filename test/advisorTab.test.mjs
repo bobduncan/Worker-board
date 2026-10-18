@@ -89,7 +89,17 @@ test('Focus 1: the tab bar shows Focus, Goals and Brainstorm by default; advisor
   assert.deepEqual(shown([]), ['focus', 'goals', 'brainstorm'])
   // The bar hides what is not shown; a part opened from elsewhere (the Advisor's chat from its card) still opens.
   assert.match(script, /button\.hidden = !parts\.includes\(button\.dataset\.advisorPane\)/)
-  assert.match(script, /const pane = ADVISOR_PANES\.includes\(name\) \? name : 'focus'/)
+  assert.match(script, /const pane = ADVISOR_PANES\.includes\(name\) \? name : advisorFirstPart\(board\?\.advisorParts\)/)
+})
+
+test('Focus 2, the review\'s findings: an unknown part, and the way back to the tab, open the first part the setting shows', () => {
+  const first = {}
+  vm.runInNewContext(`${script.slice(script.indexOf('// focus:start'), script.indexOf('// focus:end'))}\nObject.assign(this, { advisorFirstPart })`, first)
+  assert.equal(first.advisorFirstPart(undefined), 'focus')
+  assert.equal(first.advisorFirstPart(['goals', 'brainstorm']), 'goals')
+  assert.equal(first.advisorFirstPart(['chat', 'refine']), 'refine')
+  assert.match(script, /dataset\.pane === 'goals'\) showAdvisorPane\(advisorFirstPart\(board\?\.advisorParts\)\)/)
+  assert.doesNotMatch(script, /showAdvisorPane\('focus'\)/)
 })
 
 test('Focus 1: the setting advisorParts is a list of the parts\' names; anything else is named as broken', async () => {
@@ -97,6 +107,8 @@ test('Focus 1: the setting advisorParts is a list of the parts\' names; anything
   assert.deepEqual(parseConfig('{}', {}).advisorParts, ['focus', 'goals', 'brainstorm'])
   assert.deepEqual(parseConfig(JSON.stringify({ advisorParts: ['focus', 'goals', 'brainstorm', 'chat'] }), {}).advisorParts, ['focus', 'goals', 'brainstorm', 'chat'])
   assert.equal(configProblem(JSON.stringify({ advisorParts: ['focus', 'chat'] })), null)
-  assert.equal(configProblem(JSON.stringify({ advisorParts: 'chat' })), '"advisorParts" must be a list of the Focus tab\'s parts: focus, way, goals, brainstorm, plan, suggestions, refine, chat, not "chat"')
-  assert.equal(configProblem(JSON.stringify({ advisorParts: ['talk'] })), '"advisorParts" must be a list of the Focus tab\'s parts: focus, way, goals, brainstorm, plan, suggestions, refine, chat, not ["talk"]')
+  assert.equal(configProblem(JSON.stringify({ advisorParts: 'chat' })), '"advisorParts" must be a list of one or more of the Focus tab\'s parts: focus, way, goals, brainstorm, plan, suggestions, refine, chat, not "chat"')
+  assert.equal(configProblem(JSON.stringify({ advisorParts: ['talk'] })), '"advisorParts" must be a list of one or more of the Focus tab\'s parts: focus, way, goals, brainstorm, plan, suggestions, refine, chat, not ["talk"]')
+  // An empty list is named too, not replaced by the default without a word.
+  assert.equal(configProblem(JSON.stringify({ advisorParts: [] })), '"advisorParts" must be a list of one or more of the Focus tab\'s parts: focus, way, goals, brainstorm, plan, suggestions, refine, chat, not []')
 })

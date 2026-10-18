@@ -6386,7 +6386,7 @@ window.addEventListener('popstate', () => {
     const tab = tabOfAddress(location.hash)
     if (tab === null) return
     show(tab)
-    if (tab === 'advice' && $('view-advice').dataset.pane === 'goals') showAdvisorPane('focus')
+    if (tab === 'advice' && $('view-advice').dataset.pane === 'goals') showAdvisorPane(advisorFirstPart(board?.advisorParts))
     return
   }
   goalsFocus = focus
@@ -6411,6 +6411,11 @@ const ADVISOR_PARTS_USUAL = ['focus', 'goals', 'brainstorm']
 function advisorPartsShown(setting) {
   const named = Array.isArray(setting) ? ADVISOR_PANES.filter(pane => setting.includes(pane)) : []
   return named.length > 0 ? named : [...ADVISOR_PARTS_USUAL]
+}
+
+/** The part the tab opens on when none is named, or one it does not know: the first its bar shows. */
+function advisorFirstPart(setting) {
+  return advisorPartsShown(setting)[0]
 }
 
 /** The words on a button of a later part: drawn, not yet working. */
@@ -6526,7 +6531,7 @@ function goalStepIds(goals, id) {
 }
 // focus:end
 function showAdvisorPane(name) {
-  const pane = ADVISOR_PANES.includes(name) ? name : 'focus'
+  const pane = ADVISOR_PANES.includes(name) ? name : advisorFirstPart(board?.advisorParts)
   $('view-advice').dataset.pane = pane
   for (const button of $('advisor-tabs').querySelectorAll('[data-advisor-pane]')) button.setAttribute('aria-pressed', String(button.dataset.advisorPane === pane))
   if (pane === 'chat') $('messages').scrollTop = $('messages').scrollHeight
