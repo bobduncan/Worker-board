@@ -14,7 +14,7 @@
 // that browser is closed in the same run, also when it fails (B266).
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, extname, join, resolve } from 'node:path'
@@ -143,7 +143,8 @@ function closeLeft(child, profile) {
     else child.kill('SIGKILL')
   }
   if (process.platform !== 'win32') return
-  const query = `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${profile.replace(/'/g, "''")}') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
+  // Never this PowerShell itself, whose own command line holds the profile's path too.
+  const query = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('user-data-dir=${profile.replace(/'/g, "''")}') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
   spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { stdio: 'ignore' })
 }
 
@@ -185,7 +186,11 @@ export async function renderEvidence({ browser = findBrowser(), step, title = ''
     })
     socket.addEventListener('close', () => { for (const [, answer] of waiting) answer({ error: { message: 'The browser went away or took too long.' } }); waiting.clear() })
     const send = (method, params = {}) => new Promise(answer => { const n = ++id; waiting.set(n, answer); socket.send(JSON.stringify({ id: n, method, params })) })
-    const loaded = new Promise(done => socket.addEventListener('message', event => { if (JSON.parse(event.data).method === 'Page.loadEventFired') done() }))
+    const loaded = new Promise((done, fail) => {
+      socket.addEventListener('message', event => { if (JSON.parse(event.data).method === 'Page.loadEventFired') done() })
+      socket.addEventListener('close', () => fail(new Error('The browser went away or took too long.')))
+    })
+    loaded.catch(() => {})
     await send('Page.enable')
     await send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false })
     await send('Page.navigate', { url: pathToFileURL(page).href })
@@ -220,6 +225,13 @@ async function main() {
   console.log(`saved ${done.out} (${done.layout.width}x${done.layout.height})`)
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+/** Whether this file is the command that was run: the same file, whatever path or letter case named it. */
+function isCommand() {
+  if (process.argv[1] === undefined) return false
+  const same = path => { const real = realpathSync(resolve(path)); return process.platform === 'win32' ? real.toLowerCase() : real }
+  try { return same(process.argv[1]) === same(fileURLToPath(import.meta.url)) } catch { return false }
+}
+
+if (isCommand()) {
   main().catch(error => { console.error(error.message); process.exit(1) })
 }
