@@ -18,13 +18,15 @@ import { storeFault } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
 import { openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
+import { openNaming, renamedItem } from './names.mjs'
+import { readNamesFile, writeNames } from './store.mjs'
 import { writeView } from './view.mjs'
 
 // B300: kept here for those who import them from the API.
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'rename'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
 const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull'])
 /** What only the person does, on the board's page; and what only the server does. */
@@ -38,6 +40,7 @@ const ROLES = {
   refine: ['advisor', 'main'],
   requeue: ['main', 'person'],
   unqueue: ['main', 'person'],
+  rename: ['main', 'person', 'server'],
 }
 /** The order of a chat's own steps in `next`: what it works on first. */
 const MINE = ['in progress', 'waiting on you', 'taken', 'review', 'queued']
@@ -1148,6 +1151,40 @@ async function advance(body, w) {
   return done.ok ? changed(ordered(moved.item)) : done
 }
 
+/**
+ * B313: a chat goes on under a new name: every open item naming `from` (a step not done or dropped, an open ask, an open
+ * instruction, an unread note, a queue asked before the refine) names `to`, one History line each. The board does it
+ * when it sees a session renamed (`same`: "(same chat)", src/work/rename.mjs); the main chat and the person for a rename
+ * the board could not see (a chat replaced by a new one). Theirs also clears the board's held line for `from`.
+ */
+async function rename(body, w) {
+  const from = line(body.from, 80)
+  const to = line(body.to, 80)
+  if (from === '' || to === '') return refuse(400, 'Name the old name in "from" and the new one in "to".')
+  if (plain(from, w.prefix) === plain(to, w.prefix)) return refuse(400, `${from} and ${to} are one name.`)
+  const same = body.same === true && w.role === 'server' ? ' (same chat)' : ''
+  const moved = []
+  const failed = []
+  for (const id of openNaming(w.store.items, from, w.prefix)) {
+    const found = await load(id, w)
+    const next = found.ok ? renamedItem(found.item, from, to, w.prefix) : null
+    if (!found.ok) failed.push(found.why)
+    if (next === null) continue
+    const done = await save(said(next, w, `${from} renamed to ${to}${same}`), found.text, w)
+    if (done.ok) moved.push(id)
+    else failed.push(done.why)
+  }
+  if (w.role !== 'server') {
+    const names = await readNamesFile(w.dir, w.fs)
+    const held = names.record.held.filter(one => plain(one.from, w.prefix) !== plain(from, w.prefix))
+    if (held.length !== names.record.held.length) await writeNames(w.dir, { ...names.record, held }, w.fs, { expected: names.text })
+  }
+  const unknown = w.role === 'main' && (w.roleOf?.(to) ?? null) === null ? ` ${to} is no chat of the list yet.` : ''
+  const text = moved.length + failed.length === 0 ? `Nothing open names ${from}.`
+    : `${from} renamed to ${to}: ${moved.length === 0 ? 'nothing' : moved.join(', ')} moved.${failed.length === 0 ? '' : ` Not moved: ${failed.join(' ')}`}${unknown}`
+  return { ok: true, result: { text, moved, failed, changed: moved.length > 0 } }
+}
+
 const CHANGE = {
   take, step, ask, withdraw, note, report, check, recheck, new: make, queue, requeue, unqueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
@@ -1158,4 +1195,5 @@ const CHANGE = {
   delete: remove,
   'refine-answer': refineText,
   'refine-accept': refineText,
+  rename,
 }
