@@ -34,6 +34,22 @@ Codex (pictures on the Design tab), an advisor chat. `examples\` holds a startin
 default flow of the work (`work\flow.json`) with a few example items, the form of the backlog view (`backlog.md`),
 and the briefings for the main chat and the workers.
 
+## Install with one command (Windows)
+
+Paste this into PowerShell (B321):
+
+```powershell
+irm https://raw.githubusercontent.com/bobduncan/Worker-board/main/tools/install.ps1 | iex
+```
+
+It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node and
+git with winget (without the Claude app it says where to get it and stops). Then it gets the board into a folder you
+choose (`worker-board` in your home folder unless you say otherwise), installs the Workers mod (step 3 below), and
+asks your first project's name, folder and chats' prefix: the project, its own board and its icon on the desktop are
+made, and its board opens (see "A new project in one click"). Run it again at any time: it checks what is there and
+redoes nothing; with a project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1` before the command
+only checks. The steps below do the same by hand.
+
 ## From nothing to a running board
 
 `<project>` is your project's folder, `<prefix>` the start of every chat title of the project, for example

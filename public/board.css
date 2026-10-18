@@ -1842,3 +1842,42 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .new-project-buttons button { padding: 8px 16px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
 .new-project-buttons .new-project-make { border-color: transparent; background: var(--free); color: #fff; font-weight: 600; }
 .new-project-buttons button:disabled { opacity: 0.55; cursor: default; }
+
+/* B327: the Overview opens on a simple view: the title, one bar for the focus goal, two chips and Needs your attention,
+   in one column. Details is today's Overview, unchanged; the switch beside the title picks, and this browser keeps it. */
+.overview-mode { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 13px; color: var(--muted, #8b98ad); }
+.overview-mode button { padding: 2px 4px; font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-decoration: underline; }
+.overview-mode button[aria-pressed="true"] { font-weight: 700; color: var(--text, #e8eef7); text-decoration: none; cursor: default; }
+.simple-bar { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; margin: 4px 0 6px; }
+.simple-line { font-size: 16px; }
+.simple-track { height: 8px; border-radius: 4px; background: #1d2636; overflow: hidden; }
+.simple-track > span { display: block; height: 100%; background: #3fbf6a; border-radius: 4px; }
+.simple-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.simple-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 13px; font-weight: 600; border: 1px solid var(--line, #263247); border-radius: 8px; }
+.simple-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #5d6b80; }
+.simple-chip.is-busy .dot { background: #3fbf6a; }
+.simple-chip.is-warn { border-color: #b8862b; }
+.simple-chip.is-full { border-color: #c0483f; color: #ffb3a8; }
+.simple-none { margin: 0; color: var(--muted, #8b98ad); }
+#view-overview[data-mode="details"] #simple-bar { display: none; }
+#view-overview[data-mode="simple"]:not([hidden]) { display: block; width: min(860px, 100%); margin: 0 auto; overflow-y: auto; }
+#view-overview[data-mode="simple"] .overview { overflow: visible; padding-bottom: 8px; }
+#view-overview[data-mode="simple"] .head { flex-wrap: wrap; }
+#view-overview[data-mode="simple"] #main-game,
+#view-overview[data-mode="simple"] #limits,
+#view-overview[data-mode="simple"] #counts,
+#view-overview[data-mode="simple"] #restart,
+#view-overview[data-mode="simple"] #workers-panel,
+#view-overview[data-mode="simple"] #phone-more,
+#view-overview[data-mode="simple"] #today,
+#view-overview[data-mode="simple"] #folders,
+#view-overview[data-mode="simple"] #inbox-resizer,
+#view-overview[data-mode="simple"] #info-resizer,
+#view-overview[data-mode="simple"] #information,
+#view-overview[data-mode="simple"] .side-tab[data-side="main"],
+#view-overview[data-mode="simple"] #side-main { display: none !important; }
+/* Its heading with the count stays: "Needs your attention 2", as the tab on its own, always the shown one. */
+#view-overview[data-mode="simple"] .side-tabs { padding-left: 0; border-bottom: 0; }
+#view-overview[data-mode="simple"] .side-tab[data-side="needs"] { color: var(--text); background: var(--panel); border-bottom-color: var(--free); pointer-events: none; }
+#view-overview[data-mode="simple"] .inbox { border: 0; background: none; }
+#view-overview[data-mode="simple"] #side-needs { display: flex !important; }

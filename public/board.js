@@ -488,9 +488,66 @@ $('update-note').addEventListener('click', async () => {
 
 // The top bar
 
+/** B327: the Overview's simple view: the bar and its chips, and which view is up (Simple or Details). */
+function drawSimpleOverview(state) {
+  const view = simpleView({ focus: state.focus ?? null, counts: state.counts ?? {}, limits: state.limits ?? null })
+  const parts = []
+  if (view.bar !== null) {
+    const line = el('div', 'simple-line')
+    line.title = view.bar.title
+    line.append(el('b', '', view.bar.text))
+    parts.push(line)
+    if (view.bar.percent !== null) {
+      const track = el('div', 'simple-track')
+      const fillBar = el('span', '')
+      fillBar.style.width = `${view.bar.percent}%`
+      track.append(fillBar)
+      parts.push(track)
+    }
+  } else {
+    parts.push(el('p', 'simple-none', 'No goal is your focus yet: pick one on the Focus tab.'))
+  }
+  const chips = el('div', 'simple-chips')
+  const busy = el('span', `simple-chip${view.busy.isBusy ? ' is-busy' : ''}`)
+  busy.append(el('span', 'dot'), view.busy.text)
+  chips.append(busy)
+  if (view.limit !== null) chips.append(el('span', `simple-chip is-${view.limit.tone}`, view.limit.text))
+  parts.push(chips)
+  fill($('simple-bar'), parts)
+  showOverviewMode()
+}
+
+/**
+ * B327: puts the Overview in the view the person chose and marks the switch: `chosen` when a click chose it (it holds
+ * for this visit even where the browser keeps nothing), else the one this browser kept, else Simple.
+ */
+function showOverviewMode(chosen = null) {
+  let stored = null
+  try { stored = localStorage.getItem('overview-mode') } catch { /* a browser without storage shows Simple */ }
+  const mode = overviewMode(chosen ?? overviewChosen ?? stored)
+  $('view-overview').dataset.mode = mode
+  for (const button of document.querySelectorAll('[data-overview-mode]')) {
+    button.setAttribute('aria-pressed', String(button.dataset.overviewMode === mode))
+  }
+}
+
+/** The view chosen by a click in this visit (null: none yet), so it holds where the browser keeps nothing. */
+let overviewChosen = null
+$('overview-mode').addEventListener('click', event => {
+  const button = event.target.closest('[data-overview-mode]')
+  if (button === null) return
+  overviewChosen = overviewMode(button.dataset.overviewMode)
+  try { localStorage.setItem('overview-mode', overviewChosen) } catch { /* kept for this visit only */ }
+  showOverviewMode(overviewChosen)
+})
+// The chosen view from the start, before the board is first read.
+showOverviewMode()
+
 function drawTop(state) {
   const updated = $('updated')
   updated.textContent = `Last updated ${clock(state.readAt)}${state.isDemo ? ' · demo data' : ''}`
+  // B327: a failure in the simple view must not stop the rest of the board from drawing
+  try { drawSimpleOverview(state) } catch (error) { console.error('[board] the simple view:', error) }
   $('version').textContent = versionLine(state.version)
   updated.classList.remove('is-stale')
   // B307: "0 waiting for you" goes; the yellow count shows when something waits.
@@ -854,6 +911,54 @@ function infoHeightFit(height, room) {
   return Math.round(Math.max(90, Math.min(height, room - 120)))
 }
 // calmoverview:end
+
+// simpleoverview:start
+// B327: the Overview opens on a simple view (the person's four answers of 2026-10-18, brainstorm "Board easier day to
+// day"): one bar for the focus goal, how many workers are busy, the
+// 5-hour limit with its reset, and Needs your attention. Today's Overview is one click away under Details.
+
+/**
+ * What the simple view's bar and chips say. `focus`: the state's (null: none); `counts`: the head's counts (state.counts);
+ * `limits`: the state's. `bar`: the focus goal's steps done and the time left, counted as the Focus page counts them
+ * (focusView: once the run has started); before that, which stage the goal is in, without a count (`percent` null); null
+ * without a focus (B328 counts the next milestone then). `busy`: "4 of 5 workers busy". `limit`:
+ * the 5-hour limit's use and its reset, or null when nothing is known of it.
+ */
+function simpleView({ focus = null, counts = {}, limits = null } = {}, now = Date.now()) {
+  let bar = null
+  if (focus !== null && focus !== undefined && focus.stage !== 'run' && focus.stage !== 'done') {
+    // the Focus page shows no progress before the run either
+    const doing = focus.stage === 'how' ? 'agreeing the how' : 'agreeing the vibe'
+    bar = { text: `Focus ${focus.id} · ${doing}`, percent: null, title: `${focus.id} · ${focus.title}` }
+  } else if (focus !== null && focus !== undefined) {
+    const progress = focus.progress ?? { done: 0, total: 0, minutesLeft: null }
+    const { done, total } = progress
+    const left = focus.stage === 'done' ? null : focusTimeLeft(progress.minutesLeft)
+    bar = {
+      text: `Focus ${focus.id} · ${done} of ${total} steps done${left === null ? '' : ` · about ${left} left`}`,
+      percent: total === 0 ? 0 : Math.round((done / total) * 100),
+      title: `${focus.id} · ${focus.title}`,
+    }
+  }
+  const all = Object.values(counts ?? {}).reduce((sum, n) => sum + (Number.isFinite(n) ? n : 0), 0)
+  const busy = counts?.working ?? 0
+  const five = limits?.fiveHour ?? null
+  let limit = null
+  if (five !== null) {
+    const full = five.level === 'full'
+    const reset = five.resetAt !== null && five.resetAt !== undefined ? ` · reset at ${clock(five.resetAt)}`
+      : five.resetsAt === null || five.resetsAt === undefined ? '' : ` · ${full ? 'work goes on at' : 'resets'} ${clock(five.resetsAt)}`
+    limit = { text: `5-hour ${full ? 'limit reached' : `${Math.round(five.used)}%`}${reset}`, tone: five.level }
+  }
+  void now
+  return { bar, busy: { text: `${busy} of ${all} workers busy`, isBusy: busy > 0 }, limit }
+}
+
+/** The Overview's view: the person's choice kept in this browser, Simple unless they chose Details. */
+function overviewMode(stored) {
+  return stored === 'details' ? 'details' : 'simple'
+}
+// simpleoverview:end
 
 /**
  * B82: the topic the chat recorded for its task. A chat that recorded nothing has no words to show: what was typed to
@@ -8702,9 +8807,10 @@ function coordinateFinds(step, find) {
  */
 function coordinateList(activities, { filter = 'all', find = '', showDone = false, asOne = false, hideBusy = false, goal = null } = {}) {
   const counts = {}
-  // Focus 1: only the steps behind a goal (`goal`: their ids), its finished ones too: the whole of it.
+  // Focus 1: only the steps behind a goal (`goal`: their ids). B325: its finished ones only with "Show finished", as
+  // without a goal (the user, 2026-10-18: "the show finished checkbox doesnt work if you have a goal in the filter").
   const isOfGoal = step => goal === null || (typeof step.id === 'string' && goal.includes(step.id))
-  const withDone = showDone || goal !== null
+  const withDone = showDone
   for (const [name] of COORDINATE_FILTERS) counts[name] = 0
   const groups = []
   let shown = 0
