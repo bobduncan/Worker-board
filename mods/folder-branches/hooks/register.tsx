@@ -834,7 +834,8 @@ const WORK_TOOL = {
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "questions") and "refined" ("id", "what"): '
     + 'the Advisor. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
     + 'the partner (the Advisor) keeps its draft of the focus goal\'s vibe and how on the board; each call takes the place '
-    + 'of the draft the goal had. "list": every item.',
+    + 'of the draft the goal had. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old '
+    + 'name of a chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -854,7 +855,7 @@ const WORK_TOOL = {
       advice: { type: 'string', description: 'ask: the option you advise, in a few words ("B").' },
       pictures: { type: 'array', items: { type: 'string' }, description: 'ask: pictures to look at, as paths in the project.' },
       play: { type: 'string', description: "ask: where to play it, as the board's play link names it." },
-      to: { type: 'string', enum: ['you', 'main'], description: 'note: the person or the main chat.' },
+      to: { type: 'string', description: "note: you (the person) or main (the main chat). rename: the chat's new name." },
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
       merged: { type: 'string', description: 'report: the commit it was merged with.' },
       on: { type: 'string', description: 'block, unblock: the step it waits on; unblock without it clears Waits for.' },
@@ -877,6 +878,7 @@ const WORK_TOOL = {
       youDecide: { type: 'array', items: { type: 'string' }, description: 'how-draft: what you bring to the person, one per line.' },
       decided: { type: 'array', items: { type: 'string' }, description: 'note of a goal (the daily note): what you decided for the person, one short line each.' },
       needs: { type: 'array', items: { type: 'string' }, description: 'note of a goal (the daily note): the ids of your open asks that need the person (Q12).' },
+      from: { type: 'string', description: "rename: the chat's old name." },
     },
     required: ['action'],
   },

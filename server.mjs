@@ -59,6 +59,7 @@ import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor } from './src/work/deliver.mjs'
+import { followRenames } from './src/work/rename.mjs'
 import { storeKeeper } from './src/work/read.mjs'
 import { readStore } from './src/work/store.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -1153,6 +1154,15 @@ async function main(args) {
       isReconciling = true
       try {
         const state = await readState()
+        // B313: a chat renamed (its session under another name) takes its open items along, once.
+        const renamed = await followRenames({
+          dir: workDir, chats: [...(state.chats ?? []), ...(state.advisor ? [state.advisor] : [])].map(chat => ({ session: chat.session, name: chat.name })),
+          apply: body => workAction(body, 'server'), now: clock(), prefix: state.chatPrefix ?? '',
+        })
+        if (renamed.moved.length > 0) {
+          work.reset?.()
+          readState.reset()
+        }
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,

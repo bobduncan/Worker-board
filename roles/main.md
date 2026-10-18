@@ -90,6 +90,7 @@ You decide this, not the user. For every task:
   types one line into the worker's chat, "work: B<id> is yours; run work next", and the worker reads the step with
   `work next`. A worker that ends a turn with nothing in progress asks the board itself; a worker that is not running
   is started through you (the board types `start "<name>"` into you).
+- A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
   project's picture folder first). The title is the "in short" line: 5 to 10 words of your own, starting with a verb.
