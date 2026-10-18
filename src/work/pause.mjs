@@ -8,8 +8,12 @@ import { sinceMs, valueOf } from './item.mjs'
 
 export const PAUSE_FILE = 'pause.json'
 export const PAUSE_STATES = ['pausing', 'resuming', 'running']
-/** The states of a step a chat holds for the pause: it carries a checkpoint before a restart, and is resumed after. */
-export const HOLDING = ['taken', 'in progress']
+/**
+ * The states of a step a chat holds, as the work API holds it (the review of part 1): it carries a checkpoint before a
+ * restart, and is resumed after. A chat in the app's question form (waiting on you) or with its step in review holds
+ * uncommitted work too.
+ */
+export const HELD = ['taken', 'in progress', 'waiting on you', 'review']
 const SEP = ' · '
 
 const two = n => String(n).padStart(2, '0')
@@ -55,14 +59,14 @@ const plain = (name, prefix = '') => {
   return words.trim().toLowerCase()
 }
 
-/** Whether a checkpoint was written at or after `since` (to the second it is written with). */
-const isSince = (checkpoint, since) => checkpoint !== null && Number.isFinite(checkpoint?.at) && Number.isFinite(since) && checkpoint.at >= Math.floor(since / 1000) * 1000
+/** Whether a checkpoint was written at or after `since`, to the millisecond (one in the pause's own second counts not). */
+const isSince = (checkpoint, since) => checkpoint !== null && Number.isFinite(checkpoint?.at) && Number.isFinite(since) && checkpoint.at >= since
 
-/** The steps held (taken or in progress) by a chat, in id order: `{ id, chat, checkpoint }`, `chat` without the prefix. */
+/** The steps a chat holds (`HELD`), in id order: `{ id, chat, checkpoint }`, `chat` without the prefix. */
 export function holdersOf(items, prefix = '') {
   const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
   return [...(items?.values?.() ?? [])]
-    .filter(item => valueOf(item, 'Kind') === 'step' && HOLDING.includes(valueOf(item, 'State')) && (valueOf(item, 'Owner') ?? '') !== '')
+    .filter(item => valueOf(item, 'Kind') === 'step' && HELD.includes(valueOf(item, 'State')) && (valueOf(item, 'Owner') ?? '') !== '')
     .map(item => ({ id: valueOf(item, 'Id'), owner: valueOf(item, 'Owner'), checkpoint: checkpointOf(item) }))
     .sort((a, b) => byId(a.id, b.id))
     .map(({ id, owner, checkpoint }) => {
@@ -71,8 +75,15 @@ export function holdersOf(items, prefix = '') {
     })
 }
 
-/** A lane runs a turn now: working, and not only between two turns (held by its card or a background task). */
-const runsTurn = lane => lane?.state === 'working' && (lane.between ?? null) === null
+/**
+ * A lane may still change its work (the review of part 1): it runs a turn; background work it started still runs
+ * (`heldBy` background); the board cannot read it (unknown); or its transcript shows a turn open behind a "suspended"
+ * that may be stale (`isTurnOpen`). A lane whose process is not running, or that was cut off, changes nothing.
+ */
+const runsTurn = lane => {
+  if (lane === undefined || lane.state === 'off' || lane.state === 'interrupted') return false
+  return (lane.state === 'working' && (lane.between ?? null) === null) || lane.heldBy === 'background' || lane.state === 'unknown' || lane.isTurnOpen === true
+}
 
 /** A holder's lane has started a turn since `since`: it runs one now, or its last turn began after then. */
 const hasStarted = (lane, since) => lane !== undefined && (runsTurn(lane) || (Number.isFinite(lane.turnAt) && Number.isFinite(since) && lane.turnAt >= since))
@@ -80,9 +91,10 @@ const hasStarted = (lane, since) => lane !== undefined && (runsTurn(lane) || (Nu
 /**
  * What the board says of a pause, from facts (spec point 4): `lanes` are the board's chats (`{ name, isMain, state,
  * between, turnAt, session, appSession }`). Null without pause.json. Pausing: `working` (chats running a turn now),
- * `unsaved` (`{ chat, id }`: a step held with no checkpoint since the pause), `isSafe` when both are empty. Resuming:
- * `waiting` (`{ chat, id }`: a holder that has not started a turn since the resume), `isResumed` when none is left.
- * Only steps of chats the board shows count: a chat that is not on the board can neither be waited for nor woken.
+ * `unsaved` (`{ chat, id }`: a step held with no checkpoint since the pause), `offBoard` (`{ chat, id, title }`: one held
+ * so by a chat the board does not show, named by its title), `isSafe` when all three are empty. Resuming: `waiting`
+ * (`{ chat, id }`: a holder on the board that has not started a turn since the resume), `isResumed` when none is left;
+ * a chat not on the board cannot be woken by its session, so it is not waited for (the person's End resume ends it).
  */
 export function pauseFacts({ pause, items, lanes = [], prefix = '' }) {
   if (pause === null || pause === undefined) return null
@@ -91,7 +103,9 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '' }) {
   if (pause.state === 'pausing') {
     const working = lanes.filter(runsTurn).map(lane => lane.name)
     const unsaved = holders.filter(holder => !isSince(holder.checkpoint, pause.since)).map(({ chat, id }) => ({ chat, id }))
-    return { state: 'pausing', since: pause.since, working, unsaved, isSafe: working.length === 0 && unsaved.length === 0 }
+    const offBoard = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) === undefined && !isSince(holder.checkpoint, pause.since))
+      .map(({ chat, id }) => ({ chat, id, title: `${prefix}${chat}` }))
+    return { state: 'pausing', since: pause.since, working, unsaved, offBoard, isSafe: working.length === 0 && unsaved.length === 0 && offBoard.length === 0 }
   }
   if (pause.state === 'resuming') {
     const waiting = holders.filter(holder => !hasStarted(laneOf(holder.chat), pause.since)).map(({ chat, id }) => ({ chat, id }))

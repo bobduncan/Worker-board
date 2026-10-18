@@ -9,7 +9,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { answer, step, typed } from '../fixtures/lines.mjs'
+import { answer, line, step, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
@@ -35,6 +35,12 @@ const ended = ago => ({ lines: [typed(NOW - (ago + 10) * MIN, 'Go on.'), step(NO
 /** A turn that runs: started `ago` minutes before now, a tool call a moment ago. */
 const running = ago => ({ lines: [typed(NOW - ago * MIN, 'Go on with your step.'), step(NOW - 10_000, 'Build')], at: NOW - 10_000 })
 
+/** A background task started in a turn and not finished: a Bash call run in the background, with its id. */
+const assistantRun = at => [
+  line({ type: 'assistant', timestamp: new Date(at).toISOString(), message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'bg-1', name: 'Bash', input: { command: 'npm run dev', run_in_background: true } }] } }),
+  line({ type: 'user', timestamp: new Date(at + 1_000).toISOString(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'bg-1', content: 'Command running in background with ID: b1abc. Output is being written to: x' }] } }),
+].join('\n')
+
 const NAMES = ['Main', 'Board', 'Support']
 /** Every chat's mod asked the board a moment ago: they run. */
 const ALL_RUN = { shown: { Main: NOW - 5_000, Board: NOW - 5_000, Support: NOW - 5_000 }, other: {} }
@@ -59,7 +65,7 @@ const MAIN = { name: 'Main', title: 'Game - Main', session: 'local_Main', isRunn
 
 test('pausing: the banner names who still runs a turn and who holds a step with no checkpoint since the pause', () => {
   const state = build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, tails: { Board: running(15) }, steps: [held('B269', 'Board'), held('B280', 'Support', PAUSED + 2 * MIN)] })
-  assert.deepEqual(state.pause, { state: 'pausing', since: PAUSED, working: ['Board'], unsaved: [{ chat: 'Board', id: 'B269' }], isSafe: false, main: MAIN, typedAt: null })
+  assert.deepEqual(state.pause, { state: 'pausing', since: PAUSED, working: ['Board'], unsaved: [{ chat: 'Board', id: 'B269' }], offBoard: [], isSafe: false, main: MAIN, typedAt: null })
 })
 
 test('pausing: safe to restart once no chat runs a turn and every step held has a checkpoint since the pause', () => {
@@ -117,20 +123,48 @@ test('the page: "Pausing since HH:MM: still working: ...; holding a step with no
   assert.deepEqual(pauseLinesOf(null), [])
 })
 
+const SESSION = 'local_84e3310d-5c34-43b7-a5f4-d59006c1d556'
+
 test('the page after Resume all: who has not started yet; "Open <main>" by its session when the main chat does not run', () => {
   const since = new Date(2026, 9, 18, 21, 30).getTime()
-  const resuming = { state: 'resuming', since, waiting: [{ chat: 'Board', id: 'B269' }], isResumed: false, main: { ...MAIN, isRunning: false }, typedAt: null }
+  const resuming = { state: 'resuming', since, waiting: [{ chat: 'Board', id: 'B269' }], isResumed: false, main: { ...MAIN, session: SESSION, isRunning: false }, typedAt: null }
   assert.deepEqual(pauseLinesOf(resuming), [
     { tone: '', text: 'Resuming since 21:30: not started yet: Board (B269).' },
-    { tone: 'alert', text: 'Game - Main is not running: open it; its Workers mod tells it whom to wake.', link: { label: 'Open Game - Main', href: 'claude://claude.ai/epitaxy/local_Main' } },
+    { tone: 'alert', text: 'Game - Main is not running: open it; its Workers mod tells it whom to wake.', link: { label: 'Open Game - Main', href: `claude://claude.ai/epitaxy/${SESSION}` } },
   ])
+  // Review 5: whether it runs is not known yet (no mod has asked the board since it started): said so, with the link.
+  assert.deepEqual(pauseLinesOf({ ...resuming, main: { ...resuming.main, isRunning: null } })[1].text, 'Whether Game - Main runs is not known yet: open it; its Workers mod tells it whom to wake.')
+  // Review 5: a session id that is no app id (local_ and a uuid) builds no link.
+  assert.equal(pauseLinesOf({ ...resuming, main: { ...resuming.main, session: 'local_Main' } })[1].link, undefined)
+  assert.equal(pauseLinesOf({ ...resuming, main: { ...resuming.main, session: 'local_84e3310d"><script>' } })[1].link, undefined)
   // The main chat runs: the board typed "resume" into it, as before.
   assert.deepEqual(pauseLinesOf({ ...resuming, main: MAIN, typedAt: since + 1_000 }), [
     { tone: '', text: 'Resuming since 21:30: not started yet: Board (B269).' },
     { tone: 'muted', text: 'Typed "resume" into Main at 21:30: it wakes each chat that holds a step.' },
   ])
   // No session known for the main chat: no link, only the words.
-  assert.deepEqual(pauseLinesOf({ ...resuming, main: { ...MAIN, isRunning: null, session: null } })[1], { tone: 'alert', text: 'Game - Main is not running: open it; its Workers mod tells it whom to wake.' })
+  assert.deepEqual(pauseLinesOf({ ...resuming, main: { ...MAIN, isRunning: false, session: null } })[1], { tone: 'alert', text: 'Game - Main is not running: open it; its Workers mod tells it whom to wake.' })
+})
+
+test('review 2: the page names a held step whose chat is not on the board, by its title', () => {
+  const since = new Date(2026, 9, 18, 21, 1).getTime()
+  const pausing = { state: 'pausing', since, working: [], unsaved: [], offBoard: [{ chat: 'Ghost', id: 'B2', title: 'Game - Ghost' }], isSafe: false, main: MAIN, typedAt: null }
+  assert.deepEqual(pauseLinesOf(pausing), [{ tone: '', text: 'Pausing since 21:01: held by a chat not on the board: B2 (Game - Ghost).' }])
+})
+
+test('review 2 and 3: the state names an off-board holder, and background work as working', () => {
+  const ghost = build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, steps: [held('B9', 'Ghost')] })
+  assert.deepEqual([ghost.pause.offBoard, ghost.pause.isSafe], [[{ chat: 'Ghost', id: 'B9', title: 'Game - Ghost' }], false])
+  const background = { lines: [typed(NOW - 30 * MIN, 'Go on.'), assistantRun(NOW - 25 * MIN), answer(NOW - 20 * MIN, 'Started the server.')], at: NOW - 20 * MIN }
+  const state = build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, steps: [], tails: { Board: background } })
+  assert.equal(state.chats.find(chat => chat.name === 'Board').heldBy, 'background')
+  assert.deepEqual(state.pause.working, ['Board'])
+})
+
+test('review 4: after a cycle (pause.json says running) "Resume all" for chats cut off shows again; review 5: End resume while resuming', () => {
+  assert.match(script, /\(pause === null \|\| pause\.state === 'running'\) && restart\.interrupted\.length > 0/)
+  assert.match(script, /button\('End resume', 'is-quiet', 'end-resume'\)/)
+  assert.match(script, /sendWork\(\{ action: 'end-resume' \}, 'restart'\)/)
 })
 
 test('the page: "Pause all" replaces "Prepare restart"; both switches write pause.json through the page\'s work API', () => {
