@@ -8,7 +8,7 @@ import test from 'node:test'
 import { answer, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { checkSay, workerState } from '../src/say.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN

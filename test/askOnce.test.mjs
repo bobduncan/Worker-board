@@ -12,14 +12,17 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const worker = (await readFile(join(ROOT, 'roles', 'worker.md'), 'utf8')).replace(/\s+/g, ' ')
 const main = (await readFile(join(ROOT, 'roles', 'main.md'), 'utf8')).replace(/\s+/g, ' ')
 
-test('a worker asks the user in its own chat and says in its report what it asked and where', () => {
+test('a worker asks the user with an ask of the work store and says in its report what it asked', () => {
   assert.match(worker, /Whoever asks the user asks once/)
-  assert.match(worker, /say in your report to the main chat in one line what you asked and where/)
-  assert.match(worker, /report to the main chat only: it puts the check to the user itself/)
+  assert.match(worker, /file it with `work ask` under your step/)
+  assert.match(worker, /say in your report in one line what you asked/)
+  assert.match(worker, /With nothing to ask, report only: the main chat puts the check to the user itself/)
+  // B301: the board reads no question from a chat's answer.
+  assert.match(worker, /The board reads no question from your answer/)
 })
 
 test('the main chat repeats nothing a worker asked; its "For you" holds its own questions and the checks of a worker that reported only to it', () => {
   assert.match(main, /Whoever asks the user asks once/)
   assert.match(main, /is not repeated in your "For you"/)
-  assert.match(main, /holds only your own questions and the checks of a worker that reported only to you/)
+  assert.match(main, /holds only your own questions and the checks of a worker that reported only to you, each an ask filed with `work ask`/)
 })

@@ -143,11 +143,40 @@ const highest = (values, prefix) => values.reduce((most, value) => Math.max(most
 export const nextGoalId = goals => `G${Math.max(highest(goals.nodes.map(one => one.id), 'G'), goals.lastGoal ?? 0) + 1}`
 export const nextAskId = goals => `A${Math.max(highest(goals.nodes.flatMap(one => one.asks.map(ask => ask.id)), 'A'), goals.lastAsk ?? 0) + 1}`
 
+/** B258: every ask in the map under its goal, in file order: `{ goal, goalTitle, ask }`. An id used twice is read once. */
+export const goalAskList = goals => [...goals.byId.values()].flatMap(node => node.asks.map(ask => ({ goal: node.id, goalTitle: node.title, ask })))
+
+/**
+ * B258: what waits for the person under "Needs your attention": an ask the Advisor answered that the person has not
+ * read yet (no "Read:" line), one need each; "Done" on the board marks it read.
+ */
+export const goalAskNeeds = goals => goalAskList(goals)
+  .filter(one => one.ask.answer !== null && one.ask.readAt === null)
+  .map(one => ({ kind: 'goal-ask', id: one.ask.id, goal: one.goal, goalTitle: one.goalTitle, title: `The Advisor answered your ask on ${one.goal} ${one.goalTitle}`, question: one.ask.text, at: one.ask.answer.at, approval: 'read' }))
+
 /** Done or open per backlog id; an id the backlog does not hold is absent. */
 function stepStates(backlog) {
   const states = new Map()
   for (const activity of backlog?.activities ?? []) for (const step of activity.steps) if (step.id !== null) states.set(step.id, step.isDone ? 'done' : 'open')
   return states
+}
+
+/**
+ * B289: the open steps of the backlog that no goal's "Steps:" line names, in the backlog's order, `{ id, title }`:
+ * what the Advisor still has to link to a goal. A step without an id cannot be named in a goal, and the Advisor's own
+ * suggestions (its group, the setting `advisorSuggestions`) are not work yet.
+ */
+export function unlinkedSteps(goals, backlog, suggestions = 'Advisor suggestions') {
+  const named = new Set(goals.nodes.flatMap(node => node.steps))
+  const seen = new Set()
+  return (backlog?.activities ?? []).filter(activity => (activity.name ?? '').trim().toLowerCase() !== suggestions.toLowerCase())
+    .flatMap(activity => activity.steps)
+    .filter(step => {
+      if (step.isDone || step.id === null || named.has(step.id) || seen.has(step.id)) return false
+      seen.add(step.id)
+      return true
+    })
+    .map(step => ({ id: step.id, title: step.title }))
 }
 
 /**

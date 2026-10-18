@@ -1,16 +1,20 @@
-// B221: the person closes or deletes a backlog step from the board's Backlog tab. Close ticks it and keeps it in the
-// file as history; Delete takes it and its lines out; both only on the board that delivers, only from its own page.
-// Made-up samples only.
+// B221: the person closes or deletes a backlog step from the board's Backlog tab. Close ticks it and keeps it as
+// history; Delete takes it out; both only on the board that delivers, only from its own page. B301: both change the
+// work store through its API, and backlog.md follows as its view. Made-up samples only.
 
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { createBoard } from '../server.mjs'
-import { deleteStep, editStep } from '../src/tick.mjs'
+import { editStep } from '../src/tick.mjs'
+import { valueOf } from '../src/work/item.mjs'
+import { migrateBacklog } from '../src/work/migrate.mjs'
+import { readStore, writeStore } from '../src/work/store.mjs'
 
 const BACKLOG = [
   '# Backlog\r\n',
@@ -23,62 +27,62 @@ const BACKLOG = [
   '- [ ] B13 Paint the narwhal bridge\r\n',
 ].join('')
 
-/** A backlog file in memory, with the calls `editStep` makes. */
-function memoryFile(text) {
-  const files = new Map([['backlog.md', Buffer.from(text, 'latin1')]])
+/** A project folder with the backlog as a work store and its view; `run(body)` is the board's edit of a step. */
+async function project() {
+  const folder = await mkdtemp(join(tmpdir(), 'board-edit-'))
+  const file = join(folder, 'backlog.md')
+  const dir = join(folder, 'work')
+  await writeFile(file, BACKLOG)
+  await writeStore(dir, migrateBacklog(BACKLOG, { now: 0 }), undefined, { now: 0 })
+  const work = { dir, viewFile: file }
   return {
-    files,
-    fs: {
-      readFile: async name => {
-        if (!files.has(name)) throw new Error('gone')
-        return files.get(name)
-      },
-      writeFile: async (name, bytes) => { files.set(name, Buffer.from(bytes)) },
-      rename: async (from, to) => { files.set(to, files.get(from)); files.delete(from) },
-      rm: async name => { files.delete(name) },
-    },
+    folder, file, work,
+    run: (body, now = 0) => editStep(body, { now, work }),
+    stateOf: async id => { const item = (await readStore(dir)).items.get(id); return item === undefined ? null : valueOf(item, 'State') },
+    view: () => readFile(file, 'utf8'),
   }
 }
 
-test('delete takes the step and the lines under it out, and leaves every other byte as it was', () => {
-  const done = deleteStep(BACKLOG, 'B11')
-  assert.equal(done.ok, true)
-  assert.equal(done.text, BACKLOG.replace('- [ ] B11 Teach the zebracorn to sing (for Units; now; about 1 h)\r\n  Requirements:\r\n  - a song at dawn\r\n', ''))
-  // a finished step may be deleted too; the last step of the file as well
-  assert.equal(deleteStep(BACKLOG, 'B12').text.includes('B12'), false)
-  assert.equal(deleteStep(BACKLOG, 'B13').text.endsWith('- [x] B12 Feed the quokkaberry\r\n'), true)
-  // a number that is not there, or twice, changes nothing
-  assert.deepEqual(deleteStep(BACKLOG, 'B99'), { ok: false, why: 'gone' })
-  assert.deepEqual(deleteStep(`${BACKLOG}- [ ] B13 Again\r\n`, 'B13'), { ok: false, why: 'twice' })
-  // B1 is not B11
-  assert.deepEqual(deleteStep(BACKLOG, 'B1'), { ok: false, why: 'gone' })
+test('close ticks the step in the store and writes who closed it, when, and why, under it in the view', async () => {
+  const board = await project()
+  try {
+    const now = new Date(2026, 9, 14, 13, 5).getTime()
+    const done = await board.run({ action: 'close', step: 'B11', reason: 'not  needed\nany more' }, now)
+    assert.deepEqual(done, { ok: true, result: { step: 'B11', action: 'close' } })
+    assert.equal(await board.stateOf('B11'), 'done')
+    const after = await board.view()
+    assert.match(after, /^- \[x\] B11 Teach the zebracorn to sing \(for Units; now; about 1 h\)\n {2}Requirements:\n {2}- a song at dawn\n {2}Closed by you on the worker board on 2026-10-14 at 13:05: not needed any more$/m)
+    // Closed already: said so, nothing written.
+    assert.deepEqual(await board.run({ action: 'close', step: 'B11' }, now), { ok: false, status: 409, why: 'B11 is ticked already.' })
+    assert.equal(await board.view(), after)
+  } finally {
+    await rm(board.folder, { recursive: true, force: true })
+  }
 })
 
-test('close ticks the step and writes who closed it, when, and why, under its own lines', async () => {
-  const { files, fs } = memoryFile(BACKLOG)
-  const now = new Date(2026, 9, 14, 13, 5).getTime()
-  const done = await editStep({ action: 'close', step: 'B11', reason: 'not  needed\nany more' }, { canWrite: true, file: 'backlog.md', now, fs })
-  assert.deepEqual(done, { ok: true, result: { step: 'B11', action: 'close' } })
-  const after = files.get('backlog.md').toString('latin1')
-  assert.equal(after, BACKLOG.replace('- [ ] B11', '- [x] B11').replace('  - a song at dawn\r\n', '  - a song at dawn\r\n  Closed by you on the worker board on 2026-10-14 at 13:05: not needed any more\r\n'))
-  // closed already: said so, nothing written
-  assert.deepEqual(await editStep({ action: 'close', step: 'B11' }, { canWrite: true, file: 'backlog.md', now, fs }), { ok: false, status: 409, why: 'That step is closed already.' })
-  assert.equal(files.get('backlog.md').toString('latin1'), after)
+test('delete through the board takes the item out of the store and the view; a step that is gone is said to be gone', async () => {
+  const board = await project()
+  try {
+    assert.deepEqual(await board.run({ action: 'delete', step: 'B13' }), { ok: true, result: { step: 'B13', action: 'delete' } })
+    assert.equal(await board.stateOf('B13'), null)
+    assert.equal((await board.view()).includes('B13'), false)
+    assert.equal((await board.run({ action: 'delete', step: 'B13' })).status, 404)
+  } finally {
+    await rm(board.folder, { recursive: true, force: true })
+  }
 })
 
-test('delete through the board writes the file; a step that is gone is said to be gone', async () => {
-  const { files, fs } = memoryFile(BACKLOG)
-  assert.deepEqual(await editStep({ action: 'delete', step: 'B13' }, { canWrite: true, file: 'backlog.md', now: 0, fs }), { ok: true, result: { step: 'B13', action: 'delete' } })
-  assert.equal(files.get('backlog.md').toString('latin1').includes('B13'), false)
-  assert.equal((await editStep({ action: 'delete', step: 'B13' }, { canWrite: true, file: 'backlog.md', now: 0, fs })).status, 404)
-})
-
-test('only the board that delivers writes, and only a close or a delete of a step named by its number', async () => {
-  const { files, fs } = memoryFile(BACKLOG)
-  assert.equal((await editStep({ action: 'delete', step: 'B13' }, { canWrite: false, file: 'backlog.md', now: 0, fs })).status, 409)
-  assert.equal((await editStep({ action: 'rename', step: 'B13' }, { canWrite: true, file: 'backlog.md', now: 0, fs })).status, 400)
-  assert.equal((await editStep({ action: 'delete', step: 'B13\n- [ ] B99' }, { canWrite: true, file: 'backlog.md', now: 0, fs })).status, 400)
-  assert.equal(files.get('backlog.md').toString('latin1'), BACKLOG)
+test('only the board that writes a store writes, and only a close or a delete of a step named by its number', async () => {
+  const board = await project()
+  try {
+    assert.equal((await editStep({ action: 'delete', step: 'B13' }, { now: 0, work: null })).status, 409)
+    assert.equal((await board.run({ action: 'rename', step: 'B13' })).status, 400)
+    assert.equal((await board.run({ action: 'delete', step: 'B13\n- [ ] B99' })).status, 400)
+    assert.equal(await board.view(), BACKLOG)
+    assert.equal(await board.stateOf('B13'), 'new')
+  } finally {
+    await rm(board.folder, { recursive: true, force: true })
+  }
 })
 
 test('the route takes only the board\'s own page: its token, its origin and JSON', async t => {

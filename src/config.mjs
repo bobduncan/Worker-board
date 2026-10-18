@@ -2,7 +2,19 @@
 
 import { constants } from 'node:fs'
 import { access, copyFile, readFile, readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
+
+/**
+ * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
+ * the grace time; a blocking ask that waited longer than the ask time stands first under Needs your attention.
+ */
+export const GRACE_MS = 10 * 60_000
+export const ASK_MS = 60 * 60_000
+/**
+ * B308: a worker that holds a step, has ended its turn with nothing running and filed no ask, for longer than this, is
+ * a hint under Needs your attention: it may wait for the person.
+ */
+export const IDLE_HOLD_MS = 5 * 60_000
 
 const DEFAULTS = {
   /** B129: the project's name, the page's title; by default the project folder's name. */
@@ -64,6 +76,12 @@ const DEFAULTS = {
   brainstorms: '.claude/brainstorms',
   goalAsks: '.claude/goal-asks',
   goalsHistory: '.claude/goals.history',
+  /**
+   * B296: the work store, one file per item (spec 2026-10-17): a path inside the project, or a whole path of its own
+   * (a copy of the board tried beside the person's keeps its store apart that way). B301: the one source of the work;
+   * a project gets it with tools/migrate-backlog.mjs (--make-store from a backlog, --init for an empty one).
+   */
+  work: '.claude/work',
   // The way to the next milestone is part of the goal map since B260 (the setting milestoneMap is gone).
   gamePlan: 'docs/game-plan.md',
   advisorDecisions: 'docs/advisor/decisions.md',
@@ -79,6 +97,21 @@ const BRANCH = /^(?!.*\.\.)[\w][\w./-]{0,120}$/
 
 /** A path inside a folder, written with "/": no way out of it, never absolute. */
 const INSIDE = /^(?!.*(?:^|\/)\.\.(?:\/|$))[\w.-]+(?:\/[\w .-]+)*$/
+
+/** B296: the store's folder: inside the project, written with /, or a whole path. */
+const isWorkPath = value => typeof value === 'string' && (INSIDE.test(value.trim()) || isAbsolute(value.trim()))
+
+/** B296: the work store's folder, as a whole path. */
+export function workFolder(config) {
+  return isAbsolute(config.work) ? config.work : join(config.project, ...config.work.split('/'))
+}
+
+/** B296: whether the store's folder is a whole path outside the project: a copy's own, which it may write. */
+export function isOwnWork(config) {
+  if (!isAbsolute(config.work)) return false
+  const path = relative(config.project, config.work)
+  return path.startsWith('..') || isAbsolute(path)
+}
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 // The paths inside the project or the game's repository, written with /.
@@ -133,6 +166,7 @@ export function parseConfig(text, env) {
   for (const key of PROJECT_PATHS) {
     if (typeof raw[key] === 'string' && INSIDE.test(raw[key].trim())) config[key] = raw[key].trim()
   }
+  if (isWorkPath(raw.work)) config.work = raw.work.trim()
   if (Array.isArray(raw.advisorReadFirst)) config.advisorReadFirst = raw.advisorReadFirst.filter(path => typeof path === 'string' && INSIDE.test(path))
   if (typeof raw.advisorSuggestions === 'string' && raw.advisorSuggestions.trim() !== '') config.advisorSuggestions = raw.advisorSuggestions.trim()
   if (typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim())) config.morningRound = raw.morningRound.trim()
@@ -172,7 +206,8 @@ export function configProblem(fileText) {
   for (const key of PROJECT_PATHS) if (has(key) && !(typeof raw[key] === 'string' && INSIDE.test(raw[key].trim()))) return wrong(key, 'a path inside its folder, written with /')
   if (has('pictureRoots') && !(Array.isArray(raw.pictureRoots) && raw.pictureRoots.length > 0 && raw.pictureRoots.every(one => typeof one === 'string' && /^[\w-][\w.-]*$/.test(one)))) return wrong('pictureRoots', 'a list of one or more plain folder names')
   if (has('advisorReadFirst') && !(Array.isArray(raw.advisorReadFirst) && raw.advisorReadFirst.every(one => typeof one === 'string' && INSIDE.test(one)))) return wrong('advisorReadFirst', 'a list of paths inside the game, written with /')
-  if (has('morningRound') && !(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
+  if (has('work') && !isWorkPath(raw.work)) return wrong('work', 'a path inside the project written with /, or a whole path of its own')
+  if (has('morningRound') &&!(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
@@ -210,20 +245,73 @@ const isFolder = path => stat(path).then(info => info.isDirectory(), () => false
  * Windows: `%APPDATA%\Claude`, which the Microsoft Store app shows only to programs it starts itself; a board started
  * elsewhere finds the Store app's real folder, `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`. A Mac:
  * `~/Library/Application Support/Claude`. Linux: `~/.config/Claude`.
+ *
+ * B273: on 2026-10-17 the Store app moved its folder to `%LOCALAPPDATA%\Claude-Data\<id>`; the folder it left keeps
+ * only a marker, `.user-data-left.<id>`. A marker is followed before the folder that holds it, and every folder in
+ * Claude-Data is looked at after the usual places.
  */
 export async function appFolder(env, platform = process.platform, { list = readdir, there = isFolder } = {}) {
   const byUpper = new Map(Object.entries(env).map(([name, value]) => [name.toUpperCase(), value]))
   const [roaming, local, home] = ['APPDATA', 'LOCALAPPDATA', 'HOME'].map(name => byUpper.get(name) ?? '')
   const places = []
   if (platform === 'win32') {
-    if (roaming !== '') places.push(join(roaming, 'Claude'))
+    const usual = []
+    if (roaming !== '') usual.push(join(roaming, 'Claude'))
     if (local !== '') {
       const packages = await list(join(local, 'Packages')).catch(() => [])
-      for (const name of packages.filter(one => /^Claude_/i.test(one))) places.push(join(local, 'Packages', name, 'LocalCache', 'Roaming', 'Claude'))
+      for (const name of packages.filter(one => /^Claude_/i.test(one))) usual.push(join(local, 'Packages', name, 'LocalCache', 'Roaming', 'Claude'))
     }
+    const moved = local === '' ? null : join(local, 'Claude-Data')
+    for (const place of usual) {
+      if (moved !== null) {
+        const markers = (await list(place).catch(() => [])).map(name => String(name).match(/^\.user-data-left\.([\w-][\w.-]*)$/)?.[1] ?? null)
+        for (const id of markers.filter(one => one !== null && !one.includes('..'))) places.push(join(moved, id))
+      }
+      places.push(place)
+    }
+    if (moved !== null) for (const name of await list(moved).catch(() => [])) places.push(join(moved, String(name)))
   } else if (home !== '') places.push(platform === 'darwin' ? join(home, 'Library', 'Application Support', 'Claude') : join(home, '.config', 'Claude'))
-  for (const place of places) if (await there(join(place, 'claude-code-sessions'))) return place
+  for (const place of new Set(places)) if (await there(join(place, 'claude-code-sessions'))) return place
   return null
+}
+
+/**
+ * B273: whether a folder (`isFolder` true) or any file is still there for following the app: only "not there"
+ * counts as gone, so a drive that answers late or a refused look never moves the board away from a good folder.
+ */
+const isNotThere = error => error?.code === 'ENOENT' || error?.code === 'ENOTDIR'
+const stillFolder = path => stat(path).then(info => info.isDirectory(), error => !isNotThere(error))
+const exists = path => stat(path).then(() => true, error => !isNotThere(error))
+/** B273: how long the board waits before it searches again for an app folder it did not find. */
+const SEARCH_AGAIN_MS = 60_000
+
+/**
+ * B273: when the list of chats the board reads is gone, it searches for the app's folder again and follows it: the
+ * list of chats, and the usage file when that is gone too (a usage file of the person's own that is still there
+ * stays). `config.appMoved` says from where to where and when, for the page; `to` is null when nothing was found,
+ * and then it looks again a minute later. True when it followed.
+ */
+export async function followApp(config, env = process.env, platform = process.platform, { there = stillFolder, exists: has = exists, find = appFolder, now = Date.now() } = {}) {
+  if (config.appSessions !== '' && await there(config.appSessions)) {
+    // Back where it was: a note that it was found nowhere is no longer true.
+    if (config.appMoved?.to === null) delete config.appMoved
+    return false
+  }
+  if (typeof config.appSearchedAt === 'number' && now - config.appSearchedAt < SEARCH_AGAIN_MS) return false
+  config.appSearchedAt = now
+  const found = await find(env, platform)
+  const sessions = found === null ? null : join(found, 'claude-code-sessions')
+  if (sessions === config.appSessions) return false
+  if (sessions === null) {
+    if (config.appSessions !== '' && config.appMoved?.to !== null) config.appMoved = { from: config.appSessions, to: null, at: now }
+    return false
+  }
+  const from = config.appSessions
+  config.appSessions = sessions
+  if (!(await has(config.usageHistory))) config.usageHistory = join(found, 'plan-usage-history.json')
+  config.appFolder = found
+  if (from !== '') config.appMoved = { from, to: found, at: now }
+  return true
 }
 
 /** A settings file the board cannot run on: its message is the one line the board says before it stops. */
@@ -256,5 +344,7 @@ export async function loadConfig(file, env = process.env, platform = process.pla
       config.appFolder = found
     }
   }
+  // B273: a setting that points at a folder that is gone: the search, as when the app moves while the board runs.
+  if (isSet('appSessions')) await followApp(config, env, platform)
   return config
 }

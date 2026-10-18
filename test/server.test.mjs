@@ -13,6 +13,7 @@ async function board(t) {
   const asked = []
   const taken = []
   const designed = []
+  const worked = []
   const server = createBoard({
     token: TOKEN,
     getState: async () => ({ readAt: 1, chats: [] }),
@@ -27,6 +28,15 @@ async function board(t) {
     },
     picture: async path => (path === 'art-inbox/a b.png' ? { type: 'image/png', body: Buffer.from('made-up picture') } : null),
     bridgeKey: KEY,
+    // B297: the work store's API; the real one is tested in work/api.test.mjs.
+    work: async body => {
+      worked.push(['page', body])
+      return { ok: true, result: { text: 'Id: B1' } }
+    },
+    bridgeWork: async body => {
+      worked.push(['mod', body])
+      return body?.action === 'take' ? { ok: false, status: 409, why: 'B1: Units holds it (in progress).' } : { ok: true, result: { text: 'Yours, Board:' } }
+    },
     take: async body => {
       taken.push(body)
       return { ok: true, result: { messages: [{ id: 'm1', text: 'Hello\n(typed on the worker board, 16:02)' }] } }
@@ -71,7 +81,7 @@ async function board(t) {
   })
   const say = (headers, body = JSON.stringify({ text: 'Hello' })) => ask({ method: 'POST', path: '/api/say', headers, body })
   const good = { 'X-Board-Token': TOKEN, Origin: origin, 'Content-Type': 'application/json' }
-  return { server, port, origin, ask, say, good, said, asked, taken, designed }
+  return { server, port, origin, ask, say, good, said, asked, taken, designed, worked }
 }
 
 test('the board listens on this machine only', async t => {
@@ -331,4 +341,25 @@ test('B167: a picture pasted into Talk to Main is taken as a reference picture i
   const kept = await send(asPicture)
   assert.deepEqual([kept.status, JSON.parse(kept.text)], [200, { path: 'art-inbox/talk/2026-10-14-1144.png' }])
   assert.deepEqual(designed, [{ talk: picture.length }])
+})
+
+test('B297: /api/bridge/work needs the key; /api/work needs the token and the origin', async t => {
+  const { ask, good, worked } = await board(t)
+  const json = { 'Content-Type': 'application/json' }
+  const mod = (headers, body = JSON.stringify({ chat: 'Board', action: 'next' })) => ask({ method: 'POST', path: '/api/bridge/work', headers, body })
+  const page = (headers, body = JSON.stringify({ action: 'list' })) => ask({ method: 'POST', path: '/api/work', headers, body })
+  assert.equal((await mod(json)).status, 403)
+  assert.equal((await mod(good)).status, 403)
+  assert.equal((await mod({ 'X-Board-Key': KEY, 'Content-Type': 'text/plain' })).status, 415)
+  assert.equal((await page({ ...json, 'X-Board-Key': KEY })).status, 403)
+  assert.equal((await page({ ...good, Origin: 'http://evil.example' })).status, 403)
+  assert.equal(worked.length, 0)
+  const next = await mod({ ...json, 'X-Board-Key': KEY })
+  assert.equal(next.status, 200)
+  assert.deepEqual(JSON.parse(next.text), { text: 'Yours, Board:' })
+  const refused = await mod({ ...json, 'X-Board-Key': KEY }, JSON.stringify({ chat: 'Board', action: 'take', id: 'B1' }))
+  assert.equal(refused.status, 409)
+  assert.match(refused.text, /Units holds it/)
+  assert.equal((await page(good)).status, 200)
+  assert.deepEqual(worked, [['mod', { chat: 'Board', action: 'next' }], ['mod', { chat: 'Board', action: 'take', id: 'B1' }], ['page', { action: 'list' }]])
 })

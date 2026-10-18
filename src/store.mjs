@@ -29,6 +29,8 @@ export function foldOutbox(text) {
 
 const isAnswer = message => (message.ask ?? null) !== null
 const COMMAND_KNOWN_MS = 2 * 60 * 60_000
+/** B291: how long the newest "prepare restart" (or "resume") stays known: a night's restart. */
+const RESTART_KNOWN_MS = 24 * 60 * 60_000
 /** A typed line the mod took and never said it typed is shown as on its way for this long. */
 const TAKEN_SHOWN_MS = 10 * 60_000
 
@@ -37,7 +39,9 @@ const TAKEN_SHOWN_MS = 10 * 60_000
  * so nothing typed long ago turns up in a chat; an answer to a request waits for its chat much longer (`answerMs`).
  */
 // A step asked of the main chat from the Design tab waits as long as an answer does: the main chat may be closed.
-export const isLate = (message, now, keep) => now - message.at > (isAnswer(message) || message.command === 'step' ? keep.answerMs : keep.messageMs)
+// B285: so does the word that a step the main chat queued is refined: it waits until the main chat takes it.
+// B300: and the work store's line that a step is a chat's: it is sent once, never again (src/work/deliver.mjs).
+export const isLate = (message, now, keep) => now - message.at > (isAnswer(message) || ['step', 'refined', 'work'].includes(message.command) ? keep.answerMs : keep.messageMs)
 
 /**
  * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never
@@ -45,9 +49,14 @@ export const isLate = (message, now, keep) => now - message.at > (isAnswer(messa
  * known, because it closes its request; a delivered line shows in its chat and is listed no longer.
  */
 export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
+  // B291: the newest word for a restart stays known for a day, so a restart prepared in the evening still stands the
+  // next morning, until "resume".
+  const restartWord = messages.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
   return messages
     .map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
     .filter(message => message.state === 'waiting'
+      // B285: a queue ask held on the board until its step is refined stays known as long as it is held.
+      || message.state === 'held'
       // What did not arrive is shown for a while.
       || ((message.state === 'expired' || message.state === 'failed') && now - message.at < shownMs)
       // An answer that was taken or typed keeps its request closed.
@@ -56,6 +65,7 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
       || ((message.state === 'taken' || message.state === 'delivered') && message.command === 'recommend')
       // A word for the restart stays known for a while: the board says how the preparing stands.
       || (typeof message.command === 'string' && now - message.at < COMMAND_KNOWN_MS)
+      || (message === restartWord && now - message.at < RESTART_KNOWN_MS)
       // B212: words copied for the person to paste, without a Workers mod: shown for a while, and an answer stays closed.
       || (message.state === 'copied' && (isAnswer(message) || now - message.at < shownMs))
       // A line that was taken shows as on its way until the chat has it.
@@ -107,6 +117,14 @@ function storeOver(lines, messages, alive, write) {
         throw error
       }
       return taken.map(message => ({ ...message }))
+    },
+    /** B285: changes a message the board holds (a held queue ask let go or dropped), written down like the others. */
+    async update(id, fields) {
+      const message = messages.find(one => one.id === id)
+      if (message === undefined) return false
+      Object.assign(message, fields)
+      await write.outbox([{ id, ...fields }])
+      return true
     },
     /** What the mod says became of the messages a chat took: typed into the chat, or not. */
     async settle(to, { typed = [], failed = [] }, now) {

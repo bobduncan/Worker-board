@@ -1,0 +1,14 @@
+{
+ "preamble": [
+  "# Backlog"
+ ],
+ "activities": [
+  {
+   "name": "The board",
+   "isFocus": true,
+   "steps": ["B12", "B13"],
+   "notes": [],
+   "loose": []
+  }
+ ]
+}

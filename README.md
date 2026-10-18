@@ -25,13 +25,14 @@ What the board does and how it looks, part by part with screenshots: `BOARD.md`.
 | A project folder | Holds the code's repository and the board as folders of their own. Every chat of the project is opened in the project folder itself, not in a folder inside it: the app keeps the transcripts per folder. |
 | One main chat, titled `<prefix>Main` | It hands out the work, and the board types its words (restart, resume, start a chat) into it. |
 | `<project>\.claude\chats\list.json` | Names the prefix of the chats' titles and the main chat. |
-| `<project>\.claude\backlog.md` | The steps: the queue and what is yours come from it. |
+| `<project>\.claude\work` | The work store (B301): the steps, the queues and what waits for you come from it, and from nothing else. The board writes `backlog.md` from it as a view. Without it the board shows no work and says on top what to run. |
 | A launch entry | `<project>\.claude\launch.json`, from which the mod starts the board. |
 
-Not needed: the Backlog mod `backlog` (B209: the board reads and ticks the backlog itself and has its own Backlog
-tab; the job texts in `roles\` tell the chats how to keep it). Used when there: the Run mod `start-app` (a Run pane
-in the app), Codex (pictures on the Design tab), an advisor chat. `examples\` holds a starting `config.json`, `list.json` and `backlog.md`, and
-the briefings for the main chat and the workers.
+Not needed: the Backlog mod `backlog` (B209: the board keeps the work itself and has its own Backlog tab; the chats
+change it with the Workers mod's `work` tool). Used when there: the Run mod `start-app` (a Run pane in the app),
+Codex (pictures on the Design tab), an advisor chat. `examples\` holds a starting `config.json` and `list.json`, the
+default flow of the work (`work\flow.json`) with a few example items, the form of the backlog view (`backlog.md`),
+and the briefings for the main chat and the workers.
 
 ## From nothing to a running board
 
@@ -62,10 +63,19 @@ the briefings for the main chat and the workers.
    (`roles\worker.md`), and you paste what the board copies for you. With the mod the board types your answers in,
    wakes the chats and keeps the cards by itself.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
-   `.claude\chats\` with your prefix, `backlog.md`, `main-briefing.md` and `worker-briefing.md`; in the two briefings
+   `.claude\chats\` with your prefix, `main-briefing.md` and `worker-briefing.md`; in the two briefings
    replace `<project>`, `<prefix>` and `<repository>`. For the Design tab, also `design.json` into `.claude\`, with
    the project's own kinds of idea. The two briefings hold only the project's own facts: the
-   general jobs are `roles\main.md` and `roles\worker.md`, the words the board reads are in `roles\protocol.md`. → `<project>\.claude\chats\list.json` names your prefix.
+   general jobs are `roles\main.md` and `roles\worker.md`, the words the board reads are in `roles\protocol.md`.
+   Then make the work store (B301), in the board's folder:
+   ```
+   node tools/migrate-backlog.mjs --work <project>\.claude\work --init
+   ```
+   (`--activity "<name>"` names its first activity, "First steps" unless given). A project that already keeps a
+   backlog in the form of `examples\backlog.md` makes its store from it instead, with `--backlog
+   <project>\.claude\backlog.md --work <project>\.claude\work --make-store` (first with `--dry-run`).
+   → `<project>\.claude\chats\list.json` names your prefix, and the command prints `An empty work store in
+   <project>\.claude\work`.
 5. **The main chat.** In the Claude app, start a new chat in the folder `<project>`, name it `<prefix>Main` (the
    prefix and the main chat's name from `list.json`), and send it: "Read .claude\main-briefing.md and join the list
    of chats as the main chat." → `/workers` shows "Main" as the main chat, and `%USERPROFILE%\.claude\projects\`
@@ -80,8 +90,10 @@ the briefings for the main chat and the workers.
    (its list of chats and its usage file) the board finds by itself (B135): `%APPDATA%\Claude` on Windows, else the
    Microsoft Store app's package folder (`%LOCALAPPDATA%\Packages\Claude_...\LocalCache\Roaming\Claude`, which a board
    started from your own PowerShell needs), `~/Library/Application Support/Claude` on a Mac; set `appSessions` and
-   `usageHistory` only when they lie elsewhere. → `npm start` prints `Worker board: http://127.0.0.1:<your port>/`
-   and, under it, which folder of the app's chats it reads. Ctrl+C ends it. A file that is not valid JSON,
+   `usageHistory` only when they lie elsewhere. When the app moves its folder (B273: the Store app moved it to
+   `%LOCALAPPDATA%\Claude-Data\<id>` and left a marker `.user-data-left.<id>` behind), the board follows it, also
+   while it runs and when a setting names a folder that is gone, and says on top of the page where it found it.
+   → `npm start` prints `Worker board: http://127.0.0.1:<your port>/` and, under it, which folder of the app's chats it reads. Ctrl+C ends it. A file that is not valid JSON,
    or holds a setting of the wrong kind, stops the board with one line that names the file, what is wrong and
    where (for example "not valid JSON at line 3, column 14", or `"port" must be a number above 0`).
 7. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
@@ -93,10 +105,12 @@ the briefings for the main chat and the workers.
    its hook to the one there) and put the board's folder for `<board>`: a chat that opens then starts the board,
    quietly, when it does not answer.
 8. **Open it.** Open `http://127.0.0.1:<your port>/` in a browser. → the lane "Main" comes first, under it "No
-   workers yet" (step 10); "For you" holds B1 and B2 under "From the backlog"; Main's queue holds B4, waiting for B2.
-   Without a main chat the page says "No main chat yet" and how to make one, as step 5 does.
-9. **The way back.** Answer B2 on the board (a few lines, then send). → the card says "typed into its chat", and the
-    main chat has your words with "(answered on the worker board, HH:MM)".
+   workers yet" (step 10); nothing waits for you yet, and the Backlog tab says "Store · 0 items · backlog.md is its
+   view". Without a main chat the page says "No main chat yet" and how to make one, as step 5 does; without a work
+   store a line on top names the folder and the command of step 4.
+9. **The way back.** In Talk to Main, tell the main chat what the project is (a few lines, then send). → the line
+    says "typed into its chat", and the main chat has your words with "(typed on the worker board, HH:MM)" and their
+    id, `[I1]`; under Needs your attention, "Open instructions" lists I1 until the main chat closes it.
 10. **Workers.** With a main chat and no worker, the board asks the main chat for three workers by itself, once,
     while the main chat's chat is open (it types "spawn workers" into it); "Ask for three workers" does the same.
     The main chat starts them, or puts a chip "<prefix>Worker N" into its chat for each: click each chip, one chip
@@ -104,8 +118,10 @@ the briefings for the main chat and the workers.
 
 ## Daily use
 
-- Tell the main chat what you want; it writes the steps and hands them out. A worker asks you in its own chat or
-  as a card under "For you", which you answer on the board.
+- Tell the main chat what you want; it writes the steps and hands them out. What a chat needs from you is an ask,
+  a card under "Needs your attention", which you answer on the board; a question it asks with the app's own form you
+  answer in its chat. A chat that wrote questions in its chat without filing an ask shows there as a warning, with a
+  button to its chat (B301).
 - A lane shows what a worker does now and the time it expects to need; a step that waits says why ("Not started:
   ...").
 - The head shows the plan's limits; a worker that paused for the limit shows as "Suspended" until it goes on.
@@ -127,15 +143,50 @@ a Vite game, `run-game.mjs`; none unless set), `appSessions` (the app's list of 
 the project's own picture folder, where the board keeps the pictures pasted into Talk to Main, under `talk`) and the times
 in `src/config.mjs`. `designKinds` (`.claude/design.json` unless set): the project's file of what the Design tab tells Codex per kind of
 idea, and its reference pictures; `examples\design.json` shows one. `goals` (`.claude/goals.md` unless set): the
-project's goal map, which the Advisor tab's Goals part draws (it only reads it); `examples\goals.md` shows its form.
+project's goal map, which the Advisor tab's Goals part draws and, on the board that delivers, changes; `examples\goals.md` shows its form.
 `brainstorms`, `goalAsks` and `goalsHistory` (`.claude/brainstorms`, `.claude/goal-asks`, `.claude/goals.history`
-unless set) are the folders for the map's brainstorms, the long answers to its asks and its daily copy, which come later.
+unless set) are the folders for the map's brainstorms (one thread file each, which the Advisor tab's Brainstorm part
+shows and answers), the Advisor's long answers to the asks on it (its "More:" lines point there) and its daily copy.
+`work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own
+(a copy tried beside your board gives it a folder outside the project, and only then writes one). The store is
+required: without it the board shows no work and says on top what to run.
+
+## The work store
+
+One file per item in the `work` folder (a step, an ask for you, an instruction of yours, a note), with its state,
+its owner, what it waits for and its history, and `flow.json` for the order of states (the default is
+`examples\work\flow.json`; `examples\work` shows a few items). It is the one source of the work (B301): the chats
+work it with the Workers mod's `work` tool (`roles\protocol.md`, "The work store"), the board checks every change
+against `flow.json`, and it writes `backlog.md` from the store as a view after every change; nobody edits it, and the
+board never reads it. The Backlog tab says in one line how many items the store holds; a step's window shows where
+the step stands in the flow. A hand edit of `backlog.md` is kept beside it as `backlog.edited-<date>-<time>.md`, and
+the board says so on its top line. The Workers mod needs version 0.13.1 or newer: run `npm run setup` and start the
+chats anew.
+
+**Making the store.** `node tools/migrate-backlog.mjs --work <folder> --init` makes an empty one (step 4).
+`node tools/migrate-backlog.mjs --backlog <file> --work <folder> --make-store` makes it from a backlog in the form below,
+into an empty folder: it first proves that the store reads back as the backlog and its view as the same items,
+prints the steps in flight and each chat's card beside the store's state of its step, keeps the old file as
+`backlog.before-store.md` and writes `backlog.md` as the view (first with `--dry-run`). Without `--make-store` it
+only prints what the store would hold.
+
+**What fails, and how it shows.** No store folder, or one the board cannot read: one line on top of the board names
+the folder and what to run, the board shows no work (nothing from `backlog.md` instead), and the work API answers 503
+with the same line. A file of the store the board cannot read (a broken head, an id twice, a state the flow does not
+know): one line on top names it; the item is shown as it is and not moved.
+
+**The board delivers the work** (B300): the main chat only queues a step (`work queue`), and at every
+refresh the board types one line into the worker's chat once the step may be taken and the worker is free, "work:
+B286 is yours; run work next", once per step and worker (kept in `<work>\delivered.json`, so a restart sends nothing
+twice); a worker that ends a turn with nothing in progress asks for it itself (the Workers mod 0.12.0 or newer). A worker that holds a step but does not
+run is flagged on its lane after ten minutes with a button "Start <worker>" (the main chat starts it); so are a failed
+check and a card that names another step, and a file of the store the board cannot read stands on the top line.
 
 `<project>\.claude\chats\list.json`: `prefix` and `main` (the main chat's title is the two together), `boards` (the
 launch entries the mod keeps running) and `compactAbove` (a worker larger than this many tokens is compacted after
 it reports; 250000 unless set, 0 for never). An empty `boards` list switches the automatic start off.
 
-The backlog's form, which the board reads: an activity is a `## ` heading (`#focus` after it marks your main
+The backlog's form, as the board writes its view and as `--make-store` reads it: an activity is a `## ` heading (`#focus` after it marks your main
 focus); a step is `- [ ] B<number> ...`, ticked `- [x]`; `@you` at its end is a step for you, starting with
 `Verify:`, `Decide:`, `Provide:` or `Do:`; the queue is the open steps under a heading that starts with "Next to
 hand out", each ending in `(for <worker>; now | after B<number>; about <time>)`; indented lines under a step
@@ -151,7 +202,7 @@ shows: answers are given on the board in the main folder.
 ## What it reads (never changes)
 
 - the app's list of chats, and the last part of each project chat's transcript;
-- each chat's card and requests (`.claude\chats`, `.claude\asks`), the backlog and the goal map (`goals`,
+- each chat's card and requests (`.claude\chats`, `.claude\asks`), the work store and the goal map (`goals`,
   `.claude\goals.md`, also the way to the next milestone) in `<project>\.claude`, and the game plan in the game's
   repository (`gamePlan` in `config.json`, `docs/game-plan.md`) for the Advisor tab;
 - the app's usage file for the limits, pictures in the picture folders of `<project>`, and the working folders through git
@@ -161,8 +212,9 @@ shows: answers are given on the board in the main folder.
 
 `data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran
 and the Design tab's ideas. Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
-pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), and in the backlog one thing only: the tick of a step you
-approved or marked done on the board, with a line under it.
+pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), and the work store
+(`work`, `.claude\work` unless set), on the chats' `work` calls and your clicks, with `backlog.md` written from it as a
+view (see "The work store" above).
 
 ## Safety
 
@@ -210,7 +262,7 @@ project's backlog, part of B126 (the board for any project).
    `claude` from your shell for the mods; the steps above are written for Windows.
 10. Done (B136): `package.json` names Node 24 or newer, and the scripts `start`, `demo` and `test`.
 11. Done (B137): an empty board says under its lanes what it looks for and where: the list of chats, a chat of the
-    project, the backlog. Still open: a `transcripts` setting that names the wrong folder is not pointed out.
+    project; B301: a missing work store on top of the page, with the command that makes it. Still open: a `transcripts` setting that names the wrong folder is not pointed out.
 12. Done (B138): `BRIEF.md` and `DESIGN.md` are marked as the history of the first project and point to the general
     documents (this README, `roles/`, `ANY-PROJECT-PLAN.md`, `MODS.md`).
 13. Done (B251): the board carries the Workers mod in `mods\`, and `npm run setup` installs it with the app's own

@@ -14,7 +14,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = script.slice(script.indexOf('// window:start'), script.indexOf('// window:end'))
 const context = {}
-vm.runInNewContext(`${cut}\nthis.windowOf = windowOf`, context)
+vm.runInNewContext(`${cut}\nthis.windowOf = windowOf\nthis.flowStripOf = flowStripOf`, context)
 const names = { ask: asks => ({ verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' })[asks] ?? 'Not sorted', kind: kind => `kind:${kind}` }
 /** The page's model, copied into this context so it can be compared. */
 const windowOf = subject => JSON.parse(JSON.stringify(context.windowOf(subject, names)))
@@ -99,4 +99,15 @@ test('the styles: about 65% for the description and pictures, the answer along t
   assert.match(style, /\.is-approve \{ order: 2; background: #2fbf71;/)
   // No fixed height anywhere on the window.
   assert.ok(!/\.details \{[^}]*[^-]height:/.test(style.replace(/max-height/g, 'max-h')))
+})
+
+test('B296: the step window carries the flow strip with the state of the step marked, and the moves out of it', () => {
+  const states = ['new', 'refined', 'queued', 'taken', 'in progress', 'done']
+  const strip = JSON.parse(JSON.stringify(context.flowStripOf({ states, state: 'queued', next: [{ to: 'taken', by: ['server'], when: 'Blocked by all done and Owner free' }, { to: 'dropped', by: ['person', 'main'], when: null }] })))
+  assert.deepEqual(strip.states.map(one => one.tone), ['past', 'past', 'now', 'later', 'later', 'later'])
+  assert.deepEqual(strip.next, ['taken, by server when Blocked by all done and Owner free', 'dropped, by person or main'])
+  assert.equal(strip.isKnown, true)
+  assert.equal(context.flowStripOf({ states, state: 'parked', next: [] }).isKnown, false)
+  assert.equal(context.flowStripOf(null), null)
+  assert.match(style, /\.flow-state\.is-now \{/)
 })

@@ -16,6 +16,10 @@ const KINDS = {
   verify: { sign: '✓', tag: 'Verification needed' },
   intervene: { sign: '!', tag: 'Intervention needed' },
   do: { sign: '→', tag: 'Only you can do' },
+  // B301: a chat wrote questions in its chat but filed no ask: a warning, with the way to its chat.
+  unfiled: { sign: '!', tag: 'No ask filed' },
+  // B308: a worker holds a step, is not working and asked nothing: a hint, with the way to its answer.
+  idle: { sign: '!', tag: 'May wait for you' },
 }
 /** What a step in the backlog says it asks of the person. */
 const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
@@ -195,6 +199,66 @@ function versionLine(version) {
 }
 // update:end
 
+// appnote:start
+/**
+ * B273: the note on top when the Claude app moved its folder while the board ran or since its settings were written
+ * (`appMoved`: from where, to where, when): where the board found it, or that it found it nowhere. Null: no note.
+ */
+function appNote(moved, clockOf) {
+  if (moved === null || moved === undefined) return null
+  if (moved.to === null) {
+    return { tone: 'problem', text: `The Claude app's list of chats is gone from ${moved.from} (${clockOf(moved.at)}), and the board found it nowhere else: it shows no chats. Set "appSessions" in the board's config.json to the app's folder.` }
+  }
+  return { tone: 'info', text: `The Claude app's folder moved: found it at ${moved.to} (${clockOf(moved.at)}). The board reads the chats from there, no longer from ${moved.from}.` }
+}
+// appnote:end
+
+// store:start
+/**
+ * B296: the line under the Backlog tab's head about the work store, the one source of the work: how many items it holds
+ * and that backlog.md is its view (`store` from the state). Null without a store.
+ */
+function storeLine(store) {
+  if (store === null || store === undefined) return null
+  const problems = store.problems ?? []
+  if (store.ok !== true) return { tone: 'problem', text: `Store: ${store.why}`, problems }
+  const parts = ['Store', `${store.items} item${store.items === 1 ? '' : 's'}`, 'backlog.md is its view']
+  if (problems.length > 0) parts.push(`${problems.length} problem${problems.length === 1 ? '' : 's'}`)
+  return { tone: problems.length > 0 ? 'warn' : 'ok', text: parts.join(' · '), problems }
+}
+
+/**
+ * B296, B301: the note on top about the work store: it is not there or cannot be read (`store.why`, naming its folder
+ * and what to run; the board then shows no work, and nothing from backlog.md instead); a file in it the board cannot
+ * read (the reconciler's lines, naming the folder and the file); or backlog.md was edited by hand, the edit kept beside
+ * it (`store.kept`). Null: none.
+ */
+function storeNote(store, workFlags = []) {
+  if (store !== null && store !== undefined && store.ok !== true) return { tone: 'problem', text: store.why }
+  // B300: the reconciler's lines on top: a file it cannot read, an id twice, a state the flow does not know.
+  if (workFlags.length > 0) return { tone: 'problem', text: `The work store${typeof store?.dir === 'string' ? ` ${store.dir}` : ''}: ${workFlags.join(' · ')}. Such an item is shown as it is and not moved: fix the file by hand.` }
+  if (typeof store?.kept === 'string') return { tone: 'warn', text: `backlog.md was edited by hand. The board wrote it anew from the work store and kept the edited file as ${store.kept}: carry what it adds over with the work tool, then delete it.` }
+  return null
+}
+// store:end
+
+function drawAppNote(state) {
+  const shown = appNote(state.appMoved ?? null, clock)
+  const note = $('app-note')
+  note.hidden = shown === null
+  if (shown === null) return
+  note.className = `app-note is-${shown.tone}`
+  note.textContent = shown.text
+}
+
+/** B296, B301: the note on top about the work store (see `storeNote`). */
+function drawStoreNote(state) {
+  const shown = storeNote(state.store ?? null, state.workFlags ?? [])
+  const note = $('store-note')
+  note.hidden = shown === null
+  if (shown !== null) note.textContent = shown.text
+}
+
 /** The note on top (see `updateView`). */
 function drawUpdate(state) {
   const note = $('update-note')
@@ -330,7 +394,9 @@ function whyText(why) {
   const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
   switch (why.reason) {
     case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
-    case 'suspended': return said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is suspended${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    // B291: stopped at a safe point for a restart, not held by a limit.
+    case 'suspended': if (why.by === 'restart') return said('wait', `${why.worker} stopped for the restart`)
+      return said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is suspended${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
       const [last, ...first] = [...why.steps].reverse()
@@ -347,6 +413,8 @@ function whyText(why) {
 
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
 function heldText(held) {
+  // B291: stopped at a safe point for a restart of the app; it goes on when the person resumes.
+  if (held.by === 'restart') return `Stopped for the restart at ${clock(held.since)} · waits for Resume`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
   return `${who} · ${held.until === null ? 'no time known yet' : `goes on at ${clock(held.until)}`}`
@@ -423,7 +491,7 @@ function drawRestart(state) {
   if (isAtHand && down.some(name => name !== restart.main)) {
     parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
   }
-  if (restart.prepared !== null) parts.push(line('muted', `${restart.main} wrote down who was on what at ${clock(restart.prepared.at)} (restart.md).`))
+  if (restart.prepared !== null) parts.push(line('muted', `${restart.main} last wrote down who was on what at ${clock(restart.prepared.at)} (restart.md).`))
 
   if (isAskingRestart) {
     const ask = el('div', 'restart-ask')
@@ -432,12 +500,15 @@ function drawRestart(state) {
   }
   const preparing = restart.preparing
   if (preparing !== null) {
-    const isWritten = restart.prepared !== null && restart.prepared.at >= preparing.at
+    // B291: written after the last worker's safe-point line too, so it holds what every worker said.
+    const isWritten = restart.prepared !== null && restart.prepared.at >= Math.max(preparing.at, preparing.lastLine ?? 0)
     if (preparing.state === 'waiting') parts.push(line('', `"Prepare restart" waits for ${restart.main} to take it: its chat must be open.`))
     else if (preparing.state === 'expired' || preparing.state === 'failed') parts.push(line('problem', `"Prepare restart" did not reach ${restart.main}. Open its chat and press it again.`))
-    else if (preparing.working.length > 0) parts.push(line('', `Preparing the restart since ${clock(preparing.at)}. Still working: ${preparing.working.join(', ')}.`))
-    else if (isWritten) parts.push(line('ready', `Ready: every chat is at rest and ${restart.main} wrote down who was on what. You can quit Claude now.`))
-    else parts.push(line('', `Every chat is at rest. ${restart.main} has not written down who was on what yet.`))
+    // B291: a worker that sent its safe-point line counts as stopped (its lane says Suspended), whatever its
+    // transcript shows: only the chats with no line yet still work.
+    else if (preparing.working.length > 0) parts.push(line('', `Preparing the restart since ${clock(preparing.at)}. Still working (no safe point yet): ${preparing.working.join(', ')}.`))
+    else if (isWritten) parts.push(line('ready', `Everyone stopped: safe to restart. ${restart.main} wrote down who was on what; you can quit Claude now.`))
+    else parts.push(line('', `Everyone stopped. ${restart.main} has not written down who was on what yet.`))
   }
   const resuming = restart.resuming
   if (resuming !== null) {
@@ -475,6 +546,7 @@ function timeOf(lane, now) {
   if (lane.state === 'suspended') {
     // B113: held by the limit. The figure is when it goes on; once that has passed it needs a hand.
     const held = lane.suspended
+    if (held.by === 'restart') return plain('Restart', 'muted', 'Stopped for')
     if (held.isBack) return plain(held.until === null ? 'Not gone on' : `since ${clock(held.until)}`, 'bad', 'Limit is back')
     return held.until === null ? plain('Suspended') : { label: 'Goes on', main: clock(held.until), tone: 'time', small: [`in ${span(held.until - now)}`], from: null }
   }
@@ -486,12 +558,12 @@ function timeOf(lane, now) {
   if (eta === null) {
     // The main chat hands out work and answers: it has no task to time.
     return lane.isWithoutTime === true
-      ? { label: 'ETA', main: 'No time', tone: 'fault', small: soFar, from: null, title: 'This worker works without a time: it gave none, its step names none, and its hand-over named none.' }
+      ? { label: 'ETA', main: 'No time', tone: 'fault', small: soFar, from: null, title: 'This worker works without a time: it gave none, and its step names none.' }
       : { label: '', main: 'Working', tone: 'muted', small: soFar, from: null }
   }
   const from = eta.isOwn !== false ? null : {
-    text: eta.from === 'handover' ? 'from its hand-over' : `from ${lane.task?.stepId ?? 'its step'}`,
-    title: `The worker gave no estimate of its own: this is the time its ${eta.from === 'handover' ? 'hand-over' : 'backlog step'} names, counted from when the task started.`,
+    text: `from ${lane.task?.stepId ?? 'its step'}`,
+    title: 'The worker gave no estimate of its own: this is the time its step names, counted from when the task started.',
   }
   // Overdue stays overdue, with how far over as its figure.
   if (eta.isOverdue) return { label: 'Overdue', main: `${span(now - eta.at)} over`, tone: 'bad', small: [`was ${clock(eta.at)}`], from }
@@ -642,11 +714,8 @@ function drawMore(lane, state) {
     if (task.firstEstimateMs !== null) list.append(el('li', '', `First estimate ${span(task.firstEstimateMs)}, worked ${span(task.workedMs)}`))
     if (task.leftMs !== null && task.estimateAt !== null) list.append(el('li', '', `Said ${span(task.leftMs)} left, ${ago(task.estimateAt, now)}`))
     if (task.source === 'unrecorded') list.append(el('li', 'muted', 'It has recorded no task yet: no topic, no steps and no time.'))
-    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the backlog step that names its branch.'))
-    if (lane.eta !== null && lane.eta.isOwn === false) {
-      const [where, minutes] = lane.eta.from === 'handover' ? ['its hand-over', task.handMinutes] : [task.stepId ?? 'its step', task.stepMinutes]
-      list.append(el('li', 'muted', `It gave no estimate: ${where} says ${about(minutes)}, counted from the start.`))
-    }
+    if (task.source === 'step') list.append(el('li', 'muted', 'It named no task: this is the step the work store holds for it.'))
+    if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
     if (task.source === 'plan' && (task.stepId ?? null) !== null) list.append(el('li', 'muted', `It is on step ${task.stepId} of the backlog.`))
   }
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
@@ -682,6 +751,26 @@ function freeLine(lane, clock = null) {
   return `${ready} · ${when}, from ${idle.from === 'app' ? 'the app' : 'the transcript'}`
 }
 // lanefree:end
+
+// laneflags:start
+/**
+ * B300: the reconciler's flags on a lane (`lane.flags`), each a line, and for a chat that holds work but does not run a
+ * button "Start <chat>" that asks the main chat to start it (the board's own start words; `data-start`). No button
+ * without a main chat, for the main chat itself, or while an ask to start it is on its way (`restart.starting`). B304:
+ * a step whose check failed gets "Check again" (`data-recheck`), the board's check run anew.
+ */
+function laneFlags(lane, restart = null) {
+  const main = restart?.main ?? null
+  const isAsked = (restart?.starting ?? []).some(one => one.chat === lane.name && one.state !== 'expired' && one.state !== 'failed')
+  return (lane.flags ?? []).map(flag => ({
+    text: flag.text,
+    tone: flag.kind === 'card' ? 'warn' : 'problem',
+    // B304: a failed check is the person's to run again ("Check again", `data-recheck`: the work API's `recheck`).
+    button: flag.kind === 'check failed' ? { label: 'Check again', recheck: flag.id }
+      : flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
+  }))
+}
+// laneflags:end
 
 function drawLane(lane, state) {
   const isOpen = openLanes.has(lane.name)
@@ -767,6 +856,26 @@ function drawLane(lane, state) {
   }
   const alerts = alertsOf(lane, state)
   if (alerts.length > 0) what.append(el('p', 'alert', alerts.join(' · ')))
+  for (const flag of laneFlags(lane, state.restart ?? null)) {
+    const line = el('p', `lane-flag is-${flag.tone}`, flag.text)
+    if (flag.button?.recheck !== undefined) {
+      const again = el('button', 'choice', flag.button.label)
+      again.type = 'button'
+      again.dataset.recheck = flag.button.recheck
+      again.disabled = sending.has(`recheck:${flag.button.recheck}`)
+      again.title = `The board checks ${flag.button.recheck} again`
+      line.append(' ', again)
+    } else if (flag.button !== null) {
+      const start = el('button', 'choice', flag.button.isAsked ? `${flag.button.label}: asked` : flag.button.label)
+      start.type = 'button'
+      start.dataset.start = flag.button.start
+      start.disabled = flag.button.isAsked || sending.has(`start:${flag.button.start}`)
+      start.title = `Asks ${state.restart.main} to start it`
+      line.append(' ', start)
+    }
+    if (problems.has(`recheck:${flag.button?.recheck}`)) line.append(' ', el('span', 'lane-flag-problem', problems.get(`recheck:${flag.button.recheck}`)))
+    what.append(line)
+  }
   if (removal.line !== null) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
   if (problems.has(`remove:${lane.name}`)) what.append(el('p', 'remove-line is-problem', problems.get(`remove:${lane.name}`)))
 
@@ -984,7 +1093,9 @@ function removalView(lane, main, now) {
   if (lane.state === 'waiting') reasons.push(`It waits for you${what === null ? '' : ` on ${what}`}: your answer would no longer be taken.`)
   if (lane.state === 'suspended') {
     const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
-    reasons.push(`It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
+    // B291: stopped at a safe point for a restart, not for a limit.
+    const why = lane.suspended?.by === 'restart' ? 'It stopped for the restart' : `It paused for the limit${until}`
+    reasons.push(`${why}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }
   if (lane.state === 'interrupted') reasons.push(`It was cut off in the middle of ${what ?? 'its turn'}: that work would not be resumed.`)
   if (lane.state === 'unknown') reasons.push('The board cannot tell what it is doing.')
@@ -1085,20 +1196,12 @@ $('lanes').addEventListener('click', event => {
 
 /**
  * B83: in the window of a step in a worker's queue: "Move to" another worker, and "Take out of the queue" (it stays on
- * the backlog without a worker). Both ask the main chat, which writes the backlog and tells the workers (the person,
- * 2026-10-14: "2. A"). An ask on its way says so. Nothing for a step without an id.
+ * the backlog without a worker). B301, the review: both change the work store at once through the work API, as the
+ * person (`requeue`, `unqueue`); the board delivers the step to its new worker. Nothing for a step without an id.
  */
 function queueChangePart(lane, step, state) {
-  const main = state.workers?.main ?? null
-  if (main === null || typeof step?.id !== 'string') return null
-  const mainTitle = state.workers.mainTitle ?? main
+  if (typeof step?.id !== 'string') return null
   const key = `change:${step.id}`
-  const part = el('div', 'queue-change')
-  const ask = state.changeAsks?.steps?.[step.id] ?? null
-  if (ask?.isOpen === true) {
-    part.append(el('span', 'muted', `Asked at ${clock(ask.at)}: ${mainTitle} makes the change and tells the workers.`))
-    return part
-  }
   const others = (state.chats ?? []).filter(one => !one.isMain && !one.isLeftover && one.name !== lane.name)
   if (others.length > 0) {
     const move = el('button', 'quiet-button', 'Move to')
@@ -1120,7 +1223,7 @@ function queueChangePart(lane, step, state) {
   out.dataset.unqueueStep = step.id
   out.disabled = sending.has(key)
   out.title = 'It stays on the backlog, without a worker'
-  part.append(out, el('span', 'muted', `${mainTitle} makes the change and tells the workers.`))
+  part.append(out, el('span', 'muted', 'The work store changes at once; the board delivers the step to its new worker.'))
   if (problems.has(key)) part.append(el('p', 'problem', problems.get(key)))
   return part
 }
@@ -1128,13 +1231,12 @@ function queueChangePart(lane, step, state) {
 // B83: the queue's changes from a step's window.
 $('details').addEventListener('click', event => {
   const button = event.target.closest('[data-move-step], [data-unqueue-step]')
-  const main = board?.workers?.main ?? null
-  if (button === null || main === null) return
+  if (button === null) return
   const id = button.dataset.moveStep ?? button.dataset.unqueueStep
   button.disabled = true
-  if (button.dataset.moveStep === undefined) return send({ to: main, command: 'unqueue', step: id }, `change:${id}`)
+  if (button.dataset.moveStep === undefined) return sendWork({ action: 'unqueue', id }, `change:${id}`)
   const target = [...$('details').querySelectorAll('[data-move-target]')].find(pick => pick.dataset.moveTarget === id)?.value ?? ''
-  return send({ to: main, command: 'move', step: id, target }, `change:${id}`)
+  return sendWork({ action: 'requeue', id, for: target }, `change:${id}`)
 })
 
 // B143: "✕ Remove" asks at once for a free worker with nothing queued, else opens (or closes) the warning;
@@ -1172,7 +1274,7 @@ $('workers-panel').addEventListener('click', event => {
 // given. The queue, the unfolded details, its step line and its remove control keep their own clicks.
 $('lanes').addEventListener('click', event => {
   const card = event.target.closest('.lane.is-working, .lane.is-suspended, .lane.is-interrupted')
-  if (card === null || board === null || event.target.closest('.queue, .more, .step-line, .remove-button, .remove-warning, .lane-menu') !== null) return
+  if (card === null || board === null || event.target.closest('.queue, .more, .step-line, .remove-button, .remove-warning, .lane-menu, .lane-flag') !== null) return
   openDetails({ lane: card.dataset.lane, task: true })
 })
 
@@ -1180,7 +1282,7 @@ $('lanes').addEventListener('click', event => {
 // queue and the unfolded details keep their own clicks.
 $('lanes').addEventListener('click', event => {
   const card = event.target.closest('.lane.is-waiting')
-  if (card === null || board === null || event.target.closest('.queue, .more, .remove-button, .remove-warning, .lane-menu') !== null) return
+  if (card === null || board === null || event.target.closest('.queue, .more, .remove-button, .remove-warning, .lane-menu, .lane-flag') !== null) return
   const id = needOfLane(board.forYou, card.dataset.lane)
   if (id !== null) openDetails({ need: id })
 })
@@ -1322,19 +1424,19 @@ function sentLine(answer, to = null) {
 const isStep = need => need.activity !== undefined
 
 // closed:start
-/** An answered card stays in sight this long after its answer was typed into its chat. */
-const SHOWN_AFTER_TYPED_MS = 2 * 60_000
-const closedNow = () => (typeof board === 'object' && board !== null ? board.readAt : Date.now())
 const isLost = answer => answer.state === 'expired' || answer.state === 'failed'
 /** Answered here, and the answer is on its way or has arrived: the card no longer waits for the person. */
 const isAnswered = need => need.answer !== null && !isLost(need.answer)
 /**
- * Closed for the person: ticked in the backlog, or answered here and typed into its chat a little while ago. Until
- * then an answered card stays in sight and says where its answer is: it waits for its chat, was handed to it, was
- * typed. An answer that did not arrive opens the card again. Closed ones are hidden unless "Show closed" is ticked.
+ * Closed for the person: ticked in the backlog, or answered here (B307: at once, wherever its answer is; the person,
+ * 2026-10-18: "if I answer a question it shouldnt show up anymore"). An answer that did not arrive opens the card
+ * again. Closed ones are hidden unless "Show closed" is ticked.
  */
-const isClosed = (need, now = closedNow()) => need.isClosed === true
-  || (isAnswered(need) && need.answer.state === 'delivered' && now - (need.answer.deliveredAt ?? need.answer.at) > SHOWN_AFTER_TYPED_MS)
+const isClosed = need => need.isClosed === true || isAnswered(need)
+/** B307: the cards Needs your attention draws: the open ones, and with "Show closed" the answered and ticked ones too. */
+const shownNeeds = (needs, withClosed) => (withClosed ? needs : needs.filter(need => !isClosed(need)))
+/** How a card looks: ticked in the backlog (faded), answered here (dashed, its answer line says where it is), or open. */
+const needLook = need => (need.isClosed === true ? ' is-closed' : isAnswered(need) ? ' is-answered' : '')
 // closed:end
 const showsClosed = () => $('needs-closed').checked
 
@@ -1368,6 +1470,7 @@ function answerPart(need, state, isFolded) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
+  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...talkButton(need)]
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
@@ -1404,6 +1507,18 @@ function answerPart(need, state, isFolded) {
   else parts.push(text, buttons)
   if (problems.has(need.id)) parts.push(el('p', 'problem', problems.get(need.id)))
   return parts
+}
+
+/**
+ * B301: the way to the chat of a warning that it wrote questions without filing an ask: Talk to Main, the Advisor's
+ * chat on its tab, or, for a worker, this card's window with its last answer. B308: also the hint that a worker holds a
+ * step but is not working and asked nothing.
+ */
+function talkButton(need) {
+  const open = el('button', 'choice', need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`)
+  open.type = 'button'
+  open.dataset.openTalk = need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id
+  return [open]
 }
 
 /** The options of a request: a button under its picture for each that has one, plain buttons for the others. */
@@ -1537,9 +1652,203 @@ function listBox(title, lines) {
   return box
 }
 
+// storeasks:start
+/** B299: what an ask of the work store says of itself (`Q<n>`): its own kind, what it blocks, its play link. */
+const STORE_ASKS = { decide: 'Decide', look: 'Look', provide: 'Provide', do: 'Do' }
+function storeAskParts(need, isRunning = null) {
+  if (need.workId === undefined) return null
+  const blocks = need.blocks.length > 0
+    ? `blocks ${need.blocks.map(one => `${one.step}${one.owner === null ? '' : ` · ${one.owner} waits`}`).join(', ')}`
+    : need.of === null ? null : `on ${need.of}${need.ofTitle === null ? '' : ` ${need.ofTitle}`}`
+  return {
+    id: need.workId,
+    tag: `${STORE_ASKS[need.asks] ?? 'Decide'}${need.isRefine ? ' · refine' : ''}`,
+    blocks,
+    play: need.play === null ? null : `/#play=${need.play}`,
+    // Review of B299: a question of the app's form whose chat does not run (not seen for a while) can be withdrawn here.
+    withdraw: need.isForm === true && isRunning === false && (need.answer ?? null) === null,
+  }
+}
+
+/** B299: the Information list: notes and reports, unread first, one line each; read ones fade. */
+function informationRows(list) {
+  return (list ?? []).map(one => ({
+    id: one.id, text: one.text, isRead: one.isRead,
+    head: `${one.from ?? 'the board'}${one.to === 'main' ? ' → Main' : ''}${one.about === null ? '' : ` · ${one.about}`}`,
+    at: one.since,
+  }))
+}
+// storeasks:end
+
+/** B299: the parts of a store ask's card under its head: what it blocks, its play link (one of the app's form says
+ * "Answer in its chat" in its answer part). */
+function storeAskLines(need, state) {
+  const parts = storeAskParts(need, (state.chats ?? []).find(chat => chat.name === need.from)?.isRunning ?? (state.advisor?.name === need.from ? state.advisor.isRunning ?? null : null))
+  if (parts === null) return []
+  const out = []
+  if (parts.withdraw) {
+    const button = el('button', 'choice', sending.has(need.id) ? 'Withdrawing…' : 'Withdraw')
+    button.type = 'button'
+    button.dataset.withdraw = need.workId
+    button.title = `${need.from} does not run, and only its chat can take this answer: withdraw the question.`
+    button.disabled = sending.has(need.id)
+    out.push(button)
+  }
+  if (parts.blocks !== null) out.push(el('p', `ask-blocks${need.blocking ? ' is-blocking' : ''}`, parts.blocks))
+  if (parts.play !== null) {
+    const link = el('a', 'run')
+    link.href = parts.play
+    link.target = '_blank'
+    link.rel = 'noreferrer noopener'
+    link.append(icon('open'), 'Play it')
+    out.push(link)
+  }
+  return out
+}
+
+/** B299: the part "Information" under Needs your attention: what the chats told the person; "Read" puts it away. */
+function drawInformation(state) {
+  const rows = informationRows(state.information)
+  if (rows.length === 0) return null
+  const unread = rows.filter(row => !row.isRead).length
+  const part = el('section', 'information')
+  const head = el('h3', '', 'Information')
+  head.append(el('small', 'muted', unread === 0 ? 'all read' : `${unread} new`))
+  part.append(head)
+  for (const row of rows) {
+    if (row.isRead && !showsClosed()) continue
+    const line = el('div', `info${row.isRead ? ' is-read' : ''}`)
+    line.dataset.info = row.id
+    const words = el('p', '')
+    words.append(el('b', '', row.head), ' ', row.text)
+    line.append(words, el('small', 'muted', row.at === null ? row.id : `${row.id} · ${ago(row.at, state.readAt)}`))
+    if (!row.isRead) {
+      const read = el('button', 'choice', sending.has(`read:${row.id}`) ? 'Reading…' : 'Read')
+      read.type = 'button'
+      read.dataset.read = row.id
+      read.disabled = sending.has(`read:${row.id}`)
+      line.append(read)
+    }
+    const problem = problems.get(`read:${row.id}`)
+    if (problem !== undefined) line.append(el('p', 'problem', problem))
+    part.append(line)
+  }
+  return part
+}
+
+/**
+ * B258: the part "Answers to your asks" under Needs your attention: each ask on the goal map the Advisor answered and
+ * the person has not read. "Read it" opens the answer under its goal; "Done" marks it read.
+ */
+function drawGoalAskNeeds(state) {
+  const needs = state.goalAskNeeds ?? []
+  if (needs.length === 0) return null
+  const part = el('section', 'information goal-ask-needs')
+  const head = el('h3', '', 'Answers to your asks')
+  head.append(el('small', 'muted', `${needs.length} to read`))
+  part.append(head)
+  for (const need of needs) {
+    const line = el('div', 'info')
+    const words = el('p', '')
+    words.append(el('b', '', need.title), ' ', `${need.id}: ${need.question}`)
+    const open = el('button', 'choice', 'Read it →')
+    open.type = 'button'
+    Object.assign(open.dataset, { goalAskOpen: need.goal, ask: need.id })
+    const done = el('button', 'choice', 'Done')
+    done.type = 'button'
+    done.title = 'Mark the answer read; it stays under the goal'
+    Object.assign(done.dataset, { goalAskDone: need.goal, ask: need.id })
+    done.disabled = !canEditGoals(state)
+    line.append(words, el('small', 'muted', `answered ${need.at}`), open, done)
+    part.append(line)
+  }
+  return part
+}
+
+// refinelines:start
+/**
+ * B287: a refine question of the work store (an ask made by the Advisor's refine, on a step): it has no card of its
+ * own under Needs your attention, answered or not; its step's line says it (the person, on G17: "show refine
+ * questions under Needs your attention, one line per step").
+ */
+const isRefineQuestion = need => need.isRefine === true && (need.of ?? null) !== null
+
+/**
+ * B287: the open refine questions as one line per step, the step that waits longest first: `{ step, title, count, at,
+ * ids }`, `at` its oldest question's time. `needs` are the cards of Needs your attention.
+ */
+function refineLines(needs) {
+  const lines = new Map()
+  for (const need of needs) {
+    if (!isRefineQuestion(need) || need.isClosed === true || (need.answer ?? null) !== null) continue
+    const line = lines.get(need.of) ?? { step: need.of, title: need.ofTitle ?? '', count: 0, at: need.at, ids: [] }
+    line.count += 1
+    line.ids.push(need.workId)
+    if (need.at !== null && (line.at === null || need.at < line.at)) line.at = need.at
+    lines.set(need.of, line)
+  }
+  return [...lines.values()].sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity) || a.step.localeCompare(b.step, 'en', { numeric: true }))
+}
+
+/** B287: the part "Refine questions" under Needs your attention: a line per step, opening its window to answer them. */
+function drawRefineNeeds(state) {
+  const lines = refineLines(state.forYou)
+  if (lines.length === 0) return null
+  const part = el('section', 'information refine-needs')
+  const head = el('h3', '', 'Refine questions')
+  head.append(el('small', 'muted', `${lines.length} step${lines.length === 1 ? '' : 's'} wait${lines.length === 1 ? 's' : ''} for your answers`))
+  part.append(head)
+  for (const line of lines) {
+    const row = el('div', 'info')
+    const words = el('p', '')
+    words.append(el('b', '', line.step), ' ', line.title === '' ? '' : `${line.title}: `, `${line.count} question${line.count === 1 ? '' : 's'}`)
+    const open = el('button', 'choice', 'Answer them →')
+    open.type = 'button'
+    open.dataset.refineOpen = line.step
+    // Where the step is not on the Backlog tab to open, its first question's own window opens.
+    open.dataset.refineFirst = line.ids[0]
+    open.title = 'Opens the step\'s window: answer each question there with Yes or No, or take the advice'
+    row.append(words, el('small', 'muted', line.at === null ? 'the Advisor asks' : `asked ${ago(line.at, state.readAt)}`), open)
+    part.append(row)
+  }
+  return part
+}
+// refinelines:end
+
+// B287: a refine line opens its step's window, where its questions are answered.
+$('needs').addEventListener('click', event => {
+  const button = event.target.closest('[data-refine-open]')
+  if (button === null) return
+  const step = (board?.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === button.dataset.refineOpen)
+  // A finished step's window answers no refine question: then, as for a step not on the tab, the question's own.
+  if (step !== undefined && step.status !== 'done') openDetails({ step: step.key })
+  else openDetails({ need: `work:${button.dataset.refineFirst}` })
+})
+
+/** B259: the part "Brainstorms" under Needs your attention: a question of the Advisor's waiting, a proposal to tick. */
+function drawBrainstormNeeds(state) {
+  const needs = state.brainstormNeeds ?? []
+  if (needs.length === 0) return null
+  const part = el('section', 'information goal-ask-needs')
+  const head = el('h3', '', 'Brainstorms')
+  head.append(el('small', 'muted', `${needs.length} wait${needs.length === 1 ? 's' : ''} for you`))
+  part.append(head)
+  for (const need of needs) {
+    const line = el('div', 'info')
+    const words = el('p', '')
+    words.append(el('b', '', need.title), ' ', need.text)
+    const open = el('button', 'choice', need.what === 'question' ? 'Answer it →' : 'Tick it →')
+    open.type = 'button'
+    open.dataset.brainstormNeed = need.path
+    line.append(words, el('small', 'muted', need.what === 'question' ? 'the Advisor asks' : 'the Advisor proposes'), open)
+    part.append(line)
+  }
+  return part
+}
+
 function drawNeed(need, state) {
   const kind = KINDS[need.kind]
-  const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${isClosed(need) ? ' is-closed' : isAnswered(need) ? ' is-answered' : ''}`)
+  const card = el('article', `need is-${need.kind}${isStep(need) ? ' is-step' : ''}${needLook(need)}`)
   card.dataset.id = need.id
   // The head of a card opens its details.
   const head = el('div', 'need-head')
@@ -1547,9 +1856,9 @@ function drawNeed(need, state) {
   head.title = 'Show the details'
   const top = el('header', 'need-top')
   if (isStep(need)) top.append(el('span', 'kind', kind.sign), need.step === null ? '' : el('b', '', need.step), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
-  else top.append(el('span', 'kind', kind.sign), el('b', '', need.from), el('span', 'tag', kind.tag), since(need.at, state.readAt))
+  else top.append(el('span', 'kind', kind.sign), el('b', '', need.from ?? 'the board'), el('span', 'tag', storeAskParts(need)?.tag ?? kind.tag), since(need.at, state.readAt))
   head.append(top, el('h4', '', need.title))
-  card.append(head)
+  card.append(head, ...storeAskLines(need, state))
   if (need.text !== '') card.append(el('p', '', need.text))
   card.append(...optionParts(need))
 
@@ -1577,7 +1886,8 @@ function ordered(needs) {
   const list = [...needs].sort((a, b) => newness(b) - newness(a))
   if (order === 'oldest') list.reverse()
   if (order === 'worker') list.sort((a, b) => (a.from ?? '').localeCompare(b.from ?? '') || newness(b) - newness(a))
-  return list
+  // B300: a blocking ask that waited longer than the board's ask time stands first, whatever the order.
+  return list.sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true))
 }
 // order:end
 
@@ -1587,7 +1897,7 @@ function drawLegacy(state) {
   if (open.length === 0 && closed.length === 0) return null
   const box = el('details', 'legacy')
   box.open = isLegacyOpen
-  // What still waits for the person: an answered step stays in sight until its answer has arrived, but is not counted.
+  // What still waits for the person: an answered step is among the closed ones (B307), and is not counted.
   const waiting = open.filter(step => !isAnswered(step))
   const counts = Object.keys(ASKS).map(asks => [ASKS[asks], waiting.filter(step => step.asks === asks).length]).filter(([, count]) => count > 0)
   const summary = el('summary', '', `From the backlog (${waiting.length})`)
@@ -1612,25 +1922,123 @@ function refocus(box, id) {
 
 const focusedNeed = box => (box.contains(document.activeElement) ? document.activeElement.closest('.need')?.dataset.id ?? null : null)
 
+// instructions:start
+/**
+ * B298: the person's words filed as instructions, per chat, for the part "Open instructions" under Needs your
+ * attention: each chat's missed ones first (a turn of the chat ended with them open: red), then the open ones, then the
+ * ones closed lately (grey, with what came of them). `list` is the state's `instructions`; empty without the store.
+ */
+function instructionGroups(list) {
+  const groups = new Map()
+  for (const one of list ?? []) {
+    const tone = one.closedAs !== null && one.closedAs !== undefined ? 'closed' : one.isMissed ? 'missed' : 'open'
+    const note = tone === 'closed' ? `→ ${one.closedAs}` : tone === 'missed' ? `missed ${one.turns} turn${one.turns === 1 ? '' : 's'}` : 'new'
+    const row = { id: one.id, text: one.text, tone, note, at: one.since ?? null, via: one.via ?? 'chat' }
+    if (!groups.has(one.chat)) groups.set(one.chat, [])
+    groups.get(one.chat).push(row)
+  }
+  const rank = { missed: 0, open: 1, closed: 2 }
+  return [...groups].map(([chat, rows]) => ({
+    chat, rows: rows.sort((a, b) => rank[a.tone] - rank[b.tone]), missed: rows.filter(row => row.tone === 'missed').length, open: rows.filter(row => row.tone !== 'closed').length,
+  })).sort((a, b) => b.missed - a.missed || b.open - a.open || a.chat.localeCompare(b.chat))
+}
+// instructions:end
+
+/** B298: the part "Open instructions": the person's words per chat; a click on the main chat's opens the talk with it. */
+function drawInstructions(state) {
+  const groups = instructionGroups(state.instructions ?? [])
+  if (groups.length === 0) return null
+  const open = groups.reduce((sum, group) => sum + group.open, 0)
+  const part = el('section', 'instructions')
+  const head = el('h3', '', 'Open instructions')
+  head.append(el('small', 'muted', open === 0 ? 'all closed' : `${open} open`))
+  part.append(head)
+  for (const group of groups) {
+    const box = el('div', 'instruction-chat')
+    const name = el('b', '', group.chat)
+    if (group.chat === state.restart?.main) {
+      name.dataset.showSide = 'main'
+      name.title = 'Open the talk with the main chat'
+      name.classList.add('is-link')
+    }
+    box.append(name)
+    for (const row of group.rows) {
+      const line = el('p', `instruction is-${row.tone}`)
+      line.append(el('span', 'instruction-id', row.id), el('span', 'instruction-text', row.text), el('small', 'instruction-note', row.at === null || row.tone === 'closed' ? row.note : `${row.note} · ${ago(row.at, state.readAt)}`))
+      box.append(line)
+    }
+    part.append(box)
+  }
+  return part
+}
+
+// B298: the main chat's name over its instructions opens the talk with it. B299: "Read" puts a note away.
+$('needs').addEventListener('click', event => {
+  const side = event.target.closest('.instructions [data-show-side]')
+  if (side !== null) showSide(side.dataset.showSide)
+  // B301: a warning's way to its chat.
+  const talk = event.target.closest('[data-open-talk]')
+  if (talk !== null) {
+    const where = talk.dataset.openTalk
+    if (where === 'main') showSide('main')
+    else if (where === 'advisor') {
+      show('advice')
+      showAdvisorPane('chat')
+    } else openDetails({ need: where })
+  }
+  const read = event.target.closest('[data-read]')
+  if (read !== null) sendWork({ action: 'read', id: read.dataset.read }, `read:${read.dataset.read}`)
+  const withdraw = event.target.closest('[data-withdraw]')
+  if (withdraw !== null) sendWork({ action: 'withdraw', id: withdraw.dataset.withdraw, why: 'its chat does not run' }, `work:${withdraw.dataset.withdraw}`)
+  // B258: an answer to an ask on the goal map: read it under its goal, or mark it read.
+  const askOpen = event.target.closest('[data-goal-ask-open]')
+  if (askOpen !== null) {
+    show('advice')
+    showAdvisorPane('goals')
+    // The map is drawn at once: the answer's block is there to bring into sight.
+    zoomGoal(askOpen.dataset.goalAskOpen)
+    goalsShowAsk(askOpen.dataset.ask)
+  }
+  // B259: a brainstorm that waits for the person opens on its part.
+  const thinking = event.target.closest('[data-brainstorm-need]')
+  if (thinking !== null) {
+    show('advice')
+    showAdvisorPane('brainstorm')
+    brainstormUi.open = thinking.dataset.brainstormNeed
+    brainstormUi.newAbout = undefined
+    redrawBrainstorm()
+  }
+  const askDone = event.target.closest('[data-goal-ask-done]')
+  if (askDone !== null) sendGoals({ command: 'read', id: askDone.dataset.goalAskDone, ask: askDone.dataset.ask })
+})
+
 function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
   const top = box.scrollTop
   const open = state.forYou.filter(need => !isClosed(need))
-  const answered = state.forYou.length - open.length
-  const unanswered = open.filter(need => !isAnswered(need)).length
+  // B287: a refine question has no card: its step's line says it, and only while it is open.
+  const lines = refineLines(open)
+  const cardsOpen = open.filter(need => !isRefineQuestion(need))
+  const answered = state.forYou.filter(need => isClosed(need) && !isRefineQuestion(need)).length
+  // B258: an answer to an ask on the goal map waits to be read, and counts.
+  // B287: the refine questions count once per step, as their lines stand.
+  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
-  const cards = ordered(showsClosed() ? state.forYou : open).map(need => drawNeed(need, state))
-  const none = open.length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
-  fill(box, [none, ...cards, drawLegacy(state)])
+  const shown = ordered(shownNeeds(state.forYou, showsClosed()).filter(need => !isRefineQuestion(need)))
+  // B300: a blocking ask that waited too long stands first, above the refine lines too.
+  const oldCards = shown.filter(need => need.isOld === true).map(need => drawNeed(need, state))
+  const cards = shown.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
+  const none = cardsOpen.length > 0 || lines.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  fill(box, [none, drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawLegacy(state), drawInformation(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
 }
 
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
-// A card is closed two minutes after its answer was typed: the minute is part of what is drawn.
-const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
+// A card says how long ago it was filed: the minute is part of what is drawn.
+const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], state.goalAskNeeds ?? [], state.brainstormNeeds ?? [], state.goalsEdit?.canWrite ?? null, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
@@ -1681,18 +2089,10 @@ function takeAnswers(box) {
     const text = (drafts.get(id) ?? '').trim()
     if (verdict === 'reject' && text === '') return fail(id, 'Say why you reject it: the worker needs to know what to change.')
     if (verdict === null && text === '') return fail(id, 'This needs your words.')
-    // B269: a No needs the person's words: the calm window shows the question that lacks them.
-    const lacking = verdict === null ? calmLacking(id) : -1
-    if (lacking >= 0) {
-      calmAt.set(id, lacking)
-      return fail(id, 'Say in the note why No: the chat needs to know what to change.')
-    }
     openForms.delete(id)
-    const isCalmSend = card.classList.contains('calm-answer')
-    send({ to: need.from, ask: id, verdict, text }, id).then(() => {
-      // B269: sent from the calm window, it closes; the card on the right says where the answer is.
-      if (isCalmSend && !problems.has(id) && detailsOf?.need === id) closeDetails()
-    })
+    // B299: an ask of the work store is answered in the store; the board wakes the chat that asked.
+    if (need.workId !== undefined) return sendWork({ action: 'answer', id: need.workId, verdict, text }, id)
+    send({ to: need.from, ask: id, verdict, text }, id)
   })
 }
 
@@ -1719,6 +2119,12 @@ document.addEventListener('click', event => {
   const button = event.target.closest('[data-start]')
   if (button === null || board === null || (board.restart?.main ?? null) === null) return
   send({ to: board.restart.main, command: 'start', chat: button.dataset.start }, `start:${button.dataset.start}`)
+})
+// B304: "Check again" on a step whose check failed: the board runs its check anew.
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-recheck]')
+  if (button === null || board === null) return
+  sendWork({ action: 'recheck', id: button.dataset.recheck }, `recheck:${button.dataset.recheck}`)
 })
 $('main-game').addEventListener('click', event => {
   const button = event.target.closest('[data-game]')
@@ -1760,11 +2166,13 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
   const checklist = [...(need?.checks ?? []), ...notes.filter(isChecklist).flatMap(part => [...part.lines, ...part.points])]
   const rest = notes.filter(part => !isChecklist(part))
   if (need === null) {
+    const refined = refinedChips(step.refined ?? null, step.status === 'done')
     return {
       code: step.id ?? null,
       title: step.title,
       chips: [
-        { text: 'Step', tone: 'kind' },
+        // B293: a step refined in the newer form says its goal, its size, and its questions or Ready, in place of "Step".
+        ...(refined ?? [{ text: 'Step', tone: 'kind' }]),
         // Where the step itself stands, when the backlog says so: worked on, or ticked.
         ...(step.status === 'progress' ? [{ text: 'In progress', tone: 'plain' }] : step.status === 'done' ? [{ text: 'Finished', tone: 'plain' }] : []),
         ...(lane === null ? [] : [{ text: `For: ${lane}`, tone: 'to' }]),
@@ -1786,6 +2194,77 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
   // `hasNotes`: something is written under the step, wherever the window shows it (B94).
   return { code: need.step ?? null, title: need.title, chips, at: need.at ?? null, checklist, notes: rest, hasNotes: notes.length > 0 }
 }
+
+/** B293: a size as a chip says it: "about 3-4 hours" is "about 3–4 h". */
+const sizeText = size => String(size).replace(/(\d)\s*-\s*(\d)/g, '$1–$2').replace(/\bhours?\b/gi, 'h').replace(/\bminutes?\b/gi, 'min').trim()
+
+/** B293: a refine block in the newer form: a summary, its goal or its size, or ready. */
+const hasNewForm = refined => refined !== null && refined !== undefined && (refined.ready === true || refined.summary !== '' || refined.partOf !== '' || refined.size !== '')
+
+/**
+ * B293: the chips of a step refined in the newer form: its goal, its size, and the questions that wait for the
+ * person (none for a finished step, `isDone`), or Ready. Null for a step refined in the older form, or not.
+ */
+function refinedChips(refined, isDone = false) {
+  if (!hasNewForm(refined)) return null
+  // B309: the open asks under the step count as its questions; one answered and not folded in yet keeps Ready away.
+  const asks = refined.asks ?? []
+  const open = isDone ? 0 : (refined.ready ? 0 : refined.questions.filter(one => one.answer === null).length) + asks.filter(one => one.answer === null).length
+  return [
+    ...(refined.partOf === '' ? [] : [{ text: refined.partOf, tone: 'goal' }]),
+    ...(refined.size === '' ? [] : [{ text: sizeText(refined.size), tone: 'plain' }]),
+    ...(refined.ready && asks.length === 0 ? [{ text: 'Ready', tone: 'ready' }] : open > 0 ? [{ text: `${open} question${open === 1 ? '' : 's'} for you`, tone: 'wait' }] : []),
+  ]
+}
+/**
+ * B296: the strip of a step's states in its window, from the flow file (flow.json) of the work store: each state, the
+ * step's own marked, those before it passed; and the moves out of it, who makes each and what must hold first. Null
+ * without the store.
+ */
+function flowStripOf(flow) {
+  if (flow === null || flow === undefined) return null
+  const at = flow.states.indexOf(flow.state)
+  return {
+    states: flow.states.map((name, index) => ({ name, tone: index === at ? 'now' : at >= 0 && index < at ? 'past' : 'later' })),
+    state: flow.state,
+    isKnown: at >= 0,
+    next: flow.next.map(move => `${move.to}, by ${move.by.join(' or ')}${move.when === null ? '' : ` when ${move.when}`}`),
+  }
+}
+
+// item:start
+/**
+ * B299: the parts of a step's window from the work store, in their order: the Summary on top, the picture, the
+ * goal chip, the flow strip, What we build, then Requirements and Touches folded, History last. `item` is the state's
+ * `item` of the step; only the parts it has.
+ */
+function itemPartsOf(item, hasFlow) {
+  if (item === null || item === undefined) return []
+  const parts = [
+    item.summary.length > 0 ? { key: 'summary', title: 'Summary', lines: item.summary, isFolded: false } : null,
+    item.picture !== null ? { key: 'picture', title: 'Picture', lines: [item.picture], isFolded: false } : null,
+    item.goal !== null ? { key: 'goal', title: 'Goal', lines: [item.goal], isFolded: false } : null,
+    hasFlow ? { key: 'flow', title: 'Flow', lines: [], isFolded: false } : null,
+    item.what.length > 0 ? { key: 'what', title: 'What we build', lines: item.what, isFolded: false } : null,
+    item.requirements.length > 0 ? { key: 'requirements', title: 'Requirements', lines: item.requirements, isFolded: true } : null,
+    item.touches.length > 0 ? { key: 'touches', title: 'Touches', lines: item.touches, isFolded: true } : null,
+    item.history.length > 0 ? { key: 'history', title: 'History', lines: item.history, isFolded: false } : null,
+  ]
+  return parts.filter(part => part !== null)
+}
+
+/**
+ * B293: an item's picture line as the refine writes it: `{ path, caption }` for a picture file with what it shows in
+ * brackets (a path written as code too), or `{ path: null, note }` with why there is none ("none (a rule only)").
+ */
+function pictureOfLine(line) {
+  const words = String(line).replace(/`([^`]*)`/g, '$1').trim()
+  const inBrackets = text => text.replace(/^\((.*)\)\.?$/, '$1').trim()
+  const file = words.match(/^(\S+\.(?:png|jpe?g|gif|webp))(?=\s|$)\s*(.*)$/i)
+  if (file !== null) return { path: file[1], caption: inBrackets(file[2].trim()), note: '' }
+  return { path: null, caption: '', note: inBrackets(words.replace(/^none\b[\s:,;.-]*/i, '').trim()) }
+}
+// item:end
 // window:end
 
 // waiting:start
@@ -1830,31 +2309,17 @@ function waitingOf(need, now) {
     words: waits?.handover?.rest ?? waits?.words ?? '',
     saidAt: waits?.at ?? null,
     where,
-    // B149: the parts of its answer when it finished a task with something left for the person (`handover`), and
-    // the message that gave it that task (`given`).
+    // B149: the parts of its answer when it finished a task with something left for the person (`handover`).
     handover: waits?.handover ?? null,
-    given: waits?.given ?? null,
     // B169: the main chat's window shows what the person decides on (`mainParts`).
     isMain: need.isMain === true,
+    // B275: so does the Advisor's, which asks the person as part of its talk with them.
+    isAdvisor: need.isAdvisor === true,
   }
 }
 
 /** B149: whether a finished worker's answer has the parts of the agreed form, so the window shows them. */
 const hasForm = handover => handover !== null && (handover.items.length > 0 || handover.task !== null || handover.did !== null)
-
-/**
- * B149: the answer the window types for the items of a finished worker's "For you" block, as the person answers in
- * a chat: one line per item answered, "1. yes", "2. no: it slides at the corner", "3. done". `answers` holds per
- * item number `{ verdict: 'yes' | 'no' | 'done' | null, words }`.
- */
-function handoverAnswer(items, answers) {
-  return items.map(item => {
-    const given = answers.get(item.n) ?? { verdict: null, words: '' }
-    const words = String(given.words ?? '').replace(/\s+/g, ' ').trim()
-    if (given.verdict === null && words === '') return null
-    return `${item.n}. ${[given.verdict, words].filter(part => part !== null && part !== '').join(': ')}`
-  }).filter(line => line !== null).join('\n')
-}
 
 /** B149: the closing block's lines, to show as a small table: `[label, words, tone]`; tone 'good' or 'bad' for Done. */
 function closingRows(closing) {
@@ -1867,16 +2332,21 @@ function closingRows(closing) {
 // calm:start
 /**
  * B269: the person, 2026-10-15: "This input needed screen is too cluttered with too much information. this new image
- * makes it less chaotic ... i want it even more spacious then the image". A chat that asks in the agreed form (the
- * items of its "Needs your attention" block) gets one calm window: the step in one line on top, one question at a
- * time as its title, its choices as large cards with the advised one marked, everything else folded behind one
- * line, an optional note, and one Send. Whether a waiting chat's window is drawn that way: while the answer can be
- * given here and the chat asked something.
+ * makes it less chaotic ... i want it even more spacious then the image". What waits for the person is the work store's
+ * asks (B299): each gets one calm window, the step in one line on top, one question at a time as its title, its
+ * answers as large cards with the advised one marked, everything else folded behind one line, a note, and one Send.
+ * Whether an ask's window is drawn that way: an ask of the store the board can answer, not answered yet, and not a
+ * refine question (those are answered in their step's refine part).
  */
-const isCalm = waiting => waiting !== null && waiting !== undefined && waiting.where === 'here' && (waiting.handover?.items.length ?? 0) > 0
+const isCalm = need => need !== null && need !== undefined && need.workId !== undefined && need.canAnswer === true
+  && (need.answer ?? null) === null && need.isRefine !== true && need.isForm !== true
 
-/** B169: words with a capital first letter, as a line of the window starts. */
-const capitalized = text => text.charAt(0).toUpperCase() + text.slice(1)
+/** B269: the asks one calm window goes through, one at a time: the open ones of the same chat on the same step, oldest first. */
+function calmGroup(need, needs) {
+  const order = ask => Number(String(ask.workId).replace(/\D/g, '')) || 0
+  return needs.filter(one => one === need || (isCalm(one) && one.from === need.from && (one.of ?? null) === (need.of ?? null)))
+    .sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || order(a) - order(b))
+}
 
 /**
  * B269: a question's words split into the question itself, the window's title (up to its first "?", else its first
@@ -1890,84 +2360,83 @@ function splitAsk(words) {
   return { question: text.slice(0, at + 1), rest: text.slice(at + 1).trim() }
 }
 
-/**
- * B269: what the chat advises for a question: a choice it marks "(advised)" or "(recommended)", else the one its
- * words name ("I advise yes", "I advise B"): 'yes', 'no' or the choice's letter; null when it advises nothing.
- */
-function advisedOf(item) {
-  const marked = (item.options ?? []).find(option => /\((?:advised|recommended)\)/i.test(option.text ?? ''))
-  if (marked !== undefined) return marked.key
-  const said = `${item.ask ?? ''} ${item.note ?? ''}`.match(/\b[Aa]dvises?:?\s+(?:([Yy]es|[Nn]o)\b|([A-H])\b)/)
-  return said === null ? null : said[1] !== undefined ? said[1].toLowerCase() : said[2]
-}
+/** B269: a picture's file name in words, for its link: without its folder, date and ending ("b12 the gate"). */
+const pictureWords = path => String(path).split('/').pop().replace(/\.[a-z0-9]+$/i, '').replace(/^\d{4}-\d{2}-\d{2}[-_ ]*/, '').replace(/[-_]+/g, ' ').trim()
+
+/** B269: whether the chat's advice says yes or no ("yes", "No, not yet"): 'yes', 'no' or null. */
+const adviceSays = advice => String(advice ?? '').trim().match(/^(yes|no)\b/i)?.[1].toLowerCase() ?? null
 
 /**
- * B269: the cards of a question: the choices it lists, each with its words (a short head before a colon is the
- * card's title), else Yes and No, else Done for a Do. `verdict` is what the window types for it ("1. B", "2. yes",
- * "3. done"); `isAdvised` marks the one the chat advises.
+ * B269: the cards of an ask: its options, each with its letter ("A thin") and its words (a short head before a colon
+ * is the card's title), the one it advises marked; else Yes and No for a look (approve, reject) or a decide; Done for
+ * a do; none for a provide, which takes the person's words. `verdict` is what a pick of it stands for.
  */
-function cardsOf(item) {
-  const advised = advisedOf(item)
-  const choice = option => {
-    const words = String(option.text ?? '').replace(/\s*\((?:advised|recommended)\)/i, '').trim()
+function cardsOf(need) {
+  const says = adviceSays(need.advice)
+  const option = one => {
+    const lettered = one.label.match(/^([A-H])(?:[.:)]\s*|\s+[—–-]\s+|\s+)(.+)$/)
+    const words = lettered === null ? one.label : lettered[2]
     const parts = words.match(/^(.{1,60}?)(?::\s+|\s+[—–]\s+)(.+)$/)
-    return { verdict: option.key, key: option.key, title: parts === null ? (words === '' ? option.key : words) : parts[1], text: parts === null ? '' : parts[2] }
+    return { verdict: one.label, key: lettered?.[1] ?? null, title: parts === null ? words : parts[1], text: parts === null ? '' : parts[2], isAdvised: one.isRecommended === true }
   }
-  const cards = (item.options ?? []).length > 0 ? item.options.map(choice)
-    : item.kind === 'do' ? [{ verdict: 'done', key: null, title: 'Done', text: '' }]
-      : [{ verdict: 'yes', key: null, title: 'Yes', text: '' }, { verdict: 'no', key: null, title: 'No', text: 'Say in the note what to change.' }]
-  return cards.map(card => ({ ...card, key: card.key === card.title ? null : card.key, isAdvised: card.verdict === advised }))
-}
-
-/** B269: the place of the first question whose No still lacks the person's words, or -1. */
-function wordsMissing(items, answers) {
-  return items.findIndex(item => {
-    const given = answers.get(item.n)
-    return given?.verdict === 'no' && String(given.words ?? '').trim() === ''
-  })
+  if ((need.options ?? []).length > 0) return need.options.map(option)
+  if (need.kind === 'do') return [{ verdict: 'done', key: null, title: 'Done', text: '', isAdvised: false }]
+  if (need.asks === 'provide') return []
+  const [yes, no] = need.kind === 'verify' ? ['approve', 'reject'] : ['yes', 'no']
+  return [
+    { verdict: yes, key: null, title: 'Yes', text: '', isAdvised: says === 'yes' },
+    { verdict: no, key: null, title: 'No', text: 'Say in the note what to change.', isAdvised: says === 'no' },
+  ]
 }
 
 /**
- * B269: the step in a few words, for the line on top: the main chat's what the person asked (its Prompt) and how far
- * it is (its Done, "yes" said as "Done"); a finished worker's task and what it did. `tone` colours the second line.
+ * B269: what the window sends for an ask, from the card picked and the note: `{ verdict, text }` as the store takes
+ * an answer (a look approved or rejected, a do done, else the person's words, a pick first); `{ lacks: 'words' }` for
+ * a No without words, `{ lacks: 'pick' }` for words on a look or a do without a pick; null when nothing is given.
  */
-function standingOf(waiting) {
-  const handover = waiting.handover
-  if (waiting.isMain) {
-    const closing = handover?.closing ?? null
-    const done = String(closing?.done ?? '')
-    const said = closing?.isDone === true ? done.replace(/^yes\b[,:;.]?\s*/i, '') : done
-    return {
-      line: capitalized(String(closing?.prompt ?? '')),
-      more: closing?.isDone === true && said === '' ? 'Done' : capitalized(said),
-      tone: closing?.isDone === true ? 'good' : closing?.isDone === false ? 'bad' : '',
-    }
+function calmAnswer(need, pick, words) {
+  const note = String(words ?? '').trim()
+  if (pick === null || pick === undefined) {
+    if (note === '') return null
+    return need.kind === 'verify' || need.kind === 'do' ? { lacks: 'pick' } : { verdict: null, text: note }
   }
-  return { line: shortTask(handover?.task ?? waiting.given?.text ?? null, null, waiting.task[0] ?? null), more: plainWords(handover?.did), tone: '' }
+  if ((pick === 'no' || pick === 'reject') && note === '') return { lacks: 'words' }
+  if (pick === 'approve' || pick === 'reject' || pick === 'done') return { verdict: pick, text: note }
+  const label = pick === 'yes' ? 'Yes' : pick === 'no' ? 'No' : pick
+  return { verdict: null, text: note === '' ? label : `${label}\n${note}` }
+}
+
+/** B269: what stands over the note: optional, except for a No, which needs words; for a provide it is the answer. */
+const noteLabel = (need, pick) => (need.asks === 'provide' && (need.options ?? []).length === 0 ? 'Your answer'
+  : pick === 'no' || pick === 'reject' ? 'Add a note (needed for No)' : 'Add a note (optional)')
+
+/** B269: the Send button, which says how many of the window's questions have an answer to go. */
+const sendLabel = (count, given) => (count === 1 ? 'Send answer' : given === 0 ? 'Send answers' : given === count ? `Send ${count} answers` : `Send ${given} of ${count} answers`)
+
+/** B269: where it stands, for the line on top: the step the ask is about, and whether the chat waits for the answer. */
+function standingOf(need) {
+  const line = need.of === null || need.of === undefined ? '' : `${need.of}${need.ofTitle === null || need.ofTitle === undefined ? '' : ` ${need.ofTitle}`}`
+  return { line, more: `${need.from ?? 'The board'} ${need.blocking === true ? 'waits for your answer' : 'goes on meanwhile'}` }
 }
 // calm:end
 
 /**
- * B149: the parts of a finished worker's window when its answer has the agreed form: its task as it was given,
- * what it did, and what it needs from the person, numbered, each with its links and its own answer; its whole
- * answer folded; its closing block on the right. `{ main, side }`, each a list of sections.
+ * B149: the parts of a worker's answer window when its answer has the agreed form: its task as its own Task line says,
+ * what it did, its whole answer folded, and its closing block. `{ main, side }`, each a list of sections.
  */
-function handoverParts(waiting, needId) {
-  const { handover, given } = waiting
+function handoverParts(waiting) {
+  const { handover } = waiting
   // B157: on top, set apart: the task in at most two lines, and what it did in plain words (a technical sentence
   // is left out there; the folded details have its whole answer).
   const did = plainWords(handover.did)
   const main = [briefPart([
-    ['The task', [briefTask(shortTask(handover.task ?? given?.text ?? null, null, waiting.task[0] ?? null))]],
+    ['The task', [briefTask(shortTask(handover.task, null, waiting.task[0] ?? null))]],
     ['What I did', did === '' ? [] : [el('p', 'brief-text', did)]],
   ])]
 
-  if (handover.items.length > 0) main.push(itemsPart(handover.items, waiting, needId))
-  // B157: below, folded: the message as it was given, its whole answer, its closing block.
+  // B301: its "For you" items are not shown as questions to answer here: what waits for the person is the store's asks.
+  // B157: below, folded: its whole answer, its closing block.
   main.push(foldedDetails([
-    given === null ? null : section('Its task as it was given', [
-      el('small', 'muted', `Given by ${given.by === 'you' ? 'you' : 'the main chat'} at ${clock(given.at)}`), rich(el('div', 'said-words'), given.text),
-    ]),
     waiting.words === '' ? null : section(`Its whole answer${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`, [rich(el('div', 'said-words'), waiting.words)]),
     ...closingParts(handover.closing),
   ]))
@@ -1976,12 +2445,12 @@ function handoverParts(waiting, needId) {
 
 /**
  * B169: the window of the main chat that waits for the person. The person, 2026-10-14: "This 'for you' tab, doesnt
- * contain the information i need to approve. i think it works for for workers, but not for the main chat", and of
- * the mock-up "1. yes". On top what the person asked it (its closing block's Prompt) and where that stands (Done);
- * then its answer itself, open: what the person decides on; then its questions, with the choices it lists; its
- * closing block folded, and for a question it first asked in an earlier answer, the way to Talk to Main ("2. yes: A").
+ * contain the information i need to approve. i think it works for for workers, but not for the main chat". On top what
+ * the person asked it (its closing block's Prompt) and where that stands (Done); then its answer itself, open; its
+ * closing block folded, and the way to Talk to Main. B301: the questions of its "For you" block are not offered as
+ * questions to answer here: what waits for the person is the store's asks.
  */
-function mainParts(waiting, needId) {
+function mainParts(waiting) {
   const handover = waiting.handover
   const closing = handover?.closing ?? null
   const asked = closing?.prompt ?? ''
@@ -1995,93 +2464,25 @@ function mainParts(waiting, needId) {
     ]))
   }
   const material = handover?.material ?? waiting.words
-  if (material !== '') main.push(section(`What you decide on${waiting.saidAt === null ? '' : ` · its answer of ${clock(waiting.saidAt)}`}`, [drawTalkText(el('div', 'main-material'), material)]))
-  if (handover !== null && handover.items.length > 0) main.push(itemsPart(handover.items, waiting, needId, true))
-  if (material === '' && (handover?.items.length ?? 0) === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
-  const talk = board?.mainTalk?.name ?? 'Main'
-  const open = el('button', 'link-button', `Open Talk to ${talk}`)
+  if (material !== '') main.push(section(`Its answer${waiting.saidAt === null ? '' : ` of ${clock(waiting.saidAt)}`}`, [drawTalkText(el('div', 'main-material'), material)]))
+  // B275: what it asked with the app's own form, or the plan it asks to have approved: answered in its chat.
+  const form = formParts(waiting)
+  if (form.length > 0) main.push(section('What it asks in its chat', [...form, el('p', 'muted', 'It asked with the app\'s own question form: that one takes its answer only in its chat.')]))
+  if (material === '' && form.length === 0) main.push(el('p', 'muted', waiting.where === 'answered' ? 'It has your answer and went on.' : 'It waits for you, and said no more.'))
+  const open = el('button', 'link-button', waiting.isAdvisor ? 'Open its chat on the Advisor tab' : `Open Talk to ${board?.mainTalk?.name ?? 'Main'}`)
   open.type = 'button'
-  open.dataset.showSide = 'main'
+  // B275: the Advisor's window leads to the talk with it, on its own tab.
+  if (waiting.isAdvisor) open.dataset.showAdvisor = 'chat'
+  else open.dataset.showSide = 'main'
   main.push(foldedDetails([
     ...closingParts(closing),
-    section('Asked before', [el('p', 'muted', 'A question it first asked in an earlier answer: all its answers are in the talk with it.'), open]),
+    section('Its talk', [el('p', 'muted', 'All its answers are in the talk with it.'), open]),
   ]))
   return { main, side: [] }
 }
 
-/**
- * B149: the items of a "For you" block, numbered, each with its links and its own answer: Yes or No, Done, or (B169,
- * the main chat's window, `withChoices`) the choices it lists, shown under its question with its advice.
- */
-function itemsPart(items, waiting, needId, withChoices = false) {
-  const answers = itemAnswers.get(needId) ?? new Map()
-  const list = el('ol', 'handover-items')
-  for (const item of items) {
-    const li = el('li', 'handover-item')
-    li.dataset.item = String(item.n)
-    const ask = el('p', 'handover-ask')
-    ask.append(el('b', '', `${item.n}. ${item.kind === 'do' ? 'Do' : 'Answer'}: `), withChoices ? capitalized(item.ask ?? item.text) : item.text)
-    li.append(ask)
-    const choices = withChoices ? item.options ?? [] : []
-    if (choices.some(choice => choice.text !== null)) {
-      const listed = el('ul', 'handover-options')
-      for (const choice of choices) {
-        const row = el('li')
-        row.append(el('b', '', `${choice.key}: `), choice.text ?? '')
-        listed.append(row)
-      }
-      li.append(listed)
-    }
-    if (withChoices && (item.note ?? '') !== '') li.append(el('p', 'handover-note', item.note))
-    li.append(...linkButtons(item))
-    if (waiting.where === 'here') {
-      const mine = answers.get(item.n) ?? { verdict: null, words: '' }
-      const row = el('div', 'handover-answer')
-      for (const verdict of choices.length > 0 ? choices.map(choice => choice.key) : item.kind === 'do' ? ['done'] : ['yes', 'no']) {
-        const pick = el('button', `choice${mine.verdict === verdict ? ' is-chosen' : ''}`, verdict.charAt(0).toUpperCase() + verdict.slice(1))
-        pick.type = 'button'
-        pick.dataset.itemVerdict = verdict
-        pick.setAttribute('aria-pressed', String(mine.verdict === verdict))
-        row.append(pick)
-      }
-      const words = el('input')
-      words.type = 'text'
-      words.value = mine.words
-      words.maxLength = 500
-      words.placeholder = item.kind === 'do' || choices.length > 0 ? 'Your words, if any…' : 'Your words (needed for No)…'
-      words.dataset.itemWords = ''
-      words.setAttribute('aria-label', `Your answer to ${item.n}`)
-      row.append(words)
-      li.append(row)
-    }
-    list.append(li)
-  }
-  // B169: the person, 2026-10-14: "lets rename 'For you' to 'Need your attention'", and "everywhere".
-  return section('Needs your attention', [list, ...(waiting.where === 'here' ? [el('p', 'muted', 'Your answers gather in the box below; change it there if you like, then send.')] : [])])
-}
-
-/** B149: the links of an item as buttons: a picture opens here, "Play it" starts the game in a new tab. */
-function linkButtons(item) {
-  const nodes = []
-  // B132: a project without a game has nothing to play: its play links are left out.
-  for (const link of item.links.filter(one => one.kind === 'picture' || board?.hasGame !== false)) {
-    const open = el('button', 'handover-link', link.kind === 'picture' ? link.label : `▶  ${link.label}`)
-    open.type = 'button'
-    if (link.kind === 'picture') {
-      open.dataset.zoom = link.path
-      open.dataset.caption = link.label
-      open.title = `Opens the picture here: ${link.path}`
-    } else {
-      open.dataset.play = link.branch
-      open.dataset.settings = link.settings
-      open.disabled = starting.has(`play:${link.branch}`)
-      open.title = 'Starts the game with this work in a new tab, where the change shows. It stops by itself after you close the tab.'
-    }
-    nodes.push(open)
-    if (link.kind === 'play' && problems.has(`play:${link.branch}`)) nodes.push(el('p', 'problem', problems.get(`play:${link.branch}`)))
-  }
-  return nodes
-}
+/** B169: words with a capital first letter, as a line of the window starts. */
+const capitalized = text => text.charAt(0).toUpperCase() + text.slice(1)
 
 /** B149: the closing block of a worker's answer as three lines, Done in green or red; nothing when it has none. */
 function closingParts(closing) {
@@ -2092,19 +2493,6 @@ function closingParts(closing) {
   return [section('Its closing block', [list])]
 }
 
-/** B149: what the person chose per item of a finished worker's "For you" block, per window; it stays in this page only. */
-const itemAnswers = new Map()
-
-/** B149: the answer box of the window shows what the items' answers make, and keeps it as the draft. */
-function gatherAnswers(box, needId) {
-  const need = everyNeed(board).find(one => one.id === needId)
-  const items = need?.waits?.handover?.items ?? []
-  const text = handoverAnswer(items, itemAnswers.get(needId) ?? new Map())
-  drafts.set(needId, text)
-  const area = box.querySelector('.details-foot textarea')
-  if (area !== null) area.value = text
-}
-
 $('details').addEventListener('click', event => {
   // B169: from the main chat's window to the talk with it, on the right side.
   const side = event.target.closest('[data-show-side]')
@@ -2113,59 +2501,64 @@ $('details').addEventListener('click', event => {
     showSide(side.dataset.showSide)
     return
   }
-  // B269: Back and Next in the calm window.
+  const advisor = event.target.closest('[data-show-advisor]')
+  if (advisor !== null) {
+    closeDetails()
+    show('advice')
+    showAdvisorPane(advisor.dataset.showAdvisor)
+    return
+  }
+  // B269: Back and Next in the calm window show another ask of the same chat and step.
   const go = event.target.closest('[data-calm-go]')
   if (go !== null && detailsOf?.need !== undefined) {
-    calmAt.set(detailsOf.need, Number(go.dataset.calmGo))
+    detailsOf = { ...detailsOf, need: go.dataset.calmGo }
     detailsShown = null
     drawDetails(board)
     return
   }
-  const pick = event.target.closest('[data-item-verdict]')
-  if (pick === null || detailsOf?.need === undefined) return
-  const n = Number(pick.closest('[data-item]').dataset.item)
-  const answers = itemAnswers.get(detailsOf.need) ?? new Map()
-  const mine = answers.get(n) ?? { verdict: null, words: '' }
-  // A second click takes the choice back.
-  const verdict = mine.verdict === pick.dataset.itemVerdict ? null : pick.dataset.itemVerdict
-  answers.set(n, { ...mine, verdict })
-  itemAnswers.set(detailsOf.need, answers)
-  for (const other of pick.parentElement.querySelectorAll('[data-item-verdict]')) {
-    other.classList.toggle('is-chosen', other.dataset.itemVerdict === verdict)
-    other.setAttribute(other.getAttribute('role') === 'radio' ? 'aria-checked' : 'aria-pressed', String(other.dataset.itemVerdict === verdict))
+  // B269: a card of the calm window picks that answer; a second click takes it back.
+  const pick = event.target.closest('[data-calm-pick]')
+  if (pick !== null && detailsOf?.need !== undefined) {
+    const id = detailsOf.need
+    calmPicks.set(id, calmPicks.get(id) === pick.dataset.calmPick ? null : pick.dataset.calmPick)
+    problems.delete(id)
+    detailsShown = null
+    drawDetails(board)
+    $('details').querySelector(`[data-calm-pick="${CSS.escape(pick.dataset.calmPick)}"]`)?.focus()
+    return
   }
-  const label = pick.closest('[data-item]').querySelector('.calm-note-label')
-  if (label !== null) label.textContent = noteLabel(verdict)
-  gatherAnswers($('details'), detailsOf.need)
+  if (event.target.closest('[data-calm-send]') !== null && detailsOf?.need !== undefined) sendCalm(detailsOf.need)
 })
-
 $('details').addEventListener('input', event => {
-  if (!event.target.matches('[data-item-words]') || detailsOf?.need === undefined) return
-  const n = Number(event.target.closest('[data-item]').dataset.item)
-  const answers = itemAnswers.get(detailsOf.need) ?? new Map()
-  answers.set(n, { ...(answers.get(n) ?? { verdict: null }), words: event.target.value })
-  itemAnswers.set(detailsOf.need, answers)
-  gatherAnswers($('details'), detailsOf.need)
+  // B269: the note of the calm window, kept per ask until it is sent.
+  if (event.target.matches('[data-calm-words]') && detailsOf?.need !== undefined) calmWords.set(detailsOf.need, event.target.value)
 })
 
-/** B100: the two parts of a waiting worker's window: its task, and what it wants from the person. */
-function waitingParts(waiting, needId = null) {
-  // B169: the main chat, which asks the person as part of its talk with them.
-  if (waiting.isMain) return mainParts(waiting, needId)
-  // B149: a finished worker whose answer has the agreed form.
-  if (hasForm(waiting.handover)) return handoverParts(waiting, needId)
-  const task = waiting.task.map((line, index) => el('p', index === 0 ? `waiting-topic${waiting.hasTask ? '' : ' muted'}` : 'muted', line))
-  const wants = []
-  if (waiting.summary !== '') wants.push(el('p', 'waiting-summary', waiting.summary))
+/** B100: the questions a chat asked with the app's own form, with the options it offers, and the plan it asks to have approved. */
+function formParts(waiting) {
+  const parts = []
   for (const one of waiting.questions) {
-    wants.push(el('p', 'waiting-question', one.question))
-    if (one.options.length > 0) wants.push(listOf(one.options))
+    parts.push(el('p', 'waiting-question', one.question))
+    if (one.options.length > 0) parts.push(listOf(one.options))
   }
   if (waiting.plan !== null) {
     const plan = el('div', 'said')
     plan.append(el('small', 'muted', 'The plan it asks you to approve'), rich(el('div', 'said-words'), waiting.plan))
-    wants.push(plan)
+    parts.push(plan)
   }
+  return parts
+}
+
+/** B100: the two parts of a waiting worker's window: its task, and what it wants from the person. */
+function waitingParts(waiting, needId = null) {
+  // B169: the main chat, which asks the person as part of its talk with them; B275: the Advisor too.
+  if (waiting.isMain || waiting.isAdvisor) return mainParts(waiting)
+  // B149: a finished worker whose answer has the agreed form.
+  if (hasForm(waiting.handover)) return handoverParts(waiting)
+  const task = waiting.task.map((line, index) => el('p', index === 0 ? `waiting-topic${waiting.hasTask ? '' : ' muted'}` : 'muted', line))
+  const wants = []
+  if (waiting.summary !== '') wants.push(el('p', 'waiting-summary', waiting.summary))
+  wants.push(...formParts(waiting))
   if (waiting.words !== '') {
     const said = el('div', 'said')
     said.append(el('small', 'muted', `Its last words${waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`}`), rich(el('div', 'said-words'), waiting.words))
@@ -2266,8 +2659,24 @@ const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interru
 function laneTaskOf(lane) {
   const task = lane.task ?? null
   const code = lane.givenTask?.step?.id ?? task?.stepId ?? null
+  // B299: a step of the store is named by its title as the store holds it, never by the card's short topic. B292:
+  // without the note in brackets a migrated title, or a card named after one, may have brought along.
+  if (typeof task?.title === 'string' && task.title !== '') return { code, text: withoutNote(task.title) }
   if (task === null || (task.text ?? '') === '') return { code, text: null }
-  return { code, text: code === null ? task.text : task.text.replace(new RegExp(`^${code}[:,]?\\s+`), '') }
+  return { code, text: withoutNote(code === null ? task.text : task.text.replace(new RegExp(`^${code}[:,]?\\s+`), '')) }
+}
+
+/**
+ * B292: words without the notes in brackets at their end ("See tall walls (not handed out; after today)"), one level of
+ * brackets inside a note; words that are nothing but brackets keep them. As the board's reading of a step does.
+ */
+function withoutNote(words) {
+  let rest = String(words)
+  for (;;) {
+    const found = rest.match(/\s*\((?:[^()]|\([^()]*\))*\)\s*$/)
+    if (found === null || rest.slice(0, found.index).trim() === '') return rest.trim()
+    rest = rest.slice(0, found.index)
+  }
 }
 
 const SHORT_TASK_CHARS = 220
@@ -2290,9 +2699,28 @@ function shortTask(given, stepTitle = null, topic = null) {
       .trim()
     if (first !== '') words = first
   }
-  const chosen = (words ?? stepTitle ?? topic ?? '').trim()
+  return twoLines(words ?? stepTitle ?? topic ?? '')
+}
+
+/** A task's words for the window's two lines: with a capital, cut at SHORT_TASK_CHARS. */
+function twoLines(words) {
+  const chosen = String(words).trim()
   const capital = chosen.charAt(0).toUpperCase() + chosen.slice(1)
   return capital.length > SHORT_TASK_CHARS ? `${capital.slice(0, SHORT_TASK_CHARS - 1).trimEnd()}…` : capital
+}
+
+/**
+ * B281: what the backlog step a task is about is, in at most two lines: as shortTask finds it in the message (its
+ * "In short: ..." line, else its first line), unless that only names the step again: then the step's own first line
+ * in the backlog that says what it is (`step.about`). The person, 2026-10-17: "I want the task to be clear, recap the
+ * original task briefly".
+ */
+function stepTask(given, step, topic = null) {
+  const said = shortTask(given, step.title, topic)
+  const bare = text => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '')
+  // The message's first line that only names the step again says nothing the head does not.
+  const isTitle = bare(said) === '' || bare(step.title).includes(bare(said)) || bare(said).includes(bare(step.title))
+  return isTitle && typeof step.about === 'string' && step.about.trim() !== '' ? twoLines(step.about) : said
 }
 
 /**
@@ -2335,10 +2763,10 @@ function planOf(lane, now) {
 
 /**
  * B151: what the window of a working worker's lane shows (also one that is suspended, cut off, or between two turns):
- * in its head the task as its card names it; then the task as it was given (`given`: the main chat's hand-over as it
- * arrived in that chat, or what the person typed there, with when), the backlog step that message is about, and
- * where it stands now (`standing`: its step line, its time, what it does). Null for a lane whose window this is
- * not: a free one, or one that waits for the person (that one opens what it waits for, B100).
+ * in its head the task as its card names it; then the task as it was given (`given`: what the person typed there,
+ * with when; B301: the step the work store holds for it has no words of its own), the step it is on, and where it
+ * stands now (`standing`: its step line, its time, what it does). Null for a lane whose window this is not: a free
+ * one, or one that waits for the person (that one opens what it waits for, B100).
  */
 function laneWindowOf(lane, now, mainTitle) {
   const chip = LANE_WINDOW_STATES[lane.state]
@@ -2351,10 +2779,16 @@ function laneWindowOf(lane, now, mainTitle) {
     code: laneTaskOf(lane).code,
     title: laneTaskOf(lane).text ?? 'Task not recorded yet',
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
-    given: given === null ? null : { from: `${given.by === 'main' ? `Handed over by ${mainTitle}` : 'Typed by you'}, ${clock(given.at)}`, text: given.text },
+    // B301: only the person's words give a task; the main chat's messages give none.
+    given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
     step: given?.step ?? null,
-    // B157: the top part: the task in one short sentence, and its plan in plain words.
-    task: shortTask(given?.text ?? null, given?.step?.title ?? null, task === null || task.text === '' ? null : task.text),
+    // B157: the top part: the task in one short sentence, and its plan in plain words. B281: for a backlog step, the
+    // step's id and title above it, and what the step is; the person's feedback the worker is on as a part apart.
+    taskHead: (given?.step ?? null) === null ? null : `${given.step.id} · ${given.step.title}`,
+    task: (given?.step ?? null) === null
+      ? shortTask(given?.text ?? null, null, task === null || task.text === '' ? null : task.text)
+      : given.by === 'step' ? stepTask('', given.step) : stepTask(given.text, given.step, task === null || task.text === '' ? null : task.text),
+    feedback: (lane.feedback ?? null) === null ? null : { title: `Now on your feedback (${clock(lane.feedback.at)})`, text: lane.feedback.text },
     plan: planOf(lane, now),
     standing: [
       ...(line === null ? [] : [line.label]),
@@ -2372,8 +2806,9 @@ function laneWindowOf(lane, now, mainTitle) {
  */
 const LANE_PARTS = {
   main: [
-    // B157: on top, set apart: the task in at most two lines, and its plan in plain words.
-    view => briefPart([['The task', [briefTask(view.task)]], ['Its plan', planNodes(view.plan)]]),
+    // B157: on top, set apart: the task in at most two lines, and its plan in plain words. B281: the step it is on,
+    // and the person's feedback it is on now in a part of its own.
+    view => briefPart([['The task', taskNodes(view)], [view.feedback?.title ?? '', feedbackNodes(view.feedback)], ['Its plan', planNodes(view.plan)]]),
     // B157: below, folded: the task as it was given, its backlog step, where it stands.
     view => foldedDetails([
       section('Its task as it was given', view.given === null
@@ -2400,6 +2835,12 @@ function briefPart(rows) {
 
 /** B157: the task in its two lines; a window without one says so. */
 const briefTask = task => el('p', `brief-task${task === '' ? ' muted' : ''}`, task === '' ? 'The board does not know the task yet.' : task)
+
+/** B281: a working worker's task: the backlog step it is on ("B231 · title"), then what it is in two lines. */
+const taskNodes = view => [...(view.taskHead === null ? [] : [el('p', 'brief-head', view.taskHead)]), briefTask(view.task)]
+
+/** B281: the person's feedback the worker is on, in at most two lines; nothing when it is on none. */
+const feedbackNodes = feedback => (feedback === null ? [] : [el('p', 'brief-feedback', feedback.text)])
 
 /** B157: a plan as one line of its steps (done ones struck through, the current one marked) and its step and time. */
 function planNodes(plan) {
@@ -2455,64 +2896,67 @@ function detailsHead(view, sign, now) {
 }
 
 // calmwindow:start
-/** B269: which question of a calm window is on screen, per window; it stays in this page only. */
-const calmAt = new Map()
+/** B269: the card picked and the note per ask of a calm window, until it is sent; they stay in this page only. */
+const calmPicks = new Map()
+const calmWords = new Map()
 
-/** B269: what stands over the note: optional, except for a No, which needs the person's words. */
-const noteLabel = verdict => (verdict === 'no' ? 'Add a note (needed for No)' : 'Add a note (optional)')
-
-/** B269: the place of the first question of a calm window whose No lacks words, or -1. */
-function calmLacking(id) {
-  const need = findNeed(id)
-  const waiting = need === undefined ? null : waitingOf(need, Date.now())
-  return isCalm(waiting) ? wordsMissing(waiting.handover.items, itemAnswers.get(id) ?? new Map()) : -1
+/** B269: an ask's pictures and its play link as links under the question: a picture opens here, Play it in a new tab. */
+function askLinks(need) {
+  const nodes = need.pictures.map(path => {
+    const open = el('button', 'handover-link', `See the picture: ${pictureWords(path)}`)
+    open.type = 'button'
+    open.dataset.zoom = path
+    open.dataset.caption = pictureWords(path)
+    open.title = `Opens the picture here: ${path}`
+    return open
+  })
+  const play = storeAskParts(need)?.play ?? null
+  if (play !== null && board?.hasGame !== false) {
+    const link = el('a', 'handover-link', '▶  Play it')
+    link.href = play
+    link.target = '_blank'
+    link.rel = 'noreferrer noopener'
+    link.title = 'Starts the game with this work in a new tab, where the change shows.'
+    nodes.push(link)
+  }
+  return nodes
 }
 
 /**
- * B269: what the calm window folds behind one line: the main chat's whole answer, drawn as in Talk to Main, its
- * closing block and the way to Talk to Main; a worker's task as it was given, what it did, its whole answer and its
- * closing block. Nothing the person needs is lost: it is one click away.
+ * B269: what the calm window folds behind one line: the step the ask is about as the work store holds it (its
+ * Summary and what we build), who asked when and what waits on it, and its pictures large. Nothing the person needs
+ * is lost: it is one click away.
  */
-function calmContext(waiting) {
-  const handover = waiting.handover
-  const at = waiting.saidAt === null ? '' : `, ${clock(waiting.saidAt)}`
-  if (waiting.isMain) {
-    const material = handover.material ?? waiting.words
-    const talk = board?.mainTalk?.name ?? 'Main'
-    const open = el('button', 'link-button', `Open Talk to ${talk}`)
-    open.type = 'button'
-    open.dataset.showSide = 'main'
-    return [
-      material === '' ? null : section(`Its answer${at}`, [drawTalkText(el('div', 'main-material'), material)]),
-      ...closingParts(handover.closing),
-      section('Asked before', [el('p', 'muted', 'A question it first asked in an earlier answer: all its answers are in the talk with it.'), open]),
-    ].filter(part => part !== null)
-  }
-  const given = waiting.given
+function calmContext(need, state) {
+  const item = need.of === null ? null : itemFor({ id: need.of }, state)
+  const about = item === null ? [] : itemPartsOf(item, false).filter(part => part.key === 'summary' || part.key === 'what').map(part => itemPart(part, null))
+  const parts = storeAskParts(need)
   return [
-    given === null ? null : section('Its task as it was given', [
-      el('small', 'muted', `Given by ${given.by === 'you' ? 'you' : 'the main chat'} at ${clock(given.at)}`), rich(el('div', 'said-words'), given.text),
-    ]),
-    handover.did === null ? null : section('What I did', [el('p', '', handover.did)]),
-    waiting.words === '' ? null : section(`Its whole answer${at}`, [rich(el('div', 'said-words'), waiting.words)]),
-    ...closingParts(handover.closing),
+    need.of === null ? null : section('The step', [el('p', '', standingOf(need).line)]),
+    ...about,
+    section('Asked', [
+      el('p', '', `${need.from ?? 'The board'} asked${need.at === null ? '' : ` at ${clock(need.at)}`} (${parts?.id ?? need.id}).`),
+      parts?.blocks === null || parts?.blocks === undefined ? null : el('p', 'muted', capitalized(parts.blocks)),
+    ].filter(part => part !== null)),
+    need.pictures.length === 0 ? null : section('References', drawReferences(need.pictures.map(path => ({ path, caption: pictureWords(path) })))),
   ].filter(part => part !== null)
 }
 
-/** B269: the calm window of a chat that asks in the agreed form (see `isCalm`). */
-function drawCalm(box, need, waiting, view, now) {
-  const items = waiting.handover.items
-  const at = Math.max(0, Math.min(calmAt.get(need.id) ?? 0, items.length - 1))
-  const item = items[at]
-  const mine = (itemAnswers.get(need.id) ?? new Map()).get(item.n) ?? { verdict: null, words: '' }
-  const typing = box.contains(document.activeElement) && document.activeElement.matches('[data-item-words]')
-  const wasAt = box.dataset.calmAt === `${need.id}#${at}`
+/** B269: the calm window of an ask of the work store (see `isCalm`). */
+function drawCalm(box, need, state) {
+  const now = state.readAt
+  const group = calmGroup(need, everyNeed(state))
+  const at = Math.max(0, group.indexOf(need))
+  const pick = calmPicks.get(need.id) ?? null
+  const typing = box.contains(document.activeElement) && document.activeElement.matches('[data-calm-words]')
+  const wasAt = box.dataset.calmAt === need.id
   const scroll = wasAt ? box.querySelector('.details-body')?.scrollTop ?? 0 : 0
 
   // The head: who asks and since when; nothing else.
   const head = el('header', 'details-head calm-head')
   const names = el('div', 'details-names')
-  names.append(el('h2', '', view.title), el('p', 'calm-sub', [KINDS[need.kind].tag, view.at === null ? null : `Asked ${ago(view.at, now)}`].filter(Boolean).join(' · ')))
+  const tag = storeAskParts(need)?.tag ?? KINDS[need.kind].tag
+  names.append(el('h2', '', `${need.from ?? 'The board'} needs your answer`), el('p', 'calm-sub', [tag, need.at === null ? null : `Asked ${ago(need.at, now)}`].filter(Boolean).join(' · ')))
   const close = el('button', 'icon-button', '✕')
   close.type = 'button'
   close.dataset.close = ''
@@ -2521,76 +2965,79 @@ function drawCalm(box, need, waiting, view, now) {
   head.append(el('span', `kind is-${need.kind}`, KINDS[need.kind].sign), names, close)
 
   const main = el('div', 'details-main calm-main')
-  // The step in one line, how far it is under it; a click opens the folded context.
-  const standing = standingOf(waiting)
-  if (standing.line !== '' || standing.more !== '') {
-    const step = el('button', 'calm-step')
-    step.type = 'button'
-    step.dataset.calmContext = ''
-    step.title = 'Shows the context and the whole answer'
-    const words = el('span', 'calm-step-words')
-    if (standing.line !== '') words.append(el('span', 'calm-step-line', standing.line))
-    if (standing.more !== '') words.append(el('span', `calm-step-more${standing.tone === '' ? '' : ` is-${standing.tone}`}`, standing.more))
-    step.append(el('span', 'calm-step-sign', '≡'), words, el('span', 'calm-chevron', '›'))
-    main.append(step)
-  }
+  // The step in one line, whether the chat waits under it; a click opens the folded context.
+  const standing = standingOf(need)
+  const step = el('button', 'calm-step')
+  step.type = 'button'
+  step.dataset.calmContext = ''
+  step.title = 'Shows the context'
+  const words = el('span', 'calm-step-words')
+  if (standing.line !== '') words.append(el('span', 'calm-step-line', standing.line))
+  words.append(el('span', 'calm-step-more', standing.more))
+  step.append(el('span', 'calm-step-sign', '≡'), words, el('span', 'calm-chevron', '›'))
+  main.append(step)
 
   // The question: its title, the why and the advice under it, its links.
   const part = el('div', 'calm-item')
-  part.dataset.item = String(item.n)
   const ask = el('div', 'calm-ask')
-  if (items.length > 1) ask.append(el('p', 'calm-count', `Question ${at + 1} of ${items.length}`))
-  const { question, rest } = splitAsk(item.ask ?? item.text)
+  if (group.length > 1) ask.append(el('p', 'calm-count', `Question ${at + 1} of ${group.length}`))
+  const { question, rest } = splitAsk(need.question ?? need.title)
   ask.append(el('h3', 'calm-question', capitalized(question)))
-  const why = [rest, item.note ?? ''].filter(words => words !== '').join(' ')
+  const why = [rest, need.text].filter(one => one !== '').join(' ')
   if (why !== '') ask.append(el('p', 'calm-why', why))
-  const links = linkButtons(item)
+  const links = askLinks(need)
   if (links.length > 0) {
     const row = el('div', 'calm-links')
     row.append(...links)
     ask.append(row)
   }
+  part.append(ask)
 
   // The answers as large cards; the advised one says so.
-  const cards = el('div', 'calm-cards')
-  cards.setAttribute('role', 'radiogroup')
-  cards.setAttribute('aria-label', `Your answer to question ${at + 1}`)
-  for (const card of cardsOf(item)) {
-    const pick = el('button', `calm-card${mine.verdict === card.verdict ? ' is-chosen' : ''}`)
-    pick.type = 'button'
-    pick.dataset.itemVerdict = card.verdict
-    pick.setAttribute('role', 'radio')
-    pick.setAttribute('aria-checked', String(mine.verdict === card.verdict))
-    const title = el('span', 'calm-card-title')
-    title.append(el('span', '', card.title))
-    if (card.isAdvised) title.append(el('span', 'calm-advised', 'Recommended'))
-    const words = el('span', 'calm-card-words')
-    words.append(title)
-    if (card.text !== '') words.append(el('span', 'calm-card-text', capitalized(card.text)))
-    pick.append(el('span', 'calm-dot'), words)
-    cards.append(pick)
+  const cardList = cardsOf(need)
+  if (cardList.length > 0) {
+    const cards = el('div', 'calm-cards')
+    cards.setAttribute('role', 'radiogroup')
+    cards.setAttribute('aria-label', group.length > 1 ? `Your answer to question ${at + 1}` : 'Your answer')
+    for (const card of cardList) {
+      const button = el('button', `calm-card${pick === card.verdict ? ' is-chosen' : ''}`)
+      button.type = 'button'
+      button.dataset.calmPick = card.verdict
+      button.setAttribute('role', 'radio')
+      button.setAttribute('aria-checked', String(pick === card.verdict))
+      const title = el('span', 'calm-card-title')
+      if (card.key !== null) title.append(el('span', 'calm-key', card.key))
+      title.append(el('span', '', capitalized(card.title)))
+      if (card.isAdvised) title.append(el('span', 'calm-advised', 'Recommended'))
+      const cardWords = el('span', 'calm-card-words')
+      cardWords.append(title)
+      if (card.text !== '') cardWords.append(el('span', 'calm-card-text', capitalized(card.text)))
+      button.append(el('span', 'calm-dot'), cardWords)
+      cards.append(button)
+    }
+    part.append(cards)
   }
 
   // Everything else, folded behind one line.
   const context = el('details', 'task-details calm-context')
-  context.append(el('summary', '', 'View context and the whole answer'), ...calmContext(waiting))
+  context.append(el('summary', '', 'View context'), ...calmContext(need, state))
 
   const note = el('label', 'calm-note')
   const area = el('textarea')
   area.rows = 3
-  area.maxLength = 500
-  area.value = mine.words
+  area.maxLength = state.maxMessageChars ?? 2000
+  area.value = calmWords.get(need.id) ?? ''
   area.placeholder = 'Your thoughts, questions or context…'
-  area.dataset.itemWords = ''
-  note.append(el('span', 'calm-note-label', noteLabel(mine.verdict)), area)
-  part.append(ask, cards, context, note)
+  area.dataset.calmWords = ''
+  note.append(el('span', 'calm-note-label', noteLabel(need, pick)), area)
+  part.append(context, note)
   main.append(part)
 
   // The foot: Cancel, Back and Next between the questions, one Send at the end.
   const foot = el('footer', 'details-foot calm-foot')
-  const form = el('div', `need is-${need.kind} calm-answer`)
-  form.dataset.id = need.id
-  if (problems.has(need.id)) form.append(el('p', 'problem', problems.get(need.id)))
+  const form = el('div', 'calm-answer')
+  const problem = group.map(one => problems.get(one.id)).find(one => one !== undefined)
+  if (problem !== undefined) form.append(el('p', 'problem', problem))
   const buttons = el('div', 'calm-buttons')
   const button = (label, className) => {
     const node = el('button', `button ${className}`, label)
@@ -2603,19 +3050,20 @@ function drawCalm(box, need, waiting, view, now) {
   buttons.append(cancel)
   if (at > 0) {
     const back = button('Back', 'is-quiet')
-    back.dataset.calmGo = String(at - 1)
+    back.dataset.calmGo = group[at - 1].id
     buttons.append(back)
   }
-  if (at < items.length - 1) {
+  if (at < group.length - 1) {
     const next = button('Next', 'is-next')
-    next.dataset.calmGo = String(at + 1)
+    next.dataset.calmGo = group[at + 1].id
     buttons.append(next)
   } else {
-    const node = button(items.length > 1 ? 'Send answers' : 'Send answer', 'is-send')
-    node.dataset.send = ''
-    node.disabled = sending.has(need.id)
-    node.title = `Goes to ${need.from}`
-    buttons.append(node)
+    const given = group.filter(one => calmAnswer(one, calmPicks.get(one.id) ?? null, calmWords.get(one.id) ?? '') !== null).length
+    const send = button(sendLabel(group.length, given), 'is-send')
+    send.dataset.calmSend = ''
+    send.disabled = group.some(one => sending.has(one.id))
+    send.title = `Goes to ${need.from ?? 'the board'}`
+    buttons.append(send)
   }
   form.append(buttons)
   foot.append(form)
@@ -2623,7 +3071,7 @@ function drawCalm(box, need, waiting, view, now) {
   const body = el('div', 'details-body is-single calm-body')
   body.append(main)
   box.classList.add('is-calm')
-  box.dataset.calmAt = `${need.id}#${at}`
+  box.dataset.calmAt = need.id
   keepUnfolded(box, () => fill(box, [head, body, foot]))
   body.scrollTop = scroll
   if (typing) {
@@ -2632,6 +3080,40 @@ function drawCalm(box, need, waiting, view, now) {
   }
 }
 // calmwindow:end
+
+// calmsend:start
+/**
+ * B269: Send in the calm window: every answer given in it goes to the work store, which wakes the chat. A No without
+ * words, or words on a look without a pick, is not sent: the window shows that question and says why. Questions left
+ * without an answer stay open on the board. Sent without a problem, the window closes.
+ */
+async function sendCalm(id) {
+  const need = findNeed(id)
+  if (board === null || need === undefined) return
+  const group = calmGroup(need, everyNeed(board))
+  const answers = group.map(one => ({ need: one, answer: calmAnswer(one, calmPicks.get(one.id) ?? null, calmWords.get(one.id) ?? '') }))
+  for (const one of group) problems.delete(one.id)
+  const lacking = answers.find(one => one.answer?.lacks !== undefined)
+  if (lacking !== undefined) {
+    detailsOf = { ...detailsOf, need: lacking.need.id }
+    return fail(lacking.need.id, lacking.answer.lacks === 'words' ? 'Say in the note why No: the chat needs to know what to change.' : 'Pick an answer first.')
+  }
+  const given = answers.filter(one => one.answer !== null)
+  if (given.length === 0) return fail(id, 'Pick an answer first.')
+  for (const { need, answer } of given) {
+    await sendWork({ action: 'answer', id: need.workId, ...answer }, need.id)
+    if (problems.has(need.id)) {
+      detailsOf = { ...detailsOf, need: need.id }
+      detailsShown = null
+      return drawDetails(board)
+    }
+    calmPicks.delete(need.id)
+    calmWords.delete(need.id)
+  }
+  // The cards on the right say where the answers are.
+  if (group.some(one => one.id === detailsOf?.need)) closeDetails()
+}
+// calmsend:end
 
 /** B151: the window of a working lane (see `laneWindowOf` and `LANE_PARTS`). */
 function drawLaneWindow(box, lane, state) {
@@ -2712,6 +3194,24 @@ function noteParts(notes) {
   }
 }
 
+/** B296: the flow of the step a window shows: a Backlog tab's step carries it; another is found by its id. */
+function flowFor(step, need, state) {
+  if (step !== null && step.flow !== undefined) return step.flow
+  const id = step?.id ?? (need !== null && isStep(need) ? need.step ?? null : null)
+  if (id === null) return null
+  return (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === id)?.flow ?? null
+}
+
+/** B296: the strip of states, the step's own marked, and the moves out of it. */
+function flowPart(strip) {
+  const row = el('ol', 'flow-strip')
+  for (const one of strip.states) row.append(el('li', `flow-state is-${one.tone}`, one.name))
+  const parts = [row]
+  if (!strip.isKnown) parts.push(el('p', 'warn', `It is "${strip.state}", a state the flow file does not know.`))
+  if (strip.next.length > 0) parts.push(el('p', 'muted flow-next', `Next: ${strip.next.join(' · ')}`))
+  return section('Flow', parts)
+}
+
 function drawDetails(state) {
   const box = $('details')
   const subject = subjectOf(state)
@@ -2726,7 +3226,9 @@ function drawDetails(state) {
   const step = subject.step ?? (need === null ? lane.queue[place] : null)
   const now = state.readAt
   // Drawn again only when what it shows has changed, so reading and typing in it are left alone.
-  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null])
+  // B269: a calm window also follows the other asks it goes through.
+  const calmIds = isCalm(need) ? calmGroup(need, everyNeed(state)).map(one => one.id) : null
+  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null, calmIds])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
@@ -2739,15 +3241,15 @@ function drawDetails(state) {
     { need, step, lane: lane?.name ?? step?.worker ?? null, isStep: need !== null && isStep(need), isClosed: need !== null && isClosed(need) },
     { ask: asks => ASKS[asks] ?? 'Not sorted', kind: kind => KINDS[kind].tag },
   )
-  // B100: a worker that waits: its task in a few lines, then what it wants, in place of a description.
-  const waiting = waitingOf(need, now)
-  // B269: a chat that asks in the agreed form gets the calm window.
-  if (isCalm(waiting)) return drawCalm(box, need, waiting, view, now)
+  // B269: an ask of the work store gets the calm window.
+  if (isCalm(need)) return drawCalm(box, need, state)
   box.classList.remove('is-calm')
   const head = detailsHead(view, el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), now)
 
   // The left column, the wider one: what it is about and what to look at
-  const notes = noteParts(view.notes)
+  // B299: a step of the store shows its Touches in the item's folded part, not a second time among the notes.
+  const itemNow = need === null ? itemFor(subject.step ?? step ?? null, state) : null
+  const notes = noteParts((itemNow?.touches.length ?? 0) > 0 ? view.notes.filter(note => note.title !== 'Touches') : view.notes)
   // A request a chat filed has its own text. A step of the backlog is one line, which is the title above; what
   // describes it further are the lines written under it.
   const words = need !== null && !isStep(need) && need.text !== '' ? [el('p', '', need.text)] : []
@@ -2755,22 +3257,49 @@ function drawDetails(state) {
   const full = need !== null && isStep(need) && typeof need.words === 'string' && need.words !== need.title ? [el('p', '', need.words)] : []
   const described = [...words, ...full, ...notes.lead]
   const left = el('div', 'details-main')
+  // B100: a worker that waits: its task in a few lines, then what it wants, in place of a description.
+  const waiting = waitingOf(need, now)
   const waitingShown = waiting === null ? null : waitingParts(waiting, need.id)
   if (waitingShown !== null) left.append(...waitingShown.main)
   // B94: "nothing more is written" only when nothing is: a step whose lines are its checklist and its context
   // has them on the right.
-  if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section('Description', described))
-  else if (!view.hasNotes) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
-  // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback.
-  const refine = subject.step !== undefined ? refinePart(subject.step, state) : null
-  if (refine !== null) left.append(refine)
+  // B296: where the step stands in the flow (flow.json), from the work store.
+  const strip = flowStripOf(flowFor(subject.step ?? step ?? null, need, state))
+  // B299: a step's window shows its item from the work store: Summary, picture, goal, the strip, What we
+  // build, Requirements and Touches folded; its History comes last.
+  const itemParts = itemPartsOf(itemNow, strip !== null)
+  const isItemShown = itemParts.length > 0
+  // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback. B293: without
+  // the store's item, once ready it is the step's description, first, and the step's own lines follow as its notes;
+  // with the item, its Summary, picture and What we build stand above, and the refine part holds the questions. A
+  // step in a worker's queue shows its refine to read; it is answered in its window on the Backlog tab.
+  const refined = subject.step?.refined ?? (need === null ? step?.refined ?? null : null)
+  const refine = subject.step !== undefined ? refinePart(subject.step, state, isItemShown)
+    : refined !== null && !isItemShown ? refineToRead(refined) : null
+  const isReady = refine?.classList.contains('is-ready') === true
+  // A refine with a summary describes the step: no "nothing more is written" above it.
+  const isSummed = isReady || (refine !== null && (refined?.summary ?? '') !== '')
+  // B293: a refine's goal stands in the head already, as its chip: not a second time here.
+  const isGoalInHead = (refined?.partOf ?? '') !== ''
+  if (isItemShown) left.append(...itemParts.filter(part => part.key !== 'history' && !(part.key === 'goal' && isGoalInHead)).map(part => itemPart(part, strip)))
+  else {
+    if (isReady) left.append(refine)
+    if (waiting !== null) { /* said above */ } else if (described.length > 0) left.append(section(isReady ? 'Notes' : 'Description', described))
+    else if (!view.hasNotes && !isSummed) left.append(section('Description', [el('p', 'muted', 'Nothing more is written about it. Lines under the step in the backlog show here.')]))
+    if (strip !== null) left.append(flowPart(strip))
+  }
+  if (refine !== null && !isReady) left.append(refine)
   left.append(...notes.named)
   if (need !== null && need.tried.length > 0) left.append(section('Already tried', [listOf(need.tried)]))
-  const shown = need === null ? step.pictures.map(path => ({ path, caption: '' })) : [
+  // B293: the refine's picture shows in it, not a second time here.
+  const refinedPicture = refined?.picture?.path ?? null
+  const shown = need === null ? step.pictures.filter(path => path !== refinedPicture).map(path => ({ path, caption: '' })) : [
     ...need.options.filter(option => option.picture !== null).map(option => ({ path: option.picture, caption: `${option.label}${option.isRecommended ? ' (recommended)' : ''}` })),
     ...need.pictures.map(path => ({ path, caption: '' })),
   ]
   if (shown.length > 0) left.append(section('References', drawReferences(shown)))
+  const history = itemParts.find(part => part.key === 'history')
+  if (history !== undefined) left.append(itemPart(history, strip))
 
   // The right column: where its files lie, and what to check. Only what the step really has.
   const right = el('div', 'details-side')
@@ -2812,7 +3341,7 @@ function drawDetails(state) {
   // B83: a step in a worker's queue can move to another worker, or out of the queue.
   const change = need === null && subject.step === undefined && lane !== null && lane !== undefined ? queueChangePart(lane, step, state) : null
   if (change !== null) foot.append(change)
-  // B233: Refine, and Accept as refined.
+  // B233: Refine; B293: Send answers and Take the advice, or Refine again.
   const refineFoot = subject.step !== undefined ? refineButtons(subject.step, state) : null
   if (refineFoot !== null) foot.append(refineFoot)
   // B221: a step of the Backlog tab can be closed or deleted from its window.
@@ -2830,6 +3359,53 @@ function drawDetails(state) {
     field.focus()
     field.setSelectionRange(field.value.length, field.value.length)
   }
+}
+
+/** B299: a step's item as the store holds it, for its window: from the Backlog tab's step, else found by its id. */
+function itemFor(step, state) {
+  if (step === null || step === undefined) return null
+  if (step.item !== undefined) return step.item
+  return (state.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id !== null && one.id === step.id)?.item ?? null
+}
+
+/** B299: one part of a step's item in its window (see itemPartsOf). */
+function itemPart(part, strip) {
+  if (part.key === 'flow') return flowPart(strip)
+  if (part.key === 'picture') return pictureSection(pictureOfLine(part.lines[0]))
+  if (part.key === 'goal') return el('p', 'chip is-goal', `Goal: ${part.lines[0]}`)
+  if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
+  // B293: what we build as the refine shows it, "Not in it" greyed.
+  if (part.key === 'what') return section('What we build', [buildList(part.lines)])
+  if (part.isFolded) {
+    const box = el('details', 'item-fold')
+    box.append(el('summary', '', `${part.title} (${part.lines.length})`), listOf(part.lines))
+    return box
+  }
+  return section(part.title, [listOf(part.lines)])
+}
+
+/** B293: the item's picture as in the refine's picture row; or why there is none. */
+function pictureSection({ path, caption, note }) {
+  if (path === null) return holding('section', 'details-part refined-nopicture', el('span', 'refine-tag', 'Picture'), el('p', 'muted', note === '' ? 'None.' : `None: ${note}`))
+  return holding('section', 'details-part', pictureRow(path, caption))
+}
+
+/** B293: the points of what we build, "Not in it: ..." greyed. */
+function buildList(points) {
+  const list = el('ul', 'refined-build')
+  for (const point of points) list.append(el('li', /^Not in it\b/i.test(point) ? 'is-not' : '', point))
+  return list
+}
+
+/** B293: a picture as a thumbnail that opens it large, with what it shows and "Open the picture ↗" beside it. */
+function pictureRow(path, caption) {
+  const row = el('div', 'refined-picture')
+  const open = el('button', 'refined-open', 'Open the picture ↗')
+  open.type = 'button'
+  open.dataset.zoom = path
+  open.dataset.caption = caption
+  row.append(picture(path, caption), holding('div', '', el('span', 'refine-tag', 'Picture'), el('p', '', caption === '' ? path.split('/').pop() : caption), open))
+  return row
 }
 
 function listOf(lines) {
@@ -2963,19 +3539,6 @@ function openPicture(path, caption) {
 document.addEventListener('click', event => {
   const frame = event.target.closest('[data-zoom]')
   if (frame !== null) openPicture(frame.dataset.zoom, frame.dataset.caption)
-})
-
-// B149: "Play it" in a finished worker's window: the tab is opened with the click itself, as for "Open the game".
-document.addEventListener('click', event => {
-  const link = event.target.closest('[data-play]')
-  if (link === null) return
-  let tab = null
-  try {
-    tab = window.open('about:blank', '_blank')
-  } catch {
-    // Stopped by the browser: said below.
-  }
-  play(link.dataset.play, link.dataset.settings ?? '', { tab })
 })
 
 // B208: a phone is a screen up to 600 px wide, as the style sheet has it.
@@ -3117,6 +3680,78 @@ function drawSuggestions(state) {
   }), el('p', 'muted', 'Accept or reject each one under For you.')])
 }
 
+// refinelist:start
+// B286: the Advisor tab's Refine part: every step a chat can do, by where its refine stands (backlog.mjs
+// refineStateOf), in the order of a refine; each row opens the step's window. Goal G17.
+
+/** The groups of the Refine part, in the order of a refine: their state and their title. */
+const REFINE_GROUPS = [
+  ['none', 'Not refined'],
+  ['asking', 'The Advisor on it now'],
+  ['answers', 'Your answers waiting'],
+  ['answered', 'Answered, waiting for the next round'],
+  ['ready', 'Ready'],
+]
+
+/** The work store's states of a step a chat holds (src/work/api.mjs HELD): not for a chat to take, whatever the line says. */
+const REFINE_HELD = ['taken', 'in progress', 'waiting on you', 'review']
+
+/** The open and queued steps with an id of the backlog's activities, by refine state, in the backlog's order. */
+function refineGroups(activities) {
+  const steps = (activities ?? []).flatMap(activity => (activity.steps ?? [])
+    .filter(step => typeof step.id === 'string' && (step.status === 'open' || step.status === 'queued') && !REFINE_HELD.includes(step.flow?.state))
+    .map(step => ({ state: step.refineState ?? 'none', row: { key: step.key, id: step.id, title: step.title, activity: activity.name } })))
+  return REFINE_GROUPS.map(([state, title]) => ({ state, title, steps: steps.filter(one => one.state === state).map(one => one.row) }))
+}
+
+/** The count on the Refine button: the steps whose answers wait for the person; '' for none. */
+function refineCount(groups) {
+  const waiting = groups.find(group => group.state === 'answers')?.steps.length ?? 0
+  return waiting === 0 ? '' : String(waiting)
+}
+
+/** Whether a group stands open: as the person left it, else open when it holds a few steps. */
+function refineIsOpen(group, left) {
+  return left.has(group.state) ? left.get(group.state) : group.steps.length > 0 && group.steps.length <= 12
+}
+// refinelist:end
+
+/** The groups the person opened or closed, by state, so a redraw keeps them so. */
+const refineLeft = new Map()
+
+/** Fills the Refine part: a group per state with its count, a row per step; the count of answers waiting on its button. */
+function drawRefineList(groups) {
+  $('advisor-refine-count').textContent = refineCount(groups)
+  const parts = groups.map(group => {
+    const part = el('details', 'refine-group')
+    part.open = refineIsOpen(group, refineLeft)
+    part.addEventListener('toggle', () => refineLeft.set(group.state, part.open))
+    part.append(el('summary', '', `${group.title} (${group.steps.length})`))
+    if (group.steps.length === 0) {
+      part.append(el('p', 'muted', 'None.'))
+      return part
+    }
+    const list = el('ul', 'refine-rows')
+    for (const one of group.steps) {
+      const row = el('button', 'refine-row')
+      row.type = 'button'
+      row.dataset.refineStep = one.key
+      row.append(el('b', '', one.id), el('span', '', one.title), el('small', 'muted', one.activity))
+      const item = el('li', '')
+      item.append(row)
+      list.append(item)
+    }
+    part.append(list)
+    return part
+  })
+  fill($('advisor-refine'), [el('h3', '', 'Refine'), el('p', 'muted', 'Every step a chat can do, by where its refine stands: a step goes into a queue once it is ready. Click one to open it.'), ...parts])
+}
+// refinelist:events
+$('advisor-refine').addEventListener('click', event => {
+  const row = event.target.closest('[data-refine-step]')
+  if (row !== null) openDetails({ step: row.dataset.refineStep })
+})
+
 // B255: the goal map's outline in the Advisor tab's Goals part (spec 2026-10-15, section 2). The person, 2026-10-15:
 // "I dont want to be overwhelmed with too many things at once ... a simple counter is enough, the ability to click on
 // a node/milestone can zoom in, and quickly zoom out seamlessly". One level at a time: the focused node and its
@@ -3152,19 +3787,55 @@ function goalCounter(counts) {
   return parts.length === 0 ? 'no steps yet' : parts.join(' · ')
 }
 
+/** B258: where an ask stands: the Advisor has not answered it, answered and the person has not read it, or read. */
+function goalAskState(ask) { return ask.answer === null ? 'pending' : ask.readAt === null ? 'answered' : 'read' }
+
+/** "1 ask pending", "2 asks pending": the asks of a goal the Advisor has not answered yet ("" when none). */
+function goalAsksPending(node) {
+  const pending = node.asks.filter(ask => goalAskState(ask) === 'pending').length
+  return pending === 0 ? '' : `${pending} ask${pending === 1 ? '' : 's'} pending`
+}
+
+/**
+ * B258: a goal's asks as the blocks its frame shows, oldest first: the question with its id and time, where it stands,
+ * the answer with its page (`more`) and the pictures it names. One read already only when `showRead` (the frame's
+ * lines unfolded): the block stays under the goal after Done.
+ */
+function goalAskBlocks(node, showRead) {
+  return node.asks.filter(ask => showRead || goalAskState(ask) !== 'read')
+    .map(ask => ({ id: ask.id, at: ask.at, question: ask.text, state: goalAskState(ask), answer: ask.answer, pictures: goalAskPictures(ask.answer) }))
+}
+
+/** The pictures an answer names by their paths (png, jpg, webp), in its words or as its More line, each once. */
+function goalAskPictures(answer) {
+  if (answer === null || answer === undefined) return []
+  const found = `${answer.text ?? ''} ${answer.more ?? ''}`.match(/[\w@+./-]+\.(?:png|jpe?g|webp)\b/gi) ?? []
+  return [...new Set(found.map(path => path.replace(/^\.\//, '')))]
+}
+
+/**
+ * B258: what "Make a step from this" puts into Talk to Main, for the person to change and send: the goal, the ask and
+ * the answer, as plain words. (B259 gives the main chat words of its own for a step from the map.)
+ */
+function goalStepWords(node, block) {
+  const answer = block.answer === null ? '' : ` The Advisor's answer: ${block.answer.text}${block.answer.more ? ` (more in ${block.answer.more})` : ''}`
+  return `Make a backlog step from the goal map, for ${goalLabel(node)}, from my ask ${block.id}: ${block.question}${/[.?!]$/.test(block.question) ? '' : '.'}${answer}`
+}
+
 /** A node's own lines folded to one: "Done when: … · 1 ask pending · 1 note · 1 missing" ("" when it has none of these). */
 function goalFrameLine(node) {
   const parts = []
   if (node.doneWhen) parts.push(`Done when: ${node.doneWhen}`)
-  const pending = node.asks.filter(ask => ask.answer === null).length
-  if (pending > 0) parts.push(`${pending} ask${pending === 1 ? '' : 's'} pending`)
+  if (goalAsksPending(node) !== '') parts.push(goalAsksPending(node))
+  const unread = node.asks.filter(ask => goalAskState(ask) === 'answered').length
+  if (unread > 0) parts.push(`${unread} answer${unread === 1 ? '' : 's'} to read`)
   const notes = node.notes.filter(line => line.startsWith('Note')).length
   if (notes > 0) parts.push(`${notes} note${notes === 1 ? '' : 's'}`)
   if (node.missing.length > 0) parts.push(`${node.missing.length} missing`)
   return parts.join(' · ')
 }
 
-/** A node's own lines unfolded, as the file names them; another goal by its title and id. */
+/** A node's own lines unfolded, as the file names them; another goal by its title and id. Its asks are blocks of their own (B258). */
 function goalFrameLines(goals, node) {
   const named = id => { const other = goalById(goals, id); return other === null ? id : `${other.title} (${id})` }
   const lines = []
@@ -3180,11 +3851,6 @@ function goalFrameLines(goals, node) {
     lines.push(`Recommendation (${rec.id}): ${[rec.title, rec.why, rec.cost, rec.step ?? 'none'].filter(Boolean).join(' · ')}`)
   }
   if (node.brainstorm) lines.push(`Brainstorm: ${node.brainstorm.path} (${node.brainstorm.state})`)
-  for (const ask of node.asks) {
-    lines.push(`Ask (${ask.id}, ${ask.at}): ${ask.text}`)
-    if (ask.answer) lines.push(`Answer (${ask.answer.at}, ${ask.answer.by}): ${ask.answer.text}`)
-    if (ask.answer?.more) lines.push(`More: ${ask.answer.more}`)
-  }
   lines.push(...node.notes)
   return lines
 }
@@ -3195,6 +3861,9 @@ function goalTags(goals, node, isRef) {
   else for (const id of node.alsoPartOf) tags.push(`also under ${goalById(goals, id)?.title ?? id}`)
   for (const id of node.enables) tags.push(`enables → ${goalById(goals, id)?.title ?? id}`)
   if (node.brainstorm?.state === 'running') tags.push('brainstorm')
+  // B258: an ask the Advisor has not answered, and an answer not read yet, at the goal's home.
+  if (!isRef && goalAsksPending(node) !== '') tags.push(goalAsksPending(node))
+  if (!isRef && node.asks.some(ask => goalAskState(ask) === 'answered')) tags.push('answer to read')
   return tags
 }
 
@@ -3341,7 +4010,8 @@ function goalLinkChoices(goals, id, name, words) {
     seen.add(other.id)
     if (other.id === id || has.includes(other.id)) return false
     if (name === 'Also part of' && (other.id === node.parent || goalInside(goals, id, other.id))) return false
-    const title = other.title.toLowerCase()
+    // B284: found by its id too ("G17").
+    const title = goalLabel(other).toLowerCase()
     return wanted.every(word => title.includes(word))
   }).map(other => ({ id: other.id, title: other.title, where: goalById(goals, other.parent)?.title ?? null }))
 }
@@ -3378,7 +4048,9 @@ function goalTreeLayout(goals, focusId, width) {
   const ghosts = outside.slice(0, GOAL_BOX.ghostsMost).map(([id, to], index) => ({ id, title: goalById(goals, id)?.title ?? id, x: width - GOAL_BOX.ghostW, y: 12 + index * 42, w: GOAL_BOX.ghostW, h: GOAL_BOX.ghostH, arrowTo: to }))
   const frame = focus === null ? null : { id: focus.id, x: 0, y: 0, w: area, h: GOAL_BOX.frameH }
   const perRow = Math.max(1, Math.floor((area + GOAL_BOX.gap) / (GOAL_BOX.w + GOAL_BOX.gap)))
-  const all = [...childIds.map(id => ({ id, kind: 'child' })), ...refIds.map(id => ({ id, kind: 'ref' }))]
+  // B258: the goal's asks not answered or not read yet stand after the references, as violet boxes of kind "ask".
+  const askIds = focus === null ? [] : focus.asks.filter(ask => goalAskState(ask) !== 'read').map(ask => ask.id)
+  const all = [...childIds.map(id => ({ id, kind: 'child' })), ...refIds.map(id => ({ id, kind: 'ref' })), ...askIds.map(id => ({ id, kind: 'ask' }))]
   const firstY = frame === null ? GOAL_BOX.topY : GOAL_BOX.firstY
   const boxes = all.map((one, index) => {
     const row = Math.floor(index / perRow)
@@ -3411,10 +4083,47 @@ function goalTreeLayout(goals, focusId, width) {
   return { width, height: Math.max(...bottoms) + 20, frame, boxes, lines, arrows, ghosts, moreGhosts }
 }
 
-/** A title in at most two lines of `most` characters, cut at a space; what does not fit ends in "…". */
+/**
+ * B284: a goal as the map names it: its id before its title ("G17 The Advisor's work…"), so it can be named by its id
+ * anywhere; a milestone keeps its own "M1 ·" after the id. The top of the map (no id) is its title alone, and a title
+ * that already starts with its id does not say it twice.
+ */
+function goalLabel(node) {
+  const id = typeof node?.id === 'string' ? node.id : ''
+  const title = String(node?.title ?? '')
+  return id === '' || title === id || title.startsWith(`${id} `) ? title : `${id} ${title}`
+}
+
+/**
+ * B289: the part under the goal map with the open steps no goal names: its line ("Not under a goal: 3 steps") and the
+ * steps, each with its id and title. Null without the list (no goal map).
+ */
+function unlinkedView(unlinked) {
+  if (!Array.isArray(unlinked)) return null
+  const count = unlinked.length
+  return {
+    summary: count === 0 ? 'Every open step is under a goal' : `Not under a goal: ${count} step${count === 1 ? '' : 's'}`,
+    rows: unlinked.map(step => ({ id: step.id, title: step.title.charAt(0).toUpperCase() + step.title.slice(1) })),
+  }
+}
+
+/** B284: a drawn line of a goal's label in its parts: what stands before the id ("↗ "), the id, and the rest. */
+function goalIdSplit(line, id) {
+  const lead = line.startsWith('↗ ') ? '↗ ' : ''
+  const after = line.slice(lead.length)
+  if (typeof id !== 'string' || id === '' || !(after === id || after.startsWith(`${id} `))) return { lead: '', id: '', rest: line }
+  return { lead, id, rest: after.slice(id.length) }
+}
+
+/**
+ * A title in at most two lines of `most` characters, cut at a space; what does not fit ends in "…". B284: never at
+ * the space after a goal's id, so "G17" never stands alone on a line.
+ */
 function goalTitleLines(title, most) {
   if (title.length <= most) return [title]
-  const cut = title.lastIndexOf(' ', most)
+  const lead = /^(?:↗ )?G\d+ /.exec(title)?.[0].length ?? 0
+  const space = title.lastIndexOf(' ', most)
+  const cut = space < lead ? -1 : space
   const shorten = words => (words.length <= most ? words : `${words.slice(0, most - 1)}…`)
   if (cut <= 0) return [shorten(title)]
   return [title.slice(0, cut).trimEnd(), shorten(title.slice(cut + 1).trimStart())]
@@ -3431,7 +4140,7 @@ function goalTreeDrop(goals, layout, fromId, x, y) {
   if (box !== undefined) {
     const at = (x - box.x) / box.w
     const place = at < 0.25 ? 'before' : at > 0.75 ? 'after' : 'into'
-    return { place, over: box.id, target: box.kind === 'ref' ? null : goalDropTarget(goals, fromId, box.id, place) }
+    return { place, over: box.id, target: box.kind !== 'child' ? null : goalDropTarget(goals, fromId, box.id, place) }
   }
   if (layout.frame !== null && hit(layout.frame)) return { place: 'into', over: layout.frame.id, target: goalDropTarget(goals, fromId, layout.frame.id, 'into') }
   return null
@@ -3464,7 +4173,7 @@ const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, u
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
-  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews]
+  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null]
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
@@ -3507,7 +4216,7 @@ function goalChoicesList(goals) {
   if (choices.length === 0) list.append(el('span', 'muted', 'No goal fits those words.'))
   for (const choice of choices) {
     const button = goalButton('goals-choice', '', { linkTarget: choice.id })
-    button.append(el('b', '', choice.title), el('small', 'muted', choice.where === null ? ' · at the top' : ` · in ${choice.where}`))
+    button.append(el('b', '', goalLabel(choice)), el('small', 'muted', choice.where === null ? ' · at the top' : ` · in ${choice.where}`))
     list.append(button)
   }
   return list
@@ -3523,6 +4232,7 @@ function goalEditorRow(goals, depth) {
 function drawGoals(state) {
   const goals = state.goals ?? null
   const canEdit = canEditGoals(state)
+  drawUnlinked(goals)
   // B257: the view buttons say what shows at this width (a phone shows the outline unless the diagram is chosen).
   showGoalsViews()
   if (goals === null || (goals.nodes.length === 0 && goals.problems.length === 0)) {
@@ -3535,11 +4245,13 @@ function drawGoals(state) {
     fill($('goals-actions'), goals !== null && canEdit ? [goalButton('goals-action', '+ Goal', { goalAction: 'add' })] : [])
     $('goals-note').hidden = goalsUi.note === null
     $('goals-note').textContent = goalsUi.note?.text ?? ''
+  $('goals-note').classList.toggle('is-ok', goalsUi.note?.tone === 'ok')
     fill($('goals-outline'), [el('p', 'muted goals-empty', goals === null
       ? `No goal map yet. The Advisor writes ${state.goalsFile ?? '.claude/goals.md'} with you; the board draws it here.`
       : `${state.goalsFile ?? 'The goals file'} holds no goal yet. The Advisor writes them with you; the board draws them here.`),
     goals !== null && canEdit && goalsUi.editing?.kind === 'add' ? goalEditorRow(goals, 0) : null])
     if ($('goals-input') !== null) $('goals-input').focus()
+    showGoalAsk()
     drawGoalTree(state)
     return
   }
@@ -3552,7 +4264,9 @@ function drawGoals(state) {
   if (focus !== null) back.dataset.goal = crumb.at(-2).id ?? ''
   fill($('goals-crumb'), [back, ...crumb.flatMap((step, place) => {
     const isHere = place === crumb.length - 1
-    const part = isHere ? el('span', 'goals-here', step.title) : el('button', 'goals-link', step.title)
+    // B284: each goal with its id; the top ("Goals") has none.
+    const part = isHere ? el('span', 'goals-here') : el('button', 'goals-link')
+    part.append(...goalLabelNodes(step))
     if (!isHere) part.type = 'button'
     // B256: a crumb also takes a dropped goal, as its last goal inside.
     part.dataset.goal = step.id ?? ''
@@ -3578,6 +4292,7 @@ function drawGoals(state) {
   fill($('goals-actions'), actions)
   $('goals-note').hidden = goalsUi.note === null
   $('goals-note').textContent = goalsUi.note?.text ?? ''
+  $('goals-note').classList.toggle('is-ok', goalsUi.note?.tone === 'ok')
 
   // B256: the goals chosen with Ctrl-click, to put under a new goal.
   const chosen = [...goalsUi.chosen].filter(id => goalById(goals, id) !== null)
@@ -3594,13 +4309,16 @@ function drawGoals(state) {
   if (focus !== null) {
     const head = el('div', 'goals-frame-head')
     const isRenaming = goalsUi.editing?.kind === 'rename' && goalsUi.editing.id === focus.id
-    head.append(el('span', `goal-dot is-${focus.state}`), isRenaming ? goalEditorBox(goals) : el('b', 'goals-frame-title', focus.title), el('span', `goals-frame-state is-${focus.state}`, GOAL_STATES[focus.state] ?? focus.state))
+    head.append(el('span', `goal-dot is-${focus.state}`), isRenaming ? goalEditorBox(goals) : goalFrameTitle(focus), el('span', `goals-frame-state is-${focus.state}`, GOAL_STATES[focus.state] ?? focus.state))
     const lines = goalFrameLines(goals, focus)
+    // B258: an ask read already folds away with the lines; the others always show, as blocks under the frame's tools.
+    const readAsks = focus.asks.filter(ask => goalAskState(ask) === 'read').length
     const summary = el('div', 'goals-frame-line')
     // Unfolded, the lines say it all: the folded line goes.
     if (!goalsLinesOpen || lines.length === 0) summary.append(el('span', '', goalFrameLine(focus)))
-    if (lines.length > 0) {
-      const toggle = el('button', 'goals-lines', goalsLinesOpen ? 'fold ▾' : `${lines.length} line${lines.length === 1 ? '' : 's'} ▸`)
+    if (lines.length > 0 || readAsks > 0) {
+      const folded = [lines.length > 0 ? `${lines.length} line${lines.length === 1 ? '' : 's'}` : null, readAsks > 0 ? `${readAsks} ask${readAsks === 1 ? '' : 's'} read` : null].filter(Boolean).join(' · ')
+      const toggle = el('button', 'goals-lines', goalsLinesOpen ? 'fold ▾' : `${folded} ▸`)
       toggle.type = 'button'
       toggle.id = 'goals-lines'
       toggle.setAttribute('aria-expanded', String(goalsLinesOpen))
@@ -3625,13 +4343,19 @@ function drawGoals(state) {
         if (kind === 'delete') tool.title = 'Remove it and the links to it'
         tools.append(tool)
       }
+      // B258: ask the Advisor about this goal, when the board has an Advisor: second, after "+ Sub-goal".
+      if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Ask the Advisor…', { goalTool: 'ask' }), tools.children[1] ?? null)
+      // B259: think it through with the Advisor, one question at a time, on the Brainstorm part.
+      if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Brainstorm this', { goalTool: 'brainstorm' }), tools.children[2] ?? null)
       if (focus.fromPlan) tools.append(el('small', 'muted', 'Its title and Done when are the game plan\'s.'))
       parts.push(tools)
       const editing = goalsUi.editing
       if (editing !== null && editing.id === focus.id && !['rename', 'add', 'sibling', 'group'].includes(editing.kind)) parts.push(goalEditorBox(goals))
     }
+    for (const block of goalAskBlocks(focus, goalsLinesOpen)) parts.push(goalAskBlockNode(focus, block, canEdit))
     fill($('goals-frame'), parts)
   }
+  showGoalAsk()
 
   // A redraw keeps the keyboard where it was: on the same row's arrow, title or "…", in its menu, or on a box.
   const active = document.activeElement
@@ -3655,7 +4379,9 @@ function drawGoals(state) {
     const dot = canEdit && !row.isRef ? goalButton(`goal-dot is-${row.state}`, '', { goalDot: row.id }) : el('span', `goal-dot is-${row.state}`)
     if (canEdit && !row.isRef) dot.title = `${GOAL_STATES[row.state]}: click for ${GOAL_STATES[goalNextState(row.state)]}`
     const isRenaming = goalsUi.editing?.kind === 'rename' && goalsUi.editing.id === row.id && !row.isRef && !row.isFocus
-    const title = isRenaming ? goalEditorBox(goals) : el('button', 'goal-title', row.isRef ? `↗ ${row.title}` : row.title)
+    // B284: its id first.
+    const title = isRenaming ? goalEditorBox(goals) : el('button', 'goal-title')
+    if (!isRenaming) title.append(...goalLabelNodes(row, row.isRef ? '↗ ' : ''))
     if (!isRenaming) {
       title.type = 'button'
       title.title = row.isRef ? 'Its home is elsewhere: zoom into it there' : 'Zoom in · Enter adds the next goal · F2 renames · drag to move'
@@ -3667,7 +4393,7 @@ function drawGoals(state) {
       more.setAttribute('aria-label', `More for ${row.title}`)
       more.setAttribute('aria-expanded', String(goalsUi.menu === row.id))
     }
-    line.append(fold, dot, title, ...row.tags.map(tag => el('span', `goal-tag${tag.startsWith('enables') ? ' is-enables' : ''}`, tag)), ...asks, el('span', 'goal-meta', row.counter))
+    line.append(fold, dot, title, ...row.tags.map(tag => el('span', `goal-tag${tag.startsWith('enables') ? ' is-enables' : /^(?:\d+ asks? pending|answer to read)$/.test(tag) ? ' is-asking' : ''}`, tag)), ...asks, el('span', 'goal-meta', row.counter))
     if (more !== null) line.append(more)
     // B256: rows move by dragging, all but the references and the path down to the focus.
     if (canEdit && !row.isRef && !chain.has(row.id)) line.draggable = true
@@ -3734,15 +4460,106 @@ function svgText(x, y, words, className) {
 }
 const cut = (words, most) => (words.length <= most ? words : `${words.slice(0, most - 1)}…`)
 
+/** B289: the open steps no goal names, folded under the map; a row opens the step's window. */
+function drawUnlinked(goals) {
+  const box = $('goals-unlinked')
+  const view = unlinkedView(goals?.unlinked)
+  box.hidden = view === null
+  if (view === null) return
+  // Drawn anew only when it changed, so a list the person opened stays open.
+  once('goals-unlinked', view, () => {
+    const list = el('div', 'goals-unlinked-list')
+    for (const row of view.rows) {
+      const button = el('button', 'goals-unlinked-row')
+      button.type = 'button'
+      button.dataset.unlinkedStep = row.id
+      button.title = 'Show the step'
+      button.append(el('span', 'step-id', row.id), el('span', 'goals-unlinked-title', row.title))
+      list.append(button)
+    }
+    fill(box, [el('summary', '', view.summary), view.rows.length === 0 ? null : list])
+  })
+}
+
+/** B284: a goal's label as page nodes: its id in a span of its own colour, then its title; `lead` before them ("↗ "). */
+function goalLabelNodes(node, lead = '') {
+  const parts = goalIdSplit(`${lead}${goalLabel(node)}`, node.id)
+  return parts.id === '' ? [`${lead}${goalLabel(node)}`] : [parts.lead, el('span', 'goal-id', parts.id), parts.rest].filter(part => part !== '')
+}
+
+const ASK_STATES = { pending: 'waiting for the Advisor', answered: 'answered', read: 'read' }
+
+/**
+ * B258: one ask under the goal zoomed into: the question, the answer with its pictures and its page (More ↗, from the
+ * project's folder or the asks' folder), and, on a board that writes the map, what the person can do with it.
+ */
+function goalAskBlockNode(node, block, canEdit) {
+  const box = el('div', `goal-ask-block is-${block.state}`)
+  box.dataset.askBlock = block.id
+  const head = el('p', 'goal-ask-head')
+  head.append(el('b', '', `? Ask ${block.id}`), el('small', 'muted', ` · ${block.at} · ${ASK_STATES[block.state]}`))
+  box.append(head, el('p', 'goal-ask-question', block.question))
+  if (block.answer !== null) {
+    const answer = el('div', 'goal-ask-answer')
+    answer.append(el('small', 'muted', `Answer · ${block.answer.at} · ${block.answer.by}`), el('p', '', block.answer.text))
+    if (block.pictures.length > 0) answer.append(fill(el('div', 'goal-ask-pictures'), block.pictures.map(path => picture(path, `${block.id}: ${path}`))))
+    box.append(answer)
+  }
+  const buttons = el('div', 'goals-tools')
+  if (block.answer?.more) {
+    const more = goalButton('goals-tool', 'More ↗', { gameFile: block.answer.more, projectFile: `${board?.goalAsksFolder ?? '.claude/goal-asks'}/${block.answer.more.split('/').pop()}` })
+    more.title = `Open ${block.answer.more}`
+    buttons.append(more)
+  }
+  if (canEdit && block.answer !== null) {
+    buttons.append(goalButton('goals-tool', 'Make a step from this', { askAction: 'step', askId: block.id }), goalButton('goals-tool', 'Brainstorm this', { askAction: 'brainstorm', askId: block.id }), goalButton('goals-tool', 'Ask again', { askAction: 'again', askId: block.id }))
+    if (block.state === 'answered') buttons.append(goalButton('goals-tool is-read', 'Done', { askAction: 'done', askId: block.id }))
+  }
+  if (buttons.children.length > 0) box.append(buttons)
+  return box
+}
+
+/** B284: the title in the head of the frame of the goal zoomed into, with its id. */
+function goalFrameTitle(focus) {
+  const title = el('b', 'goals-frame-title')
+  title.append(...goalLabelNodes(focus))
+  return title
+}
+
+/** B258: an ask under the goal zoomed into, as a violet dashed box: its id, its question and where it stands. */
+function goalAskBox(goals, box) {
+  const ask = goalById(goals, goalsFocus)?.asks.find(one => one.id === box.id) ?? null
+  const state = ask === null ? 'pending' : goalAskState(ask)
+  const g = svgEl('g', { 'data-ask': box.id, tabindex: 0, role: 'button', 'aria-label': `Ask ${box.id}: ${ask?.text ?? ''}. ${state === 'pending' ? 'The Advisor has not answered yet' : 'Answered: read it'}` }, `goal-box is-ask is-${state}`)
+  g.append(svgEl('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: 8 }, 'goal-box-rect'))
+  g.append(svgText(box.x + 10, box.y + 21, `? Ask ${box.id}`, 'goal-box-title goal-ask-title'))
+  const question = svgEl('text', { x: box.x + 10, y: box.y + 40 }, 'goal-box-meta')
+  goalTitleLines(ask?.text ?? '', 23).forEach((line, index) => {
+    const span = svgEl('tspan', index === 0 ? {} : { x: box.x + 10, dy: 14 })
+    span.textContent = line
+    question.append(span)
+  })
+  g.append(question, svgText(box.x + 10, box.y + 84, state === 'pending' ? 'waiting for the Advisor' : 'answered · read it', 'goal-box-state'))
+  return g
+}
+
 function goalBoxGroup(goals, box) {
+  if (box.kind === 'ask') return goalAskBox(goals, box)
   const node = goalById(goals, box.id)
   const counts = node.counts
-  const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${node.title}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
+  const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${goalLabel(node)}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
   g.append(svgEl('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: 8 }, 'goal-box-rect'))
   const title = svgEl('text', { x: box.x + 10, y: box.y + 21 }, 'goal-box-title')
-  goalTitleLines(box.kind === 'ref' ? `↗ ${node.title}` : node.title, 21).forEach((line, index) => {
+  // B284: its id first, in a colour of its own.
+  goalTitleLines(`${box.kind === 'ref' ? '↗ ' : ''}${goalLabel(node)}`, 21).forEach((line, index) => {
     const span = svgEl('tspan', index === 0 ? {} : { x: box.x + 10, dy: 15 })
-    span.textContent = line
+    const parts = index === 0 ? goalIdSplit(line, node.id) : { lead: '', id: '', rest: line }
+    if (parts.id === '') span.textContent = line
+    else {
+      const id = svgEl('tspan', {}, 'goal-box-id')
+      id.textContent = parts.id
+      span.append(parts.lead, id, parts.rest)
+    }
     title.append(span)
   })
   g.append(title)
@@ -3789,7 +4606,16 @@ function drawGoalTree(state) {
     const frame = layout.frame
     const g = svgEl('g', { 'data-goal': frame.id }, `goal-tree-frame is-${focus.state}`)
     g.append(svgEl('rect', { x: frame.x, y: frame.y, width: frame.w, height: frame.h, rx: 10 }, 'goal-frame-rect'))
-    g.append(svgText(14, 26, cut(focus.title, Math.floor(frame.w / 9)), 'goal-frame-title'))
+    // B284: the goal's id first, in its own colour.
+    const head = svgText(14, 26, '', 'goal-frame-title')
+    const parts = goalIdSplit(cut(goalLabel(focus), Math.floor(frame.w / 9)), focus.id)
+    if (parts.id === '') head.textContent = parts.rest
+    else {
+      const id = svgEl('tspan', {}, 'goal-box-id')
+      id.textContent = parts.id
+      head.append(id, parts.rest)
+    }
+    g.append(head)
     g.append(svgText(14, 48, cut(`${GOAL_STATES[focus.state]} · ${goalCounter(focus.counts)}`, Math.floor(frame.w / 7)), 'goal-frame-meta'))
     svg.append(g)
   }
@@ -3800,9 +4626,10 @@ function drawGoalTree(state) {
   const top = id => (shown.has(id) ? { x: shown.get(id).x + shown.get(id).w / 2, y: shown.get(id).y } : { x: layout.frame.x + layout.frame.w / 2, y: layout.frame.h })
   for (const arrow of layout.arrows) svg.append(goalArrow(top(arrow.from), top(arrow.to), shown.has(arrow.to)))
   for (const ghost of layout.ghosts) {
-    const g = svgEl('g', { 'data-goal': ghost.id, tabindex: 0, role: 'button', 'aria-label': `${ghost.title} enables this: go there` }, 'goal-ghost')
+    const g = svgEl('g', { 'data-goal': ghost.id, tabindex: 0, role: 'button', 'aria-label': `${goalLabel(ghost)} enables this: go there` }, 'goal-ghost')
     g.append(svgEl('rect', { x: ghost.x, y: ghost.y, width: ghost.w, height: ghost.h, rx: 6 }))
-    g.append(svgText(ghost.x + 8, ghost.y + 21, cut(`↗ ${ghost.title}`, 13), ''))
+    // B284: its id first, the part that still fits a narrow box.
+    g.append(svgText(ghost.x + 8, ghost.y + 21, cut(`↗ ${goalLabel(ghost)}`, 13), ''))
     svg.append(g)
     const from = { x: ghost.x, y: ghost.y + ghost.h / 2 }
     for (const target of ghost.arrowTo) {
@@ -3878,6 +4705,9 @@ function goalsGlide(id) {
 
 $('goals-diagram').addEventListener('click', event => {
   if (goalsUi.justDragged || board?.goals === undefined) return
+  // B258: an ask's box shows its block in the frame.
+  const ask = event.target.closest('[data-ask]')
+  if (ask !== null) return goalsShowAsk(ask.dataset.ask)
   const hit = event.target.closest('[data-goal]')
   // The empty ground zooms out one level.
   if (hit === null) {
@@ -3894,8 +4724,14 @@ $('goals-diagram').addEventListener('click', event => {
   goalsGlide(hit.dataset.goal)
 })
 $('goals-diagram').addEventListener('keydown', event => {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  const ask = event.target.closest?.('[data-ask]')
+  if (ask !== null && ask !== undefined) {
+    event.preventDefault()
+    return goalsShowAsk(ask.dataset.ask)
+  }
   const hit = event.target.closest?.('[data-goal]')
-  if (hit === null || hit === undefined || (event.key !== 'Enter' && event.key !== ' ')) return
+  if (hit === null || hit === undefined) return
   event.preventDefault()
   if (hit.classList.contains('goal-ghost')) zoomGoal(hit.dataset.goal)
   else if (!hit.classList.contains('goal-tree-frame')) goalsGlide(hit.dataset.goal)
@@ -3953,7 +4789,8 @@ window.addEventListener('pointermove', event => {
   if (!press.lifted) {
     if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 6) return
     press.lifted = true
-    press.follower = el('div', 'goal-tree-follower', goalById(board.goals, press.id)?.title ?? press.id)
+    const lifted = goalById(board.goals, press.id)
+    press.follower = el('div', 'goal-tree-follower', lifted === null ? press.id : goalLabel(lifted))
     document.body.append(press.follower)
   }
   document.querySelector(`#goals-diagram [data-goal="${press.id}"]`)?.classList.add('is-lift')
@@ -4002,6 +4839,8 @@ function goalMenuRow(goals, node, depth) {
     action(goalsUi.menuInto ? 'Move into… ▾' : 'Move into…', 'into'),
     action('Also part of…', 'link'),
   )
+  // B258: ask the Advisor about it, when the board has an Advisor.
+  if ((board?.advisor ?? null) !== null) menu.append(action('Ask the Advisor…', 'ask'), action('Brainstorm this', 'brainstorm'))
   if (node.state !== 'done') menu.append(action(isConfirming('done', node.id) ? 'Goals inside are open: again to mark done' : 'Mark done', 'done'))
   if (!isPlan) {
     menu.append(action('Rename', 'rename'))
@@ -4026,11 +4865,11 @@ function goalMenuChoices(goals, node) {
   const list = el('div', 'goals-choices')
   list.id = 'goals-menu-choices'
   const wanted = goalsUi.menuWords.toLowerCase().split(/\s+/).filter(Boolean)
-  const into = goals.nodes.filter(other => other.id !== node.parent && goalDropTarget(goals, node.id, other.id, 'into') !== null && wanted.every(word => other.title.toLowerCase().includes(word)))
+  const into = goals.nodes.filter(other => other.id !== node.parent && goalDropTarget(goals, node.id, other.id, 'into') !== null && wanted.every(word => goalLabel(other).toLowerCase().includes(word)))
   if (node.parent !== null && wanted.length === 0) list.append(goalButton('goals-choice', 'The top: a goal of its own', { moveInto: '' }))
   for (const other of into.slice(0, 20)) {
     const button = goalButton('goals-choice', '', { moveInto: other.id })
-    button.append(el('b', '', other.title), el('small', 'muted', ` · ${goalById(goals, other.parent)?.title ?? 'at the top'}`))
+    button.append(el('b', '', goalLabel(other)), el('small', 'muted', ` · ${goalById(goals, other.parent)?.title ?? 'at the top'}`))
     list.append(button)
   }
   if (into.length > 20) list.append(el('small', 'muted', `${into.length - 20} more: type a word of the title`))
@@ -4091,6 +4930,15 @@ $('goals-outline').addEventListener('click', event => {
     zoomGoal(id)
     return goalsEdit('Also part of', id)
   }
+  if (name === 'brainstorm') {
+    close()
+    return openBrainstorm(id)
+  }
+  if (name === 'ask') {
+    close()
+    zoomGoal(id)
+    return openGoalAsk(id)
+  }
   if (name === 'rename') {
     close()
     return goalsEdit('rename', id, node.title)
@@ -4127,10 +4975,10 @@ function zoomGoal(id) {
   redrawGoals()
 }
 
-/** A line under the map for a while: why a change was refused. */
-function goalsSay(text) {
+/** A line under the map for a while: why a change was refused, or (B258, tone 'ok') that an ask went out. */
+function goalsSay(text, tone = 'problem') {
   const until = Date.now() + GOAL_NOTE_MS
-  goalsUi.note = { text, until }
+  goalsUi.note = { text, until, tone }
   setTimeout(() => {
     if (goalsUi.note?.until === until) {
       goalsUi.note = null
@@ -4170,8 +5018,9 @@ async function sendGoals(body) {
   } catch {
     goalsSay('Not changed: the board\'s server does not answer.')
   }
-  // A change that changed nothing is nothing to undo.
-  if (result !== null && result.unchanged !== true) goalsUi.undoable = body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
+  // A change that changed nothing is nothing to undo. B258: an ask and a read mark are no change undo takes back, and
+  // after them the map no longer reads as the changes before left it, so those cannot be undone either.
+  if (result !== null && result.unchanged !== true) goalsUi.undoable = body.command === 'ask' || body.command === 'read' ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   // Changed or refused, the map is read anew (a refusal is often a change made elsewhere in between), and the next
   // key works on the map as it now is.
   await read()
@@ -4247,6 +5096,776 @@ async function goalsMove(id, target) {
   await sendGoals({ command: 'move', id, parent: target.parent, index: target.index })
 }
 
+// B258: the box under the frame that asks the Advisor about the goal zoomed into (spec 2026-10-15, section 4): the
+// question, pictures pasted (Ctrl+V) or picked, Send. It stands in the page itself, so the words typed stay while the
+// map is drawn anew; it shows while its goal is the focus. Send writes the Ask line under the goal (its id comes back),
+// then types the words into the Advisor's chat with that id and the pictures the board kept. `written` is an ask
+// written under its goal whose words did not reach the Advisor: Send again types that one, and writes no second ask.
+// While it sends, the box stays as it is.
+const goalsAskBox = { goal: null, pictures: [], problem: null, busy: false, written: null }
+const ASK_PICTURES_MOST = 4
+
+function openGoalAsk(id) {
+  if (goalsAskBox.busy) return
+  if (goalsAskBox.goal !== id) {
+    $('goals-ask-text').value = ''
+    setAskPictures([])
+    goalsAskBox.written = null
+  }
+  goalsAskBox.goal = id
+  goalsAskBox.problem = null
+  showGoalAsk()
+  $('goals-ask-text').focus()
+}
+
+function closeGoalAsk() {
+  goalsAskBox.goal = null
+  goalsAskBox.problem = null
+  goalsAskBox.written = null
+  $('goals-ask-text').value = ''
+  setAskPictures([])
+  showGoalAsk()
+}
+
+function setAskPictures(pictures) {
+  for (const one of goalsAskBox.pictures) if (!pictures.includes(one)) URL.revokeObjectURL(one.url)
+  goalsAskBox.pictures = pictures
+}
+
+/** Shown under the frame of the goal it asks about, on a board that writes the map and has an Advisor. */
+function showGoalAsk() {
+  const form = $('goals-ask')
+  const node = board?.goals ? goalById(board.goals, goalsAskBox.goal) : null
+  form.hidden = node === null || goalsFocus !== node.id || !canEditGoals(board) || (board?.advisor ?? null) === null
+  if (form.hidden) return
+  $('goals-ask-head').textContent = `Ask the Advisor about ${goalLabel(node)}`
+  // No longer than the board takes a message; an ask written already keeps the words the map holds.
+  $('goals-ask-text').maxLength = Math.min(2000, board.maxMessageChars ?? 2000)
+  $('goals-ask-text').readOnly = goalsAskBox.written !== null
+  $('goals-ask-send').disabled = goalsAskBox.busy
+  $('goals-ask-send').textContent = goalsAskBox.busy ? 'Sending…' : goalsAskBox.written !== null ? 'Send again' : 'Send'
+  $('goals-ask-pick').disabled = goalsAskBox.busy || goalsAskBox.pictures.length >= ASK_PICTURES_MOST
+  const note = $('goals-ask-note')
+  note.classList.toggle('is-error', goalsAskBox.problem !== null)
+  note.textContent = goalsAskBox.problem ?? (board.advisor.isRunning === false
+    ? `${board.advisor.name}'s chat is not running: the main chat is asked to start it, then it answers under the goal.`
+    : 'The Advisor answers under the goal; do other things meanwhile. Ctrl+V pastes a picture.')
+  const shown = goalsAskBox.pictures.map((one, index) => {
+    const image = el('img')
+    image.src = one.url
+    image.alt = `Picture ${index + 1} of the ask`
+    const remove = el('button', 'main-picture-remove', '×')
+    remove.type = 'button'
+    remove.dataset.askPicture = String(index)
+    remove.title = 'Take the picture away'
+    remove.setAttribute('aria-label', 'Take the picture away')
+    const frame = el('span', 'main-picture-frame')
+    frame.append(image, remove)
+    return frame
+  })
+  fill($('goals-ask-pictures'), shown)
+  $('goals-ask-pictures').hidden = shown.length === 0
+}
+
+/** A pasted or picked picture for the ask; why it was not taken otherwise. */
+function addAskPicture(file, why = null) {
+  goalsAskBox.problem = file === null ? why ?? 'The clipboard holds no picture.'
+    : !TALK_TYPES.includes(file.type) ? 'Only a PNG, JPEG or WebP picture can go with an ask.'
+      : goalsAskBox.pictures.length >= ASK_PICTURES_MOST ? `At most ${ASK_PICTURES_MOST} pictures go with an ask.` : talkPictureProblem(file)
+  if (goalsAskBox.problem === null) setAskPictures([...goalsAskBox.pictures, { file, url: URL.createObjectURL(file), path: null }])
+  showGoalAsk()
+}
+
+async function sendGoalAsk() {
+  const goal = goalsAskBox.goal
+  const advisor = board?.advisor?.name ?? null
+  const text = $('goals-ask-text').value.trim()
+  if (goal === null || advisor === null || goalsAskBox.busy) return
+  if (text === '' || goalsUi.busy) {
+    goalsAskBox.problem = text === '' ? 'Say what you want to know.' : 'Another change to the map is on its way: send again in a moment.'
+    return showGoalAsk()
+  }
+  goalsAskBox.busy = true
+  goalsAskBox.problem = null
+  showGoalAsk()
+  const fail = why => {
+    goalsAskBox.busy = false
+    goalsAskBox.problem = why
+    showGoalAsk()
+  }
+  // The board keeps the pictures as Talk to Main's; one kept on an earlier try is not kept twice.
+  const pictures = []
+  for (const one of goalsAskBox.pictures) {
+    if (one.path === null) {
+      const kept = await keepTalkFile(one.file)
+      if (kept.path === undefined) return fail(`Not sent: ${kept.problem}`)
+      one.path = kept.path
+    }
+    pictures.push(one.path)
+  }
+  // An ask written on an earlier try is typed again, never written twice.
+  let id = goalsAskBox.written?.goal === goal ? goalsAskBox.written.id : null
+  if (id === null) {
+    const written = await sendGoals({ command: 'ask', id: goal, text })
+    if (typeof written?.id !== 'string') return fail('Not sent: the ask could not be written under the goal (the line above the map says why).')
+    id = written.id
+    goalsAskBox.written = { goal, id }
+  }
+  const key = `goal-ask:${id}`
+  await send({ to: advisor, command: 'goal-ask', goal, ask: id, text, pictures }, key)
+  if (problems.has(key)) {
+    const why = problems.get(key)
+    problems.delete(key)
+    return fail(`${id} stands under the goal, but the words did not reach ${advisor}: ${why.replace(/^Not sent: /, '').replace(/\.$/, '')}. "Send again" types it again.`)
+  }
+  goalsAskBox.busy = false
+  closeGoalAsk()
+  goalsSay(`Asked ${advisor} (${id}). The answer comes under the goal and under Needs your attention.`, 'ok')
+}
+
+/** B258: what the person does with an answer: a step from it (Talk to Main, prefilled), ask again, or Done (read). */
+function goalsAskAction(kind, goal, askId) {
+  const node = board?.goals ? goalById(board.goals, goal) : null
+  const block = node === null ? undefined : goalAskBlocks(node, true).find(one => one.id === askId)
+  if (block === undefined) return
+  if (kind === 'done') return sendGoals({ command: 'read', id: goal, ask: askId })
+  if (kind === 'again') return openGoalAsk(goal)
+  // B259: the answer as the opening of a brainstorm on the goal.
+  if (kind === 'brainstorm') return openBrainstorm(goal, `About my ask ${block.id}: ${block.question}${block.answer === null ? '' : ` The Advisor answered: ${block.answer.text}`}`.slice(0, 2000))
+  if (kind === 'step') {
+    // After what was typed there already, and no longer than a message may be.
+    showSide('main')
+    const draft = $('main-text').value.trim()
+    $('main-text').value = `${draft === '' ? '' : `${draft}\n\n`}${goalStepWords(node, block)}`.slice(0, board.maxMessageChars ?? 2000)
+    $('main-text').focus()
+  }
+}
+
+/** An ask's block in the frame, brought into sight and lit for a moment (from its box in the tree). */
+function goalsShowAsk(id) {
+  const block = document.querySelector(`#goals-frame [data-ask-block="${id}"]`)
+  if (block === null) return
+  block.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  block.classList.remove('is-lit')
+  void block.offsetWidth
+  block.classList.add('is-lit')
+}
+
+$('goals-ask').addEventListener('submit', event => {
+  event.preventDefault()
+  sendGoalAsk()
+})
+$('goals-ask').addEventListener('paste', event => {
+  if (goalsAskBox.busy) return event.preventDefault()
+  const pasted = pastedTalk(event.clipboardData?.items)
+  if (pasted.ignore === true) return
+  event.preventDefault()
+  addAskPicture(pasted.take?.getAsFile() ?? null, pasted.problem ?? null)
+})
+$('goals-ask').addEventListener('click', event => {
+  const remove = event.target.closest('[data-ask-picture]')
+  if (remove !== null && !goalsAskBox.busy) {
+    setAskPictures(goalsAskBox.pictures.filter((one, index) => index !== Number(remove.dataset.askPicture)))
+    showGoalAsk()
+    return $('goals-ask-text').focus()
+  }
+  if (event.target.closest('#goals-ask-pick') !== null) return $('goals-ask-file').click()
+  if (event.target.closest('#goals-ask-cancel') !== null && !goalsAskBox.busy) closeGoalAsk()
+})
+$('goals-ask-file').addEventListener('change', event => {
+  for (const file of Array.from(event.target.files ?? [])) addAskPicture(file)
+  event.target.value = ''
+})
+$('goals-ask-text').addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !goalsAskBox.busy) {
+    event.preventDefault()
+    closeGoalAsk()
+  } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault()
+    sendGoalAsk()
+  }
+})
+$('goals-ask-text').addEventListener('input', () => {
+  if (goalsAskBox.problem === null) return
+  goalsAskBox.problem = null
+  showGoalAsk()
+})
+
+// brainstorm:start
+// B259: the Brainstorm part (spec 2026-10-15, section 5), worked out without the page, so the tests can run it. A thread
+// is one of state.brainstorms.threads (src/brainstorm.mjs, brainstormsState).
+
+/** An answer as the card and the list read it back: the option and the person's words, skipped, or back. */
+function brainstormAnswerText(question) {
+  const answer = question.answer
+  if (answer === null || answer === undefined) return 'not answered'
+  if (answer.skipped === true) return 'skipped'
+  if (Number.isInteger(answer.back)) return `back to Q${answer.back}`
+  if (answer.key === 'Other') return `your words: "${answer.words}"`
+  const option = (question.options ?? []).find(one => one.key === answer.key)
+  const said = option === undefined ? answer.key : `${answer.key}, ${option.text}`
+  return answer.words ? `${said}: "${answer.words}"` : said
+}
+
+/**
+ * The card of a brainstorm: the open question (when the Advisor asked one and no proposal stands), its options, whether
+ * it takes an answer and a Back, the earlier questions with their answers, and, while the Advisor has the turn, what it
+ * does: thinking, on something else (its card's line), or not running, with the way to wake it (Review Focus 4).
+ * `advisor` is state.advisor.
+ */
+function brainstormCardView(thread, advisor) {
+  const latest = thread.latest
+  const isOver = thread.state === 'done' || thread.state === 'discarded'
+  const isOpen = !isOver && thread.state === 'running' && thread.proposal === null && latest !== null && latest.answer === null
+  const asked = [...thread.earlier, ...(latest === null || isOpen ? [] : [latest])]
+  let waiting = null
+  if (!isOver && !isOpen && thread.proposal === null) {
+    const doing = advisor?.state === 'working' ? String(advisor.doingNow ?? '').trim() : ''
+    waiting = advisor === null || advisor === undefined ? 'No Advisor is on the board: a brainstorm waits for one.'
+      : advisor.isRunning === false ? 'The Advisor\'s chat is not running: start it from the Workers lane (the main chat starts it)'
+        : doing !== '' && !/^brainstorm\b/i.test(doing) ? `The Advisor is on: ${doing}` : 'The Advisor is thinking…'
+  }
+  return {
+    question: isOpen ? { n: latest.n, text: latest.text, why: latest.why, picture: latest.picture } : null,
+    options: isOpen ? latest.options : [],
+    canAnswer: isOpen,
+    canBack: isOpen && thread.earlier.length > 0,
+    waiting,
+    earlier: asked.map(question => ({ n: question.n, text: question.text, answerText: brainstormAnswerText(question) })),
+  }
+}
+
+/**
+ * The last proposal of a brainstorm with a tick per goal and per step (`g0`, `s1`: all ticked but the keys in
+ * `unticked`), its note, whether Create can go (something ticked, not created yet), and once created what came of it.
+ */
+function proposalView(thread, unticked) {
+  const proposal = thread.proposal
+  const off = new Set(unticked ?? [])
+  const created = proposal.created
+  const isTicked = (key, title) => (created === null ? !off.has(key) : !created.leftOut.includes(brainstormLeftKey(title)))
+  const goals = proposal.goals.map((goal, index) => ({ index, key: `g${index}`, title: goal.title, where: goal.under === null ? 'at the top' : `under ${goal.under}`, doneWhen: goal.doneWhen, ticked: isTicked(`g${index}`, goal.title) }))
+  const steps = proposal.steps.map((step, index) => ({ index, key: `s${index}`, title: step.title, worker: step.worker, cost: step.cost, ticked: isTicked(`s${index}`, step.title) }))
+  const stepWords = created === null ? '' : created.steps.length > 0 ? created.steps.join(', ') : created.asked > 0 ? `${created.asked} step${created.asked === 1 ? '' : 's'} asked of the main chat` : 'no steps'
+  return {
+    at: proposal.at,
+    decided: proposal.decided,
+    goals,
+    steps,
+    note: proposal.note,
+    created: created === null ? null : [`Created at ${created.at}: ${created.goals.length > 0 ? created.goals.join(', ') : 'no goals'}`, stepWords, created.leftOut.length > 0 ? `left out: ${created.leftOut.join(', ')}` : null].filter(Boolean).join(' · '),
+    canCreate: created === null && thread.state !== 'discarded' && thread.state !== 'done' && [...goals, ...steps].some(one => one.ticked),
+  }
+}
+
+/** A title as the Created line keeps it among what was left out (src/brainstorm.mjs, leftOutKey). */
+function brainstormLeftKey(title) { return String(title ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000).replace(/ · /g, ' - ') }
+
+/** The list at the left: the running brainstorms first, then the ones done or discarded, each with one line. */
+function brainstormListView(threads) {
+  const running = []
+  const done = []
+  for (const thread of threads ?? []) {
+    const day = String(thread.started ?? '').slice(0, 10)
+    const count = thread.questions === 0 ? null : `${thread.questions} question${thread.questions === 1 ? '' : 's'}`
+    const isOpen = thread.state === 'running' && thread.proposal === null && thread.latest !== null && thread.latest.answer === null
+    const hasProposal = thread.proposal !== null && thread.proposal.created === null
+    if (thread.state === 'running' || thread.state === 'wrapping up') {
+      const what = isOpen ? `question ${thread.latest.n} waits for you` : hasProposal ? 'proposal to tick' : thread.state === 'wrapping up' ? 'wrapping up with the Advisor' : 'with the Advisor'
+      running.push({ path: thread.path, title: thread.title, line: [day, isOpen ? null : count, what].filter(Boolean).join(' · '), waits: isOpen || hasProposal })
+      continue
+    }
+    const created = thread.proposal?.created ?? null
+    const came = created === null ? null : [created.goals.join(', '), created.steps.length > 0 ? created.steps.join(', ') : created.asked > 0 ? `${created.asked} step${created.asked === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')
+    const line = thread.state === 'discarded' ? [day, count, 'discarded'].filter(Boolean).join(' · ') : `${[day, count].filter(Boolean).join(' · ')} → ${came || 'nothing created'}`
+    done.push({ path: thread.path, title: thread.title, line, waits: false })
+  }
+  return { running, done }
+}
+
+/** The brainstorm the card shows: the one chosen while it is there, else the first running one, else the newest. */
+function brainstormChosen(threads, open) {
+  const list = threads ?? []
+  if (list.some(thread => thread.path === open)) return open
+  return (list.find(thread => thread.state === 'running' || thread.state === 'wrapping up') ?? list[0])?.path ?? null
+}
+// brainstorm:end
+
+/**
+ * B259: what the person is doing on the Brainstorm part, which a redraw keeps: the brainstorm the card shows, the box
+ * for a new one (`newAbout`: undefined while closed, null for a free one, else the goal), the option chosen and the own
+ * words typed per brainstorm, the ticks taken away per proposal, the box to change a proposal, a "click again" to
+ * discard, whether a change is on its way, and the line after it.
+ */
+const brainstormUi = { open: null, newAbout: undefined, chosen: new Map(), other: new Map(), unticked: new Map(), changing: null, changeWords: '', confirm: null, busy: false, note: null, failedSteps: new Map() }
+
+function brainstormData(state) {
+  return [state.brainstorms ?? null, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.advisor?.state ?? null, state.advisor?.doingNow ?? null,
+    state.goalsEdit?.canWrite ?? null, state.restart?.main ?? null, (state.goals?.nodes ?? []).map(node => [node.id, node.title]),
+    brainstormUi.open, brainstormUi.newAbout === undefined ? 'closed' : brainstormUi.newAbout, [...brainstormUi.chosen],
+    [...brainstormUi.unticked].map(([path, keys]) => [path, [...keys]]), [...brainstormUi.failedSteps], brainstormUi.changing, brainstormUi.confirm, brainstormUi.busy, brainstormUi.note]
+}
+function redrawBrainstorm() {
+  if (board !== null && board !== undefined) once('brainstorm', brainstormData(board), () => drawBrainstorm(board))
+}
+const canBrainstorm = state => state?.goalsEdit?.canWrite === true && (state?.advisor ?? null) !== null
+const threadAt = path => (board?.brainstorms?.threads ?? []).find(thread => thread.path === path) ?? null
+
+function drawBrainstorm(state) {
+  const threads = state.brainstorms?.threads ?? []
+  const waits = (state.brainstormNeeds ?? []).length
+  $('advisor-brainstorm-count').textContent = waits === 0 ? '' : String(waits)
+  const list = brainstormListView(threads)
+  const chosen = brainstormChosen(threads, brainstormUi.open)
+  const start = el('button', 'brainstorm-start', '+ New brainstorm… (about a goal, or free)')
+  start.type = 'button'
+  start.dataset.brainstormNew = ''
+  start.disabled = !canBrainstorm(state)
+  if (start.disabled) start.title = (state.advisor ?? null) === null ? 'No Advisor is on the board.' : state.goalsEdit?.whyNot ?? 'This board only shows.'
+  const row = one => {
+    const line = el('button', `brainstorm-row${one.path === chosen ? ' is-chosen' : ''}${one.waits ? ' is-waiting' : ''}`)
+    line.type = 'button'
+    line.dataset.brainstormOpen = one.path
+    line.append(el('b', '', one.title), el('small', '', one.line))
+    return line
+  }
+  fill($('brainstorm-list'), [
+    start,
+    list.running.length > 0 ? el('h4', 'brainstorm-group', 'Running') : null, ...list.running.map(row),
+    list.done.length > 0 ? el('h4', 'brainstorm-group', 'Done') : null, ...list.done.map(row),
+    threads.length === 0 ? el('p', 'muted brainstorm-empty', 'No brainstorm yet. Start one here, or with "Brainstorm this" on a goal of the map. The Advisor asks you one question at a time and ends with a proposal you tick.') : null,
+  ])
+  showBrainstormNew(state)
+  const thread = threads.find(one => one.path === chosen) ?? null
+  // The box typed in keeps the keys, and the cursor where it was.
+  const active = document.activeElement
+  const typing = $('brainstorm-card').contains(active) && /^(?:brainstorm-other|brainstorm-change-text)$/.test(active.id) ? { id: active.id, at: active.selectionStart } : null
+  fill($('brainstorm-card'), thread === null ? [] : brainstormCard(thread, state))
+  const again = typing === null ? null : $(typing.id)
+  if (again !== null && !again.disabled) {
+    again.focus()
+    again.setSelectionRange(typing.at, typing.at)
+  }
+}
+
+function brainstormButton(text, act, className = 'goals-tool') {
+  const button = el('button', className, text)
+  button.type = 'button'
+  button.dataset.brainstormAct = act
+  button.disabled = brainstormUi.busy
+  return button
+}
+
+/** The card of the brainstorm chosen: what it is about, the open question or what it waits for, the proposal, the earlier answers. */
+function brainstormCard(thread, state) {
+  const view = brainstormCardView(thread, state.advisor ?? null)
+  const canWrite = canBrainstorm(state)
+  const about = el('p', 'brainstorm-about')
+  about.append('about: ')
+  if (thread.goal === null) about.append(el('span', '', 'no goal yet (free)'))
+  else {
+    const goal = el('button', 'goals-link', `${thread.goal.id} ${thread.goal.title}`)
+    goal.type = 'button'
+    goal.dataset.brainstormGoal = thread.goal.id
+    goal.title = 'Open it in the goal map'
+    about.append(goal)
+  }
+  const box = el('section', `brainstorm-box is-${thread.state.replace(' ', '-')}`)
+  const step = view.question !== null ? `question ${view.question.n}` : thread.proposal !== null ? 'proposal' : thread.state
+  box.append(el('small', 'brainstorm-meta', `Brainstorm · with the Advisor · ${step} · started ${thread.started ?? ''}`), el('h3', 'brainstorm-title', thread.title))
+  if (thread.opening) box.append(el('p', 'brainstorm-opening', `You opened with: ${thread.opening}`))
+  if (view.question !== null) {
+    box.append(el('h4', 'brainstorm-question', view.question.text))
+    if (view.question.why) box.append(el('p', 'muted brainstorm-why', `The Advisor asks because ${view.question.why}`))
+    const picked = brainstormUi.chosen.get(thread.path) ?? null
+    const options = el('div', 'brainstorm-options')
+    for (const option of view.options) {
+      const button = el('button', `brainstorm-option${picked === option.key ? ' is-chosen' : ''}`)
+      button.type = 'button'
+      button.dataset.option = option.key
+      button.disabled = !canWrite || brainstormUi.busy
+      button.setAttribute('aria-pressed', String(picked === option.key))
+      button.append(el('span', 'brainstorm-key', option.key), el('span', 'brainstorm-option-text', option.text))
+      if (option.isAdvised) button.append(el('span', 'brainstorm-advised', 'advised'))
+      options.append(button)
+    }
+    const other = el('input', `brainstorm-other${picked === 'Other' ? ' is-chosen' : ''}`)
+    other.type = 'text'
+    other.id = 'brainstorm-other'
+    other.maxLength = 1000
+    other.placeholder = picked !== null && picked !== 'Other' ? `Words to go with ${picked} (if any)…` : 'Other: your own words…'
+    other.value = brainstormUi.other.get(thread.path) ?? ''
+    other.disabled = !canWrite || brainstormUi.busy
+    other.setAttribute('aria-label', 'Your own words')
+    options.append(other)
+    box.append(options)
+    if (view.question.picture) {
+      const shown = picture(view.question.picture, `Q${view.question.n}: every option side by side`)
+      shown.classList.add('brainstorm-picture')
+      box.append(shown)
+    }
+    if (canWrite) {
+      const words = (brainstormUi.other.get(thread.path) ?? '').trim()
+      const answer = brainstormButton(picked !== null && picked !== 'Other' ? `Answer ${picked}` : words !== '' ? 'Answer with your words' : 'Answer', 'answer', 'goals-action is-send')
+      answer.id = 'brainstorm-answer'
+      answer.disabled = brainstormUi.busy || (picked === null && words === '')
+      const foot = el('div', 'brainstorm-buttons')
+      foot.append(answer, brainstormButton('Skip', 'skip'))
+      if (view.canBack) foot.append(brainstormButton('Back', 'back'))
+      foot.append(el('span', 'brainstorm-gap'), brainstormButton('Enough, wrap up', 'wrap'))
+      box.append(foot)
+    }
+  }
+  if (view.waiting !== null) {
+    const waiting = el('p', `brainstorm-waiting${/not running|No Advisor/.test(view.waiting) ? ' is-off' : ''}`, view.waiting)
+    // Nothing comes back for long: the last word is typed into the Advisor's chat once more.
+    if (canWrite && thread.state !== 'done' && thread.state !== 'discarded') {
+      const again = brainstormButton('Type it to the Advisor again', 'again', 'goals-lines')
+      again.title = 'When nothing came back: the board types its last word about this brainstorm into the Advisor\'s chat again'
+      waiting.append(' ', again)
+    }
+    box.append(waiting)
+  }
+  // Lines of the thread the board cannot read: the Advisor is asked to write them in the form.
+  if (thread.problems.length > 0) box.append(el('p', 'brainstorm-problems', `The thread has ${thread.problems.length === 1 ? 'a line' : 'lines'} the board cannot read (${thread.problems.slice(0, 3).join(' · ')}${thread.problems.length > 3 ? ' …' : ''}): ask the Advisor to write ${thread.problems.length === 1 ? 'it' : 'them'} as roles/advisor.md shows.`))
+  if (thread.proposal !== null) box.append(proposalPart(thread, canWrite))
+  if (thread.state === 'discarded') box.append(el('p', 'muted', 'Discarded: nothing of it was created.'))
+  if (view.earlier.length > 0) {
+    const earlier = el('details', 'brainstorm-earlier')
+    earlier.append(el('summary', '', `Earlier in this brainstorm (${view.earlier.length})`))
+    for (const one of view.earlier) {
+      const line = el('p', '')
+      line.append(el('b', '', `Q${one.n} `), one.text, el('span', 'muted', ` → ${one.answerText}`))
+      earlier.append(line)
+    }
+    box.append(earlier)
+  }
+  const foot = el('div', 'brainstorm-file')
+  const file = el('button', 'goals-link', `The thread file: ${thread.path} ↗`)
+  file.type = 'button'
+  file.dataset.gameFile = thread.path
+  foot.append(file)
+  if (canWrite && (thread.state === 'running' || thread.state === 'wrapping up')) {
+    const discard = brainstormButton(brainstormUi.confirm === thread.path ? 'Click again to discard it' : 'Discard', 'discard', 'goals-tool is-delete')
+    discard.title = 'End it without creating anything'
+    foot.append(discard)
+  }
+  const parts = [about, box, foot]
+  if (brainstormUi.note !== null && brainstormUi.note.path === thread.path) parts.splice(2, 0, el('p', `brainstorm-note${brainstormUi.note.isProblem ? ' is-error' : ''}`, brainstormUi.note.text))
+  return parts
+}
+
+/** The proposal: what was decided, the goals and the steps with their ticks, the note; Create, Change… and what came of it. */
+function proposalPart(thread, canWrite) {
+  const view = proposalView(thread, brainstormUi.unticked.get(thread.path) ?? [])
+  const part = el('section', 'brainstorm-proposal')
+  part.append(el('h4', '', `The proposal · ${view.at}`))
+  if (view.decided.length > 0) part.append(el('h5', '', 'What we decided'), fill(el('ul', 'brainstorm-decided'), view.decided.map(line => el('li', '', line))))
+  const tick = (item, main, small) => {
+    const label = el('label', `brainstorm-tick${item.ticked ? '' : ' is-off'}`)
+    const box = el('input')
+    box.type = 'checkbox'
+    box.checked = item.ticked
+    box.dataset.tick = item.key
+    box.disabled = !canWrite || view.created !== null || brainstormUi.busy
+    label.append(box, el('span', '', main), el('small', 'muted', small))
+    return label
+  }
+  if (view.goals.length > 0) part.append(el('h5', '', 'New goals for the map'), ...view.goals.map(goal => tick(goal, goal.title, `${goal.where} · Done when: ${goal.doneWhen}`)))
+  if (view.steps.length > 0) part.append(el('h5', '', 'New steps for the backlog'), ...view.steps.map(step => tick(step, step.title, `${step.worker} · ${step.cost}`)))
+  if (view.note) part.append(el('h5', '', 'The note kept under the goal'), el('p', 'brainstorm-note-kept', view.note))
+  if (view.created !== null) {
+    part.append(el('p', 'brainstorm-created', view.created))
+    const failed = brainstormUi.failedSteps.get(thread.path) ?? []
+    if (canWrite && failed.length > 0) part.append(brainstormButton(`Ask the main chat again for ${failed.length} step${failed.length === 1 ? '' : 's'}`, 'steps-again', 'goals-action is-send'))
+    return part
+  }
+  if (canWrite && thread.state !== 'discarded') {
+    const buttons = el('div', 'brainstorm-buttons')
+    const create = brainstormButton('Create what\'s ticked', 'create', 'goals-action is-send')
+    create.disabled = brainstormUi.busy || !view.canCreate
+    create.title = 'The goals go into the map now; the main chat is asked for each step'
+    buttons.append(create, brainstormButton(brainstormUi.changing === thread.path ? 'Change… ▾' : 'Change…', 'change'))
+    part.append(buttons)
+    if (brainstormUi.changing === thread.path) {
+      const change = el('div', 'brainstorm-change')
+      const words = el('textarea')
+      words.id = 'brainstorm-change-text'
+      words.rows = 2
+      words.maxLength = 1000
+      words.placeholder = 'What should the Advisor change in the proposal?'
+      words.value = brainstormUi.changeWords
+      words.disabled = brainstormUi.busy
+      change.append(words, brainstormButton('Send the change', 'send-change', 'goals-action is-send'))
+      part.append(change)
+    }
+  }
+  return part
+}
+
+/** The box for a new brainstorm: shown on a board that writes, with an Advisor; about the goal given, or free. */
+function showBrainstormNew(state) {
+  const form = $('brainstorm-new')
+  form.hidden = brainstormUi.newAbout === undefined || !canBrainstorm(state)
+  if (form.hidden) return
+  const goal = brainstormUi.newAbout === null ? null : goalById(state.goals ?? { nodes: [] }, brainstormUi.newAbout)
+  const about = $('brainstorm-new-about')
+  if (goal === null) about.replaceChildren('Free: about no goal yet. The Advisor proposes where its goals go.')
+  else {
+    const free = el('button', 'goals-unlink', '× make it free')
+    free.type = 'button'
+    free.dataset.brainstormFree = ''
+    about.replaceChildren(`About ${goalLabel(goal)} `, free)
+  }
+  $('brainstorm-new-start').disabled = brainstormUi.busy
+  $('brainstorm-new-start').textContent = brainstormUi.busy ? 'Starting…' : 'Start'
+  const note = brainstormUi.note !== null && brainstormUi.note.path === null ? brainstormUi.note : null
+  $('brainstorm-new-note').classList.toggle('is-error', note?.isProblem === true)
+  $('brainstorm-new-note').textContent = note?.text ?? 'The Advisor writes the questions into the thread file; you answer here, one at a time.'
+}
+
+/** "Brainstorm this" on a goal, or "+ New brainstorm…": the part with the box open, or the brainstorm running on that goal. */
+function openBrainstorm(goal, opening = '', isNew = false) {
+  show('advice')
+  showAdvisorPane('brainstorm')
+  const running = goal === null ? null : (board?.brainstorms?.threads ?? []).find(thread => thread.goal?.id === goal && (thread.state === 'running' || thread.state === 'wrapping up')) ?? null
+  if (running !== null && isNew) goal = null
+  else if (running !== null) {
+    brainstormUi.open = running.path
+    brainstormUi.newAbout = undefined
+    return redrawBrainstorm()
+  }
+  if (brainstormUi.newAbout !== goal) {
+    const node = goal === null ? null : goalById(board?.goals ?? { nodes: [] }, goal)
+    $('brainstorm-new-title').value = node === null ? '' : node.title
+    $('brainstorm-new-opening').value = opening
+  }
+  brainstormUi.newAbout = goal
+  brainstormUi.note = null
+  redrawBrainstorm()
+  $(goal === null ? 'brainstorm-new-title' : 'brainstorm-new-opening').focus()
+}
+
+/** One change to a brainstorm (POST /api/brainstorm); the state is read anew. Answers what the board answered, or null with its reason under the card. */
+async function sendBrainstorm(body) {
+  let result = null
+  try {
+    const answer = await fetch('/api/brainstorm', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(body) })
+    if (answer.ok) result = await answer.json()
+    else brainstormUi.note = { path: body.path ?? null, isProblem: true, text: `Not done: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
+  } catch {
+    brainstormUi.note = { path: body.path ?? null, isProblem: true, text: 'Not done: the board\'s server does not answer.' }
+  }
+  await read()
+  return result
+}
+
+/** Words to a chat; their problem, if any, under the card. True when they went. */
+async function sayBrainstorm(message, path) {
+  const key = `brainstorm:${path}:${message.command}${Number.isInteger(message.step) ? `:${message.step}` : ''}`
+  await send(message, key)
+  if (!problems.has(key)) return true
+  brainstormUi.note = { path, isProblem: true, text: `${problems.get(key).replace(/\.?$/, '.')} The thread holds it: the board can type it again.` }
+  problems.delete(key)
+  return false
+}
+
+async function brainstormAct(act, path) {
+  const thread = threadAt(path)
+  const advisor = board?.advisor?.name ?? null
+  const main = board?.restart?.main ?? null
+  if (thread === null || brainstormUi.busy) return
+  if (act === 'again' && brainstormUi.busy === false) {
+    // The word the brainstorm waits on: the start, the answer to the last question, or the wrap-up.
+    const word = thread.state === 'wrapping up' && thread.proposal === null ? { command: 'brainstorm-wrap' }
+      : thread.questions === 0 && thread.proposal === null ? { command: 'brainstorm' }
+        : thread.latest !== null && thread.latest.answer !== null && thread.proposal === null ? { command: 'brainstorm-answer', n: thread.latest.n } : null
+    if (word === null) return
+    brainstormUi.busy = true
+    brainstormUi.note = null
+    redrawBrainstorm()
+    if (await sayBrainstorm({ to: advisor, thread: path, ...word }, path)) brainstormUi.note = { path, isProblem: false, text: 'Typed into the Advisor\'s chat again.' }
+    brainstormUi.busy = false
+    return redrawBrainstorm()
+  }
+  if (act === 'change') {
+    brainstormUi.changing = brainstormUi.changing === path ? null : path
+    redrawBrainstorm()
+    return $('brainstorm-change-text')?.focus()
+  }
+  if (act === 'discard' && brainstormUi.confirm !== path) {
+    brainstormUi.confirm = path
+    setTimeout(() => {
+      if (brainstormUi.confirm === path) {
+        brainstormUi.confirm = null
+        redrawBrainstorm()
+      }
+    }, 5000)
+    return redrawBrainstorm()
+  }
+  brainstormUi.busy = true
+  brainstormUi.confirm = null
+  brainstormUi.note = null
+  redrawBrainstorm()
+  try {
+    const n = thread.latest?.n ?? null
+    if (act === 'answer' || act === 'skip' || act === 'back') {
+      const picked = brainstormUi.chosen.get(path) ?? null
+      const words = (brainstormUi.other.get(path) ?? '').trim()
+      const answer = act === 'skip' ? { command: 'skip' } : act === 'back' ? { command: 'back', to: n - 1 }
+        : picked !== null && picked !== 'Other' ? { command: 'answer', key: picked, words } : { command: 'answer', key: 'Other', words }
+      if (await sendBrainstorm({ path, n, ...answer }) !== null) {
+        brainstormUi.chosen.delete(path)
+        brainstormUi.other.delete(path)
+        await sayBrainstorm({ to: advisor, command: 'brainstorm-answer', thread: path, n }, path)
+      }
+    } else if (act === 'wrap') {
+      if (await sendBrainstorm({ command: 'wrap', path }) !== null) await sayBrainstorm({ to: advisor, command: 'brainstorm-wrap', thread: path }, path)
+    } else if (act === 'discard') {
+      await sendBrainstorm({ command: 'discard', path })
+    } else if (act === 'send-change') {
+      const words = brainstormUi.changeWords.trim()
+      if (words === '') brainstormUi.note = { path, isProblem: true, text: 'Say what the Advisor should change.' }
+      else if (await sayBrainstorm({ to: advisor, command: 'brainstorm-change', thread: path, text: words }, path)) {
+        brainstormUi.changing = null
+        brainstormUi.changeWords = ''
+        brainstormUi.note = { path, isProblem: false, text: 'Sent to the Advisor: it writes the proposal anew.' }
+      }
+    } else if (act === 'steps-again') {
+      // The steps the main chat was not reached with, asked again; the ones that go are done with.
+      const failed = []
+      for (const index of brainstormUi.failedSteps.get(path) ?? []) if (!(await sayBrainstorm({ to: main, command: 'goal-step', thread: path, step: index }, path))) failed.push(index)
+      if (failed.length > 0) brainstormUi.failedSteps.set(path, failed)
+      else {
+        brainstormUi.failedSteps.delete(path)
+        brainstormUi.note = { path, isProblem: false, text: 'The main chat is asked for every step.' }
+      }
+    } else if (act === 'create') {
+      const view = proposalView(thread, brainstormUi.unticked.get(path) ?? [])
+      const steps = view.steps.filter(step => step.ticked).map(step => step.index)
+      const made = await sendBrainstorm({ command: 'create', path, goals: view.goals.filter(goal => goal.ticked).map(goal => goal.index), steps, seen: thread.length })
+      if (made !== null) {
+        // One message per step to the main chat, which writes it on the backlog and links it to its goal.
+        let asked = 0
+        const failed = []
+        for (const index of steps) {
+          if (await sayBrainstorm({ to: main, command: 'goal-step', thread: path, step: index }, path)) asked += 1
+          else failed.push(index)
+        }
+        if (failed.length > 0) brainstormUi.failedSteps.set(path, failed)
+        const goals = made.goals.map(goal => goal.id).join(', ')
+        if (brainstormUi.note === null) brainstormUi.note = { path, isProblem: false, text: `Created: ${goals || 'no goals'}${steps.length > 0 ? `; the main chat is asked for ${asked} of ${steps.length} step${steps.length === 1 ? '' : 's'}` : ''}.` }
+      }
+    }
+  } finally {
+    brainstormUi.busy = false
+    redrawBrainstorm()
+  }
+}
+
+$('brainstorm-list').addEventListener('click', event => {
+  if (event.target.closest('[data-brainstorm-new]') !== null) return openBrainstorm(goalsFocus, '', true)
+  const open = event.target.closest('[data-brainstorm-open]')
+  if (open === null) return
+  brainstormUi.open = open.dataset.brainstormOpen
+  brainstormUi.newAbout = undefined
+  redrawBrainstorm()
+})
+$('brainstorm-card').addEventListener('click', event => {
+  const path = brainstormChosen(board?.brainstorms?.threads ?? [], brainstormUi.open)
+  if (path === null) return
+  const option = event.target.closest('[data-option]')
+  if (option !== null && !option.disabled) {
+    brainstormUi.open = path
+    brainstormUi.chosen.set(path, brainstormUi.chosen.get(path) === option.dataset.option ? null : option.dataset.option)
+    if (brainstormUi.chosen.get(path) === null) brainstormUi.chosen.delete(path)
+    return redrawBrainstorm()
+  }
+  const goal = event.target.closest('[data-brainstorm-goal]')
+  if (goal !== null) {
+    showAdvisorPane('goals')
+    return zoomGoal(goal.dataset.brainstormGoal)
+  }
+  const act = event.target.closest('[data-brainstorm-act]')
+  if (act !== null && !act.disabled) {
+    brainstormUi.open = path
+    brainstormAct(act.dataset.brainstormAct, path)
+  }
+})
+$('brainstorm-card').addEventListener('change', event => {
+  const tick = event.target.closest('[data-tick]')
+  const path = brainstormChosen(board?.brainstorms?.threads ?? [], brainstormUi.open)
+  if (tick === null || path === null) return
+  const off = new Set(brainstormUi.unticked.get(path) ?? [])
+  if (tick.checked) off.delete(tick.dataset.tick)
+  else off.add(tick.dataset.tick)
+  brainstormUi.unticked.set(path, off)
+  redrawBrainstorm()
+})
+// The own words: kept while typed, and the Answer button follows them without drawing the card anew.
+$('brainstorm-card').addEventListener('input', event => {
+  // The words of a change stay while the card is drawn anew.
+  if (event.target.id === 'brainstorm-change-text') brainstormUi.changeWords = event.target.value
+  if (event.target.id !== 'brainstorm-other') return
+  const path = brainstormChosen(board?.brainstorms?.threads ?? [], brainstormUi.open)
+  brainstormUi.other.set(path, event.target.value)
+  const picked = brainstormUi.chosen.get(path) ?? null
+  const words = event.target.value.trim()
+  const answer = $('brainstorm-answer')
+  if (answer !== null) {
+    answer.disabled = brainstormUi.busy || (picked === null && words === '')
+    answer.textContent = picked !== null && picked !== 'Other' ? `Answer ${picked}` : words !== '' ? 'Answer with your words' : 'Answer'
+  }
+})
+$('brainstorm-card').addEventListener('keydown', event => {
+  if (event.target.id === 'brainstorm-other' && event.key === 'Enter' && !$('brainstorm-answer')?.disabled) {
+    event.preventDefault()
+    brainstormAct('answer', brainstormChosen(board?.brainstorms?.threads ?? [], brainstormUi.open))
+  }
+})
+$('brainstorm-new').addEventListener('click', event => {
+  if (event.target.closest('[data-brainstorm-free]') !== null) {
+    brainstormUi.newAbout = null
+    redrawBrainstorm()
+  }
+  if (event.target.closest('#brainstorm-new-cancel') !== null && !brainstormUi.busy) {
+    brainstormUi.newAbout = undefined
+    redrawBrainstorm()
+  }
+})
+$('brainstorm-new').addEventListener('submit', async event => {
+  event.preventDefault()
+  const advisor = board?.advisor?.name ?? null
+  const title = $('brainstorm-new-title').value.trim()
+  const opening = $('brainstorm-new-opening').value.trim()
+  if (brainstormUi.busy || advisor === null) return
+  if (title === '' || opening === '') {
+    brainstormUi.note = { path: null, isProblem: true, text: 'Give it a title and your opening words.' }
+    return redrawBrainstorm()
+  }
+  brainstormUi.busy = true
+  brainstormUi.note = null
+  redrawBrainstorm()
+  const started = await sendBrainstorm({ command: 'start', title, goal: brainstormUi.newAbout ?? null, opening })
+  if (started !== null) {
+    $('brainstorm-new-title').value = ''
+    $('brainstorm-new-opening').value = ''
+    brainstormUi.newAbout = undefined
+    brainstormUi.open = started.path
+    await sayBrainstorm({ to: advisor, command: 'brainstorm', thread: started.path }, started.path)
+  }
+  brainstormUi.busy = false
+  redrawBrainstorm()
+})
+
+// B289: a step under no goal opens its window.
+$('goals-unlinked').addEventListener('click', event => {
+  const row = event.target.closest('[data-unlinked-step]')
+  if (row === null || board === null) return
+  const step = (board.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === row.dataset.unlinkedStep)
+  if (step !== undefined) openDetails({ step: step.key })
+})
+
 $('goals-crumb').addEventListener('click', event => {
   const link = event.target.closest('button[data-goal]')
   if (link !== null && !link.disabled) zoomGoal(link.dataset.goal === '' ? null : link.dataset.goal)
@@ -4275,8 +5894,13 @@ $('goals-frame').addEventListener('click', event => {
   if (choice !== null) return goalsLink(choice.dataset.linkTarget)
   const unlink = event.target.closest('[data-unlink]')
   if (unlink !== null && focus !== null) return sendGoals({ command: 'unlink', id: focus, name: unlink.dataset.unlink, target: unlink.dataset.target })
+  // B258: what the person does with an ask's answer.
+  const askAction = event.target.closest('[data-ask-action]')
+  if (askAction !== null && focus !== null) return goalsAskAction(askAction.dataset.askAction, focus, askAction.dataset.askId)
   const tool = event.target.closest('[data-goal-tool]')?.dataset.goalTool
   if (tool === undefined || focus === null) return
+  if (tool === 'ask') return openGoalAsk(focus)
+  if (tool === 'brainstorm') return openBrainstorm(focus)
   const node = board?.goals ? goalById(board.goals, focus) : null
   if (tool === 'delete' || tool === 'dissolve') {
     if (!isConfirmed(tool, focus)) {
@@ -4492,11 +6116,11 @@ window.addEventListener('popstate', () => {
   redrawGoals()
 })
 
-// B195: the Advisor's tab in four parts: the way to the next milestone first, then the game plan, the suggestions and
+// B195: the Advisor's tab in parts: the way to the next milestone first, then the game plan, the suggestions and
 // the chat. The person, 2026-10-14: the details go to "different tabs and the main tab only shows some visual
 // simplistic flow"; the chat is one of those parts, not a tab of the board's own ("i Do not want a 5th tab").
-// B255: the goal map is the second part.
-const ADVISOR_PANES = ['way', 'goals', 'plan', 'suggestions', 'chat']
+// B255: the goal map is the second part. B259: the brainstorm the third ("B", its own part).
+const ADVISOR_PANES = ['way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
 function showAdvisorPane(name) {
   const pane = ADVISOR_PANES.includes(name) ? name : 'way'
   $('view-advice').dataset.pane = pane
@@ -4534,12 +6158,30 @@ let wayPicked = null
 let wayNoOpen = false
 let wayReason = ''
 
+// B288: the person asks the Advisor for a round now, from the Next milestone part; off while a round runs.
+/** The button "Re-check the goals now" with why it was refused under it, or null without an Advisor. */
+function recheckPart(state) {
+  if ((state.advisor?.name ?? null) === null) return null
+  const runs = state.advisor.roundRuns === true
+  const button = el('button', `way-recheck${problems.has('recheck') ? ' is-error' : ''}`, sending.has('recheck') ? 'Asking…' : runs ? 'A round runs' : 'Re-check the goals now')
+  button.type = 'button'
+  button.dataset.recheck = 'yes'
+  button.disabled = runs || sending.has('recheck')
+  button.title = runs ? 'The Advisor works on a round now: it brings the goals up to date.' : 'Ask the Advisor for a round now: it brings the way to the next milestone and the goal map up to date.'
+  const part = el('div', 'way-recheck-line')
+  part.append(button)
+  if (problems.has('recheck')) part.append(el('p', 'problem', problems.get('recheck')))
+  return part
+}
+// recheck:end
+
 function drawWay(state) {
   const box = $('advisor-way')
   const way = state.milestone ?? null
+  const recheck = recheckPart(state)
   if (way === null) {
     // B260: the way is the goal map's first milestone of the game plan that is not done.
-    return fill(box, [el('h2', '', 'The way to the next milestone'), el('p', 'muted', `No milestone to go to yet. The Advisor marks the game plan's milestones in the goal map (${state.goalsFile ?? '.claude/goals.md'}) at its next round.`)])
+    return fill(box, [el('h2', '', 'The way to the next milestone'), el('p', 'muted', `No milestone to go to yet. The Advisor marks the game plan's milestones in the goal map (${state.goalsFile ?? '.claude/goals.md'}) at its next round.`), ...(recheck === null ? [] : [recheck])])
   }
   const { milestone, nodes, totals } = way
   const head = el('div', 'way-head')
@@ -4547,6 +6189,7 @@ function drawWay(state) {
   named.append(el('small', 'way-kicker', milestone.name === '' ? 'Next milestone' : `Next milestone · ${milestone.name}`), el('h2', '', milestone.title))
   if (milestone.doneWhen !== '') named.append(el('p', 'muted', `Done when: ${milestone.doneWhen}`))
   // B260: a milestone of the plan without sub-goals in the goal map yet has no way to draw.
+  if (recheck !== null) named.append(recheck)
   if (way.isMapped === false) {
     head.append(named)
     return fill(box, [head, el('p', 'muted', `Its way is not mapped yet: the Advisor adds its steps as sub-goals in the goal map (${state.goalsFile ?? '.claude/goals.md'}) at its next round.`), ...recommendationPart(way.recommendation ?? null, state)])
@@ -4666,6 +6309,17 @@ function recommendationPart(rec, state) {
   return [box]
 }
 
+// B288: the re-check of the goals, asked of the Advisor.
+$('advisor-way').addEventListener('click', event => {
+  const button = event.target.closest('[data-recheck]')
+  if (button === null || button.disabled) return
+  const advisor = board?.advisor?.name ?? null
+  if (advisor === null) return
+  // Off at once, so a second click sends nothing; the next redraw shows how it stands.
+  button.disabled = true
+  button.textContent = 'Asking…'
+  send({ to: advisor, command: 'recheck' }, 'recheck')
+})
 $('advisor-way').addEventListener('click', event => {
   if (board === null) return
   const step = event.target.closest('[data-way-node]')
@@ -4913,7 +6567,7 @@ document.addEventListener('click', event => {
 
 // The chat with the advisor
 
-function drawMessage({ key, kind, time, who, text, note = null }) {
+function drawMessage({ key, kind, time, who, text, picture: shown = null, note = null }) {
   const row = el('div', `message ${kind}`)
   const bubble = el('div', 'bubble')
   if (text.length > LONG_CHARS || text.split('\n').length > 12) {
@@ -4922,25 +6576,58 @@ function drawMessage({ key, kind, time, who, text, note = null }) {
     if (openBubbles.has(key)) bubble.classList.add('is-open')
   }
   rich(bubble, text)
+  // B282: a picture pasted with it, small; a click opens it large.
+  if (shown !== null) {
+    const frame = picture(shown)
+    frame.classList.add('talk-picture')
+    bubble.append(frame)
+  }
   if (note !== null) bubble.append(el('small', '', note))
   row.append(el('time', '', time), el('span', 'speaker', who), bubble)
   return row
 }
+
+// advisorrefine:start
+/**
+ * B287: the Advisor's refine state, from the backlog's steps: the step it refines now (asked and not written yet), else
+ * a step whose answers are all in and wait for it to fold them in; null when neither. `{ step, text, tone }`.
+ */
+function advisorRefine(backlog) {
+  const steps = (backlog ?? []).flatMap(activity => activity.steps ?? [])
+  // The one it has in hand first, else one on its way.
+  const asks = steps.filter(step => step.refineAsk?.isOpen === true)
+  const asked = asks.find(step => step.refineAsk.state === 'delivered') ?? asks[0]
+  if (asked !== undefined) {
+    const round = asked.refineAsk.round ?? 1
+    const text = asked.refineAsk.state === 'delivered' ? `Refining ${asked.id}${round > 1 ? `, round ${round}` : ''}` : `${asked.id} to refine, on its way`
+    return { step: asked.id, text, tone: 'working' }
+  }
+  // Answers folded in only for a step not taken up yet (open or queued), as the board's own refining does (B285).
+  const answered = steps.find(step => step.refineState === 'answered' && (step.status === 'open' || step.status === 'queued'))
+  return answered === undefined ? null : { step: answered.id, text: `Your answers on ${answered.id} wait for it`, tone: 'waiting' }
+}
+// advisorrefine:end
 
 function drawTalk(state) {
   const advisor = state.advisor
   const box = $('messages')
   const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60
   $('talk-title').textContent = advisor?.name ?? 'Advisor'
+  // B287: what it refines, beside its state.
+  const refine = advisorRefine(state.backlog)
   fill($('talk-state'), [
     advisor === null ? null : el('span', `pill is-${advisor.state}`, STATES[advisor.state]),
+    advisor === null || refine === null ? null : el('span', `advisor-refine-state is-${refine.tone}`, refine.text),
     // A chat that does not run takes nothing: what is typed here waits until its chat is opened.
     // A chat that does not run takes nothing: the main chat is asked to start it when something is typed here.
     ...(advisor === null ? [] : startParts(advisor.name)),
   ])
   $('say-send').disabled = advisor === null
   $('say-text').maxLength = state.maxMessageChars
-  if (!$('say-note').classList.contains('is-error')) $('say-note').textContent = UNDELIVERED
+  // B282: why a send or a paste did not go, else where what is sent goes.
+  const sayProblem = problems.get('talk') ?? pictureSlots.advisor.problem
+  $('say-note').classList.toggle('is-error', sayProblem !== null)
+  $('say-note').textContent = sayProblem ?? UNDELIVERED
 
   const rows = advisor === null ? [] : advisor.messages.map(message => drawMessage({
     key: `${message.at}:${message.from}`,
@@ -4948,11 +6635,12 @@ function drawTalk(state) {
     time: message.at === null ? '' : clock(message.at),
     who: message.who,
     text: message.text,
+    picture: message.picture ?? null,
     note: message.via === 'board' ? 'typed on the board' : null,
   }))
   for (const typed of advisor?.pending ?? []) {
     const note = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle', copied: 'copied for you to paste into its chat' }[typed.state] ?? 'waits for its chat to take it'
-    rows.push(drawMessage({ key: `out:${typed.id}`, kind: 'is-you is-pending', time: clock(typed.at), who: 'You', text: typed.text, note }))
+    rows.push(drawMessage({ key: `out:${typed.id}`, kind: 'is-you is-pending', time: clock(typed.at), who: 'You', text: typed.text, picture: typed.picture ?? null, note }))
   }
   if (advisor !== null && advisor.state === 'working') {
     const status = el('div', 'message is-status')
@@ -4967,7 +6655,7 @@ function drawTalk(state) {
 
 $('messages').addEventListener('click', event => {
   const bubble = event.target.closest('.bubble[data-key]')
-  if (bubble === null || window.getSelection().toString() !== '') return
+  if (bubble === null || window.getSelection().toString() !== '' || event.target.closest('[data-zoom]') !== null) return
   if (bubble.classList.toggle('is-open')) openBubbles.add(bubble.dataset.key)
   else openBubbles.delete(bubble.dataset.key)
 })
@@ -5106,8 +6794,8 @@ function drawMainTalk(state) {
   $('main-send').disabled = talk === null || sending.has('main-talk')
   $('main-text').maxLength = state.maxMessageChars
   const note = $('main-note')
-  note.classList.toggle('is-error', problems.has('main-talk') || talkPasteProblem !== null)
-  note.textContent = problems.get('main-talk') ?? talkPasteProblem ?? 'What you send is typed into the main chat\'s chat as your own words, once it is idle.'
+  note.classList.toggle('is-error', problems.has('main-talk') || pictureSlots.main.problem !== null)
+  note.textContent = problems.get('main-talk') ?? pictureSlots.main.problem ?? 'What you send is typed into the main chat\'s chat as your own words, once it is idle.'
 
   const box = $('main-messages')
   const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60
@@ -5156,17 +6844,22 @@ try {
 
 // B167: the picture pasted for the next message, shown small above the words until it is sent or taken away. The
 // board keeps it only once it is sent; what it answered is remembered, so a second try does not keep it twice.
-let talkPicture = null
-let talkPasteProblem = null
+// B282: one slot per typing box, Talk to Main's and the Advisor's, served by the same code: where it shows (`box`),
+// the words it goes with (`text`), the key of a failed send (`key`), the picture, why a paste was not taken, and how
+// the box's talk is drawn again.
+const pictureSlots = {
+  main: { box: 'main-picture', text: 'main-text', key: 'main-talk', picture: null, problem: null, redraw: () => board !== null && drawMainTalk(board) },
+  advisor: { box: 'say-picture', text: 'say-text', key: 'talk', picture: null, problem: null, redraw: () => board !== null && drawTalk(board) },
+}
 
-function setTalkPicture(file) {
-  if (talkPicture !== null) URL.revokeObjectURL(talkPicture.url)
-  talkPicture = file === null ? null : { file, url: URL.createObjectURL(file), path: null }
-  const box = $('main-picture')
-  box.hidden = talkPicture === null
-  if (talkPicture === null) return box.replaceChildren()
+function setSlotPicture(slot, file) {
+  if (slot.picture !== null) URL.revokeObjectURL(slot.picture.url)
+  slot.picture = file === null ? null : { file, url: URL.createObjectURL(file), path: null }
+  const box = $(slot.box)
+  box.hidden = slot.picture === null
+  if (slot.picture === null) return box.replaceChildren()
   const image = el('img')
-  image.src = talkPicture.url
+  image.src = slot.picture.url
   image.alt = 'The picture to send'
   const remove = el('button', 'main-picture-remove', '×')
   remove.type = 'button'
@@ -5177,62 +6870,85 @@ function setTalkPicture(file) {
   box.replaceChildren(frame)
 }
 
-/** The board keeps the picture and answers its path; null, with the reason shown, when it did not. */
-async function keepTalkPicture() {
-  if (talkPicture.path !== null) return talkPicture.path
+/**
+ * The board keeps a picture to send and answers `{ path }` in the project, or `{ problem }` with the reason. B258: the
+ * typing boxes' slots and the ask on the goal map keep their pictures this one way.
+ */
+async function keepTalkFile(file) {
   try {
-    const got = await fetch('/api/talk/picture', { method: 'POST', headers: { 'Content-Type': talkPicture.file.type, 'X-Board-Token': TOKEN }, body: talkPicture.file })
-    if (got.ok) return (talkPicture.path = (await got.json()).path)
-    problems.set('main-talk', `Not sent: the picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}`)
+    const got = await fetch('/api/talk/picture', { method: 'POST', headers: { 'Content-Type': file.type, 'X-Board-Token': TOKEN }, body: file })
+    if (got.ok) return { path: (await got.json()).path }
+    return { problem: `the picture was not taken: ${(await got.text()).trim() || `refused (${got.status})`}` }
   } catch {
-    problems.set('main-talk', 'Not sent: the board\'s server does not answer')
+    return { problem: 'the board\'s server does not answer' }
   }
+}
+
+/** Why a picture cannot go with the words: too large; null when it can (the types are pastedTalk's). */
+const talkPictureProblem = file => (file.size > TALK_BYTES ? `That picture is too large: ${TALK_BYTES / (1024 * 1024)} MB at most.` : null)
+
+/** The board keeps the picture and answers its path; null, with the reason shown, when it did not. */
+async function keepSlotPicture(slot) {
+  if (slot.picture.path !== null) return slot.picture.path
+  const kept = await keepTalkFile(slot.picture.file)
+  if (kept.path !== undefined) return (slot.picture.path = kept.path)
+  problems.set(slot.key, `Not sent: ${kept.problem}`)
   return null
 }
 
-$('main-say').addEventListener('submit', async event => {
-  event.preventDefault()
-  const text = $('main-text').value.trim()
-  if ((text === '' && talkPicture === null) || (board?.mainTalk ?? null) === null || sending.has('main-talk')) return
-  $('main-send').disabled = true
-  talkPasteProblem = null
-  problems.delete('main-talk')
-  sending.add('main-talk')
-  const picture = talkPicture === null ? null : await keepTalkPicture()
-  sending.delete('main-talk')
-  if (talkPicture === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk')
-  if (!problems.has('main-talk')) {
-    $('main-text').value = ''
-    setTalkPicture(null)
-  }
-  if (board !== null) drawMainTalk(board)
-})
-
-// Ctrl+V in the talk: a picture on the clipboard is shown small, to send with the words; anything else that is no
-// picture gets a short line. Words are pasted as words.
-$('main-say').addEventListener('paste', event => {
+/**
+ * Ctrl+V in a typing box: a picture on the clipboard is shown small, to send with the words; anything else that is no
+ * picture gets a short line. Words are pasted as words.
+ */
+function pasteInto(slot, event) {
   const pasted = pastedTalk(event.clipboardData?.items)
   if (pasted.ignore === true) return
   event.preventDefault()
   const file = pasted.take?.getAsFile() ?? null
-  talkPasteProblem = file === null ? pasted.problem ?? 'The clipboard holds no picture.'
-    : file.size > TALK_BYTES ? `That picture is too large: ${TALK_BYTES / (1024 * 1024)} MB at most.` : null
-  if (talkPasteProblem === null) {
-    problems.delete('main-talk')
-    setTalkPicture(file)
+  slot.problem = file === null ? pasted.problem ?? 'The clipboard holds no picture.' : talkPictureProblem(file)
+  if (slot.problem === null) {
+    problems.delete(slot.key)
+    setSlotPicture(slot, file)
   }
-  if (board !== null) drawMainTalk(board)
-})
+  slot.redraw()
+}
 
-$('main-picture').addEventListener('click', event => {
-  if (event.target.closest('.main-picture-remove') === null) return
-  setTalkPicture(null)
-  $('main-text').focus()
-})
+/** A typing box takes a pasted picture, lets it be taken away again, and forgets why a paste failed once typed in. */
+function wirePictureSlot(slot, form) {
+  $(form).addEventListener('paste', event => pasteInto(slot, event))
+  $(slot.box).addEventListener('click', event => {
+    if (event.target.closest('.main-picture-remove') === null) return
+    setSlotPicture(slot, null)
+    $(slot.text).focus()
+  })
+  $(slot.text).addEventListener('input', () => {
+    if (slot.problem === null) return
+    slot.problem = null
+    slot.redraw()
+  })
+}
+wirePictureSlot(pictureSlots.main, 'main-say')
+wirePictureSlot(pictureSlots.advisor, 'say')
 
-$('main-text').addEventListener('input', () => {
-  if (talkPasteProblem === null) return
-  talkPasteProblem = null
+$('main-say').addEventListener('submit', async event => {
+  event.preventDefault()
+  const slot = pictureSlots.main
+  const text = $('main-text').value.trim()
+  if ((text === '' && slot.picture === null) || (board?.mainTalk ?? null) === null || sending.has('main-talk')) return
+  $('main-send').disabled = true
+  slot.problem = null
+  problems.delete('main-talk')
+  sending.add('main-talk')
+  const pending = slot.picture
+  const picture = pending === null ? null : await keepSlotPicture(slot)
+  sending.delete('main-talk')
+  // Taken away or pasted anew while it was kept: nothing is sent, and the new one stays.
+  if (slot.picture !== pending) return drawMainTalk(board)
+  if (pending === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk')
+  if (!problems.has('main-talk')) {
+    $('main-text').value = ''
+    setSlotPicture(slot, null)
+  }
   if (board !== null) drawMainTalk(board)
 })
 
@@ -5319,7 +7035,7 @@ resizable($('talk-resizer'), $('view-advice'), 'chat-width', 500)
 // B155: the steps finished last, newest first, at the top of the Backlog tab. The person, 2026-10-14: "i want a
 // chronological list of backlog items that were recently finish desc, so latest items first."
 
-const FINISHED_HOW = { line: 'its line in the backlog', report: 'its report to the main chat', seen: 'the board saw it ticked', day: 'only the day is known' }
+const FINISHED_HOW = { line: 'its line in the backlog', store: 'its move to done in the work store', seen: 'the board saw it ticked', day: 'only the day is known' }
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /**
@@ -5468,6 +7184,59 @@ function coordinateList(activities, { filter = 'all', find = '', showDone = fals
     .map(one => one.step)
   return { groups: steps.length === 0 ? [] : [{ name: null, isFocus: false, isOne: true, steps }], counts, shown, hidden }
 }
+
+/**
+ * B302: the tab's list (`coordinateList`, by activity) regrouped under the goals of the goal map (`goals`: the state's
+ * `roots` and `nodes`), nested as there (the person's choice A, 2026-10-18), as rows in the order they are drawn:
+ * `{ kind: 'goal', id, title, depth, isMilestone, open, done, under }` and `{ kind: 'step', step, depth, under }`
+ * (`under`: the goals it stands in, outermost first; `open` and `done`: the steps shown under it, as they stand). A goal's own steps come before its goals. A step stands under
+ * the first goal of the map that names it; the steps under none, and those without an id, end the list under "Not
+ * under a goal" (`id` 'none', `isNone`). A goal with nothing shown under it is left out. Null without a goal map: the
+ * tab then groups by activity as before.
+ */
+function goalRows(list, goals) {
+  // How many of the steps shown under a goal are open, and how many finished (shown with "Show finished").
+  const counted = steps => ({ open: steps.filter(step => step.status !== 'done').length, done: steps.filter(step => step.status === 'done').length })
+  if (goals === null || goals === undefined || (goals.roots ?? []).length === 0) return null
+  // An id twice in the map: the first one counts, as everywhere on the board (goals.mjs).
+  const byId = new Map()
+  for (const node of goals.nodes ?? []) if (!byId.has(node.id)) byId.set(node.id, node)
+  const steps = list.groups.flatMap(group => group.steps.map(step => ({ ...step, activity: step.activity ?? group.name })))
+  const placed = new Set()
+  const seen = new Set()
+  const walk = (id, depth, under) => {
+    const node = byId.get(id)
+    if (node === undefined || seen.has(id)) return []
+    seen.add(id)
+    const inside = [...under, id]
+    const own = steps.filter(step => typeof step.id === 'string' && node.steps.includes(step.id) && !placed.has(step.id))
+    for (const step of own) placed.add(step.id)
+    const inner = node.children.flatMap(child => walk(child, depth + 1, inside))
+    if (own.length === 0 && inner.length === 0) return []
+    const below = [...own, ...inner.filter(row => row.kind === 'step').map(row => row.step)]
+    // A milestone: a goal taken from a part of the game plan other than its goal, as on the goal map.
+    const plan = String(node.fromPlan ?? '').trim()
+    const isMilestone = plan !== '' && !/^the goal$/i.test(plan)
+    return [
+      { kind: 'goal', id, title: node.title, depth, isMilestone, ...counted(below), under },
+      ...own.map(step => ({ kind: 'step', step, depth: depth + 1, under: inside })),
+      ...inner,
+    ]
+  }
+  const rows = goals.roots.flatMap(id => walk(id, 0, []))
+  const rest = steps.filter(step => typeof step.id !== 'string' || !placed.has(step.id))
+  if (rest.length > 0) {
+    rows.push({ kind: 'goal', id: 'none', title: 'Not under a goal', depth: 0, isMilestone: false, isNone: true, ...counted(rest), under: [] })
+    rows.push(...rest.map(step => ({ kind: 'step', step, depth: 1, under: ['none'] })))
+  }
+  return rows
+}
+
+/** B302: whether a goal's header stands open: as the person left it (`folds`), else open for a root and a milestone. */
+function isGoalOpen(row, folds) {
+  if (typeof folds[row.id] === 'boolean') return folds[row.id]
+  return row.depth === 0 || row.isMilestone === true || row.isNone === true
+}
 // coordinate:end
 
 const STEP_STATES = { progress: 'In progress', queued: 'Queued', you: 'Needs your attention', open: 'Open', done: 'Finished' }
@@ -5484,6 +7253,12 @@ function queuePart(step, state, isLong) {
   const mainTitle = state.workers.mainTitle ?? main
   const key = `queue:${step.id}`
   const ask = step.queueAsk ?? null
+  // B285: a step goes into a queue only once refined; until then the ask waits on the board.
+  if (ask?.isOpen === true && ask.state === 'held') {
+    const part = el('span', 'step-queue is-asked', isLong ? `Asked at ${clock(ask.at)}: the Advisor refines it first, then it goes to ${mainTitle} by itself.` : `Refine, then queue`)
+    part.title = `Asked at ${clock(ask.at)}: refined first, then handed to ${mainTitle}`
+    return part
+  }
   if (ask?.isOpen === true) {
     const where = ask.state === 'delivered' ? `in ${mainTitle}'s chat` : `on its way to ${mainTitle}`
     const part = el('span', 'step-queue is-asked', isLong ? `Asked at ${clock(ask.at)}, ${where}: it shows as queued once its note names a worker.` : `Asked ${clock(ask.at)}`)
@@ -5495,12 +7270,14 @@ function queuePart(step, state, isLong) {
   button.type = 'button'
   button.dataset.queueStep = step.id
   button.disabled = sending.has(key)
-  button.title = problems.get(key) ?? `Ask ${mainTitle} to hand it to a worker`
+  // B285: a step that is not refined is refined by the Advisor first (`refineState`, backlog.mjs refineStateOf).
+  const isRefined = step.refineState === 'ready'
+  button.title = problems.get(key) ?? (isRefined ? `Ask ${mainTitle} to hand it to a worker` : `The Advisor refines it first, then ${mainTitle} hands it to a worker`)
   // Every row has one: the step it is for is in its name.
   button.setAttribute('aria-label', `${button.textContent}: ${step.id} ${step.title}`)
   if (!isLong) return button
   const line = el('div', 'step-queue-line')
-  line.append(button, el('span', 'muted', `${mainTitle} picks the worker, or what it waits for.`))
+  line.append(button, el('span', 'muted', isRefined ? `${mainTitle} picks the worker, or what it waits for.` : `Not refined yet: the Advisor refines it first, then ${mainTitle} picks the worker.`))
   if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
   return line
 }
@@ -5586,37 +7363,143 @@ function refineView(step, advisor) {
   const refined = step.refined ?? null
   const ask = step.refineAsk?.isOpen === true ? step.refineAsk : null
   const meta = refined === null ? '' : [`round ${refined.round}`, refined.by === null ? null : `by ${refined.by}`, refined.at].filter(Boolean).join(' · ')
+  const open = refined === null ? [] : refined.questions.filter(one => one.answer === null)
+  const isReady = refined?.ready === true
   return {
     refined,
     meta,
     isAccepted: refined?.accepted != null,
-    open: refined === null ? 0 : refined.questions.filter(one => one.answer === null).length,
+    open: open.length,
+    // B293: the newer form (a summary, its goal or its size, or ready) is drawn as in the picture; the older one as before.
+    isNewForm: refined !== null && (isReady || refined.summary !== '' || refined.partOf !== '' || refined.size !== ''),
+    isReady,
     // While the Advisor works on it, nothing more is sent.
     working: ask === null ? null : { at: ask.at, round: ask.round, isDelivered: ask.state === 'delivered' },
     canAsk: advisor !== null && ask === null,
+    // B293: "Take the advice", in place of "Accept as refined": while a question with advice is open.
+    canTakeAdvice: advisor !== null && ask === null && !isReady && open.some(one => one.advice !== null),
     why: advisor === null ? 'The board has no Advisor to refine it.' : null,
   }
 }
+
+/**
+ * B293: the answers "Take the advice" writes: for every open question the person's pick when they made one, else
+ * the Advisor's advice; for an answered one only a new pick. `picks` are by the question's place (from 0);
+ * `missing` are the numbers (from 1) of open questions with neither, which the person answers first.
+ */
+function adviceAnswers(refined, picks) {
+  const answers = []
+  const missing = []
+  refined.questions.forEach((one, index) => {
+    const pick = String(picks[index] ?? '').trim()
+    if (pick !== '') answers.push({ index, answer: pick })
+    else if (one.answer !== null) { /* answered already, and left as it is */ } else if (one.advice !== null) answers.push({ index, answer: one.advice })
+    else missing.push(index + 1)
+  })
+  return { answers, missing }
+}
 // refine:end
 
-/** B233: the Refine part of a step's window, left under its description; null when the step cannot be refined. */
-function refinePart(step, state) {
+/** B293: an element holding the given nodes. */
+function holding(tag, className, ...children) {
+  const node = el(tag, className)
+  node.append(...children)
+  return node
+}
+
+/**
+ * B233: the Refine part of a step's window, left under its description; null when the step cannot be refined.
+ * B293: in the newer form, while refining, a box as in the picture the person approved (of the two stages):
+ * the summary, the picture, and one line per question with the advice and Yes / No; once ready, the step's
+ * description itself (`is-ready`): the summary, the picture and what we build, with no box, no rounds and no questions.
+ */
+function refinePart(step, state, isItemShown = false) {
   const advisor = state.advisor?.name ?? null
   const view = refineView(step, advisor)
+  const working = view?.working == null ? null
+    : el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'}. It shows here once written.`)
+  // A ready description stays, also once the step is finished; so does a finished step's summary, without its questions.
+  const isDescribed = step.refined?.ready === true || (step.status === 'done' && hasNewForm(step.refined))
+  // With the store's item shown, the description stands above already: only "refining again" is said here.
+  if (isDescribed && isItemShown) return working === null ? null : holding('section', 'details-part refine', working)
+  if (isDescribed) {
+    const box = el('section', 'details-part refined is-ready')
+    box.append(...refinedParts(step.refined))
+    // "Refine again" asked: said here too, not only on the button.
+    if (working !== null) box.append(working)
+    return box
+  }
   if (view === null) return null
   const box = el('section', 'details-part refine')
   const heading = el('h3', '', 'Refined')
   if (view.refined === null) {
     box.append(heading)
     heading.textContent = 'Refine'
-    box.append(el('p', 'muted', `Not refined yet. ${advisor ?? 'The Advisor'} says the problem this step solves, or its goal, and asks what it needs to know before it is picked up. Your answers and feedback are kept under the step.`))
+    box.append(el('p', 'muted', `Not refined yet. ${advisor ?? 'The Advisor'} sums up what you get, with a picture, its goal and its size, and asks what it needs to know before it is picked up. Your answers are folded into one description under the step.`))
   } else {
-    heading.append(el('small', '', `${view.meta}${view.isAccepted ? ' · accepted' : ''}`))
-    box.append(heading)
     const { refined } = view
-    if (refined.problem !== '') box.append(el('span', 'refine-tag', 'Problem'), el('p', '', refined.problem))
-    if (refined.goal !== '') box.append(el('span', 'refine-tag', 'Goal'), el('p', '', refined.goal))
-    refined.questions.forEach((one, index) => {
+    // The older form keeps its heading with the round; the newer one shows no rounds.
+    if (!view.isNewForm) {
+      heading.append(el('small', '', `${view.meta}${view.isAccepted ? ' · accepted' : ''}`))
+      box.append(heading)
+    }
+    // With the store's item shown, its Summary and picture stand above: not twice.
+    box.append(...refinedParts(isItemShown ? { ...refined, summary: '', picture: null, pictureNote: '', build: [] } : refined))
+    if (refined.questions.length > 0) box.append(refineQuestions(step, refined, view))
+    if (refined.feedback.length > 0) {
+      box.append(el('span', 'refine-tag', 'Your feedback so far'), listOf(refined.feedback))
+    }
+    const feedback = el('textarea', 'refine-field')
+    feedback.rows = view.isNewForm ? 1 : 2
+    feedback.dataset.refineField = `${step.id}:feedback`
+    feedback.placeholder = 'Feedback: anything the Advisor got wrong or missed…'
+    feedback.value = drafts.get(`refine:${step.id}:feedback`) ?? ''
+    feedback.setAttribute('aria-label', 'Feedback to the Advisor')
+    if (!view.isNewForm) box.append(el('span', 'refine-tag', 'Feedback'))
+    box.append(feedback)
+  }
+  if (working !== null) box.append(working)
+  return box
+}
+
+/**
+ * B293: the refine of a step in a worker's queue, to read: its description once ready, else what it says so far and
+ * how many questions wait (answered in the step's window on the Backlog tab). Null when it says nothing.
+ */
+function refineToRead(refined) {
+  const box = el('section', `details-part ${refined.ready ? 'refined is-ready' : 'refine'}`)
+  box.append(...refinedParts(refined))
+  const open = refined.ready ? 0 : refined.questions.filter(one => one.answer === null).length
+  if (open > 0) box.append(el('p', 'muted', `${open} question${open === 1 ? '' : 's'} wait for your answer in the step's window on the Backlog tab.`))
+  return box.children.length === 0 ? null : box
+}
+
+/** B293: the parts of a refine block that describe the step: summary, picture, problem and goal (the older form), what we build. */
+function refinedParts(refined) {
+  const parts = []
+  if (refined.summary !== '') parts.push(holding('div', 'refined-summary', el('span', 'refine-tag', 'Summary'), el('p', '', refined.summary)))
+  if (refined.picture !== null) parts.push(pictureRow(refined.picture.path, refined.picture.caption))
+  else if (refined.pictureNote !== '') {
+    parts.push(holding('div', 'refined-nopicture', el('span', 'refine-tag', 'Picture'), el('p', 'muted', `None: ${refined.pictureNote}`)))
+  }
+  if (refined.problem !== '') parts.push(el('span', 'refine-tag', 'Problem'), el('p', '', refined.problem))
+  if (refined.goal !== '') parts.push(el('span', 'refine-tag', 'Goal'), el('p', '', refined.goal))
+  if (refined.build.length > 0) {
+    parts.push(holding('div', '', el('span', 'refine-tag', 'What we build'), buildList(refined.build)))
+  }
+  return parts
+}
+
+/**
+ * B293: the questions, one line each: its number, the question, the advice (its reason on hover) and Yes / No, the
+ * person's pick or answer pressed. A question without advice (the older form) keeps a field for the person's words.
+ */
+function refineQuestions(step, refined, view) {
+  const box = el('div', 'refine-questions')
+  box.append(el('span', 'refine-tag', `Questions · ${refined.questions.length}`))
+  refined.questions.forEach((one, index) => {
+    const key = `refine:${step.id}:${index}`
+    if (one.advice === null) {
       const part = el('div', 'refine-question')
       part.append(el('span', 'refine-tag', `Question ${index + 1}`), el('p', '', one.text))
       if (one.answer !== null) part.append(el('p', 'refine-answer', `Your answer: ${one.answer}`))
@@ -5624,57 +7507,74 @@ function refinePart(step, state) {
       field.rows = 1
       field.dataset.refineField = `${step.id}:${index}`
       field.placeholder = one.answer === null ? 'Your answer…' : 'Change your answer…'
-      field.value = drafts.get(`refine:${step.id}:${index}`) ?? ''
+      field.value = drafts.get(key) ?? ''
       field.setAttribute('aria-label', `Answer to question ${index + 1}`)
       part.append(field)
       box.append(part)
-    })
-    if (refined.feedback.length > 0) {
-      box.append(el('span', 'refine-tag', 'Your feedback so far'), listOf(refined.feedback))
+      return
     }
-    const feedback = el('textarea', 'refine-field')
-    feedback.rows = 2
-    feedback.dataset.refineField = `${step.id}:feedback`
-    feedback.placeholder = 'Feedback: anything the Advisor got wrong or missed…'
-    feedback.value = drafts.get(`refine:${step.id}:feedback`) ?? ''
-    feedback.setAttribute('aria-label', 'Feedback to the Advisor')
-    box.append(el('span', 'refine-tag', 'Feedback'), feedback)
-  }
-  if (view.working !== null) {
-    box.append(el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'} (round ${view.working.round}). It shows here once written.`))
-  }
+    const line = el('div', `refine-q${one.answer === null ? '' : ' is-answered'}`)
+    const advice = el('span', 'refine-advice', `advised: ${one.advice}`)
+    if (one.why !== '') advice.title = one.why
+    const pick = String(drafts.get(key) ?? one.answer ?? '').trim().toLowerCase()
+    const choices = el('span', 'refine-picks')
+    // What is written already: a pick taken back shows it again.
+    choices.dataset.answer = String(one.answer ?? '').trim().toLowerCase()
+    for (const value of ['yes', 'no']) {
+      const button = el('button', 'refine-pick', value === 'yes' ? 'Yes' : 'No')
+      button.type = 'button'
+      button.dataset.refinePick = `${step.id}:${index}`
+      button.dataset.value = value
+      button.setAttribute('aria-pressed', String(pick === value))
+      button.setAttribute('aria-label', `${value === 'yes' ? 'Yes' : 'No'} to question ${index + 1}`)
+      button.disabled = view.working !== null
+      choices.append(button)
+    }
+    line.append(el('span', 'refine-n', String(index + 1)), el('span', 'refine-text', one.text), advice, choices)
+    // An answer in words of its own, not a yes or a no, shows under its question.
+    if (one.answer !== null && !/^(yes|no)$/i.test(one.answer)) line.append(el('p', 'refine-answer', `Your answer: ${one.answer}`))
+    box.append(line)
+  })
   return box
 }
 
-/** B233: the buttons of the Refine part, in the window's foot: refine (again, with the answers), and accept. */
+/**
+ * B233: the buttons of the Refine part, in the window's foot. B293: "Send answers" and "Take the advice" while it is
+ * refined (in place of "Send answers · refine again" and "Accept as refined"), "Refine again" once it is ready.
+ */
 function refineButtons(step, state) {
   const view = refineView(step, state.advisor?.name ?? null)
   if (view === null) return null
   const key = `refine:${step.id}`
   const line = el('div', 'refine-line')
-  const ask = el('button', `refine-button${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Sending…' : view.refined === null ? 'Refine' : 'Send answers · refine again')
+  const words = view.refined === null ? 'Refine' : view.isReady ? 'Refine again' : 'Send answers'
+  const ask = el('button', `refine-button${view.isReady ? ' is-quiet' : ''}${problems.has(key) ? ' is-error' : ''}`, sending.has(key) ? 'Sending…' : words)
   ask.type = 'button'
   ask.dataset.refineStep = step.id
   ask.dataset.refineAction = 'ask'
   ask.disabled = sending.has(key) || !view.canAsk
-  ask.title = view.why ?? (view.working !== null ? 'The Advisor is on it' : 'Your answers and feedback are written under the step, then the Advisor refines it again')
+  ask.title = view.why ?? (view.working !== null ? 'The Advisor is on it'
+    : view.refined === null ? 'The Advisor sums it up and asks what it needs to know'
+      : view.isReady ? 'The Advisor checks it again against the backlog and the goals'
+        : 'Your answers and feedback are written under the step, then the Advisor folds them into the description')
   line.append(ask)
-  if (view.refined !== null && !view.isAccepted) {
-    const accept = el('button', 'refine-accept', 'Accept as refined')
-    accept.type = 'button'
-    accept.dataset.refineStep = step.id
-    accept.dataset.refineAction = 'accept'
-    accept.disabled = sending.has(key) || view.working !== null
-    accept.title = view.open > 0 ? `${view.open} question${view.open === 1 ? ' is' : 's are'} still open` : 'Mark it as refined: ready to be picked up'
-    line.append(accept)
+  if (view.refined !== null && !view.isReady && view.refined.questions.some(one => one.advice !== null)) {
+    const advice = el('button', 'refine-advice-all', 'Take the advice')
+    advice.type = 'button'
+    advice.dataset.refineStep = step.id
+    advice.dataset.refineAction = 'advice'
+    advice.disabled = sending.has(key) || !view.canTakeAdvice
+    advice.title = view.canTakeAdvice ? 'The advice becomes your answer for every open question you did not answer yourself' : view.why ?? 'No question is open'
+    line.append(advice)
   }
   if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
   return line
 }
 
 /**
- * B233: the click on "Refine" (or "Send answers · refine again"): the answers and feedback typed are written under
- * the step first, then the Advisor is asked; "Accept as refined" only marks the block.
+ * B233: the click on "Refine", "Send answers" or "Refine again": the answers and feedback given are written under
+ * the step first, then the Advisor is asked. B293: "Take the advice" writes the advice as the answer to every open
+ * question the person did not answer, then asks the same way.
  */
 async function refineClick(button) {
   const step = (board?.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === button.dataset.refineStep)
@@ -5682,31 +7582,50 @@ async function refineClick(button) {
   if (step === undefined) return
   const key = `refine:${step.id}`
   const fields = [...drafts.keys()].filter(name => name.startsWith(`${key}:`))
-  const answers = fields.filter(name => /:\d+$/.test(name)).map(name => ({ index: Number(name.split(':').pop()), answer: drafts.get(name) })).filter(one => one.answer.trim() !== '')
+  const picks = Object.fromEntries(fields.filter(name => /:\d+$/.test(name)).map(name => [Number(name.split(':').pop()), drafts.get(name)]))
   const feedback = drafts.get(`${key}:feedback`) ?? ''
-  sending.add(key)
+  let answers = Object.entries(picks).map(([index, answer]) => ({ index: Number(index), answer })).filter(one => one.answer.trim() !== '')
   problems.delete(key)
+  if (button.dataset.refineAction === 'advice') {
+    const taken = adviceAnswers(step.refined, picks)
+    if (taken.missing.length > 0) {
+      problems.set(key, taken.missing.length === 1 ? `Question ${taken.missing[0]} has no advice: answer it first.` : `Questions ${taken.missing.join(' and ')} have no advice: answer them first.`)
+      return redrawNeeds()
+    }
+    answers = taken.answers
+  }
+  sending.add(key)
   redrawNeeds()
   let problem = null
-  if (button.dataset.refineAction === 'accept') {
-    problem = await sendBacklog({ action: 'refine-accept', step: step.id })
-  } else {
-    if (answers.length > 0 || feedback.trim() !== '') problem = await sendBacklog({ action: 'refine-answer', step: step.id, answers, feedback })
-    if (problem === null) {
-      for (const name of fields) drafts.delete(name)
-      sending.delete(key)
-      return send({ to: advisor, command: 'refine', step: step.id }, key)
-    }
+  if (answers.length > 0 || feedback.trim() !== '') problem = await sendBacklog({ action: 'refine-answer', step: step.id, answers, feedback })
+  if (problem === null) {
+    for (const name of fields) drafts.delete(name)
+    sending.delete(key)
+    return send({ to: advisor, command: 'refine', step: step.id }, key)
   }
   sending.delete(key)
-  if (problem !== null) problems.set(key, `Not done: ${problem}`)
+  problems.set(key, `Not done: ${problem}`)
   await read()
 }
 
 $('details').addEventListener('click', event => {
+  // B293: Yes or No to a question: kept as the person's pick until they send it; a second click takes it back to
+  // what is written already, if anything (a written answer is changed, never taken away).
+  const pick = event.target.closest('[data-refine-pick]')
+  if (pick !== null && !pick.disabled) {
+    const key = `refine:${pick.dataset.refinePick}`
+    const written = pick.parentElement.dataset.answer ?? ''
+    const isPressed = pick.getAttribute('aria-pressed') === 'true'
+    const shown = isPressed ? written : pick.dataset.value
+    if (shown === written) drafts.delete(key)
+    else drafts.set(key, shown)
+    for (const one of pick.parentElement.querySelectorAll('[data-refine-pick]')) one.setAttribute('aria-pressed', String(one.dataset.value === shown))
+    return
+  }
   const button = event.target.closest('[data-refine-step]')
   if (button !== null && !button.disabled) refineClick(button)
 })
+
 $('details').addEventListener('input', event => {
   const name = event.target.dataset?.refineField
   if (name !== undefined) drafts.set(`refine:${name}`, event.target.value)
@@ -5722,6 +7641,15 @@ function askQueue(button) {
 
 function drawCoordinate(state) {
   const activities = state.backlog ?? []
+  // B296: one line about the work store; its problems on hover.
+  const store = storeLine(state.store ?? null)
+  const storeBox = $('coordinate-store')
+  storeBox.hidden = store === null
+  if (store !== null) {
+    storeBox.className = `coordinate-store is-${store.tone}`
+    storeBox.textContent = store.text
+    storeBox.title = store.problems.join('\n')
+  }
   const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked, hideBusy: $('coordinate-busy').checked })
   // B250: how many steps the box hides, so none seems lost.
   $('coordinate-busy-count').textContent = $('coordinate-busy').checked ? `(${list.hidden} hidden)` : ''
@@ -5733,44 +7661,116 @@ function drawCoordinate(state) {
     button.append(el('small', '', String(list.counts[name])))
     return button
   }))
-  const groups = list.groups.map(group => {
+  // B302: with "One list" off, the steps stand under the goals of the goal map; by activity only without one.
+  const rows = $('coordinate-one').checked ? null : goalRows(list, state.goals ?? null)
+  const groups = rows !== null ? drawGoalRows(rows, state) : list.groups.map(group => {
     const box = el('section', `coordinate-group${group.isFocus ? ' is-focus' : ''}${group.isOne ? ' is-one' : ''}`)
     const heading = el('h2', '', group.isOne ? 'Every step, newest first' : group.name)
     if (group.isFocus) heading.append(el('span', 'chip is-focus', 'Focus'))
     heading.append(el('small', '', String(group.steps.length)))
     box.append(heading)
-    for (const step of group.steps) {
-      const row = el('button', `step-row is-${step.status}`)
-      row.type = 'button'
-      row.dataset.openStep = step.key
-      row.title = [step.title, step.activity ?? null, 'Show the details'].filter(Boolean).join('\n')
-      row.append(
-        el('span', 'step-id', step.id ?? ''),
-        el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),
-        el('span', 'step-title', step.title),
-        el('span', 'step-worker', step.worker ?? (step.status === 'you' ? 'You' : '')),
-        el('span', 'step-branch', step.branch ?? ''),
-        el('span', `step-state is-${step.status}`, STEP_STATES[step.status] ?? step.status),
-        // Room for what B83 will put here (stop a task, move a queued step, take one out of a queue). B181's "Add to
-        // queue" stands over it, beside the row's own button: a button holds no other.
-        el('span', 'step-actions'),
-      )
-      const line = el('div', 'step-line')
-      line.append(row)
-      const queue = queuePart(step, state, false)
-      if (queue !== null) line.append(queue)
-      // B221: Close and Delete, shown on the row the pointer or the keyboard is on.
-      const edit = editPart(step, false)
-      if (edit !== null) {
-        line.append(edit)
-        if (queue !== null) line.classList.add('has-queue')
-      }
-      box.append(line)
-    }
+    for (const step of group.steps) box.append(coordinateLine(step, state))
     return box
   })
+  // B302: a goal's header the keyboard was on keeps the focus when the list is drawn anew.
+  const focusedGoal = $('coordinate-list').contains(document.activeElement) ? document.activeElement.dataset?.goalFold ?? null : null
   fill($('coordinate-list'), groups.length > 0 ? groups : [el('p', 'muted', activities.length === 0 ? 'The backlog could not be read.' : 'No step matches.')])
+  if (focusedGoal !== null) $('coordinate-list').querySelector(`[data-goal-fold="${focusedGoal}"]`)?.focus()
 }
+
+/** A step's line on the Backlog tab: its row, which opens its window, with "Add to queue", Close and Delete beside it. */
+function coordinateLine(step, state) {
+  const row = el('button', `step-row is-${step.status}`)
+  row.type = 'button'
+  row.dataset.openStep = step.key
+  row.title = [step.title, step.activity ?? null, 'Show the details'].filter(Boolean).join('\n')
+  row.append(
+    el('span', 'step-id', step.id ?? ''),
+    el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),
+    el('span', 'step-title', step.title),
+    el('span', 'step-worker', step.worker ?? (step.status === 'you' ? 'You' : '')),
+    el('span', 'step-branch', step.branch ?? ''),
+    el('span', `step-state is-${step.status}`, STEP_STATES[step.status] ?? step.status),
+    // Room for what B83 will put here (stop a task, move a queued step, take one out of a queue). B181's "Add to
+    // queue" stands over it, beside the row's own button: a button holds no other.
+    el('span', 'step-actions'),
+  )
+  const line = el('div', 'step-line')
+  line.append(row)
+  const queue = queuePart(step, state, false)
+  if (queue !== null) line.append(queue)
+  // B221: Close and Delete, shown on the row the pointer or the keyboard is on.
+  const edit = editPart(step, false)
+  if (edit !== null) {
+    line.append(edit)
+    if (queue !== null) line.classList.add('has-queue')
+  }
+  return line
+}
+
+/**
+ * B302: the goals the person folded or opened on the Backlog tab, kept in this browser: `{ G3: true, G2: false }`;
+ * without storage, for as long as the page is open.
+ */
+let goalFoldsHere = {}
+function goalFolds() {
+  try {
+    const kept = JSON.parse(localStorage.getItem('backlog-goal-folds') ?? 'null')
+    if (kept !== null && typeof kept === 'object') return kept
+  } catch {
+    // No storage, or what it held is not readable: the folds of this page.
+  }
+  return { ...goalFoldsHere }
+}
+
+/**
+ * B302: the rows of `goalRows` as the tab shows them: a header per goal, which folds, indented by its depth, with its
+ * G id, its title and how many of its steps are open; under it its steps. What stands in a folded goal is not drawn.
+ */
+function drawGoalRows(rows, state) {
+  const folds = goalFolds()
+  const goals = new Map(rows.filter(row => row.kind === 'goal').map(row => [row.id, row]))
+  const box = el('section', 'coordinate-group is-goals')
+  for (const row of rows) {
+    if (row.under.some(id => !isGoalOpen(goals.get(id), folds))) continue
+    if (row.kind === 'step') {
+      const line = coordinateLine(row.step, state)
+      line.classList.add('goal-steps')
+      line.style.setProperty('--depth', String(row.depth))
+      box.append(line)
+      continue
+    }
+    const isOpen = isGoalOpen(row, folds)
+    const head = el('button', `goal-head${row.depth === 0 ? ' is-root' : ''}${row.isMilestone ? ' is-milestone' : ''}${row.isNone ? ' is-none' : ''}`)
+    head.type = 'button'
+    head.dataset.goalFold = row.id
+    head.setAttribute('aria-expanded', String(isOpen))
+    head.style.setProperty('--depth', String(row.depth))
+    // What stands under it as shown: the filters and the search count, as the rows do.
+    const count = `${row.open} open${row.done > 0 ? ` · ${row.done} done` : ''}`
+    const sign = el('span', 'goal-fold', isOpen ? '▾' : '▸')
+    sign.setAttribute('aria-hidden', 'true')
+    head.append(sign, ...(row.isNone ? [] : [el('span', 'goal-id', row.id)]), el('span', 'goal-title', row.title), el('small', 'goal-count', count))
+    head.title = isOpen ? 'Fold this goal' : 'Unfold this goal'
+    box.append(head)
+  }
+  return [box]
+}
+
+// B302: a goal's header folds or unfolds it; this browser keeps it.
+$('coordinate-list').addEventListener('click', event => {
+  const head = event.target.closest('[data-goal-fold]')
+  if (head === null) return
+  const folds = goalFolds()
+  folds[head.dataset.goalFold] = head.getAttribute('aria-expanded') !== 'true'
+  goalFoldsHere = folds
+  try {
+    localStorage.setItem('backlog-goal-folds', JSON.stringify(folds))
+  } catch {
+    // Kept for this page only.
+  }
+  if (board !== null) drawCoordinate(board)
+})
 
 $('coordinate-filters').addEventListener('click', event => {
   const button = event.target.closest('[data-filter]')
@@ -6470,6 +8470,8 @@ function draw(state) {
   board = state
   drawTop(state)
   drawUpdate(state)
+  drawAppNote(state)
+  drawStoreNote(state)
   drawMainGame(state)
   drawLimits(state)
   drawRestart(state)
@@ -6479,7 +8481,8 @@ function draw(state) {
   once('needs', needsData(state), () => drawNeeds(state))
   // B181: also when an "Add to queue" is on its way or was refused, and when the main chat it asks comes or goes.
   const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:')), state.workers?.main ?? null]
-  once('coordinate', [state.backlog ?? null, queueing], () => drawCoordinate(state))
+  // B302: the goal map too, which groups the tab when "One list" is off.
+  once('coordinate', [state.backlog ?? null, queueing, state.goals ?? null], () => drawCoordinate(state))
   // B155: today's times name no day, so the list is drawn anew when the day changes too.
   once('finished', [state.finished ?? null, state.taskTimes?.byStep ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
   drawDetails(state)
@@ -6491,10 +8494,15 @@ function draw(state) {
   })
   once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))
   // B195: the way to the next milestone, also when an answer to its recommendation is on its way or refused.
-  once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null], () => drawWay(state))
+  once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null, state.advisor?.roundRuns ?? null, sending.has('recheck'), problems.get('recheck') ?? null], () => drawWay(state))
   once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
+  // B286: the steps by where their refine stands, drawn anew only when the list changes.
+  const refining = refineGroups(state.backlog)
+  once('refine-list', refining, () => drawRefineList(refining))
   // B255: the goal map's outline, when the map or the zoom changes.
   once('goals', goalsData(state), () => drawGoals(state))
+  // B259: the brainstorms, when one changes or what the person does on the part.
+  once('brainstorm', brainstormData(state), () => drawBrainstorm(state))
   // The line about a round left out goes after a day.
   once('advice-rounds', [state.rounds ?? null, Math.floor(state.readAt / 3_600_000)], () => { $('advice-rounds').textContent = roundsLine(state.rounds, state.readAt, clock) })
   const age = state.advice === null ? null : adviceAge(state.adviceAt ?? null, state.readAt)
@@ -6503,7 +8511,7 @@ function draw(state) {
     $('advice-age').className = `advice-age${age !== null && age.isOld ? ' is-old' : ''}`
     $('advice-age').textContent = age === null ? '' : age.text
   })
-  once('talk', [state.advisor, runningData(state), [...problems], [...sending]], () => drawTalk(state))
+  once('talk', [state.advisor, advisorRefine(state.backlog), runningData(state), [...problems], [...sending]], () => drawTalk(state))
   once('main-talk', [state.mainTalk ?? null, state.maxMessageChars, problems.get('main-talk') ?? null, sending.has('main-talk')], () => drawMainTalk(state))
   drawDesign()
 }
@@ -6583,6 +8591,34 @@ async function send(message, id) {
   }
   await read()
   if (id === null) $('messages').scrollTop = $('messages').scrollHeight
+}
+
+/**
+ * B299: one action of the person on the work store (POST /api/work: the token, the origin, JSON): an answer to an
+ * ask, a note read. Its problem shows where `key` says, as for `send`.
+ */
+async function sendWork(body, key) {
+  sending.add(key)
+  problems.delete(key)
+  redrawNeeds()
+  let problem = null
+  try {
+    const answer = await fetch('/api/work', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
+      body: JSON.stringify(body),
+    })
+    if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
+    else showPaste((await answer.json().catch(() => null))?.paste ?? null)
+  } catch {
+    problem = 'the board\'s server does not answer'
+  }
+  sending.delete(key)
+  if (problem === null) {
+    drafts.delete(key)
+    chosen.delete(key)
+  } else problems.set(key, `Not sent: ${problem}`)
+  await read()
 }
 
 // paste:start
@@ -6704,10 +8740,24 @@ async function game(id, action) {
   await read()
 }
 
-$('say').addEventListener('submit', event => {
+$('say').addEventListener('submit', async event => {
   event.preventDefault()
+  // B282: with the picture pasted for it, which the board keeps first, as in Talk to Main.
+  const slot = pictureSlots.advisor
   const text = $('say-text').value.trim()
-  if (text !== '' && board?.advisor) send({ to: board.advisor.name, text }, null)
+  if ((text === '' && slot.picture === null) || !board?.advisor || sending.has('talk')) return
+  slot.problem = null
+  problems.delete('talk')
+  sending.add('talk')
+  $('say-send').disabled = true
+  const pending = slot.picture
+  const picture = pending === null ? null : await keepSlotPicture(slot)
+  sending.delete('talk')
+  $('say-send').disabled = false
+  // Not kept, or taken away or pasted anew meanwhile: nothing is sent, and what is in the box stays.
+  if (slot.picture !== pending || (pending !== null && picture === null)) return slot.redraw()
+  await send({ to: board.advisor.name, text, ...(picture === null ? {} : { picture }) }, null)
+  if (!problems.has('talk') && slot.picture === pending) setSlotPicture(slot, null)
 })
 
 $('say-text').addEventListener('keydown', event => {

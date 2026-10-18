@@ -1,5 +1,6 @@
-// B110: the person's approval of a step whose work is merged ticks the step in the backlog, by the board itself;
-// no chat is woken. Made-up backlog samples only.
+// B110: the person's approval of a step whose work is merged ticks the step, by the board itself; no chat is woken.
+// B301: the board ticks it in the work store, through its API, and backlog.md follows as the store's view; it never
+// edits the backlog file's lines. Made-up backlog samples only.
 
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -7,8 +8,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { parseBacklog } from '../src/backlog.mjs'
-import { approvalLine, approvalRoute, nextWords, tickStep, waitingOn, writeTick } from '../src/tick.mjs'
+import { approvalLine, approvalRoute, nextWords, waitingOn } from '../src/tick.mjs'
+import { valueOf } from '../src/work/item.mjs'
+import { migrateBacklog } from '../src/work/migrate.mjs'
+import { storeFromText } from '../src/work/read.mjs'
+import { readStore, writeStore } from '../src/work/store.mjs'
 
 const BACKLOG = [
   '# Backlog',
@@ -28,39 +32,6 @@ const BACKLOG = [
 ].join('\n')
 const UNDER = 'Approved by you on the worker board on 2026-10-12 at 22:40.'
 
-test('only the step\'s line is ticked and one line is added under its own lines; all else stays', () => {
-  const done = tickStep(BACKLOG, 'B55', UNDER)
-  assert.equal(done.ok, true)
-  const [before, after] = [BACKLOG.split('\n'), done.text.split('\n')]
-  assert.equal(after.length, before.length + 1)
-  assert.equal(after[4], '- [x] B55 Verify: Say whether the archer is right (pictures in art-inbox/archer; Game - Units) @you')
-  // After "Requirements:" and its point, before the gap.
-  assert.equal(after[7], `  ${UNDER}`)
-  assert.deepEqual([...after.slice(0, 4), ...after.slice(5, 7), ...after.slice(8)], [...before.slice(0, 4), ...before.slice(5)])
-  // B5 is not B55: a step is found by its whole id.
-  assert.equal(tickStep(BACKLOG, 'B5', UNDER).text.split('\n')[3], '- [x] B5 Verify: Say whether the bow is right @you')
-  assert.equal(tickStep(BACKLOG, 'B5', UNDER).text.split('\n')[4], `  ${UNDER}`)
-})
-
-test('nothing is done to a step that is ticked already, gone, or there twice', () => {
-  assert.deepEqual(tickStep(BACKLOG, 'B57', UNDER), { ok: false, why: 'ticked' })
-  assert.deepEqual(tickStep(BACKLOG, 'B99', UNDER), { ok: false, why: 'gone' })
-  assert.deepEqual(tickStep(`${BACKLOG}- [ ] B55 The same id again\n`, 'B55', UNDER), { ok: false, why: 'twice' })
-  assert.deepEqual(tickStep('', 'B55', UNDER), { ok: false, why: 'gone' })
-})
-
-test('the line ends are kept as they are: Windows ends, mixed ends, and a last line without one', () => {
-  const windows = BACKLOG.replaceAll('\n', '\r\n')
-  const done = tickStep(windows, 'B55', UNDER).text
-  assert.equal(done, windows.replace('- [ ] B55', '- [x] B55').replace('  - the bow bends\r\n', `  - the bow bends\r\n  ${UNDER}\r\n`))
-  const mixed = '- [ ] B1 One\r\n- [ ] B2 Two\n  its note\n- [ ] B3 Three'
-  assert.equal(tickStep(mixed, 'B1', UNDER).text, `- [x] B1 One\r\n  ${UNDER}\r\n- [ ] B2 Two\n  its note\n- [ ] B3 Three`)
-  assert.equal(tickStep(mixed, 'B2', UNDER).text, `- [ ] B1 One\r\n- [x] B2 Two\n  its note\n  ${UNDER}\n- [ ] B3 Three`)
-  // The last line has no end, and gets none.
-  assert.equal(tickStep(mixed, 'B3', UNDER).text, `- [ ] B1 One\r\n- [ ] B2 Two\n  its note\n- [x] B3 Three\r\n  ${UNDER}`)
-  assert.equal(tickStep('- [ ] B3 Three', 'B3', UNDER).text, `- [x] B3 Three\n  ${UNDER}`)
-})
-
 test('the line under the step says when, and keeps the person\'s note to one line', () => {
   const at = new Date(2026, 9, 12, 22, 40).getTime()
   assert.equal(approvalLine(at), UNDER)
@@ -68,7 +39,7 @@ test('the line under the step says when, and keeps the person\'s note to one lin
   assert.equal(approvalLine(at, 'x'.repeat(900)).length, 'Approved by you on the worker board on 2026-10-12 at 22:40: '.length + 400)
   assert.equal(approvalLine(at, null), UNDER)
   // A note cannot become a step or a line of its own.
-  assert.ok(!tickStep(BACKLOG, 'B55', approvalLine(at, 'ok\n- [ ] B77 A step of my own')).text.includes('\n- [ ] B77'))
+  assert.ok(!approvalLine(at, 'ok\n- [ ] B77 A step of my own').includes('\n'))
 })
 
 test('an approval is the board\'s to tick when the work is merged, and the worker\'s when its branch is still there', () => {
@@ -83,75 +54,17 @@ test('an approval is the board\'s to tick when the work is merged, and the worke
   assert.equal(approvalRoute(null, null), 'tick')
 })
 
-test('the open steps that waited for the approved one are named to the main chat in one line', () => {
-  const backlog = parseBacklog(BACKLOG, { prefix: 'Game - ', names: ['Main', 'Units', 'Levels'] })
-  assert.deepEqual(waitingOn(backlog, 'B55'), [{ id: 'B56', worker: 'Units' }, { id: 'B58', worker: 'Levels' }])
-  assert.deepEqual(waitingOn(backlog, 'B5'), [])
-  assert.equal(nextWords('B55', waitingOn(backlog, 'B55')), 'B55 is approved and ticked on the worker board; no worker was woken for it. Open steps that waited for it: B56 (for Units), B58 (for Levels).')
-})
-
-test('the file is written in one move, byte for byte, and nothing is left beside it', async () => {
-  const folder = await mkdtemp(join(tmpdir(), 'board-tick-'))
-  try {
-    const file = join(folder, 'backlog.md')
-    // Bytes that are no valid text of any one encoding stay what they are.
-    const odd = Buffer.concat([Buffer.from('﻿# Backlog é\r\n', 'utf8'), Buffer.from([0xff, 0xfe, 0x0d, 0x0a]), Buffer.from('- [ ] B55 Verify: The archer @you\r\n- [ ] B56 Next\r\n', 'utf8')])
-    await writeFile(file, odd)
-    assert.deepEqual(await writeTick(file, 'B55', 'Approved ✓ by you.'), { ok: true })
-    const expected = Buffer.concat([odd.subarray(0, odd.indexOf('- [ ] B55')), Buffer.from('- [x] B55 Verify: The archer @you\r\n  Approved ✓ by you.\r\n- [ ] B56 Next\r\n', 'utf8')])
-    assert.ok((await readFile(file)).equals(expected))
-    assert.deepEqual(await readdir(folder), ['backlog.md'])
-    // A second approval finds it ticked and changes nothing.
-    assert.deepEqual(await writeTick(file, 'B55', 'again'), { ok: false, why: 'ticked' })
-    assert.ok((await readFile(file)).equals(expected))
-    assert.deepEqual(await writeTick(join(folder, 'none.md'), 'B55', 'x'), { ok: false, why: 'gone' })
-  } finally {
-    await rm(folder, { recursive: true, force: true })
-  }
-})
-
-test('a backlog that somebody else wrote in between is not overwritten; a write that fails leaves it as it was', async () => {
-  const text = '- [ ] B55 Verify: The archer @you\n- [ ] B56 Next\n'
-  /** A made-up file system: `file` holds the backlog, and `between` runs once after the board wrote beside it. */
-  const fake = ({ between = () => {}, failRename = false }) => {
-    const held = { file: Buffer.from(text), beside: new Map(), moves: 0 }
-    let isFirst = true
-    return {
-      held,
-      readFile: async path => (path === 'backlog.md' ? held.file : held.beside.get(path)),
-      writeFile: async (path, bytes) => {
-        held.beside.set(path, bytes)
-        if (isFirst) between(held)
-        isFirst = false
-      },
-      rename: async from => {
-        if (failRename) throw new Error('in use')
-        held.file = held.beside.get(from)
-        held.beside.delete(from)
-        held.moves += 1
-      },
-      rm: async path => { held.beside.delete(path) },
-    }
-  }
-  // Another step was ticked by a chat while the board wrote: that tick stays, and the board's comes on top of it.
-  const raced = fake({ between: held => { held.file = Buffer.from(text.replace('- [ ] B56', '- [x] B56')) } })
-  assert.deepEqual(await writeTick('backlog.md', 'B55', 'Approved.', raced), { ok: true })
-  assert.equal(raced.held.file.toString(), '- [x] B55 Verify: The archer @you\n  Approved.\n- [x] B56 Next\n')
-  assert.deepEqual([raced.held.moves, raced.held.beside.size], [1, 0])
-  // The step itself was ticked in between: nothing more is done.
-  const taken = fake({ between: held => { held.file = Buffer.from(text.replace('- [ ] B55', '- [x] B55')) } })
-  assert.deepEqual(await writeTick('backlog.md', 'B55', 'Approved.', taken), { ok: false, why: 'ticked' })
-  assert.deepEqual([taken.held.moves, taken.held.beside.size], [0, 0])
-  // The move fails (the file is held by another program): the backlog is as it was, and nothing lies beside it.
-  const stuck = fake({ failRename: true })
-  assert.deepEqual(await writeTick('backlog.md', 'B55', 'Approved.', stuck), { ok: false, why: 'write' })
-  assert.deepEqual([stuck.held.file.toString(), stuck.held.beside.size], [text, 0])
+test('the open steps of the store that waited for the approved one are named to the main chat in one line', () => {
+  const { items } = storeFromText(BACKLOG)
+  assert.deepEqual(waitingOn(items, 'B55'), [{ id: 'B56', worker: 'Units' }, { id: 'B58', worker: 'Levels' }])
+  assert.deepEqual(waitingOn(items, 'B5'), [])
+  assert.equal(nextWords('B55', waitingOn(items, 'B55')), 'B55 is approved and ticked on the worker board; no worker was woken for it. Open steps that waited for it: B56 (for Units), B58 (for Levels).')
 })
 
 // Where an approval goes, as the board's state and its page say it
 
 const { parseConfig } = await import('../src/config.mjs')
-const { buildState } = await import('../src/state.mjs')
+const { buildState } = await import('./withStore.mjs')
 const { readBranches } = await import('../src/folders.mjs')
 
 test('a step for the person says where its approval goes: ticked by the board, or to its worker', () => {
@@ -214,34 +127,37 @@ const PROJECT_BACKLOG = [
 ].join('\r\n')
 const AT = new Date(2026, 9, 12, 22, 40).getTime()
 
-/** A project folder with a backlog, the board's state of it, and everything the server hands to `settleByBoard`. */
-async function project({ branches = ['main', 'feature/archer'], fresh = branches, canWrite = true } = {}) {
+/** A project folder with a work store and its view, the board's state of it, and what the server hands to `settleByBoard`. */
+async function project({ branches = ['main', 'feature/archer'], fresh = branches, canWrite = true, fs } = {}) {
   const folder = await mkdtemp(join(tmpdir(), 'board-project-'))
   const file = join(folder, 'backlog.md')
+  const work = join(folder, 'work')
   await writeFile(file, PROJECT_BACKLOG)
+  await writeStore(work, migrateBacklog(PROJECT_BACKLOG, { now: AT }), undefined, { now: AT })
   const app = name => JSON.stringify({ title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\\game', isArchived: false, createdAt: 1, lastActivityAt: AT, lastAssistantUuid: 'u' })
   const state = buildState({ listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [app('Main'), app('Units'), app('Levels')], tails: {}, planLineTexts: {}, backlogText: PROJECT_BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, branches },
     { lines: [], outbox: [], runs: [], now: AT, config: { ...parseConfig('{}', {}), project: 'C:\\game' } })
   const said = []
   const asked = { git: 0 }
-  const deps = { canWrite, file, branchesNow: async () => { asked.git += 1; return fresh }, now: AT, say: async message => { said.push(message) }, newId: () => 'id-1' }
+  const deps = { work: canWrite ? { dir: work, viewFile: file, fs } : null, branchesNow: async () => { asked.git += 1; return fresh }, now: AT, say: async message => { said.push(message) }, newId: () => 'id-1' }
   /** What the page sends, through the same check the server runs first. */
   const answer = async body => {
     const checked = checkSay(body, state, 4000)
     assert.equal(checked.ok, true, JSON.stringify(checked))
     return settleByBoard({ id: 'm-1', at: AT, ...checked.message, state: 'waiting' }, state, deps)
   }
-  return { folder, file, said, asked, answer, text: async () => (await readFile(file)).toString('utf8') }
+  return { folder, file, said, asked, answer, text: async () => (await readFile(file)).toString('utf8'), stateOf: async id => valueOf((await readStore(work)).items.get(id), 'State') }
 }
 
-test('approving a step whose work is merged ticks it in the file and wakes nobody; steps that waited are named to the main chat', async () => {
+test('approving a step whose work is merged ticks it in the store, its view follows, and nobody is woken; steps that waited are named to the main chat', async () => {
   const board = await project()
   try {
     const done = await board.answer({ to: 'Units', ask: 'backlog:B60', verdict: 'approve', text: ' looks right ' })
     assert.deepEqual([done.ok, done.message.state, done.message.to], [true, 'ticked', null])
-    assert.equal(await board.text(), PROJECT_BACKLOG
-      .replace('- [ ] B60', '- [x] B60')
-      .replace('  - the helmet shines\r\n', '  - the helmet shines\r\n  Approved by you on the worker board on 2026-10-12 at 22:40: looks right\r\n'))
+    assert.equal(await board.stateOf('B60'), 'answered')
+    const view = await board.text()
+    assert.match(view, /^<!-- generated by the worker board from /)
+    assert.match(view, /^- \[x\] B60 Verify: Say whether the knight is right \(Game - Units\) @you\n(?: {2}.*\n)*? {2}Approved by you on the worker board on 2026-10-12 at 22:40: looks right$/m)
     // One line of the board's own to the main chat, and nothing to the step's worker.
     assert.deepEqual(board.said.map(sent => [sent.to, sent.command, sent.text, sent.state, sent.verdict]), [['Main', 'next', 'B60 is approved and ticked on the worker board; no worker was woken for it. Open steps that waited for it: B70 (for Units).', 'waiting', null]])
     // Approved again from a page that had not read yet: refused, and the file stays.
@@ -259,7 +175,8 @@ test('"Done" on a step only the person could do is ticked the same way, with its
   try {
     const done = await board.answer({ to: 'Units', ask: 'backlog:B65', verdict: 'done', text: '' })
     assert.deepEqual([done.ok, done.message.state], [true, 'ticked'])
-    assert.equal(await board.text(), PROJECT_BACKLOG.replace('- [ ] B65 Do: Record the sound yourself (Game - Units) @you\r\n', '- [x] B65 Do: Record the sound yourself (Game - Units) @you\r\n  Done by you on the worker board on 2026-10-12 at 22:40.\r\n'))
+    assert.equal(await board.stateOf('B65'), 'answered')
+    assert.match(await board.text(), /^- \[x\] B65 Do: Record the sound yourself \(Game - Units\) @you\n {2}Done by you on the worker board on 2026-10-12 at 22:40\.$/m)
     // Nobody waited for it: the main chat hears nothing.
     assert.deepEqual(board.said, [])
   } finally {
@@ -267,7 +184,7 @@ test('"Done" on a step only the person could do is ticked the same way, with its
   }
 })
 
-test('what is not the board\'s to settle goes to its worker as before, and the file is not touched', async () => {
+test('what is not the board\'s to settle goes to its worker as before, and neither the store nor the file is touched', async () => {
   const cases = [
     ['a step whose branch is still there', {}, { to: 'Units', ask: 'backlog:B61', verdict: 'approve', text: '' }],
     ['a rejection', {}, { to: 'Units', ask: 'backlog:B60', verdict: 'reject', text: 'the helmet is dull' }],
@@ -281,6 +198,7 @@ test('what is not the board\'s to settle goes to its worker as before, and the f
     try {
       assert.equal(await board.answer(body), null, name)
       assert.equal(await board.text(), PROJECT_BACKLOG, name)
+      assert.deepEqual([await board.stateOf('B60'), await board.stateOf('B61')], ['open', 'open'], name)
       assert.deepEqual(board.said, [], name)
       // A copy does not even ask git: it returns before anything is read.
       if (setup.canWrite === false) assert.equal(board.asked.git, 0)
@@ -290,20 +208,21 @@ test('what is not the board\'s to settle goes to its worker as before, and the f
   }
 })
 
-test('a backlog that cannot be written sends the approval to the worker, so it is not lost', async () => {
-  const board = await project()
+test('a store that cannot be written sends the approval to the worker, so it is not lost', async () => {
+  const real = await import('node:fs/promises')
+  const stuck = { ...real, rename: async () => { throw new Error('in use') } }
+  const board = await project({ fs: stuck })
   try {
-    const { readFile: read, writeFile: write, rm: remove } = await import('node:fs/promises')
-    const stuck = { readFile: read, writeFile: write, rm: remove, rename: async () => { throw new Error('in use') } }
     const checked = checkSay({ to: 'Units', ask: 'backlog:B60', verdict: 'approve', text: '' }, buildState({ listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [], tails: {}, planLineTexts: {}, backlogText: PROJECT_BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, branches: ['main'] },
       { lines: [], outbox: [], runs: [], now: AT, config: { ...parseConfig('{}', {}), project: 'C:\\game' } }), 4000)
     // No chat is on that made-up board, so the check has nobody to send to: the step itself is what matters here.
     assert.equal(checked.ok, false)
     const state = { backlogForYou: [{ id: 'backlog:B60', kind: 'verify', approval: 'tick', branch: null }], restart: { main: 'Main' } }
-    const done = await settleByBoard({ ask: 'backlog:B60', step: 'B60', verdict: 'approve', text: '' }, state, { canWrite: true, file: board.file, branchesNow: async () => ['main'], now: AT, say: async () => {}, newId: () => 'x', fs: stuck })
+    const done = await settleByBoard({ ask: 'backlog:B60', step: 'B60', verdict: 'approve', text: '' }, state, { work: { dir: join(board.folder, 'work'), viewFile: board.file, fs: stuck }, branchesNow: async () => ['main'], now: AT, say: async () => {}, newId: () => 'x' })
     assert.equal(done, null)
     assert.equal(await board.text(), PROJECT_BACKLOG)
-    assert.deepEqual(await readdir(board.folder), ['backlog.md'])
+    assert.equal(await board.stateOf('B60'), 'open')
+    assert.deepEqual(await readdir(board.folder), ['backlog.md', 'work'])
   } finally {
     await rm(board.folder, { recursive: true, force: true })
   }

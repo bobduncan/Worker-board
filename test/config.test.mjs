@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { join } from 'node:path'
 
 import { expandEnv, parseConfig } from '../src/config.mjs'
 
@@ -199,4 +200,23 @@ test('B134: the transcripts folder is worked out from the project when not set; 
   assert.equal(parseConfig(JSON.stringify({ project: String.raw`C:\Work\my-project` }), home).transcripts, join('C:/Users/sam', '.claude', 'projects', 'C--Work-my-project'))
   assert.equal(parseConfig(JSON.stringify({ project: String.raw`C:\Work\my-project`, transcripts: String.raw`D:\elsewhere` }), home).transcripts, String.raw`D:\elsewhere`)
   assert.equal(parseConfig('{}', home).transcripts, '')
+})
+
+test('B296: the work store is .claude/work unless set: a path inside the project, or a whole path of its own', async () => {
+  const { configProblem, isOwnWork, workFolder } = await import('../src/config.mjs')
+  const isWindows = process.platform === 'win32'
+  const project = isWindows ? 'C:\\game' : '/game'
+  const config = { ...parseConfig('{}', {}), project }
+  assert.equal(config.work, '.claude/work')
+  assert.equal(workFolder(config), join(project, '.claude', 'work'))
+  assert.equal(isOwnWork(config), false)
+  assert.equal(parseConfig(JSON.stringify({ work: 'plans/work' }), {}).work, 'plans/work')
+  assert.equal(parseConfig(JSON.stringify({ work: '../out' }), {}).work, '.claude/work')
+  const apart = isWindows ? 'D:\\scratch\\work' : '/scratch/work'
+  const own = { ...parseConfig(JSON.stringify({ work: apart }), {}), project }
+  assert.equal(workFolder(own), apart)
+  assert.equal(isOwnWork(own), true)
+  assert.equal(isOwnWork({ ...own, work: join(project, '.claude', 'work') }), false)
+  assert.equal(configProblem('{"work": 5}'), '"work" must be a path inside the project written with /, or a whole path of its own, not 5')
+  assert.equal(configProblem('{"work": "../out"}'), '"work" must be a path inside the project written with /, or a whole path of its own, not "../out"')
 })

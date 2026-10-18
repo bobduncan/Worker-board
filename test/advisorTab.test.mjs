@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { parseConfig } from '../src/config.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const NOW = new Date(2026, 9, 14, 10, 30).getTime()
 const config = { ...parseConfig('{}', {}), project: 'C:\\game', gameRepo: 'C:\\game\\repo' }
@@ -35,7 +35,7 @@ test('the open Advisor suggestions come from their group on the backlog, with th
   const state = build(BACKLOG, '# Game plan\n\n## 1. The goal\nA tactics game.')
   assert.deepEqual(state.suggestions, [{
     id: 'B20',
-    title: 'Make a unit template before the second unit (Advisor)',
+    title: 'Make a unit template before the second unit',
     notes: [
       { title: 'Why', lines: ['the two units so far differ in how they are built.'], points: [] },
       { title: 'Cost', lines: ['about 1 h'], points: [] },

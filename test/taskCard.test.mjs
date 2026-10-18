@@ -7,13 +7,12 @@ import test from 'node:test'
 import { answer, fromChat, step, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parsePlanLine } from '../src/planLines.mjs'
-import { buildState } from '../src/state.mjs'
-import { parseTail, taskStart } from '../src/transcript.mjs'
+import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
 
-/** B151: what the page gets outside the window of a working lane, which shows the task as it was given (`givenTask`). */
-const outsideWindow = state => JSON.stringify({ ...state, chats: (state.chats ?? []).map(({ givenTask, ...lane }) => lane) })
+/** B151: what the page gets outside the window of a working lane, which shows the task as it was given (`givenTask`) and, B281, the feedback it is on (`feedback`). */
+const outsideWindow = state => JSON.stringify({ ...state, chats: (state.chats ?? []).map(({ givenTask, feedback, ...lane }) => lane) })
 const NOW = Date.UTC(2026, 9, 12, 15, 0)
 const PROJECT = 'C:\\game'
 const config = { ...parseConfig('{}', {}), project: PROJECT }
@@ -35,13 +34,13 @@ const tail = lines => ({ text: lines.join('\n'), isCut: false, modifiedAt: NOW }
 const planLine = task => JSON.stringify({ name: 'x', role: 'worker', state: 'working', task, at: NOW - 3 * MIN })
 const running = [typed(NOW - 20 * MIN, 'Zebracorn please'), step(NOW - 2 * MIN, 'Run the tests'), toolResult(NOW - MIN)]
 
-function build({ tails = {}, plans = {}, lines = [] }) {
+function build({ tails = {}, plans = {}, lines = [], backlog = BACKLOG }) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: [app('Main'), app('Units')],
     tails: Object.fromEntries(Object.entries(tails).map(([name, value]) => [`cli-${name}`, value])),
     planLineTexts: Object.fromEntries(Object.entries(plans).map(([name, value]) => [`cli-${name}`, value])),
-    backlogText: BACKLOG,
+    backlogText: backlog,
     adviceText: null,
     folders: null,
     askTexts: [],
@@ -71,29 +70,21 @@ test('a lane shows what the chat recorded: the topic, the steps by name with the
   assert.deepEqual(eta, { at: NOW + 22 * MIN, leftMs: 22 * MIN, isOverdue: false, isOver: false, isOwn: true, from: 'own' })
 })
 
-test('a chat that recorded nothing shows the backlog step it was handed, by the id the hand-over names', () => {
-  const handOver = fromChat(NOW - 15 * MIN, 'Game - Main', 'Task from Game - Main: backlog steps B08 and then B06, the zebracorn portraits.\nDetails follow.')
-  const state = build({ tails: { Units: tail([handOver, step(NOW - 2 * MIN, 'Draw'), toolResult(NOW - MIN)]) } })
+test('a chat that recorded nothing shows the step the store holds in progress for it', () => {
+  const backlog = BACKLOG.replace('- [ ] B08 Portraits (for Units; about 20 min)', '- [ ] B08 Portraits (for Units; about 20 min) (branch feature/portraits)')
+  const state = build({ tails: { Units: tail([typed(NOW - 15 * MIN, 'Zebracorn portraits, please.'), step(NOW - 2 * MIN, 'Draw'), toolResult(NOW - MIN)]) }, backlog })
   const { task, eta } = units(state)
-  // The first step it names that is open, with the backlog's own words for it and its "about 20 min".
+  // The store's own words for it and its "about 20 min".
   assert.deepEqual([task.text, task.source, task.stepId, task.stepMinutes, task.startedAt], ['B08 Portraits', 'step', 'B08', 20, NOW - 15 * MIN])
   assert.deepEqual(eta, { at: NOW + 5 * MIN, leftMs: 5 * MIN, isOverdue: false, isOver: false, isOwn: false, from: 'step' })
-  assert.ok(!outsideWindow(state).includes('zebracorn'))
+  assert.ok(!outsideWindow(state).includes('Zebracorn'))
 })
 
-test('a hand-over that names no open step of the backlog leaves the task without words', () => {
-  for (const firstLine of ['Task from Game - Main: do the zebracorn thing.', 'Task from Game - Main: backlog step B09 again.', 'Task from Game - Main: step B10 and B77.']) {
+test('B301: a hand-over gives no step: whatever steps it names, the task has no words', () => {
+  for (const firstLine of ['Task from Game - Main: do the zebracorn thing.', 'Task from Game - Main: backlog steps B08 and then B06, the zebracorn portraits.', 'Task from Game - Main: backlog step B09 again.', 'Task from Game - Main: step B10 and B77.']) {
     const state = build({ tails: { Units: tail([fromChat(NOW - 15 * MIN, 'Game - Main', firstLine), step(NOW - 2 * MIN, 'Draw'), toolResult(NOW - MIN)]) } })
     assert.deepEqual([units(state).task.text, units(state).task.source, units(state).task.stepId], ['', 'unrecorded', null], firstLine)
   }
-})
-
-test('taskStart: the ids of the steps a hand-over names in its first line, each once', () => {
-  const entries = lines => parseTail(lines.join('\n'), false)
-  const main = { mainTitle: 'Game - Main', mainSession: null }
-  const ids = body => taskStart(entries([fromChat(1, 'Game - Main', body)]), main).steps
-  assert.deepEqual(ids('Two tasks from Game - Main: backlog steps B64 and then B65, and B64 again.\nAlso B99 further down.'), ['B64', 'B65'])
-  assert.deepEqual(ids('Task from Game - Main: build the archer.'), [])
 })
 
 test('no word of a prompt or of a hand-over reaches the page, whatever the chat does', () => {

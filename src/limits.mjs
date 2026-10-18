@@ -114,6 +114,8 @@ export const PAUSED = /\bpaused\s+for\s+the\s+(?:[\w-]+\s+)?limit\b/i
  * looked for; the note's words stay in the chat.
  */
 export function pauseNote(entries, mainTitle) {
+  // B291: the main chat by its title, or by the app's id for it, as a chat may address it.
+  const mains = [mainTitle].flat().filter(Boolean)
   let note = null
   let hasEnded = false
   for (const entry of entries) {
@@ -124,12 +126,45 @@ export function pauseNote(entries, mainTitle) {
       hasEnded = false
     }
     for (const block of entry.blocks) {
-      if (block.type !== 'tool_use' || block.name !== 'SendMessage' || block.input?.to !== mainTitle) continue
+      if (block.type !== 'tool_use' || block.name !== 'SendMessage' || !mains.includes(block.input?.to)) continue
       const first = (typeof block.input.message === 'string' ? block.input.message : '').trim().split('\n')[0]
       const until = first.match(/\buntil\s+(.*)$/i)
       note = PAUSED.test(first) ? { at: entry.at, until: until === null ? null : clockAfter(entry.at, until[1]) } : null
     }
     if (note !== null && endsTurn(entry)) hasEnded = true
+  }
+  return note
+}
+
+/** B291: the first line of a worker's safe-point line to the main chat ("Note from <name>: Safe point: ..."). */
+export const SAFE_POINT = /^(?:note\s+from\s+[^:]+:\s*)?safe\s+point:/i
+
+/**
+ * B291: what a stopped worker may still do without working again: a word to a chat, and its card on the board.
+ * Anything else (a command, a file read or written, a helper) is work.
+ */
+const isCoordination = name => name === 'SendMessage' || /^mcp__folder-branches__/.test(name)
+
+/**
+ * B291: a worker stopped for a restart: `{ at }` when it sent the main chat (`mains`: its title and the app's id for
+ * it) a word whose first line is its safe-point line, at or after `since` (when the person's "prepare restart"
+ * stands; null: none stands). Whatever its transcript's tail shows (a turn cut off, the stop word answered, a reply
+ * to the main chat's thanks), it has stopped, until it works again: a tool of its own work, after the line; or tells
+ * the main chat something else.
+ */
+export function safePointNote(entries, mains, since) {
+  if (!Number.isFinite(since)) return null
+  const names = [mains].flat().filter(Boolean)
+  let note = null
+  for (const entry of entries) {
+    if (entry.type !== 'assistant' || entry.isSidechain) continue
+    for (const block of entry.blocks) {
+      if (block.type !== 'tool_use') continue
+      if (block.name === 'SendMessage' && names.includes(block.input?.to)) {
+        const first = (typeof block.input.message === 'string' ? block.input.message : '').trim().split('\n')[0]
+        note = SAFE_POINT.test(first) && entry.at >= since ? { at: entry.at } : null
+      } else if (note !== null && !isCoordination(block.name)) note = null
+    }
   }
   return note
 }

@@ -87,6 +87,26 @@ export function withoutClosing(text) {
   return text.replace(/\n?(?:-{3,}\s*\n+)?```diff[^\n]*\n[\s\S]*?```\s*$/, '').trimEnd()
 }
 
+/** B290: the title of a "For you" block, also written a little off ("**For you:**", "For you"), or under the board's name. */
+const FOR_YOU_TITLE = /^>\s*\*{0,2}\s*(?:for you|needs your attention)\s*:?\s*\*{0,2}\s*:?\s*$/i
+
+/**
+ * B290: whether an answer ends by asking the person something: its last "For you" block is followed by nothing but
+ * blank lines, a rule and the closing block. A block quoted earlier in the answer (a worker's, already answered) asks
+ * nothing of its own; a block whose title or items are written a little off still asks. B301: no chat waits for the
+ * person by this; a chat whose answer asks so without an ask of the work store is a warning (state.mjs, `unfiledAsk`).
+ */
+export function asksAtEnd(text) {
+  if (typeof text !== 'string') return false
+  const lines = text.replace(/\r/g, '').split('\n')
+  const start = lines.findLastIndex(line => FOR_YOU_TITLE.test(line.trim()))
+  if (start < 0) return false
+  let after = start + 1
+  while (after < lines.length && lines[after].trim().startsWith('>')) after += 1
+  const rest = withoutClosing(lines.slice(after).join('\n')).trim()
+  return rest === '' || /^(?:-{3,}|\*{3,}|_{3,})$/.test(rest)
+}
+
 /** A line of the form "**Task:** ..." and the lines that follow it up to an empty line. */
 function labelled(lines, label) {
   const at = lines.findIndex(line => line.trim().startsWith(`**${label}:**`))
@@ -114,9 +134,10 @@ export function parseHandover(text) {
   const task = labelled(lines, 'Task')
   const did = labelled(lines, 'What I did')
 
-  // The "For you" block: the quoted lines from its title on (B169: also under the board's name for it).
+  // The "For you" block: the quoted lines from its title on (B169: also under the board's name for it). B290: the
+  // last one, as a block quoted earlier in the answer is someone else's.
   const items = []
-  const start = lines.findIndex(line => /^>\s*\*\*(?:For you|Needs your attention)\*\*\s*$/.test(line.trim()))
+  const start = lines.findLastIndex(line => /^>\s*\*\*(?:For you|Needs your attention)\*\*\s*$/.test(line.trim()))
   let end = start
   if (start >= 0) {
     for (const line of lines.slice(start + 1)) {

@@ -14,6 +14,7 @@
   --unknown: #5b6779;
   --warn: #ff7a59;
   --ink: #08110c;
+  --ask: #b48cff;
   color-scheme: dark;
 }
 
@@ -44,6 +45,9 @@ button, textarea, select { font: inherit; color: inherit; }
 .update-note:disabled { cursor: default; }
 .update-note.is-busy { opacity: 0.85; }
 .update-note.is-problem { background: var(--warn); color: var(--ink); }
+/* B273: the app moved its folder: where the board found it (blue), or that it found it nowhere (orange). */
+.app-note { flex: none; padding: 7px 18px; border-bottom: 1px solid #2f5fb3; background: #13254a; color: #cfe0ff; font-size: 14px; text-align: center; overflow-wrap: anywhere; }
+.app-note.is-problem { border-color: var(--warn); background: #3a1d14; color: #ffd2c4; }
 .version { color: var(--muted); font-size: 13px; white-space: nowrap; }
 
 /* Tabs and the top bar */
@@ -81,13 +85,26 @@ button, textarea, select { font: inherit; color: inherit; }
 /* The right side of each tab is as wide as the person drags it: the script sets --side and remembers it. */
 .view { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 7px var(--side, 390px); }
 #view-advice { --side: 500px; }
-/* B195: the Advisor's tab shows one of its four parts at a time, under their buttons; the chat is one of them. */
+/* B195: the Advisor's tab shows one of its parts at a time, under their buttons; the chat is one of them. */
 #view-advice { display: flex; flex-direction: column; }
-#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
-#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
+#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advisor-brainstorm, #view-advice > .advisor-refine, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
+#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="brainstorm"] > .advisor-brainstorm, #view-advice[data-pane="refine"] > .advisor-refine, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 #view-advice[data-pane="chat"] > .talk { display: flex; flex: 1; width: min(900px, calc(100% - 36px)); }
 #view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
-.advisor-tabs { display: flex; gap: 8px; padding: 14px 18px 0; flex: none; }
+.advisor-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 18px 0; flex: none; }
+/* B288: "Re-check the goals now" in the Next milestone part's head. */
+.way-recheck-line { margin-top: 8px; }
+.way-recheck { align-self: flex-start; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.way-recheck:disabled { opacity: 0.55; cursor: default; }
+.way-recheck.is-error { border-color: #b4553c; }
+/* B286: the Refine part: the steps by where their refine stands, a row each that opens the step's window. */
+.advisor-refine { margin: 14px 18px 16px; max-width: 1240px; }
+.refine-group > summary { cursor: pointer; font-weight: 600; margin: 12px 0 4px; }
+.refine-rows { list-style: none; padding: 0; margin: 0 0 8px; }
+.refine-row { display: flex; gap: 8px; align-items: baseline; width: 100%; padding: 6px 4px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.refine-row:hover, .refine-row:focus-visible { background: #16294a; }
+.refine-row span { min-width: 0; overflow-wrap: anywhere; }
+.refine-row small { margin-left: auto; flex: none; }
 .advisor-tabs button { padding: 6px 14px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
 .advisor-tabs button[aria-pressed="true"] { color: var(--text); border-color: var(--free); background: #16294a; font-weight: 600; }
 .advisor-tabs button:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
@@ -104,6 +121,14 @@ button, textarea, select { font: inherit; color: inherit; }
 .goals-sep { color: var(--unknown); }
 .goals-here { font-weight: 600; }
 .goals-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+/* B289: the open steps no goal names, folded under the map. */
+.goals-unlinked { margin: 12px 6px 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.goals-unlinked summary { cursor: pointer; color: var(--muted); }
+.goals-unlinked[open] summary { margin-bottom: 6px; }
+.goals-unlinked-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.goals-unlinked-row { display: flex; gap: 10px; align-items: baseline; border: 0; background: none; padding: 3px 6px; border-radius: 5px; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.goals-unlinked-row:hover, .goals-unlinked-row:focus-visible { background: var(--inset); }
+.goals-unlinked-row .step-id { flex: none; min-width: 3.4em; color: #9db8e8; font-weight: 700; font-variant-numeric: tabular-nums; }
 .goals-problems { margin: 10px 6px 0; padding: 6px 10px; border: 1px solid #6b4a1f; border-radius: 6px; color: var(--waiting); font-size: 13px; }
 .goals-frame { margin: 12px 0 4px; padding: 10px 14px; border: 2px solid var(--waiting); border-radius: 8px; background: var(--inset); }
 .goals-frame-head { display: flex; align-items: center; gap: 10px; }
@@ -144,6 +169,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .goal-box.is-done .goal-box-rect, .goal-tree-frame.is-done .goal-frame-rect { stroke: var(--working); }
 .goal-box.is-ref .goal-box-rect { stroke-dasharray: 3 3; fill: none; }
 .goal-box.is-ref text { fill: var(--muted); }
+.goal-box.is-ref .goal-box-id { fill: inherit; }
 .goal-box:hover .goal-box-rect, .goal-box.is-hover .goal-box-rect, .goal-box:focus-visible .goal-box-rect { fill: #182640; }
 .goal-box.is-chosen .goal-box-rect { fill: #1d2a3f; stroke: #8fb4ff; }
 .goal-box.is-lift { opacity: .4; }
@@ -152,6 +178,9 @@ button, textarea, select { font: inherit; color: inherit; }
 .goal-box.is-before .goal-box-rect { stroke: var(--free); stroke-width: 3; stroke-dasharray: 0 384 92 20; }
 .goal-box.is-after .goal-box-rect { stroke: var(--free); stroke-width: 3; stroke-dasharray: 0 142 92 400; }
 .goal-box-title { font-size: 12.5px; font-weight: 600; }
+/* B284: a goal's id before its title, in the diagram, the outline, the breadcrumb and the frame. */
+.goal-box-id { fill: #8fa3c4; font-weight: 700; }
+.goal-id { color: #8fa3c4; font-weight: 700; font-variant-numeric: tabular-nums; }
 .goal-box-meta { font-size: 11px; fill: var(--muted) !important; }
 .goal-box-state { font-size: 10.5px; fill: var(--muted) !important; }
 .goal-box.is-now .goal-box-state { fill: var(--waiting) !important; }
@@ -218,6 +247,109 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .goals-choice:hover, .goals-choice:focus-visible { border-color: var(--free); }
 .goals-chosen { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; padding: 6px 10px; border: 1px dashed var(--free); border-radius: 6px; font-size: 13px; }
 .goal-row.is-chosen { background: #1d2a3f; box-shadow: inset 3px 0 0 #8fb4ff; }
+/* B258: an ask to the Advisor under a goal, violet: the tag in the outline, the box in the tree, the block in the frame, the box to ask in. */
+.goal-tag.is-asking { border-color: var(--ask); color: var(--ask); }
+.goals-tool.is-ask { border-color: #5a4a86; color: var(--ask); }
+.goal-box.is-ask .goal-box-rect { fill: none; stroke: var(--ask); stroke-dasharray: 5 4; stroke-width: 1.5; }
+.goal-box.is-ask.is-answered .goal-box-rect { stroke-dasharray: none; stroke-width: 2; fill: #1c1830; }
+.goal-box.is-ask:hover .goal-box-rect, .goal-box.is-ask:focus-visible .goal-box-rect { fill: #221d3a; }
+.goal-box.is-ask .goal-ask-title { fill: var(--ask); }
+.goal-ask-block { margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--ask); border-radius: 8px; background: var(--panel); font-size: 13px; }
+.goal-ask-block.is-answered { border-style: solid; }
+.goal-ask-block.is-read { border-color: var(--line); opacity: .8; }
+.goal-ask-block.is-lit { animation: goal-ask-lit 1.2s ease-out; }
+@keyframes goal-ask-lit { from { box-shadow: 0 0 0 4px #5a4a86; } to { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .goal-ask-block.is-lit { animation: none; } }
+.goal-ask-head { margin: 0; color: var(--ask); }
+.goal-ask-question { margin: 2px 0 0; overflow-wrap: anywhere; }
+.goal-ask-answer { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--ask); }
+.goal-ask-answer p { margin: 2px 0 0; overflow-wrap: anywhere; }
+.goal-ask-pictures { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.goal-ask-pictures .picture img { max-width: 160px; max-height: 96px; }
+.goal-ask-block .goals-tools { margin-top: 8px; }
+.goals-tool.is-read { border-color: #2d6b47; color: var(--working); }
+.goals-ask { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; padding: 10px 14px; border: 1px dashed var(--ask); border-radius: 8px; background: var(--inset); }
+.goals-ask[hidden] { display: none; }
+.goals-ask-head { color: var(--ask); font-weight: 600; font-size: 13.5px; }
+.goals-ask textarea { width: 100%; max-width: 760px; min-height: 64px; box-sizing: border-box; padding: 6px 8px; border: 1px solid #5a4a86; border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; resize: vertical; }
+.goals-ask .main-picture { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 6px; }
+.goals-ask .main-picture[hidden] { display: none; }
+.goals-ask .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
+.goals-ask .main-picture-remove:hover { border-color: #ff8a8a; color: #ff8a8a; }
+.goals-ask-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.goals-ask-note { flex: 1; min-width: 12em; color: var(--muted); font-size: 12.5px; }
+.goals-ask-note.is-error { color: var(--warn); }
+.goals-action.is-send { border-color: var(--ask); background: #2a2148; }
+.goals-note.is-ok { border-color: #5a4a86; color: var(--ask); }
+/* B259: the Brainstorm part: the list at the left, the box for a new one and the card at the right (where-brainstorm.png, B). */
+.advisor-brainstorm { margin: 14px 18px 16px; max-width: 1240px; }
+.brainstorm-split { display: flex; gap: 18px; align-items: flex-start; }
+.brainstorm-list { flex: 0 0 290px; display: flex; flex-direction: column; gap: 6px; }
+.brainstorm-start { padding: 8px 12px; border: 1px solid var(--free); border-radius: 8px; background: var(--inset); color: #8fb4ff; font: inherit; font-size: 13.5px; cursor: pointer; }
+.brainstorm-start:disabled { color: var(--unknown); border-color: var(--line); cursor: default; }
+.brainstorm-group { margin: 10px 0 2px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.brainstorm-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.brainstorm-row small { color: var(--muted); font-size: 12px; }
+.brainstorm-row:hover, .brainstorm-row:focus-visible { border-color: var(--free); }
+.brainstorm-row.is-chosen { border-color: var(--free); background: #13213a; }
+.brainstorm-row.is-waiting small { color: var(--ask); }
+.brainstorm-empty { font-size: 13px; }
+.brainstorm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.brainstorm-new { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border: 1px dashed var(--free); border-radius: 8px; background: var(--inset); }
+.brainstorm-new[hidden] { display: none; }
+.brainstorm-new-head { color: #8fb4ff; font-weight: 600; font-size: 13.5px; }
+.brainstorm-new-about { margin: 0; color: var(--muted); font-size: 13px; }
+.brainstorm-new input, .brainstorm-new textarea, .brainstorm-other, .brainstorm-change textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.brainstorm-new textarea, .brainstorm-change textarea { resize: vertical; min-height: 56px; }
+.brainstorm-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.brainstorm-note { flex: 1; min-width: 12em; margin: 0; color: var(--muted); font-size: 12.5px; }
+.brainstorm-note.is-error, .brainstorm-foot .is-error { color: var(--warn); }
+.brainstorm-about { margin: 0; color: var(--muted); font-size: 13px; }
+.brainstorm-box { padding: 12px 16px; border: 1px solid var(--free); border-radius: 10px; background: var(--inset); }
+.brainstorm-box.is-done, .brainstorm-box.is-discarded { border-color: var(--line); }
+.brainstorm-meta { color: var(--muted); font-size: 12px; }
+.brainstorm-title { margin: 2px 0 4px; font-size: 15px; }
+.brainstorm-opening { margin: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.brainstorm-question { margin: 12px 0 2px; font-size: 17px; overflow-wrap: anywhere; }
+.brainstorm-why { margin: 0; font-size: 13px; }
+.brainstorm-options { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.brainstorm-option { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.brainstorm-option:hover:not(:disabled), .brainstorm-option:focus-visible { border-color: var(--free); }
+.brainstorm-option:disabled { cursor: default; }
+.brainstorm-option.is-chosen { border-color: var(--free); background: #13213a; }
+.brainstorm-key { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: #1d2a3f; font-weight: 700; }
+.brainstorm-option.is-chosen .brainstorm-key { background: var(--free); color: #fff; }
+.brainstorm-option-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.brainstorm-advised { flex: none; padding: 0 7px; border: 1px solid var(--free); border-radius: 9px; color: #8fb4ff; font-size: 11px; }
+.brainstorm-other { border-style: dashed; }
+.brainstorm-other.is-chosen { border-color: var(--free); border-style: solid; }
+.brainstorm-picture { margin-top: 10px; }
+.brainstorm-picture img { max-width: min(440px, 100%); max-height: 240px; }
+.brainstorm-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.brainstorm-gap { flex: 1; }
+.brainstorm-waiting { margin: 12px 0 0; color: var(--ask); font-size: 13.5px; }
+.brainstorm-waiting.is-off { color: var(--warn); }
+.brainstorm-waiting .goals-lines { font-size: 12.5px; }
+.brainstorm-problems { margin: 10px 0 0; color: var(--waiting); font-size: 12.5px; overflow-wrap: anywhere; }
+.brainstorm-proposal h4 { margin: 12px 0 0; font-size: 15px; }
+.brainstorm-proposal h5 { margin: 12px 0 4px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.brainstorm-decided { margin: 0; padding: 6px 10px 6px 26px; border-left: 3px solid var(--waiting); background: var(--panel); font-size: 13.5px; }
+.brainstorm-tick { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 4px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 13.5px; }
+.brainstorm-tick small { margin-left: auto; text-align: right; font-size: 12px; }
+.brainstorm-tick.is-off > span { color: var(--muted); text-decoration: line-through; }
+.brainstorm-note-kept { margin: 0; padding: 4px 10px; border-left: 3px solid var(--waiting); font-size: 13.5px; }
+.brainstorm-created { margin: 12px 0 0; color: var(--working); font-size: 13.5px; }
+.brainstorm-change { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.brainstorm-change .goals-action { align-self: flex-start; }
+.brainstorm-earlier { margin-top: 12px; font-size: 13px; }
+.brainstorm-earlier summary { cursor: pointer; color: var(--muted); }
+.brainstorm-earlier p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.brainstorm-file { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12.5px; }
+.brainstorm-file .goals-tool { margin-left: auto; }
+@media (max-width: 760px) {
+  .brainstorm-split { flex-direction: column; }
+  .brainstorm-list { flex: none; width: 100%; }
+}
 .goal-row.is-editor { cursor: default; }
 .goal-row.is-dragging { opacity: .4; }
 .goal-row.is-before { box-shadow: inset 0 2px 0 var(--free); }
@@ -653,10 +785,10 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .main-picture[hidden] { display: none; }
 .main-picture-frame { position: relative; display: inline-block; vertical-align: top; }
 .main-picture img { display: block; max-width: 160px; max-height: 96px; border: 1px solid var(--line); border-radius: 7px; background: #0a0f18; }
-.main-say .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
-.main-say .main-picture-remove:hover { border-color: #ff8a8a; color: #ff8a8a; }
+.say .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
+.say .main-picture-remove:hover { border-color: #ff8a8a; color: #ff8a8a; }
 .talk-picture { display: block; width: auto; max-width: 240px; margin-top: 8px; }
-.talk-picture img { width: auto; max-width: 100%; max-height: 180px; aspect-ratio: auto; object-fit: contain; }
+.picture.talk-picture img { width: auto; max-width: 100%; max-height: 180px; aspect-ratio: auto; object-fit: contain; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; white-space: nowrap; cursor: pointer; }
 .check input { accent-color: var(--free); width: 15px; height: 15px; margin: 0; }
 .need.is-closed { opacity: 0.6; }
@@ -668,7 +800,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 
 .need { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--waiting); border-radius: 9px; padding: 12px 13px 13px; display: flex; flex-direction: column; gap: 9px; }
 .need.is-verify { border-left-color: var(--free); }
-.need.is-intervene { border-left-color: var(--warn); }
+.need.is-intervene, .need.is-unfiled, .need.is-idle { border-left-color: var(--warn); }
 .need-head { display: flex; flex-direction: column; gap: 9px; cursor: pointer; }
 .need-head:hover h4 { text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
 .need-top { display: flex; align-items: center; gap: 9px; }
@@ -676,9 +808,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .need-top time { margin-left: auto; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .kind { flex: none; width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; background: var(--waiting); color: #1c1403; font-weight: 800; }
 .is-verify .kind { background: #16294a; color: #7fb0ff; }
-.is-intervene .kind { background: #4a1d14; color: var(--warn); }
+.is-intervene .kind, .is-unfiled .kind, .is-idle .kind { background: #4a1d14; color: var(--warn); }
 .tag { padding: 2px 9px; border-radius: 6px; background: var(--waiting); color: #1c1403; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
-.is-intervene .tag { background: var(--warn); }
+.is-intervene .tag, .is-unfiled .tag, .is-idle .tag { background: var(--warn); }
 .need h4 { font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
 .need p { font-size: 14.5px; color: #c9d3e0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
@@ -730,6 +862,38 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .legacy { border: 1px dashed var(--line); border-radius: 9px; padding: 10px 12px; }
 .legacy summary { cursor: pointer; font-weight: 600; }
 .legacy summary small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+/* B299: a step's item in its window: the goal chip, Requirements and Touches folded. */
+.chip.is-goal { display: inline-block; margin: 0 0 8px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; }
+.item-fold { margin: 6px 0; }
+.item-fold summary { cursor: pointer; font-weight: 600; }
+/* B299: a store ask's card says what it blocks; Information lists what the chats told the person. */
+.ask-blocks { font-size: 12.5px; color: var(--muted); margin: 0; }
+.ask-blocks.is-blocking { color: var(--warn); }
+.information { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.information h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.info { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; margin: 6px 0; font-size: 13px; }
+.info p { margin: 0; }
+.info small { grid-column: 1; }
+.info button { grid-column: 2; grid-row: 1 / span 2; }
+.info.is-read { opacity: .6; }
+/* B287: the refine questions, a line per step, opening its window to answer them. */
+.refine-needs .info { padding: 6px 10px; border: 1px solid #7a5a1c; border-radius: 8px; background: #2a210d; }
+.refine-needs .info b { color: #f6d38b; margin-right: 2px; }
+/* B287: the Advisor's refine state beside its state on its tab. */
+.advisor-refine-state { font-size: 13px; padding: 2px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--inset); color: #c9d3e0; }
+.advisor-refine-state.is-working { border-color: #25774a; color: #8be3b0; }
+.advisor-refine-state.is-waiting { border-color: #7a5a1c; color: #f6d38b; }
+/* B298: the person's words filed as instructions, per chat: missed ones red, closed ones grey. */
+.instructions { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.instructions h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.instruction-chat { margin: 6px 0 10px; }
+.instruction-chat > b.is-link { cursor: pointer; text-decoration: underline dotted; }
+.instruction { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; margin: 4px 0; font-size: 13px; }
+.instruction-id { font-weight: 600; color: var(--muted); }
+.instruction-note { grid-column: 2; color: var(--muted); }
+.instruction.is-missed .instruction-id, .instruction.is-missed .instruction-note { color: var(--warn); }
+.instruction.is-missed { border-left: 3px solid var(--warn); padding-left: 6px; }
+.instruction.is-closed { opacity: .6; }
 .need.is-step { margin-top: 10px; padding: 10px 11px 11px; gap: 7px; }
 .need.is-step h4 { font-size: 14.5px; font-weight: 600; }
 .need.is-step .tag { background: var(--inset); color: var(--text); border: 1px solid var(--line); }
@@ -771,7 +935,7 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .bubble small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
 .message.is-pending { opacity: 0.55; }
 .message.is-status .bubble { background: none; color: var(--muted); padding-left: 0; font-style: italic; }
-.say { display: flex; gap: 8px; margin: 10px 14px 0; }
+.say { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 14px 0; }
 .say textarea { flex: 1; min-width: 0; resize: none; background: var(--panel); }
 .say textarea:focus { border-color: #2f5fb3; }
 .say button { flex: none; width: 78px; border: 0; border-radius: 7px; background: var(--free); color: #fff; font-weight: 700; cursor: pointer; }
@@ -818,7 +982,7 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .details-head { flex: none; display: flex; gap: 16px; align-items: flex-start; padding: 20px 20px 16px 22px; border-bottom: 1px solid var(--line); }
 .details-head .kind { width: 40px; height: 40px; border-radius: 8px; font-size: 21px; }
 .details-head .kind.is-verify { background: #16294a; color: #7fb0ff; }
-.details-head .kind.is-intervene { background: #4a1d14; color: var(--warn); }
+.details-head .kind.is-intervene, .details-head .kind.is-unfiled { background: #4a1d14; color: var(--warn); }
 .details-head .kind.is-do { background: #12381f; color: var(--working); }
 .details-head .kind.is-queued { background: var(--inset); color: var(--text); border: 1px solid var(--line); }
 .details-names { flex: 1; min-width: 0; }
@@ -958,6 +1122,16 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .coordinate-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
 .coordinate-top h1 { font-size: 22px; font-weight: 700; }
 .coordinate-top h1 small { margin-left: 8px; font-size: 14px; font-weight: 400; color: var(--muted); }
+/* B296: the line about the work store under the Backlog tab's head, and the strip of a step's states in its window. */
+.coordinate-store { margin: -6px 0 0; font-size: 13px; color: var(--muted); }
+.coordinate-store.is-ok::before { content: "● "; color: var(--working); }
+.coordinate-store.is-warn::before { content: "● "; color: var(--waiting); }
+.coordinate-store.is-problem { color: var(--warn); }
+.details-part .flow-strip { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.details-part .flow-state { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--muted); }
+.details-part .flow-state.is-past { color: var(--text); background: var(--inset); }
+.details-part .flow-state.is-now { border-color: var(--free); background: var(--free); color: #fff; font-weight: 600; }
+.flow-next { margin-top: 6px; font-size: 12px; }
 .coordinate-filters { display: flex; flex-wrap: wrap; gap: 6px; }
 .coordinate-filters .choice small { margin-left: 4px; color: var(--muted); }
 .coordinate-filters .choice.is-chosen small { color: inherit; }
@@ -986,6 +1160,19 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .step-state.is-queued { color: #cfe0ff; border-color: #2a4a7d; }
 .step-state.is-you { color: var(--ink); background: var(--waiting); border-color: var(--waiting); font-weight: 700; }
 .step-row.is-done .step-title { text-decoration: line-through; color: var(--muted); }
+/* B302: with "One list" off, the goals of the goal map as folding headers, nested by depth; their steps under them. */
+.coordinate-group.is-goals { padding-top: 4px; }
+.goal-head { width: 100%; display: flex; align-items: baseline; gap: 8px; padding: 8px 10px 8px calc(10px + var(--depth, 0) * 18px); text-align: left; font: inherit; font-size: 14px; font-weight: 600; color: var(--text); background: none; border: 0; border-top: 1px solid var(--line); cursor: pointer; }
+.goal-head:first-child { border-top: 0; }
+.goal-head:hover, .goal-head:focus-visible { background: var(--inset); outline: 0; }
+.goal-head.is-root { background: #121c2c; font-size: 15px; font-weight: 700; }
+.goal-head.is-milestone .goal-title { font-weight: 700; }
+.goal-head.is-none .goal-title { color: var(--waiting); }
+.goal-fold { width: 12px; color: var(--muted); }
+.goal-id { font-weight: 700; color: #7fb0ff; }
+.goal-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-count { font-size: 12.5px; font-weight: 400; color: var(--muted); white-space: nowrap; }
+.goal-steps > .step-row { padding-left: calc(10px + var(--depth, 0) * 18px); }
 /* B181: "Add to queue" on a step nobody has, over the row's last column, beside the row's own button */
 .step-line { position: relative; }
 .step-line > .step-queue { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
@@ -1021,11 +1208,45 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .refine-field:focus { outline: 2px solid var(--free); outline-offset: 0; }
 .refine-working { margin-top: 10px; color: var(--waiting) !important; }
 .refine-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
-.refine-button, .refine-accept { padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--inset); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.refine-button, .refine-advice-all { padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--inset); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .refine-button { background: #1d4fd8; border-color: #1d4fd8; color: #fff; }
+.refine-button.is-quiet { background: var(--inset); border-color: var(--line); color: var(--text); }
 .refine-button.is-error { background: var(--panel); border-color: var(--warn); color: var(--warn); }
-.refine-button:disabled, .refine-accept:disabled { opacity: .55; cursor: default; }
+.refine-button:disabled, .refine-advice-all:disabled { opacity: .55; cursor: default; }
 .refine-line .problem { flex-basis: 100%; margin: 0; }
+/* B293: a refined step as one compact description (the picture the person approved). While refining: the
+   summary, the picture and one line per question with the advice and Yes / No, in the box above; once ready the same
+   parts without the box, with what we build. The head's chips: its goal, its size, and the questions or Ready. */
+.details-chips .chip.is-goal { background: #1b2a14; border-color: #3d6b2a; color: #bfe6a8; font-weight: 600; }
+.details-chips .chip.is-wait { background: #33280f; border-color: #7a5a1c; color: #f6d38b; font-weight: 600; }
+.details-chips .chip.is-ready { background: #103020; border-color: #25774a; color: #8be3b0; font-weight: 600; }
+.details-part.refine, .details-part.refined.is-ready { display: flex; flex-direction: column; gap: 10px; }
+.details-part.refine > *, .details-part.refined > * { margin: 0; flex-shrink: 0; }
+.details-part.refined .refine-tag, .details-part.refine > div > .refine-tag { margin-top: 0; margin-bottom: 2px; }
+.refined-summary p { font-size: 16px; line-height: 1.4; color: var(--text); }
+.refined-picture { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.refined-picture .picture { flex: 0 0 auto; width: 250px; max-width: 100%; }
+.refined-picture .picture img { aspect-ratio: auto; width: 100%; max-height: 180px; object-fit: contain; }
+.refined-picture > div { flex: 1 1 200px; min-width: 0; }
+.refined-picture p { font-size: 13px; }
+.refined-open { margin-top: 6px; padding: 0; border: 0; background: none; color: #7fb0ff; font: inherit; font-size: 12.5px; cursor: pointer; }
+.refined-open:hover { text-decoration: underline; }
+.details-part ul.refined-build { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.refined-build li { position: relative; padding-left: 16px; color: #d6deea; }
+.refined-build li::before { content: ""; position: absolute; left: 2px; top: .6em; width: 6px; height: 6px; border-radius: 50%; background: #7fb0ff; }
+.refined-build li.is-not { color: var(--muted); }
+.refined-build li.is-not::before { background: var(--muted); }
+.refine-questions { display: flex; flex-direction: column; gap: 7px; }
+.refine-q { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; border-top: 1px solid var(--line); padding-top: 7px; }
+.refine-n { width: 14px; color: var(--muted); }
+.refine-text { flex: 1 1 220px; min-width: 0; }
+.refine-advice { font-size: 12px; color: var(--working); white-space: nowrap; }
+.refine-advice[title] { cursor: help; }
+.refine-picks { display: flex; gap: 4px; }
+.refine-pick { padding: 2px 11px; border-radius: 6px; border: 1px solid var(--line); background: var(--inset); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.refine-pick[aria-pressed="true"] { background: #1d4fd8; border-color: #1d4fd8; color: #fff; font-weight: 600; }
+.refine-pick:disabled { opacity: .55; cursor: default; }
+.refine-q .refine-answer { flex-basis: 100%; margin: 0 0 0 24px; font-size: 13px; }
 @media (max-width: 900px) {
   .step-row { grid-template-columns: 46px minmax(0, 1fr) 150px; }
   .step-kind, .step-worker, .step-branch, .step-actions { display: none; }
@@ -1169,6 +1390,11 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .task-brief { background: #14233a; border: 1px solid #2a4a7d; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
 .task-brief h3 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #9db8e8; font-weight: 700; margin-bottom: 4px; }
 .task-brief .brief-task { font-size: 16px; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+/* B281: the backlog step the task is, above what it is; the person's feedback the worker is on, set apart by a bar. */
+.task-brief .brief-head { font-size: 13.5px; font-weight: 700; color: #c9d7f0; margin-bottom: 2px; overflow-wrap: anywhere; }
+.task-brief .brief-part:has(.brief-feedback) { border-left: 3px solid var(--waiting, #e0a33a); padding-left: 10px; }
+.task-brief .brief-part:has(.brief-feedback) h3 { color: #f0c27a; }
+.task-brief .brief-feedback { font-size: 15px; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .task-brief .brief-text { font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
 .task-brief .brief-plan { font-size: 14.5px; line-height: 1.5; }
 .task-brief .brief-plan .is-done { color: var(--muted); }
@@ -1279,6 +1505,11 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .queue-change select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; }
 .queue-change .quiet-button { margin-right: 0; }
 
+/* B300: the reconciler's flags on a lane. */
+.lane-flag { margin: 4px 0 0; padding: 3px 8px; border-left: 3px solid var(--waiting); font-size: 13px; }
+.lane-flag.is-problem { border-left-color: #c0504d; }
+.lane-flag .choice { margin-left: 6px; }
+
 /* B269: the calm window where a chat needs the person's answer: narrower, with room around everything; the step in
    one line, one question as its title, large cards for the answers, the rest folded, a note, one Send. */
 .details.is-calm { width: min(760px, calc(100vw - 32px)); }
@@ -1312,6 +1543,7 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .calm-card-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .calm-card-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
 .calm-advised { padding: 2px 10px; border: 1px solid #2f5fb3; border-radius: 999px; background: #13254a; color: #8ab4ff; font-size: 13px; font-weight: 600; }
+.calm-key { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: var(--inset); color: var(--muted); font-size: 14px; font-weight: 700; }
 .calm-card-text { color: var(--muted); font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
 .calm-context { padding: 0; border-radius: 12px; }
 .calm-context > summary { padding: 14px 18px; font-size: 15.5px; font-weight: 600; }

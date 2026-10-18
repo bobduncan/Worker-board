@@ -42,6 +42,8 @@ test('the warning says what the worker is doing and what would stop, for every s
   assert.deepEqual(view({ state: 'waiting', task }).reasons, ['It waits for you on "Build the first level", step 2 of 6: your answer would no longer be taken.'])
   const until = new Date(2026, 9, 14, 11, 0).getTime()
   assert.deepEqual(view({ state: 'suspended', suspended: { until } }).reasons, ['It paused for the limit until 11:00: that task would not go on.'])
+  // B291: stopped at a safe point for a restart.
+  assert.deepEqual(view({ state: 'suspended', suspended: { by: 'restart', until: null } }).reasons, ['It stopped for the restart: that task would not go on.'])
   assert.deepEqual(view({ state: 'interrupted', task }).reasons, ['It was cut off in the middle of "Build the first level", step 2 of 6: that work would not be resumed.'])
   assert.deepEqual(view({ state: 'unknown' }).reasons, ['The board cannot tell what it is doing.'])
 })

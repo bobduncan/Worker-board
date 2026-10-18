@@ -24,10 +24,10 @@ const plain = value => JSON.parse(JSON.stringify(value))
 
 const at = (day, hour, minute = 0) => new Date(2026, 9, day, hour, minute).getTime()
 const NOW = at(14, 10, 50)
-const one = more => ({ key: 'B151', id: 'B151', title: 'A click on a working worker', at: at(14, 10, 27), how: 'report', by: 'Board', ...more })
+const one = more => ({ key: 'B151', id: 'B151', title: 'A click on a working worker', at: at(14, 10, 27), how: 'store', by: 'Board', ...more })
 
 test('each finished step is one row: when, its id and title, who, and where the time comes from', () => {
-  assert.deepEqual(plain(page.finishedRows([one()], NOW)), [{ key: 'B151', code: 'B151', title: 'A click on a working worker', when: '10:27', isRough: false, who: 'Board', how: 'its report to the main chat', took: '' }])
+  assert.deepEqual(plain(page.finishedRows([one()], NOW)), [{ key: 'B151', code: 'B151', title: 'A click on a working worker', when: '10:27', isRough: false, who: 'Board', how: 'its move to done in the work store', took: '' }])
   const rows = plain(page.finishedRows([
     one({ how: 'line', by: 'you' }),
     one({ how: 'seen', at: at(14, 10, 1) }),
