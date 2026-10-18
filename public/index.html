@@ -35,6 +35,7 @@
           <span class="cpu-count" id="cpu-count"></span>
         </div>
         <span class="version" id="version"></span>
+        <button class="new-project-button" type="button" id="new-project-button" hidden>New project…</button>
       </div>
     </details>
     <p class="updated" id="updated">Reading…</p>
@@ -299,6 +300,24 @@
   <dialog class="details" id="details" aria-label="Details"></dialog>
 
   <dialog class="file-view" id="file-view" aria-label="A file of the game"></dialog>
+
+  <dialog class="new-project" id="new-project" aria-labelledby="new-project-title">
+    <form class="new-project-form" id="new-project-form" method="dialog">
+      <h2 id="new-project-title">New project</h2>
+      <p class="new-project-intro">Makes a folder with git, its own copy of this board, an empty work store, and an icon on your desktop and in the Start menu that starts its board. Then the new board opens.</p>
+      <label for="new-project-name">Name</label>
+      <input id="new-project-name" name="name" type="text" maxlength="60" required autocomplete="off" placeholder="My garden">
+      <label for="new-project-folder">Folder <span class="new-project-hint">(new or empty)</span></label>
+      <input id="new-project-folder" name="folder" type="text" required autocomplete="off" spellcheck="false">
+      <label for="new-project-prefix">Chats' titles start with</label>
+      <input id="new-project-prefix" name="prefix" type="text" maxlength="40" autocomplete="off">
+      <p class="new-project-status" id="new-project-status" role="status"></p>
+      <div class="new-project-buttons">
+        <button class="new-project-cancel" type="button" id="new-project-cancel">Cancel</button>
+        <button class="new-project-make" type="submit" id="new-project-make">Make it</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog class="lightbox" id="lightbox" aria-label="Picture">
     <figure>

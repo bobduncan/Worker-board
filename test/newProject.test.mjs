@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { createBoard } from '../server.mjs'
-import { gitRunner } from '../src/folders.mjs'
+import { openCommand } from '../start-board.mjs'
 import { checkNewProject, folderIsFree, makeProject, projectFiles, shortcutScript } from '../src/newProject.mjs'
 import { readBoards } from '../src/ports.mjs'
 
@@ -102,6 +102,11 @@ test('shortcutScript: an icon on the desktop and in the Start menu, every path i
   assert.ok(script.includes("'C:\\Program Files\\nodejs\\node.exe'"))
   assert.ok(script.includes(`'"D:\\Work\\garden\\worker-board\\start-board.mjs" --open'`))
   assert.match(script, /WindowStyle = 7/)
+})
+
+test('start-board --open opens the board\'s page in the person\'s browser', () => {
+  assert.deepEqual(openCommand('http://127.0.0.1:4313/', 'win32'), ['explorer.exe', ['http://127.0.0.1:4313/']])
+  assert.deepEqual(openCommand('http://127.0.0.1:4313/', 'darwin')[0], 'open')
 })
 
 test('the board carries the icon the shortcuts show', async () => {

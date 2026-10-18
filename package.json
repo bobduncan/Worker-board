@@ -9,6 +9,7 @@
     "start": "node server.mjs",
     "demo": "node server.mjs --demo",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "setup": "node setup.mjs"
+    "setup": "node setup.mjs",
+    "new": "node tools/new-project.mjs"
   }
 }

@@ -1,0 +1,53 @@
+// B320: `npm run new` makes a new project, as the board's New project button does (src/newProject.mjs): it asks the
+// project's name, its folder and the chats' prefix once, then makes the folder, its own copy of the board, its work
+// store, its icon on the desktop and in the Start menu, and starts its board. Windows only.
+//
+//   npm run new
+//   npm run new -- --name "My garden" --folder "D:\Work\My garden" --prefix "Garden - "
+
+import { dirname, join, resolve } from 'node:path'
+import { createInterface } from 'node:readline/promises'
+import { homedir } from 'node:os'
+import { fileURLToPath } from 'node:url'
+
+import { loadConfig } from '../src/config.mjs'
+import { checkNewProject, makeProject } from '../src/newProject.mjs'
+
+const BOARD = join(dirname(fileURLToPath(import.meta.url)), '..')
+const args = process.argv.slice(2)
+const given = name => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined)
+
+if (process.platform !== 'win32') {
+  console.error('A new project is made on Windows only.')
+  process.exit(1)
+}
+
+// A new project's folder is suggested beside this board's project, else in the person's Projects folder.
+const config = await loadConfig(join(BOARD, 'config.json')).catch(() => null)
+const parent = config?.project ? dirname(resolve(BOARD, config.project)) : join(homedir(), 'Projects')
+
+const asking = createInterface({ input: process.stdin, output: process.stdout })
+const ask = async (question, fallback) => {
+  if (!process.stdin.isTTY) return fallback
+  const answer = (await asking.question(fallback ? `${question} [${fallback}]: ` : `${question}: `)).trim()
+  return answer === '' ? fallback : answer
+}
+let name = given('name') ?? ''
+while (checkNewProject({ name, folder: join(parent, 'x') }).ok === false) {
+  if (!process.stdin.isTTY) {
+    console.error('Give the project\'s name with --name.')
+    process.exit(1)
+  }
+  name = await ask('The project\'s name', '')
+}
+const folder = given('folder') ?? await ask('Its folder (new or empty)', join(parent, name.trim()))
+const prefix = given('prefix') ?? await ask('The chats\' titles start with', `${name.trim()} - `)
+asking.close()
+
+console.log('Making the project: its folder, its copy of the board, its icon (this takes a few seconds)…')
+const made = await makeProject({ name, folder, prefix, here: BOARD })
+if (!made.ok) {
+  console.error(made.why)
+  process.exit(1)
+}
+for (const line of made.lines) console.log(line)

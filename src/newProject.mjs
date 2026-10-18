@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process'
 import { cp, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
+import { DEFAULTS } from './config.mjs'
 import { gitRunner } from './folders.mjs'
 import { boardsFile, launchEntry, registerHome, resolvePort, withEntry } from './ports.mjs'
 
@@ -53,7 +54,9 @@ const fill = (text, words) => Object.entries(words).reduce((done, [key, value]) 
  * board's, once it is known.
  */
 export function projectFiles({ name, prefix, project, board, port = null, examples }) {
-  const config = { ...JSON.parse(examples.config), name, project, gameRepo: '' }
+  // The example names what a new project sets; the board's own defaults stand for the ports it leaves out.
+  const example = JSON.parse(examples.config)
+  const config = { ...example, name, project, gameRepo: '', port: example.port ?? DEFAULTS.port, gamePort: example.gamePort ?? DEFAULTS.gamePort }
   const words = { name, prefix, project, board, ...(port === null ? {} : { port: String(port) }) }
   // A briefing made from the board's example: its first words say it is filled in, not to be copied.
   const briefing = text => fill(text.replace(/^Copy this file to `<project>\\\.claude\\[\w-]+\.md` and fill it in\. /m, 'Made by the worker board for this project: fill in what still stands in angle brackets. '), words)

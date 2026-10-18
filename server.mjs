@@ -40,6 +40,7 @@ import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
 import { GAME_SPAN, boardsFile, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
+import { makeProject } from './src/newProject.mjs'
 import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
@@ -178,6 +179,7 @@ export function createBoard({
   work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   project = '',
 }) {
   async function handle(req, res) {
@@ -232,7 +234,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/brainstorm' || pathname === '/api/work' || pathname === '/api/cpu') {
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/brainstorm' || pathname === '/api/work' || pathname === '/api/cpu' || pathname === '/api/new-project') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -263,6 +265,10 @@ export function createBoard({
       }
       if (pathname === '/api/cpu') {
         const done = await cpu(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/new-project') {
+        const done = await newProject(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/goals') {
@@ -606,6 +612,8 @@ async function main(args) {
   // Only the board that delivers says so: a copy or a board that shows another's history is no install of the mod.
   const modNow = isDemo || isShowOnly ? async () => null
     : cached(() => modVersions({ modsDir: join(HERE, 'mods'), file: pluginsFile(), markets: marketsFile() }), VERSION_MS)
+  // B320: true while the New project button's project is being made.
+  let makingProject = false
 
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
   const seen = bridgeKey === null ? null : { shown: {}, other: {} }
@@ -800,7 +808,23 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow() }
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
+        // B320: where the New project button suggests a new project's folder, and whether this board makes one.
+        newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject } }
+    },
+    // B320: a new project, from the New project button (src/newProject.mjs); one at a time, and only on the board that
+    // delivers, so it is made from the version of the board the person works with.
+    newProject: async body => {
+      if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it makes no project.' }
+      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Make the project on the board that delivers: http://${HOST}:${homePort}/` }
+      if (makingProject) return { ok: false, status: 409, why: 'A project is being made: wait until it is done.' }
+      makingProject = true
+      try {
+        const made = await makeProject({ name: body?.name, folder: body?.folder, prefix: body?.prefix, here: HERE })
+        return made.ok ? { ok: true, result: { url: made.url, project: made.project, lines: made.lines } } : made
+      } finally {
+        makingProject = false
+      }
     },
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
     design: body => designTurn(async () => {

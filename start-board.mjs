@@ -4,6 +4,7 @@
 //
 //   node start-board.mjs                  starts this folder's board, or says where it runs already
 //   node start-board.mjs --quiet          the same, and says nothing unless something went wrong (for the hook)
+//   node start-board.mjs --open           the same, and opens the board's page in the browser (B320: a project's icon)
 //   node start-board.mjs --port 4321 ...  anything else is handed to server.mjs as it is
 //
 // The board's own output goes to data/board.log. A board that cannot start (a broken settings file, the first start
@@ -32,6 +33,22 @@ export async function boardAt(port) {
   }
 }
 
+/** B320: the program that opens a page in the person's browser, with its words. */
+export function openCommand(url, platform = process.platform) {
+  if (platform === 'win32') return ['explorer.exe', [url]]
+  return platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]]
+}
+
+/** Opens the board's page; the browser stays when this ends. */
+function openPage(url) {
+  const [program, words] = openCommand(url)
+  try {
+    spawn(program, words, { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+  } catch {
+    console.log(`Open ${url} in your browser.`)
+  }
+}
+
 /** What this start wrote into the board's log (from `from` on), its last lines, for a start that failed. */
 const lastWords = (file, from) => {
   try {
@@ -43,7 +60,8 @@ const lastWords = (file, from) => {
 
 async function main(args) {
   const isQuiet = args.includes('--quiet')
-  const passed = args.filter(arg => arg !== '--quiet')
+  const isOpen = args.includes('--open')
+  const passed = args.filter(arg => arg !== '--quiet' && arg !== '--open')
   const given = passed.includes('--port') ? passed[passed.indexOf('--port') + 1] : undefined
   // The port the board takes, as the server works it out; a broken settings file is the server's to name.
   const config = await loadConfig(join(HERE, 'config.json')).catch(() => ({ port: 4310, gamePort: 5300, project: '' }))
@@ -54,6 +72,7 @@ async function main(args) {
   const url = `http://${HOST}:${port}/`
   if (await boardAt(port)) {
     if (!isQuiet) console.log(`The worker board runs already: ${url}`)
+    if (isOpen) openPage(url)
     return 0
   }
 
@@ -78,6 +97,7 @@ async function main(args) {
     if (await boardAt(port)) {
       child.unref()
       if (!isQuiet) console.log(`The worker board runs: ${url} (process ${child.pid}; its words go to data/board.log)`)
+      if (isOpen) openPage(url)
       return 0
     }
     await new Promise(done => setTimeout(done, 300))

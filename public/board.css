@@ -1802,3 +1802,23 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 /* Focus 4: the partner's questions first under Needs your attention. */
 .partner-needs { margin-bottom: 12px; padding: 8px 10px 2px; border: 1px solid var(--line); border-left: 3px solid var(--ask); border-radius: 8px; }
 .partner-needs > h3 { margin: 0 0 8px; display: flex; gap: 8px; align-items: baseline; }
+
+/* B320: the New project button in the ⚙ part, and its form. */
+.new-project-button { align-self: flex-start; padding: 6px 12px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 13.5px; cursor: pointer; }
+.new-project-button:hover, .new-project-button:focus-visible { border-color: var(--free); }
+.new-project { width: min(480px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.new-project-form { display: flex; flex-direction: column; gap: 6px; padding: 18px 20px; }
+.new-project-form h2 { margin: 0 0 4px; font-size: 17px; }
+.new-project-intro { margin: 0 0 8px; color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+.new-project-form label { margin-top: 6px; font-size: 13.5px; }
+.new-project-hint { color: var(--muted); }
+.new-project-form input { padding: 8px 10px; border: 1px solid #2a3850; border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.new-project-form input:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
+.new-project-status { min-height: 1.4em; margin: 8px 0 0; font-size: 13.5px; color: var(--muted); overflow-wrap: anywhere; }
+.new-project-status.is-done { color: var(--working); }
+.new-project-status.is-done a { color: #8fb4ff; }
+.new-project-status.is-problem { color: var(--warn); }
+.new-project-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+.new-project-buttons button { padding: 8px 16px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.new-project-buttons .new-project-make { border-color: transparent; background: var(--free); color: #fff; font-weight: 600; }
+.new-project-buttons button:disabled { opacity: 0.55; cursor: default; }

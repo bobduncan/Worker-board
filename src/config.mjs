@@ -16,7 +16,7 @@ export const ASK_MS = 60 * 60_000
  */
 export const IDLE_HOLD_MS = 5 * 60_000
 
-const DEFAULTS = {
+export const DEFAULTS = {
   /** B129: the project's name, the page's title; by default the project folder's name. */
   name: '',
   project: '',

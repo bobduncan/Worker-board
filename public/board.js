@@ -334,7 +334,9 @@ function drawCpu(state) {
 function drawSettings(state, cpu) {
   const version = versionLine(state.version)
   const settings = $('settings')
-  settings.hidden = cpu === null && version === ''
+  // B320: the New project button, on the board that delivers.
+  $('new-project-button').hidden = state.newProject?.canMake !== true
+  settings.hidden = cpu === null && version === '' && $('new-project-button').hidden
   const level = cpu === null || cpu.level === null ? null : `CPU for the chats: ${cpu.level[0].toUpperCase()}${cpu.level.slice(1)}${cpu.count === '' ? '' : ` (${cpu.count})`}`
   $('settings-button').title = [level, version].filter(part => part !== null && part !== '').join('\n') || 'CPU for the chats and the board\'s version'
 }
@@ -373,6 +375,70 @@ $('cpu').addEventListener('click', async event => {
     sending.delete('cpu')
     cpuPending = null
     drawCpu(board)
+  }
+})
+
+// newproject:start
+/** B320: the folder the New project form suggests: beside this project's, named after the new one; '' when not known. */
+function suggestedFolder(parent, name) {
+  if (typeof parent !== 'string' || parent === '') return ''
+  const separator = parent.includes('\\') ? '\\' : '/'
+  return `${parent.replace(/[\\/]+$/, '')}${separator}${name}`
+}
+
+/** What the form says once the project is made: where it is, and the link to its board. */
+function newProjectDone(result) {
+  return { text: `Made ${result.project}. Its board: `, link: result.url }
+}
+// newproject:end
+
+/** B320: the New project form. The folder follows the name until the person types a folder of their own. */
+let isFolderTyped = false
+$('new-project-button').addEventListener('click', () => {
+  $('settings').open = false
+  isFolderTyped = false
+  $('new-project-form').reset()
+  $('new-project-status').textContent = ''
+  $('new-project-make').disabled = false
+  $('new-project-cancel').textContent = 'Cancel'
+  $('new-project').showModal()
+  $('new-project-name').focus()
+})
+$('new-project-name').addEventListener('input', () => {
+  const name = $('new-project-name').value.trim()
+  $('new-project-prefix').placeholder = name === '' ? '' : `${name} - `
+  if (!isFolderTyped) $('new-project-folder').value = name === '' ? '' : suggestedFolder(board?.newProject?.parent ?? null, name)
+})
+$('new-project-folder').addEventListener('input', () => {
+  isFolderTyped = true
+})
+$('new-project-cancel').addEventListener('click', () => $('new-project').close())
+$('new-project-form').addEventListener('submit', async event => {
+  event.preventDefault()
+  if (sending.has('new-project')) return
+  sending.add('new-project')
+  const status = $('new-project-status')
+  status.className = 'new-project-status'
+  status.textContent = 'Making the project: its folder, its copy of the board, its icon… (this takes a few seconds)'
+  $('new-project-make').disabled = true
+  try {
+    const body = { name: $('new-project-name').value, folder: $('new-project-folder').value, prefix: $('new-project-prefix').value }
+    const answer = await fetch('/api/new-project', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(body) })
+    if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
+    const done = newProjectDone(await answer.json())
+    const link = el('a', '', done.link)
+    link.href = done.link
+    link.target = '_blank'
+    link.rel = 'noopener'
+    status.replaceChildren(document.createTextNode(done.text), link)
+    status.classList.add('is-done')
+    $('new-project-cancel').textContent = 'Close'
+  } catch (error) {
+    status.textContent = `Not made: ${error instanceof Error ? error.message : 'the board did not answer'}`
+    status.classList.add('is-problem')
+    $('new-project-make').disabled = false
+  } finally {
+    sending.delete('new-project')
   }
 })
 

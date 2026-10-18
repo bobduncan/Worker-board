@@ -220,6 +220,17 @@ A board whose port another project's board holds takes the next free one and say
 ports. The Workers mod is installed once for the PC: run `npm run setup` in one board's folder; a board that carries
 another version says so on top of its page.
 
+## A new project in one click
+
+`npm run new` in the board's folder, or **New project…** under ⚙ on a running board (B320, Windows), asks the
+project's name, its folder (new or empty: anything else is refused) and how its chats' titles start ("<name> - "
+unless you say otherwise). It then makes the folder with git, a README, the project's own copy of the board (a clone
+at this board's version, in `worker-board`), its `config.json`, the list of chats, an empty work store with the
+default flow, the launch entry on a port of its own, the project's `CLAUDE.md` (how the chats answer you, from
+`examples/CLAUDE.md`) and its briefings, and an icon "<name> board" on your desktop and in the Start menu that starts
+its board and opens its page. The new board starts at once. A new project has no game; add one in its `config.json`
+(`gameRepo`) when there is one.
+
 ## What it reads (never changes)
 
 - the app's list of chats, and the last part of each project chat's transcript;
