@@ -189,11 +189,8 @@ async function talkBar(node, words, ctx, goalsAt) {
   const result = { id: node.id, thread: talk.thread }
   const about = `${node.id} ${oneLine(node.title, 200)}`
   const word = (command, text) => ({ to: ctx.partner.name, ask: null, step: null, title: null, version: null, verdict: null, command, about: talk.thread, text })
-  if (talk.isStarted) return { ok: true, result, words: word('brainstorm', `brainstorm
-Thread: ${talk.thread}
-Goal: ${about}
-Opening: ${words}`) }
-  const base = String(ctx.brainstormDir).replace(/[\/]+$/, '')
+  if (talk.isStarted) return { ok: true, result, words: word('brainstorm', `brainstorm\nThread: ${talk.thread}\nGoal: ${about}\nOpening: ${words}`) }
+  const base = String(ctx.brainstormDir).replace(/[\\/]+$/, '')
   const file = `${base}/${talk.thread.split('/').pop()}`
   const thread = parseThread(await ctx.fs.readFile(file).then(bytes => bytes.toString('utf8'), () => ''))
   const latest = thread.questions.at(-1)
@@ -202,9 +199,7 @@ Opening: ${words}`) }
       canWrite: true, dir: ctx.brainstormDir, folder: ctx.brainstormFolder, goalsFile: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs,
     })
     if (!answered.ok) return answered
-    return { ok: true, result, words: word('brainstorm-answer', `brainstorm answer
-Thread: ${talk.thread}
-Q${latest.n}: Other — ${words}`) }
+    return { ok: true, result, words: word('brainstorm-answer', `brainstorm answer\nThread: ${talk.thread}\nQ${latest.n}: Other — ${words}`) }
   }
   return { ok: true, result, words: { ...focusWords('talk', { to: ctx.partner.name, goal: node, thread: talk.thread, words }) } }
 }
