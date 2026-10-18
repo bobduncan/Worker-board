@@ -213,6 +213,23 @@ function appNote(moved, clockOf) {
 }
 // appnote:end
 
+// cpu:start
+/**
+ * B311: the head's control "CPU for the chats" (`cpu` from the state: `available`, `level`, `count`, `fault`, `cores`,
+ * `strongCores`): which level is lit, the line beside it, its tip, and the note on top when the board could not read
+ * the processes. Null: no control (the demo).
+ */
+function cpuView(cpu, pending = null) {
+  if (cpu === null || cpu === undefined) return null
+  const level = pending ?? cpu.level
+  if (cpu.available !== true) return { level: null, disabled: true, label: 'CPU for the chats: not available here', count: '', title: 'The board sets the CPU of the chats on Windows only.', note: null }
+  const processes = n => `${n} process${n === 1 ? '' : 'es'}`
+  const count = level === 'off' || pending !== null ? '' : level === 'gentle' ? `${processes(cpu.count)}, below normal` : `${processes(cpu.count)}, idle, ${cpu.strongCores} of ${cpu.cores} cores`
+  const title = level === 'off' ? 'The chats run as usual.' : `Applies to the project's chats and everything they started: ${processes(cpu.count)} now.`
+  return { level, disabled: pending !== null, label: 'CPU for the chats', count, title, note: typeof cpu.fault === 'string' ? cpu.fault : null }
+}
+// cpu:end
+
 // store:start
 /**
  * B296: the line under the Backlog tab's head about the work store, the one source of the work: how many items it holds
@@ -250,6 +267,52 @@ function drawAppNote(state) {
   note.className = `app-note is-${shown.tone}`
   note.textContent = shown.text
 }
+
+/** B311: the head's "CPU for the chats" and its note on top (see `cpuView`). */
+function drawCpu(state) {
+  const shown = cpuView(state.cpu ?? null, sending.has('cpu') ? cpuPending : null)
+  const box = $('cpu')
+  box.hidden = shown === null
+  const note = $('cpu-note')
+  const problem = problems.get('cpu') ?? null
+  const noteText = problem ?? shown?.note ?? null
+  note.hidden = noteText === null
+  if (noteText !== null) note.textContent = noteText
+  if (shown === null) return
+  $('cpu-label').textContent = shown.label
+  $('cpu-count').textContent = shown.count
+  box.title = shown.title
+  for (const button of box.querySelectorAll('[data-cpu]')) {
+    const isOn = button.dataset.cpu === shown.level
+    button.classList.toggle('is-on', isOn)
+    button.setAttribute('aria-pressed', String(isOn))
+    button.disabled = shown.disabled
+    button.hidden = state.cpu.available !== true
+  }
+}
+
+/** The level being sent, lit at once. */
+let cpuPending = null
+
+$('cpu').addEventListener('click', async event => {
+  const button = event.target.closest('[data-cpu]')
+  if (button === null || board === null || sending.has('cpu') || board.cpu?.level === button.dataset.cpu) return
+  cpuPending = button.dataset.cpu
+  sending.add('cpu')
+  problems.delete('cpu')
+  drawCpu(board)
+  try {
+    const answer = await fetch('/api/cpu', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ level: cpuPending }) })
+    if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
+    board.cpu = await answer.json()
+  } catch (error) {
+    problems.set('cpu', `CPU for the chats not changed: ${error instanceof Error ? error.message : 'the board did not answer'}`)
+  } finally {
+    sending.delete('cpu')
+    cpuPending = null
+    drawCpu(board)
+  }
+})
 
 /** B296, B301: the note on top about the work store (see `storeNote`). */
 function drawStoreNote(state) {
@@ -8545,6 +8608,7 @@ function draw(state) {
   drawUpdate(state)
   drawAppNote(state)
   drawStoreNote(state)
+  drawCpu(state)
   drawMainGame(state)
   drawLimits(state)
   drawRestart(state)

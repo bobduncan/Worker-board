@@ -28,9 +28,12 @@ import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { availableParallelism } from 'node:os'
+
 import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
+import { cpuLimiter, sessionsOfCards } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -157,6 +160,7 @@ export function pictureKind(bytes) {
  *   `goals(body)`      one change to the goal map (B256), the same shape
  *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
  *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
+ *   `cpu(body)`        B311: the level of "CPU for the chats" ({ level }), the same shape
  */
 export function createBoard({
   token, getState, say, picture = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
@@ -170,6 +174,7 @@ export function createBoard({
   brainstorm = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
 }) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
@@ -223,7 +228,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/brainstorm' || pathname === '/api/work') {
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/brainstorm' || pathname === '/api/work' || pathname === '/api/cpu') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -250,6 +255,10 @@ export function createBoard({
       }
       if (pathname === '/api/work') {
         const done = await work(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/cpu') {
+        const done = await cpu(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/goals') {
@@ -662,6 +671,26 @@ async function main(args) {
     setInterval(measure, TICK_MS)
   }
 
+  // B311: "CPU for the chats": the project's chats and what they started run at a lower priority, on fewer cores, while
+  // the person plays (src/cpu.mjs). Every board but the demo and one that only shows another's history; a copy beside
+  // the person's board starts at Off whatever config.json says, and applies only what was clicked on it.
+  const chatSessions = async () => {
+    const cards = await readdir(join(config.project, '.claude', 'chats')).catch(() => [])
+    const listed = (await readState().catch(() => ({ chats: [] }))).chats ?? []
+    return [...new Set([...sessionsOfCards(cards), ...listed.filter(chat => !chat.isLeftover && typeof chat.session === 'string').map(chat => chat.session)])]
+  }
+  const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
+    file: join(HERE, 'data', 'cpu.json'),
+    fallback: isShowOnly ? 'off' : config.cpuLimit,
+    cores: availableParallelism(),
+    sessions: chatSessions,
+  })
+  if (cpu !== null && cpu.available) {
+    const applyCpu = () => cpu.apply().catch(() => {})
+    applyCpu()
+    setInterval(applyCpu, Math.max(5, config.refreshSeconds) * 1000)
+  }
+
   const server = createBoard({
     token: randomBytes(32).toString('hex'),
     getState: async () => {
@@ -681,8 +710,9 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: !isDemo && !isShowOnly, whyNot: isDemo ? 'This is the demo: it changes no file.' : isShowOnly ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart } }
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart } }
     },
+    cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
     design: body => designTurn(async () => {
       const state = await readState()
       const checked = checkDesign(body, designNow(state))

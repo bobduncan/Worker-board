@@ -90,7 +90,12 @@ const DEFAULTS = {
   morningRound: '09:00',
   weeklyRound: true,
   morningSkipPercent: 80,
+  /** B311: the chats' CPU until the person picks one on the board (data/cpu.json): "off", "gentle" or "strong". */
+  cpuLimit: 'off',
 }
+
+/** B311: the levels of "CPU for the chats". */
+const CPU_LEVELS = ['off', 'gentle', 'strong']
 
 /** A branch's name as git allows it, plainly: letters, digits, "_", ".", "/" and "-", and no "..". */
 const BRANCH = /^(?!.*\.\.)[\w][\w./-]{0,120}$/
@@ -173,6 +178,7 @@ export function parseConfig(text, env) {
   if (typeof raw.weeklyRound === 'boolean') config.weeklyRound = raw.weeklyRound
   if (Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== '')) config.runGame = [...raw.runGame]
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
+  if (typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase())) config.cpuLimit = raw.cpuLimit.trim().toLowerCase()
   return config
 }
 
@@ -210,6 +216,7 @@ export function configProblem(fileText) {
   if (has('morningRound') &&!(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
+  if (has('cpuLimit') && !(typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase()))) return wrong('cpuLimit', '"off", "gentle" or "strong"')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   return null
 }

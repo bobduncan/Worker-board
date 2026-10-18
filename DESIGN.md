@@ -1340,6 +1340,39 @@ said so only in prose in its chat, filed no ask and wrote no "For you" block, so
   ask, or reports. A chat whose answer ends with a "For you" block and filed no ask has that warning instead, not both.
   Nothing of the chat's words is read for it.
 
+## CPU for the chats (B311)
+
+The person, 2026-10-18, while playing the game: the workers made the PC lag; "i want the board to not completely stop
+but [not] prevent my ability to play the game". A setting in the board's head, beside Prepare restart.
+
+- **Three levels**, one click each: **Off** (Normal priority, all cores), **Gentle** (BelowNormal priority, all cores),
+  **Strong** (Idle priority, on at most half of the logical cores: the higher half of the affinity mask, so the lower
+  cores, where Windows starts most work, stay free for the game). Kept in `data/cpu.json`, so it survives a restart;
+  `cpuLimit` in config.json gives the level until one is clicked ("off" unless set). A copy of the board beside the
+  person's starts at Off whatever config.json says, and applies only what was clicked on it.
+- **Which processes** (`src/cpu.mjs`, `chosenProcesses`): every `claude.exe` whose command line names a session of
+  the project's list of chats (`--resume=<id>`; the sessions are the card files `.claude/chats/<session>.json` and the
+  chats the board lists), and its whole tree below (node, vite, a browser with a temporary profile, python, git, ...).
+  A child counts only when it started after its parent, so a reused process number leads nowhere. Never the desktop
+  app (its command line names no session, and it is no child of a chat), never anything else; the board's own server
+  only when a chat started it.
+- **How** (`cpuLimiter`): at start and every refresh one PowerShell listing (`Get-CimInstance Win32_Process`, the
+  command line only of `claude.exe`). A process is set (`PriorityClass`, `ProcessorAffinity`, a second PowerShell call
+  with the changes on its standard input) only when it is not at the level: Windows reports another base priority, or
+  the board has not set it and its parent is not done (a child of a BelowNormal or Idle process inherits the priority
+  and the cores). Both calls lower their own priority first. Off lists nothing at all, apart from one pass right after
+  a limit was switched off, which gives every chosen process Normal and all cores back. A process that cannot be set
+  (gone, access denied) is passed over quietly and not tried again at that level; a listing that fails is one red line
+  on top, gone at the next listing that works.
+- **Windows only.** Elsewhere the control says "not available here" and nothing runs; `POST /api/cpu` answers 409.
+- **The head** shows the level lit and, when not Off, how many processes it applies to ("15 processes, below normal",
+  "15 processes, idle, 12 of 24 cores"). `POST /api/cpu {level}` takes the click, from the board's own page only (token,
+  origin, JSON, as every action).
+- Tests (`test/cpu.test.mjs`): the level's parsing and storage, the setting, which processes are chosen from a made-up
+  list, the affinity mask for N cores, what is set and what is passed over, the Off pass, a failed listing, another
+  platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
+  replace.
+
 ## The calm answer window (B269)
 
 The person, 2026-10-15: the window where a chat needs their answer was too cluttered; they chose a calmer picture

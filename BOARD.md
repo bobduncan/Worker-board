@@ -59,7 +59,9 @@ A dark dashboard: dark blue panels with thin borders on an almost black page, wh
 ## The top bar
 
 The tabs **Overview**, **Advisor**, **Backlog**, **Design**; on the right **Prepare restart** (asks the main chat to
-bring every worker to a safe point before the app is quit; after it the board offers **Resume**), the board's
+bring every worker to a safe point before the app is quit; after it the board offers **Resume**), **CPU for the
+chats** (B311: Off, Gentle, Strong, one click each; when not Off, how many processes it applies to, "15 processes,
+below normal"; "not available here" off Windows; a listing that failed is one red line on top), the board's
 version and since when, "Last updated", and a refresh button. When the board's folder holds a newer version, a
 yellow note on top says so; a click starts the new version. Without the Workers mod a bar on top says that what the
 person sent was copied, and into which chat to paste it.

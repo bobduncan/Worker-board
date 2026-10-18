@@ -126,6 +126,11 @@ and the briefings for the main chat and the workers.
   ...").
 - The head shows the plan's limits; a worker that paused for the limit shows as "Suspended" until it goes on.
 - Before you quit the app: "Prepare restart" on the board, and "Resume all" after it is open again.
+- "CPU for the chats" in the head (B311, Windows only): when the PC lags while you play or work, click Gentle (the
+  project's chats and everything they started run below normal priority) or Strong (idle priority, on the higher
+  half of the cores); Off gives them normal priority and all cores back. The board keeps applying it at every refresh,
+  also to what the chats start later, and remembers it in `data\cpu.json`. Only the project's chats: never the Claude
+  app itself or another program.
 - "✕ Remove" on a worker's lane asks the main chat to close that worker; a worker that is not free gets a warning
   first, which says what would stop.
 - When a merge changes the board, a yellow note on top of the page says a new version is available; click it and
@@ -150,6 +155,8 @@ shows and answers), the Advisor's long answers to the asks on it (its "More:" li
 `work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own
 (a copy tried beside your board gives it a folder outside the project, and only then writes one). The store is
 required: without it the board shows no work and says on top what to run.
+`cpuLimit` (`"off"` unless set; `"gentle"` or `"strong"`): the level of "CPU for the chats" until one is clicked on the
+board; a copy beside your board starts at Off whatever it says.
 
 ## The work store
 
@@ -210,8 +217,8 @@ shows: answers are given on the board in the main folder.
 
 ## What it writes
 
-`data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran
-and the Design tab's ideas. Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
+`data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran,
+the Design tab's ideas and the level of "CPU for the chats" (`cpu.json`). Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
 pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), and the work store
 (`work`, `.claude\work` unless set), on the chats' `work` calls and your clicks, with `backlog.md` written from it as a
 view (see "The work store" above).
