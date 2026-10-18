@@ -198,3 +198,14 @@ export async function tick(store, state, now) {
   await store.record(changes(lastByChat(store.lines()), chats, now))
   await store.alive(now)
 }
+
+/**
+ * The person's "Dismiss" on the restart banner's copied word: kept on the word in the outbox (`dismissedAt`), so the
+ * banner leaves that word alone from then on. Refused for a word that is not waiting to be pasted.
+ */
+export async function dismissCopied(store, id, now) {
+  const message = store.outbox().find(one => one.id === id)
+  if (message === undefined || message.state !== 'copied') return { ok: false, status: 409, why: 'That word is not waiting to be pasted any more.' }
+  await store.update(id, { dismissedAt: now })
+  return { ok: true, message: { id, dismissedAt: now } }
+}

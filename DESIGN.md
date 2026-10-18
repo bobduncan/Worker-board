@@ -894,6 +894,17 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   quarter of an hour), or a newer word of its kind went another way. The main chat's name and title come from the
   list of chats. Once its chat runs and the word is still not pasted, the line says that; on a PC without the
   Workers mod it says that no mod types it in. The bar on top that says words were copied names the same reason.
+  Seen live again that day: the copied "resume" of 16:32 reached the main chat another way (another chat sent it by
+  its session id), the main chat resumed every worker and deleted restart.md, and the banner still said to paste it
+  long after. So a copied word also clears once it no longer matters (`stillMatters` in state.mjs): for "resume",
+  once the restart file it was copied with is gone (the server keeps with it `restartAt`, the file's time when
+  copied, null when there was none: a resume after a crash without restart.md does not clear on that; one
+  copied before the board kept it counts as copied with one) or once a turn
+  of the main chat since the copy has the word "resume", whoever brought it (pasted, a message from another chat,
+  the board); for "prepare restart", once restart.md is newer than the copy; for any other line, once a turn of the
+  main chat since the copy contains its first line; and in every case after two hours. A button **Dismiss** beside
+  **Copy again** keeps the word dismissed (`dismissedAt` on it in the outbox, `dismissCopied` in store.mjs, through
+  /api/say with `command: 'dismiss copied'`), so the banner leaves that word alone.
 
 **The Design tab** (the person, 2026-10-12: "i want to be able to prompt an initial idea. let it build a visual in
 codex about what i want, present it to me, if i agree can add information to it what i want and put it either on

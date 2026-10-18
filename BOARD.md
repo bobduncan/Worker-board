@@ -61,8 +61,9 @@ A dark dashboard: dark blue panels with thin borders on an almost black page, wh
 The tabs **Overview**, **Advisor**, **Backlog**, **Design**; on the right **Prepare restart** (asks the main chat to
 bring every worker to a safe point before the app is quit; after it the board offers **Resume**; B315: a word to
 the main chat that was only copied, because its chat did not run yet, stays on the restart banner, "Main's chat is not
-running yet: open Game - Main in the app (or click it in the sidebar) and paste with Ctrl+V", with **Copy again**,
-until the main chat has it), **CPU for the
+running yet: open Game - Main in the app (or click it in the sidebar) and paste with Ctrl+V", with **Copy again**
+and **Dismiss**, until the main chat has it or it no longer matters: "resume" once restart.md is gone or the main chat
+got "resume" another way, "prepare restart" once restart.md is written, and any word after two hours), **CPU for the
 chats** (B311: Off, Gentle, Strong, one click each; when not Off, how many processes it applies to, "15 processes,
 below normal"; "not available here" off Windows; a listing that failed is one red line on top), the board's
 version and since when, "Last updated", and a refresh button. When the board's folder holds a newer version, a

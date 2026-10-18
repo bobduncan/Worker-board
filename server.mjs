@@ -64,7 +64,7 @@ import { deliverWork, pullFor } from './src/work/deliver.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { storeKeeper } from './src/work/read.mjs'
 import { readStore } from './src/work/store.mjs'
-import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
+import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { findGameFile } from './src/gameFile.mjs'
 
@@ -889,6 +889,8 @@ async function main(args) {
       // Focus 2: a copy with a goal map of its own keeps the words of its brainstorms in its own outbox.
       const isOwnTalk = writesMap && typeof body?.command === 'string' && body.command.startsWith('brainstorm')
       if (isShowOnly && !isOwnTalk) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
+      // The person's "Dismiss" on the restart banner's copied word: kept on that word in the outbox.
+      if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
       const state = await readState()
       const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
@@ -919,8 +921,10 @@ async function main(args) {
       // B298: a line to a chat is filed as an instruction first and carries its id.
       message = await withInstruction(message, body => workAction(body, 'person'))
       // B315: the words as they were copied are kept with them, so the restart banner can copy them again and tell when
-      // the main chat has them.
+      // the main chat has them. A copied "resume" keeps whether a restart file was there (its time, or null): once that
+      // file is gone, the main chat has resumed, and the banner leaves the word alone.
       if (isCopied) message = { ...message, pasteText: messageText(message, timeOf, path => inProject(config.project, path)) }
+      if (isCopied && message.command === 'resume') message = { ...message, restartAt: state.restart?.prepared?.at ?? null }
       await store.say(message)
       if (isCopied) {
         readState.reset()

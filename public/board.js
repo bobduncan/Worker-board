@@ -761,7 +761,7 @@ function drawRestart(state) {
   const copied = restart.copied ?? null
   if (copied !== null) {
     const row = el('div', 'restart-ask')
-    row.append(line('alert', copiedLine(copied, { main: restart.main, isModThere: state.mod?.installed !== null })), button('Copy again', 'is-quiet', 'copy'))
+    row.append(line('alert', copiedLine(copied, { main: restart.main, isModThere: state.mod?.installed !== null })), button('Copy again', 'is-quiet', 'copy'), button('Dismiss', 'is-quiet', 'dismiss'))
     parts.push(row)
   }
 
@@ -2927,6 +2927,11 @@ $('restart').addEventListener('click', event => {
   if (button.dataset.restart === 'copy') {
     const words = board.restart.copied?.text ?? ''
     navigator.clipboard.writeText(words).then(() => { button.textContent = 'Copied' }, () => { button.textContent = 'Not copied' })
+    return
+  }
+  // The copied word no longer needs pasting: the board keeps it dismissed.
+  if (button.dataset.restart === 'dismiss') {
+    if (board.restart.copied != null) send({ command: 'dismiss copied', id: board.restart.copied.id }, 'restart')
     return
   }
   send({ to: board.restart.main, command: button.dataset.restart }, 'restart')

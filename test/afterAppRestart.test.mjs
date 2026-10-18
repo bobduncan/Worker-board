@@ -112,7 +112,7 @@ test('the rule on its own', () => {
 })
 
 const PASTE = 'resume\nNot running, as the worker board reads it: Board, Support.\n(typed on the worker board, 16:20)'
-const resume = (extra = {}) => ({ id: 'r1', at: NOW - 20 * MIN, to: 'Main', ask: null, command: 'resume', text: 'resume\nNot running, as the worker board reads it: Board, Support.', pasteText: PASTE, state: 'copied', ...extra })
+const resume = (extra = {}) => ({ id: 'r1', at: NOW - 20 * MIN, to: 'Main', ask: null, command: 'resume', text: 'resume\nNot running, as the worker board reads it: Board, Support.', pasteText: PASTE, state: 'copied', restartAt: null, ...extra })
 
 test('"Resume all" only copied: the banner keeps it until the main chat has taken it, with the words to copy again', () => {
   const state = build({ outbox: [resume()] })
@@ -196,6 +196,9 @@ test('a copied "resume" clears once the restart file it was copied with is gone'
   assert.equal(gone.restart.resuming, null)
   // Copied while no restart file was there (workers cut off by a crash): its absence says nothing.
   assert.notEqual(build({ outbox: [resume({ restartAt: null })] }).restart.copied, null)
+  // Copied before the board kept that (the live word of 16:32): no restart file now clears it.
+  assert.equal(build({ outbox: [resume({ restartAt: undefined })] }).restart.copied, null)
+  assert.notEqual(build({ outbox: [resume({ restartAt: undefined })], restartNote: FILE }).restart.copied, null)
 })
 
 test('a copied "resume" clears once a turn of the main chat since the copy has the word, from whatever source', () => {

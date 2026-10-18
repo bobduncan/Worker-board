@@ -159,6 +159,27 @@ function isTakenBy(entries, message, prefix) {
   return said === undefined ? null : said.at
 }
 
+/** How long a word only copied for the person to paste is kept on the restart banner at most. */
+const COPIED_MS = 2 * HOUR
+
+/**
+ * Whether a word to the main chat that was only copied still matters, so the restart banner keeps saying to paste it.
+ * It no longer does once the person dismissed it, after two hours, or once what it was for has happened: for
+ * "resume", the restart file it was copied with is gone (`restartAt`: the file's time when copied, null when there was
+ * none; a word copied before the board kept it counts as copied with one) or a turn of the main chat since the copy has the word "resume", whoever brought it (pasted, another chat, the
+ * board); for "prepare restart", the restart file is newer than the copy; for any other line, a turn of the main chat
+ * since the copy contains its first line. `entries` null: the main chat's transcript cannot be read.
+ */
+function stillMatters(message, { entries, prefix, restartNote, now }) {
+  if (Number.isFinite(message.dismissedAt) || now - message.at >= COPIED_MS) return false
+  const turns = entries === null ? [] : conversation(entries, { prefix, limit: 400 }).filter(one => one.from !== 'chat' && one.at >= message.at)
+  const has = test => turns.some(one => test(one.text))
+  if (message.command === 'resume') return !(message.restartAt !== null && restartNote === null) && !has(text => /\bresume\b/i.test(text))
+  if (message.command === 'prepare restart') return !(Number.isFinite(restartNote?.at) && restartNote.at > message.at)
+  const first = String(message.pasteText ?? message.text ?? '').split('\n')[0].trim()
+  return first === '' || !has(text => text.includes(first))
+}
+
 /**
  * Why a chat whose turn has ended is not free, or null when it is: its task is not reported yet, background work
  * it started still runs, or the store holds a step in progress for it. The board then shows it as working, between
@@ -1276,7 +1297,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const takenAt = message => (message?.state !== 'copied' ? null : isTakenBy(mainEntries, message, prefix))
   const toMain = main === undefined ? [] : sent.filter(message => message.to === main.name)
   const lastCopied = toMain.findLast(message => message.state === 'copied')
-  const isOpenCopy = lastCopied !== undefined && takenAt(lastCopied) === null
+  // A copied word that no longer matters (see stillMatters) is left alone: dismissed, too old, or done another way.
+  const matters = message => stillMatters(message, { entries: mainEntries, prefix, restartNote: raw.restartNote ?? null, now })
+  const isOpenCopy = lastCopied !== undefined && takenAt(lastCopied) === null && matters(lastCopied)
     && !toMain.some(message => message.at > lastCopied.at && message.state !== 'copied' && (message.command ?? null) === (lastCopied.command ?? null))
   const wordTaken = takenAt(word)
   const wordState = word?.state === 'copied' && wordTaken !== null ? 'delivered' : word?.state
@@ -1296,12 +1319,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // When the last worker sent its safe-point line: restart.md written before it does not count yet.
       lastLine: Math.max(0, ...live.filter(lane => lane.suspended?.by === 'restart').map(lane => lane.suspended.since)) || null,
     } : null,
-    // B315: one only copied stays until the main chat has taken it; then it shows as handed for a quarter of an hour.
-    resuming: word?.command === 'resume' && ((word.state === 'copied' && wordTaken === null) || now - (wordTaken ?? word.at) < 15 * MIN) ? { at: word.at, state: wordState } : null,
+    // B315: one only copied stays until the main chat has taken it, or it no longer matters (stillMatters); a handed one
+    // shows as handed for a quarter of an hour.
+    resuming: word?.command === 'resume' && ((word.state === 'copied' && wordTaken === null && matters(word)) || now - (wordTaken ?? word.at) < 15 * MIN) ? { at: word.at, state: wordState } : null,
     // B315: the word to the main chat that was only copied and is not in its chat yet: what to paste, into which chat
     // (its title from the list of chats), the app's id for it, and whether it runs now.
     copied: !isOpenCopy ? null : {
-      at: lastCopied.at, command: lastCopied.command ?? null, text: lastCopied.pasteText ?? lastCopied.text, chat: context.main.mainTitle ?? main.name,
+      id: lastCopied.id, at: lastCopied.at, command: lastCopied.command ?? null, text: lastCopied.pasteText ?? lastCopied.text, chat: context.main.mainTitle ?? main.name,
       session: main.appSessionId ?? null, isMainRunning: runningOf(main.name),
     },
     off: Number.isFinite(board?.offSince) && Number.isFinite(board?.startedAt) && now - board.startedAt < HOUR ? { from: board.offSince, to: board.startedAt } : null,
