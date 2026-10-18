@@ -211,7 +211,9 @@ shows: answers are given on the board in the main folder.
 
 ## Two projects on one PC
 
-Each project has its own copy of the board (its own folder, its own `config.json`); both can run at once (B319). The
+Each project has its own copy of the board (its own folder, its own `config.json`); both can run at once (B319). Make
+the second copy with `git clone` (or as a plain copy of the folder), not with `git worktree add`: a working folder of
+the same repository is a copy beside the first board, which only shows. The
 first board that runs on a port keeps it for its project, in a list of the PC's boards (`~/.worker-board/boards.json`).
 A board whose port another project's board holds takes the next free one and says so; `node server.mjs
 --launch-entry` writes that port into the project's launch entry. Each project's games get their own range of 100

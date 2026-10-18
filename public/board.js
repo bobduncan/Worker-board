@@ -231,7 +231,11 @@ function modNote(mod) {
   }
   const newer = mod.installed.split('.').map(Number).reduce((by, part, at) => by || part - (Number(mod.carried.split('.')[at]) || 0), 0) > 0
   if (newer) return { tone: 'info', text: `This PC runs the Workers mod ${mod.installed}, newer than the ${mod.carried} this board carries, and keeps it: bring the board's folder up to date to match.` }
-  return { tone: 'problem', text: `This board carries the Workers mod ${mod.carried}; this PC runs ${mod.installed}. Run npm run setup in the board's folder, then quit the Claude app fully and open it again.` }
+  // Installed from another board's folder (another project's): setup is run there, never here.
+  if (typeof mod.from === 'string' && mod.isHere === false) {
+    return { tone: 'problem', text: `This board carries the Workers mod ${mod.carried}; this PC runs ${mod.installed}, installed from ${mod.from}: bring that folder up to date and run npm run setup there, then quit the Claude app fully and open it again.` }
+  }
+  return { tone: 'problem', text: `This board carries the Workers mod ${mod.carried}; this PC runs ${mod.installed}. Run npm run setup in this board's folder, then quit the Claude app fully and open it again.` }
 }
 
 function drawModNote(state) {

@@ -57,18 +57,26 @@ test('pluginsFile: the app\'s list in the person\'s .claude folder, or where CLA
   assert.equal(pluginsFile({ CLAUDE_CONFIG_DIR: 'E:\\claude' }), join('E:\\claude', 'plugins', 'installed_plugins.json'))
 })
 
-test('modVersions: what this board\'s folder carries and what the PC runs', async t => {
+test('modVersions: what this board\'s folder carries, what the PC runs, and from which folder it came', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'board-mod-version-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const file = join(dir, 'installed_plugins.json')
-  const carried = JSON.parse(await readFile(join(ROOT, 'mods', MOD, '.claude-plugin', 'plugin.json'), 'utf8')).version
-  assert.deepEqual(await modVersions({ modsDir: join(ROOT, 'mods'), file }), { carried, installed: undefined })
+  const markets = join(dir, 'known_marketplaces.json')
+  const modsDir = join(ROOT, 'mods')
+  const carried = JSON.parse(await readFile(join(modsDir, MOD, '.claude-plugin', 'plugin.json'), 'utf8')).version
+  assert.deepEqual(await modVersions({ modsDir, file, markets }), { carried, installed: undefined, from: null, isHere: false })
   await writeFile(file, JSON.stringify({ version: 2, plugins: { [BOARD_ID]: [{ version: '0.1.0' }] } }))
-  assert.deepEqual(await modVersions({ modsDir: join(ROOT, 'mods'), file }), { carried, installed: '0.1.0' })
+  assert.deepEqual(await modVersions({ modsDir, file, markets }), { carried, installed: '0.1.0', from: null, isHere: false })
+  // The app's list of marketplaces says where the board's marketplace is: this board's folder, or another's.
+  const known = path => writeFile(markets, JSON.stringify({ [MARKETPLACE]: { source: { source: 'directory', path }, installLocation: path } }))
+  await known(modsDir.toUpperCase())
+  assert.deepEqual(await modVersions({ modsDir, file, markets }), { carried, installed: '0.1.0', from: modsDir.toUpperCase(), isHere: process.platform === 'win32' })
+  await known('C:\\Work\\alpha\\worker-board\\mods')
+  assert.deepEqual(await modVersions({ modsDir, file, markets }), { carried, installed: '0.1.0', from: 'C:\\Work\\alpha\\worker-board\\mods', isHere: false })
   await writeFile(file, JSON.stringify({ version: 2, plugins: {} }))
-  assert.deepEqual(await modVersions({ modsDir: join(ROOT, 'mods'), file }), { carried, installed: null })
+  assert.equal((await modVersions({ modsDir, file, markets })).installed, null)
   await mkdir(join(dir, 'mods'))
-  assert.deepEqual(await modVersions({ modsDir: join(dir, 'mods'), file }), { carried: null, installed: null })
+  assert.equal((await modVersions({ modsDir: join(dir, 'mods'), file, markets })).carried, null)
 })
 
 // The note on top of the page.
@@ -85,9 +93,12 @@ test('the page says so when the board carries another Workers mod than the PC ru
   for (const quiet of [{ carried: '0.13.5', installed: '0.13.5' }, null, undefined, { carried: '0.13.5' }, { carried: null, installed: '0.13.5' }]) {
     assert.equal(page.modNote(quiet), null, JSON.stringify(quiet))
   }
-  const older = page.modNote({ carried: '0.13.5', installed: '0.13.0' })
+  const older = page.modNote({ carried: '0.13.5', installed: '0.13.0', from: 'D:\\board\\mods', isHere: true })
   assert.equal(older.tone, 'problem')
-  assert.match(older.text, /carries the Workers mod 0\.13\.5.*this PC runs 0\.13\.0.*npm run setup.*quit the Claude app/s)
+  assert.match(older.text, /carries the Workers mod 0\.13\.5.*this PC runs 0\.13\.0.*npm run setup in this board's folder.*quit the Claude app/s)
+  // Installed from another board's folder: setup runs there, not here.
+  const elsewhere = page.modNote({ carried: '0.13.5', installed: '0.13.0', from: 'C:\\Work\\alpha\\worker-board\\mods', isHere: false })
+  assert.match(elsewhere.text, /installed from C:\\Work\\alpha\\worker-board\\mods.*bring that folder up to date.*npm run setup there/s)
   const newer = page.modNote({ carried: '0.13.0', installed: '0.14.0' })
   assert.equal(newer.tone, 'info')
   assert.match(newer.text, /0\.14\.0.*newer.*keeps it/s)

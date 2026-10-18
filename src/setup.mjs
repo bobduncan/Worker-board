@@ -198,14 +198,25 @@ export function installedVersion(text) {
   return null
 }
 
+/** B319: the app's list of the marketplaces it knows, beside its list of installed plugins. */
+export function marketsFile(env = process.env) {
+  return join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'plugins', 'known_marketplaces.json')
+}
+
 /**
- * B319: the mod this board's folder carries (`carried`, null when it carries none) and the one the PC runs
- * (`installed`: its version, null when none is installed, undefined when the list cannot be read).
+ * B319: the mod this board's folder carries (`carried`, null when it carries none), the one the PC runs (`installed`:
+ * its version, null when none is installed, undefined when the list cannot be read), the folder it was installed from
+ * (`from`, as the app's list of marketplaces names it; null when it does not), and whether that is this board's
+ * `mods` folder (`isHere`).
  */
-export async function modVersions({ modsDir, file }) {
+export async function modVersions({ modsDir, file, markets, platform = process.platform }) {
   const carried = (await boardVersion(modsDir)) || null
   const found = installedVersion(await readFile(file, 'utf8').catch(() => ''))
-  return { carried, installed: found === undefined || found === null ? found : found.version }
+  const known = parsed(await readFile(markets, 'utf8').catch(() => ''))
+  const market = found?.id?.slice(MOD.length + 1) ?? null
+  const source = market === null || known === null || typeof known !== 'object' ? null : known[market]
+  const from = [source?.source?.path, source?.installLocation].find(one => typeof one === 'string' && one !== '') ?? null
+  return { carried, installed: found === undefined || found === null ? found : found.version, from, isHere: from !== null && samePlace(from, modsDir, platform) }
 }
 
 /**

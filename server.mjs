@@ -39,7 +39,7 @@ import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designStat
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
 import { GAME_SPAN, boardsFile, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
-import { modVersions, pluginsFile } from './src/setup.mjs'
+import { marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { readHead } from './src/files.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
@@ -178,6 +178,7 @@ export function createBoard({
   work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  project = '',
 }) {
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
@@ -294,6 +295,8 @@ export function createBoard({
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       return json(res, await getState())
     }
+    // B319: whose board this is, for another board starting on this PC (src/ports.mjs, boardProject).
+    if (pathname === '/api/board') return json(res, { board: 'worker-board', project })
     if (pathname === '/api/picture') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       const found = await picture(searchParams.get('path') ?? '')
@@ -350,12 +353,14 @@ async function main(args) {
   // side; the demo is no project's and keeps out of it.
   const boards = isDemo || config.project === '' ? null : boardsFile()
   const asked = { port: config.port, gamePort: config.gamePort }
-  const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner(), project: config.project, gamePort: config.gamePort, boards })
+  // The project as a whole path: the list is the PC's, read from every board's folder.
+  const home = config.project === '' ? null : resolve(config.project)
+  const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner(), project: home, gamePort: config.gamePort, boards })
   config.port = chosen.port
   if (chosen.gamePort !== undefined) config.gamePort = chosen.gamePort
   /** The main folder's board, on the port it was not given by hand: the one that keeps its project's place in the list. */
   const isHome = boards !== null && chosen.isMain && chosen.why !== 'given'
-  const register = () => registerHome(boards, { project: config.project, folder: HERE, port: config.port, gamePort: config.gamePort, asked })
+  const register = () => registerHome(boards, { project: home, folder: HERE, port: config.port, gamePort: config.gamePort, asked })
   if (args.includes('--launch-entry')) {
     // This folder's entry for the preview: named after the folder, with the port it listens on.
     if (config.project === '') return console.error('config.json names no project: there is no launch.json to write to.')
@@ -598,7 +603,9 @@ async function main(args) {
   const running = (await gitRunner()(['-C', HERE, 'rev-parse', '--short', 'HEAD']))?.trim() || null
   const versionNow = cached(() => readVersion(gitRunner(), HERE, running), VERSION_MS)
   // B319: the Workers mod this folder carries against the one the PC runs (one per PC, for every project's board).
-  const modNow = isDemo ? async () => null : cached(() => modVersions({ modsDir: join(HERE, 'mods'), file: pluginsFile() }), VERSION_MS)
+  // Only the board that delivers says so: a copy or a board that shows another's history is no install of the mod.
+  const modNow = isDemo || isShowOnly ? async () => null
+    : cached(() => modVersions({ modsDir: join(HERE, 'mods'), file: pluginsFile(), markets: marketsFile() }), VERSION_MS)
 
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
   const seen = bridgeKey === null ? null : { shown: {}, other: {} }
@@ -774,6 +781,8 @@ async function main(args) {
 
   const server = createBoard({
     token: randomBytes(32).toString('hex'),
+    // B319: the demo is no project's.
+    project: isDemo ? '' : home ?? '',
     getState: async () => {
       const { project, ...state } = await readState()
       const design = designState({

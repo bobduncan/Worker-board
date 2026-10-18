@@ -1684,8 +1684,11 @@ in it.
    project folder that is gone leaves the list. A lock file keeps two boards that start at once from losing each other.
 2. The port (`chooseHome`): the one the project had, while config.json asks for the same and no other project holds
    it; else the one asked for; else, when another project's board holds it, the next free port from there, passing over
-   ports something else listens on. The board says on its second line whose port it gave way to. The first project
-   keeps its port whoever comes later, so Lava Tactics' board keeps 4310. A new wish in config.json is chosen anew.
+   ports something else listens on, the ports given by hand (4311, 4312: `HAND_PORTS`) and the copies' (4320 to 4419).
+   The board says on its second line whose port it gave way to. The first project keeps its port whoever comes later,
+   so Lava Tactics' board keeps 4310. A new wish in config.json is chosen anew. A port the list does not give the
+   project yet is looked at first (review): when something listens there, it is taken only when that is the project's
+   own board, as its `/api/board` says (`boardProject`); a board of before the list, or another program, keeps it.
 3. Games: each project has a range of `GAME_SPAN` (100) ports from its first one, never meeting another project's; a
    folder's game takes its place in it. A copy in another working folder of the same repository takes its project's
    range, and its own port (from 4320, `data/port.json`) is never one another project's board holds.
@@ -1694,7 +1697,11 @@ in it.
    board refuses the key (proved with two project folders in the mod's tests and with two real boards).
 5. The Workers mod is one per PC. `npm run setup` never installs over a newer copy, and leaves a copy that came from
    another board's folder to that folder. A board whose folder carries another version than the PC runs says so on top
-   of its page (`modNote`): not installed or older, run setup; newer, bring the board's folder up to date.
+   of its page (`modNote`): not installed or older, run setup, there where the PC's copy came from (the app's
+   `known_marketplaces.json`); newer, bring the board's folder up to date. Only the board that delivers says it: a copy
+   or a board that shows another's history is no install of the mod.
+   A second project's board is a clone or a plain copy of the folder, never a `git worktree` of the first: that is a
+   copy beside it, which only shows (README, "Two projects on one PC").
 6. The proof: `test/twoBoards.test.mjs` copies the board into two folders for two made-up projects, both configured on
    the same port, runs them at once, and checks their ports, their notes and keys, the list, the second's launch entry,
    and that the first takes its own port again after a restart.
