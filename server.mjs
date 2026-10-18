@@ -34,7 +34,7 @@ import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { cpuLimiter, sessionsOfCards } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, projectFile, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, firstStart, followApp, isOwnMap, isOwnWork, loadConfig, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
@@ -365,6 +365,10 @@ async function main(args) {
   // The same holds for a copy in another folder than the repository's main one: a branch that is being built
   // must never take the chats away from the person's board, also not while that board is stopped.
   const isShowOnly = historyFrom !== undefined || chosen.isMain === false
+  // Focus 2: the board that delivers writes the goal map, its brainstorms and the focus; a copy only a map of its own
+  // (whole paths outside the project), as its own work store. A copy's words then wait in its own outbox: no chat takes
+  // from it.
+  const writesMap = !isDemo && (!isShowOnly || isOwnMap(config))
   // B142: a board its keeper started anew keeps the key it gave the chats' mod, so they reach it at once. The key
   // goes no further than this process: what the board starts does not get it.
   const keptKey = process.env.WORKER_BOARD_KEY ?? ''
@@ -709,7 +713,7 @@ async function main(args) {
         typical: typicalSeconds(),
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
-      const goalsEdit = { canWrite: !isDemo && !isShowOnly, whyNot: isDemo ? 'This is the demo: it changes no file.' : isShowOnly ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
+      const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
       return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart } }
     },
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
@@ -769,7 +773,9 @@ async function main(args) {
     },
     say: async body => {
       // What is answered here would never arrive: this board has no bridge.
-      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
+      // Focus 2: a copy with a goal map of its own keeps the words of its brainstorms in its own outbox.
+      const isOwnTalk = writesMap && typeof body?.command === 'string' && body.command.startsWith('brainstorm')
+      if (isShowOnly && !isOwnTalk) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
       const state = await readState()
       const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
@@ -830,7 +836,7 @@ async function main(args) {
     // is read anew, so the page draws the file as it now is: also after a refusal, often a change made elsewhere.
     goals: async body => {
       const done = await editGoals(body, {
-        canWrite: !isDemo && !isShowOnly,
+        canWrite: writesMap,
         file: projectFile(config, 'goals'),
         historyDir: projectFile(config, 'goalsHistory'),
         now: clock(),
@@ -842,7 +848,7 @@ async function main(args) {
     // delivers writes; then the state is read anew.
     brainstorm: async body => {
       const done = await editThread(body, {
-        canWrite: !isDemo && !isShowOnly,
+        canWrite: writesMap,
         dir: projectFile(config, 'brainstorms'),
         folder: config.brainstorms,
         goalsFile: projectFile(config, 'goals'),

@@ -136,6 +136,18 @@ export function isOwnWork(config) {
   return path.startsWith('..') || isAbsolute(path)
 }
 
+/**
+ * Focus 2 (the review of Focus 1): whether the goal map's files (`goals`, `brainstorms`, `goalsHistory`) are each a
+ * whole path outside the project: a copy's own map, which a copy of the board may write, as its own work store.
+ */
+export function isOwnMap(config) {
+  return ['goals', 'brainstorms', 'goalsHistory'].every(key => {
+    if (typeof config[key] !== 'string' || !isAbsolute(config[key])) return false
+    const path = relative(config.project, config[key])
+    return path.startsWith('..') || isAbsolute(path)
+  })
+}
+
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 // The paths inside the project or the game's repository, written with /.
 const PROJECT_PATHS = ['backlog', 'gamePlan', 'advisorDecisions', 'designKinds']

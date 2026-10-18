@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { join } from 'node:path'
 
-import { expandEnv, parseConfig } from '../src/config.mjs'
+import { expandEnv, isOwnMap, parseConfig } from '../src/config.mjs'
 
 const env = { APPDATA: 'C:\\Users\\sam\\AppData\\Roaming', UserProfile: 'C:\\Users\\sam' }
 
@@ -234,4 +234,13 @@ test('B296: the work store is .claude/work unless set: a path inside the project
   assert.equal(isOwnWork({ ...own, work: join(project, '.claude', 'work') }), false)
   assert.equal(configProblem('{"work": 5}'), '"work" must be a path inside the project written with /, or a whole path of its own, not 5')
   assert.equal(configProblem('{"work": "../out"}'), '"work" must be a path inside the project written with /, or a whole path of its own, not "../out"')
+})
+
+test('Focus 2, the review\'s findings: a copy of the board writes a goal map of its own (whole paths outside the project), never the project\'s', () => {
+  const own = parseConfig(JSON.stringify({ project: 'C:\\garden', goals: 'C:/scratch/goals.md', brainstorms: 'C:/scratch/talks', goalsHistory: 'C:/scratch/history' }), {})
+  assert.equal(isOwnMap(own), true)
+  assert.equal(isOwnMap(parseConfig(JSON.stringify({ project: 'C:\\garden' }), {})), false)
+  // Only part of it its own: the project's brainstorms would be written.
+  assert.equal(isOwnMap(parseConfig(JSON.stringify({ project: 'C:\\garden', goals: 'C:/scratch/goals.md' }), {})), false)
+  assert.equal(isOwnMap(parseConfig(JSON.stringify({ project: 'C:\\garden', goals: 'C:/garden/.claude/goals.md', brainstorms: 'C:/scratch/talks', goalsHistory: 'C:/scratch/history' }), {})), false)
 })
