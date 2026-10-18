@@ -80,7 +80,8 @@ test('the button says Initialise, and for a while after its click that the main 
 })
 
 test('one box, one button: in the workers part and under the simple view\'s bar; no copy buttons, no second box', () => {
-  const box = script.slice(script.indexOf('function setupBox(chat)'), script.indexOf('$(\'lanes\').addEventListener(\'click\', event => {\n  const button'))
+  const box = script.slice(script.indexOf('function setupBox(chat'), script.indexOf('// Review: on the page as a whole'))
+  assert.ok(box.length > 100 && box.length < 2000, 'the box\'s code is found')
   assert.equal((box.match(/el\('a'/g) ?? []).length, 1)
   assert.ok(!script.includes('Copy its first words') && !script.includes('drawOpenChats'))
   const simple = script.slice(script.indexOf('function drawSimpleOverview(state)'), script.indexOf('fill($(\'simple-bar\'), parts)'))
