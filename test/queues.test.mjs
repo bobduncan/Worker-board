@@ -241,6 +241,24 @@ test('backgroundRunning counts what was sent to the background and has not repor
   assert.equal(count([toolResult(1), user(2, [{ type: 'tool_result', tool_use_id: 't', content: 'It said: Async agent launched' }])]), 0)
 })
 
+test('B310: a background helper that reports while the turn still runs has reported, and a report names what it ends', () => {
+  const count = lines => backgroundRunning(parseTail(lines.join('\n'), false))
+  const sent = (at, id) => user(at, [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'text', text: 'Async agent launched successfully.\nagentId: made-up' }] }])
+  const words = id => `<task-notification>\n<task-id>made-up</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>completed</status>\n</task-notification>`
+  // The app keeps a report that arrives in the middle of a turn with the turn, as a queued command (Units, 2026-10-18).
+  const midTurn = (at, id) => JSON.stringify({
+    type: 'attachment', timestamp: new Date(at).toISOString(),
+    attachment: { type: 'queued_command', prompt: words(id), commandMode: 'task-notification', origin: { kind: 'task-notification', producer: 'session-task' } },
+  })
+  assert.equal(count([sent(1, 'toolu_a'), step(2, 'Build'), midTurn(3, 'toolu_a'), answer(4, 'Done')]), 0)
+  // A report names the call it ends: one for a helper sent off before the tail began ends nothing seen here.
+  assert.equal(count([sent(1, 'toolu_b'), user(2, words('toolu_older'), { origin: { kind: 'task-notification' } })]), 1)
+  assert.equal(count([sent(1, 'toolu_a'), sent(2, 'toolu_b'), user(3, words('toolu_b'), { origin: { kind: 'task-notification' } })]), 1)
+  // The parsed tail keeps it as an aside of the turn: it opens and ends no turn.
+  const entries = parseTail([sent(1, 'toolu_a'), midTurn(3, 'toolu_a')].join('\n'), false)
+  assert.deepEqual(entries.map(entry => [entry.type, entry.origin?.kind ?? null]), [['user', null], ['queued', 'task-notification']])
+})
+
 test('a card the chat forgot to clear does not keep it "working" once the app itself calls its turn completed', () => {
   const nothing = { plan: null, background: 0, step: null }
   const card = { task: { isReported: false } }
