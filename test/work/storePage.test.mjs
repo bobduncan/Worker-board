@@ -36,7 +36,7 @@ test('the answer to a store ask goes to POST /api/work as "answer"; Read goes th
 })
 
 test('Information: one line per note, who said it and about what', () => {
-  assert.deepEqual(plain(page.informationRows([{ id: 'N2', from: 'Board', to: 'main', text: 'B1 reported', about: 'B1', since: 5, isRead: false }])), [{ id: 'N2', text: 'B1 reported', isRead: false, head: 'Board → Main · B1', at: 5 }])
+  assert.deepEqual(plain(page.informationRows([{ id: 'N2', from: 'Board', to: 'main', text: 'B1 reported', about: 'B1', since: 5, isRead: false }])), [{ id: 'N2', text: 'B1 reported', isRead: false, from: 'Board', about: 'B1', head: 'Board → Main · B1', at: 5 }])
   assert.deepEqual(plain(page.informationRows(undefined)), [])
 })
 

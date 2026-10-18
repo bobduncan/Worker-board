@@ -1142,6 +1142,21 @@ describe('B297: the work tool asks the worker board', () => {
     expect(w.worked.length).toBe(3)
   })
 
+  test('Focus 2: the partner keeps its drafts with vibe-draft and how-draft, their fields sent to the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'The board keeps the vibe of G6.' }) }
+    const vibe = await $.tool.call({ tool: WORK, action: 'vibe-draft', goal: 'G6', lines: ['hits feel heavy'], picture: 'pictures/hit.png' } as never)
+    expect((vibe as { result: string }).result).toBe('The board keeps the vibe of G6.')
+    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'vibe-draft', goal: 'G6', lines: ['hits feel heavy'], picture: 'pictures/hit.png', chat: 'Units', session: 'units' })
+    await $.tool.call({ tool: WORK, action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'] } as never)
+    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'], chat: 'Units', session: 'units' })
+  })
+
   test('a board that is down answers with one line and no throw', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })

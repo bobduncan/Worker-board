@@ -9,6 +9,7 @@ import { parseThread } from '../src/brainstorm.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
 import { wakeFor } from '../src/say.mjs'
+import { workApi } from '../src/work/api.mjs'
 
 function fakeFs(files) {
   return {
@@ -214,37 +215,67 @@ test('the words are the person\'s, marked so in the chat, and a partner not runn
 })
 
 
-test('the partner keeps its drafts through /api/goals with the board\'s key; with the key a move of the person\'s is refused', async t => {
-  const { request } = await import('node:http')
-  const { createBoard } = await import('../server.mjs')
-  const KEY = 'c'.repeat(64)
-  const TOKEN = 'a'.repeat(64)
-  const changed = []
-  const server = createBoard({ token: TOKEN, bridgeKey: KEY, getState: async () => ({ readAt: 1, chats: [] }), say: async () => ({ ok: false, status: 400, why: 'x' }), goals: async body => {
-    changed.push(body)
-    return { ok: true, result: {} }
-  } })
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => new Promise(resolve => server.close(resolve)))
-  const port = server.address().port
-  const post = (headers, body) => new Promise((resolve, reject) => {
-    const req = request({ host: '127.0.0.1', port, method: 'POST', path: '/api/goals', headers: { 'Content-Type': 'application/json', ...headers } }, res => {
-      const chunks = []
-      res.on('data', chunk => chunks.push(chunk))
-      res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }))
-    })
-    req.on('error', reject)
-    req.end(JSON.stringify(body))
-  })
-  const draft = { command: 'vibe-draft', id: 'G2', lines: ['warm wood'] }
-  assert.equal((await post({ 'X-Board-Key': 'b'.repeat(64) }, draft)).status, 403)
-  assert.equal((await post({ 'X-Board-Key': KEY }, { command: 'vibe-agree', id: 'G2' })).status, 403)
-  assert.equal((await post({ 'X-Board-Key': KEY }, { command: 'add', title: 'x' })).status, 403)
-  assert.equal(changed.length, 0)
-  assert.equal((await post({ 'X-Board-Key': KEY }, draft)).status, 200)
-  assert.equal((await post({ 'X-Board-Key': KEY }, { command: 'how-draft', id: 'G2', parts: [] })).status, 200)
-  assert.deepEqual(changed.map(one => one.command), ['vibe-draft', 'how-draft'])
-  // The page's own route still needs its token and its origin.
-  assert.equal((await post({}, { command: 'vibe-agree', id: 'G2' })).status, 403)
-  assert.equal((await post({ 'X-Board-Token': TOKEN, Origin: `http://127.0.0.1:${port}` }, { command: 'vibe-agree', id: 'G2' })).status, 200)
+test('the partner keeps its drafts through the work tool (vibe-draft, how-draft), as the chat the list names its partner only', async () => {
+  const drafted = []
+  const ctx = {
+    dir: 'C:/nowhere',
+    roleOf: chat => ({ Advisor: 'advisor', Units: 'worker', Main: 'main' })[chat] ?? null,
+    goalDraft: async body => {
+      drafted.push(body)
+      return body.id === 'G9' ? { ok: false, status: 409, why: 'The vibe is agreed: talk about the how now.' } : { ok: true, result: {} }
+    },
+  }
+  const vibe = await workApi({ action: 'vibe-draft', chat: 'Advisor', goal: 'G6', lines: ['warm wood'], picture: 'pictures/bench.png' }, ctx)
+  assert.deepEqual(vibe, { ok: true, result: { text: 'The board keeps the vibe of G6: the Focus page shows it.', changed: false } })
+  assert.deepEqual(drafted[0], { command: 'vibe-draft', id: 'G6', lines: ['warm wood'], picture: 'pictures/bench.png' })
+  const how = await workApi({ action: 'how-draft', chat: 'Advisor', goal: 'G6', parts: ['Draw the bench · about 1 h · steps B20'], partnerDecides: ['the colour'], youDecide: ['how many'] }, ctx)
+  assert.equal(how.result.text, 'The board keeps the how of G6: the Focus page shows it.')
+  assert.deepEqual(drafted[1], { command: 'how-draft', id: 'G6', parts: ['Draw the bench · about 1 h · steps B20'], partnerDecides: ['the colour'], youDecide: ['how many'] })
+  const late = await workApi({ action: 'vibe-draft', chat: 'Advisor', goal: 'G9', lines: ['x'] }, ctx)
+  assert.deepEqual([late.status, late.why], [409, 'The vibe is agreed: talk about the how now.'])
+  for (const chat of ['Units', 'Main']) assert.equal((await workApi({ action: 'vibe-draft', chat, goal: 'G6', lines: ['x'] }, ctx)).status, 403, chat)
+  assert.equal((await workApi({ action: 'how-draft', goal: 'G6', parts: [] }, { ...ctx, as: 'person' })).status, 403)
+  assert.equal((await workApi({ action: 'vibe-draft', chat: 'Advisor', lines: ['x'] }, ctx)).status, 400)
+  assert.equal((await workApi({ action: 'vibe-draft', chat: 'Advisor', goal: 'G6', lines: ['x'] }, { ...ctx, goalDraft: undefined })).status, 409)
+  assert.equal(drafted.length, 3)
+})
+
+test('a how drafted in the tool\'s words: each part "<title> · <size> · steps B<n>" as goals.md reads a Part line', async () => {
+  const fs = await inVibe()
+  await focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs))
+  await focusMove({ command: 'how-draft', id: 'G2', parts: ['Draw the bench · about 1 h · steps B20, B21', 'Place them'] }, ctx(fs))
+  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: ['B20', 'B21'] }, { title: 'Place them', size: null, steps: [] }])
+})
+
+test('the review\'s findings: a draft is for the focus goal only, and a how only once the vibe is agreed', async () => {
+  const fs = await inVibe()
+  const other = await focusMove({ command: 'vibe-draft', id: 'G4', lines: ['bright'] }, ctx(fs))
+  assert.deepEqual([other.status, other.why], [409, 'That goal is not the focus: draft only the focus goal.'])
+  assert.deepEqual(mapOf(fs).byId.get('G4').vibe, [])
+  const early = await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw the bench' }] }, ctx(fs))
+  assert.deepEqual([early.status, early.why], [409, 'The vibe is not agreed yet: draft the how once the person agreed it.'])
+  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [])
+})
+
+test('the review\'s findings: "Start the talk" (focus again) on a talk that is over starts or reopens it; one with a proposal is named', async () => {
+  const fs = fakeFs({ [MAP]: latin(GOALS) })
+  const first = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
+  const file = `${DIR}/${first.result.thread.split('/').pop()}`
+  // Wrapped up on the Brainstorm part: reopened, and the partner told.
+  fs.files[file] = fs.files[file].replace('State: running', 'State: wrapping up')
+  const reopened = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
+  assert.equal(reopened.result.thread, first.result.thread)
+  assert.equal(parseThread(utf8(fs.files[file])).state, 'running')
+  assert.match(reopened.words.text, /^focus: G2 /)
+  // Done (or discarded): a new talk.
+  fs.files[file] = fs.files[file].replace('State: running', 'State: done')
+  const fresh = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
+  assert.notEqual(fresh.result.thread, first.result.thread)
+  assert.match(fresh.words.text, /^focus: G2 /)
+  assert.deepEqual(mapOf(fs).byId.get('G2').brainstorm, { path: fresh.result.thread, state: 'running' })
+  // A proposal waits in it: created or discarded on the Brainstorm part first.
+  const other = `${DIR}/${fresh.result.thread.split('/').pop()}`
+  fs.files[other] += latin('## Proposal (14:10)\nDecided:\n- benches\n')
+  const held = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
+  assert.deepEqual([held.status, held.why], [409, 'The talk about this goal holds a proposal: create or discard it on the Brainstorm part first.'])
 })

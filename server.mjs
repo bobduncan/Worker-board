@@ -34,7 +34,7 @@ import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { cpuLimiter, sessionsOfCards } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, firstStart, followApp, isOwnMap, isOwnWork, loadConfig, projectFile, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
@@ -158,8 +158,7 @@ export function pictureKind(bytes) {
  *   `design(body)`     the Design tab's calls (make a picture, change it, agree, ask for the step), the same shape
  *   `reference(bytes)` keeps a reference picture the person added to an idea, the same shape
  *   `talkPicture(bytes)` keeps a picture the person pasted into Talk to Main (B167), the same shape
- *   `goals(body)`      one change to the goal map (B256), the same shape; Focus 2: also a move of the Focus page and
- *                      the partner's drafts, which a chat sends with the key (`/api/goals` with X-Board-Key)
+ *   `goals(body)`      one change to the goal map (B256), the same shape; Focus 2: also a move of the Focus page
  *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
  *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
  *   `cpu(body)`        B311: the level of "CPU for the chats" ({ level }), the same shape
@@ -213,29 +212,6 @@ export function createBoard({
       }
       const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
-    }
-
-    // Focus 2: the partner keeps its drafts of the focus's vibe and how through the goal map's route, with the key the
-    // board gave the chats' mod (in the project's .claude/board.json): only the drafts, never the person's moves.
-    if (pathname === '/api/goals' && req.headers['x-board-key'] !== undefined) {
-      const mayDraft = bridgeKey !== null && sameText(req.headers['x-board-key'], bridgeKey)
-      const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
-      if (req.method !== 'POST' || !mayDraft || !isJson) {
-        req.resume()
-        if (req.method !== 'POST') return refuse(res, 405, 'Only POST.')
-        return mayDraft ? refuse(res, 415, 'Send JSON.') : refuse(res, 403, 'Not the board\'s key.')
-      }
-      const body = await readBody(req)
-      if (body === null) return refuse(res, 413, 'Too large.')
-      let parsed
-      try {
-        parsed = JSON.parse(body)
-      } catch {
-        return refuse(res, 400, 'Not JSON.')
-      }
-      if (!FOCUS_DRAFTS.includes(parsed?.command)) return refuse(res, 403, `With the key only ${FOCUS_DRAFTS.join(' and ')}.`)
-      const done = await goals(parsed)
-      return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
     }
 
     if (pathname === '/api/design/reference' || pathname === '/api/talk/picture') {
@@ -391,9 +367,9 @@ async function main(args) {
   // must never take the chats away from the person's board, also not while that board is stopped.
   const isShowOnly = historyFrom !== undefined || chosen.isMain === false
   // Focus 2: the board that delivers writes the goal map, its brainstorms and the focus; a copy only a map of its own
-  // (whole paths outside the project), as its own work store. A copy's words then wait in its own outbox: no chat takes
-  // from it.
-  const writesMap = !isDemo && (!isShowOnly || isOwnMap(config))
+  // (whole paths outside the project, by real paths, and not the live board's map), as its own work store. A copy's words
+  // then wait in its own outbox: no chat takes from it.
+  const writesMap = !isDemo && (!isShowOnly || await ownMapNow(config, { main: chosen.main }))
   // B142: a board its keeper started anew keeps the key it gave the chats' mod, so they reach it at once. The key
   // goes no further than this process: what the board starts does not get it.
   const keptKey = process.env.WORKER_BOARD_KEY ?? ''
@@ -439,7 +415,8 @@ async function main(args) {
   const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
-   * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's, written into the
+   * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
+   * or the work tool's vibe-draft and how-draft through the work API), written into the
    * goal map (src/focus.mjs); the person's word to the partner goes into the outbox as every other board word, the
    * partner woken through the main chat when its chat is not running (Review Focus 5). Without the Workers mod it is
    * kept as copied and the page puts it on the clipboard.
@@ -497,6 +474,8 @@ async function main(args) {
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
     const items = (await readStore(workDir).catch(() => ({ items: new Map() }))).items
     return {
+      // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
+      goalDraft: body => focusNow(body),
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),

@@ -1430,8 +1430,11 @@ beside the mockup `focus-vibe.png`: `art-inbox/focus-mockups/inc2-vibe.png`, `in
   not running (Review Focus 5). Two clicks on "This is the vibe", also at once: one line, one word (Review Focus 3).
 - **The drafts**: `vibe-draft` (`lines`, `picture`; refused once the vibe is agreed) and `how-draft` (`parts`,
   `partnerDecides`, `youDecide`; once the how is agreed only the parts' steps may change). The partner sends them with
-  `tools/focus-draft.mjs`, which reads the board's address and key from the project's `.claude/board.json`:
-  `/api/goals` with `X-Board-Key` takes only these two (403 for anything else); the page's token route takes all.
+  the Workers mod's work tool (version 0.13.4: the actions `vibe-draft` and `how-draft`, the fields `goal`, `lines`,
+  `picture`, `parts`, `partnerDecides`, `youDecide`): the work API (`/api/bridge/work`) takes them from the chat
+  the list names the partner only (role advisor) and hands them to the board's `goalDraft`, which writes the map, not
+  the store; a part may be the tool's line "<title> · <size> · steps B<n>". No chat reads the board's own file. The
+  page's route (`/api/goals`) takes them too.
 - **A copy** (the review of Focus 1): a copy whose `goals`, `brainstorms` and `goalsHistory` are whole paths outside
   the project (`isOwnMap`) writes that map, its threads and the focus, and keeps the words in its own outbox, which no
   chat takes; the project's map stays the delivering board's.
@@ -1449,8 +1452,8 @@ beside the mockup `focus-vibe.png`: `art-inbox/focus-mockups/inc2-vibe.png`, `in
   the new words. The project's `.claude/main-briefing.md` needs one line of its own (the main chat's).
 - The review of Focus 1, fixed here: a part whose step is in review is in progress; an unknown part, and the way back
   to the tab, open the first part `advisorParts` shows; an empty `advisorParts` is named as broken.
-- Tests: `test/focusFlow.test.mjs` (each move, the words, Review Focus 3 and 5, the drafts, the key route),
-  `test/focusDraft.test.mjs` (the tool), `test/focusPage.test.mjs` (the buttons, the talk's open question),
+- Tests: `test/focusFlow.test.mjs` (each move, the words, Review Focus 3 and 5, the drafts, the work API's drafts by role),
+  `test/focusPage.test.mjs` (the buttons, the talk's open question),
   `test/partnerJob.test.mjs` (the job texts and where the board names them).
 
 ## The Focus tab, increment 1 (Focus 1): read-only from goals.md
@@ -1543,6 +1546,30 @@ fields), so the line it writes back still says the same step; a lane named after
 named so, drops the note (`withoutNote` in board.js). Of two steps the store holds in progress for one worker, its
 lane shows the one its card names, else the one it took last, never one it was taken off. And a worker whose last
 answer closed "- Done:   partly" or "no" is between two turns, not free, whatever the app calls its turn.
+
+## A calmer Overview (B307)
+
+The person, 2026-10-18 on the Advisor tab: "I want to see if i can make this overview slightly easier and have less
+text/details. what would you recommend to cut?" Of the six cuts the Advisor drew they kept the refresh icon by the
+project's name, the limits' reset times, "Estimates lately" and the next step in each queue, and asked for a handle to
+make Information smaller or bigger. Nothing is gone: what leaves a row is in its tooltip or in the details "⋯" opens.
+1. Information has a box of its own under the asks (`#information`), as high as the handle above it is dragged (the
+   arrow keys too; a double-click gives the usual 260 pixels; kept in this browser, `infoHeightFit`). Each note is one
+   line: the step it is about, who sent it, its words without "Report from ...:" (`infoLine`); a click opens the whole
+   note with its Read button; "Mark all read" reads each new one in turn. All read and hidden, the box is one line.
+2. One line per worker: its task, or "free since 13:01" (`freeShort`). "Now:" and "Between turns" are in the task's
+   tooltip and its details; the compaction note shows only when it warns, else on hovering the name; "No active task"
+   and "Ready for a new task" go, and so does the empty bar of a worker without a task. Alerts, flags, a held or cut-off
+   worker and "Needs your decision" stay on the row: they say something is wrong. The Advisor's card follows: its task,
+   else what it refines, else how it stands.
+3. The time left once, in the column Left ("1 h 34"; over its time "12 min over"), its end time and where the time is
+   from in the tooltip (`leftView`); the step line keeps its own time for the list that opens on hover.
+4. "Next in queue": the next step's id and title and why it waits ("waits for B277"), "+2" for the rest, nothing when
+   the queue is empty (`nextInQueue`); its tooltip has the length of the queue and its time.
+5. The head: which commit main is on, on hovering Run game (a running game keeps its link); "0 waiting for you" goes
+   (`shownCounts`); how old the limits' figure is shows only when it is old.
+6. The top bar: CPU for the chats, its processes and the board's version sit behind ⚙ (`#settings`), whose tooltip says
+   the level and the version; a click elsewhere or Escape folds it; on a phone it opens across the screen.
 
 ## What it does not do
 

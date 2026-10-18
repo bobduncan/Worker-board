@@ -118,10 +118,14 @@ test('its card says how it stands: working, needs your answer, idle, or not runn
   assert.equal(page.advisorStanding({ isRunning: true, state: 'waiting', asksYou: false }).label, 'Idle')
 })
 
-test('the card keeps the keyboard focus over a redraw, says its standing in the time column, and shows no count it does not have', () => {
+test('the card keeps the keyboard focus over a redraw, says its standing in its pill only, and shows no count it does not have', () => {
   const card = script.slice(script.indexOf('function drawAdvisorLane'), script.indexOf('function drawLanes'))
-  assert.ok(card.includes("el('span', 'state', standing.label)"))
-  assert.ok(card.includes('if (advisor.queued === undefined)'))
+  // B307: the time column says its time while it works, nothing else; its pill says how it stands.
+  assert.ok(!card.includes("el('span', 'state', standing.label)"))
+  assert.ok(card.includes("el('span', `pill is-${standing.key}`, standing.label)"))
+  // Nothing waiting, or a server without the count: the column stays empty.
+  assert.ok(card.includes('if (queued !== null)'))
+  assert.ok(!card.includes("'Nothing waits for it'"))
   const lanes = script.slice(script.indexOf('function drawLanes'), script.indexOf('function drawLanes') + 1200)
   assert.ok(lanes.includes("const wasOnAdvisor = document.activeElement?.dataset?.openAdvisor !== undefined"))
   assert.ok(lanes.includes("$('lanes').querySelector('[data-open-advisor]')?.focus()"))
@@ -142,7 +146,7 @@ test('what waits for it, as a count and its kinds; nothing says nothing', () => 
 test('the card stands under the workers, set apart, with no queue or worker buttons, and opens its chat on the Advisor tab', () => {
   assert.match(script, /fill\(\$\('lanes'\), \[\.\.\.state\.chats\.map\(lane => drawLane\(lane, state\)\), drawWorkers\(state\), drawAdvisorLane\(state\)\]/)
   const card = script.slice(script.indexOf('function drawAdvisorLane'), script.indexOf('function drawLanes'))
-  for (const words of ["el('article', 'lane is-advisor')", "card.dataset.openAdvisor = ''", "el('b', '', 'Advisor')", 'takes no tasks', "icon('advisor')", "'Nothing waits for it'", "show('advice')", "showAdvisorPane('chat')"]) {
+  for (const words of ["el('article', 'lane is-advisor')", "card.dataset.openAdvisor = ''", "el('b', '', 'Advisor')", 'takes no tasks', "icon('advisor')", '`${queued.count} waiting for it`', "show('advice')", "showAdvisorPane('chat')"]) {
     assert.ok(card.includes(words), words)
   }
   for (const worker of ['data-remove', 'dataset.remove', 'queue-item', 'lane-menu\'', 'stopPart', 'data-lane', 'dataset.lane']) assert.ok(!card.includes(worker), `no ${worker}`)
