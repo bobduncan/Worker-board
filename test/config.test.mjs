@@ -244,3 +244,35 @@ test('Focus 2, the review\'s findings: a copy of the board writes a goal map of 
   assert.equal(isOwnMap(parseConfig(JSON.stringify({ project: 'C:\\garden', goals: 'C:/scratch/goals.md' }), {})), false)
   assert.equal(isOwnMap(parseConfig(JSON.stringify({ project: 'C:\\garden', goals: 'C:/garden/.claude/goals.md', brainstorms: 'C:/scratch/talks', goalsHistory: 'C:/scratch/history' }), {})), false)
 })
+
+test('Focus 2, the review\'s findings: a copy\'s own map is told by real paths (a junction counts) and is never the live board\'s map', async () => {
+  const { mkdir, mkdtemp, rm, symlink, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { ownMapNow } = await import('../src/config.mjs')
+  const root = await mkdtemp(join(tmpdir(), 'own-map-'))
+  try {
+    const project = join(root, 'project')
+    const scratch = join(root, 'scratch')
+    const live = join(root, 'board')
+    await mkdir(join(project, '.claude'), { recursive: true })
+    await mkdir(scratch, { recursive: true })
+    await mkdir(live, { recursive: true })
+    await symlink(join(project, '.claude'), join(root, 'door'), 'junction')
+    const copyOf = paths => parseConfig(JSON.stringify({ project, ...paths }), {})
+    const own = { goals: join(scratch, 'goals.md'), brainstorms: join(scratch, 'talks'), goalsHistory: join(scratch, 'history') }
+    assert.equal(await ownMapNow(copyOf(own), { main: live }), true)
+    // Through a junction into the project: the project's own map.
+    assert.equal(await ownMapNow(copyOf({ ...own, goals: join(root, 'door', 'goals.md') }), { main: live }), false)
+    // The live board (the main checkout's config.json) keeps its map there too: never the copy's.
+    await writeFile(join(live, 'config.json'), JSON.stringify({ project, goals: join(scratch, 'goals.md') }))
+    assert.equal(await ownMapNow(copyOf(own), { main: live }), false)
+    await writeFile(join(live, 'config.json'), JSON.stringify({ project, brainstorms: join(scratch, 'talks') }))
+    assert.equal(await ownMapNow(copyOf(own), { main: live }), false)
+    await writeFile(join(live, 'config.json'), JSON.stringify({ project }))
+    assert.equal(await ownMapNow(copyOf(own), { main: live }), true)
+    // Not all three its own: no.
+    assert.equal(await ownMapNow(copyOf({ goals: join(scratch, 'goals.md') }), { main: live }), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

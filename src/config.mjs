@@ -1,8 +1,8 @@
 // The paths that differ per machine, from config.json next to the server.
 
 import { constants } from 'node:fs'
-import { access, copyFile, readFile, readdir, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative } from 'node:path'
+import { access, copyFile, readFile, readdir, realpath, stat } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 
 /**
  * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
@@ -146,6 +146,45 @@ export function isOwnMap(config) {
     const path = relative(config.project, config[key])
     return path.startsWith('..') || isAbsolute(path)
   })
+}
+
+const MAP_KEYS = ['goals', 'brainstorms', 'goalsHistory']
+
+/** A path as it really is (junctions and links followed), also one not there yet: its nearest folder that is, then the rest. */
+async function realOf(path) {
+  try {
+    return await realpath(path)
+  } catch {
+    const parent = dirname(path)
+    return parent === path ? path : join(await realOf(parent), basename(path))
+  }
+}
+/** Whether `path` is `folder` or inside it, by real paths, letters' case aside on Windows. */
+const within = (path, folder) => {
+  const to = relative(folder.toLowerCase(), path.toLowerCase())
+  return to === '' || (!to.startsWith('..') && !isAbsolute(to))
+}
+
+/**
+ * Focus 2, the review's findings: `isOwnMap` by real paths. The copy's `goals`, `brainstorms` and `goalsHistory` are
+ * each a whole path outside the project also when junctions are followed, and none is (or lies inside, or holds) the
+ * live board's own: the map the main checkout's config.json names (`main`: its folder), when it can be read.
+ */
+export async function ownMapNow(config, { main = null } = {}) {
+  if (!isOwnMap(config)) return false
+  const project = await realOf(config.project)
+  const mine = await Promise.all(MAP_KEYS.map(key => realOf(config[key])))
+  if (mine.some(path => within(path, project))) return false
+  if (main === null) return true
+  let live
+  try {
+    live = parseConfig(await readFile(join(main, 'config.json'), 'utf8'), process.env)
+  } catch {
+    return true
+  }
+  if (typeof live.project !== 'string' || live.project === '') return true
+  const theirs = await Promise.all(MAP_KEYS.map(key => realOf(projectFile(live, key))))
+  return !mine.some(path => theirs.some(other => within(path, other) || within(other, path)))
 }
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']

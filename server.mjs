@@ -34,7 +34,7 @@ import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { cpuLimiter, sessionsOfCards } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, firstStart, followApp, isOwnMap, isOwnWork, loadConfig, projectFile, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
@@ -367,9 +367,9 @@ async function main(args) {
   // must never take the chats away from the person's board, also not while that board is stopped.
   const isShowOnly = historyFrom !== undefined || chosen.isMain === false
   // Focus 2: the board that delivers writes the goal map, its brainstorms and the focus; a copy only a map of its own
-  // (whole paths outside the project), as its own work store. A copy's words then wait in its own outbox: no chat takes
-  // from it.
-  const writesMap = !isDemo && (!isShowOnly || isOwnMap(config))
+  // (whole paths outside the project, by real paths, and not the live board's map), as its own work store. A copy's words
+  // then wait in its own outbox: no chat takes from it.
+  const writesMap = !isDemo && (!isShowOnly || await ownMapNow(config, { main: chosen.main }))
   // B142: a board its keeper started anew keeps the key it gave the chats' mod, so they reach it at once. The key
   // goes no further than this process: what the board starts does not get it.
   const keptKey = process.env.WORKER_BOARD_KEY ?? ''
