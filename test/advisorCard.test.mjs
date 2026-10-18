@@ -144,7 +144,7 @@ test('what waits for it, as a count and its kinds; nothing says nothing', () => 
 })
 
 test('the card stands under the workers, set apart, with no queue or worker buttons, and opens its chat on the Advisor tab', () => {
-  assert.match(script, /fill\(\$\('lanes'\), \[\.\.\.state\.chats\.map\(lane => drawLane\(lane, state\)\), drawOpenChats\(state\), drawWorkers\(state\), drawAdvisorLane\(state\)\]/)
+  assert.match(script, /fill\(\$\('lanes'\), \[\.\.\.state\.chats\.map\(lane => drawLane\(lane, state\)\), drawWorkers\(state\), drawAdvisorLane\(state\)\]/)
   const card = script.slice(script.indexOf('function drawAdvisorLane'), script.indexOf('function drawLanes'))
   for (const words of ["el('article', 'lane is-advisor')", "card.dataset.openAdvisor = ''", "el('b', '', 'Advisor')", 'takes no tasks', "icon('advisor')", '`${queued.count} waiting for it`', "show('advice')", "showAdvisorPane('chat')"]) {
     assert.ok(card.includes(words), words)

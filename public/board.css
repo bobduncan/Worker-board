@@ -1843,15 +1843,12 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .new-project-buttons .new-project-make { border-color: transparent; background: var(--free); color: #fff; font-weight: 600; }
 .new-project-buttons button:disabled { opacity: 0.55; cursor: default; }
 
-/* B322: the box that opens a new project's main chat and Advisor in the Claude app. */
+/* B322, B335: a new project's box with its one Initialise button, which opens its main chat in the Claude app. */
 .open-chats { margin: 12px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--free); border-radius: 10px; background: var(--inset); }
 .open-chats h3 { margin: 0 0 6px; font-size: 15px; }
 .open-chats-about { margin: 0 0 10px; color: var(--muted); font-size: 13.5px; line-height: 1.45; }
-.open-chats-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
-.open-chats-button { padding: 7px 14px; border-radius: 8px; background: var(--free); color: #fff; font-weight: 600; font-size: 14px; text-decoration: none; }
+.open-chats-button { display: inline-block; padding: 8px 16px; border-radius: 8px; background: var(--free); color: #fff; font-weight: 600; font-size: 14px; text-decoration: none; }
 .open-chats-button:hover, .open-chats-button:focus-visible { filter: brightness(1.12); outline: 2px solid #8fb4ff; outline-offset: 2px; }
-.open-chats-copy { padding: 6px 12px; border: 1px solid #2a3850; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
-.open-chats-copy:hover, .open-chats-copy:focus-visible { color: var(--text); border-color: var(--free); }
 
 /* B327: the Overview opens on a simple view: the title, one bar for the focus goal, two chips and Needs your attention,
    in one column. Details is today's Overview, unchanged; the switch beside the title picks, and this browser keeps it. */
