@@ -2200,6 +2200,12 @@ worker for another try, until the attempts stall; only then the person's call, w
    evidence to open.
 8. The Workers mod's work tool takes `checked` and its fields `evidence`, `points` and `score` (0.13.11).
 9. Not in it: the picture tool (B357), the goal re-check (B358), the stall rule's own setting (B361).
+10. The review's findings: the result check counts from the step's last report (a report anew asks anew); a History
+    line is read by its words, whoever wrote it; "Not in it" lines and a Standard of none ask for no check. A failed
+    step is through once every fix of it is done or dropped and one at least done, with no point waiting for the
+    person (`fixesThrough`): the guard reads it, so a fix closed by the person's tick or the board's own move lets the
+    reconciler close the step too; only dropped fixes do not, and the partner checks it anew. One fix at a time: a
+    `checked` while a fix is open is refused; a fix made for a step that could not be written is taken back.
 
 ## What it does not do
 
