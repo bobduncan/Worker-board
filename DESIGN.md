@@ -1942,7 +1942,10 @@ ask`; the board then showed only the warning "<chat> wrote questions in its chat
   1.5 s at most, the free worker's pull included.
 - **The board files the missing ones** (`api.mjs`, `askForYou`): an item is left out when it names an ask of the
   store, or asks what an ask of the chat filed since the turn began, or one still open, asks already (the words
-  compared without markdown, links or the id note; equal, or one the start of the other). The others are asks of that
+  compared without markdown, links or the id note; equal, or one the start of the other). B362: also when its words
+  name an open ask by its id anywhere, as a word of its own ("(Q128, under B356)", "Q128: ...", "see Q128"), as a
+  chat that filed its ask with `work ask` and then wrote its own block in its own words does (Q112, Q131 to Q133
+  were filed twice so). The others are asks of that
   chat, `Via: chat`, `Blocking: no`, History "asked (decide, from its "For you" block)", under the one step it holds
   in progress, else alone (none, or more than one), as the app form's asks are. The answer names them (`asked`), and
   the view is written when there are some.

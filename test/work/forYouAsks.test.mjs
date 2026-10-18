@@ -72,6 +72,33 @@ test('an item the chat filed this turn, one it still holds open, or one naming a
   }
 })
 
+test('B362: an item in the chat\'s own words that names an open ask by its Q id, in any form, files nothing new', async () => {
+  const { dir, board, person } = await fresh()
+  try {
+    await board({ action: 'take', id: 'B1' }, NOW + MIN)
+    await board({ action: 'ask', of: 'B1', kind: 'decide', text: 'Which strip do you want?', options: ['A thin', 'B thick'], advice: 'B' }, NOW + 3 * MIN)
+    const worded = text => ({ ...DECIDE, text: [text], ref: null })
+    const forms = [
+      'Thin or thick strip for the lanes? I advise B (Q1, under B1)',
+      'Thin or thick: I advise B (Q1)',
+      'Q1: pick the strip, A thin or B thick',
+      'Pick the strip, see Q1 under B1.',
+    ]
+    const ended = await board({ action: 'turn-ended', since: NOW + 4 * MIN, forYou: forms.map(worded) }, NOW + 5 * MIN)
+    assert.deepEqual(ended.result.asked, [])
+    // A Q id named on a later line of the item counts too.
+    const later = await board({ action: 'turn-ended', since: NOW + 6 * MIN, forYou: [{ ...DECIDE, text: ['Thin or thick?', 'It is Q1 again.'], ref: null }] }, NOW + 7 * MIN)
+    assert.deepEqual(later.result.asked, [])
+    assert.equal((await readStore(dir)).items.has('Q2'), false)
+    // An id that is no open ask (unknown, or answered) does not hold a new question back; nor does a word like Q10x.
+    await person({ action: 'answer', id: 'Q1', text: 'B' })
+    const fresher = await board({ action: 'turn-ended', since: NOW + 30 * MIN, forYou: [worded('After Q1, which colour for the strip, A red or B blue? (Q9)'), worded('Is the Q1x mark clear?')] }, NOW + 31 * MIN)
+    assert.deepEqual(fresher.result.asked, ['Q2', 'Q3'])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('with no step or two in progress the ask stands alone; a do is a do; nothing filed without items', async () => {
   const { dir, board, main } = await fresh()
   try {
