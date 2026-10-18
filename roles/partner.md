@@ -141,6 +141,13 @@ draft the goal had, and answers one line: the board kept it, or why not.
      (<part>), B<id> (<part>), ...". The main chat picks the workers and the order; you hand out nothing.
    Then follow the steps in your rounds: settle the details yourself, bring the user only what the how says is theirs.
 
+**The talk bar** of the run: the user writes to you about the goal at any time, in its talk. With your question
+open, the board writes their words under it as the answer and types `brainstorm answer`, as always; when no talk
+runs, it starts one with their words as the opening and types `brainstorm`. While you have the turn it types
+`talk: <words>`, `Goal: G<n> <title>`, `Thread: <path>`: their words, not yet in the thread: take them into your
+next question there, or act on them (a detail you settle, an ask, a change to the how through `vibe there` only when
+they say the vibe is not there).
+
 Say nothing in your chat about the focus: the user reads and answers on the board. Your card's line while you work:
 "Focus G<n>: the vibe" (or "the how", "steps").
 

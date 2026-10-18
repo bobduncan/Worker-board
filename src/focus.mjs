@@ -12,8 +12,8 @@ import { focusWords } from './say.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
 
-/** The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet. */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no']
+/** The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar. */
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -101,6 +101,7 @@ async function move(body, ctx) {
   const say = async (kind, words = null) => focusWords(kind, { to: ctx.partner.name, goal: node, thread: await talkOf(node, ctx), words })
   const stage = focusStage(node)
   const words = oneLine(body.text, 1000)
+  if (command === 'talk') return talkBar(node, words, ctx, goalsAt)
   if (command === 'vibe-not-yet' || command === 'how-not-yet') {
     const wanted = command === 'vibe-not-yet' ? 'vibe' : 'how'
     if (stage !== wanted) return refuse(409, wanted === 'vibe' ? 'The vibe is agreed already.' : 'The how is not on the table now.')
@@ -134,6 +135,81 @@ async function agree(node, ctx, goalsAt, field, write, say) {
 }
 
 /**
+ * The talk about the goal `id` (`node`) the page writes in: the thread that runs; else one wrapped up (no proposal)
+ * reopened; else a new one with `opening`, linked under the goal. A talk that holds a proposal is the Brainstorm
+ * part's to create or discard first. Answers `{ ok: true, thread, isNewThread, isStarted }` (`isStarted`: made now,
+ * its opening the words given) or a refusal.
+ */
+async function talkFor(id, node, opening, ctx, goalsAt) {
+  let thread = await runningThread(id, ctx)
+  let isNewThread = false
+  let isStarted = false
+  // The review of Focus 2: a talk wrapped up on the Brainstorm part (no proposal yet) is reopened; one that holds a
+  // proposal is the Brainstorm part's to create or discard first; one that is over gives way to a new one.
+  const live = thread === null ? await liveThreads(id, ctx) : []
+  if (live.some(one => one.thread.proposal !== null)) return refuse(409, 'The talk about this goal holds a proposal: create or discard it on the Brainstorm part first.')
+  if (live.length > 0) {
+    const reopened = await rewrite(live[0].file, latin => {
+      const text = Buffer.from(latin, 'latin1').toString('utf8')
+      const done = setThreadState(text, 'running')
+      return done.ok ? { ok: true, text: Buffer.from(done.text, 'utf8').toString('latin1') } : done
+    }, ctx.fs)
+    if (!reopened.ok) return failed(reopened.why)
+    thread = live[0].path
+    isNewThread = true
+  }
+  if (thread === null) {
+    const started = await editThread({ command: 'start', title: node.title, goal: id, opening }, {
+      canWrite: true, dir: ctx.brainstormDir, folder: ctx.brainstormFolder, goalsFile: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs,
+    })
+    if (started.ok) {
+      thread = started.result.path
+      isNewThread = true
+      isStarted = true
+    } else thread = await runningThread(id, ctx)
+    if (thread === null) return refuse(started.status ?? 500, started.why ?? 'The talk could not be started.')
+  }
+  // The goal's Brainstorm line names the talk the page answers in, also when the line named one that is over.
+  if (isNewThread && node.brainstorm?.path !== thread) {
+    await changeGoalsFile(text => (parseGoals(text).byId.has(id) ? setGoalLine(text, id, 'Brainstorm', `${thread} (running)`) : { ok: true, text }), goalsAt).catch(() => null)
+  }
+  return { ok: true, thread, isNewThread, isStarted }
+}
+
+/**
+ * Focus 4 (spec 2026-10-18, sections 4 and 6): the run's talk bar. The person's words (`words`) go into the goal's talk
+ * (talkFor) as the Brainstorm part sends them: in a talk started for them, as its opening (`brainstorm`); with the
+ * partner's question open, as its answer, written under it (`brainstorm answer`); while the partner has the turn, as
+ * `talk: <words>` with the goal and the thread. Each typed as the person's word.
+ */
+async function talkBar(node, words, ctx, goalsAt) {
+  if (words === '') return refuse(400, 'Write what you want to tell your partner.')
+  const talk = await talkFor(node.id, node, words, ctx, goalsAt)
+  if (!talk.ok) return talk
+  const result = { id: node.id, thread: talk.thread }
+  const about = `${node.id} ${oneLine(node.title, 200)}`
+  const word = (command, text) => ({ to: ctx.partner.name, ask: null, step: null, title: null, version: null, verdict: null, command, about: talk.thread, text })
+  if (talk.isStarted) return { ok: true, result, words: word('brainstorm', `brainstorm
+Thread: ${talk.thread}
+Goal: ${about}
+Opening: ${words}`) }
+  const base = String(ctx.brainstormDir).replace(/[\/]+$/, '')
+  const file = `${base}/${talk.thread.split('/').pop()}`
+  const thread = parseThread(await ctx.fs.readFile(file).then(bytes => bytes.toString('utf8'), () => ''))
+  const latest = thread.questions.at(-1)
+  if (latest !== undefined && latest.answer === null) {
+    const answered = await editThread({ command: 'answer', path: talk.thread, n: latest.n, key: 'Other', words }, {
+      canWrite: true, dir: ctx.brainstormDir, folder: ctx.brainstormFolder, goalsFile: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs,
+    })
+    if (!answered.ok) return answered
+    return { ok: true, result, words: word('brainstorm-answer', `brainstorm answer
+Thread: ${talk.thread}
+Q${latest.n}: Other — ${words}`) }
+  }
+  return { ok: true, result, words: { ...focusWords('talk', { to: ctx.partner.name, goal: node, thread: talk.thread, words }) } }
+}
+
+/**
  * Pick a focus: a goal of the map (`id`), or something new (`text`: a new goal at the top, its words the opening). The
  * map's `Focus:` line names it; its talk is its running thread, else a new one, linked under it. A pick that changes
  * nothing (the same goal, its thread running) types no word.
@@ -164,36 +240,9 @@ async function pick(body, before, ctx, goalsAt) {
   if (!written.ok) return failed(written.why)
   const node = parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id)
   if (node === undefined) return failed('gone')
-  let thread = await runningThread(id, ctx)
-  let isNewThread = false
-  // The review of Focus 2: a talk wrapped up on the Brainstorm part (no proposal yet) is reopened; one that holds a
-  // proposal is the Brainstorm part's to create or discard first; one that is over gives way to a new one.
-  const live = thread === null ? await liveThreads(id, ctx) : []
-  if (live.some(one => one.thread.proposal !== null)) return refuse(409, 'The talk about this goal holds a proposal: create or discard it on the Brainstorm part first.')
-  if (live.length > 0) {
-    const reopened = await rewrite(live[0].file, latin => {
-      const text = Buffer.from(latin, 'latin1').toString('utf8')
-      const done = setThreadState(text, 'running')
-      return done.ok ? { ok: true, text: Buffer.from(done.text, 'utf8').toString('latin1') } : done
-    }, ctx.fs)
-    if (!reopened.ok) return failed(reopened.why)
-    thread = live[0].path
-    isNewThread = true
-  }
-  if (thread === null) {
-    const started = await editThread({ command: 'start', title: node.title, goal: id, opening: isNew ? oneLine(body.text, 2000) : 'I pick this goal as my focus.' }, {
-      canWrite: true, dir: ctx.brainstormDir, folder: ctx.brainstormFolder, goalsFile: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs,
-    })
-    if (started.ok) {
-      thread = started.result.path
-      isNewThread = true
-    } else thread = await runningThread(id, ctx)
-    if (thread === null) return refuse(started.status ?? 500, started.why ?? 'The talk could not be started.')
-  }
-  // The goal's Brainstorm line names the talk the page answers in, also when the line named one that is over.
-  if (isNewThread && node.brainstorm?.path !== thread) {
-    await changeGoalsFile(text => (parseGoals(text).byId.has(id) ? setGoalLine(text, id, 'Brainstorm', `${thread} (running)`) : { ok: true, text }), goalsAt).catch(() => null)
-  }
+  const talk = await talkFor(id, node, isNew ? oneLine(body.text, 2000) : 'I pick this goal as my focus.', ctx, goalsAt)
+  if (!talk.ok) return talk
+  const { thread, isNewThread } = talk
   const result = { id, thread }
   if (!moved && !isNewThread) return { ok: true, result: { ...result, unchanged: true }, words: null }
   const stage = focusStage(parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id) ?? node)

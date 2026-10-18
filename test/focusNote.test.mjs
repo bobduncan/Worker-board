@@ -252,8 +252,8 @@ const ctx = (fs, extra = {}) => ({
 })
 const mapOf = fs => parseGoals(utf8(fs.files[MAP]))
 
-test('the moves it knows end with the vibe-there answers', () => {
-  assert.deepEqual(FOCUS_MOVES.slice(-2), ['vibe-there-yes', 'vibe-there-no'])
+test('the moves it knows hold the vibe-there answers (Focus 4: the talk bar after them)', () => {
+  assert.deepEqual(FOCUS_MOVES.slice(-3, -1), ['vibe-there-yes', 'vibe-there-no'])
 })
 
 test('Yes ticks the goal, clears the focus and types vibe there: yes, once', async () => {

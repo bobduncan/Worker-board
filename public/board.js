@@ -6656,8 +6656,6 @@ function advisorFirstPart(setting) {
   return advisorPartsShown(setting)[0]
 }
 
-/** The words on a box of a later part (the run's talk bar): drawn, not yet working. */
-const FOCUS_LATER = 'comes in the next part'
 const FOCUS_STAGES = [['vibe', 'The vibe'], ['how', 'The how'], ['run', 'The run']]
 
 /** "3 h", "45 min": the time the parts not done still name. */
@@ -6743,6 +6741,8 @@ function focusView(focus, goals, can = null, ui = {}) {
       stepsOf: focus.id,
     }
     view.note = focusNoteView(focus, allowed, why)
+    // Focus 4: the slim talk bar under the parts: the person's words to the partner, in the talk about the goal.
+    view.talkBar = { placeholder: 'Talk to your partner about this goal…', act: 'talk-bar', isEnabled: allowed, title: allowed ? 'Your words go to your partner, in the talk about this goal' : why }
     const { done, total } = focus.progress
     view.vibeThere = total > 0 && done === total ? {
       question: 'Is the vibe there?',
@@ -6898,8 +6898,8 @@ function drawAdvisorParts(state) {
  * Focus 2: what the person is doing on the Focus page, which a redraw keeps: a move on its way, the line after it, the
  * box of "Not yet" open (`vibe` or `how`) and the words typed in each box, the option picked for the open question.
  */
-const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, words: { talk: '', notYet: '', new: '' } }
-const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new' }
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, words: { talk: '', notYet: '', new: '', bar: '' } }
+const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar' }
 
 function focusData(state) {
   return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking]
@@ -6920,9 +6920,9 @@ function focusButton(one, className) {
 
 /**
  * A box to write in, with its button: `box` names the words it keeps (FOCUS_BOXES), `act` the move its button makes;
- * off with `title` when it may not go. Without `box` it is the run's talk bar, which comes in the next part.
+ * off with `title` when it may not go.
  */
-function focusSay(placeholder, className, { box = null, act = null, label = 'Send', isEnabled = false, title = FOCUS_LATER } = {}) {
+function focusSay(placeholder, className, { box = null, act = null, label = 'Send', isEnabled = false, title = '' } = {}) {
   const form = el('form', className)
   if (act !== null) form.dataset.focusForm = act
   const text = el('textarea')
@@ -7183,7 +7183,7 @@ function drawFocus(state) {
     const body = el('div', 'focus-body')
     if (view.stage === 'run') {
       const left = el('div', 'focus-column')
-      left.append(focusRunCard(view), focusSay('Talk to your partner about this goal…', 'focus-say is-slim'))
+      left.append(focusRunCard(view), focusSay(view.talkBar.placeholder, 'focus-say is-slim', { box: 'focus-bar-words', act: view.talkBar.act, isEnabled: view.talkBar.isEnabled, title: view.talkBar.title }))
       const right = el('div', 'focus-column')
       if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can))
       right.append(focusNoteCard(view))
@@ -7280,6 +7280,11 @@ async function focusAct(act, goal = null, extra = null) {
         focusUi.notYet = null
       }
     } else if (act === 'talk' && focus !== null) await focusAnswer(focus)
+    // Focus 4: the run's talk bar: the words into the goal's talk (started or reused), typed to the partner as yours.
+    else if (act === 'talk-bar' && focus !== null) {
+      if (words('bar') === '') focusUi.note = { isProblem: true, text: 'Write what you want to tell your partner.' }
+      else if (await sendFocus({ command: 'talk', id: focus.id, text: words('bar') }, 'Sent to your partner, in the talk about this goal.') !== null) focusUi.words.bar = ''
+    }
     // Focus 3: the run's moves: the vibe is there; Undo of a decided line; an answer to the partner's question.
     else if (act === 'vibe-there-yes' && focus !== null) await sendFocus({ command: 'vibe-there-yes', id: focus.id }, 'The goal is done. Your partner asks for your next focus.')
     else if (act === 'undo' && focus !== null && extra !== null) await sendFocus({ command: 'note-undo', id: focus.id, note: extra.note, line: extra.line }, 'Your partner is asked to undo it.')
