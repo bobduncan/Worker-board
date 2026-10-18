@@ -1406,6 +1406,40 @@ but [not] prevent my ability to play the game". A setting in the board's head, b
   platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
   replace.
 
+## The Focus tab, increment 1 (Focus 1): read-only from goals.md
+
+The spec `.claude/specs/2026-10-18-focus-partner-design.md` and its plan (increment 1, Tasks 1 and 2); the person,
+2026-10-18: "i do like it, but keep the goal tab and brainstorm as well". Mockups and pictures beside each other in
+`art-inbox/focus-mockups`: `focus-vibe.png`, `focus-run.png`; `inc1-pick.png`, `inc1-vibe.png`, `inc1-how.png`,
+`inc1-run.png`.
+
+- **The lines** (`src/goals.mjs`): a head line `Focus: G<n>` before the first goal (`Focus:` alone is none; a Focus
+  line under a goal is a note); under a goal `Vibe:` (one per point), `Vibe picture:`, `Vibe agreed: <date time>`,
+  `Part: <title> · <size> · steps B<n>, B<n>` (size and steps optional), `Partner decides:`, `You decide:`,
+  `How agreed: <date time>`. `focusStage(node)`: none or gone → pick; ticked → done; no Vibe agreed → vibe (an agreed
+  vibe without words is the how, its line "(no words kept)"); no How agreed → how; else run.
+- **The writers** (`src/goalsWrite.mjs`, by id, every other line kept): `setFocus` (in place, else after the head's
+  Last lines, else under the heading; null removes it; a goal that is gone is refused), `setVibe` and `setHow`
+  (their lines replaced where the first stood, else after the goal's own top lines), `agreeVibe` and `agreeHow`
+  (once: a second agree keeps the first). Nothing calls them from the page yet: increment 2 does.
+- **The state** (`focusState` in `src/state.mjs`): `focus` is null without a map, a focus or a goal of that id;
+  else the goal, its stage, its lines, its brainstorm thread (a running one about it, else its Brainstorm line's) and
+  each part's progress from the work store: all its steps done, closed or dropped → done; one taken, in progress or
+  waiting on you → now, with that step's owner; else next; `progress` is the parts done of all and the minutes the
+  sizes of the parts not done name. `advisorParts` from the setting.
+- **The page** (`public/board.js`, the section `focus:start`): `focusView` (head, strip, the right card per stage,
+  the run's parts without step ids, the pick list), `focusTalk` (the thread as bubbles), `goalStepIds` (the goal's
+  Steps and Part steps and those of its goals inside) and `advisorPartsShown`. The part kept from last time that the
+  bar no longer shows gives way to Focus; the chat opened from the Advisor's card still opens. The Backlog's
+  `coordinateList` takes `goal`: only those steps, finished ones too.
+- **Drawn, off until increment 2**: "This is the vibe", "Not yet", "Go", the Pick buttons, the talk boxes and Send;
+  the daily note is a line that says it comes next.
+- **A copy tries it apart**: `goals`, `brainstorms`, `goalAsks` and `goalsHistory` may be a whole path of their own,
+  as `work` (`projectFile` in `src/config.mjs`).
+- Tests: `test/focus.test.mjs` (the lines, the stage, Review Focus 1 and 2, the writers), `test/focusPage.test.mjs`
+  (the state, each stage's view, no step ids on the run, the talk, the steps behind a goal),
+  `test/advisorTab.test.mjs` (the bar and the setting).
+
 ## The calm answer window (B269)
 
 The person, 2026-10-15: the window where a chat needs their answer was too cluttered; they chose a calmer picture

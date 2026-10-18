@@ -17,7 +17,7 @@
   <nav class="tabs" aria-label="Views">
     <div class="tab-list">
       <button class="tab is-active" type="button" data-tab="overview"><span class="tab-long">Overview</span><span class="tab-short">Today</span></button>
-      <button class="tab" type="button" data-tab="advice"><span class="tab-long">Advisor</span><span class="tab-short">Advisor</span></button>
+      <button class="tab" type="button" data-tab="advice"><span class="tab-long">Focus</span><span class="tab-short">Focus</span></button>
       <button class="tab" type="button" data-tab="coordinate">Backlog</button>
       <button class="tab" type="button" data-tab="design">Design</button>
     </div>
@@ -97,16 +97,18 @@
     </aside>
   </div>
 
-  <div class="view" id="view-advice" data-pane="way" hidden>
-    <nav class="advisor-tabs" id="advisor-tabs" aria-label="The Advisor's parts">
-      <button type="button" data-advisor-pane="way" aria-pressed="true">Next milestone</button>
+  <div class="view" id="view-advice" data-pane="focus" hidden>
+    <nav class="advisor-tabs" id="advisor-tabs" aria-label="The Focus tab's parts">
+      <button type="button" data-advisor-pane="focus" aria-pressed="true">Focus</button>
+      <button type="button" data-advisor-pane="way" aria-pressed="false" hidden>Next milestone</button>
       <button type="button" data-advisor-pane="goals" aria-pressed="false">Goals</button>
       <button type="button" data-advisor-pane="brainstorm" aria-pressed="false">Brainstorm <small id="advisor-brainstorm-count"></small></button>
-      <button type="button" data-advisor-pane="plan" aria-pressed="false">Game plan</button>
-      <button type="button" data-advisor-pane="suggestions" aria-pressed="false">Suggestions <small id="advisor-suggestions-count"></small></button>
-      <button type="button" data-advisor-pane="refine" aria-pressed="false">Refine <small id="advisor-refine-count"></small></button>
-      <button type="button" data-advisor-pane="chat" aria-pressed="false">Chat</button>
+      <button type="button" data-advisor-pane="plan" aria-pressed="false" hidden>Game plan</button>
+      <button type="button" data-advisor-pane="suggestions" aria-pressed="false" hidden>Suggestions <small id="advisor-suggestions-count"></small></button>
+      <button type="button" data-advisor-pane="refine" aria-pressed="false" hidden>Refine <small id="advisor-refine-count"></small></button>
+      <button type="button" data-advisor-pane="chat" aria-pressed="false" hidden>Chat</button>
     </nav>
+    <section class="panel advisor-focus" id="advisor-focus" aria-label="Your focus: one goal, its vibe, its how and its run"></section>
     <section class="panel advisor-way" id="advisor-way" aria-label="The way to the next milestone"></section>
     <section class="panel advisor-refine" id="advisor-refine" aria-label="The steps by where their refine stands"></section>
     <section class="panel advisor-goals" id="advisor-goals" aria-label="The goal map">

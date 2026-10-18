@@ -108,6 +108,8 @@ const ICONS = {
   // B159: a worker (a chat, whatever it works on) and a queue.
   chat: 'M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01',
   list: 'M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01',
+  // Focus 1: the person, beside their words in the talk with the partner.
+  person: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
 }
 
 function icon(name) {
@@ -6384,7 +6386,7 @@ window.addEventListener('popstate', () => {
     const tab = tabOfAddress(location.hash)
     if (tab === null) return
     show(tab)
-    if (tab === 'advice' && $('view-advice').dataset.pane === 'goals') showAdvisorPane('way')
+    if (tab === 'advice' && $('view-advice').dataset.pane === 'goals') showAdvisorPane('focus')
     return
   }
   goalsFocus = focus
@@ -6399,9 +6401,132 @@ window.addEventListener('popstate', () => {
 // the chat. The person, 2026-10-14: the details go to "different tabs and the main tab only shows some visual
 // simplistic flow"; the chat is one of those parts, not a tab of the board's own ("i Do not want a 5th tab").
 // B255: the goal map is the second part. B259: the brainstorm the third ("B", its own part).
-const ADVISOR_PANES = ['way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
+// Focus 1 (spec 2026-10-18, section 4): the tab is named Focus, its first part is the Focus page; its bar shows Focus,
+// Goals and Brainstorm, the others only when the setting advisorParts names them (hidden, not deleted).
+// focus:start
+const ADVISOR_PANES = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
+const ADVISOR_PARTS_USUAL = ['focus', 'goals', 'brainstorm']
+
+/** The parts the tab's bar shows (the setting advisorParts), in the bar's own order; none it knows: the usual three. */
+function advisorPartsShown(setting) {
+  const named = Array.isArray(setting) ? ADVISOR_PANES.filter(pane => setting.includes(pane)) : []
+  return named.length > 0 ? named : [...ADVISOR_PARTS_USUAL]
+}
+
+/** The words on a button of a later part: drawn, not yet working. */
+const FOCUS_LATER = 'comes in the next part'
+const FOCUS_STAGES = [['vibe', 'The vibe'], ['how', 'The how'], ['run', 'The run']]
+
+/** "3 h", "45 min": the time the parts not done still name. */
+function focusTimeLeft(minutes) {
+  if (minutes === null || minutes === undefined) return null
+  if (minutes < 60) return `${minutes} min`
+  return `${Math.round(minutes / 30) / 2} h`
+}
+
+/**
+ * Focus 1: what the Focus page shows (spec 2026-10-18, section 4), from the state's `focus` (null: none) and the goal
+ * map (`goals`, the state's): its stage, the head with the goal and, once agreed, its vibe in one line; the strip
+ * 1 The vibe → 2 The how → 3 The run; the run's progress; the right card of each stage and its buttons (drawn, off
+ * until the next part); the run's parts without step ids; and, with no focus or a goal done, the open goals to pick.
+ */
+function focusView(focus, goals) {
+  const stage = focus === null || focus === undefined ? 'pick' : focus.stage
+  const at = FOCUS_STAGES.findIndex(([name]) => name === stage)
+  const strip = FOCUS_STAGES.map(([, label], index) => ({ n: index + 1, label, state: stage === 'done' || index < at ? 'done' : index === at ? 'now' : 'next' }))
+  const later = label => ({ label, isEnabled: false, title: FOCUS_LATER })
+  const seen = new Set()
+  const rows = (goals?.nodes ?? []).filter(node => node.state !== 'done' && !seen.has(node.id) && seen.add(node.id))
+    .map(node => ({ id: node.id, title: node.title, depth: node.depth, isNow: node.state === 'now' }))
+  if (stage === 'pick') return { stage, head: null, strip: null, progress: null, pick: { question: 'What do you want to work on?', rows, isEnabled: false, title: FOCUS_LATER } }
+  const vibeLine = focus.vibeAgreed === null ? null : focus.vibe.length > 0 ? focus.vibe.join(' · ') : '(no words kept)'
+  const view = {
+    stage,
+    head: { label: 'Your focus', id: focus.id, title: focus.title, vibeLine },
+    strip,
+    progress: null,
+    vibe: { title: 'The vibe so far', sub: 'draft, written by your partner', lines: focus.vibe, picture: focus.vibePicture, empty: focus.vibe.length > 0 || focus.vibePicture !== null ? null : 'Your partner writes the vibe here while you talk.' },
+    how: {
+      title: 'The how so far',
+      sub: 'proposed by your partner',
+      parts: focus.parts.map(part => ({ title: part.title, size: part.size })),
+      partnerDecides: focus.partnerDecides,
+      youDecide: focus.youDecide,
+      empty: focus.parts.length > 0 ? null : 'Your partner proposes the parts here once you talk about the how.',
+    },
+    buttons: stage === 'vibe' ? [later('This is the vibe'), later('Not yet')] : stage === 'how' ? [later('Go'), later('Not yet')] : [],
+  }
+  if (stage === 'run' || stage === 'done') {
+    const { done, total, minutesLeft } = focus.progress
+    const left = stage === 'done' ? null : focusTimeLeft(minutesLeft)
+    view.progress = { text: `${done} of ${total} done${left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
+  }
+  if (stage === 'run') {
+    const chips = { done: 'Done', now: 'In progress', next: 'Next' }
+    view.run = {
+      title: 'The how',
+      parts: focus.parts.map(part => ({
+        title: part.title,
+        chip: chips[part.state],
+        tone: part.state,
+        percent: part.state === 'done' ? 100 : part.total === 0 ? 0 : Math.round((part.done / part.total) * 100),
+        owner: part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null,
+      })),
+      stepsOf: focus.id,
+    }
+    view.note = 'Your partner writes a note here each morning: what it decided for you, and what needs you. It comes in the next part.'
+  }
+  if (stage === 'done') view.pick = { question: `${focus.id} is done. What do you want to work on next?`, rows, isEnabled: false, title: FOCUS_LATER }
+  return view
+}
+
+/**
+ * The talk with the partner on the left of the vibe and the how: the focus goal's brainstorm thread, as bubbles: the
+ * person's opening, then each question of the partner and the person's answer (the option and the words), in order.
+ */
+function focusTalk(thread) {
+  if (thread === null || thread === undefined) return []
+  const said = question => {
+    const answer = question.answer
+    if (answer === null || answer === undefined) return null
+    if (answer.skipped === true) return 'skipped'
+    if (Number.isInteger(answer.back)) return `back to question ${answer.back}`
+    if (answer.key === 'Other') return answer.words
+    const option = (question.options ?? []).find(one => one.key === answer.key)
+    const picked = option === undefined ? answer.key : `${answer.key}, ${option.text}`
+    return answer.words ? `${picked}: ${answer.words}` : picked
+  }
+  const bubbles = thread.opening ? [{ who: 'you', text: thread.opening }] : []
+  for (const question of [...(thread.earlier ?? []), ...(thread.latest ? [thread.latest] : [])]) {
+    bubbles.push({ who: 'partner', text: question.text })
+    const words = said(question)
+    if (words !== null) bubbles.push({ who: 'you', text: words })
+  }
+  return bubbles
+}
+
+/**
+ * The steps behind a goal, for the Backlog: those its Steps and Part lines name, and those of the goals inside it, each
+ * once, by number. An id used twice in the map is walked once.
+ */
+function goalStepIds(goals, id) {
+  const byId = new Map()
+  for (const node of goals?.nodes ?? []) if (!byId.has(node.id)) byId.set(node.id, node)
+  const found = new Set()
+  const seen = new Set()
+  const walk = at => {
+    const node = byId.get(at)
+    if (node === undefined || seen.has(at)) return
+    seen.add(at)
+    for (const step of [...(node.steps ?? []), ...(node.parts ?? []).flatMap(part => part.steps)]) found.add(step)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(id)
+  return [...found].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+}
+// focus:end
 function showAdvisorPane(name) {
-  const pane = ADVISOR_PANES.includes(name) ? name : 'way'
+  const pane = ADVISOR_PANES.includes(name) ? name : 'focus'
   $('view-advice').dataset.pane = pane
   for (const button of $('advisor-tabs').querySelectorAll('[data-advisor-pane]')) button.setAttribute('aria-pressed', String(button.dataset.advisorPane === pane))
   if (pane === 'chat') $('messages').scrollTop = $('messages').scrollHeight
@@ -6413,6 +6538,8 @@ function showAdvisorPane(name) {
     // Kept for this page only.
   }
 }
+/** Focus 1: the part the tab opened on at the page's start. */
+let advisorStartPane = null
 $('advisor-tabs').addEventListener('click', event => {
   const button = event.target.closest('[data-advisor-pane]')
   if (button !== null) showAdvisorPane(button.dataset.advisorPane)
@@ -6428,7 +6555,200 @@ $('advisor-tabs').addEventListener('click', event => {
   const linked = goalFocusOf(location.hash)
   if (linked !== undefined) goalsFocus = linked
   showAdvisorPane(linked === undefined ? saved : 'goals')
+  advisorStartPane = $('view-advice').dataset.pane
 }
+
+/**
+ * Focus 1: the tab's bar shows the parts the setting advisorParts names. A part opened at the page's start (the one
+ * kept from last time) that the bar no longer shows gives way to the first it does; one opened from elsewhere (the
+ * Advisor's chat from its card) stays open.
+ */
+function drawAdvisorParts(state) {
+  const parts = advisorPartsShown(state.advisorParts)
+  for (const button of $('advisor-tabs').querySelectorAll('[data-advisor-pane]')) button.hidden = !parts.includes(button.dataset.advisorPane)
+  const pane = $('view-advice').dataset.pane
+  if (!parts.includes(pane) && pane === advisorStartPane) showAdvisorPane(parts[0])
+}
+
+/** A button of a later part: drawn as it will be, off, with why on hover. */
+function focusButton(one, className) {
+  const button = el('button', className, one.label)
+  button.type = 'button'
+  button.disabled = !one.isEnabled
+  button.title = one.title
+  return button
+}
+
+/** A box to write to the partner, off until the next part: the talk is read from the brainstorm thread for now. */
+function focusSay(placeholder, className) {
+  const form = el('form', className)
+  const text = el('textarea')
+  text.rows = 1
+  text.placeholder = placeholder
+  text.disabled = true
+  text.title = FOCUS_LATER
+  text.setAttribute('aria-label', placeholder)
+  form.append(text, focusButton({ label: 'Send', isEnabled: false, title: FOCUS_LATER }, 'focus-send'))
+  form.addEventListener('submit', event => event.preventDefault())
+  return form
+}
+
+/** The talk on the left of the vibe and the how: the focus goal's brainstorm thread, as bubbles. */
+function focusTalkCard(state) {
+  const card = el('section', 'focus-card focus-talk')
+  card.append(el('h3', '', 'Talk with your partner'))
+  const thread = (state.brainstorms?.threads ?? []).find(one => one.path === state.focus.thread) ?? null
+  const bubbles = focusTalk(thread)
+  const list = el('div', 'focus-bubbles')
+  if (bubbles.length === 0) list.append(el('p', 'muted', 'No talk about this goal yet: it starts once you pick it as your focus (the next part).'))
+  for (const bubble of bubbles) {
+    const row = el('div', `focus-bubble is-${bubble.who}`)
+    const face = el('span', 'focus-face')
+    face.append(icon(bubble.who === 'you' ? 'person' : 'advisor'))
+    const words = el('div', 'focus-words')
+    words.append(el('small', '', bubble.who === 'you' ? 'You' : 'Partner'), el('p', '', bubble.text))
+    row.append(face, words)
+    list.append(row)
+  }
+  card.append(list, focusSay('Write to your partner…', 'focus-say'))
+  return card
+}
+
+/** The right card of the vibe: its lines with a tick, its picture, and the two buttons. */
+function focusVibeCard(view) {
+  const card = el('section', 'focus-card focus-draft')
+  card.append(el('h3', '', view.vibe.title), el('p', 'focus-sub', view.vibe.sub))
+  if (view.vibe.empty !== null) card.append(el('p', 'muted', view.vibe.empty))
+  const lines = el('ul', 'focus-ticks')
+  for (const line of view.vibe.lines) lines.append(el('li', '', line))
+  card.append(lines)
+  if (view.vibe.picture !== null) card.append(picture(view.vibe.picture, 'The vibe in a picture'))
+  return card
+}
+
+/** The right card of the how: its parts with their sizes, what the partner settles and what it brings to you. */
+function focusHowCard(view) {
+  const card = el('section', 'focus-card focus-draft')
+  card.append(el('h3', '', view.how.title), el('p', 'focus-sub', view.how.sub))
+  if (view.how.empty !== null) card.append(el('p', 'muted', view.how.empty))
+  const parts = el('ol', 'focus-plan')
+  for (const part of view.how.parts) {
+    const row = el('li', '')
+    row.append(el('span', '', part.title))
+    if (part.size !== null) row.append(el('small', '', part.size))
+    parts.append(row)
+  }
+  card.append(parts)
+  for (const [title, lines] of [['Decided by your partner', view.how.partnerDecides], ['Brought to you', view.how.youDecide]]) {
+    if (lines.length === 0) continue
+    card.append(el('h4', '', title))
+    const list = el('ul', 'focus-decides')
+    for (const line of lines) list.append(el('li', '', line))
+    card.append(list)
+  }
+  return card
+}
+
+/** The run: the parts with their progress and who is on each, no step ids; the steps behind it on the Backlog. */
+function focusRunCard(view) {
+  const card = el('section', 'focus-card focus-run')
+  card.append(el('h3', '', view.run.title))
+  for (const part of view.run.parts) {
+    const row = el('div', `focus-part is-${part.tone}`)
+    const top = el('div', 'focus-part-top')
+    top.append(el('b', '', part.title), el('span', `focus-chip is-${part.tone}`, part.chip))
+    const bar = el('div', 'focus-bar')
+    const fillBar = el('span', '')
+    fillBar.style.width = `${part.percent}%`
+    bar.append(fillBar)
+    row.append(top, bar)
+    if (part.owner !== null) row.append(el('small', 'focus-owner', part.owner))
+    card.append(row)
+  }
+  const steps = el('button', 'focus-steps', 'See the steps behind this →')
+  steps.type = 'button'
+  steps.dataset.focusSteps = view.run.stepsOf
+  card.append(steps)
+  return card
+}
+
+/** No focus, or the focus is done: the open goals of the map to pick from, and a free line. */
+function focusPickCard(view) {
+  const card = el('section', 'focus-card focus-pick')
+  card.append(el('h2', '', view.pick.question))
+  const list = el('ul', 'focus-goals')
+  for (const row of view.pick.rows) {
+    const line = el('li', row.isNow ? 'is-now' : '')
+    line.style.setProperty('--depth', String(row.depth))
+    line.append(el('span', 'focus-goal-id', row.id), el('span', 'focus-goal-title', row.title), focusButton({ label: 'Pick', isEnabled: view.pick.isEnabled, title: view.pick.title }, 'goals-action'))
+    list.append(line)
+  }
+  if (view.pick.rows.length === 0) list.append(el('li', 'muted', 'The goal map has no open goal.'))
+  card.append(list, focusSay('Or something new: what do you want to work on?', 'focus-say'))
+  return card
+}
+
+/** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
+function drawFocus(state) {
+  const view = focusView(state.focus ?? null, state.goals ?? null)
+  const box = $('advisor-focus')
+  box.dataset.stage = view.stage
+  const parts = []
+  if (view.head !== null) {
+    const head = el('header', 'focus-head')
+    const title = el('div', 'focus-title')
+    title.append(el('small', 'focus-label', view.head.label), el('h2', '', `${view.head.id} · ${view.head.title}`))
+    if (view.head.vibeLine !== null) title.append(el('p', 'focus-vibe-line', view.head.vibeLine))
+    const side = el('div', 'focus-side')
+    const strip = el('ol', 'focus-strip')
+    for (const stage of view.strip) {
+      const item = el('li', `focus-stage is-${stage.state}`)
+      item.append(el('span', 'focus-n', String(stage.n)), el('span', '', stage.label))
+      if (stage.state === 'done') item.append(el('span', 'focus-check', '✓'))
+      strip.append(item)
+    }
+    side.append(strip)
+    if (view.progress !== null) {
+      const progress = el('div', 'focus-progress')
+      const bar = el('div', 'focus-bar is-wide')
+      const fillBar = el('span', '')
+      fillBar.style.width = `${view.progress.percent}%`
+      bar.append(fillBar)
+      progress.append(el('small', '', view.progress.text), bar)
+      side.append(progress)
+    }
+    head.append(title, side)
+    parts.push(head)
+  }
+  if (view.stage === 'pick' || view.stage === 'done') parts.push(focusPickCard(view))
+  else {
+    const body = el('div', 'focus-body')
+    if (view.stage === 'run') {
+      const left = el('div', 'focus-column')
+      left.append(focusRunCard(view), focusSay('Talk to your partner about this goal…', 'focus-say is-slim'))
+      const note = el('section', 'focus-card focus-note')
+      note.append(el('h3', '', "Today's note from your partner"), el('p', 'muted', view.note))
+      body.append(left, note)
+    } else {
+      const right = view.stage === 'vibe' ? focusVibeCard(view) : focusHowCard(view)
+      const buttons = el('div', 'focus-buttons')
+      view.buttons.forEach((one, index) => buttons.append(focusButton(one, index === 0 ? 'focus-yes' : 'focus-no')))
+      right.append(buttons)
+      body.append(focusTalkCard(state), right)
+    }
+    parts.push(body)
+  }
+  fill(box, parts)
+}
+
+// Focus 1: "See the steps behind this" opens the Backlog on the steps behind the focus goal.
+$('advisor-focus').addEventListener('click', event => {
+  const button = event.target.closest('[data-focus-steps]')
+  if (button === null || board === null) return
+  coordinateGoal = { id: button.dataset.focusSteps, steps: goalStepIds(board.goals ?? null, button.dataset.focusSteps) }
+  show('coordinate')
+  drawCoordinate(board)
+})
 
 // B195: the way to the next milestone, as the Advisor maps it (src/milestone.mjs): a row of steps, the one picked
 // with its items under it, and the Advisor's recommendation answered with a click.
@@ -7454,8 +7774,11 @@ function coordinateFinds(step, find) {
  * from before the ids at the end, each with the name of its activity. B250: with `hideBusy`, the steps a worker is on
  * or that wait in a queue are left out, and `hidden` says how many of those the filter and the search would show.
  */
-function coordinateList(activities, { filter = 'all', find = '', showDone = false, asOne = false, hideBusy = false } = {}) {
+function coordinateList(activities, { filter = 'all', find = '', showDone = false, asOne = false, hideBusy = false, goal = null } = {}) {
   const counts = {}
+  // Focus 1: only the steps behind a goal (`goal`: their ids), its finished ones too: the whole of it.
+  const isOfGoal = step => goal === null || (typeof step.id === 'string' && goal.includes(step.id))
+  const withDone = showDone || goal !== null
   for (const [name] of COORDINATE_FILTERS) counts[name] = 0
   const groups = []
   let shown = 0
@@ -7463,9 +7786,10 @@ function coordinateList(activities, { filter = 'all', find = '', showDone = fals
   for (const activity of activities) {
     const steps = []
     for (const step of activity.steps) {
+      if (!isOfGoal(step)) continue
       const isDone = step.status === 'done'
       if (!isDone) for (const [name] of COORDINATE_FILTERS) if (coordinateShows(step, name)) counts[name] += 1
-      if (isDone ? !(showDone && filter === 'all') : !coordinateShows(step, filter)) continue
+      if (isDone ? !(withDone && filter === 'all') : !coordinateShows(step, filter)) continue
       if (!coordinateFinds(step, find)) continue
       if (hideBusy && (step.status === 'progress' || step.status === 'queued')) hidden += 1
       else steps.push(step)
@@ -7539,6 +7863,8 @@ function isGoalOpen(row, folds) {
 
 const STEP_STATES = { progress: 'In progress', queued: 'Queued', you: 'Needs your attention', open: 'Open', done: 'Finished' }
 let coordinateFilter = 'all'
+/** Focus 1: the goal the Backlog is narrowed to, from "See the steps behind this": `{ id, steps }`, or null. */
+let coordinateGoal = null
 
 /**
  * B181: a step nobody has (open, with an id) gets a button that asks the main chat to hand it out; once asked, it
@@ -7948,17 +8274,17 @@ function drawCoordinate(state) {
     storeBox.textContent = store.text
     storeBox.title = store.problems.join('\n')
   }
-  const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked, hideBusy: $('coordinate-busy').checked })
+  const list = coordinateList(activities, { filter: coordinateFilter, find: $('coordinate-find').value, showDone: $('coordinate-done').checked, asOne: $('coordinate-one').checked, hideBusy: $('coordinate-busy').checked, goal: coordinateGoal?.steps ?? null })
   // B250: how many steps the box hides, so none seems lost.
   $('coordinate-busy-count').textContent = $('coordinate-busy').checked ? `(${list.hidden} hidden)` : ''
   $('coordinate-count').textContent = `${list.counts.all} open step${list.counts.all === 1 ? '' : 's'}`
-  fill($('coordinate-filters'), COORDINATE_FILTERS.map(([name, label]) => {
+  fill($('coordinate-filters'), [...COORDINATE_FILTERS.map(([name, label]) => {
     const button = el('button', `choice${name === coordinateFilter ? ' is-chosen' : ''}`, `${label} `)
     button.type = 'button'
     button.dataset.filter = name
     button.append(el('small', '', String(list.counts[name])))
     return button
-  }))
+  }), coordinateGoalChip()])
   // B302: with "One list" off, the steps stand under the goals of the goal map; by activity only without one.
   const rows = $('coordinate-one').checked ? null : goalRows(list, state.goals ?? null)
   const groups = rows !== null ? drawGoalRows(rows, state) : list.groups.map(group => {
@@ -8070,7 +8396,22 @@ $('coordinate-list').addEventListener('click', event => {
   if (board !== null) drawCoordinate(board)
 })
 
+/** Focus 1: the goal the list is narrowed to ("See the steps behind this"), with ✕ to show every step again; null without. */
+function coordinateGoalChip() {
+  if (coordinateGoal === null) return null
+  const chip = el('button', 'choice is-chosen is-goal', `Steps behind ${coordinateGoal.id} ✕`)
+  chip.type = 'button'
+  chip.dataset.goalClear = ''
+  chip.title = 'Show every step again'
+  return chip
+}
+
 $('coordinate-filters').addEventListener('click', event => {
+  if (event.target.closest('[data-goal-clear]') !== null) {
+    coordinateGoal = null
+    if (board !== null) drawCoordinate(board)
+    return
+  }
   const button = event.target.closest('[data-filter]')
   if (button === null) return
   coordinateFilter = button.dataset.filter
@@ -8802,6 +9143,9 @@ function draw(state) {
   once('goals', goalsData(state), () => drawGoals(state))
   // B259: the brainstorms, when one changes or what the person does on the part.
   once('brainstorm', brainstormData(state), () => drawBrainstorm(state))
+  // Focus 1: the Focus page, when the focus, the map or the brainstorms change; the tab's bar, when its setting does.
+  once('focus', [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null], () => drawFocus(state))
+  once('advisor-parts', state.advisorParts ?? null, () => drawAdvisorParts(state))
   // The line about a round left out goes after a day.
   once('advice-rounds', [state.rounds ?? null, Math.floor(state.readAt / 3_600_000)], () => { $('advice-rounds').textContent = roundsLine(state.rounds, state.readAt, clock) })
   const age = state.advice === null ? null : adviceAge(state.adviceAt ?? null, state.readAt)

@@ -90,9 +90,18 @@ const DEFAULTS = {
   morningRound: '09:00',
   weeklyRound: true,
   morningSkipPercent: 80,
+  /**
+   * Focus 1 (spec 2026-10-18, section 4): the parts the Focus tab's bar shows, by name, in the bar's own order. The
+   * others (way: Next milestone, plan: Game plan, suggestions, refine, chat) are hidden, not deleted: name them here.
+   */
+  advisorParts: ['focus', 'goals', 'brainstorm'],
   /** B311: the chats' CPU until the person picks one on the board (data/cpu.json): "off", "gentle" or "strong". */
   cpuLimit: 'off',
 }
+
+/** Focus 1: the Focus tab's parts, in the order of its bar (public/board.js ADVISOR_PANES). */
+const ADVISOR_PARTS = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
+const isAdvisorParts = value => Array.isArray(value) && value.every(one => ADVISOR_PARTS.includes(one))
 
 /** B311: the levels of "CPU for the chats". */
 const CPU_LEVELS = ['off', 'gentle', 'strong']
@@ -190,6 +199,7 @@ export function parseConfig(text, env) {
   if (typeof raw.weeklyRound === 'boolean') config.weeklyRound = raw.weeklyRound
   if (Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== '')) config.runGame = [...raw.runGame]
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
+  if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]
   if (typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase())) config.cpuLimit = raw.cpuLimit.trim().toLowerCase()
   return config
 }
@@ -229,6 +239,7 @@ export function configProblem(fileText) {
   if (has('morningRound') &&!(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
+  if (has('advisorParts') && !isAdvisorParts(raw.advisorParts)) return wrong('advisorParts', `a list of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
   if (has('cpuLimit') && !(typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase()))) return wrong('cpuLimit', '"off", "gentle" or "strong"')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   return null
