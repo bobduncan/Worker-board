@@ -122,7 +122,7 @@ test('the window: the step on top, one question at a time, cards, the rest folde
     "el('button', 'calm-step'", "`Question ${at + 1} of ${group.length}`", "el('h3', 'calm-question'",
     "button.setAttribute('role', 'radio')", "el('span', 'calm-advised', 'Recommended')", "el('span', 'calm-key', card.key)",
     "el('summary', '', 'View context')", 'calmContext(need, state)', 'askLinks(need)',
-    'noteLabel(need, pick)', 'dataset.calmGo', "'Cancel'", 'dataset.calmSend', 'sendLabel(group.length, given)',
+    'noteLabel(need, pick)', 'dataset.calmGo', "'Cancel'", 'dataset.calmSend', 'calmSendText(group)',
   ]) assert.ok(calm.includes(words), words)
   // The context: the step as the store holds it, who asked and what waits on it, the pictures large.
   const context = script.slice(script.indexOf('function calmContext('), script.indexOf('function drawCalm('))

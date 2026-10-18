@@ -2531,7 +2531,11 @@ $('details').addEventListener('click', event => {
 })
 $('details').addEventListener('input', event => {
   // B269: the note of the calm window, kept per ask until it is sent.
-  if (event.target.matches('[data-calm-words]') && detailsOf?.need !== undefined) calmWords.set(detailsOf.need, event.target.value)
+  if (!event.target.matches('[data-calm-words]') || detailsOf?.need === undefined) return
+  calmWords.set(detailsOf.need, event.target.value)
+  const need = findNeed(detailsOf.need)
+  const send = $('details').querySelector('[data-calm-send]')
+  if (need !== undefined && send !== null && board !== null) send.textContent = calmSendText(calmGroup(need, everyNeed(board)))
 })
 
 /** B100: the questions a chat asked with the app's own form, with the options it offers, and the plan it asks to have approved. */
@@ -2942,6 +2946,12 @@ function calmContext(need, state) {
   ].filter(part => part !== null)
 }
 
+/** B269: the Send button's words for the asks of a calm window: how many have an answer to go. */
+function calmSendText(group) {
+  const given = group.filter(one => calmAnswer(one, calmPicks.get(one.id) ?? null, calmWords.get(one.id) ?? '') !== null).length
+  return sendLabel(group.length, given)
+}
+
 /** B269: the calm window of an ask of the work store (see `isCalm`). */
 function drawCalm(box, need, state) {
   const now = state.readAt
@@ -3058,8 +3068,7 @@ function drawCalm(box, need, state) {
     next.dataset.calmGo = group[at + 1].id
     buttons.append(next)
   } else {
-    const given = group.filter(one => calmAnswer(one, calmPicks.get(one.id) ?? null, calmWords.get(one.id) ?? '') !== null).length
-    const send = button(sendLabel(group.length, given), 'is-send')
+    const send = button(calmSendText(group), 'is-send')
     send.dataset.calmSend = ''
     send.disabled = group.some(one => sending.has(one.id))
     send.title = `Goes to ${need.from ?? 'the board'}`

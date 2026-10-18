@@ -1333,6 +1333,26 @@ said so only in prose in its chat, filed no ask and wrote no "For you" block, so
   ask, or reports. A chat whose answer ends with a "For you" block and filed no ask has that warning instead, not both.
   Nothing of the chat's words is read for it.
 
+## The calm answer window (B269)
+
+The person, 2026-10-15: the window where a chat needs their answer was too cluttered; they chose a calmer picture
+and wanted it "even more spacious". Since B299 what waits for the person is an ask of the work store, so the window
+of an ask the board can answer (not answered yet, not a refine question, not one of the app's question form) is
+drawn calm (`isCalm`, `drawCalm` in `public/board.js`): a narrower window with room around everything; the head
+says who needs the answer, the ask's kind and when; one line names the step it is about and whether the chat waits
+for it; the question is the title (`splitAsk`: up to its first "?", the why and the advice under it), with links to
+its pictures and its play link; the answers are large cards (`cardsOf`): the ask's options, each with its letter
+and its words, the advised one marked "Recommended"; without options Yes and No for a look (approve, reject) or a
+decide, Done for a do, none for a provide, whose note is the answer. The step as the store holds it, who asked and
+what waits on it, and the pictures large are folded behind "View context". A note is optional, needed for a No.
+The open asks of the same chat on the same step go one at a time, oldest first (`calmGroup`, "Question 2 of 3",
+Back and Next), with one Send at the end (`sendCalm`): each answer given goes to the store (`calmAnswer`: a look's
+approve or reject, a do's done, else the pick and the note as words); a No without words, or words on a look
+without a pick, is not sent and the window shows that question and says why; questions left without an answer stay
+open on the board. Sent, the window closes and the cards on the right say where the answers are. On a phone the
+window fills the screen. The roles ask a choice with its options apart (`options`, letter first) and the advised one
+in `advice`, so the cards can be drawn; the ask's whole first line comes as `question`, since its Title may be cut.
+
 ## The bridge
 
 1. The person types on the board. The page sends it to the server, which keeps it as "waiting".

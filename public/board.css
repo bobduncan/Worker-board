@@ -1566,6 +1566,7 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
   .details.is-calm { width: 100vw; max-width: 100vw; max-height: 100dvh; margin: 0; border-radius: 0; }
   .calm-head { padding: 16px 16px 14px; gap: 12px; }
   .calm-head .kind { width: 40px; height: 40px; font-size: 20px; }
+  .calm-head .details-names h2 { font-size: 19px; -webkit-line-clamp: 2; }
   .calm-body .calm-main { padding: 2px 16px 20px; gap: 22px; }
   .calm-question { font-size: 21px; }
   .calm-card { padding: 16px; gap: 14px; }
