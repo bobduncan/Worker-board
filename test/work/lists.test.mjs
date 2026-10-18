@@ -69,6 +69,19 @@ test('an ask stands under Needs your attention after the chat\'s next answer wit
   }
 })
 
+test('B269: an ask carries its whole first line as its question, also when its title is cut at a double quote', async () => {
+  const { dir, digger: asks, build } = await garden()
+  try {
+    await asks({ action: 'take', id: 'B1' })
+    await asks({ action: 'ask', of: 'B1', kind: 'look', blocking: false, text: 'Does the "low" hedge read right? I advise yes.\nIt stands by the gate.' })
+    const need = (await build(PLAIN)).forYou.find(one => one.id === 'work:Q1')
+    assert.equal(need.question, 'Does the "low" hedge read right? I advise yes.')
+    assert.equal(need.text, 'It stands by the gate.')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('B301: a "For you" block without an ask makes the chat wait no more, and stands as a warning with the way to its chat', async () => {
   const { dir, build } = await garden()
   try {
