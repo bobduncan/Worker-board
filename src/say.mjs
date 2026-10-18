@@ -63,6 +63,24 @@ const stopWords = (to, name, task) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'stop', about: name,
   text: `stop task\nName: ${name}\nTask: ${task}\nWhy: stopped with the button`,
 })
+/** Focus 2: the first line of each word of the Focus page to the partner (spec 2026-10-18, section 6). */
+const FOCUS_HEADS = { 'vibe-agreed': 'vibe: agreed', 'vibe-not-yet': 'vibe: not yet', 'how-go': 'how: go', 'how-not-yet': 'how: not yet' }
+export const FOCUS_COMMANDS = ['focus', ...Object.keys(FOCUS_HEADS)]
+
+/**
+ * Focus 2 (spec 2026-10-18, sections 3 and 6): the person's word from the Focus page to the partner (the chat the
+ * setting `advisor` names), typed as the person's own. `focus: G<n> <title>` with the talk's thread, the stage it stands
+ * at and the partner's job; `vibe: agreed`, `vibe: not yet`, `how: go`, `how: not yet` with the goal and the thread,
+ * the not-yets with the person's words. The board made the change in goals.md before (src/focus.mjs).
+ */
+export function focusWords(command, { to, goal, thread, stage = null, words = null, job = null }) {
+  const about = `${goal.id} ${plainLine(goal.title)}`
+  const lines = command === 'focus'
+    ? [`focus: ${about}`, `Thread: ${thread}`, `Stage: ${stage}`, `Your job: ${job}, "The focus"`]
+    : [FOCUS_HEADS[command], `Goal: ${about}`, `Thread: ${thread}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`])]
+  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: goal.id, text: lines.join('\n') }
+}
+
 /**
  * B181: the word that asks the main chat to hand out a step of the backlog that nobody has. The main chat picks the
  * worker or what the step waits for, and writes the step's "(for ...)" note; the board writes nothing into the
@@ -75,7 +93,7 @@ const queueWords = (to, step) => ({
 
 /**
  * B233: the word that asks the Advisor to refine a step of the backlog: say the problem the step solves or its goal,
- * and ask what it needs to know, as the step's refine block (roles/advisor.md, "Refine a step"). `round` is the round
+ * and ask what it needs to know, as the step's refine block (roles/partner.md, "Refine a step"). `round` is the round
  * it writes; from round 2 on, the person's answers and feedback stand in the block already.
  */
 export const refineWords = (to, step, round) => ({
@@ -385,7 +403,8 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   // B195, B233: of the commands, only the answer to the Advisor's recommendation, a refine and (B300) the work store's
   // line to a chat go to another chat than the main one.
   // B288: and a re-check of the goals, asked of the Advisor; B258: and an ask from the goal map; B259: and the words of a brainstorm.
-  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change'].includes(message.command))) return null
+  // Focus 2: and the words of the Focus page to the partner.
+  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', ...FOCUS_COMMANDS].includes(message.command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

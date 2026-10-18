@@ -118,9 +118,35 @@ person sent was copied, and into which chat to paste it.
   path; a click closes it.
 - **A game** (`#play=<branch>&<settings>`): the branch's game started and this tab turned into it.
 
-## Advisor (`05-advisor.png`)
+## Focus (`05-advisor.png`; Focus 1: `art-inbox/focus-mockups/inc1-*.png`; Focus 2: `inc2-vibe.png`, `inc2-how.png`)
 
-Seven parts, chosen with buttons: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
+The tab was named Advisor until Focus 1 (spec 2026-10-18). Its bar shows three parts: **Focus**, **Goals** and
+**Brainstorm**; the others (Next milestone, Game plan, Suggestions, Refine, Chat) are hidden, not deleted, and the
+setting `advisorParts` brings any back. The Advisor's chat still opens from its card and its links.
+
+**Focus** shows one goal of the map, the focus (`Focus: G<n>` in goals.md's head), read from the file: "Your focus",
+the goal's id and title, its vibe in one line once agreed, and the strip 1 The vibe → 2 The how → 3 The run (a step
+done is green with ✓, the one now blue). The vibe: the talk with your partner on the left (the goal's brainstorm
+thread as bubbles: your words, its questions) and "The vibe so far" on the right (its lines ticked, its picture),
+with "This is the vibe" and "Not yet". The how: the talk on the left, "The how so far" on the right (the parts with
+their sizes, "Decided by your partner", "Brought to you"), with "Go" and "Not yet". The run: "The how" on the left,
+each part with Done, In progress (and who is on it) or Next and a bar, no step ids, and "See the steps behind this →",
+which opens the Backlog on the goal's steps ("Steps behind G6 ✕" clears it); "Today's note from your partner" on the
+right; a slim talk bar under it. No focus (or one that is gone): "What do you want to work on?" with the open goals of
+the map and a free line; a focus that is done asks for the next one.
+
+Since Focus 2 the moves work, on the board that delivers (and on a copy with a goal map of its own), with a partner on
+it (the chat the setting `advisor` names; without one, or on a board that only shows, the buttons are off and say
+why). **Pick** makes a goal your focus; the free line ("Start") makes something new a goal at the top and your focus.
+The board writes `Focus:`, starts the goal's talk (or goes on with the one that runs) and types `focus: G<n>` to your
+partner. **The talk** answers your partner's open question as the Brainstorm part does: its options as chips (the
+advised one marked), your words in the box, Send (Enter; Shift+Enter a new line); while your partner has the turn the
+box is off and a line says it thinks, or that its chat is not running. **This is the vibe** (once your partner wrote
+one) and **Go** (once it proposed parts) write their line once and tell your partner; **Not yet** opens a box for what
+is missing and sends your words. A line under the head says what each move did, or why not. The run's talk bar and the
+daily note come in Focus 3.
+
+The other parts: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
 milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the
 last box; "No milestone to go to yet" until there is one, "not mapped yet" while it has no sub-goals), **Goals** (the project's goal map, `goals.md`, one level at
 a time: the goals with their counters of goals inside, steps done and missing lines; a click zooms into a goal, ‹, Esc

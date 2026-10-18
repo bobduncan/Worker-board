@@ -34,7 +34,7 @@ import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { cpuLimiter, sessionsOfCards } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
@@ -53,6 +53,7 @@ import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove } from './src/focus.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
@@ -158,7 +159,7 @@ export function pictureKind(bytes) {
  *   `design(body)`     the Design tab's calls (make a picture, change it, agree, ask for the step), the same shape
  *   `reference(bytes)` keeps a reference picture the person added to an idea, the same shape
  *   `talkPicture(bytes)` keeps a picture the person pasted into Talk to Main (B167), the same shape
- *   `goals(body)`      one change to the goal map (B256), the same shape
+ *   `goals(body)`      one change to the goal map (B256), the same shape; Focus 2: also a move of the Focus page
  *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
  *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
  *   `cpu(body)`        B311: the level of "CPU for the chats" ({ level }), the same shape
@@ -366,6 +367,10 @@ async function main(args) {
   // The same holds for a copy in another folder than the repository's main one: a branch that is being built
   // must never take the chats away from the person's board, also not while that board is stopped.
   const isShowOnly = historyFrom !== undefined || chosen.isMain === false
+  // Focus 2: the board that delivers writes the goal map, its brainstorms and the focus; a copy only a map of its own
+  // (whole paths outside the project, by real paths, and not the live board's map), as its own work store. A copy's words
+  // then wait in its own outbox: no chat takes from it.
+  const writesMap = !isDemo && (!isShowOnly || await ownMapNow(config, { main: chosen.main }))
   // B142: a board its keeper started anew keeps the key it gave the chats' mod, so they reach it at once. The key
   // goes no further than this process: what the board starts does not get it.
   const keptKey = process.env.WORKER_BOARD_KEY ?? ''
@@ -410,6 +415,36 @@ async function main(args) {
   const workDir = isDemo || config.project === '' ? null : workFolder(config)
   const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
+  /**
+   * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
+   * or the work tool's vibe-draft and how-draft through the work API), written into the
+   * goal map (src/focus.mjs); the person's word to the partner goes into the outbox as every other board word, the
+   * partner woken through the main chat when its chat is not running (Review Focus 5). Without the Workers mod it is
+   * kept as copied and the page puts it on the clipboard.
+   */
+  const focusNow = async body => {
+    const state = await readState()
+    const done = await focusMove(body, {
+      canWrite: writesMap,
+      goalsFile: projectFile(config, 'goals'),
+      historyDir: projectFile(config, 'goalsHistory'),
+      brainstormDir: projectFile(config, 'brainstorms'),
+      brainstormFolder: config.brainstorms,
+      now: clock(),
+      partner: state.advisor ?? null,
+      job: join(HERE, 'roles', 'partner.md'),
+    })
+    readState.reset()
+    if (!done.ok || done.words === null) return done.ok ? { ok: true, result: done.result } : done
+    const isCopied = state.bridge?.isMissing === true
+    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...done.words, state: isCopied ? 'copied' : 'waiting' }
+    await store.say(message)
+    readState.reset()
+    if (isCopied) return { ok: true, result: { ...done.result, said: message.id, paste: { text: messageText(message, timeOf), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
+    const wake = wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+    if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
+    return { ok: true, result: { ...done.result, said: message.id } }
+  }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   const workCtx = async () => {
     const state = await readState()
@@ -418,6 +453,8 @@ async function main(args) {
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
     const items = (await readStore(workDir).catch(() => ({ items: new Map() }))).items
     return {
+      // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
+      goalDraft: body => focusNow(body),
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
@@ -710,7 +747,7 @@ async function main(args) {
         typical: typicalSeconds(),
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
-      const goalsEdit = { canWrite: !isDemo && !isShowOnly, whyNot: isDemo ? 'This is the demo: it changes no file.' : isShowOnly ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
+      const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
       return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart } }
     },
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
@@ -770,7 +807,9 @@ async function main(args) {
     },
     say: async body => {
       // What is answered here would never arrive: this board has no bridge.
-      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
+      // Focus 2: a copy with a goal map of its own keeps the words of its brainstorms in its own outbox.
+      const isOwnTalk = writesMap && typeof body?.command === 'string' && body.command.startsWith('brainstorm')
+      if (isShowOnly && !isOwnTalk) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
       const state = await readState()
       const checked = checkSay(body, state, config.maxMessageChars)
       if (!checked.ok) return checked
@@ -830,10 +869,11 @@ async function main(args) {
     // B256: the person changes the goal map on the Goals part. Only the board that delivers writes it; then the state
     // is read anew, so the page draws the file as it now is: also after a refusal, often a change made elsewhere.
     goals: async body => {
+      if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
       const done = await editGoals(body, {
-        canWrite: !isDemo && !isShowOnly,
-        file: join(config.project, ...config.goals.split('/')),
-        historyDir: join(config.project, ...config.goalsHistory.split('/')),
+        canWrite: writesMap,
+        file: projectFile(config, 'goals'),
+        historyDir: projectFile(config, 'goalsHistory'),
         now: clock(),
       })
       readState.reset()
@@ -843,11 +883,11 @@ async function main(args) {
     // delivers writes; then the state is read anew.
     brainstorm: async body => {
       const done = await editThread(body, {
-        canWrite: !isDemo && !isShowOnly,
-        dir: join(config.project, ...config.brainstorms.split('/')),
+        canWrite: writesMap,
+        dir: projectFile(config, 'brainstorms'),
         folder: config.brainstorms,
-        goalsFile: join(config.project, ...config.goals.split('/')),
-        historyDir: join(config.project, ...config.goalsHistory.split('/')),
+        goalsFile: projectFile(config, 'goals'),
+        historyDir: projectFile(config, 'goalsHistory'),
         now: clock(),
       })
       readState.reset()

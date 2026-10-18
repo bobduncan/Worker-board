@@ -15,6 +15,20 @@ const msOf = text => {
 }
 const numberOf = id => Number(String(id).replace(/\D/g, '')) || 0
 
+/** Focus 2: the mark in the head of a refine block of a step the partner made from a how the person agreed. */
+export const HOW_MARK = 'from the how of'
+const HOW_HEAD = /;\s*from the how of (G\d+) by ([^;)]+)\)/
+
+/**
+ * Focus 2 (the review): on a step made from an agreed how, a decide ask its maker (the partner) filed is a decision the
+ * how brings to the person, not a refine question: it holds nothing back.
+ */
+function isHowDecision(ask, step) {
+  const head = step?.sections?.get('Refined')?.[0]?.match(HOW_HEAD) ?? null
+  if (head === null || valueOf(ask, 'Asks') !== 'decide' || valueOf(ask, 'Via') === 'refine') return false
+  return String(valueOf(ask, 'Owner') ?? '').trim().toLowerCase() === head[2].trim().toLowerCase()
+}
+
 /** The ask items under a step (`Of: <id>`), by id. */
 export function asksOfStep(items, stepId) {
   return [...(items?.values() ?? [])]
@@ -36,7 +50,7 @@ export function refineAsksOf(items, step) {
   const history = (step.sections.get('History') ?? []).map(one => one.trim())
   const last = history.findLastIndex(one => WRITTEN.test(one))
   const writtenAt = last >= 0 ? msOf(history[last].match(WRITTEN)[1]) : msOf(block[0].match(STAMP)?.[0])
-  return asksOfStep(items, valueOf(step, 'Id')).flatMap(ask => {
+  return asksOfStep(items, valueOf(step, 'Id')).filter(ask => !isHowDecision(ask, step)).flatMap(ask => {
     const id = valueOf(ask, 'Id')
     const state = valueOf(ask, 'State')
     const shown = { id, title: valueOf(ask, 'Title') ?? '' }
@@ -55,5 +69,8 @@ export function refineAsksOf(items, step) {
   })
 }
 
-/** The open asks under a step: `refined` is refused while one is, and a queue asked before the refine waits for them. */
-export const openAsksOf = (items, stepId) => asksOfStep(items, stepId).filter(ask => valueOf(ask, 'State') === 'open')
+/**
+ * The open asks under a step: `refined` is refused while one is, and a queue asked before the refine waits for them.
+ * With the step itself (`step`), the decisions an agreed how brings to the person are left out (`isHowDecision`).
+ */
+export const openAsksOf = (items, stepId, step = null) => asksOfStep(items, stepId).filter(ask => valueOf(ask, 'State') === 'open' && !isHowDecision(ask, step))

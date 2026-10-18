@@ -1,4 +1,4 @@
-// B173: the board's clock for the Advisor's rounds (its job: roles/advisor.md). The morning round at the time the
+// B173: the board's clock for the Advisor's rounds (its job: roles/partner.md since Focus 2). The morning round at the time the
 // settings give, the weekly one right after the weekly limit resets (and not that day's morning one). A round missed
 // while the board was off comes once at its next start; a morning round is left out while the 5-hour limit is above
 // the settings' percentage. The clock's line is the clock's, never the person's word.
@@ -63,7 +63,7 @@ export const RECHECK_HEAD = 're-check the goals'
 function settingLines({ board, config }) {
   const inGame = path => (config.gameRepo === '' ? path : join(config.gameRepo, ...path.split('/')))
   return [
-    `Your job: ${join(board, 'roles', 'advisor.md')}`,
+    `Your job: ${join(board, 'roles', 'partner.md')}`,
     config.gameRepo === '' ? null : `The game's repository: ${config.gameRepo}`,
     `The game plan: ${inGame(config.gamePlan)}`,
     `Your decisions: ${inGame(config.advisorDecisions)}`,

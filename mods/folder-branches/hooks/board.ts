@@ -60,6 +60,14 @@ export function parseTaken(text: string): { messages: Taken[]; refused: string[]
   return taken
 }
 
+/** B297: the actions of the work tool. Focus 2: the partner's drafts of the focus, `vibe-draft` and `how-draft`. */
+export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'vibe-draft', 'how-draft', 'list', 'rename']
+
+/** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
+export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
+  'pictures', 'play', 'to', 'result', 'merged', 'on', 'title', 'activity', 'goal', 'for', 'after', 'about', 'as', 'why', 'summary', 'picture', 'size',
+  'questions', 'what', 'advice', 'lines', 'parts', 'partnerDecides', 'youDecide', 'from']
+
 /** What every chat in the list is told about the board, in the same words at every request. */
 export const BOARD_NOTE = ' The person also answers on their worker board, a page on this machine. What they answer or '
   + 'type there is typed into this chat as their own message and carries the board\'s mark, "(answered on the worker '

@@ -48,7 +48,7 @@ test('the words: a round now, on the person\'s request, with the job and the pro
   const text = recheckText({ board: 'C:\\board', config })
   assert.equal(text.split('\n')[0], 're-check the goals')
   assert.match(text, /bring the way to the next milestone and the goal map up to date/)
-  assert.match(text, /Your job: C:\\board[\\/]roles[\\/]advisor\.md/)
+  assert.match(text, /Your job: C:\\board[\\/]roles[\\/]partner\.md/)
   // Never the clock's line: it is the person's word.
   assert.equal(isClockLine(text), false)
   assert.doesNotMatch(text, /board's clock/)

@@ -54,7 +54,7 @@ test('Needs your attention draws them as one line each, not a card per question,
 })
 
 test('the Advisor\'s job says its refine questions stand under Needs your attention, one line per step', async () => {
-  const advisor = await readFile(join(HERE, '..', 'roles', 'advisor.md'), 'utf8')
+  const advisor = await readFile(join(HERE, '..', 'roles', 'partner.md'), 'utf8')
   assert.match(advisor, /refine\s+questions stand under Needs your attention, one line per step/)
   assert.doesNotMatch(advisor, /A refine, a\s+suggestion, a recommendation and an ask on the goal map keep their own places/)
 })

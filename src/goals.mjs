@@ -13,12 +13,22 @@ const IDS = /\bG\d+\b/g
 const GOAL_LIKE = /^ *- \[[^\]]*\]/
 const NOT_A_GOAL = 'is not a goal in the form "- [ ] G<n> <title>"'
 export const LAST_LINE = /^Last (id|ask):\s*[GA](\d+)\s*$/
+/** Focus 1: the focus goal, a head line before the first goal: "Focus: G6"; "Focus:" alone is none. */
+export const FOCUS_LINE = /^Focus:\s*(G\d+)?\s*$/
 
 const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
 
 function node(id, title, state, depth, line) {
-  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, why: null, enables: [], alsoPartOf: [], steps: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null }
+  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, why: null, enables: [], alsoPartOf: [], steps: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null }
+}
+
+/** Focus 1: "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
+function partOf(value) {
+  const [title = '', ...rest] = value.split(' · ').map(part => part.trim())
+  const steps = rest.find(part => /^steps\b/i.test(part))
+  const size = rest.find(part => !/^steps\b/i.test(part) && part !== '') ?? null
+  return { title, size, steps: steps === undefined ? [] : stepIds(steps.replace(/^steps\s*/i, '')) }
 }
 
 /** One named line under a node, put on it. A line in a form the map does not know goes to `notes`, so nothing is lost. */
@@ -34,6 +44,14 @@ function takeLine(target, text) {
     case 'Steps': target.steps.push(...stepIds(value)); return
     case 'Missing': target.missing.push(value); return
     case 'From the game plan': target.fromPlan = value; return
+    // Focus 1 (spec 2026-10-18, section 5): the goal's vibe and its how, as the person and the partner agree them.
+    case 'Vibe': target.vibe.push(value); return
+    case 'Vibe picture': target.vibePicture = value; return
+    case 'Vibe agreed': target.vibeAgreed = value; return
+    case 'Part': target.parts.push(partOf(value)); return
+    case 'Partner decides': target.partnerDecides.push(value); return
+    case 'You decide': target.youDecide.push(value); return
+    case 'How agreed': target.howAgreed = value; return
     case 'Brainstorm': {
       const found = value.match(/^(\S+)(?:\s+\((running|wrapping up|done|discarded)\))?$/)
       target.brainstorm = found === null ? { path: value, state: 'running' } : { path: found[1], state: found[2] ?? 'running' }
@@ -91,6 +109,9 @@ export function parseGoals(text) {
   // The head lines that keep an id from ever coming back: "Last id: G<n>", "Last ask: A<n>".
   let lastGoal = 0
   let lastAsk = 0
+  // Focus 1: the focus is a head line, read before the first goal only.
+  let focus = null
+  let isHead = true
   ;(text ?? '').replace(/^﻿/, '').split('\n').forEach((raw, index) => {
     let line = raw.replace(/\r$/, '')
     if (line.trim() === '' || line.startsWith('#')) return
@@ -103,6 +124,7 @@ export function parseGoals(text) {
       const spaces = goal[1].length
       if (spaces % 2 !== 0) problems.push(`line ${index + 1}: indentation is not a multiple of two spaces`)
       const depth = Math.min(Math.floor(spaces / 2), stack.length)
+      isHead = false
       const made = node(goal[3], goal[4], STATES[goal[2]], depth, index + 1)
       const isTwice = byId.has(made.id)
       if (isTwice) problems.push(`line ${index + 1}: the id ${made.id} is used twice`)
@@ -124,6 +146,11 @@ export function parseGoals(text) {
       else lastAsk = Math.max(lastAsk, Number(head[2]))
       return
     }
+    const focused = isHead ? line.match(FOCUS_LINE) : null
+    if (focused !== null) {
+      focus = focused[1] ?? null
+      return
+    }
     if (!/^\s/.test(line)) return
     // An indented line belongs to the deepest open goal less indented than it, so nothing is lost.
     const indent = line.length - line.trimStart().length
@@ -131,7 +158,19 @@ export function parseGoals(text) {
     if (owner === undefined) return problems.push(`line ${index + 1}: a line under no goal`)
     takeLine(owner, line.trim())
   })
-  return { nodes, byId, roots, problems, lastGoal, lastAsk }
+  return { nodes, byId, roots, problems, lastGoal, lastAsk, focus }
+}
+
+/**
+ * Focus 1 (spec 2026-10-18, section 5): where the focus goal stands, from its lines: no goal (none, or one that is
+ * gone) → 'pick'; ticked → 'done'; no "Vibe agreed" → 'vibe'; no "How agreed" → 'how'; else 'run'.
+ */
+export function focusStage(node) {
+  if (node === null || node === undefined) return 'pick'
+  if (node.state === 'done') return 'done'
+  if (node.vibeAgreed === null) return 'vibe'
+  if (node.howAgreed === null) return 'how'
+  return 'run'
 }
 
 const highest = (values, prefix) => values.reduce((most, value) => Math.max(most, Number(value.slice(prefix.length))), 0)

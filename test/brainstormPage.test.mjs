@@ -106,8 +106,8 @@ test('the list holds the running brainstorms, then the ones done, each with what
 })
 
 test('the part stands third in the Advisor tab, with the list, the box for a new one and the card', () => {
-  assert.deepEqual([...html.matchAll(/data-advisor-pane="([a-z]+)"/g)].map(match => match[1]), ['way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'])
-  assert.match(script, /const ADVISOR_PANES = \['way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'\]/)
+  assert.deepEqual([...html.matchAll(/data-advisor-pane="([a-z]+)"/g)].map(match => match[1]), ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'])
+  assert.match(script, /const ADVISOR_PANES = \['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'\]/)
   for (const id of ['advisor-brainstorm', 'brainstorm-list', 'brainstorm-new', 'brainstorm-new-title', 'brainstorm-new-about', 'brainstorm-new-opening', 'brainstorm-new-start', 'brainstorm-card']) assert.ok(html.includes(`id="${id}"`), id)
   assert.match(css, /#view-advice\[data-pane="brainstorm"\] > \.advisor-brainstorm/)
   // Create asks the main chat for each step the board created, by its place in the proposal.

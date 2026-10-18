@@ -1,8 +1,8 @@
 // The paths that differ per machine, from config.json next to the server.
 
 import { constants } from 'node:fs'
-import { access, copyFile, readFile, readdir, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative } from 'node:path'
+import { access, copyFile, readFile, readdir, realpath, stat } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 
 /**
  * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
@@ -64,7 +64,7 @@ const DEFAULTS = {
   usageHistory: '%APPDATA%\\Claude\\plan-usage-history.json',
   limitWarnPercent: 80,
   /**
-   * B173: what one project sets for the Advisor (its job is the board's `roles/advisor.md`). The backlog, in the
+   * B173: what one project sets for the Advisor (its job is the board's `roles/partner.md`). The backlog, in the
    * project; the game plan, the Advisor's decisions and the documents it reads first, in the game's repository; the
    * backlog group its suggestions stand in; and its rounds: the morning one at this time ("" leaves it out, and so
    * does a 5-hour limit above `morningSkipPercent`), the weekly one right after the weekly limit resets.
@@ -90,9 +90,18 @@ const DEFAULTS = {
   morningRound: '09:00',
   weeklyRound: true,
   morningSkipPercent: 80,
+  /**
+   * Focus 1 (spec 2026-10-18, section 4): the parts the Focus tab's bar shows, by name, in the bar's own order. The
+   * others (way: Next milestone, plan: Game plan, suggestions, refine, chat) are hidden, not deleted: name them here.
+   */
+  advisorParts: ['focus', 'goals', 'brainstorm'],
   /** B311: the chats' CPU until the person picks one on the board (data/cpu.json): "off", "gentle" or "strong". */
   cpuLimit: 'off',
 }
+
+/** Focus 1: the Focus tab's parts, in the order of its bar (public/board.js ADVISOR_PANES). */
+const ADVISOR_PARTS = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
+const isAdvisorParts = value => Array.isArray(value) && value.every(one => ADVISOR_PARTS.includes(one))
 
 /** B311: the levels of "CPU for the chats". */
 const CPU_LEVELS = ['off', 'gentle', 'strong']
@@ -111,6 +120,15 @@ export function workFolder(config) {
   return isAbsolute(config.work) ? config.work : join(config.project, ...config.work.split('/'))
 }
 
+/**
+ * Focus 1: the goal map's paths (`goals`, `brainstorms`, `goalAsks`, `goalsHistory`) as whole paths: inside the project,
+ * or a whole path of their own, so a copy of the board tried beside the person's reads its own map, as its work store.
+ */
+export function projectFile(config, key) {
+  const value = config[key]
+  return isAbsolute(value) ? value : join(config.project, ...value.split('/'))
+}
+
 /** B296: whether the store's folder is a whole path outside the project: a copy's own, which it may write. */
 export function isOwnWork(config) {
   if (!isAbsolute(config.work)) return false
@@ -118,9 +136,62 @@ export function isOwnWork(config) {
   return path.startsWith('..') || isAbsolute(path)
 }
 
+/**
+ * Focus 2 (the review of Focus 1): whether the goal map's files (`goals`, `brainstorms`, `goalsHistory`) are each a
+ * whole path outside the project: a copy's own map, which a copy of the board may write, as its own work store.
+ */
+export function isOwnMap(config) {
+  return ['goals', 'brainstorms', 'goalsHistory'].every(key => {
+    if (typeof config[key] !== 'string' || !isAbsolute(config[key])) return false
+    const path = relative(config.project, config[key])
+    return path.startsWith('..') || isAbsolute(path)
+  })
+}
+
+const MAP_KEYS = ['goals', 'brainstorms', 'goalsHistory']
+
+/** A path as it really is (junctions and links followed), also one not there yet: its nearest folder that is, then the rest. */
+async function realOf(path) {
+  try {
+    return await realpath(path)
+  } catch {
+    const parent = dirname(path)
+    return parent === path ? path : join(await realOf(parent), basename(path))
+  }
+}
+/** Whether `path` is `folder` or inside it, by real paths, letters' case aside on Windows. */
+const within = (path, folder) => {
+  const to = relative(folder.toLowerCase(), path.toLowerCase())
+  return to === '' || (!to.startsWith('..') && !isAbsolute(to))
+}
+
+/**
+ * Focus 2, the review's findings: `isOwnMap` by real paths. The copy's `goals`, `brainstorms` and `goalsHistory` are
+ * each a whole path outside the project also when junctions are followed, and none is (or lies inside, or holds) the
+ * live board's own: the map the main checkout's config.json names (`main`: its folder), when it can be read.
+ */
+export async function ownMapNow(config, { main = null } = {}) {
+  if (!isOwnMap(config)) return false
+  const project = await realOf(config.project)
+  const mine = await Promise.all(MAP_KEYS.map(key => realOf(config[key])))
+  if (mine.some(path => within(path, project))) return false
+  if (main === null) return true
+  let live
+  try {
+    live = parseConfig(await readFile(join(main, 'config.json'), 'utf8'), process.env)
+  } catch {
+    return true
+  }
+  if (typeof live.project !== 'string' || live.project === '') return true
+  const theirs = await Promise.all(MAP_KEYS.map(key => realOf(projectFile(live, key))))
+  return !mine.some(path => theirs.some(other => within(path, other) || within(other, path)))
+}
+
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 // The paths inside the project or the game's repository, written with /.
-const PROJECT_PATHS = ['backlog', 'goals', 'brainstorms', 'goalAsks', 'goalsHistory', 'gamePlan', 'advisorDecisions', 'designKinds']
+const PROJECT_PATHS = ['backlog', 'gamePlan', 'advisorDecisions', 'designKinds']
+// Focus 1: the goal map's paths, inside the project or a whole path of their own (a copy's).
+const MAP_PATHS = ['goals', 'brainstorms', 'goalAsks', 'goalsHistory']
 const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'morningSkipPercent']
 
 /**
@@ -171,6 +242,7 @@ export function parseConfig(text, env) {
   for (const key of PROJECT_PATHS) {
     if (typeof raw[key] === 'string' && INSIDE.test(raw[key].trim())) config[key] = raw[key].trim()
   }
+  for (const key of MAP_PATHS) if (isWorkPath(raw[key])) config[key] = raw[key].trim()
   if (isWorkPath(raw.work)) config.work = raw.work.trim()
   if (Array.isArray(raw.advisorReadFirst)) config.advisorReadFirst = raw.advisorReadFirst.filter(path => typeof path === 'string' && INSIDE.test(path))
   if (typeof raw.advisorSuggestions === 'string' && raw.advisorSuggestions.trim() !== '') config.advisorSuggestions = raw.advisorSuggestions.trim()
@@ -178,6 +250,7 @@ export function parseConfig(text, env) {
   if (typeof raw.weeklyRound === 'boolean') config.weeklyRound = raw.weeklyRound
   if (Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== '')) config.runGame = [...raw.runGame]
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
+  if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]
   if (typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase())) config.cpuLimit = raw.cpuLimit.trim().toLowerCase()
   return config
 }
@@ -212,10 +285,12 @@ export function configProblem(fileText) {
   for (const key of PROJECT_PATHS) if (has(key) && !(typeof raw[key] === 'string' && INSIDE.test(raw[key].trim()))) return wrong(key, 'a path inside its folder, written with /')
   if (has('pictureRoots') && !(Array.isArray(raw.pictureRoots) && raw.pictureRoots.length > 0 && raw.pictureRoots.every(one => typeof one === 'string' && /^[\w-][\w.-]*$/.test(one)))) return wrong('pictureRoots', 'a list of one or more plain folder names')
   if (has('advisorReadFirst') && !(Array.isArray(raw.advisorReadFirst) && raw.advisorReadFirst.every(one => typeof one === 'string' && INSIDE.test(one)))) return wrong('advisorReadFirst', 'a list of paths inside the game, written with /')
+  for (const key of MAP_PATHS) if (has(key) && !isWorkPath(raw[key])) return wrong(key, 'a path inside its folder written with /, or a whole path of its own')
   if (has('work') && !isWorkPath(raw.work)) return wrong('work', 'a path inside the project written with /, or a whole path of its own')
   if (has('morningRound') &&!(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
+  if (has('advisorParts') && !(isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0)) return wrong('advisorParts', `a list of one or more of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
   if (has('cpuLimit') && !(typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase()))) return wrong('cpuLimit', '"off", "gentle" or "strong"')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   return null

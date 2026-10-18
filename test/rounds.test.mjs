@@ -72,7 +72,7 @@ test('the clock\'s line says it is the clock\'s, names the job and the project\'
   const text = roundText('morning', { board: 'C:\\board', config })
   const lines = text.split('\n')
   assert.equal(lines[0], 'Round from the board\'s clock: morning')
-  assert.match(lines[1], /^Your job: C:\\board[\\/]roles[\\/]advisor\.md$/)
+  assert.match(lines[1], /^Your job: C:\\board[\\/]roles[\\/]partner\.md$/)
   assert.match(text, /Read first: docs\/vision\.md/)
   assert.match(text, /under "Advisor suggestions"/)
   assert.match(text, /not the user's word/)

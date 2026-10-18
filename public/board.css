@@ -100,8 +100,8 @@ button, textarea, select { font: inherit; color: inherit; }
 #view-advice { --side: 500px; }
 /* B195: the Advisor's tab shows one of its parts at a time, under their buttons; the chat is one of them. */
 #view-advice { display: flex; flex-direction: column; }
-#view-advice > .resizer, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advisor-brainstorm, #view-advice > .advisor-refine, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
-#view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="brainstorm"] > .advisor-brainstorm, #view-advice[data-pane="refine"] > .advisor-refine, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
+#view-advice > .resizer, #view-advice > .advisor-focus, #view-advice > .advisor-way, #view-advice > .advisor-goals, #view-advice > .advisor-brainstorm, #view-advice > .advisor-refine, #view-advice > .advice-panel, #view-advice > .talk { display: none; }
+#view-advice[data-pane="focus"] > .advisor-focus, #view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="brainstorm"] > .advisor-brainstorm, #view-advice[data-pane="refine"] > .advisor-refine, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 #view-advice[data-pane="chat"] > .talk { display: flex; flex: 1; width: min(900px, calc(100% - 36px)); }
 #view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
 .advisor-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 18px 0; flex: none; }
@@ -123,6 +123,103 @@ button, textarea, select { font: inherit; color: inherit; }
 .advisor-tabs button:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
 .advisor-tabs small { color: var(--muted); margin-left: 4px; }
 .advisor-way { margin: 14px 18px 16px; max-width: 1240px; }
+/* Focus 1 (spec 2026-10-18, section 4, and its mockups): the Focus page, one goal and where it stands. */
+.advisor-focus { margin: 14px 18px 16px; max-width: 1480px; }
+.panel.advisor-focus { border: 0; background: none; padding: 0; }
+.focus-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 18px 28px; padding: 14px 4px 18px; }
+.focus-title { min-width: 0; flex: 1 1 420px; }
+.focus-label { display: block; color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.advisor-focus .focus-title h2 { display: block; margin: 4px 0 0; font-size: 34px; line-height: 1.2; overflow-wrap: anywhere; }
+.focus-vibe-line { margin-top: 6px; color: var(--muted); font-size: 16px; }
+.focus-side { flex: 0 1 560px; display: flex; flex-direction: column; gap: 10px; }
+.focus-strip { display: flex; align-items: center; gap: 0; }
+.focus-stage { display: flex; align-items: center; gap: 8px; padding: 7px 14px 7px 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--muted); font-size: 14.5px; font-weight: 600; white-space: nowrap; }
+.focus-stage + .focus-stage { margin-left: 34px; position: relative; }
+.focus-stage + .focus-stage::before { content: ""; position: absolute; left: -28px; top: 50%; width: 22px; border-top: 1px solid #3a4a63; }
+.focus-n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--inset); color: var(--text); font-size: 13px; }
+.focus-stage.is-now { border-color: var(--free); background: #16294a; color: var(--text); }
+.focus-stage.is-now .focus-n { background: var(--free); }
+.focus-stage.is-done { border-color: #2d6b47; color: var(--working); }
+.focus-stage.is-done .focus-n { background: var(--working); color: var(--ink); }
+.focus-check { color: var(--working); }
+.focus-progress { display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
+.focus-bar { height: 7px; border-radius: 4px; background: var(--inset); overflow: hidden; }
+.focus-bar span { display: block; height: 100%; border-radius: 4px; background: var(--free); }
+.focus-bar.is-wide span, .focus-part.is-done .focus-bar span { background: var(--working); }
+.focus-body { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.focus-column { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.focus-card { min-width: 0; padding: 18px 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.focus-card h3 { font-size: 21px; margin-bottom: 4px; }
+.focus-card h4 { margin: 14px 0 6px; font-size: 15px; }
+.focus-sub { color: var(--muted); margin-bottom: 12px; }
+.focus-bubbles { display: flex; flex-direction: column; gap: 14px; margin: 14px 0 16px; max-height: 58vh; overflow-y: auto; }
+.focus-bubble { display: flex; gap: 12px; align-items: flex-start; max-width: 82%; }
+.focus-bubble.is-you { align-self: flex-end; flex-direction: row-reverse; }
+.focus-face { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--inset); color: var(--waiting); }
+.focus-bubble.is-you .focus-face { background: #1d4b9a; color: #dbe9ff; }
+.focus-words { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.focus-bubble.is-you .focus-words { align-items: flex-end; }
+.focus-words small { color: var(--muted); font-weight: 600; }
+.focus-words p { padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); overflow-wrap: anywhere; white-space: pre-wrap; }
+.focus-bubble.is-you .focus-words p { border-color: #2f5fb3; background: #13254a; }
+.focus-say { display: flex; gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.focus-say textarea { flex: 1; min-width: 0; resize: none; padding: 8px 10px; border: 0; background: transparent; }
+.focus-say textarea:disabled { cursor: default; }
+.focus-say.is-slim { background: var(--panel); }
+.focus-send { padding: 8px 22px; border: 0; border-radius: 8px; background: #1d4b9a; color: #dbe9ff; font-weight: 600; cursor: pointer; }
+.focus-send:disabled, .focus-yes:disabled, .focus-no:disabled { opacity: 0.55; cursor: default; }
+.focus-ticks { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 14px; }
+.focus-ticks li { position: relative; padding-left: 34px; font-size: 16px; }
+.focus-ticks li::before { content: "✓"; position: absolute; left: 0; top: -1px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--working); color: var(--ink); font-size: 14px; font-weight: 700; }
+.focus-draft .picture { display: block; width: 100%; margin-bottom: 4px; }
+.focus-draft .picture img { aspect-ratio: 16 / 9; }
+.focus-plan { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; counter-reset: part; }
+.focus-plan li { display: flex; align-items: baseline; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--inset); counter-increment: part; }
+.focus-plan li::before { content: counter(part); color: var(--muted); font-weight: 700; }
+.focus-plan li span { flex: 1; min-width: 0; }
+.focus-plan li small { color: var(--muted); white-space: nowrap; }
+.focus-decides { display: flex; flex-direction: column; gap: 4px; padding-left: 18px; list-style: disc; color: var(--text); }
+.focus-buttons { display: flex; gap: 14px; margin-top: 18px; }
+.focus-yes { flex: 1; padding: 13px 18px; border: 0; border-radius: 9px; background: var(--working); color: var(--ink); font-size: 16px; font-weight: 700; cursor: pointer; }
+.focus-no { padding: 13px 30px; border: 1px solid #3a4a63; border-radius: 9px; background: transparent; color: var(--text); font-size: 16px; font-weight: 600; cursor: pointer; }
+.focus-part { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
+.focus-part-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.focus-part-top b { min-width: 0; font-size: 16px; overflow-wrap: anywhere; }
+.focus-chip { flex: none; padding: 4px 14px; border: 1px solid var(--line); border-radius: 7px; font-size: 14px; font-weight: 600; }
+.focus-chip.is-done { border-color: #2d6b47; color: var(--working); background: #0f2a1d; }
+.focus-chip.is-now { border-color: var(--free); color: #8fb4ff; background: #13254a; }
+.focus-chip.is-next { border-color: #3a4a63; color: var(--text); }
+.focus-owner { align-self: flex-end; color: var(--muted); }
+.focus-steps { margin-top: 16px; padding: 12px 2px 0; width: 100%; border: 0; border-top: 1px solid var(--line); background: none; color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
+.focus-steps:hover { color: var(--text); }
+.advisor-focus .focus-pick h2 { font-size: 24px; margin-bottom: 14px; }
+.focus-goals { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
+.focus-goals li { display: flex; align-items: center; gap: 12px; padding: 7px 10px 7px calc(10px + var(--depth, 0) * 22px); border-radius: 7px; }
+.focus-goals li:hover { background: var(--inset); }
+.focus-goal-id { flex: none; min-width: 3em; color: #9db8e8; font-weight: 700; font-variant-numeric: tabular-nums; }
+.focus-goal-title { flex: 1; min-width: 0; }
+.focus-goals li.is-now .focus-goal-title { color: var(--waiting); }
+.choice.is-goal { border-color: var(--free); }
+/* Focus 2: the moves. The partner's open question answered in the talk, the line after a move, the box of "Not yet". */
+.focus-why { margin: -4px 0 8px; font-size: 14px; }
+.focus-options { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.focus-option { display: flex; align-items: baseline; gap: 8px; max-width: 100%; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--inset); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.focus-option b { color: #9db8e8; }
+.focus-option span { min-width: 0; overflow-wrap: anywhere; }
+.focus-option small { flex: none; color: var(--working); font-size: 12.5px; }
+.focus-option.is-chosen { border-color: var(--free); background: #16294a; }
+.focus-option:disabled { opacity: 0.6; cursor: default; }
+.focus-talk .picture { display: block; max-width: 100%; margin-bottom: 12px; }
+.focus-waiting { margin: 0 0 12px; color: var(--muted); }
+.focus-waiting.is-off { color: var(--warn); }
+.focus-note { margin: 0 4px 12px; padding: 9px 14px; border: 1px solid #2d6b47; border-radius: 9px; background: #0f2a1d; color: #c9f2da; }
+.focus-note.is-error { border-color: #b4553c; background: #3a1d14; color: #ffd2c4; }
+.focus-not-yet { margin-top: 12px; }
+.focus-change { margin-top: 8px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 7px; background: none; color: var(--muted); font: inherit; font-size: 13.5px; cursor: pointer; }
+.focus-change:hover:not(:disabled) { color: var(--text); border-color: #3a4a63; }
+.focus-change:disabled { opacity: 0.55; cursor: default; }
+.focus-pick .focus-change { margin: 0 0 12px; }
+.focus-goals .goals-action:disabled { opacity: 0.55; cursor: default; }
 /* B255: the goal map's outline (spec 2026-10-15): one level at a time, the rest folded and dimmed. */
 .advisor-goals { margin: 14px 18px 16px; max-width: 1240px; }
 .goals-head { display: flex; align-items: center; gap: 12px; padding: 4px 6px 10px; border-bottom: 1px solid var(--line); }
@@ -1068,6 +1165,11 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 
 @media (max-width: 1250px) {
   #view-advice[data-pane="chat"] > .talk { flex: none; height: 80vh; }
+  .focus-body { grid-template-columns: minmax(0, 1fr); }
+  .focus-strip { flex-wrap: wrap; gap: 8px; }
+  .focus-stage + .focus-stage { margin-left: 0; }
+  .focus-stage + .focus-stage::before { display: none; }
+  .advisor-focus .focus-title h2 { font-size: 24px; }
   body { height: auto; }
   .view { display: block; }
   .resizer { display: none; }

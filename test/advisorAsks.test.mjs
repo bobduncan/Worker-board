@@ -136,7 +136,7 @@ test('the window knows the Advisor, shows its answer as the main chat\'s, and op
 // Its job text: it files what it needs from the person as an ask, and tells the main chat only what it asked.
 
 const plain = async name => (await readFile(join(ROOT, 'roles', name), 'utf8')).replace(/\s+/g, ' ')
-const advisorJob = await plain('advisor.md')
+const advisorJob = await plain('partner.md')
 const mainJob = await plain('main.md')
 
 test('the Advisor files what it needs from the person with work ask, and tells the main chat in one line what it asked', () => {

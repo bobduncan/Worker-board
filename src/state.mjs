@@ -12,7 +12,7 @@ import { asksAtEnd, parseHandover } from './handover.mjs'
 import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
-import { goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
+import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
 import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, safePointNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
@@ -760,6 +760,56 @@ export function lookingFor({ list, prefix, config, chats }) {
   return lines
 }
 
+/** Focus 1: the minutes a part's size names ("about 1 h", "30 min", "1.5 h", "2 h 30 min"); null when it names none. */
+function sizeMinutes(size) {
+  const hours = String(size ?? '').match(/(\d+(?:[.,]\d+)?)\s*h\b/)
+  const minutes = String(size ?? '').match(/(\d+)\s*min\b/)
+  if (hours === null && minutes === null) return null
+  return Math.round((hours === null ? 0 : Number(hours[1].replace(',', '.')) * 60) + (minutes === null ? 0 : Number(minutes[1])))
+}
+
+const FINISHED = ['done', 'closed', 'dropped']
+const UNDER_WAY = ['taken', 'in progress', 'waiting on you', 'review']
+
+/**
+ * Focus 1 (spec 2026-10-18, sections 4 and 5): the focus goal as the Focus page draws it, or null without a goal map,
+ * without a focus, or with one that is no longer in the map (the page then asks to pick one). Its stage and lines from
+ * goals.md; each part's progress from its steps in the store (`items`): all finished → done; one taken, in progress,
+ * waiting on the person or in review → now, with that step's owner (without the chats' `prefix`); else next. The whole: the parts
+ * done of all, and the minutes the sizes of the parts not done name. `thread`: the goal's brainstorm, the vibe and how
+ * talk: a running thread about it first, else the one its Brainstorm line names.
+ */
+export function focusState(goalMap, items, threads, prefix) {
+  const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
+  if (node === null) return null
+  const steps = new Map((items ?? []).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one]))
+  const parts = node.parts.map(part => {
+    const known = part.steps.map(id => steps.get(id)).filter(one => one !== undefined)
+    const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
+    const busy = known.find(one => UNDER_WAY.includes(one.head.get('State')))
+    const state = known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : 'next'
+    const owner = busy === undefined ? null : String(busy.head.get('Owner') ?? '').replace(prefix, '').trim() || null
+    return { title: part.title, size: part.size, state, owner, done, total: known.length }
+  })
+  const left = parts.filter(part => part.state !== 'done').map(part => sizeMinutes(part.size)).filter(one => one !== null)
+  const own = (threads ?? []).filter(one => one.goal?.id === node.id)
+  const thread = own.find(one => one.state === 'running') ?? (threads ?? []).find(one => one.path === node.brainstorm?.path) ?? own[0] ?? null
+  return {
+    id: node.id,
+    title: node.title,
+    stage: focusStage(node),
+    vibe: node.vibe,
+    vibePicture: node.vibePicture,
+    vibeAgreed: node.vibeAgreed,
+    parts,
+    partnerDecides: node.partnerDecides,
+    youDecide: node.youDecide,
+    howAgreed: node.howAgreed,
+    progress: { done: parts.filter(part => part.state === 'done').length, total: parts.length, minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0) },
+    thread: thread?.path ?? null,
+  }
+}
+
 export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], now, config }) {
   const sent = Array.isArray(outbox) ? outbox : []
   const started = Array.isArray(runs) ? runs : []
@@ -1270,5 +1320,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B259: the brainstorms, and what they wait for from the person: a question to answer, a proposal to create.
     brainstorms,
     brainstormNeeds: brainstormNeeds(brainstorms.threads),
+    // Focus 1 (spec 2026-10-18): the focus goal for the Focus part, and the parts the tab's bar shows.
+    focus: focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix),
+    advisorParts: config.advisorParts,
   }
 }

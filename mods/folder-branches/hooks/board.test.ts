@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOST_CHARS, boardStarts, parseBoard, parseTaken } from './board'
+import { MOST_CHARS, WORK_ACTIONS, WORK_FIELDS, boardStarts, parseBoard, parseTaken } from './board'
 
 const KEY = 'ab'.repeat(32)
 
@@ -47,5 +47,20 @@ describe('the worker board, as the mod reads it', () => {
     expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'] })
     expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [] })
     expect(parseTaken('')).toEqual({ messages: [], refused: [] })
+  })
+})
+
+describe('Focus 2: the partner keeps its drafts of the focus with the work tool', () => {
+  test('vibe-draft and how-draft are actions of the tool, with the fields they need', () => {
+    expect(WORK_ACTIONS.includes('vibe-draft')).toBe(true)
+    expect(WORK_ACTIONS.includes('how-draft')).toBe(true)
+    for (const field of ['goal', 'lines', 'picture', 'parts', 'partnerDecides', 'youDecide']) expect(WORK_FIELDS.includes(field)).toBe(true)
+  })
+})
+
+describe("B313: the main chat moves a renamed chat's work with the work tool", () => {
+  test('rename is an action of the tool, with from and to', () => {
+    expect(WORK_ACTIONS.includes('rename')).toBe(true)
+    for (const field of ['from', 'to']) expect(WORK_FIELDS.includes(field)).toBe(true)
   })
 })

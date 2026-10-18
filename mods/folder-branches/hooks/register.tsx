@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { ChatFile, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_PATH, boardStarts, parseBoard, parseTaken } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, parseBoard, parseTaken } from './board'
 import type { Board, BoardStart } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -812,11 +812,6 @@ const CHAT_TOOL = {
   },
 }
 
-/** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
-const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
-  'pictures', 'play', 'to', 'result', 'merged', 'on', 'title', 'activity', 'goal', 'for', 'after', 'about', 'as', 'why', 'summary', 'picture', 'size',
-  'questions', 'what', 'advice', 'from']
-
 /** B297: the tool a chat works its items with: the worker board's work store. */
 const WORK_TOOL = {
   name: 'work',
@@ -837,12 +832,14 @@ const WORK_TOOL = {
     + '"for", "after", "about"), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
     + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "questions") and "refined" ("id", "what"): '
-    + 'the Advisor. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old name of a '
-    + 'chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one).',
+    + 'the Advisor. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
+    + 'the partner (the Advisor) keeps its draft of the focus goal\'s vibe and how on the board; each call takes the place '
+    + 'of the draft the goal had. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old '
+    + 'name of a chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one).',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'list', 'rename'] },
+      action: { type: 'string', enum: WORK_ACTIONS },
       id: { type: 'string', description: 'The item: B12 (a step), Q3 (an ask), I4 (an instruction).' },
       branch: { type: 'string', description: 'take: the branch you work the step on.' },
       step: { type: 'integer', description: 'step: the step of your plan you are on now.' },
@@ -864,17 +861,21 @@ const WORK_TOOL = {
       on: { type: 'string', description: 'block, unblock: the step it waits on; unblock without it clears Waits for.' },
       title: { type: 'string', description: "new: the step's title." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
-      goal: { type: 'string', description: 'new, refine: the goal it serves (G17).' },
+      goal: { type: 'string', description: 'new, refine: the goal it serves (G17); vibe-draft, how-draft: the focus goal.' },
       for: { type: 'string', description: 'queue: the chat it is for.' },
       after: { type: 'string', description: 'queue: the steps it waits on, or what it waits for.' },
       about: { type: 'string', description: 'queue: how long it takes, roughly ("1 h").' },
       as: { type: 'string', description: 'close: what came of the instruction ("made step B300").' },
       why: { type: 'string', description: 'drop: why.' },
-      summary: { type: 'string', description: 'refine: the step in a few lines.' },
-      picture: { type: 'string', description: 'refine: the picture of what it makes.' },
-      size: { type: 'string', description: 'refine: how long it takes, roughly.' },
+      summary: { type: 'string', description: 'refine, and new from an agreed how: the step in a few lines.' },
+      picture: { type: 'string', description: 'refine: the picture of what it makes; vibe-draft: the vibe\'s picture.' },
+      size: { type: 'string', description: 'refine, and new from an agreed how: how long it takes, roughly.' },
       questions: { type: 'array', items: { type: 'string' }, description: 'refine: the questions for the person.' },
-      what: { type: 'array', items: { type: 'string' }, description: 'refined: what we build, one part per line.' },
+      what: { type: 'array', items: { type: 'string' }, description: 'refined, and new from an agreed how (the partner: with goal and summary, the step is made refined): what we build, one part per line.' },
+      lines: { type: 'array', items: { type: 'string' }, description: 'vibe-draft: three to five short lines of the vibe, one "Not in it: ..." among them.' },
+      parts: { type: 'array', items: { type: 'string' }, description: 'how-draft: the parts, each "<title> · about <N> h", with " · steps B1, B2" once made.' },
+      partnerDecides: { type: 'array', items: { type: 'string' }, description: 'how-draft: the details you settle yourself, one per line.' },
+      youDecide: { type: 'array', items: { type: 'string' }, description: 'how-draft: what you bring to the person, one per line.' },
       from: { type: 'string', description: "rename: the chat's old name." },
     },
     required: ['action'],

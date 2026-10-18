@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto'
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
-import { GOAL_LINE, LAST_LINE, nextAskId, nextGoalId, parseGoals } from './goals.mjs'
+import { FOCUS_LINE, GOAL_LINE, LAST_LINE, nextAskId, nextGoalId, parseGoals } from './goals.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access }
 
@@ -372,6 +372,91 @@ export function deleteGoal(text, id) {
   file.lines.splice(found.start, found.end - found.start)
   return { ok: true, text: dropReferences(join(file), id) }
 }
+
+/**
+ * Focus 1 (spec 2026-10-18, section 5): the focus goal as the head line `Focus: G<n>`, in place where it stands, else
+ * right after the head's "Last" lines, else under the file's first heading, else on top; null takes it out. A goal
+ * that is not in the map is refused `gone`.
+ */
+export function setFocus(text, id) {
+  const file = split(text)
+  const firstGoal = file.lines.findIndex(line => GOAL_LINE.test(line))
+  const head = firstGoal < 0 ? file.lines.length : firstGoal
+  const at = file.lines.slice(0, head).findIndex(line => FOCUS_LINE.test(line))
+  if (id === null) {
+    if (at < 0) return { ok: true, text }
+    file.lines.splice(at, 1)
+    return { ok: true, text: join(file) }
+  }
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const line = `Focus: ${id}`
+  if (at >= 0) {
+    file.lines[at] = line
+    return { ok: true, text: join(file) }
+  }
+  const lastLines = file.lines.slice(0, head).flatMap((one, index) => (LAST_LINE.test(one) ? [index] : []))
+  const heading = file.lines.slice(0, head).findIndex(one => one.startsWith('# '))
+  file.lines.splice(lastLines.length > 0 ? lastLines.at(-1) + 1 : heading >= 0 ? heading + 1 : 0, 0, line)
+  return { ok: true, text: join(file) }
+}
+
+/**
+ * Focus 1: the goal's own lines whose name is one of `names` replaced by `lines` (without their indentation), where
+ * the first of them stood, else after its own lines at its top; every other line stays.
+ */
+function replaceOwn(text, id, names, lines) {
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const isNamed = index => names.some(name => file.lines[index].trimStart().startsWith(`${name}:`))
+  const own = ownLines(file.lines, found).filter(isNamed)
+  const at = own.length > 0 ? own[0] : ownLinesEnd(file.lines, found)
+  for (const index of own.toReversed()) file.lines.splice(index, 1)
+  file.lines.splice(at, 0, ...lines.map(line => `${' '.repeat(found.depth + 2)}${line}`))
+  return { ok: true, text: join(file) }
+}
+
+/** Focus 1: an agreed line (`Vibe agreed: <at>`) once, after the goal's last line of `after`, else after its own lines at its top. */
+function agreeOnce(text, id, name, after, at) {
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const own = ownLines(file.lines, found)
+  if (own.some(index => file.lines[index].trimStart().startsWith(`${name}:`))) return { ok: true, text }
+  const last = own.filter(index => after.some(one => file.lines[index].trimStart().startsWith(`${one}:`))).at(-1)
+  file.lines.splice(last === undefined ? ownLinesEnd(file.lines, found) : last + 1, 0, `${' '.repeat(found.depth + 2)}${name}: ${oneLine(at, 40)}`)
+  return { ok: true, text: join(file) }
+}
+
+const VIBE = ['Vibe', 'Vibe picture']
+const HOW = ['Part', 'Partner decides', 'You decide']
+const words = (list, max) => (Array.isArray(list) ? list.map(one => oneLine(one, max)).filter(one => one !== '') : [])
+
+/** Focus 1: the goal's vibe, `Vibe:` one line per point and `Vibe picture:` (null: none), in place of the ones it had. */
+export function setVibe(text, id, lines, picture) {
+  const shown = oneLine(picture, 300)
+  return replaceOwn(text, id, VIBE, [...words(lines, 300).map(one => `Vibe: ${one}`), ...(shown === '' ? [] : [`Vibe picture: ${shown}`])])
+}
+
+/** Focus 1: `Part: <title> · <size> · steps B<n>, B<n>` per part, then `Partner decides:` and `You decide:` lines. */
+export function setHow(text, id, how) {
+  if (how === null || typeof how !== 'object' || !Array.isArray(how.parts)) return refuse('form')
+  const parts = how.parts.flatMap(part => {
+    const title = oneLine(part?.title, 160).replaceAll(' · ', ', ')
+    if (title === '') return []
+    const size = oneLine(part.size, 40).replaceAll(' · ', ', ')
+    const steps = [...new Set((Array.isArray(part.steps) ? part.steps : []).filter(one => /^B\d+$/.test(one)))]
+    return [`Part: ${[title, ...(size === '' ? [] : [size]), ...(steps.length === 0 ? [] : [`steps ${steps.join(', ')}`])].join(' · ')}`]
+  })
+  return replaceOwn(text, id, HOW, [...parts, ...words(how.partnerDecides, 300).map(one => `Partner decides: ${one}`), ...words(how.youDecide, 300).map(one => `You decide: ${one}`)])
+}
+
+/** Focus 1: `Vibe agreed: <at>`, once (a second agree keeps the first). */
+export const agreeVibe = (text, id, at) => agreeOnce(text, id, 'Vibe agreed', VIBE, at)
+
+/** Focus 1: `How agreed: <at>`, once, after the how's lines. */
+export const agreeHow = (text, id, at) => agreeOnce(text, id, 'How agreed', HOW, at)
 
 const pad = value => String(value).padStart(2, '0')
 /** This machine's day, as the copy is named. */

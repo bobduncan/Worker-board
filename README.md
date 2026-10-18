@@ -152,6 +152,9 @@ project's goal map, which the Advisor tab's Goals part draws and, on the board t
 `brainstorms`, `goalAsks` and `goalsHistory` (`.claude/brainstorms`, `.claude/goal-asks`, `.claude/goals.history`
 unless set) are the folders for the map's brainstorms (one thread file each, which the Advisor tab's Brainstorm part
 shows and answers), the Advisor's long answers to the asks on it (its "More:" lines point there) and its daily copy.
+These four may also be a whole path of their own, as `work`: a copy tried beside your board reads its own goal map.
+`advisorParts` (`["focus", "goals", "brainstorm"]` unless set): the parts the Focus tab's bar shows, by name; add
+`"way"` (Next milestone), `"plan"` (Game plan), `"suggestions"`, `"refine"` or `"chat"` to bring one back.
 `work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own
 (a copy tried beside your board gives it a folder outside the project, and only then writes one). The store is
 required: without it the board shows no work and says on top what to run.
