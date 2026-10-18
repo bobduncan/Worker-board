@@ -163,6 +163,14 @@ and the briefings for the main chat and the workers.
   app itself or another program.
 - "✕ Remove" on a worker's lane asks the main chat to close that worker; a worker that is not free gets a warning
   first, which says what would stop.
+- The evidence picture (B357), the one picture a check shows you: `node tools/evidence.mjs --step B314 --title "..."
+  --reference ref.png --result shot.png --points points.json --score 63 --target 75`. The reference stands left, the
+  result right at the same height (the result's own, at most `--height`, 720 unless given, so a result is never
+  enlarged); the step's id and title on top; below, the score beside its target (red when under it) and the agreed
+  points ticked green (pass) or red (fail). `--points` is a JSON list, or a file of one, of `{ "text", "result": "pass" |
+  "fail" }`. Without `--reference` and `--result` it is the ticked list alone. Without `--out` it lands in the project's
+  picture folder under the step (`<first pictureRoot>\<step>\evidence.png`), where the board shows it. It is drawn by a
+  headless Edge or Chrome (`EVIDENCE_BROWSER` names another), closed again in the same run.
 - When a merge changes the board, a yellow note on top of the page says a new version is available; click it and
   the board starts the new version itself, however it was started. Nothing starts anew without your click.
 
@@ -288,7 +296,7 @@ Enter, and the main chat names itself, joins the list and starts the Advisor and
 
 `data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran,
 the Design tab's ideas and the level of "CPU for the chats" (`cpu.json`). Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
-pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), and the work store
+pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), the evidence pictures of `tools/evidence.mjs` (under the step in the picture folder), and the work store
 (`work`, `.claude\work` unless set), on the chats' `work` calls and your clicks, with `backlog.md` written from it as a
 view (see "The work store" above).
 
