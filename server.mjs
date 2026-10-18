@@ -56,6 +56,7 @@ import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, undoLine } from './src/focus.mjs'
+import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
@@ -464,6 +465,14 @@ async function main(args) {
     })
     readState.reset()
     if (!done.ok || done.words === null) return done.ok ? { ok: true, result: done.result } : done
+    // B352: Go on the how, and another goal as the focus, switch the partner back to the usual mode (the talk about the
+    // same goal started again keeps it).
+    const back = body.command === 'focus' && body.id === state.focus?.id ? null : effortBack(body.command, state.advisor?.effort)
+    const main = state.restart?.main ?? null
+    if (back !== null && main !== null) {
+      const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back })
+      await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' })
+    }
     return toPartner(done.words, done.result, state)
   }
   /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */

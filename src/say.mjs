@@ -4,6 +4,7 @@
 
 import { isRefined, refinedKey } from './backlog.mjs'
 import { leftOutKey } from './brainstorm.mjs'
+import { PARTNER_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 
@@ -273,7 +274,7 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
     // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step', 'partner-effort'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
     // B233, B258: the commands that go to the Advisor only.
@@ -293,6 +294,12 @@ export function checkSay(body, state, maxChars) {
     }
     if (body.to !== state.restart?.main) return refuse(400, 'Only the main chat prepares, resumes, starts and is asked for workers.')
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
+    // B352: the partner's high effort mode, switched on the Focus page: the main chat sets the partner's chat.
+    if (body.command === 'partner-effort') {
+      if (!Object.hasOwn(PARTNER_MODES, body.mode ?? '')) return refuse(400, 'High effort or the usual partner.')
+      if (!state.advisor?.name) return refuse(409, 'No partner chat is on the board.')
+      return { ok: true, message: partnerEffortWords({ to: body.to, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: body.mode, why: 'switched on the Focus page' }) }
+    }
     // B181: a step of the backlog for the queue: one with an id that nobody has (not queued, not in progress, not
     // finished, not the person's), read from the board's own state; the page names the step's id only. One ask at a
     // time per step.

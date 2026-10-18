@@ -7468,7 +7468,10 @@ const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: 
 const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar' }
 
 function focusData(state) {
-  return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking]
+  const effort = state.advisor?.effort ?? null
+  return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking,
+    // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
+    effort === null ? null : [effort.mode, effort.isSet, effort.asked?.state ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null]
 }
 function redrawFocus() {
   if (board !== null && board !== undefined) once('focus', focusData(board), () => drawFocus(board))
@@ -7504,6 +7507,53 @@ function focusSay(placeholder, className, { box = null, act = null, label = 'Sen
   }
   form.append(text, focusButton({ label, act, isEnabled, title }, 'focus-send'))
   return form
+}
+
+// effortswitch:start
+/**
+ * B352: the high effort mode's switch under the talk with the partner (`effort`, the state's `advisor.effort`): on or
+ * off, its line, whether the partner still has to switch (the line dashed until its answer runs on the mode asked),
+ * and its note. Null without a partner.
+ */
+function effortView(effort) {
+  if (effort === null || effort === undefined) return null
+  const isOn = effort.mode === 'high'
+  const isSettling = effort.isSet === false
+  const note = isSettling && effort.asked?.state === 'expired' ? 'The main chat did not take the word: flip the switch again.'
+    : isSettling ? 'Switching… the main chat sets it; the line turns solid once your partner runs on it.'
+      : isOn ? `Your partner runs on ${effort.labels.high}. Go on the how switches it back.`
+        : 'Flip it for the vibe and the how of a hard goal: your partner switches at its next answer.'
+  return { isOn, line: isOn ? `on: ${effort.labels.high}` : `off: ${effort.labels.usual}`, isSettling, note }
+}
+// effortswitch:end
+
+/** B352: the switch's row: "High effort mode", its line and a toggle, then its note (or why the word was not sent). */
+function effortSwitch(state) {
+  const box = el('div', 'effort-box')
+  const view = effortView(state.advisor?.effort ?? null)
+  if (view === null) return box
+  const row = el('div', `effort-switch${view.isOn ? ' is-on' : ''}${view.isSettling ? ' is-settling' : ''}`)
+  const toggle = el('button', 'effort-toggle')
+  toggle.type = 'button'
+  toggle.setAttribute('role', 'switch')
+  toggle.setAttribute('aria-checked', String(view.isOn))
+  toggle.setAttribute('aria-label', 'High effort mode')
+  toggle.dataset.focusAct = 'effort'
+  const main = state.workers?.main ?? null
+  toggle.disabled = main === null || sending.has('partner-effort')
+  toggle.title = main === null ? 'No main chat on the board to switch your partner' : view.isOn ? 'Back to the usual partner' : 'Your partner on high effort for this talk'
+  row.append(el('b', '', 'High effort mode'), el('span', 'effort-line', ` · ${view.line}`), toggle)
+  const problem = problems.get('partner-effort') ?? null
+  box.append(row, el('p', `effort-note${problem === null ? '' : ' is-error'}`, problem ?? view.note))
+  return box
+}
+
+/** B352: the switch flipped: the word to the main chat, which sets the partner's chat. */
+async function switchEffort() {
+  const main = board?.workers?.main ?? null
+  const effort = board?.advisor?.effort ?? null
+  if (main === null || effort === null || sending.has('partner-effort')) return
+  await send({ to: main, command: 'partner-effort', mode: effort.mode === 'high' ? 'usual' : 'high' }, 'partner-effort')
 }
 
 /**
@@ -7553,6 +7603,7 @@ function focusTalkCard(state, can) {
   const picked = focusUi.picked !== null && ask.question?.options.some(one => one.key === focusUi.picked) ? focusUi.picked : null
   const placeholder = ask.question === null ? 'Your partner has the turn…' : picked !== null ? `Words to go with ${picked} (if any)…` : 'Write to your partner…'
   card.append(focusSay(placeholder, 'focus-say', { box: 'focus-talk-words', act: 'talk', isEnabled: can.canWrite && ask.question !== null, title: can.canWrite ? 'Your partner has the turn' : can.whyNot }))
+  card.append(effortSwitch(state))
   return card
 }
 
@@ -7804,6 +7855,7 @@ async function sendFocus(body, done) {
  * types the word to the partner (src/focus.mjs); one move at a time.
  */
 async function focusAct(act, goal = null, extra = null) {
+  if (act === 'effort') return switchEffort()
   const focus = board?.focus ?? null
   if (focusUi.busy) return
   if (act === 'change-focus' || act === 'keep-focus') {
