@@ -121,3 +121,11 @@ test('review: a chat that ended its turn with Done: yes while its step is still 
   assert.equal(run([step('B12', 'in progress', { Owner: 'Units', Since: '2026-10-17 11:58' })], [said]).flags.some(flag => flag.kind === 'unreported'), false)
   assert.equal(run([step('B12', 'review', { Owner: 'Units' })], [said]).flags.some(flag => flag.kind === 'unreported'), false)
 })
+
+test('B305: a step blocked by an ask that is answered or withdrawn is delivered, as after a step done or dropped; an open ask still holds it', () => {
+  const ask = (id, state) => file({ Id: id, Kind: 'ask', Title: `Ask ${id}`, State: state, Since: '2026-10-17 11:00' })
+  const after = on => step('B286', 'queued', { Owner: 'Units', 'Blocked by': on })
+  assert.deepEqual(run([ask('B279', 'answered'), after('B279')], [lane('Units')]).deliveries.map(one => one.id), ['B286'])
+  assert.deepEqual(run([ask('B279', 'withdrawn'), after('B279')], [lane('Units')]).deliveries.map(one => one.id), ['B286'])
+  assert.deepEqual(run([ask('B279', 'open'), after('B279')], [lane('Units')]).deliveries, [])
+})

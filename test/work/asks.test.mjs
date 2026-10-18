@@ -263,3 +263,15 @@ test('B305: withdraw of an ask with no asking chat: the main chat only, with a w
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('B305: a step blocked by an ask no longer shows "after" it once the ask is answered', async () => {
+  const { dir, main, board } = await fresh()
+  try {
+    assert.equal((await main({ action: 'block', id: 'B1', on: 'B9' })).ok, true)
+    assert.match((await board({ action: 'next' })).result.text, /- B1 \w+ \(after B9\)/)
+    await main({ action: 'answered-in-chat', id: 'B9', text: 'blue (2026-10-17)' })
+    assert.doesNotMatch((await board({ action: 'next' })).result.text, /after B9/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

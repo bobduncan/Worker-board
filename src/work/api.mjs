@@ -10,7 +10,7 @@ import { minutesOf } from '../backlog.mjs'
 import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
-import { overlapsIn } from './guards.mjs'
+import { CLEARED, overlapsIn } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
@@ -137,7 +137,7 @@ const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 
 /** One item in one line: id, state, what it waits for, title. */
 function oneLine(item, items) {
-  const open = idsIn(valueOf(item, 'Blocked by')).filter(id => !['done', 'dropped'].includes(stateOf(items.get(id) ?? { head: new Map() })))
+  const open = idsIn(valueOf(item, 'Blocked by')).filter(id => !CLEARED.includes(stateOf(items.get(id) ?? { head: new Map() })))
   const waits = [open.length > 0 ? `after ${open.join(', ')}` : null, valueOf(item, 'Waits for') === null ? null : `after ${valueOf(item, 'Waits for')}`].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
   const turns = missed > 0 ? `, missed ${missed} turn${missed === 1 ? '' : 's'}` : ''
