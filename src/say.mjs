@@ -126,6 +126,16 @@ const answeredAsks = step => (step.refined?.asks ?? []).filter(ask => ask.answer
  * B285: the word that tells the main chat a step it queued before it was refined is refined now, so it hands it out
  * as its note says (roles/main.md): `For` is the worker the note names.
  */
+/**
+ * B356: the word that asks the partner for a step's result check, once the board's own check passed: a helper that
+ * did not build it checks the result against the step's agreed points and its standard, and the partner files it with
+ * `work checked` (roles/partner.md, "The check"). `step` is `{ id, title, owner }`.
+ */
+export const checkStepWords = (to, step, job) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'result-check', about: step.id,
+  text: `check step\nStep: ${step.id} ${plainLine(step.title ?? '')}\nBuilt by: ${plainLine(step.owner ?? 'its worker')}\nYour job: ${job}, "The check"`,
+})
+
 export const refinedWords = (to, step) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'refined', about: step.id,
   text: `step refined\nStep: ${stepLine(step)}${step.worker === null || step.worker === undefined ? '' : `\nFor: ${step.worker}`}`,
@@ -422,7 +432,7 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   // line to a chat go to another chat than the main one.
   // B288: and a re-check of the goals, asked of the Advisor; B258: and an ask from the goal map; B259: and the words of a brainstorm.
   // Focus 2: and the words of the Focus page to the partner.
-  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', ...FOCUS_COMMANDS].includes(message.command))) return null
+  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'result-check', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', ...FOCUS_COMMANDS].includes(message.command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

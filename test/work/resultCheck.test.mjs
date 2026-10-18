@@ -151,3 +151,16 @@ test('only the partner files a check, of a step in review, with every point as p
     await rm(store.dir, { recursive: true, force: true })
   }
 })
+
+test('the board\'s word to the partner: check step, with the step, who built it and the job; the partner is woken for it', async () => {
+  const { checkStepWords, wakeFor } = await import('../../src/say.mjs')
+  const words = checkStepWords('Partner', { id: 'B2', title: 'Light the "garden" lamps', owner: 'Lamplighter' }, 'D:/Work/board/roles/partner.md')
+  assert.equal(words.text, 'check step\nStep: B2 Light the garden lamps\nBuilt by: Lamplighter\nYour job: D:/Work/board/roles/partner.md, "The check"')
+  assert.deepEqual([words.to, words.command, words.about], ['Partner', 'result-check', 'B2'])
+  const state = { restart: { main: 'Keeper' }, chats: [{ name: 'Keeper', isRunning: true }], advisor: { name: 'Partner', isRunning: false } }
+  assert.equal(wakeFor({ id: 'm1', at: NOW, ...words, state: 'waiting' }, state, [], NOW, 4000)?.command, 'start')
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /if \(checked\?\.ok !== true \|\| checked\.result\.resultCheck === undefined\) return/)
+  assert.match(server, /checkStepWords\(state\.advisor\.name, checked\.result\.resultCheck, join\(HERE, 'roles', 'partner\.md'\)\)/)
+})

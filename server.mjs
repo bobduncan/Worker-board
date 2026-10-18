@@ -48,7 +48,7 @@ import { parseHistory } from './src/history.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, focusWords, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
+import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -552,6 +552,17 @@ async function main(args) {
       const exists = path => stat(path).then(() => true, () => false)
       void reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists })
         .then(async outcome => workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' }))
+        .then(async checked => {
+          // B356: the board's check passed and the step waits for its result check: the partner is asked for it.
+          if (checked?.ok !== true || checked.result.resultCheck === undefined) return
+          const state = await readState()
+          if ((state.advisor ?? null) === null) return
+          const isCopied = state.bridge?.isMissing === true
+          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...checkStepWords(state.advisor.name, checked.result.resultCheck, join(HERE, 'roles', 'partner.md')), state: isCopied ? 'copied' : 'waiting' }
+          await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
+          const wake = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+          if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
+        })
         .then(() => {
           work.reset?.()
           readState.reset()
