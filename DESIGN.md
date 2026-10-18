@@ -1465,7 +1465,8 @@ Spec 2026-10-18, sections 2 and 4; plan Task 7; picture `art-inbox/focus-mockups
   time `handoutNeeds` puts a hint under Needs your attention with the way to Talk to Main.
 - **Chat names** (`work/api.mjs` `chatName`): queue and requeue `for`, rename `from` and `to`, a note's `to` and the
   asking chat lose the list's prefix and match a chat of the list (`chats`, from the board) in any case; an unknown one
-  is refused with the known names. An Owner written as prefix + name counts as that name, and is repaired when its chat
+  is taken with a warning line naming the known ones (the review: a worker about to be started is not on the list yet).
+  An Owner written as prefix + name counts as that name, and is repaired when its chat
   takes the step.
 - **The main chat delegates only** (`roles/main.md`): it asks the user nothing about planning (what to build, in which
   order, how big, which goal); those questions go to the partner. Its own asks are about delegation (a worker to start

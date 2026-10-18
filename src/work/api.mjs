@@ -87,8 +87,13 @@ export function chatName(value, { chats, prefix = '' }, { mayBeGone = false } = 
   const known = chats.find(name => plain(name, prefix) === words.toLowerCase())
   if (known !== undefined) return { ok: true, name: known }
   if (mayBeGone) return { ok: true, name: words }
-  return { ok: false, status: 400, why: `${words} is no chat of the list: ${chats.map(name => name.replace(prefix, '').trim()).join(', ')}.` }
+  // The review of Focus 4: a name the list does not know yet is taken (the main chat queues for a worker before it
+  // joins), with a warning line naming the known ones, so a mistyped name is seen at once.
+  return { ok: true, name: words, warning: `${words} is no chat of the list yet (it knows ${chats.map(name => name.replace(prefix, '').trim()).join(', ')}): the step waits until a chat of that name joins; check the name if none is about to.` }
 }
+
+/** The answer with the warning line on top, when there is one. */
+const warned = (done, warning) => (warning === undefined || !done.ok ? done : { ...done, result: { ...done.result, text: `${warning}\n${done.result.text ?? ''}`, warning } })
 const at = now => stamp(now).replace(' ', ' at ')
 /** B298: the time to the second, for an instruction's Since: a turn that starts a moment later can tell it. */
 const toSecond = now => `${stamp(now)}:${String(new Date(now).getSeconds()).padStart(2, '0')}`
@@ -795,6 +800,10 @@ async function make(body, w) {
 
 /** Main queues a refined step for a chat: Owner, Blocked by or Waits for, Estimate. */
 async function queue(body, w) {
+  return warned(await queueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning)
+}
+
+async function queueStep(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   if (line(body.for, 80) === '') return refuse(400, 'Name the chat it is for in "for".')
@@ -886,6 +895,10 @@ function queueAsked(item, w) {
  * it stays queued, and its Since is now, so the board delivers it anew to the new chat. Only a queued step.
  */
 async function requeue(body, w) {
+  return warned(await requeueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning)
+}
+
+async function requeueStep(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')

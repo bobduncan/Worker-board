@@ -1,7 +1,8 @@
 // Focus 4, seen live: the main chat queued steps with `for: "Game - Worker 2"` (the chat's whole title), so their Owner
 // was the title while the list names the chat "Worker 2". The work API now takes every chat name it is given (queue and
 // requeue `for`, rename `from` and `to`, a note's `to`, the chat that asks) without the list's prefix and matched to a
-// known chat case-insensitively; a name it does not know is refused with the names it knows. An Owner already written
+// known chat case-insensitively (the review: a name it does not know yet is taken with a warning line naming the
+// ones it knows: a worker about to be started). An Owner already written
 // as prefix + a known name counts as that name. Made-up names only.
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -49,15 +50,18 @@ test('queue and requeue take the chat without the prefix, in any case, as the li
   }
 })
 
-test('a chat the list does not know is refused, naming the ones it knows', async () => {
+test('the review\'s findings: a chat the list does not know yet (a worker about to be started) is taken, with a warning line', async () => {
   const { dir, main } = await fresh()
   try {
-    const refused = await main({ action: 'queue', id: 'B1', for: 'Game - Worker 9' })
-    assert.deepEqual([refused.ok, refused.status], [false, 400])
-    assert.equal(refused.why, 'Worker 9 is no chat of the list: Main, Worker 2, Worker 3, Partner.')
-    assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'refined')
-    await main({ action: 'queue', id: 'B1', for: 'Worker 2' })
-    assert.equal((await main({ action: 'requeue', id: 'B1', for: 'Nobody' })).why, 'Nobody is no chat of the list: Main, Worker 2, Worker 3, Partner.')
+    const queued = await main({ action: 'queue', id: 'B1', for: 'Game - Worker 9' })
+    assert.equal(queued.ok, true, queued.why)
+    assert.equal(valueOf(await item(dir, 'B1'), 'Owner'), 'Worker 9')
+    assert.equal(queued.result.warning, 'Worker 9 is no chat of the list yet (it knows Main, Worker 2, Worker 3, Partner): the step waits until a chat of that name joins; check the name if none is about to.')
+    assert.ok(queued.result.text.startsWith(`${queued.result.warning}\n`))
+    const moved = await main({ action: 'requeue', id: 'B1', for: 'worker 2' })
+    assert.equal(moved.result.warning, undefined)
+    assert.equal(valueOf(await item(dir, 'B1'), 'Owner'), 'Worker 2')
+    assert.match((await main({ action: 'requeue', id: 'B1', for: 'Nobody' })).result.warning, /^Nobody is no chat of the list yet/)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
