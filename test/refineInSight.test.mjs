@@ -40,9 +40,10 @@ test('the open refine questions are one line per step, the oldest step first, wi
 
 test('Needs your attention draws them as one line each, not a card per question, and counts a line once', () => {
   // The cards leave the refine questions out; the lines stand above them.
-  assert.match(script, /const cards = ordered\(\(showsClosed\(\) \? state\.forYou : open\)\.filter\(need => !isRefineQuestion\(need\)\)\)/)
+  assert.match(script, /const shown = ordered\(\(showsClosed\(\) \? state\.forYou : open\)\.filter\(need => !isRefineQuestion\(need\)\)\)/)
   assert.match(script, /drawRefineNeeds\(state\), \.\.\.cards/)
-  assert.match(script, /const unanswered = open\.filter\(need => !isAnswered\(need\) && !isRefineQuestion\(need\)\)\.length \+ refineLines\(open\)\.length/)
+  assert.match(script, /const cardsOpen = open\.filter\(need => !isRefineQuestion\(need\)\)/)
+  assert.match(script, /const unanswered = cardsOpen\.filter\(need => !isAnswered\(need\)\)\.length \+ lines\.length/)
   // A line opens the step's window, where the questions are answered.
   const draw = script.slice(script.indexOf('function drawRefineNeeds('), script.indexOf('// refinelines:end'))
   assert.ok(draw.includes('dataset.refineOpen'), 'opens by the step')
@@ -62,7 +63,7 @@ const advisorPage = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// advisorrefine:start'), script.indexOf('// advisorrefine:end'))}\nObject.assign(this, { advisorRefine })`, advisorPage)
 
 test('the Advisor\'s refine state: the step it refines, or the answers that wait for it', () => {
-  const step = (id, more = {}) => ({ id, refineAsk: null, refineState: 'none', ...more })
+  const step = (id, more = {}) => ({ id, status: 'open', refineAsk: null, refineState: 'none', ...more })
   const backlog = steps => [{ name: 'Meadow', steps }]
   assert.equal(advisorPage.advisorRefine(backlog([step('B30'), step('B31', { refineState: 'answers' })])), null)
   assert.deepEqual(plain(advisorPage.advisorRefine(backlog([step('B30', { refineState: 'answered' }), step('B31', { refineAsk: { isOpen: true, round: 2, state: 'delivered' } })]))), { step: 'B31', text: 'Refining B31, round 2', tone: 'working' })
@@ -73,5 +74,23 @@ test('the Advisor\'s refine state: the step it refines, or the answers that wait
   assert.match(script, /const refine = advisorRefine\(state\.backlog\)/)
   // A change of it draws the tab anew.
   assert.match(script, /once\('talk', \[state\.advisor, advisorRefine\(state\.backlog\), /)
-  assert.ok(style.includes('.advisor-refine'))
+  // Its own class: `.advisor-refine` is the Refine pane of the Advisor tab.
+  assert.ok(style.includes('.advisor-refine-state {'))
+  assert.match(script, /el\('span', `advisor-refine-state is-\$\{refine\.tone\}`, refine\.text\)/)
+})
+
+test('the review: answers wait only on a step not taken up, the ask in hand comes first, nothing is left blank', () => {
+  const step = (id, more = {}) => ({ id, status: 'open', refineAsk: null, refineState: 'none', ...more })
+  const backlog = steps => [{ name: 'Meadow', steps }]
+  // A step a worker is on, refined in the older form and accepted, waits for nothing.
+  assert.equal(advisorPage.advisorRefine(backlog([step('B31', { status: 'progress', refineState: 'answered' })])), null)
+  assert.equal(advisorPage.advisorRefine(backlog([step('B32', { status: 'queued', refineState: 'answered' })])).step, 'B32')
+  // The ask its chat has in hand before one still on its way.
+  assert.equal(advisorPage.advisorRefine(backlog([step('B30', { refineAsk: { isOpen: true, round: 1, state: 'waiting' } }), step('B31', { refineAsk: { isOpen: true, round: 2, state: 'delivered' } })])).step, 'B31')
+  // The list: "Nothing waits" counts only what is drawn; the old blocking cards stay first.
+  assert.match(script, /const none = cardsOpen\.length > 0 \|\| lines\.length > 0 \|\|/)
+  assert.match(script, /const answered = state\.forYou\.filter\(need => isClosed\(need\) && !isRefineQuestion\(need\)\)\.length/)
+  assert.match(script, /\.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards,/)
+  // A step not on the tab, or finished, opens its first question's own window.
+  assert.match(script, /else openDetails\(\{ need: `work:\$\{button\.dataset\.refineFirst\}` \}\)/)
 })
