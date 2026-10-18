@@ -1184,6 +1184,17 @@ function drawAdvisorLane(state) {
   if (refine !== null) {
     const line = el('p', 'advisor-lane-refine')
     line.append(el('span', `advisor-refine-state is-${refine.tone}`, refine.text))
+    // B312: the board stopped refining it: one round more, in the Refine button's words.
+    if (refine.canSend === true) {
+      const key = `refine-again:${refine.step}`
+      const again = el('button', 'advisor-refine-again', sending.has(key) ? 'Sending…' : 'Send again')
+      again.type = 'button'
+      again.dataset.refineAgain = refine.step
+      again.disabled = sending.has(key)
+      again.title = `Ask ${advisor.name} for one more refine round of ${refine.step}`
+      line.append(again)
+      if (problems.has(key)) line.append(el('span', 'advisor-refine-problem', problems.get(key)))
+    }
     what.append(line)
   }
   if (standing.key === 'waiting') what.append(el('p', 'note', 'It asks you something: see Needs your attention.'))
@@ -1221,7 +1232,14 @@ function drawAdvisorLane(state) {
 }
 
 $('lanes').addEventListener('click', event => {
-  if (event.target.closest('[data-open-advisor]') === null || event.target.closest('.step-line') !== null) return
+  // B312: Send again on the Advisor's card: the Refine button's message for that step.
+  const again = event.target.closest('[data-refine-again]')
+  const advisor = board?.advisor?.name ?? null
+  if (again !== null && advisor !== null) {
+    send({ to: advisor, command: 'refine', step: again.dataset.refineAgain }, `refine-again:${again.dataset.refineAgain}`)
+    return
+  }
+  if (event.target.closest('[data-open-advisor]') === null || event.target.closest('.step-line, [data-refine-again]') !== null) return
   show('advice')
   showAdvisorPane('chat')
 })
@@ -3949,6 +3967,8 @@ const REFINE_GROUPS = [
   ['asking', 'The Advisor on it now'],
   ['answers', 'Your answers waiting'],
   ['answered', 'Answered, waiting for the next round'],
+  // B312: the board's rounds reached their cap with no new answer since; Send again on the Advisor's card goes on.
+  ['stopped', 'Stopped: no new answers since its last rounds'],
   ['ready', 'Ready'],
 ]
 
@@ -6849,7 +6869,8 @@ function drawMessage({ key, kind, time, who, text, picture: shown = null, note =
 // advisorrefine:start
 /**
  * B287: the Advisor's refine state, from the backlog's steps: the step it refines now (asked and not written yet), else
- * a step whose answers are all in and wait for it to fold them in; null when neither. `{ step, text, tone }`.
+ * (B312) a step the board stopped refining after its rounds without new answers (`canSend`: the card offers to send one
+ * round more), else a step whose answers are all in and wait for it to fold them in; null when none. `{ step, text, tone }`.
  */
 function advisorRefine(backlog) {
   const steps = (backlog ?? []).flatMap(activity => activity.steps ?? [])
@@ -6862,7 +6883,13 @@ function advisorRefine(backlog) {
     return { step: asked.id, text, tone: 'working' }
   }
   // Answers folded in only for a step not taken up yet (open or queued), as the board's own refining does (B285).
-  const answered = steps.find(step => step.refineState === 'answered' && (step.status === 'open' || step.status === 'queued'))
+  const isUp = step => step.status === 'open' || step.status === 'queued'
+  const stopped = steps.find(step => step.refineState === 'stopped' && isUp(step))
+  if (stopped !== undefined) {
+    const rounds = stopped.refineStop?.rounds ?? 3
+    return { step: stopped.id, text: `Refine of ${stopped.id} stopped after ${rounds} round${rounds === 1 ? '' : 's'} without new answers`, tone: 'stopped', canSend: true }
+  }
+  const answered = steps.find(step => step.refineState === 'answered' && isUp(step))
   return answered === undefined ? null : { step: answered.id, text: `Your answers on ${answered.id} wait for it`, tone: 'waiting' }
 }
 // advisorrefine:end

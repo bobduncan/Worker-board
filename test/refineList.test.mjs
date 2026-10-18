@@ -29,9 +29,10 @@ const BACKLOG = [
 
 test('the groups come in the order of a refine, each with its steps in the backlog\'s order', () => {
   const groups = plain(page.refineGroups(BACKLOG))
-  assert.deepEqual(groups.map(group => group.state), ['none', 'asking', 'answers', 'answered', 'ready'])
-  assert.deepEqual(groups.map(group => group.title), ['Not refined', 'The Advisor on it now', 'Your answers waiting', 'Answered, waiting for the next round', 'Ready'])
-  assert.deepEqual(groups.map(group => group.steps.map(one => one.id)), [['B1', 'B9'], ['B5'], ['B2'], ['B6'], ['B3']])
+  // B312: and the steps the board stopped refining, before the ready ones.
+  assert.deepEqual(groups.map(group => group.state), ['none', 'asking', 'answers', 'answered', 'stopped', 'ready'])
+  assert.deepEqual(groups.map(group => group.title), ['Not refined', 'The Advisor on it now', 'Your answers waiting', 'Answered, waiting for the next round', 'Stopped: no new answers since its last rounds', 'Ready'])
+  assert.deepEqual(groups.map(group => group.steps.map(one => one.id)), [['B1', 'B9'], ['B5'], ['B2'], ['B6'], [], ['B3']])
   // Each row carries what opens the step's window, and the activity it stands under.
   assert.deepEqual(groups[2].steps[0], { key: 'B2', id: 'B2', title: 'Step B2', activity: 'Work' })
 })
@@ -40,8 +41,8 @@ test('never a finished step, one for the person, one in progress, or one without
   const ids = plain(page.refineGroups(BACKLOG)).flatMap(group => group.steps.map(one => one.id))
   for (const id of ['B4', 'B7', 'B8', null, 'B21', 'B22']) assert.equal(ids.includes(id), false, String(id))
   // An empty backlog gives every group, empty.
-  assert.deepEqual(plain(page.refineGroups([])).map(group => group.steps.length), [0, 0, 0, 0, 0])
-  assert.deepEqual(plain(page.refineGroups(undefined)).map(group => group.steps.length), [0, 0, 0, 0, 0])
+  assert.deepEqual(plain(page.refineGroups([])).map(group => group.steps.length), [0, 0, 0, 0, 0, 0])
+  assert.deepEqual(plain(page.refineGroups(undefined)).map(group => group.steps.length), [0, 0, 0, 0, 0, 0])
 })
 
 test('the count on its button is the steps whose answers wait; a group stays as the person left it', () => {

@@ -24,6 +24,7 @@ import { taskTimesOf } from './taskTimes.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
 import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
 import { reconcile } from './work/reconcile.mjs'
+import { refineStop } from './refineGate.mjs'
 import { flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
@@ -1162,6 +1163,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       steps: activity.steps.map(step => {
         // B233: whether the Advisor was asked to refine it and has not written that round yet.
         const asked = refineAsk(step, sent, now)
+        const item = itemOfStep(raw.work, step.key)
+        const where = refineStateOf({ refined: step.refined, refineAsk: asked })
+        // B312: the board's own rounds reached their cap without a new answer since: it stopped on this step.
+        const stop = step.id !== null && (where === 'none' || where === 'answered') ? refineStop({ ...step, item }, sent) : null
         return {
           ...step,
           pictures: picturesOf(allWords(step)),
@@ -1169,14 +1174,15 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           // B181: whether the main chat was asked to hand it out, for a step nobody has.
           queueAsk: queueAsk(step, sent, now),
           refineAsk: asked,
-          // B285, B286: where its refine stands.
-          refineState: refineStateOf({ refined: step.refined, refineAsk: asked }),
+          // B285, B286: where its refine stands; B312: `stopped` when the board stopped on it (`refineStop`).
+          refineState: stop === null ? where : 'stopped',
+          refineStop: stop,
           // B301: when the store moved it to done, or null.
           doneAt: step.id === null ? null : doneAtOf.get(step.id)?.at ?? null,
           // B296: where it stands in the flow (flow.json), for the strip in its window.
           flow: flowOfStep(raw.work, step.key),
           // B299: the step as the store holds it, for its window.
-          item: itemOfStep(raw.work, step.key),
+          item,
         }
       }),
     })),

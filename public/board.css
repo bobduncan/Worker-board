@@ -896,6 +896,12 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .advisor-refine-state { font-size: 13px; padding: 2px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--inset); color: #c9d3e0; }
 .advisor-refine-state.is-working { border-color: #25774a; color: #8be3b0; }
 .advisor-refine-state.is-waiting { border-color: #7a5a1c; color: #f6d38b; }
+/* B312: the board stopped refining a step after its rounds without new answers; Send again asks one round more. */
+.advisor-refine-state.is-stopped { border-color: #8a3a3a; color: #f2a6a6; }
+.advisor-refine-again { margin-left: 8px; font: inherit; font-size: 13px; padding: 2px 10px; border-radius: 6px; border: 1px solid #8a3a3a; background: var(--inset); color: #f2a6a6; cursor: pointer; }
+.advisor-refine-again:hover:not(:disabled) { background: #3a2020; }
+.advisor-refine-again:disabled { opacity: 0.6; cursor: default; }
+.advisor-refine-problem { margin-left: 8px; font-size: 12px; color: #f2a6a6; }
 /* B298: the person's words filed as instructions, per chat: missed ones red, closed ones grey. */
 .instructions { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
 .instructions h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
