@@ -241,6 +241,16 @@ the block's first line. The board writes only that block, as for Close (`src/tic
 the board that delivers). While a round is asked and not written yet (on its way, or arrived less than half an hour
 ago), the window says so and the server refuses a second ask.
 
+**Refine questions in sight (B287).** The person, on goal G17 (2026-10-17): refine questions waiting for them stand
+under Needs your attention, one line per step, opening the step's window; the Advisor shows its refine state. Each
+refine question is an ask of the work store (B299, `Via: refine`), but it gets no card of its own (`isRefineQuestion`):
+the part "Refine questions" lists a line per step with how many wait ("B31 Fence the meadow: 2 questions", the step
+waiting longest first, `refineLines`), counted once per step in the badge, and "Answer them →" opens the step's window,
+where they are answered with Yes / No (B293). This replaces B275's "a refine keeps its own place". The Advisor's tab
+shows beside its state what it refines ("Refining B31, round 2", "B31 to refine, on its way") or the answers that wait
+for it to fold them in ("Your answers on B31 wait for it", `advisorRefine`); the Advisor's card on the Overview shows
+the same once it is there (B280).
+
 **A refined step is one compact description (B293).** The person approved what "refined" means on 2026-10-17 (the
 project's spec of that day): "after the questions are answered i want them processes in the new design and i dont want
 to see them anymore. the goal is to have 1 fully comprehensive description that is compact with pictures and summary.

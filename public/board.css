@@ -876,6 +876,13 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .info small { grid-column: 1; }
 .info button { grid-column: 2; grid-row: 1 / span 2; }
 .info.is-read { opacity: .6; }
+/* B287: the refine questions, a line per step, opening its window to answer them. */
+.refine-needs .info { padding: 6px 10px; border: 1px solid #7a5a1c; border-radius: 8px; background: #2a210d; }
+.refine-needs .info b { color: #f6d38b; margin-right: 2px; }
+/* B287: the Advisor's refine state beside its state on its tab. */
+.advisor-refine { font-size: 13px; padding: 2px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--inset); color: #c9d3e0; }
+.advisor-refine.is-working { border-color: #25774a; color: #8be3b0; }
+.advisor-refine.is-waiting { border-color: #7a5a1c; color: #f6d38b; }
 /* B298: the person's words filed as instructions, per chat: missed ones red, closed ones grey. */
 .instructions { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
 .instructions h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
