@@ -32,6 +32,9 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   Then tell the main chat in one line only what you asked ("Asked the user: Q12 ..."), so it does not ask again. Your refine
   questions stand under Needs your attention, one line per step, and are answered in the step's window (B287); a
   suggestion, a recommendation and an ask on the goal map keep their own places on the board.
+- A step you hold (one queued for you, taken with `work take`): write its checkpoint with every commit (`work step
+  B<id>` with `commit` and `next`), and when the user pauses all chats stop as your Workers mod tells you, as a
+  worker does (`roles/worker.md`, "A pause of all chats"); after the resume go on from the checkpoint it names.
 - An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. (B305)
 
 ## Your two pages in the game

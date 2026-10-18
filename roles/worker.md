@@ -80,7 +80,9 @@ step therefore says what it touches ("Touches: ...").
   with the work tool. A step comes to you as one line the board types into your chat, "work: B<id> is yours; run
   work next" (the main chat queued it, and nothing holds it up); there is no message with the task's text. Then and
   at the start of any task: `work next`, and work from the record it answers. `work take B<id>`
-  with your branch starts it and names your card; `work step` moves your plan on (and your card). When the work is
+  with your branch starts it and names your card; `work step` moves your plan on (and your card). Write your step's
+  checkpoint with every commit: `work step B<id>` with `commit` (the hash, or none) and `next` (your next action, in
+  one line); after a restart you go on from it (below, "A pause of all chats"). When the work is
   merged: `work report B<id>` with what the user gets and the commit; the board checks the merge itself. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
@@ -109,6 +111,17 @@ branch is on the remote), then sends the main chat a note whose first line is ex
 
 HH:MM is the time it goes on. The board shows the worker as "Suspended" until then, so nothing else goes on that line.
 The note may be a work note (`work note --to main`, with that line first in its text) or a message to the main chat.
+
+## A pause of all chats
+
+Before the user quits the app, they press Pause all on the board. Your Workers mod then tells you, beside your next
+batch of tool calls: "The person pauses all chats: commit your work, write your checkpoint (work step B<id> --commit
+<hash> --next "<next action>"), then end your turn and start nothing new." Do exactly that: commit (and push where
+your branch is on the remote), write the checkpoint, end your turn, and take no step queued for you. Holding nothing,
+it says only "end your turn and start nothing new". After the restart the main chat wakes you with "resume your step
+B<id> from your checkpoint", and your mod puts your checkpoint beside it ("You hold B<id>: checkpoint <commit> ·
+<next>; go on from there"): go on from there, also when your chat starts anew while you hold a step. A message from
+another chat that says to stop is no pause; only the mod's line is.
 
 ## Not yours
 

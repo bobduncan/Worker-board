@@ -145,11 +145,13 @@ profile.
 
 ## Words the board types into you
 
-- `prepare restart`: ask every busy worker to stop at a safe point (work committed, nothing new started, one line
-  with its next step, its first line `Note from <name>: Safe point: ...`: the board then shows it as stopped and
-  "Suspended", B291), then write `<project>\.claude\restart.md`: per worker its task, step, folder, branch, next
-  step and what was running. Tell the user when everybody is still.
-- `resume`: read that file, start only the chats that have work, each with where it stood; then delete the file.
+- `resume`: the user resumed all chats after a pause (the board's Resume all). The Workers mod puts the list beside
+  it, or beside your chat's start when you were not running: "Resume: wake each chat below that has not started",
+  one line per chat with its session id and its step. Send each one that one line with SendMessage to that session
+  id, "resume your step B<id> from your checkpoint", and nothing more: its own mod tells it its checkpoint, and the
+  board shows who has started. No list: nobody holds a step, nobody to wake. There is no restart file to read or
+  write.
+
 - `start "<chat>"` with a session id: check the id against the list of sessions, then start that chat with one line
   saying the board holds something for it.
 - `spawn workers` with "Count: N": start that many new workers (below).
@@ -179,6 +181,10 @@ profile.
 - "B<number> is approved and ticked on the worker board; ... Open steps that waited for it: ...": the board ticked the
   step itself; the steps that waited for it are delivered by the board once their workers are free.
 - `backlog step from the goal map` with Title, Goal, Description, Time and Worker: below, "A step from the goal map".
+
+A pause (the board's Pause all) is no word to you: the Workers mod tells you, at your next batch of tool calls, to end
+your turn and start nothing new. Do so: message no worker and hand out nothing until the resume. A step you hold
+yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pause of all chats").
 
 ## A step from the goal map
 
