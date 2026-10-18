@@ -101,8 +101,8 @@ test('only what the chat holds itself is overruled: a step the store holds in pr
   const backlog = '## A\n- [ ] B12 The archer (for Worker 1) (branch feature/archer)\n'
   const worker = lane([...asked, answer(NOW - 3 * MIN, closing(YES))], { plan: '', backlog })
   assert.deepEqual([worker.state, worker.between], ['working', 'Its turn has ended; its branch feature/archer is still open.'])
-  // Review: it said Done without work report: its lane says so, and what to run.
-  assert.deepEqual(worker.flags.map(flag => [flag.kind, flag.text]), [['unreported', 'Worker 1 ended its turn with Done: yes but B12 is still in progress: run work report']])
+  // B308: "Done: yes" says its turn did what it asked, not that its step is finished: its lane is not told to report.
+  assert.deepEqual(worker.flags, [])
   // B301: a "Task from" message of the main chat holds nothing: the store says what the worker is on.
   const handed = [fromChat(NOW - 20 * MIN, 'Game - Main', 'Task from Game - Main: backlog step B12, the archer. About 1 h.'), step(NOW - 19 * MIN, 'Draw'), toolResult(NOW - 18 * MIN)]
   assert.deepEqual(lane([...handed, ...asked, answer(NOW - 3 * MIN, closing(YES))], { plan: '' }).state, 'free')

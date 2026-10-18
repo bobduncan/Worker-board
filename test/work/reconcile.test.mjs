@@ -4,14 +4,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { ASK_MS, GRACE_MS } from '../../src/config.mjs'
+import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from '../../src/config.mjs'
 import { DEFAULT_FLOW } from '../../src/work/flow.mjs'
 import { parseItem } from '../../src/work/item.mjs'
 import { reconcile } from '../../src/work/reconcile.mjs'
 
 const NOW = new Date(2026, 9, 17, 12, 0).getTime()
 const MIN = 60_000
-const TIMES = { graceMs: GRACE_MS, askMs: ASK_MS }
+const TIMES = { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }
 
 /** An item file's text from its head and its sections. */
 const file = (head, sections = {}) => parseItem(`${Object.entries(head).map(([key, value]) => `${key}: ${value}`).join('\n')}\n${Object.entries(sections).map(([name, lines]) => `\n## ${name}\n${lines.join('\n')}\n`).join('')}`)
@@ -109,17 +109,35 @@ test('the reconciler never moves against the flow: a flow without the server\'s 
   assert.deepEqual([done.moves, done.deliveries], [[], []])
 })
 
-test('review: a chat that ended its turn with Done: yes while its step is still held is flagged on its lane, once per turn', () => {
+test('B308: "Done: yes" flags nothing: it says the turn did what it asked, not that the step is finished', () => {
   const held = [step('B12', 'in progress', { Owner: 'Units', Since: '2026-10-17 11:00' })]
   const said = lane('Units', 'working', { saidDone: { at: NOW - 5 * MIN } })
-  const flags = run(held, [said]).flags.filter(flag => flag.kind === 'unreported')
-  assert.deepEqual(flags, [{ kind: 'unreported', id: 'B12', chat: 'Units', text: 'Units ended its turn with Done: yes but B12 is still in progress: run work report', button: null, turn: NOW - 5 * MIN }])
-  // Waiting on the person or taken: the same, with its state.
-  assert.match(run([step('B12', 'waiting on you', { Owner: 'Units' })], [said]).flags.find(flag => flag.kind === 'unreported').text, /B12 is still waiting on you: run work report$/)
-  // No flag without that answer, for a step taken after it, or once the step was reported.
-  assert.equal(run(held, [lane('Units', 'working')]).flags.some(flag => flag.kind === 'unreported'), false)
-  assert.equal(run([step('B12', 'in progress', { Owner: 'Units', Since: '2026-10-17 11:58' })], [said]).flags.some(flag => flag.kind === 'unreported'), false)
-  assert.equal(run([step('B12', 'review', { Owner: 'Units' })], [said]).flags.some(flag => flag.kind === 'unreported'), false)
+  assert.deepEqual(run(held, [said]).flags.filter(flag => flag.kind === 'unreported'), [])
+  assert.deepEqual(run([step('B12', 'waiting on you', { Owner: 'Units' })], [said]).flags, [])
+})
+
+test('B308: a worker that holds steps, has ended its turn with nothing running and asked nothing is named once, after the idle time', () => {
+  const held = [step('B269', 'in progress', { Owner: 'Board' }), step('B280', 'taken', { Owner: 'Team - Board' }), step('B12', 'queued', { Owner: 'Board' }), step('B9', 'review', { Owner: 'Board' })]
+  const resting = since => lane('Board', 'working', { resting: { since } })
+  const idle = flags => flags.filter(flag => flag.kind === 'idle hold')
+  assert.equal(IDLE_HOLD_MS, 5 * MIN)
+  // One line for the chat, naming every step it holds (taken or in progress).
+  assert.deepEqual(idle(run(held, [resting(NOW - 6 * MIN)]).flags), [{ kind: 'idle hold', id: 'B269', ids: ['B269', 'B280'], chat: 'Board', text: 'Board holds B269 and B280 but is not working and asked you nothing: it may wait for you', button: null }])
+  assert.equal(idle(run([step('B31', 'in progress', { Owner: 'Board' })], [resting(NOW - 6 * MIN)]).flags)[0].text, 'Board holds B31 but is not working and asked you nothing: it may wait for you')
+  assert.match(idle(run([...held, step('B281', 'in progress', { Owner: 'Board' })], [resting(NOW - 6 * MIN)]).flags)[0].text, /^Board holds B269, B280 and B281 but/)
+  // Within the idle time: from the turn's end, or from a step it took after that.
+  assert.deepEqual(idle(run(held, [resting(NOW - 4 * MIN)]).flags), [])
+  assert.deepEqual(idle(run([step('B269', 'in progress', { Owner: 'Board', Since: '2026-10-17 11:57' })], [resting(NOW - 30 * MIN)]).flags), [])
+  // Working (no rest), suspended for the limit, the main chat, holding nothing: no line.
+  assert.deepEqual(idle(run(held, [lane('Board', 'working')]).flags), [])
+  assert.deepEqual(idle(run(held, [lane('Board', 'suspended', { resting: { since: NOW - 30 * MIN } })]).flags), [])
+  assert.deepEqual(idle(run(held, [lane('Board', 'free', { isMain: true, resting: { since: NOW - 30 * MIN } })]).flags), [])
+  assert.deepEqual(idle(run([step('B12', 'queued', { Owner: 'Board' })], [resting(NOW - 30 * MIN)]).flags), [])
+  // An open ask of its own, blocking or not, says what it waits for; an answered one does not.
+  const ask = (state, blocking) => file({ Id: 'Q7', Kind: 'ask', Title: 'Look at it', State: state, Owner: 'Team - Board', Since: '2026-10-17 11:42', Asks: 'look', Blocking: blocking, Of: 'B269' })
+  assert.deepEqual(idle(run([...held, ask('open', 'no')], [resting(NOW - 30 * MIN)]).flags), [])
+  assert.deepEqual(idle(run([...held, ask('open', 'yes')], [resting(NOW - 30 * MIN)]).flags), [])
+  assert.equal(idle(run([...held, ask('answered', 'no')], [resting(NOW - 30 * MIN)]).flags).length, 1)
 })
 
 test('B305: a step blocked by an ask that is answered or withdrawn is delivered, as after a step done or dropped; an open ask still holds it', () => {
