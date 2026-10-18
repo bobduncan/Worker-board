@@ -106,6 +106,7 @@ branch is on the remote), then sends the main chat a note whose first line is ex
     Note from <your title>: paused for the limit until HH:MM
 
 HH:MM is the time it goes on. The board shows the worker as "Suspended" until then, so nothing else goes on that line.
+The note may be a work note (`work note --to main`, with that line first in its text) or a message to the main chat.
 
 ## Not yours
 

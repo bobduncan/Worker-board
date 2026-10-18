@@ -634,7 +634,12 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   limit: its line is the last thing in the transcript, and names the time. Or a worker paused by itself: its last
   word to the main chat says in its first line "paused for the limit", with "until HH:MM" when it knows, and its
   turn has ended (the person's choice of 2026-10-13; a pause on the worker's card through the Workers mod would be
-  the exact way, later). Only that phrase is looked for. The lane says who held it and when it goes on; the time
+  the exact way, later). Only that phrase is looked for. B310: that word may be a message or a work note to the main
+  chat (`work note --to main`; seen live 2026-10-18, Units' lane said it worked on); the newer of its last message and
+  its last note to the main chat decides, a note's time read from its Since (to the minute; "until" is the next such
+  clock time after it). A note's pause stands until, after the note's minute, the chat uses a tool of its own work or
+  sends the main chat a message: its card, the work tool, the app's recap and a look at the limits are no work. A
+  suspended chat gets no step delivered and is no "may wait for you" hint. The lane says who held it and when it goes on; the time
   column shows that time. Nothing starts a chat by itself: once the time has passed the lane says the limit is
   back and the chat has not gone on, in the warning colour. A suspended chat asks the person nothing.
 - *Why a queued step is not started.* One line on the step, the first of these that holds: a limit is reached; its
@@ -916,7 +921,9 @@ it started, a task handed to it, its step's branch. Its card can be left behind,
 on (a board it started for the person). Every chat ends its answer to the person with the closing block of the
 project's CLAUDE.md, so the board reads that: when the answer that ended the last turn ends with "+ Done:   yes"
 (`saysDone` in `src/transcript.mjs`), the chat has finished, and neither its card nor what it left running in the
-background holds it. What others hold for it still does: a task the main chat handed over that is not reported, or
+background holds it. B310: background work has ended when the app's report of it (a task notification) names its
+call, also a report that arrived in the middle of a turn, which the app keeps as a queued command (Units, 2026-10-18:
+its review helper had reported at 11:34, and its lane still said background work ran). What others hold for it still does: a task the main chat handed over that is not reported, or
 its step's branch. "- Done:   no" and "- Done:   partly" keep the reading as it was, and a turn that runs is never
 read as finished. The demo's Cleanup is this case; the picture is
 `art-inbox/worker-board/b148/2026-10-14-b148-before-after.png`.
@@ -1273,7 +1280,7 @@ and does not pretend.
   the card's window with its answer. The app's question form is filed by the mod as before, so it counts. (B308: a
   worker that holds a step, is not working and asked nothing at all is a hint of its own; see below.)
 - **Kept, and why**: "Note from <name>: paused for the limit until HH:MM" (the store holds no pause; the lane shows
-  "Suspended"); the closing block's "+ Done:   yes" (a card is the chat's own, not the store's: a chat that is done is
+  "Suspended"; B310: as a message or as the first line of a work note to the main chat); the closing block's "+ Done:   yes" (a card is the chat's own, not the store's: a chat that is done is
   free whatever its card says); "Note from"/"Question from" messages (the mod only notes that the worker waits for
   the main chat); the "Task"/"What I did" lines and the closing block, shown in a chat's answer window as its words.
 - **Making a store**: `tools/migrate-backlog.mjs --make-store` (the cutover's checks, into an empty folder) or
