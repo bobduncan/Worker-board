@@ -325,7 +325,8 @@ function flowCtx(w, changed = [], free = []) {
     const owner = valueOf(item, 'Owner')
     if (owner !== null && freeNames.some(name => plain(name, w.prefix) === plain(owner, w.prefix))) freeChats.add(owner)
   }
-  return { store: { items }, freeChats, now: w.now, overlaps: w.overlaps ?? (() => null) }
+  // B356: `hasPartner` false (the board names no partner chat): no result check can be made, the board's own check closes.
+  return { store: { items }, freeChats, now: w.now, overlaps: w.overlaps ?? (() => null), hasPartner: w.hasPartner !== false }
 }
 
 /** Moves the item by the flow, as `role`; the History says from where to where. */

@@ -531,6 +531,8 @@ async function main(args) {
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,
+      // B356: a board without a partner chat makes no result check: its own check closes a step.
+      hasPartner: (state.advisor ?? null) !== null,
     }
   }
   const workReads = new Set(['next', 'list', 'pause-state'])

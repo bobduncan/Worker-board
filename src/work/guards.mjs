@@ -44,8 +44,9 @@ export const GUARDS = {
   'an ask with Blocking yes is open': (item, ctx) => asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Blocking') === 'yes'),
   'its asks are answered': (item, ctx) => !asksOf(item, ctx).some(isOpen),
   // B356: "the check" is the board's own, and for a step with agreed points or a Standard line also the result check
-  // by a helper that did not build it (resultCheck.mjs).
-  'the check passed and no ask of kind look is open': (item, ctx) => gitCheckPassed(item) && (!needsResultCheck(item) || resultCheckOf(item) === 'passed')
+  // by a helper that did not build it (resultCheck.mjs), on a board with a partner to make it.
+  'the check passed and no ask of kind look is open': (item, ctx) => gitCheckPassed(item)
+    && (!needsResultCheck(item) || ctx.hasPartner === false || resultCheckOf(item) === 'passed')
     && !asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Asks') === 'look'),
 }
 

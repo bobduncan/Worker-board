@@ -2182,7 +2182,8 @@ worker for another try, until the attempts stall; only then the person's call, w
    (`needsResultCheck`, src/work/resultCheck.mjs); one without keeps the board's own check alone.
 2. The flow's guard "the check passed and no ask of kind look is open" means both checks for such a step: the board's
    own (its last "check passed", not pending) and the result check (its last "result check passed"). The flow file
-   names the same guard, so the project's own flow.json needs no change.
+   names the same guard, so the project's own flow.json needs no change. A board that names no partner chat makes no
+   result check (`hasPartner`): its own check closes a step, as before.
 3. Once the board's own check passed and no result check stands yet, the server types `check step` (Step, Built by,
    the job) to the partner (`checkStepWords`), and wakes it through the main chat when its chat does not run. A
    "Check again" that passes asks again while none stands.

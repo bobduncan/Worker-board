@@ -164,3 +164,20 @@ test('the board\'s word to the partner: check step, with the step, who built it 
   assert.match(server, /if \(checked\?\.ok !== true \|\| checked\.result\.resultCheck === undefined\) return/)
   assert.match(server, /checkStepWords\(state\.advisor\.name, checked\.result\.resultCheck, join\(HERE, 'roles', 'partner\.md'\)\)/)
 })
+
+test('a board without a partner chat makes no result check: its own check closes a step with agreed points, as before', async () => {
+  const store = await fresh()
+  try {
+    const made = await store.partner(LAMP)
+    const id = made.result.id
+    await store.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })
+    await store.lamplighter({ action: 'take', id, branch: 'b2-lamps' })
+    await store.lamplighter({ action: 'report', id, result: 'Warm lamps.', merged: 'c0ffee1' })
+    const ctx = { dir: store.dir, now: NOW + 60_000, prefix: '', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(['Lamplighter']), hasPartner: false, as: 'server' }
+    const git = await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, ctx)
+    assert.equal(git.result.resultCheck, undefined)
+    assert.equal(valueOf(await item(store.dir, id), 'State'), 'done')
+  } finally {
+    await rm(store.dir, { recursive: true, force: true })
+  }
+})
