@@ -136,7 +136,7 @@ test('a chat whose turn ended with nothing open is free, and one without a trans
   assert.equal(chatNamed(state, 'Units').state, 'free')
   assert.equal(chatNamed(state, 'Levels').state, 'unknown')
   assert.equal(chatNamed(state, 'Main').state, 'unknown')
-  assert.deepEqual(state.counts, { working: 0, waiting: 0, free: 1, unknown: 2, interrupted: 0, suspended: 0 })
+  assert.deepEqual(state.counts, { working: 0, waiting: 0, free: 1, unknown: 2, interrupted: 0, suspended: 0, off: 0 })
 })
 
 test('a chat that asked a question in its own chat waits for you', () => {
@@ -556,7 +556,7 @@ test('a leftover chat is greyed and not counted, and the advisor has no lane', (
     backlog: '## Next to hand out (Game - Main)\n- [ ] Main menu (for Units; about 40 min)\n- [ ] Advice round (for Advisor)\n',
   })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.isLeftover]), [['Main', false], ['Units', false], ['Main (fork)', true]])
-  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0, interrupted: 0, suspended: 0 })
+  assert.deepEqual(state.counts, { working: 1, waiting: 0, free: 1, unknown: 0, interrupted: 0, suspended: 0, off: 0 })
   assert.deepEqual(chatNamed(state, 'Units').queue.map(step => step.title), ['Main menu'])
   assert.deepEqual(state.unassigned.map(step => step.title), ['Advice round'])
   assert.deepEqual(state.today.map(lane => lane.chat), ['Main', 'Units'])
@@ -603,7 +603,7 @@ test('the demo shows the second design: six lanes with their queues, three reque
     // B262: its turn ended without a closing message.
     ['Audio', 'free', 0],
   ])
-  assert.deepEqual(state.counts, { working: 2, waiting: 1, free: 2, unknown: 0, interrupted: 0, suspended: 1 })
+  assert.deepEqual(state.counts, { working: 2, waiting: 1, free: 2, unknown: 0, interrupted: 0, suspended: 1, off: 0 })
   assert.deepEqual(state.chats[5].idle, { since: NOW - 26 * MIN, from: 'transcript', isSilent: true })
   // B155: the steps finished this morning, newest first: one approved by the person, one closed through the work store, one with only the day.
   assert.deepEqual(state.finished.map(one => [one.id, one.how, one.by]), [['B05', 'line', 'you'], ['B06', 'store', 'Cleanup'], ['B07', 'day', 'Levels / Environment']])
@@ -756,7 +756,7 @@ test('a chat that keeps no file of its own in this turn is never called interrup
 
 test('the restart: who was cut off, what was prepared, and how long the board was off', () => {
   const quiet = build({ apps: [app('Main'), app('Units', summary('completed'))], tails: { Units: tail(ended) } })
-  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], notRunning: [], starting: [], prepared: null, preparing: null, resuming: null, off: null })
+  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], notRunning: [], starting: [], prepared: null, preparing: null, resuming: null, copied: null, off: null })
 
   const prepare = { id: 'p1', at: NOW - 10 * MIN, to: 'Main', ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
   const preparing = build({

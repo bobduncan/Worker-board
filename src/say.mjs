@@ -39,6 +39,8 @@ export function workerState(lane) {
     waiting: on === '' ? 'waiting for you' : `waiting for you, on ${on}`,
     suspended: `suspended for the limit${until}${on === '' ? '' : `, on ${on}`}`,
     interrupted: `cut off in the middle of its turn${on === '' ? '' : `, on ${on}`}`,
+    // B315: its card was left "working" by a quit app; its process does not run.
+    off: `not running${on === '' ? '' : `, on ${on}`}`,
   }[lane.state] ?? 'unknown to the board'
   const queue = (lane.queue ?? []).map(step => step.id ?? `"${plainLine(step.title)}"`)
   const queued = queue.length === 0 ? '' : `; ${queue.length} ${queue.length === 1 ? 'step' : 'steps'} queued for it: ${queue.join(', ')}`

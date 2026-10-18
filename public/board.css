@@ -616,6 +616,14 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .limit small, .limit-age { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
 .limit-age.is-old { color: var(--waiting); }
 .pill.is-interrupted { background: var(--warn); color: var(--ink); }
+/* B315: a lane whose card was left "working" by a quit app, its process not running. */
+.count-pill.is-off { border-color: #4a5262; }
+.is-off > .dot, .dot.is-off { background: var(--muted); }
+.lane.is-off { border-color: #4a5262; }
+.pill.is-off { background: var(--muted); color: var(--ink); }
+.span.is-off { background: var(--muted); }
+.worker-icon.is-off { color: var(--muted); }
+.workers-panel .pill.is-off { background: rgba(141, 154, 174, 0.14); color: var(--muted); box-shadow: inset 0 0 0 1px rgba(141, 154, 174, 0.5); }
 .is-interrupted .fill { background: var(--warn); }
 .span.is-interrupted { background: var(--warn); }
 
@@ -1422,8 +1430,8 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .lane.is-waiting .lane-row > .who, .lane.is-waiting .lane-row > .what, .lane.is-waiting .lane-row > .eta { cursor: pointer; }
 .lane.is-waiting .lane-row:hover > .what { background: rgba(255, 196, 61, 0.05); }
 /* B151: a working lane opens its task as it was given */
-:is(.lane.is-working, .lane.is-suspended, .lane.is-interrupted) .lane-row > :is(.who, .what, .eta) { cursor: pointer; }
-:is(.lane.is-working, .lane.is-suspended, .lane.is-interrupted) .lane-row:hover > .what { background: rgba(63, 210, 127, 0.04); }
+:is(.lane.is-working, .lane.is-suspended, .lane.is-interrupted, .lane.is-off) .lane-row > :is(.who, .what, .eta) { cursor: pointer; }
+:is(.lane.is-working, .lane.is-suspended, .lane.is-interrupted, .lane.is-off) .lane-row:hover > .what { background: rgba(63, 210, 127, 0.04); }
 .details-head .kind.is-working { background: #12381f; color: var(--working); }
 button.needs-you { padding: 0; border: 0; background: none; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 button.needs-you small { color: var(--muted); font-size: 12.5px; }

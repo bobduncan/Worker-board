@@ -8,7 +8,7 @@
 const TOKEN = document.querySelector('meta[name="board-token"]').content
 /** B142: the version of the page as it was loaded; empty when the board did not say it. */
 const PAGE = (document.querySelector('meta[name="board-page"]')?.content ?? '').replace(/^\{\{page\}\}$/, '')
-const STATES = { working: 'Working', waiting: 'Waiting for you', free: 'Free', unknown: 'Unknown', interrupted: 'Interrupted', suspended: 'Suspended' }
+const STATES = { working: 'Working', waiting: 'Waiting for you', free: 'Free', unknown: 'Unknown', interrupted: 'Interrupted', suspended: 'Suspended', off: 'Not running' }
 /** How often the page asks again while the board does not answer. */
 const AWAY_MS = 5000
 const KINDS = {
@@ -530,6 +530,8 @@ function whyText(why) {
     case 'busy': return said('wait', `${why.worker} is busy${why.leftMs === null ? '' : `, about ${span(why.leftMs)} left`}`)
     case 'you': return said('wait', `${why.worker} waits for you`)
     case 'cut': return said('wait', `${why.worker} was cut off`)
+    // B315: its process does not run since the app was opened again.
+    case 'off': return said('wait', `${why.worker} is not running`)
     case 'handout': return said('plain', why.isOwn ? `${why.main} has not started it` : `waits for ${why.main} to hand it out`)
     case 'nobody': return said('plain', 'no worker is named for it')
     default: return said('plain', `the state of ${why.worker ?? 'its worker'} is not known`)
@@ -621,6 +623,14 @@ function drawRestart(state) {
     parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
   }
   if (restart.prepared !== null) parts.push(line('muted', `${restart.main} last wrote down who was on what at ${clock(restart.prepared.at)} (restart.md).`))
+  // B315: a word to the main chat that was only copied, because no chat ran to take it: said plainly, with the way to
+  // paste it, until the main chat has it.
+  const copied = restart.copied ?? null
+  if (copied !== null) {
+    const row = el('div', 'restart-ask')
+    row.append(line('alert', copiedLine(copied, { main: restart.main, isModThere: state.mod?.installed !== null })), button('Copy again', 'is-quiet', 'copy'))
+    parts.push(row)
+  }
 
   if (isAskingRestart) {
     const ask = el('div', 'restart-ask')
@@ -631,7 +641,8 @@ function drawRestart(state) {
   if (preparing !== null) {
     // B291: written after the last worker's safe-point line too, so it holds what every worker said.
     const isWritten = restart.prepared !== null && restart.prepared.at >= Math.max(preparing.at, preparing.lastLine ?? 0)
-    if (preparing.state === 'waiting') parts.push(line('', `"Prepare restart" waits for ${restart.main} to take it: its chat must be open.`))
+    if (preparing.state === 'copied') { /* B315: said above, with the way to paste it. */ }
+    else if (preparing.state === 'waiting') parts.push(line('', `"Prepare restart" waits for ${restart.main} to take it: its chat must be open.`))
     else if (preparing.state === 'expired' || preparing.state === 'failed') parts.push(line('problem', `"Prepare restart" did not reach ${restart.main}. Open its chat and press it again.`))
     // B291: a worker that sent its safe-point line counts as stopped (its lane says Suspended), whatever its
     // transcript shows: only the chats with no line yet still work.
@@ -641,7 +652,8 @@ function drawRestart(state) {
   }
   const resuming = restart.resuming
   if (resuming !== null) {
-    if (resuming.state === 'waiting') parts.push(line('', `"Resume" waits for ${restart.main} to take it: its chat must be open.`))
+    if (resuming.state === 'copied') { /* B315: said above, with the way to paste it. */ }
+    else if (resuming.state === 'waiting') parts.push(line('', `"Resume" waits for ${restart.main} to take it: its chat must be open.`))
     else if (resuming.state === 'expired' || resuming.state === 'failed') parts.push(line('problem', `"Resume" did not reach ${restart.main}. Open its chat and press it again.`))
     else parts.push(line('muted', `"Resume" was handed to ${restart.main} at ${clock(resuming.at)}: it brings the workers back.`))
   }
@@ -655,6 +667,20 @@ function drawRestart(state) {
   box.hidden = parts.length === 0
   fill(box, parts)
 }
+
+// copied:start
+/**
+ * B315: what the restart banner says of a word to the main chat that was only copied (`restart.copied`): that its chat
+ * is not running yet, where to open it, that the word is on the clipboard, and the app's id for the chat when known.
+ * `isModThere` false: no Workers mod is installed, so nothing would type it in even with the chat open.
+ */
+function copiedLine(copied, { main, isModThere }) {
+  const id = typeof copied.session === 'string' && copied.session !== '' ? ` Its session id: ${copied.session}.` : ''
+  if (!isModThere) return `No Workers mod types it in for you: open ${copied.chat} in the app (or click it in the sidebar) and paste with Ctrl+V; the word is on your clipboard.${id}`
+  if (copied.isMainRunning === true) return `${main}'s chat runs now, but the word was only copied: paste it into ${copied.chat} with Ctrl+V; the word is on your clipboard.${id}`
+  return `${main}'s chat is not running yet: open ${copied.chat} in the app (or click it in the sidebar) and paste with Ctrl+V; the word is on your clipboard.${id}`
+}
+// copied:end
 
 // The lanes
 
@@ -679,6 +705,8 @@ function timeOf(lane, now) {
     if (held.isBack) return plain(held.until === null ? 'Not gone on' : `since ${clock(held.until)}`, 'bad', 'Limit is back')
     return held.until === null ? plain('Suspended') : { label: 'Goes on', main: clock(held.until), tone: 'time', small: [`in ${span(held.until - now)}`], from: null }
   }
+  // B315: its card was left "working" by a quit app, and its process does not run.
+  if (lane.state === 'off') return plain('Not running', 'bad', 'Process')
   if (lane.state === 'waiting') return plain('Blocked', 'bad', 'ETA')
   if (lane.state === 'free') return plain('Available')
   if (lane.state !== 'working') return plain('Unknown')
@@ -745,7 +773,7 @@ function infoLine(row) {
 
 /** The counts in the head: working and free always, the others only when there is one ("0 waiting for you" goes). */
 function shownCounts(counts) {
-  return ['working', 'waiting', 'free', 'suspended', 'interrupted', 'unknown'].filter(name => name === 'working' || name === 'free' || (counts[name] ?? 0) > 0)
+  return ['working', 'waiting', 'free', 'suspended', 'interrupted', 'off', 'unknown'].filter(name => name === 'working' || name === 'free' || (counts[name] ?? 0) > 0)
 }
 
 /** The Information part's height: at least 90 pixels, and the asks above it keep 120 of the `room` both share. */
@@ -973,7 +1001,8 @@ function drawLane(lane, state) {
   const who = el('div', 'who')
   const names = el('div', 'who-names')
   names.append(el('h3', '', lane.name), el('span', `pill is-${lane.state}`, lane.isLeftover ? 'Leftover' : STATES[lane.state]))
-  if (lane.isRunning === false) {
+  // B315: a lane that is "Not running" says so in its pill already.
+  if (lane.isRunning === false && lane.state !== 'off') {
     // After a restart of the app a chat does not run until it is opened, or messaged through the app.
     const idle = el('small', 'not-running', 'not running')
     idle.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
@@ -1049,6 +1078,8 @@ function drawLane(lane, state) {
   else if (hasSteps) progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
   else if (task !== null) progress.append(el('small', 'progress-count', 'no steps given'))
   if (lane.state === 'interrupted') what.append(el('p', 'alert', 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
+  // B315: its card still says working from before the app was quit; its process has not run since.
+  if (lane.state === 'off') what.append(el('p', 'alert', `Its chat is not running: it does nothing until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it (Resume all).`))
   if (lane.state === 'suspended') what.append(el('p', `held${lane.suspended.isBack ? ' is-back' : ''}`, heldText(lane.suspended)))
   if (lane.state === 'waiting') {
     // B100: the lane opens what it waits for; the line is a button, so the keyboard reaches it too.
@@ -1455,6 +1486,8 @@ function removalView(lane, main, now) {
   }
   if (lane.state === 'interrupted') reasons.push(`It was cut off in the middle of ${what ?? 'its turn'}: that work would not be resumed.`)
   if (lane.state === 'unknown') reasons.push('The board cannot tell what it is doing.')
+  // B315: its chat is not running; the task its card names would not go on.
+  if (lane.state === 'off' && what !== null) reasons.push(`It is not running, and its card still names ${what}: that task would not go on.`)
   const queue = lane.queue ?? []
   if (queue.length > 0) {
     const titles = queue.slice(0, 3).map(step => `"${step.title}"`).join(', ')
@@ -2587,6 +2620,12 @@ $('restart').addEventListener('click', event => {
   if (button === null || board === null || board.restart.main === null) return
   isAskingRestart = false
   if (button.dataset.restart === 'cancel') return redrawNeeds()
+  // B315: the word that was only copied, on the clipboard again.
+  if (button.dataset.restart === 'copy') {
+    const words = board.restart.copied?.text ?? ''
+    navigator.clipboard.writeText(words).then(() => { button.textContent = 'Copied' }, () => { button.textContent = 'Not copied' })
+    return
+  }
   send({ to: board.restart.main, command: button.dataset.restart }, 'restart')
 })
 // "Ask the main chat to start it", wherever it stands: on a card, in the details, on the advisor's tab.
@@ -3158,7 +3197,7 @@ function compactionLine(compaction, clockOf) {
   return { text, title: text, isWarning: false }
 }
 
-const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off' }
+const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off', off: 'Not running' }
 
 /**
  * B182: a lane's task as the Workers panel and its window name it: `code` is the backlog step it is on (the step its
@@ -10000,9 +10039,11 @@ async function sendWork(body, key) {
 
 // paste:start
 /** B212: the line on top that says the words were copied, and into which chat to paste them. */
-function pasteLine(paste, isCopied) {
+function pasteLine(paste, isCopied, isModThere = false) {
+  // B315: with the Workers mod installed, words are only copied while no chat runs to take them.
+  const why = isModThere ? 'Its chat is not running yet, so nothing types it in for you.' : 'No Workers mod types it in for you.'
   return isCopied
-    ? `Copied for you: open the chat "${paste.chat}" in the Claude app and paste it there (Ctrl+V). No Workers mod types it in for you.`
+    ? `Copied for you: open the chat "${paste.chat}" in the Claude app and paste it there (Ctrl+V). ${why}`
     : `Not copied by itself: click Copy, then open the chat "${paste.chat}" in the Claude app and paste it there.`
 }
 // paste:end
@@ -10036,7 +10077,7 @@ async function showPaste(paste) {
   close.type = 'button'
   close.setAttribute('aria-label', 'Close')
   close.addEventListener('click', () => bar.remove())
-  bar.replaceChildren(el('span', '', pasteLine(paste, isCopied)), copy, close)
+  bar.replaceChildren(el('span', '', pasteLine(paste, isCopied, typeof board?.mod?.installed === 'string')), copy, close)
 }
 
 /**
