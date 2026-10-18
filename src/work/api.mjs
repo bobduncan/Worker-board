@@ -378,7 +378,10 @@ async function ask(body, w) {
   }
   const kind = body.kind ?? 'decide'
   if (!ASK_KINDS.includes(kind)) return refuse(400, `"kind" is ${ASK_KINDS.join(', ')}.`)
-  const blocking = body.blocking === true || body.blocking === 'yes'
+  // Focus 3, the review: a blocking ask holds a step only when the chat that holds it asks; the partner's or the main
+  // chat's ask under a worker's step is not blocking for it, so the step never waits on an ask its owner cannot close.
+  const isHolder = holder !== null && isOwner(of.item, w.who, w.prefix)
+  const blocking = (body.blocking === true || body.blocking === 'yes') && (isAlone || holder === null || isHolder)
   const text = lines(body.text)
   if (text.length === 0) return refuse(400, 'Say what you ask in "text".')
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
@@ -394,7 +397,7 @@ async function ask(body, w) {
   if (isAlone) return changed(question, block)
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
   let moved = ''
-  if (blocking && stateOf(item) === 'in progress') {
+  if (blocking && isHolder && stateOf(item) === 'in progress') {
     const waits = move(item, 'waiting on you', w.role, w, flowCtx(w, [item, question]))
     if (waits.ok) item = waits.item
     else moved = ` (${stepId} stays ${stateOf(item)}: ${waits.why})`
@@ -1116,20 +1119,28 @@ async function answer(body, w) {
   if (of === null && !/^Q\d+$/.test(id)) item = underStep(item, [`Answered by you on the worker board on ${at(w.now)}: ${short}`])
   item = said(item, w, `answered: ${short}`)
   const isRefine = valueOf(found.item, 'Via') === 'refine'
+  // Focus 3, the review: the owner of the step this answer frees.
+  let freed = null
   const done = await answerStep(w, item, found.text, of, step => {
     let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
     // B293: a refine question answered here is answered in the step's refine block too, as in the step's window.
     if (isRefine) mine = withRefineAnswer(mine, found.item, short, w)
     if (stateOf(mine) === 'waiting on you') {
       const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
-      if (goesOn.ok) mine = goesOn.item
+      if (goesOn.ok) {
+        mine = goesOn.item
+        freed = valueOf(mine, 'Owner')
+      }
     }
     return mine
   })
   // B299: the chat that asked is woken with the answer (the server sends it); an ask the person made wakes nobody.
   const owner = valueOf(found.item, 'Owner')
-  const wake = owner === null || !/^Q\d+$/.test(id) ? null : { to: owner, id, title: valueOf(found.item, 'Title') ?? '', text: text.join('\n') }
-  return done.ok ? { ok: true, result: { ...done.result, wake } } : done
+  const told = { id, title: valueOf(found.item, 'Title') ?? '', text: text.join('\n') }
+  const wake =owner === null || !/^Q\d+$/.test(id) ? null : { to: owner, ...told }
+  // Focus 3, the review: the step goes on, so its owner is woken too (the flow's "wake Owner") when another chat asked.
+  const wakeOwner = freed !== null && (owner === null || plain(freed, w.prefix) !== plain(owner, w.prefix)) ? { to: freed, ...told } : null
+  return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner } } : done
 }
 
 /**

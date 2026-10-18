@@ -1440,6 +1440,10 @@ Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mo
   note" (what it may decide without the person: small visual details, numbers, wording, the order of the parts; never a
   rule of the game, a new screen or more than about an hour's extra work).
 - The Workers mod's work tool 0.13.6: the fields `decided` and `needs`.
+- The review's findings: a blocking ask holds a step only when the chat that holds the step asks it (the partner's
+  or the main chat's ask under a worker's step is written `Blocking: no` and leaves the step as it is), and an answer
+  that frees a step waiting on you also wakes the step's owner when another chat asked (`answer`'s `wakeOwner`, sent by
+  the server as the asker's `wake`).
 - Tests: `test/focusRun.test.mjs`, `test/focusNote.test.mjs`.
 
 ## The Focus tab, increment 2 (Focus 2): the vibe and how moves, and the partner

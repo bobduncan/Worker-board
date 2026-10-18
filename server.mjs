@@ -934,20 +934,22 @@ async function main(args) {
     // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
     work: async body => {
       const done = await workAction(body, 'person')
-      const wake = done.ok ? done.result.wake ?? null : null
-      if (wake !== null && !isShowOnly) {
+      // Focus 3, the review: and the owner of the step the answer frees, when another chat asked (`wakeOwner`).
+      const wakes = done.ok ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
+      let paste = null
+      for (const wake of isShowOnly ? [] : wakes) {
         const state = await readState()
         const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].some(chat => chat.name === wake.to)
-        if (shown) {
-          const isCopied = state.bridge?.isMissing === true
-          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...answerWords(wake), state: isCopied ? 'copied' : 'waiting' }
-          await store.say(message)
-          const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-          if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
-          readState.reset()
-          if (isCopied) return { ok: true, result: { ...done.result, paste: { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
-        }
+        if (!shown) continue
+        const isCopied = state.bridge?.isMissing === true
+        const message = { id: randomBytes(8).toString('hex'), at: clock(), ...answerWords(wake), state: isCopied ? 'copied' : 'waiting' }
+        await store.say(message)
+        const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+        if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
+        readState.reset()
+        if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
       }
+      if (paste !== null) return { ok: true, result: { ...done.result, paste } }
       return done
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
