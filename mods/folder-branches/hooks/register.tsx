@@ -815,7 +815,7 @@ const CHAT_TOOL = {
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
   'pictures', 'play', 'to', 'result', 'merged', 'on', 'title', 'activity', 'goal', 'for', 'after', 'about', 'as', 'why', 'summary', 'picture', 'size',
-  'questions', 'what', 'advice']
+  'questions', 'what', 'advice', 'from']
 
 /** B297: the tool a chat works its items with: the worker board's work store. */
 const WORK_TOOL = {
@@ -837,11 +837,12 @@ const WORK_TOOL = {
     + '"for", "after", "about"), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
     + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "questions") and "refined" ("id", "what"): '
-    + 'the Advisor. "list": every item.',
+    + 'the Advisor. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old name of a '
+    + 'chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one).',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'list'] },
+      action: { type: 'string', enum: ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'list', 'rename'] },
       id: { type: 'string', description: 'The item: B12 (a step), Q3 (an ask), I4 (an instruction).' },
       branch: { type: 'string', description: 'take: the branch you work the step on.' },
       step: { type: 'integer', description: 'step: the step of your plan you are on now.' },
@@ -857,7 +858,7 @@ const WORK_TOOL = {
       advice: { type: 'string', description: 'ask: the option you advise, in a few words ("B").' },
       pictures: { type: 'array', items: { type: 'string' }, description: 'ask: pictures to look at, as paths in the project.' },
       play: { type: 'string', description: "ask: where to play it, as the board's play link names it." },
-      to: { type: 'string', enum: ['you', 'main'], description: 'note: the person or the main chat.' },
+      to: { type: 'string', description: "note: you (the person) or main (the main chat). rename: the chat's new name." },
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
       merged: { type: 'string', description: 'report: the commit it was merged with.' },
       on: { type: 'string', description: 'block, unblock: the step it waits on; unblock without it clears Waits for.' },
@@ -874,6 +875,7 @@ const WORK_TOOL = {
       size: { type: 'string', description: 'refine: how long it takes, roughly.' },
       questions: { type: 'array', items: { type: 'string' }, description: 'refine: the questions for the person.' },
       what: { type: 'array', items: { type: 'string' }, description: 'refined: what we build, one part per line.' },
+      from: { type: 'string', description: "rename: the chat's old name." },
     },
     required: ['action'],
   },

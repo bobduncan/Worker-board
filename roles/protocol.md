@@ -72,6 +72,7 @@ tool answers with the record: work from it, not from a message.
 | `work drop B<id>` (`why`) | the main chat | the step is dropped |
 | `work refine B<id>` (`summary`, `picture`, `goal`, `size`, `questions`), `work refined B<id>` (`what`) | the Advisor | the refine block, and its ready form; refined moves a new step to refined; B309: refused while any ask under the step is open, and every ask under it counts as one of its questions |
 | `work list` | any chat | every item in one line |
+| `work rename` (`from`, `to`) | the main chat, the person | every open item naming the old name of a chat names the new one (B313): Owner of a step not done or dropped and of an open ask, Chat of an open instruction, From and To of an unread note, "for" of a queue asked before the refine; History: "<old> renamed to <new>". The board does the same by itself when it sees a chat's session under a new name ("(same chat)"); this is for a rename it could not see, such as a chat replaced by a new one |
 
 ## The backlog
 

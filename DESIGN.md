@@ -1373,6 +1373,33 @@ said so only in prose in its chat, filed no ask and wrote no "For you" block, so
   ask, or reports. A chat whose answer ends with a "For you" block and filed no ask has that warning instead, not both.
   Nothing of the chat's words is read for it.
 
+## A chat renamed keeps its work (B313)
+
+Seen live on 2026-10-18: the person renamed the worker chats (Support to Worker 1, Board to Worker 2, Features to
+Worker 3, Units to Worker 4). The store names chats by their short name, so the steps in progress under the old names
+were stranded: the store refuses a take or a report from a chat under another name, and one step was moved by hand.
+
+- **The board follows a rename by itself** (`src/work/rename.mjs`, `followRenames`, at every refresh of the board that
+  writes the store, before the delivery). It knows each chat by its session id (the key of its card,
+  `.claude/chats/<session>.json`) and the name the list gives it (the lanes, leftovers and the Advisor too), and keeps
+  the last name it saw per session in `<work>/names.json` (`sessions`), so a rename while the board was off is seen at
+  its start. A session under another name than before is the same chat renamed: the work API's `rename` as the board
+  moves every open item naming the old name, one History line each, "<old> renamed to <new> (same chat)". A session
+  seen for the first time only records its name; a rename that could not be written is tried again at the next refresh.
+- **What moves** (`src/work/names.mjs`): the Owner of a step not done or dropped and of an open ask, the Chat of an open
+  instruction, the From and To of an unread note (a To of `you` or `main` is a word, never moved), and the "for" of a
+  step's `Queue when refined`. Done, dropped, answered, withdrawn, closed and read items keep the name they were done
+  under; History lines stay as written. Names compare as the API compares them: without the title's prefix, any case.
+- **A name two chats had is not moved**: the old name is still another listed chat's, two sessions left the same name
+  in one refresh, or the new name is another chat's too. The rename stands under `held` in names.json (once), and the
+  board says on top, while open items still name the old name: "names.json: the board did not move the open items of
+  <old> (<ids>) to <new>, as two chats had the name <old>: the main chat moves them with work rename ...".
+- **`work rename` (`from`, `to`)**, the main chat and the person (the mod 0.13.4 knows it): the same move for a rename
+  the board could not see, such as a chat replaced by a new one. It clears the held line of that old name.
+- **delivered.json stays**: its keys name the chat a line went to. A queued step whose Owner moved is delivered once
+  more under the new name, and the waiting line under the old name is withdrawn as for any step no longer that chat's;
+  copying the keys would leave the renamed chat without its line.
+
 ## CPU for the chats (B311)
 
 The person, 2026-10-18, while playing the game: the workers made the PC lag; "i want the board to not completely stop
