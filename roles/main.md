@@ -195,7 +195,8 @@ none): write the step without a link.
 
 Where the project has a start-worker task (its briefing names it): give it the title "<prefix>Worker N" (the lowest
 N not in the list), run it, and wait for the new chat's note that it is ready; then hand over by its session id.
-One start at a time. Without such a task: put up a chip titled "<prefix>Worker N" whose text tells the chat to read
+One start at a time. Without such a task: put up a chip or a start card (the app's `spawn_task` or `start_session`,
+whichever it gives you) titled "<prefix>Worker N" whose text tells the chat to read
 `<project>\.claude\worker-briefing.md`, to join the list as "Worker N", and to wait for its first task; the user
 starts it with one click. Workers have no fixed subject; an older chat's name is a home area only.
 

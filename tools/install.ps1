@@ -12,6 +12,9 @@
 #   $env:WORKER_BOARD_REPO    the repository it is cloned from (the board's own on GitHub unless set)
 #   $env:WORKER_BOARD_CHECK   1: only check, change nothing
 #   $env:WORKER_BOARD_HOME    where the PC's list of boards is (the folder .worker-board in your home folder unless set)
+#   $env:WORKER_BOARD_PROJECT, $env:WORKER_BOARD_PROJECT_FOLDER, $env:WORKER_BOARD_PREFIX
+#                             the new project's name, folder and chats' prefix, given up front; what is not given is
+#                             asked (or, where nobody types, its default taken)
 #
 # It runs in a scope of its own and never closes the window. The one thing it leaves in your PowerShell: a program
 # winget installs is added to this window's PATH, so it is found at once.
@@ -151,6 +154,16 @@
     return $true
   }
 
+  # B324: the new project's name, folder and chats' prefix when given as settings, as new-project.mjs takes them. The
+  # folder as a typed one is (review: Windows PowerShell hands node `D:\My garden\` with a quote for its last \).
+  function Get-NewProjectArgs {
+    $words = @()
+    if ($env:WORKER_BOARD_PROJECT) { $words += @('--name', $env:WORKER_BOARD_PROJECT) } else { return @() }
+    if ($env:WORKER_BOARD_PROJECT_FOLDER) { $words += @('--folder', (Resolve-TypedFolder $env:WORKER_BOARD_PROJECT_FOLDER $PWD.Path)) }
+    if ($env:WORKER_BOARD_PREFIX) { $words += @('--prefix', $env:WORKER_BOARD_PREFIX) }
+    return $words
+  }
+
   function Test-Node {
     if (-not (Test-Command 'node')) { return $null }
     return Get-NodeMajor (& node --version)
@@ -217,15 +230,21 @@
     & node (Join-Path $folder 'setup.mjs')
     if ($LASTEXITCODE -ne 0) { Write-Line '--' "The Workers mod is not installed (see above): the board works without it, and node setup.mjs in $folder tries again." }
 
-    # The first project; run again, it only offers another.
+    # The first project; run again, it only offers another. B324: given by name (WORKER_BOARD_PROJECT), it is made
+    # without "Make another?", for a window where nobody types; a given folder that holds a project already is kept.
+    $given = @(Get-NewProjectArgs)
     $projects = @(Get-Projects)
-    if ($projects.Count -gt 0) {
+    if ($given.Count -gt 2 -and $given[2] -eq '--folder' -and (Test-Path -LiteralPath (Join-Path $given[3] '.claude\work'))) {
+      Write-Line 'ok' "The project is there already: $($given[3])"
+      return
+    }
+    if ($given.Count -eq 0 -and $projects.Count -gt 0) {
       Write-Line 'ok' ("Projects on this PC: {0}" -f ($projects -join ', '))
       if (-not (Read-YesNo 'Make another project now?' $false)) { Write-Host 'Done: each project has its icon "<name> board" on the desktop.'; return }
-    } else {
+    } elseif ($given.Count -eq 0) {
       Write-Host 'Now your first project: its name, its folder and how its chats are titled.'
     }
-    & node (Join-Path $folder 'tools\new-project.mjs')
+    & node (Join-Path $folder 'tools\new-project.mjs') @given
   }
 
   if ($env:WORKER_BOARD_TEST) { Invoke-Expression $env:WORKER_BOARD_TEST; return }

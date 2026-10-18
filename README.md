@@ -259,6 +259,20 @@ default flow, the launch entry on a port of its own, the project's `CLAUDE.md` (
 its board and opens its page. The new board starts at once. A new project has no game; add one in its `config.json`
 (`gameRepo`) when there is one.
 
+Without a keyboard, or to skip the questions, give the answers up front (B324):
+
+```powershell
+npm run new -- --name "My garden" --folder "D:\Work\My garden" --prefix "Garden - "
+```
+
+Without `--folder` the project goes beside this board's own project, or, for a board that has none yet (the one the
+install got), into `Projects` in your home folder. The install takes the same answers as settings before its second
+line: `$env:WORKER_BOARD_FOLDER` (where the board goes), `$env:WORKER_BOARD_PROJECT`, `$env:WORKER_BOARD_PROJECT_FOLDER`
+and `$env:WORKER_BOARD_PREFIX`; what is not given is asked, or, where nobody types, takes its default. A project
+folder given that holds a project already is kept as it is. The new board
+shows one button, Initialise: it opens the project's main chat in the Claude app with its first words, you press
+Enter, and the main chat names itself, joins the list and starts the Advisor and the workers by cards you click.
+
 ## What it reads (never changes)
 
 - the app's list of chats, and the last part of each project chat's transcript;
@@ -346,3 +360,11 @@ project's backlog, part of B126 (the board for any project).
     app opens a new chat in a folder with its first words from a link, but nothing from outside sends them.
 18. Still open: a Mac (B215, not tried); a real installer (.exe) with signing, a goal of its own later; a
     `transcripts` setting that names the wrong folder is not pointed out (11).
+19. Tried on 2026-10-18 (B324): a helper that had only this README installed the board on the PC of the first
+    project, beside that project's running board, and made a project "Trial". Its board ran at once on a port of its
+    own, the first board kept its port and answered as before, and setup left the PC's Workers mod as it was
+    ("Nothing to do"). The person clicked Initialise on the Trial board and pressed Enter: the main chat named itself,
+    joined the list, read its job and, asked by the board, put up cards for three workers. Found and fixed: the install
+    could not be given the project's name without a keyboard (the settings above); `npm run new`'s options and where a
+    project goes without `--folder` were not in this README; the main chat's first words named a chip tool the app
+    did not give it (it starts the Advisor by the tool it has now). Not tried: another PC.
