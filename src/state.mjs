@@ -22,6 +22,7 @@ import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
+import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { refineStop } from './refineGate.mjs'
@@ -701,6 +702,17 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
     .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
 }
 
+/**
+ * Focus 4 (spec 2026-10-18, section 4): each card of Needs your attention says whether it is the partner's
+ * (`isPartner`): asked by the chat the setting advisor names (`partner`), with or without the project's prefix. The
+ * page shows those first, under "From your partner". No partner: none is.
+ */
+export function markPartner(needs, partner, prefix = '') {
+  const plain = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
+  const own = plain(partner)
+  return needs.map(need => ({ ...need, isPartner: own !== '' && need.from !== null && need.from !== undefined && plain(need.from) === own }))
+}
+
 /** A name for a backlog step that stays the same as long as its words do: an answer is kept under it. */
 function hashOf(words) {
   let hash = 5381
@@ -770,6 +782,25 @@ function sizeMinutes(size) {
 
 const FINISHED = ['done', 'closed', 'dropped']
 const UNDER_WAY = ['taken', 'in progress', 'waiting on you', 'review']
+const NOT_HANDED = ['new', 'refined']
+
+/**
+ * Focus 4, seen live: the focus's parts whose steps were made but not handed out (`handout`, focusState) for longer than
+ * the grace time: one hint under Needs your attention, with the way to the main chat (`main`, its name). None without
+ * a focus or a main chat.
+ */
+export function handoutNeeds(focus, main, now) {
+  if (focus === null || focus === undefined || main === null || main === undefined) return []
+  const waiting = (focus.parts ?? []).filter(part => part.state === 'handout' && Number.isFinite(part.waitsSince) && now - part.waitsSince >= GRACE_MS)
+  if (waiting.length === 0) return []
+  const at = Math.max(...waiting.map(part => part.waitsSince))
+  return [{
+    id: `handout:${focus.id}:${at}`, from: main, kind: 'handout',
+    title: `The steps of ${focus.id} wait for the main chat to hand them out`,
+    text: `Your partner made the steps of ${waiting.map(part => part.title).join(', ')}, and none is queued yet. The main chat may not have read your partner's note: ask it to queue them.`,
+    at, options: [], pictures: [], run: null, game: null, checks: [], tried: [], version: null, canAnswer: false, task: null, waits: null, isMain: true, isAdvisor: false, talk: 'main',
+  }]
+}
 
 /**
  * Focus 1 (spec 2026-10-18, sections 4 and 5): the focus goal as the Focus page draws it, or null without a goal map,
@@ -779,7 +810,7 @@ const UNDER_WAY = ['taken', 'in progress', 'waiting on you', 'review']
  * done of all, and the minutes the sizes of the parts not done name. `thread`: the goal's brainstorm, the vibe and how
  * talk: a running thread about it first, else the one its Brainstorm line names.
  */
-export function focusState(goalMap, items, threads, prefix) {
+export function focusState(goalMap, items, threads, prefix, partner = null) {
   const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
   if (node === null) return null
   const steps = new Map((items ?? []).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one]))
@@ -787,9 +818,17 @@ export function focusState(goalMap, items, threads, prefix) {
     const known = part.steps.map(id => steps.get(id)).filter(one => one !== undefined)
     const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
     const busy = known.find(one => UNDER_WAY.includes(one.head.get('State')))
-    const state = known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : 'next'
+    // Focus 4: steps made but none handed out yet (new or refined, none queued): the part waits for the main chat.
+    // The review: a step the main chat queued before its refine ("Queue when refined") waits for its refine, not for it.
+    const held = known.filter(one => NOT_HANDED.includes(one.head.get('State')))
+    const unsent = held.filter(one => (one.head.get('Queue when refined') ?? '') === '')
+    const isWaiting = busy === undefined && !known.some(one => one.head.get('State') === 'queued')
+    const isHandout = isWaiting && unsent.length > 0
+    const isRefining = isWaiting && !isHandout && held.length > 0
+    const state = known.length > 0 && done === known.length ? 'done' : busy !== undefined ? 'now' : isHandout ? 'handout' : isRefining ? 'refining' : 'next'
     const owner = busy === undefined ? null : String(busy.head.get('Owner') ?? '').replace(prefix, '').trim() || null
-    return { title: part.title, size: part.size, state, owner, done, total: known.length }
+    const since = unsent.map(one => sinceMs(one.head.get('Since'))).filter(Number.isFinite)
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, ...(isHandout ? { waitsSince: since.length > 0 ? Math.max(...since) : null } : {}) }
   })
   const left = parts.filter(part => part.state !== 'done').map(part => sizeMinutes(part.size)).filter(one => one !== null)
   const own = (threads ?? []).filter(one => one.goal?.id === node.id)
@@ -807,7 +846,42 @@ export function focusState(goalMap, items, threads, prefix) {
     howAgreed: node.howAgreed,
     progress: { done: parts.filter(part => part.state === 'done').length, total: parts.length, minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0) },
     thread: thread?.path ?? null,
+    ...focusRun(node, items ?? [], prefix, partner),
   }
+}
+
+/** Whether an option is the one advised: its text, or its letter ("B" of "B thick"). */
+const isAdvisedOption = (option, advice) => advice !== null && (option === advice || option.toLowerCase().startsWith(`${advice.toLowerCase()} `))
+
+/**
+ * Focus 3 (spec 2026-10-18, sections 3 to 5, the run): what the partner (the chat `partner` names, the setting
+ * advisor) keeps for the person on the focus goal `node`. `note`: its newest daily note of the goal (dailyNote.mjs),
+ * or null. `needs`: its open asks of the goal or of the goal's steps (its own and its parts'), those the note names
+ * first, then by id; each with its options (the advised one marked) and its pictures.
+ */
+function focusRun(node, items, prefix, partner) {
+  const plain = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
+  const isPartner = item => partner !== null && plain(valueOf(item, 'From') ?? valueOf(item, 'Owner')) === plain(partner)
+  const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
+  const newest = items.filter(item => isDailyNote(item) && valueOf(item, 'Of') === node.id && valueOf(item, 'To') === 'you' && isPartner(item))
+    .sort((a, b) => (sinceMs(valueOf(b, 'Since')) || 0) - (sinceMs(valueOf(a, 'Since')) || 0) || byId(valueOf(b, 'Id'), valueOf(a, 'Id')))[0]
+  const note = newest === undefined ? null : dailyNote(newest)
+  const ofs = new Set([node.id, ...node.steps, ...node.parts.flatMap(part => part.steps)])
+  const named = note?.needs ?? []
+  const rank = id => (named.includes(id) ? named.indexOf(id) : named.length)
+  const needs = items.filter(item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'open' && ofs.has(valueOf(item, 'Of')) && isPartner(item))
+    .sort((a, b) => rank(valueOf(a, 'Id')) - rank(valueOf(b, 'Id')) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+    .map(item => {
+      const advice = valueOf(item, 'Advice')
+      return {
+        id: valueOf(item, 'Id'),
+        title: valueOf(item, 'Title') ?? '',
+        asks: valueOf(item, 'Asks') ?? 'decide',
+        options: (valueOf(item, 'Options') ?? '').split(' | ').map(one => one.trim()).filter(Boolean).map(label => ({ label, isAdvised: isAdvisedOption(label, advice) })),
+        pictures: (valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),
+      }
+    })
+  return { note, needs }
 }
 
 export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], now, config }) {
@@ -1167,6 +1241,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix })
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
+  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null)
 
   return {
     readAt: now,
@@ -1186,7 +1261,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
     // server carries out; empty and null while the store cannot be read.
     workFlags: (reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, says: reconciled.flags.filter(flag => typeof flag.say === 'string') },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [] },
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)).map(step => ({ ...step, why: whyNot(step, null) })),
     // B83: the newest ask to stop each worker's task, open while on its way and for a while after it arrived, so the
@@ -1194,13 +1269,16 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     changeAsks: {
       stop: Object.fromEntries(lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => [lane.name, removalAsk(sent.findLast(message => message.command === 'stop' && message.about === lane.name), now)]).filter(([, ask]) => ask !== null)),
     },
-    forYou: [
+    // Focus 4: the partner's cards marked, for the group "From your partner".
+    forYou: markPartner([
       ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold') }),
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       ...storeNeeds(raw.work, { now, names: [...names, ...(advisorChat === undefined ? [] : [advisorChat.name])], prefix, answerOf: id => answerOf(sent, id) })
         .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
-    ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)),
+      // Focus 4: the focus's steps made but not handed out, longer than the grace time: a hint, with the way to Main.
+      ...handoutNeeds(focus, main === undefined ? null : main.name, now),
+    ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), config.advisor ?? null, prefix),
     // B299: notes and reports for the person.
     information: informationOf(raw.work, now),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
@@ -1321,7 +1399,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     brainstorms,
     brainstormNeeds: brainstormNeeds(brainstorms.threads),
     // Focus 1 (spec 2026-10-18): the focus goal for the Focus part, and the parts the tab's bar shows.
-    focus: focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix),
+    // The review of Focus 3: the partner by the chat the board shows for it, the one the work API gives the role advisor.
+    focus,
     advisorParts: config.advisorParts,
   }
 }

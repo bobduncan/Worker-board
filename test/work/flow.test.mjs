@@ -61,8 +61,8 @@ test('a move from "*" is allowed from every state', () => {
 test('nextMoves lists the moves out of the item\'s state, who makes them and when', () => {
   assert.deepEqual(nextMoves(DEFAULT_FLOW, step('queued')), [
     { to: 'taken', by: ['server'], when: 'Blocked by all done and Owner free' },
-    // B305: the worker takes its own queued step once what it is blocked by is resolved; Owner free is the board's delivery.
-    { to: 'taken', by: ['worker'], when: 'Blocked by all done' },
+    // B305: the worker (Focus 3: also the advisor and the main chat) takes its own queued step once what it is blocked by is resolved; Owner free is the board's delivery.
+    { to: 'taken', by: ['worker', 'advisor', 'main'], when: 'Blocked by all done' },
     // B301, the review: out of its queue (unqueue), back to refined or new.
     { to: 'refined', by: ['main', 'person'], when: null },
     { to: 'new', by: ['main', 'person'], when: null },

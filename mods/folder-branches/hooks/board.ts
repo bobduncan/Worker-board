@@ -66,7 +66,11 @@ export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answere
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
   'pictures', 'play', 'to', 'result', 'merged', 'on', 'title', 'activity', 'goal', 'for', 'after', 'about', 'as', 'why', 'summary', 'picture', 'size',
-  'questions', 'what', 'advice', 'lines', 'parts', 'partnerDecides', 'youDecide', 'from']
+  'questions', 'what', 'advice', 'lines', 'parts', 'partnerDecides', 'youDecide',
+  // Focus 3: the partner's daily note on the focus goal.
+  'decided', 'needs',
+  // B313: the chat a rename moves the work from.
+  'from']
 
 /** What every chat in the list is told about the board, in the same words at every request. */
 export const BOARD_NOTE = ' The person also answers on their worker board, a page on this machine. What they answer or '

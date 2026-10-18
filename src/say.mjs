@@ -64,19 +64,25 @@ const stopWords = (to, name, task) => ({
   text: `stop task\nName: ${name}\nTask: ${task}\nWhy: stopped with the button`,
 })
 /** Focus 2: the first line of each word of the Focus page to the partner (spec 2026-10-18, section 6). */
-const FOCUS_HEADS = { 'vibe-agreed': 'vibe: agreed', 'vibe-not-yet': 'vibe: not yet', 'how-go': 'how: go', 'how-not-yet': 'how: not yet' }
+const FOCUS_HEADS = { 'vibe-agreed': 'vibe: agreed', 'vibe-not-yet': 'vibe: not yet', 'how-go': 'how: go', 'how-not-yet': 'how: not yet', 'vibe-there-yes': 'vibe there: yes', 'vibe-there-no': 'vibe there: no', undo: 'undo:', talk: 'talk:' }
 export const FOCUS_COMMANDS = ['focus', ...Object.keys(FOCUS_HEADS)]
 
 /**
  * Focus 2 (spec 2026-10-18, sections 3 and 6): the person's word from the Focus page to the partner (the chat the
  * setting `advisor` names), typed as the person's own. `focus: G<n> <title>` with the talk's thread, the stage it stands
  * at and the partner's job; `vibe: agreed`, `vibe: not yet`, `how: go`, `how: not yet` with the goal and the thread,
- * the not-yets with the person's words. The board made the change in goals.md before (src/focus.mjs).
+ * the not-yets with the person's words. The board made the change in goals.md before (src/focus.mjs). Focus 3:
+ * `vibe there: yes` and `vibe there: no` (with the words) likewise; `undo: <line>` with the goal and the daily note.
+ * Focus 4: `talk: <words>` with the goal and the thread, from the run's talk bar while the partner has the turn.
  */
-export function focusWords(command, { to, goal, thread, stage = null, words = null, job = null }) {
+export function focusWords(command, { to, goal, thread, stage = null, words = null, job = null, note = null }) {
   const about = `${goal.id} ${plainLine(goal.title)}`
   const lines = command === 'focus'
     ? [`focus: ${about}`, `Thread: ${thread}`, `Stage: ${stage}`, `Your job: ${job}, "The focus"`]
+    // Focus 3: the person's Undo of a line of the partner's daily note `note`.
+    : command === 'undo' ? [`undo: ${String(words).replace(/\s+/g, ' ').trim()}`, `Goal: ${about}`, `Note: ${note}`]
+    // Focus 4: the person's words from the run's talk bar while the partner has the turn.
+    : command === 'talk' ? [`talk: ${String(words).replace(/\s+/g, ' ').trim()}`, `Goal: ${about}`, `Thread: ${thread}`]
     : [FOCUS_HEADS[command], `Goal: ${about}`, `Thread: ${thread}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`])]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: goal.id, text: lines.join('\n') }
 }

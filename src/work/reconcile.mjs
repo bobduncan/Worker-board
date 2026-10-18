@@ -19,6 +19,11 @@ const plain = (name, prefix = '') => {
   const words = String(name ?? '').trim()
   return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
 }
+/** A chat's name as written, without the title's prefix. */
+const plainFrom = (name, prefix = '') => {
+  const words = String(name ?? '').trim()
+  return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim()
+}
 const whose = name => (/s$/i.test(name) ? `${name}'` : `${name}'s`)
 const span = ms => {
   const minutes = Math.floor(ms / MIN)
@@ -30,7 +35,8 @@ const span = ms => {
  * `{ store, flow, lanes, now, times, prefix }` → `{ moves, deliveries, flags }`. `store` is readStore's answer (`items`,
  * `problems`), `flow` its flow, `lanes` the board's chats (`name`, `state`, `isMain`, `isRunning`, `isLeftover`,
  * `lastActivityAt`, `task`, `resting`), `times` `{ graceMs, askMs, idleMs }` (src/config.mjs). `moves`: `[{ id, to, why
- * }]`; `deliveries`: `[{ id, chat, why }]`, one per chat; `flags`: `[{ kind, id, chat, text, button }]`, a lane's when
+ * }]`; `deliveries`: `[{ id, chat, why }]`, one per chat; `notes` (Focus 4): `[{ id, chat, from, since }]`, the unread
+ * notes to the main chat, which it is woken for (not while it is suspended); `flags`: `[{ kind, id, chat, text, button }]`, a lane's when
  * `chat` is set, else a line on top; a flag with `say` tells its chat that once (`key`); an `idle hold` flag (B308) also
  * names all its chat's steps (`ids`) and is a hint under Needs your attention, not on the lane.
  */
@@ -120,6 +126,17 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     flags.push({ kind: 'old ask', id: valueOf(item, 'Id'), chat: laneOf(owner)?.name ?? owner, text: `${valueOf(item, 'Id')} has waited for your answer for ${span(waited)}`, button: null })
   }
 
+  // Focus 4: a note to the main chat it has not read wakes it (deliver.mjs), unless it is suspended for the limit. The
+  // review: never for its own notes, nor for the board's note of a report (Via: report: the worker tells it itself).
+  const notes = []
+  const mainLane = live.find(lane => lane.isMain === true)
+  if (mainLane !== undefined && mainLane.state !== 'suspended') {
+    const mains = new Set(['main', plain(mainLane.name, prefix)])
+    for (const item of [...items.values()].filter(one => kindOf(one) === 'note' && valueOf(one, 'Main read') === null && valueOf(one, 'Via') !== 'report' && mains.has(plain(valueOf(one, 'To'), prefix)) && !mains.has(plain(valueOf(one, 'From'), prefix))).sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
+      notes.push({ id: valueOf(item, 'Id'), chat: mainLane.name, from: valueOf(item, 'From') === null ? 'the board' : laneOf(valueOf(item, 'From'))?.name ?? plainFrom(valueOf(item, 'From'), prefix), since: valueOf(item, 'Since') })
+    }
+  }
+
   // An instruction open for more than one turn of its chat: the Open instructions list shows it with its age and chat
   // (B298, work/lists.mjs); nothing here.
 
@@ -165,5 +182,5 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       break
     }
   }
-  return { moves, deliveries, flags }
+  return { moves, deliveries, flags, notes }
 }

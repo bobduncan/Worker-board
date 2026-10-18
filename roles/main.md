@@ -63,18 +63,19 @@ You decide this, not the user. For every task:
 
 ## The partner (its job: `partner.md` beside this file; the chat the setting `advisor` names, once the Advisor)
 
-- Planning questions go to the partner, not to the user: what to build, in which order, how big, what a goal needs,
-  whether a step fits the focus. Send them with SendMessage to its session id ("Question from <main>: ...") or with
-  `work note`; it settles the details and asks the user itself at goal height. You ask the user only what is yours:
-  a check of a worker's work, a permission, something only they can do.
+- Planning questions go to the partner, not to the user (Focus 4): You ask the user nothing about planning: what to
+  build, in which order, how big, which goal, what a goal needs, whether a step fits the focus; those questions go to
+  the partner, by message (SendMessage to its session id, "Question from <main>: ...", or `work note`). It settles the
+  details and asks the user itself at goal height, and tells you what it asked. Your own asks to the user are about
+  delegation only: a worker to start or stop, a restart, and what the safety rules leave to the user (deleting,
+  publishing, changing settings). The checks of a worker that reported only to you stay yours to put to the user.
 - The focus: the user and the partner agree a goal's vibe and how on the board's Focus page; then the partner makes the
   steps and sends you "Queue for G<n> <title>, the how the user agreed: B<id> (<part>), ...". Queue them as any
   task (worker or queue, `work queue`), in the order it names, and tell the user in one line per step as always.
 - The check before work: before you hand out a step of over about an hour, or the first or second thing of a new
   kind, ask the Advisor first with SendMessage to its session id: "Check from <main>: B<id>, <the short title>. Go,
-  or first something else?" Small steps and fixes go without it. On "go", hand it out. On "first do X, because ...",
-  ask the user with `work ask` (kind decide) with the Advisor's reason: build anyway, or do X first; the step waits
-  for that answer.
+  or first something else?" Small steps and fixes go without it. On "go", hand it out. On "first do X, because ...", do X first, or follow what the partner says it asked the user
+  (the step waits for that ask); you ask the user nothing about it.
 - Its suggestions are "Decide:" steps for the user in the backlog's group of Advisor suggestions. One the user
   accepts: write it as a normal step (short title, Touches, queue note) and hand it out like any other. One the user
   rejects is the Advisor's to record; you do nothing.
@@ -154,6 +155,9 @@ profile.
   Requirements, Pictures, Worker, Time ("Worker: you decide" means the user named none): write the step; for a
   queue step also decide worker or queue and write its note. The new step is refined first (point 0): hand it over
   on `step refined`.
+- `work: notes N<id>, N<id> for you; run work next`: chats left you notes in the store (a queue note of the partner's,
+  a pause): run `work next`, which shows the notes you have not read first and marks them read by you, and act on
+  each.
 - `queue step from the backlog` with "Step: B<id> <title>": decide worker or queue for that step as for any task,
   queue it with `work queue` (for, after, about); the board shows the step as asked until it is queued. It comes only for a refined step: the board holds the user's ask until the step is refined.
 - `step refined` with "Step: B<id> <title>" and "For: <worker>": a step you queued before it was refined is refined

@@ -7,13 +7,13 @@ import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, nextGoalId, parseGoals } from './goals.mjs'
-import { addGoal, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, rewrite, setFocus, setGoalLine, setHow, setVibe } from './goalsWrite.mjs'
+import { addGoal, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
 
-/** The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet. */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet']
+/** The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar. */
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -95,10 +95,13 @@ async function move(body, ctx) {
   const node = parseGoals(text).byId.get(body.id)
   if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt, parseGoals(text).focus)
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
+  // Focus 3: a second Yes to "Is the vibe there?" finds the goal ticked and the focus gone: nothing more.
+  if (command === 'vibe-there-yes' && node.state === 'done') return { ok: true, result: { unchanged: true }, words: null }
   if (parseGoals(text).focus !== body.id) return refuse(409, 'That goal is not your focus any more.')
   const say = async (kind, words = null) => focusWords(kind, { to: ctx.partner.name, goal: node, thread: await talkOf(node, ctx), words })
   const stage = focusStage(node)
   const words = oneLine(body.text, 1000)
+  if (command === 'talk') return talkBar(node, words, ctx, goalsAt)
   if (command === 'vibe-not-yet' || command === 'how-not-yet') {
     const wanted = command === 'vibe-not-yet' ? 'vibe' : 'how'
     if (stage !== wanted) return refuse(409, wanted === 'vibe' ? 'The vibe is agreed already.' : 'The how is not on the table now.')
@@ -110,6 +113,7 @@ async function move(body, ctx) {
     if (node.vibe.length === 0 && node.vibePicture === null) return refuse(409, 'Your partner has not written the vibe yet.')
     return agree(node, ctx, goalsAt, 'vibeAgreed', agreeVibe, () => say('vibe-agreed'))
   }
+  if (command === 'vibe-there-yes' || command === 'vibe-there-no') return vibeThere(command, node, words, ctx, goalsAt, say)
   // how-go
   if (node.vibeAgreed === null) return refuse(409, 'Agree the vibe first.')
   if (node.howAgreed !== null) return { ok: true, result: { unchanged: true }, words: null }
@@ -128,6 +132,76 @@ async function agree(node, ctx, goalsAt, field, write, say) {
   }, goalsAt)
   if (!done.ok) return failed(done.why)
   return wrote ? { ok: true, result: {}, words: await say() } : { ok: true, result: { unchanged: true }, words: null }
+}
+
+/**
+ * The talk about the goal `id` (`node`) the page writes in: the thread that runs; else one wrapped up (no proposal)
+ * reopened; else a new one with `opening`, linked under the goal. A talk that holds a proposal is the Brainstorm
+ * part's to create or discard first. Answers `{ ok: true, thread, isNewThread, isStarted }` (`isStarted`: made now,
+ * its opening the words given) or a refusal.
+ */
+async function talkFor(id, node, opening, ctx, goalsAt) {
+  let thread = await runningThread(id, ctx)
+  let isNewThread = false
+  let isStarted = false
+  // The review of Focus 2: a talk wrapped up on the Brainstorm part (no proposal yet) is reopened; one that holds a
+  // proposal is the Brainstorm part's to create or discard first; one that is over gives way to a new one.
+  const live = thread === null ? await liveThreads(id, ctx) : []
+  if (live.some(one => one.thread.proposal !== null)) return refuse(409, 'The talk about this goal holds a proposal: create or discard it on the Brainstorm part first.')
+  if (live.length > 0) {
+    const reopened = await rewrite(live[0].file, latin => {
+      const text = Buffer.from(latin, 'latin1').toString('utf8')
+      const done = setThreadState(text, 'running')
+      return done.ok ? { ok: true, text: Buffer.from(done.text, 'utf8').toString('latin1') } : done
+    }, ctx.fs)
+    if (!reopened.ok) return failed(reopened.why)
+    thread = live[0].path
+    isNewThread = true
+  }
+  if (thread === null) {
+    const started = await editThread({ command: 'start', title: node.title, goal: id, opening }, {
+      canWrite: true, dir: ctx.brainstormDir, folder: ctx.brainstormFolder, goalsFile: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs,
+    })
+    if (started.ok) {
+      thread = started.result.path
+      isNewThread = true
+      isStarted = true
+    } else thread = await runningThread(id, ctx)
+    if (thread === null) return refuse(started.status ?? 500, started.why ?? 'The talk could not be started.')
+  }
+  // The goal's Brainstorm line names the talk the page answers in, also when the line named one that is over.
+  if (isNewThread && node.brainstorm?.path !== thread) {
+    await changeGoalsFile(text => (parseGoals(text).byId.has(id) ? setGoalLine(text, id, 'Brainstorm', `${thread} (running)`) : { ok: true, text }), goalsAt).catch(() => null)
+  }
+  return { ok: true, thread, isNewThread, isStarted }
+}
+
+/**
+ * Focus 4 (spec 2026-10-18, sections 4 and 6): the run's talk bar. The person's words (`words`) go into the goal's talk
+ * (talkFor) as the Brainstorm part sends them: in a talk started for them, as its opening (`brainstorm`); with the
+ * partner's question open, as its answer, written under it (`brainstorm answer`); while the partner has the turn, as
+ * `talk: <words>` with the goal and the thread. Each typed as the person's word.
+ */
+async function talkBar(node, words, ctx, goalsAt) {
+  if (words === '') return refuse(400, 'Write what you want to tell your partner.')
+  const talk = await talkFor(node.id, node, words, ctx, goalsAt)
+  if (!talk.ok) return talk
+  const result = { id: node.id, thread: talk.thread }
+  const about = `${node.id} ${oneLine(node.title, 200)}`
+  const word = (command, text) => ({ to: ctx.partner.name, ask: null, step: null, title: null, version: null, verdict: null, command, about: talk.thread, text })
+  if (talk.isStarted) return { ok: true, result, words: word('brainstorm', `brainstorm\nThread: ${talk.thread}\nGoal: ${about}\nOpening: ${words}`) }
+  const base = String(ctx.brainstormDir).replace(/[\\/]+$/, '')
+  const file = `${base}/${talk.thread.split('/').pop()}`
+  const thread = parseThread(await ctx.fs.readFile(file).then(bytes => bytes.toString('utf8'), () => ''))
+  const latest = thread.questions.at(-1)
+  if (latest !== undefined && latest.answer === null) {
+    const answered = await editThread({ command: 'answer', path: talk.thread, n: latest.n, key: 'Other', words }, {
+      canWrite: true, dir: ctx.brainstormDir, folder: ctx.brainstormFolder, goalsFile: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs,
+    })
+    if (!answered.ok) return answered
+    return { ok: true, result, words: word('brainstorm-answer', `brainstorm answer\nThread: ${talk.thread}\nQ${latest.n}: Other — ${words}`) }
+  }
+  return { ok: true, result, words: { ...focusWords('talk', { to: ctx.partner.name, goal: node, thread: talk.thread, words }) } }
 }
 
 /**
@@ -161,40 +235,38 @@ async function pick(body, before, ctx, goalsAt) {
   if (!written.ok) return failed(written.why)
   const node = parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id)
   if (node === undefined) return failed('gone')
-  let thread = await runningThread(id, ctx)
-  let isNewThread = false
-  // The review of Focus 2: a talk wrapped up on the Brainstorm part (no proposal yet) is reopened; one that holds a
-  // proposal is the Brainstorm part's to create or discard first; one that is over gives way to a new one.
-  const live = thread === null ? await liveThreads(id, ctx) : []
-  if (live.some(one => one.thread.proposal !== null)) return refuse(409, 'The talk about this goal holds a proposal: create or discard it on the Brainstorm part first.')
-  if (live.length > 0) {
-    const reopened = await rewrite(live[0].file, latin => {
-      const text = Buffer.from(latin, 'latin1').toString('utf8')
-      const done = setThreadState(text, 'running')
-      return done.ok ? { ok: true, text: Buffer.from(done.text, 'utf8').toString('latin1') } : done
-    }, ctx.fs)
-    if (!reopened.ok) return failed(reopened.why)
-    thread = live[0].path
-    isNewThread = true
-  }
-  if (thread === null) {
-    const started = await editThread({ command: 'start', title: node.title, goal: id, opening: isNew ? oneLine(body.text, 2000) : 'I pick this goal as my focus.' }, {
-      canWrite: true, dir: ctx.brainstormDir, folder: ctx.brainstormFolder, goalsFile: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs,
-    })
-    if (started.ok) {
-      thread = started.result.path
-      isNewThread = true
-    } else thread = await runningThread(id, ctx)
-    if (thread === null) return refuse(started.status ?? 500, started.why ?? 'The talk could not be started.')
-  }
-  // The goal's Brainstorm line names the talk the page answers in, also when the line named one that is over.
-  if (isNewThread && node.brainstorm?.path !== thread) {
-    await changeGoalsFile(text => (parseGoals(text).byId.has(id) ? setGoalLine(text, id, 'Brainstorm', `${thread} (running)`) : { ok: true, text }), goalsAt).catch(() => null)
-  }
+  const talk = await talkFor(id, node, isNew ? oneLine(body.text, 2000) : 'I pick this goal as my focus.', ctx, goalsAt)
+  if (!talk.ok) return talk
+  const { thread, isNewThread } = talk
   const result = { id, thread }
   if (!moved && !isNewThread) return { ok: true, result: { ...result, unchanged: true }, words: null }
   const stage = focusStage(parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id) ?? node)
   return { ok: true, result, words: focusWords('focus', { to: ctx.partner.name, goal: node, thread, stage: STAGE_WORDS[stage], job: ctx.job }) }
+}
+
+/**
+ * Focus 3 (spec 2026-10-18, section 3): the person's answer to "Is the vibe there?", once every part is done
+ * (`ctx.allDone`, from the store). Yes ticks the goal and clears `Focus:`, once, and types `vibe there: yes`; No (with
+ * the person's words) takes `How agreed` away, so the partner proposes the how anew, and types `vibe there: no`.
+ */
+async function vibeThere(command, node, words, ctx, goalsAt, say) {
+  if (focusStage(node) !== 'run') return refuse(409, command === 'vibe-there-no' && node.vibeAgreed !== null ? 'The how is open again already.' : 'The how is not agreed: there is nothing to look at yet.')
+  if (ctx.allDone !== true) return refuse(409, 'Not every part is done yet.')
+  if (command === 'vibe-there-no' && words === '') return refuse(400, 'Say what is missing, in your words.')
+  let wrote = false
+  const done = await changeGoalsFile(text => {
+    const map = parseGoals(text)
+    const now = map.byId.get(node.id)
+    if (now === undefined) return { ok: false, why: 'gone' }
+    wrote = map.focus === node.id && focusStage(now) === 'run'
+    if (!wrote) return { ok: false, why: 'late' }
+    if (command === 'vibe-there-no') return reopenHow(text, node.id)
+    const ticked = setGoalState(text, node.id, 'done')
+    return ticked.ok ? setFocus(ticked.text, null) : ticked
+  }, goalsAt)
+  if (!wrote) return { ok: true, result: { unchanged: true }, words: null }
+  if (!done.ok) return failed(done.why)
+  return { ok: true, result: {}, words: await say(command, command === 'vibe-there-no' ? words : null) }
 }
 
 /** "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
@@ -252,4 +324,34 @@ async function draft(body, node, ctx, goalsAt, focus) {
   }, goalsAt)
   if (changed) return refuse(409, 'The how is agreed: add the steps to its parts, change nothing else.')
   return done.ok ? { ok: true, result: {}, words: null } : failed(done.why)
+}
+
+/**
+ * Focus 3 (spec 2026-10-18, sections 5 and 6; the review): the person's Undo of a line the partner decided for them
+ * (`note` the daily note, `line` its words). `work(body)` runs the store's person-only `undo`, `type(undo)` types
+ * `undo: <line>` to the partner and answers `{ ok, result }`. The store is asked first whether the line may be undone
+ * (`check`); the word is typed; only then the line is marked "undo asked". A word that cannot be typed leaves the line
+ * unmarked, so the person can try again; one Undo runs at a time, so a line is typed once (Review Focus 4).
+ */
+let undoTurn = Promise.resolve()
+export function undoLine(body, ports) {
+  const run = undoTurn.then(() => undoOnce(body, ports))
+  undoTurn = run.catch(() => {})
+  return run
+}
+
+async function undoOnce({ note, line }, { work, type }) {
+  const checked = await work({ action: 'undo', id: note, line, check: true })
+  if (!checked.ok) return checked
+  if (checked.result.asked === true) return { ok: true, result: { id: checked.result.id, unchanged: true } }
+  let typed = null
+  try {
+    typed = await type(checked.result.undo)
+  } catch {
+    typed = null
+  }
+  if (typed?.ok !== true) return typed?.ok === false ? typed : refuse(500, 'The word to your partner could not be kept: nothing is marked, try Undo again.')
+  const marked = await work({ action: 'undo', id: note, line })
+  if (!marked.ok) return marked
+  return { ok: true, result: { ...typed.result, id: checked.result.id } }
 }

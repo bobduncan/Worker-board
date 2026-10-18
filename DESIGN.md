@@ -1064,6 +1064,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   answers yes or one line ("B285: only main queues a step (flow.json)"); `nextMoves` lists the moves out of a state.
   A `flow.json` in the store folder replaces the default; one that names an unknown guard or state is refused with
   its name and the default stands.
+  Focus 3: the partner (role advisor) and the main chat take, work and report a step queued for them as a worker
+  does: queued → taken ("Blocked by all done"), taken → in progress, in progress → waiting on you and → review, and
+  review → review are by worker, advisor and main, as the live project's flow.json has them.
 - **The migration** (`src/work/migrate.mjs`, `line.mjs`): every step line becomes an item. Its line is kept as
   fields: `Title`; `Owner`, `Blocked by` (a condition of only ids, "B12 and B13") or `Waits for` (any other condition,
   "after today's board work", verbatim), `Estimate` from "(for ...)"; `Branch` from "(branch x)"; `State` (done,
@@ -1221,6 +1224,11 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
 - **Refine questions are asks**: `refine` makes one decide ask per question under the step (`Via: refine`, Owner the
   Advisor), and withdraws the open ones of an earlier round; `refined` is refused while one is open, naming it; the
   answers given in the step's window (`refine-answer`) answer the matching asks, `refine-accept` answers the rest.
+  Focus 3: an ask and its question are matched by the ask's whole words (its Text), else by its title (`questionIndex`):
+  a title cut at 200 characters on a space once matched no question, so the asks stayed open and the fold was refused.
+  Both ways hold: a window answer answers the ask (a History line on it), an ask answered alone writes into the block.
+  The review of Focus 3: a question is read off the start of its line, so one holding " Answer: " still matches; equal
+  questions match by their place (the step's newest refine asks with those words, in id order).
 - **The lists** (`work/lists.mjs`, `state.mjs`): Needs your attention takes the store's open asks (and the ones
   answered within ten minutes, until their answer has arrived) as cards: the ask's kind, what it blocks and who waits
   ("blocks B1 · Board waits"), the options with the advised one marked, pictures, a Play link; answered through
@@ -1432,6 +1440,77 @@ but [not] prevent my ability to play the game". A setting in the board's head, b
   list, the affinity mask for N cores, what is set and what is passed over, the Off pass, a failed listing, another
   platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
   replace.
+
+## The Focus tab, increment 4 (Focus 4): the main chat delegates, the partner's questions first, the talk bar
+
+Spec 2026-10-18, sections 2 and 4; plan Task 7; picture `art-inbox/focus-mockups/inc4-needs.png`.
+
+- **From your partner** (`state.mjs` `markPartner`, `board.js` `partner-needs:start` `partnerFirst`): every card of
+  Needs your attention says whether the partner asked it (`isPartner`: from the chat the setting `advisor` names, with
+  or without the prefix). The page draws those first, in their own group: the asks the focus shows (`state.focus.needs`,
+  its daily note's order) first, then the partner's others; the rest as before.
+- **The talk bar** (`src/focus.mjs` `talkBar`, the move `talk` on `/api/goals`): the person's words go into the focus
+  goal's talk (`talkFor`, shared with the pick: the thread that runs, else one wrapped up reopened, else a new one, linked
+  under the goal): with the partner's question open they are its answer (`brainstorm answer`), in a new thread its
+  opening (`brainstorm`), else `talk: <words>` / `Goal:` / `Thread:` (`focusWords('talk')`). Each typed as the
+  person's word; a partner not running is woken through the main chat.
+- **A note to the main chat wakes it** (`reconcile.mjs` `notes`, `deliver.mjs` `noteLine`): the notes `To: main` it has
+  not read (`Main read`), from another chat and not the board's note of a report (`Via: report`), wake it with one line
+  per refresh, "work: notes N62, N65 for you; run work next" (key per set of notes in `delivered.json`); none while such
+  a line waits or was taken, none while it is suspended, none for notes filed before the board's first refresh with
+  this (`notesFrom`). Its `work next` shows them first and writes `Main read`, which withdraws a line still waiting; the
+  person's Read under Information is the State, apart. A board that only shows marks nothing.
+- **Waiting for the main chat** (`focusState`): a part whose steps are made but none is queued or under way (new or
+  refined) is `handout` with `waitsSince`; the page says "Waiting for the main chat to hand it out", and after the grace
+  time `handoutNeeds` puts a hint under Needs your attention with the way to Talk to Main. The review: a step queued before its
+  refine (`Queue when refined`) is the board's to queue: its part is `refining`, "Waiting for its refine, then the board
+  queues it", and no hint.
+- **Chat names** (`work/api.mjs` `chatName`): queue and requeue `for`, rename `from` and `to`, a note's `to` and the
+  asking chat lose the list's prefix and match a chat of the list (`chats`, from the board) in any case; an unknown one
+  is taken with a warning line naming the known ones (the review: a worker about to be started is not on the list yet).
+  An Owner written as prefix + name counts as that name, and is repaired when its chat
+  takes the step.
+- **The main chat delegates only** (`roles/main.md`): it asks the user nothing about planning (what to build, in which
+  order, how big, which goal); those questions go to the partner. Its own asks are about delegation (a worker to start
+  or stop, a restart). The check before work: the partner settles "first do X" or asks the user itself.
+- Tests: `test/needsPartner.test.mjs`, `test/focusTalkBar.test.mjs`, `test/work/noteWake.test.mjs`,
+  `test/focusHandout.test.mjs`, `test/work/chatNames.test.mjs`, `test/partnerJob.test.mjs`.
+
+## The Focus tab, increment 3 (Focus 3): the run, the daily note, "Is the vibe there?"
+
+Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mockups/focus-run.png`, pictures
+`inc3-run.png` and `inc3-vibe-there.png` beside it.
+
+- **Parts follow their steps** (`state.mjs` `focusState`, since Focus 1, pinned by `test/focusRun.test.mjs`): all
+  finished (done, closed, dropped) → done; one taken, in progress, waiting on you or in review → in progress with that
+  step's owner; else next. The progress counts parts done, and the minutes the sizes of the others name.
+- **The daily note** (`src/work/dailyNote.mjs`, `api.mjs` `note`): the partner's `work note` with `of` G<n> (role
+  advisor only, to you) writes `N<n>` with `Of: G<n>` (a new note key) and the sections `## Decided for you` (one line
+  each) and `## Needs you` (the ids of asks in the store). `work ask` with `of` G<n> makes an ask of the goal itself
+  (no step to follow when it is answered or withdrawn). The state's `focus` carries `note` (the partner's newest daily
+  note of the goal: `{ id, since, decided: [{ text, undoAsked }], needs }`) and `needs` (the partner's open asks of the
+  goal or its steps, the note's first, with options and pictures); `focusState` takes the partner's name (the setting
+  `advisor`); since the review, by the name of the chat the board shows for it, as the work API gives it the role advisor.
+- **Undo** (Review Focus 4): the page's `note-undo` on `/api/goals`, and an `undo` on `/api/work`, go through
+  `server.mjs` `undoNow` and `src/focus.mjs` `undoLine`, one at a time: the store's person-only `undo` with `check`
+  says whether the line may be undone, the board types `undo: <line>` / `Goal:` / `Note:` to the partner
+  (`focusWords('undo')`), and only then the store adds the line under `## Undo asked` with its time. A second Undo,
+  also from another tab, types nothing; a word that could not be kept leaves the line unmarked (the review). The page
+  shows "undo asked" from the note's section.
+- **Is the vibe there?** (`src/focus.mjs` `vibe-there-yes`, `vibe-there-no`): asked when every part is done; the server
+  passes `allDone` from the store. Yes ticks the goal and clears `Focus:` in one change of the map, once (a second Yes
+  finds the goal done: no word); No (with words) takes `How agreed` away (`goalsWrite.mjs` `reopenHow`). Each types its
+  words, as the person's: `vibe there: yes`, `vibe there: no` with `Words:`.
+- **The morning round** (`rounds.mjs` `roundText` with the state's `focus`): "Your focus: G<n> <title> (<stage>). Write
+  today's note on it: ..." or "No focus: have the user pick one ...". The partner's job: `roles/partner.md`, "The daily
+  note" (what it may decide without the person: small visual details, numbers, wording, the order of the parts; never a
+  rule of the game, a new screen or more than about an hour's extra work).
+- The Workers mod's work tool 0.13.6: the fields `decided` and `needs` (beside B313's `rename` and `from` of 0.13.5).
+- The review's findings: a blocking ask holds a step only when the chat that holds the step asks it (the partner's
+  or the main chat's ask under a worker's step is written `Blocking: no` and leaves the step as it is), and an answer
+  that frees a step waiting on you also wakes the step's owner when another chat asked (`answer`'s `wakeOwner`, sent by
+  the server as the asker's `wake`).
+- Tests: `test/focusRun.test.mjs`, `test/focusNote.test.mjs`.
 
 ## The Focus tab, increment 2 (Focus 2): the vibe and how moves, and the partner
 

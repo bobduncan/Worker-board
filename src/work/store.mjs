@@ -259,9 +259,11 @@ function parseDelivered(text) {
     const raw = JSON.parse(text ?? '{}') ?? {}
     const keys = Array.isArray(raw.keys) ? raw.keys.filter(key => typeof key === 'string') : []
     const sent = raw.sent !== null && typeof raw.sent === 'object' && !Array.isArray(raw.sent) ? raw.sent : {}
-    return { record: { keys, sent }, text }
+    // Focus 4, the review: when this board first woke the main chat for notes; older notes count as woken.
+    const notesFrom = typeof raw.notesFrom === 'string' ? raw.notesFrom : null
+    return { record: { keys, sent, notesFrom }, text }
   } catch {
-    return { record: { keys: [], sent: {} }, text }
+    return { record: { keys: [], sent: {}, notesFrom: null }, text }
   }
 }
 

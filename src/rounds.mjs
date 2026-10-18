@@ -84,14 +84,26 @@ export function recheckText({ board, config }) {
   ].filter(line => line !== null).join('\n')
 }
 
+const STAGES = { vibe: 'the vibe', how: 'the how', run: 'the run' }
+
+/**
+ * Focus 3 (spec 2026-10-18, section 3): the morning round's line about the focus (the state's `focus`): with one, the
+ * partner writes today's note on it; without one (or with one done), it has the person pick one.
+ */
+function focusLine(focus) {
+  if (focus === null || focus === undefined || STAGES[focus.stage] === undefined) return 'No focus: have the user pick one on the board\'s Focus page (your job, "The daily note").'
+  return `Your focus: ${focus.id} ${focus.title} (${STAGES[focus.stage]}). Write today's note on it: work note, to you, of ${focus.id}, with decided and needs (your job, "The daily note").`
+}
+
 /**
  * The words typed into the Advisor's chat for a round: the clock's line, then where its job and this project's
  * settings are, so the same job description serves any game.
  */
-export function roundText(round, { board, config }) {
+export function roundText(round, { board, config, focus = null }) {
   return [
     `${HEAD} ${round}`,
     ...settingLines({ board, config }),
+    round === 'morning' ? focusLine(focus) : null,
     'This line is the worker board\'s clock, not the user\'s word.',
   ].filter(line => line !== null).join('\n')
 }

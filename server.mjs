@@ -47,14 +47,14 @@ import { parseHistory } from './src/history.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture } from './src/pictures.mjs'
-import { answerWords, checkSay, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
+import { answerWords, checkSay, focusWords, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, undoLine } from './src/focus.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
@@ -444,17 +444,42 @@ async function main(args) {
       now: clock(),
       partner: state.advisor ?? null,
       job: join(HERE, 'roles', 'partner.md'),
+      // Focus 3: "Is the vibe there?" is answered only once every part of the how is done, as the store says.
+      allDone: state.focus?.id === body?.id && state.focus.progress.total > 0 && state.focus.progress.done === state.focus.progress.total,
     })
     readState.reset()
     if (!done.ok || done.words === null) return done.ok ? { ok: true, result: done.result } : done
+    return toPartner(done.words, done.result, state)
+  }
+  /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
+  const toPartner = async (words, result, state) => {
     const isCopied = state.bridge?.isMissing === true
-    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...done.words, state: isCopied ? 'copied' : 'waiting' }
+    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
     await store.say(message)
     readState.reset()
-    if (isCopied) return { ok: true, result: { ...done.result, said: message.id, paste: { text: messageText(message, timeOf), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
+    if (isCopied) return { ok: true, result: { ...result, said: message.id, paste: { text: messageText(message, timeOf), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
     const wake = wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
     if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
-    return { ok: true, result: { ...done.result, said: message.id } }
+    return { ok: true, result: { ...result, said: message.id } }
+  }
+  /**
+   * Focus 3 (spec 2026-10-18, sections 5 and 6): the person's Undo of a line the partner decided for them, from the Focus
+   * page (`note-undo` on /api/goals, or `undo` on /api/work; `note` the daily note, `line` its words): the board types
+   * `undo: <line>` to the partner, then the store marks it "undo asked" (work/api.mjs `undo`); a second Undo types
+   * nothing (Review Focus 4), and a word not kept leaves the line unmarked (the review).
+   */
+  const undoNow = async body => {
+    const state = await readState()
+    const partner = state.advisor ?? null
+    if (partner === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
+    // The review: typed first, marked after (src/focus.mjs `undoLine`); a word not kept leaves the line unmarked.
+    return undoLine({ note: body?.note, line: body?.line }, {
+      work: action => workAction(action, 'person'),
+      type: ({ of, line }) => {
+        const title = (state.goals?.nodes ?? []).find(node => node.id === of)?.title ?? ''
+        return toPartner(focusWords('undo', { to: partner.name, goal: { id: of, title }, words: line, note: body?.note }), {}, state)
+      },
+    })
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   const workCtx = async () => {
@@ -467,8 +492,12 @@ async function main(args) {
       // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
+      // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
+      chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
+      // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
+      hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
     }
   }
   const workReads = new Set(['next', 'list'])
@@ -476,7 +505,8 @@ async function main(args) {
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${homePort}/` }
-    const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }) })
+    // Focus 4: a board that only shows reads the main chat's notes without marking them read.
+    const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
     if (done.ok && done.result.changed !== false) {
       work.reset?.()
       readState.reset()
@@ -883,6 +913,7 @@ async function main(args) {
     // is read anew, so the page draws the file as it now is: also after a refusal, often a change made elsewhere.
     goals: async body => {
       if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
+      if (body?.command === 'note-undo') return undoNow(body)
       const done = await editGoals(body, {
         canWrite: writesMap,
         file: projectFile(config, 'goals'),
@@ -924,21 +955,25 @@ async function main(args) {
     bridgeKey,
     // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
     work: async body => {
+      // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
+      if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       const done = await workAction(body, 'person')
-      const wake = done.ok ? done.result.wake ?? null : null
-      if (wake !== null && !isShowOnly) {
+      // Focus 3, the review: and the owner of the step the answer frees, when another chat asked (`wakeOwner`).
+      const wakes = done.ok ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
+      let paste = null
+      for (const wake of isShowOnly ? [] : wakes) {
         const state = await readState()
         const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].some(chat => chat.name === wake.to)
-        if (shown) {
-          const isCopied = state.bridge?.isMissing === true
-          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...answerWords(wake), state: isCopied ? 'copied' : 'waiting' }
-          await store.say(message)
-          const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-          if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
-          readState.reset()
-          if (isCopied) return { ok: true, result: { ...done.result, paste: { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
-        }
+        if (!shown) continue
+        const isCopied = state.bridge?.isMissing === true
+        const message = { id: randomBytes(8).toString('hex'), at: clock(), ...answerWords(wake), state: isCopied ? 'copied' : 'waiting' }
+        await store.say(message)
+        const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+        if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
+        readState.reset()
+        if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
       }
+      if (paste !== null) return { ok: true, result: { ...done.result, paste } }
       return done
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
@@ -1086,7 +1121,7 @@ async function main(args) {
           weekReset: week?.resetsAt ?? week?.resetAt ?? null, fiveHour: state.limits?.fiveHour?.used ?? null,
         })
         if (next.round !== null) {
-          const message = { id: randomBytes(8).toString('hex'), at: now, to: state.advisor.name, ask: null, step: null, title: null, version: null, verdict: null, command: 'round', round: next.round, text: roundText(next.round, { board: HERE, config }), state: 'waiting' }
+          const message = { id: randomBytes(8).toString('hex'), at: now, to: state.advisor.name, ask: null, step: null, title: null, version: null, verdict: null, command: 'round', round: next.round, text: roundText(next.round, { board: HERE, config, focus: state.focus ?? null }), state: 'waiting' }
           await store.say(message)
           const wake = wakeFor({ ...message, command: null }, state, store.outbox(), now, config.maxMessageChars)
           if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })

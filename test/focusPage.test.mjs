@@ -83,8 +83,10 @@ test('each part\'s progress follows its steps in the store: done, in progress wi
     { title: 'Draw the bench', size: 'about 1 h', state: 'done', owner: null, done: 2, total: 2 },
     { title: 'Light the path', size: '2 h', state: 'now', owner: 'Features', done: 1, total: 2 },
     { title: 'Place them', size: '30 min', state: 'done', owner: null, done: 1, total: 1 },
-    { title: 'One look at the whole garden', size: '1 h', state: 'next', owner: null, done: 0, total: 1 },
+    // Focus 4: its step is made but not handed out yet: it waits for the main chat.
+    { title: 'One look at the whole garden', size: '1 h', state: 'handout', owner: null, done: 0, total: 1, waitsSince: run.parts[3].waitsSince },
   ])
+  assert.ok(Number.isFinite(run.parts[3].waitsSince))
   assert.deepEqual(run.progress, { done: 2, total: 4, minutesLeft: 180 })
   assert.deepEqual([run.partnerDecides, run.youDecide], [['the wood\'s colour'], ['how many benches']])
   // A part without steps is next; sizes nobody can read leave the time out.
@@ -143,18 +145,19 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   assert.deepEqual(run.progress, { text: '2 of 4 done · about 3 h left', percent: 50 })
 })
 
-test('the run shows the parts with progress and who is on each, never a step id; the note waits for the next part', () => {
+test('the run shows the parts with progress and who is on each, never a step id; the note card waits for the partner\'s note', () => {
   const run = page.focusView(stateOf(map(AGREED, HOW, RUN)), goalsOf(map()))
   assert.deepEqual(run.run.parts, [
     { title: 'Draw the bench', chip: 'Done', tone: 'done', percent: 100, owner: null },
     { title: 'Light the path', chip: 'In progress', tone: 'now', percent: 50, owner: 'Features is on it' },
     { title: 'Place them', chip: 'Done', tone: 'done', percent: 100, owner: null },
-    { title: 'One look at the whole garden', chip: 'Next', tone: 'next', percent: 0, owner: null },
+    { title: 'One look at the whole garden', chip: 'Waiting for the main chat to hand it out', tone: 'handout', percent: 0, owner: null },
   ])
   assert.equal(run.run.stepsOf, 'G2')
   assert.doesNotMatch(JSON.stringify(run.run), /\bB\d+\b/)
   assert.doesNotMatch(JSON.stringify(run.head), /\bB\d+\b/)
-  assert.equal(run.note, 'Your partner writes a note here each morning: what it decided for you, and what needs you. It comes in the next part.')
+  // Focus 3: the note card, empty until the partner writes its daily note.
+  assert.equal(run.note.empty, 'No note yet: your partner writes one each morning, with what it decided for you and what needs you.')
 })
 
 test('pick: no focus lists the open goals of the map to choose from; done asks for the next one', () => {

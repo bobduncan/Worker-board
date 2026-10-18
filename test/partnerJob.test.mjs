@@ -72,3 +72,17 @@ test('the protocol lists the focus\'s lines in the goal map and the words the bo
   assert.doesNotMatch(protocol, /focus-draft/)
   assert.doesNotMatch(protocol, /advisor\.md/)
 })
+
+test('Focus 4: the main chat asks the person nothing about planning; its own asks are about delegation only', async () => {
+  const main = await plain('main.md')
+  const partner = await plain('partner.md')
+  const protocol = await plain('protocol.md')
+  assert.match(main, /You ask the user nothing about planning: what to build, in which order, how big, which goal/)
+  assert.match(main, /those questions go to the partner, by message/)
+  assert.match(main, /Your own asks to the user are about delegation only: a worker to start or stop, a restart/)
+  // The check before work: the partner settles "first do X" or asks the user itself; the main chat follows.
+  assert.doesNotMatch(main, /ask the user with `work ask` \(kind decide\) with the Advisor's reason/)
+  assert.match(main, /On "first do X, because \.\.\.", do X first, or follow what the partner says it asked the user/)
+  assert.match(partner, /decide it yourself where it is a detail; one that changes a goal or its order you ask the user yourself/)
+  assert.match(protocol, /the main chat asks the user nothing about planning/)
+})
