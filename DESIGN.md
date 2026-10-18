@@ -1427,10 +1427,12 @@ Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mo
   note of the goal: `{ id, since, decided: [{ text, undoAsked }], needs }`) and `needs` (the partner's open asks of the
   goal or its steps, the note's first, with options and pictures); `focusState` takes the partner's name (the setting
   `advisor`).
-- **Undo** (Review Focus 4): the page's `note-undo` on `/api/goals` (`server.mjs` `undoNow`) runs the store's
-  person-only `undo`, which adds the line under `## Undo asked` with its time, once per request in turn; only a change
-  types `undo: <line>` / `Goal:` / `Note:` to the partner (`focusWords('undo')`), so a second Undo, also from another
-  tab, types nothing. The page shows "undo asked" from the note's section.
+- **Undo** (Review Focus 4): the page's `note-undo` on `/api/goals`, and an `undo` on `/api/work`, go through
+  `server.mjs` `undoNow` and `src/focus.mjs` `undoLine`, one at a time: the store's person-only `undo` with `check`
+  says whether the line may be undone, the board types `undo: <line>` / `Goal:` / `Note:` to the partner
+  (`focusWords('undo')`), and only then the store adds the line under `## Undo asked` with its time. A second Undo,
+  also from another tab, types nothing; a word that could not be kept leaves the line unmarked (the review). The page
+  shows "undo asked" from the note's section.
 - **Is the vibe there?** (`src/focus.mjs` `vibe-there-yes`, `vibe-there-no`): asked when every part is done; the server
   passes `allDone` from the store. Yes ticks the goal and clears `Focus:` in one change of the map, once (a second Yes
   finds the goal done: no word); No (with words) takes `How agreed` away (`goalsWrite.mjs` `reopenHow`). Each types its

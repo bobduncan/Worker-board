@@ -516,12 +516,15 @@ async function undo(body, w) {
   if (!isDailyNote(found.item)) return refuse(409, `${id} is no daily note of a goal: nothing in it can be undone.`)
   const wanted = line(body.line)
   if (!decidedOf(found.item).includes(wanted)) return refuse(409, `${id} decided no such thing: "${wanted.slice(0, 80)}".`)
-  if (undoneOf(found.item).includes(wanted)) return { ok: true, result: { id, text: 'Undo was asked already.', changed: false } }
+  const undo = { of: valueOf(found.item, 'Of'), from: valueOf(found.item, 'From'), line: wanted }
+  if (undoneOf(found.item).includes(wanted)) return { ok: true, result: { id, text: 'Undo was asked already.', changed: false, asked: true } }
+  // The review: `check` only says whether it may be asked; the board types the word first, then marks it.
+  if (body.check === true) return { ok: true, result: { id, text: 'Undo may be asked.', changed: false, asked: false, undo } }
   const item = copy(found.item)
   item.sections.set(UNDONE, [...(found.item.sections.get(UNDONE) ?? []), `- ${wanted} (${stamp(w.now)})`])
   const next = said(item, w, `undo asked: ${line(wanted, 200)}`)
   const done = await save(next, found.text, w)
-  return done.ok ? changed(next, undefined, { undo: { of: valueOf(next, 'Of'), from: valueOf(next, 'From'), line: wanted } }) : done
+  return done.ok ? changed(next, undefined, { undo }) : done
 }
 
 async function makeNote(w, to, text, of) {

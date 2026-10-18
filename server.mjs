@@ -53,7 +53,7 @@ import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, undoLine } from './src/focus.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
@@ -452,19 +452,22 @@ async function main(args) {
   }
   /**
    * Focus 3 (spec 2026-10-18, sections 5 and 6): the person's Undo of a line the partner decided for them, from the Focus
-   * page (`note` the daily note, `line` its words): the store marks it "undo asked", once (work/api.mjs `undo`), and only
-   * then the board types `undo: <line>` to the partner; a second Undo types nothing (Review Focus 4).
+   * page (`note-undo` on /api/goals, or `undo` on /api/work; `note` the daily note, `line` its words): the board types
+   * `undo: <line>` to the partner, then the store marks it "undo asked" (work/api.mjs `undo`); a second Undo types
+   * nothing (Review Focus 4), and a word not kept leaves the line unmarked (the review).
    */
   const undoNow = async body => {
     const state = await readState()
     const partner = state.advisor ?? null
     if (partner === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
-    const done = await workAction({ action: 'undo', id: body?.note, line: body?.line }, 'person')
-    if (!done.ok) return done
-    if (done.result.changed === false) return { ok: true, result: { unchanged: true } }
-    const { of, line } = done.result.undo
-    const title = (state.goals?.nodes ?? []).find(node => node.id === of)?.title ?? ''
-    return toPartner(focusWords('undo', { to: partner.name, goal: { id: of, title }, words: line, note: done.result.id }), { id: done.result.id }, state)
+    // The review: typed first, marked after (src/focus.mjs `undoLine`); a word not kept leaves the line unmarked.
+    return undoLine({ note: body?.note, line: body?.line }, {
+      work: action => workAction(action, 'person'),
+      type: ({ of, line }) => {
+        const title = (state.goals?.nodes ?? []).find(node => node.id === of)?.title ?? ''
+        return toPartner(focusWords('undo', { to: partner.name, goal: { id: of, title }, words: line, note: body?.note }), {}, state)
+      },
+    })
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   const workCtx = async () => {
@@ -935,6 +938,8 @@ async function main(args) {
     bridgeKey,
     // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
     work: async body => {
+      // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
+      if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       const done = await workAction(body, 'person')
       // Focus 3, the review: and the owner of the step the answer frees, when another chat asked (`wakeOwner`).
       const wakes = done.ok ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []

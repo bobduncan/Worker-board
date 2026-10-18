@@ -281,3 +281,33 @@ async function draft(body, node, ctx, goalsAt, focus) {
   if (changed) return refuse(409, 'The how is agreed: add the steps to its parts, change nothing else.')
   return done.ok ? { ok: true, result: {}, words: null } : failed(done.why)
 }
+
+/**
+ * Focus 3 (spec 2026-10-18, sections 5 and 6; the review): the person's Undo of a line the partner decided for them
+ * (`note` the daily note, `line` its words). `work(body)` runs the store's person-only `undo`, `type(undo)` types
+ * `undo: <line>` to the partner and answers `{ ok, result }`. The store is asked first whether the line may be undone
+ * (`check`); the word is typed; only then the line is marked "undo asked". A word that cannot be typed leaves the line
+ * unmarked, so the person can try again; one Undo runs at a time, so a line is typed once (Review Focus 4).
+ */
+let undoTurn = Promise.resolve()
+export function undoLine(body, ports) {
+  const run = undoTurn.then(() => undoOnce(body, ports))
+  undoTurn = run.catch(() => {})
+  return run
+}
+
+async function undoOnce({ note, line }, { work, type }) {
+  const checked = await work({ action: 'undo', id: note, line, check: true })
+  if (!checked.ok) return checked
+  if (checked.result.asked === true) return { ok: true, result: { id: checked.result.id, unchanged: true } }
+  let typed = null
+  try {
+    typed = await type(checked.result.undo)
+  } catch {
+    typed = null
+  }
+  if (typed?.ok !== true) return typed?.ok === false ? typed : refuse(500, 'The word to your partner could not be kept: nothing is marked, try Undo again.')
+  const marked = await work({ action: 'undo', id: note, line })
+  if (!marked.ok) return marked
+  return { ok: true, result: { ...typed.result, id: checked.result.id } }
+}
