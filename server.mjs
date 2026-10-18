@@ -34,7 +34,7 @@ import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { cpuLimiter, sessionsOfCards } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
@@ -831,8 +831,8 @@ async function main(args) {
     goals: async body => {
       const done = await editGoals(body, {
         canWrite: !isDemo && !isShowOnly,
-        file: join(config.project, ...config.goals.split('/')),
-        historyDir: join(config.project, ...config.goalsHistory.split('/')),
+        file: projectFile(config, 'goals'),
+        historyDir: projectFile(config, 'goalsHistory'),
         now: clock(),
       })
       readState.reset()
@@ -843,10 +843,10 @@ async function main(args) {
     brainstorm: async body => {
       const done = await editThread(body, {
         canWrite: !isDemo && !isShowOnly,
-        dir: join(config.project, ...config.brainstorms.split('/')),
+        dir: projectFile(config, 'brainstorms'),
         folder: config.brainstorms,
-        goalsFile: join(config.project, ...config.goals.split('/')),
-        historyDir: join(config.project, ...config.goalsHistory.split('/')),
+        goalsFile: projectFile(config, 'goals'),
+        historyDir: projectFile(config, 'goalsHistory'),
         now: clock(),
       })
       readState.reset()

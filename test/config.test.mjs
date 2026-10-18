@@ -77,8 +77,23 @@ test('B255: the goal map\'s four paths have defaults beside the backlog\'s, and 
   const config = parseConfig('{}', {})
   assert.deepEqual([config.goals, config.brainstorms, config.goalAsks, config.goalsHistory],
     ['.claude/goals.md', '.claude/brainstorms', '.claude/goal-asks', '.claude/goals.history'])
-  const set = parseConfig(JSON.stringify({ goals: 'plans/goals.md', brainstorms: '../out', goalAsks: 'C:/x', goalsHistory: 'plans/old' }), {})
+  const set = parseConfig(JSON.stringify({ goals: 'plans/goals.md', brainstorms: '../out', goalAsks: '../x', goalsHistory: 'plans/old' }), {})
   assert.deepEqual([set.goals, set.brainstorms, set.goalAsks, set.goalsHistory], ['plans/goals.md', '.claude/brainstorms', '.claude/goal-asks', 'plans/old'])
+})
+
+test('Focus 1: a copy of the board may keep its goal map apart, as its work store: a whole path of its own', async () => {
+  const { configProblem, projectFile } = await import('../src/config.mjs')
+  const isWindows = process.platform === 'win32'
+  const project = isWindows ? 'C:\\game' : '/game'
+  const apart = isWindows ? 'D:/scratch/goals.md' : '/scratch/goals.md'
+  const config = { ...parseConfig(JSON.stringify({ goals: apart, brainstorms: isWindows ? 'D:/scratch/b' : '/scratch/b' }), {}), project }
+  assert.equal(config.goals, apart)
+  assert.equal(projectFile(config, 'goals'), apart)
+  assert.equal(projectFile(config, 'goalsHistory'), join(project, '.claude', 'goals.history'))
+  assert.equal(configProblem(JSON.stringify({ goals: apart })), null)
+  assert.equal(configProblem('{"goals": "../goals.md"}'), '"goals" must be a path inside its folder written with /, or a whole path of its own, not "../goals.md"')
+  // The game plan and the backlog stay inside.
+  assert.match(configProblem(JSON.stringify({ gamePlan: apart })), /^"gamePlan" must be a path inside its folder, written with \//)
 })
 
 test('B128: a broken settings file is named in one line: what is wrong and where; unknown settings are left alone', async () => {

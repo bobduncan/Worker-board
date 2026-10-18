@@ -2,11 +2,12 @@
 // for the board, and a file that is missing or cannot be read comes back as null: the page shows it as unknown.
 
 import { readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mjs'
 import { readAsks } from './asks.mjs'
 import { allWords, forYou, queue } from './backlog.mjs'
+import { projectFile } from './config.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
 import { ownCard, ownCardKey } from './planLines.mjs'
@@ -34,7 +35,8 @@ const MOST_THREADS = 50
  * `{ path, text, at }`, the path as the setting names it. A folder that is not there holds none.
  */
 export async function readThreads(project, folder) {
-  const dir = join(project, ...folder.split('/'))
+  // Focus 1: a whole path of its own (a copy's), else in the project.
+  const dir = isAbsolute(folder) ? folder : join(project, ...folder.split('/'))
   const names = (await readdir(dir).catch(() => [])).filter(name => /^[a-z0-9][a-z0-9-]*\.md$/.test(name))
   const found = await Promise.all(names.map(async name => ({ name, at: await stat(join(dir, name)).then(file => file.mtimeMs, () => null) })))
   const newest = found.filter(one => one.at !== null).sort((a, b) => b.at - a.at || b.name.localeCompare(a.name)).slice(0, MOST_THREADS)
@@ -95,7 +97,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
     // B255: the goal map, beside the backlog; since B260 also the way to the next milestone.
-    readText(join(config.project, ...config.goals.split('/'))),
+    readText(projectFile(config, 'goals')),
     readWork(),
     // B259: the brainstorms' threads.
     readThreads(config.project, config.brainstorms),

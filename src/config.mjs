@@ -111,6 +111,15 @@ export function workFolder(config) {
   return isAbsolute(config.work) ? config.work : join(config.project, ...config.work.split('/'))
 }
 
+/**
+ * Focus 1: the goal map's paths (`goals`, `brainstorms`, `goalAsks`, `goalsHistory`) as whole paths: inside the project,
+ * or a whole path of their own, so a copy of the board tried beside the person's reads its own map, as its work store.
+ */
+export function projectFile(config, key) {
+  const value = config[key]
+  return isAbsolute(value) ? value : join(config.project, ...value.split('/'))
+}
+
 /** B296: whether the store's folder is a whole path outside the project: a copy's own, which it may write. */
 export function isOwnWork(config) {
   if (!isAbsolute(config.work)) return false
@@ -120,7 +129,9 @@ export function isOwnWork(config) {
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 // The paths inside the project or the game's repository, written with /.
-const PROJECT_PATHS = ['backlog', 'goals', 'brainstorms', 'goalAsks', 'goalsHistory', 'gamePlan', 'advisorDecisions', 'designKinds']
+const PROJECT_PATHS = ['backlog', 'gamePlan', 'advisorDecisions', 'designKinds']
+// Focus 1: the goal map's paths, inside the project or a whole path of their own (a copy's).
+const MAP_PATHS = ['goals', 'brainstorms', 'goalAsks', 'goalsHistory']
 const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'morningSkipPercent']
 
 /**
@@ -171,6 +182,7 @@ export function parseConfig(text, env) {
   for (const key of PROJECT_PATHS) {
     if (typeof raw[key] === 'string' && INSIDE.test(raw[key].trim())) config[key] = raw[key].trim()
   }
+  for (const key of MAP_PATHS) if (isWorkPath(raw[key])) config[key] = raw[key].trim()
   if (isWorkPath(raw.work)) config.work = raw.work.trim()
   if (Array.isArray(raw.advisorReadFirst)) config.advisorReadFirst = raw.advisorReadFirst.filter(path => typeof path === 'string' && INSIDE.test(path))
   if (typeof raw.advisorSuggestions === 'string' && raw.advisorSuggestions.trim() !== '') config.advisorSuggestions = raw.advisorSuggestions.trim()
@@ -212,6 +224,7 @@ export function configProblem(fileText) {
   for (const key of PROJECT_PATHS) if (has(key) && !(typeof raw[key] === 'string' && INSIDE.test(raw[key].trim()))) return wrong(key, 'a path inside its folder, written with /')
   if (has('pictureRoots') && !(Array.isArray(raw.pictureRoots) && raw.pictureRoots.length > 0 && raw.pictureRoots.every(one => typeof one === 'string' && /^[\w-][\w.-]*$/.test(one)))) return wrong('pictureRoots', 'a list of one or more plain folder names')
   if (has('advisorReadFirst') && !(Array.isArray(raw.advisorReadFirst) && raw.advisorReadFirst.every(one => typeof one === 'string' && INSIDE.test(one)))) return wrong('advisorReadFirst', 'a list of paths inside the game, written with /')
+  for (const key of MAP_PATHS) if (has(key) && !isWorkPath(raw[key])) return wrong(key, 'a path inside its folder written with /, or a whole path of its own')
   if (has('work') && !isWorkPath(raw.work)) return wrong('work', 'a path inside the project written with /, or a whole path of its own')
   if (has('morningRound') &&!(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
