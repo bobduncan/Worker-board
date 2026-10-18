@@ -27,7 +27,7 @@ and working beats pretty and half done. It will be rebuilt once he has reacted t
 
 ## Hard rules
 
-1. Write only inside `C:\Web\lava-tactics-project\worker-board`. Everything else on the machine is read-only for
+1. Write only inside `<project>\worker-board`. Everything else on the machine is read-only for
    this tool. Never edit, move or delete a file outside this folder.
 2. Git: only these read-only commands, and only as listed under "Sources": `git worktree list --porcelain`,
    `git status --porcelain`, `git rev-list --count`, `git log -1`. Never commit, switch, merge, fetch or push in
@@ -53,10 +53,10 @@ Paths that differ per machine come from `config.json` in this folder (write it w
 
 ```json
 {
-  "project": "C:\\Web\\lava-tactics-project",
-  "gameRepo": "C:\\Web\\lava-tactics-project\\lava-tactics",
+  "project": "<project>",
+  "gameRepo": "<project>\\<game>",
   "appSessions": "%APPDATA%\\Claude\\claude-code-sessions",
-  "transcripts": "%USERPROFILE%\\.claude\\projects\\C--Web-lava-tactics-project",
+  "transcripts": "%USERPROFILE%\\.claude\\projects\\<project, as a folder name>",
   "port": 4310,
   "refreshSeconds": 30
 }
@@ -72,7 +72,7 @@ The fields to use, all others ignored:
 ```
 title            "Game - Units"
 cliSessionId     "171b174a-7987-4161-9249-b377224caef3"   the name of its transcript file
-cwd              "C:\\Web\\lava-tactics-project"
+cwd              "<project>"
 isArchived       false
 createdAt        1791118811832        milliseconds
 lastActivityAt   1791792192613        milliseconds

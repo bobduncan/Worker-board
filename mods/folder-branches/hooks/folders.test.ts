@@ -6,10 +6,10 @@ import { SELF, branchList, branchName, byName, detached, folderName, inFolder, i
 
 describe('the parts that need no engine', () => {
   test('paths keep the separator of the folder they are in', () => {
-    expect(inFolder('C:\\Web\\project', 'game')).toBe('C:\\Web\\project\\game')
-    expect(inFolder('C:\\Web\\project\\', '.git')).toBe('C:\\Web\\project\\.git')
+    expect(inFolder('D:\\Work\\project', 'game')).toBe('D:\\Work\\project\\game')
+    expect(inFolder('D:\\Work\\project\\', '.git')).toBe('D:\\Work\\project\\.git')
     expect(inFolder('/home/me/app/', 'src')).toBe('/home/me/app/src')
-    expect(folderName('C:\\Web\\project\\')).toBe('project')
+    expect(folderName('D:\\Work\\project\\')).toBe('project')
     expect(folderName('/home/me/app')).toBe('app')
     expect(folderName('/')).toBe('/')
   })
@@ -115,14 +115,14 @@ const BRANCHES = ['feature/pillar', 'feature/sound-board', 'look/shape', 'main']
 /** A project folder that holds two checkouts of one repository and folders that are not in git. */
 function project(): World {
   return {
-    root: 'C:\\Web\\project',
+    root: 'D:\\Work\\project',
     entries: [
       dir('sound-library'), dir('.claude'), file('board.md'), dir('game-sound'), link('linked'), link('dangling'),
       dir('art-inbox'), dir('game'),
     ],
     repos: {
-      'C:/Web/project/game': { branch: 'look/shape', branches: BRANCHES },
-      'C:/Web/project/game-sound': { branch: 'feature/sound-board', branches: BRANCHES },
+      'D:/Work/project/game': { branch: 'look/shape', branches: BRANCHES },
+      'D:/Work/project/game-sound': { branch: 'feature/sound-board', branches: BRANCHES },
     },
     asked: [],
     opened: [],
@@ -180,14 +180,14 @@ describe('the Git pane', () => {
     const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'desktop', ...PANE })
     await ui.press({ key: 'folder:game' })
 
-    world.repos['C:/Web/project/game'] = { branch: 'main', branches: BRANCHES }
+    world.repos['D:/Work/project/game'] = { branch: 'main', branches: BRANCHES }
     await $.turn.complete({ answer: 'switched', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
     expect((await ui.find({ key: 'folder:game' }))?.text).toBe('▾ game · main')
     expect(await ui.find({ type: 'Text', text: '● main' })).toBeDefined()
 
     // A new branch, a new checkout and a folder gone: all show after the next reading.
-    world.repos['C:/Web/project/game'] = { branch: 'feature/x', branches: [...BRANCHES, 'feature/x'] }
-    world.repos['C:/Web/project/art-inbox'] = { branch: 'main', branches: ['main'] }
+    world.repos['D:/Work/project/game'] = { branch: 'feature/x', branches: [...BRANCHES, 'feature/x'] }
+    world.repos['D:/Work/project/art-inbox'] = { branch: 'main', branches: ['main'] }
     world.entries = world.entries.filter(entry => entry.name !== 'sound-library')
     await clock.advance(30000)
     for (let i = 0; i < 50 && (await ui.find({ key: 'folder:art-inbox' })) === undefined; i++) await Promise.resolve()
@@ -202,8 +202,8 @@ describe('the Git pane', () => {
   test('says what is checked out when no branch is, and when git gives no answer', async ($, on) => {
     mock.clock(on)
     const world = project()
-    world.repos['C:/Web/project/game'] = { branch: null, branches: ['main'] }
-    world.repos['C:/Web/project/game-sound'] = { branch: 'main', branches: [], isBroken: true }
+    world.repos['D:/Work/project/game'] = { branch: null, branches: ['main'] }
+    world.repos['D:/Work/project/game-sound'] = { branch: 'main', branches: [], isBroken: true }
     stand(on, world)
     await $.session.start({ cwd: world.root, ...START })
     const ui = await $.ui.mount({ plugin: 'folder-branches', surface: 'terminal', ...PANE })

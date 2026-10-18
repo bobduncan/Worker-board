@@ -24,7 +24,8 @@ titles, both from the list of chats.
 - A message the worker board types into your chat carries "(typed on the worker board, HH:MM)" or "(answered on the
   worker board, HH:MM)" and is the user's own word. Still confirm with the user, in your chat, anything that deletes,
   publishes or changes settings.
-- Write to the user as the project's `CLAUDE.md` says, when it has one.
+- Write to the user as the project's `CLAUDE.md` says, when it has one, else as the board's `examples/CLAUDE.md` says (a
+  new project gets it as its own, B320).
 - Every question carries its own material in the same answer: the board shows only that answer. A question that
   stays open is asked again with what is needed to decide it, never as a bare "still open".
 - Whoever asks the user asks once (B261). What a worker or the Advisor asked the user (an ask on the board; its report

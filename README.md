@@ -1,5 +1,43 @@
 # Worker board
 
+One page on your PC for a project that several Claude chats work on at once: a main chat hands out the tasks, worker
+chats do them, and the board shows who works on what, what waits for you, and takes your answers to the chats. For
+Windows and the Claude desktop app.
+
+## Install
+
+You need Windows and the Claude desktop app, signed in and opened once. Node 24 and git are installed for you when
+they are missing. Paste this into PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/bobduncan/Worker-board/main/tools/install.ps1 | iex
+```
+
+When the repository is private and you were invited to it on GitHub, use these two lines instead (git asks you to sign
+in to GitHub once; without git, first `winget install --id Git.Git -e`):
+
+```powershell
+git clone https://github.com/bobduncan/Worker-board.git "$HOME\worker-board"
+Get-Content -Raw "$HOME\worker-board\tools\install.ps1" | iex
+```
+
+It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node and
+git with winget (without the Claude app it says where to get it and stops). Then it gets the board into a folder you
+choose (`worker-board` in your home folder unless you say otherwise), installs the Workers mod, and asks your first
+project's name, folder and chats' prefix: the project, its own board and its icon on the desktop are made, and its
+board opens with buttons that open the project's first chats (B321, B320, B322). Run it again at any time: it checks
+what is there and redoes nothing; with a project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1`
+before the command only checks.
+
+## What the board is
+
+The Overview shows a lane per chat (working, waiting for you, free; its task, step and time left; its queue), what
+waits for you with a form to answer it, and the day's timeline; your answer is typed into the chat it is for. Further
+tabs: Focus (the goal you work towards, its vibe and how, with a partner chat, the Advisor), Backlog (the whole work,
+with the steps finished last at its top) and Design (an idea becomes a picture made by Codex, optional). What the
+board does and how it looks, part by part with screenshots: `BOARD.md`; the agreed design: `DESIGN.md`. How the chats
+answer you and the words the board reads from them: `examples/CLAUDE.md` and `roles/protocol.md`.
+
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
 > settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on a new tie; the ties known
@@ -7,15 +45,11 @@
 > The user, 2026-10-14: "first ensure that its clear to all future work that this is the constraint if i develop
 > something the worker board."
 
-One page on your PC for a project in which several Claude chats work together: one main chat hands out the tasks,
-worker chats do them. The Overview shows a lane per chat (working, waiting for you, free; its task, step and time
-left; its queue), what waits for you with a form to answer it, and the day's timeline. Your answer is typed into the
-chat it is for. Further tabs: Advisor (the way to the next milestone, the game plan, suggestions and a chat with an advisor, optional), Backlog (the whole backlog, with the steps finished last at its top), Design (an
-idea becomes a picture made by Codex, optional). `DESIGN.md` is the agreed design.
+## By hand
 
-What the board does and how it looks, part by part with screenshots: `BOARD.md`.
+What the install does, step by step, for a PC where you want to do it yourself.
 
-## What you need
+### What you need
 
 | What | What for |
 |---|---|
@@ -34,23 +68,7 @@ Codex (pictures on the Design tab), an advisor chat. `examples\` holds a startin
 default flow of the work (`work\flow.json`) with a few example items, the form of the backlog view (`backlog.md`),
 and the briefings for the main chat and the workers.
 
-## Install with one command (Windows)
-
-Paste this into PowerShell (B321):
-
-```powershell
-irm https://raw.githubusercontent.com/bobduncan/Worker-board/main/tools/install.ps1 | iex
-```
-
-It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node and
-git with winget (without the Claude app it says where to get it and stops). Then it gets the board into a folder you
-choose (`worker-board` in your home folder unless you say otherwise), installs the Workers mod (step 3 below), and
-asks your first project's name, folder and chats' prefix: the project, its own board and its icon on the desktop are
-made, and its board opens (see "A new project in one click"). Run it again at any time: it checks what is there and
-redoes nothing; with a project on the PC it offers to make another. `$env:WORKER_BOARD_CHECK = 1` before the command
-only checks. The steps below do the same by hand.
-
-## From nothing to a running board
+### From nothing to a running board
 
 `<project>` is your project's folder, `<prefix>` the start of every chat title of the project, for example
 "My Project - ". Each step ends with what you see when it worked.
@@ -283,7 +301,7 @@ and kept in `data\`; it is never printed or logged.
 
 ## Not yet portable
 
-What still ties the board to the project it was built for (Lava Tactics) or to one PC, found on 2026-10-14 by
+What still tied the board to the project it was built for or to one PC, found on 2026-10-14 by
 following the steps above in an empty, made-up project with another prefix (Node v24.19.0). Steps 3, 5, 9 and
 10 need the app and real chats: the trial stood in for them with made-up chat files. Each point is a step on that
 project's backlog, part of B126 (the board for any project).
@@ -294,8 +312,8 @@ project's backlog, part of B126 (the board for any project).
    one line saying what is wrong and where; the yellow note does not start a new version on such a file.
 3. Done (B129): the page and the tab show the project's own name, the setting `name` (by default the project folder's
    name).
-4. "Game - Main" stands in fixed words: `public/index.html` line 18, `public/board.js` line 561, `src/design.mjs`
-   line 111. B130
+4. Done (B130): no chat's name stands in fixed words; the main chat's title comes from the list of chats
+   (`test/anyProject.test.mjs` keeps it so).
 5. Done (B131): without a right `list.json` the board guesses no prefix and no main chat; it shows no chats and
    says which file it looks for.
 6. Done: with `gameRepo` empty there is no game (B132): no "Run game", no "Open the game" and no play links, and the
@@ -303,7 +321,8 @@ project's backlog, part of B126 (the board for any project).
    starts the setting `runGame` (B197), with `run-game.mjs` (Vite) as the example.
 7. Done (B133): the Design tab's kinds of idea and reference pictures are the project's own file (`designKinds`);
    without one the tab says what it needs. Its ideas live in `ideas` in the project's picture folder (B198).
-8. `transcripts` has to be looked up by hand (step 5); the board could work it out from `project`. B134
+8. Done (B134): `transcripts` is worked out from `project` (the app keeps a project's transcripts in the person's
+   `.claude\projects`, in a folder named after the project's path); set it only to read another folder.
 9. Done (B135, B214), not yet tried on a real Mac (B215): the app's folders are found per system (Windows, the
    Store app, a Mac, Linux); folders are compared with "/" and their own letters on a Mac; Codex is found on the
    PATH as well as under `%LOCALAPPDATA%\OpenAI\Codex`. On a Mac, use `/` in paths, `HOME` for the home folder and
@@ -316,3 +335,11 @@ project's backlog, part of B126 (the board for any project).
 13. Done (B251): the board carries the Workers mod in `mods\`, and `npm run setup` installs it with the app's own
     program (step 3). A project folder cannot bring it by itself: the app loads a project's mods only after a trust
     question it never asks (`MODS.md`).
+14. Done (B319): two projects' boards run side by side on one PC, each on a port and with game ports of its own.
+15. Done (B320): a new project in one click (`npm run new`, or New project under the gear): its folder, its own copy
+    of the board, its work store, its CLAUDE.md and an icon that starts its board.
+16. Done (B321): one command installs the board on a Windows PC (Install, at the top).
+17. Done (B322): a new project's main chat and Advisor open from its board in one click each, then Enter: the Claude
+    app opens a new chat in a folder with its first words from a link, but nothing from outside sends them.
+18. Still open: a Mac (B215, not tried); a real installer (.exe) with signing, a goal of its own later; a
+    `transcripts` setting that names the wrong folder is not pointed out (11).

@@ -39,7 +39,8 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 - A step ends with `work report` and nothing else: no message to the main chat ends it (B301). Information for the
   main chat goes with `work note`; a message to it, when you need one, starts "Note from <your title>: ..." or
   "Question from <your title>: ...", and your card then says you wait for its answer.
-- Write to the user as the project's `CLAUDE.md` says, when it has one. The board reads your answer's closing block
+- Write to the user as the project's `CLAUDE.md` says, when it has one, else as the board's `examples/CLAUDE.md` says (a
+  new project gets it as its own, B320). The board reads your answer's closing block
   ("+ Done:   yes": you are free, see `protocol.md`), never its "For you" block as questions.
 
 ## Several workers at once: stay in your lane

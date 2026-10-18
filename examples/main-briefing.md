@@ -10,7 +10,8 @@ project's code.
 
 - The chats: "<prefix>Main" and its workers "<prefix>Worker N"; the Advisor, when there is one.
 - The code: `<repository>`, base branch `<base branch>`. Its working agreement: its `CLAUDE.md`, when it has one.
-- How to answer the user: `<project>\CLAUDE.md`, when there is one.
+- How to answer the user: `<project>\CLAUDE.md` (a new project gets it from `<board>\examples\CLAUDE.md`: the For you
+  block, the first two lines of a finished task, the closing block and the limit pause the board reads).
 - The worker board: `<board>`; the user's board runs on port <port>.
 - The most workers at once: <four>.
 

@@ -3,24 +3,24 @@ import test from 'node:test'
 
 import { cached, parseWorktrees, readFolders } from '../src/folders.mjs'
 
-const LIST = `worktree C:/Web/game/lava
+const LIST = `worktree D:/Work/game/lava
 HEAD c18808df0996cbeb51a0d7fbca46bda884c51ef7
 branch refs/heads/main
 
-worktree C:/Web/game/lava-beast
+worktree D:/Work/game/lava-beast
 HEAD 8e02ecccdbe4ddb2444e6ecf7a46635d7d732ef0
 branch refs/heads/feature/shadow-beast
 
-worktree C:/Web/game/lava-probe
+worktree D:/Work/game/lava-probe
 HEAD 713092dae97504dab3e83a6a02b12fafee6c7c71
 detached
 `
 
 test('parseWorktrees reads three folders from the porcelain text', () => {
   assert.deepEqual(parseWorktrees(LIST.replace(/\n/g, '\r\n')), [
-    { path: 'C:/Web/game/lava', head: 'c18808df0996cbeb51a0d7fbca46bda884c51ef7', branch: 'main' },
-    { path: 'C:/Web/game/lava-beast', head: '8e02ecccdbe4ddb2444e6ecf7a46635d7d732ef0', branch: 'feature/shadow-beast' },
-    { path: 'C:/Web/game/lava-probe', head: '713092dae97504dab3e83a6a02b12fafee6c7c71', branch: null },
+    { path: 'D:/Work/game/lava', head: 'c18808df0996cbeb51a0d7fbca46bda884c51ef7', branch: 'main' },
+    { path: 'D:/Work/game/lava-beast', head: '8e02ecccdbe4ddb2444e6ecf7a46635d7d732ef0', branch: 'feature/shadow-beast' },
+    { path: 'D:/Work/game/lava-probe', head: '713092dae97504dab3e83a6a02b12fafee6c7c71', branch: null },
   ])
   assert.deepEqual(parseWorktrees(''), [])
 })
@@ -37,22 +37,22 @@ function fakeGit(answers) {
 
 test('readFolders asks git about each folder and counts what it answers', async () => {
   const { run } = fakeGit({
-    '-C C:/Web/game/lava worktree list --porcelain': LIST,
-    '-C C:/Web/game/lava status --porcelain': '',
-    '-C C:/Web/game/lava log -1 --format=%ct %h %s': '1791790000 b0c4559 Merge the camera that fits the map\n',
-    '-C C:/Web/game/lava-beast status --porcelain': ' M src/a.ts\n?? notes.txt\n',
-    '-C C:/Web/game/lava rev-list --count main..feature/shadow-beast': '5\n',
-    '-C C:/Web/game/lava-beast log -1 --format=%ct %h %s': '1791795000 1a2b3c4\n',
+    '-C D:/Work/game/lava worktree list --porcelain': LIST,
+    '-C D:/Work/game/lava status --porcelain': '',
+    '-C D:/Work/game/lava log -1 --format=%ct %h %s': '1791790000 b0c4559 Merge the camera that fits the map\n',
+    '-C D:/Work/game/lava-beast status --porcelain': ' M src/a.ts\n?? notes.txt\n',
+    '-C D:/Work/game/lava rev-list --count main..feature/shadow-beast': '5\n',
+    '-C D:/Work/game/lava-beast log -1 --format=%ct %h %s': '1791795000 1a2b3c4\n',
   })
-  assert.deepEqual(await readFolders('C:/Web/game/lava', run), [
-    { path: 'C:/Web/game/lava', name: 'lava', branch: 'main', ahead: 0, uncommitted: 0, lastCommitAt: 1791790000000, lastCommit: { hash: 'b0c4559', subject: 'Merge the camera that fits the map' } },
-    { path: 'C:/Web/game/lava-beast', name: 'beast', branch: 'feature/shadow-beast', ahead: 5, uncommitted: 2, lastCommitAt: 1791795000000, lastCommit: { hash: '1a2b3c4', subject: '' } },
-    { path: 'C:/Web/game/lava-probe', name: 'probe', branch: null, ahead: null, uncommitted: null, lastCommitAt: null, lastCommit: null },
+  assert.deepEqual(await readFolders('D:/Work/game/lava', run), [
+    { path: 'D:/Work/game/lava', name: 'lava', branch: 'main', ahead: 0, uncommitted: 0, lastCommitAt: 1791790000000, lastCommit: { hash: 'b0c4559', subject: 'Merge the camera that fits the map' } },
+    { path: 'D:/Work/game/lava-beast', name: 'beast', branch: 'feature/shadow-beast', ahead: 5, uncommitted: 2, lastCommitAt: 1791795000000, lastCommit: { hash: '1a2b3c4', subject: '' } },
+    { path: 'D:/Work/game/lava-probe', name: 'probe', branch: null, ahead: null, uncommitted: null, lastCommitAt: null, lastCommit: null },
   ])
 })
 
 test('readFolders answers null when git does not answer at all', async () => {
-  assert.equal(await readFolders('C:/Web/game/lava', fakeGit({}).run), null)
+  assert.equal(await readFolders('D:/Work/game/lava', fakeGit({}).run), null)
 })
 
 test('cached asks again only after the time is up', async () => {
