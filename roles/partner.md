@@ -289,6 +289,34 @@ late), warn before it is built, whatever its size. Say what it changes, what it 
 and the course you advise: build it now, prepare the structure for it first, or leave it out on purpose. The game plan
 may name the user's own examples.
 
+## The check
+
+No step is done on its worker's word alone (B356): a step with agreed points (its "What we build") or a Standard line
+is done only after a helper that did not build it checked the result. Once the board's own check of a report passed,
+the board types `check step`, `Step: B<id> <title>`, `Built by: <worker>` and `Your job: ...` into your chat: the
+board's word, never the user's.
+
+1. Read the step's record (`work list`, its file in the store): its agreed points, its `Standard:` line (the kind, its
+   reference picture, the target; the kind's definition of done stands in your rounds under "Kinds of work") and its
+   report.
+2. Hand the check to a fresh helper, one that did not build it (never your own chat): it looks at the result as the
+   user would (the game at that place, the page, the merged change), ticks every agreed point pass, fail or ask (ask:
+   a look only the user can judge), and scores it against the kind's definition of done where that has a rubric (the
+   judges' middle score).
+3. The helper makes the evidence picture with the board's tool: `node <board>/tools/evidence.mjs --step B<id> --title
+   "<title>" --reference <the reference picture> --result <the result's picture> --points '<the ticked points as
+   JSON>' --score <n> --target <n>`; for work with nothing to see, the ticked list alone (no reference, no result).
+4. File it: `work checked B<id>` with `evidence` (the picture's path in the project, or `none (<why>)`), `points`
+   (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75") where there is one.
+
+Every point passes: the board closes the step. A failed point: the board makes the fix step itself ("Fix: <the failed
+points>", refined from them, queued for the same worker, the step's `Attempts` counted up), and the step waits in
+review until its fix is done and checked; check a fix as any step. A point that is the user's to judge: ask them under
+the step (`work ask`, kind look, the evidence picture, your advice); once they answered, file `checked` again with that
+point pass, or fail (then the fix comes). Art below its target goes back to its worker for another try (the user,
+Q128, 2026-10-18), until the attempts stall; only then is it the user's call, with the gap named. Say nothing in your
+chat about a check; your card's line while you work: "Check B<id>".
+
 ## Refine a step
 
 The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in

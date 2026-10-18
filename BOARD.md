@@ -207,6 +207,12 @@ Yes is off and the button asks your partner for it. In the run each part shows w
 "Checked against: <kind> · <reference picture> · target <score>", the picture opened with a click: the Standard line
 of its steps (below, "Kinds of work").
 
+B356: a step with agreed points is done only after a helper that did not build it checked it. Under each part of the
+run, "Checked by a helper: n of m points pass (B<id>)" in green or red, with **the evidence** to open (the result
+beside its reference, the points ticked). A step's window shows **Checked by a helper**: the score, every point ticked
+✓ (green), ✗ (red) or ? (amber, for you to judge), and the evidence picture; a fix step the board made from a failed
+point says which step it fixes.
+
 The other parts: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
 milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the
 last box; "No milestone to go to yet" until there is one, "not mapped yet" while it has no sub-goals), **Goals** (the project's goal map, `goals.md`, one level at

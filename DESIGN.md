@@ -2171,6 +2171,35 @@ agnostic. it just needs to have clear ways on defining the goal, but also verify
    consonant takes ies; a goal asked for can be asked again ("Ask again"), and the Goals part puts the word on the
    clipboard without the Workers mod; a goal of the game plan has the ask too (the partner takes its line from the plan).
 
+## Done only after a check by a helper (B356)
+
+Part 3 of G11's how (agreed 2026-10-18 21:21). The vibe: a step is done only when a helper that did not build it
+ticked every agreed point against the standard and the reference. The person, 21:18: "verifying its actually reached
+and otherwise automatically create follow up steps to fix them"; Q128 (21:27): art below its target goes back to the
+worker for another try, until the attempts stall; only then the person's call, with the gap named.
+
+1. A step needs the result check when it has agreed points ("What we build") or a Standard line
+   (`needsResultCheck`, src/work/resultCheck.mjs); one without keeps the board's own check alone.
+2. The flow's guard "the check passed and no ask of kind look is open" means both checks for such a step: the board's
+   own (its last "check passed", not pending) and the result check (its last "result check passed"). The flow file
+   names the same guard, so the project's own flow.json needs no change.
+3. Once the board's own check passed and no result check stands yet, the server types `check step` (Step, Built by,
+   the job) to the partner (`checkStepWords`), and wakes it through the main chat when its chat does not run. A
+   "Check again" that passes asks again while none stands.
+4. The partner has a fresh helper check it and files `work checked` (the partner only): `evidence` (a path, or
+   "none (why)"), `points` ("pass: ...", "fail: ...", "ask: ..."), `score`. Kept under `## Checked`, a History line
+   "result check passed|failed|waits for you: <n> of <m> points pass, score ...".
+5. A failed point makes a fix step (`fixStep`): "Fix: <the failed points>" (no brackets at its end, about 100
+   characters), state queued for the same worker, its activity, goal and standard, refined ready "from the result check
+   of B<id>", `Fix of: B<id>`; the step counts `Attempts` and waits in review. A fix that is done closes the step it
+   fixes once no other fix of it is open ("result check passed: its fix B<n> is done"), up a chain of fixes too.
+6. An ask point makes no fix step: the partner asks the person under the step and files `checked` again after.
+7. The step's window shows "Checked by a helper" (the ticks green, red or amber, the score, the evidence picture) and
+   "A fix of B<id>"; the Focus page shows under each part "Checked by a helper: n of m points pass (B<id>)" with the
+   evidence to open.
+8. The Workers mod's work tool takes `checked` and its fields `evidence`, `points` and `score` (0.13.11).
+9. Not in it: the picture tool (B357), the goal re-check (B358), the stall rule's own setting (B361).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.
