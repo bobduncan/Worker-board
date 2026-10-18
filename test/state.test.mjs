@@ -786,12 +786,14 @@ test('B291: a worker that sent its safe-point line after the prepare word is sus
     ...toMain(NOW - 8 * MIN, 'Note from Game - Units: Safe point: B12 at b12 1a2b3c4; next: the tests.', 'local_Main')]
   const state = build({
     apps: [app('Main'), app('Units'), app('Features')],
-    tails: { Units: tail(units), Features: tail(running) },
+    // The main chat works too, writing restart.md: it does the preparing and is not waited for.
+    tails: { Main: tail(running), Units: tail(units), Features: tail(running) },
     outbox: [prepare],
     restartNote: { at: NOW - 2 * MIN },
   })
   assert.equal(chatNamed(state, 'Units').state, 'suspended')
   assert.deepEqual([chatNamed(state, 'Units').suspended.by, chatNamed(state, 'Units').suspended.since], ['restart', NOW - 8 * MIN])
+  assert.equal(chatNamed(state, 'Main').state, 'working')
   assert.deepEqual(state.restart.preparing.working, ['Features'])
   // A line from before the prepare word says nothing about this restart.
   const old = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(units) }, outbox: [{ ...prepare, at: NOW - 5 * MIN }] })

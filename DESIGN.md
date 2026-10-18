@@ -770,8 +770,9 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   by the app's id for it, not its title, was not known as one, nor for a pause). Now a worker whose word to the main
   chat, by its title or its id, starts with `Note from <name>: Safe point:` after the person's `prepare restart` (no
   `resume` after it) has stopped (`safePointNote`): its lane says "Suspended" ("Stopped for the restart at HH:MM ·
-  waits for Resume"), until it works again after that turn. The banner names only the chats with no line yet ("Still
-  working (no safe point yet): ..."), then "Everyone stopped: safe to restart" once the main chat wrote restart.md,
+  waits for Resume"; its time column "Stopped for · Restart"), until it works again after that turn. The banner names
+  only the workers with no line yet ("Still working (no safe point yet): ..."; the main chat, which does the
+  preparing, is never waited for), then "Everyone stopped: safe to restart" once the main chat wrote restart.md,
   and says when it last wrote that file.
 
 **The Design tab** (the person, 2026-10-12: "i want to be able to prompt an initial idea. let it build a visual in

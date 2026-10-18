@@ -1015,7 +1015,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       .filter(message => message.command === 'start' && typeof message.about === 'string' && now - message.at < 10 * MIN)
       .map(message => [message.about, { chat: message.about, at: message.at, state: message.state }])).values()],
     prepared: Number.isFinite(raw.restartNote?.at) ? { at: raw.restartNote.at } : null,
-    preparing: word?.command === 'prepare restart' ? { at: word.at, state: word.state, working: live.filter(lane => lane.state === 'working').map(lane => lane.name) } : null,
+    // B291: the workers still at work; the main chat does the preparing, and a worker that sent its line is suspended.
+    preparing: word?.command === 'prepare restart' ? { at: word.at, state: word.state, working: live.filter(lane => lane.state === 'working' && !lane.isMain).map(lane => lane.name) } : null,
     resuming: word?.command === 'resume' && now - word.at < 15 * MIN ? { at: word.at, state: word.state } : null,
     off: Number.isFinite(board?.offSince) && Number.isFinite(board?.startedAt) && now - board.startedAt < HOUR ? { from: board.offSince, to: board.startedAt } : null,
   }

@@ -55,7 +55,8 @@ vm.runInNewContext(`const LIMIT_NAMES = {}\nconst clock = ms => new Date(ms).toT
 
 test('the lane of a worker stopped for the restart says so, and that it waits for Resume', () => {
   assert.equal(page.heldText({ by: 'restart', limit: null, since: at(9, 43), until: null, isBack: false }), `Stopped for the restart at ${new Date(at(9, 43)).toTimeString().slice(0, 5)} · waits for Resume`)
-  assert.match(script, /if \(held\.by === 'restart'\) return plain\('Waits for Resume', 'muted', 'Suspended'\)/)
+  // The time column is narrow: "Stopped for" over "Restart".
+  assert.match(script, /if \(held\.by === 'restart'\) return plain\('Restart', 'muted', 'Stopped for'\)/)
 })
 
 test('the banner: only the chats with no line yet, "everyone stopped" when none is left, and when restart.md was last written', () => {

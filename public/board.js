@@ -541,7 +541,7 @@ function timeOf(lane, now) {
   if (lane.state === 'suspended') {
     // B113: held by the limit. The figure is when it goes on; once that has passed it needs a hand.
     const held = lane.suspended
-    if (held.by === 'restart') return plain('Waits for Resume', 'muted', 'Suspended')
+    if (held.by === 'restart') return plain('Restart', 'muted', 'Stopped for')
     if (held.isBack) return plain(held.until === null ? 'Not gone on' : `since ${clock(held.until)}`, 'bad', 'Limit is back')
     return held.until === null ? plain('Suspended') : { label: 'Goes on', main: clock(held.until), tone: 'time', small: [`in ${span(held.until - now)}`], from: null }
   }
