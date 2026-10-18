@@ -45,7 +45,8 @@ export function partnerEffort({ sent, partner, entries }) {
   return {
     mode,
     asked: last === undefined ? null : { at: last.at, state: last.state, label: PARTNER_MODES[mode].label },
-    missed: latest !== undefined && isMissed(latest) ? { at: latest.at, state: latest.state } : null,
+    // Review: a lost word whose mode the partner runs on anyway asks for nothing more.
+    missed: latest !== undefined && isMissed(latest) && !runs(latest.mode) ? { at: latest.at, state: latest.state } : null,
     runsOn,
     isSet,
     labels: { usual: PARTNER_MODES.usual.label, high: PARTNER_MODES.high.label },

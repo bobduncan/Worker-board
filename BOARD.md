@@ -167,7 +167,7 @@ is Fable 5.1 at max effort, for the vibe and the how of a hard goal. Flipping it
 chat, which sets your partner's chat; until your partner's next answer runs on that model and effort (its transcript
 names both) the line is dashed and says "Switching…", then solid. Go on the how and another goal as your focus switch
 it back to off by themselves; a word the main chat never took says so and changes nothing. The switch stands as the
-last word asked, and, once the board has forgotten that word (after two hours), as what your partner runs on, so it
+last word asked (kept however long your partner is idle), else as what your partner runs on, so it
 survives a reload.
 
 Since Focus 4 the run's **talk bar** sends your words to your partner, in the talk about the goal (Enter sends): with

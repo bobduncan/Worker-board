@@ -1188,9 +1188,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       appSession,
       state,
       doingNow: doing,
-      messages: tail === null || typeof tail.text !== 'string'
+      messages: advisorEntries === null
         ? []
-        : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix, titles })
+        : conversation(advisorEntries, { self: advisorChat.name, prefix, titles })
           // B173: a round the board's clock typed is the clock's, not the person's.
           .filter(message => !(message.from === 'you' && isClockLine(message.text)))
           // B282: a line typed on the board shows its words and the picture pasted with it apart, as in Talk to Main.

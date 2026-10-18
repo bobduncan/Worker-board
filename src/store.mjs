@@ -52,9 +52,13 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
   // B291: the newest word for a restart stays known for a day, so a restart prepared in the evening still stands the
   // next morning, until "resume".
   const restartWord = messages.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
-  return messages
-    .map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
-    .filter(message => message.state === 'waiting'
+  const known = messages.map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+  // B352, review: the newest word that set the partner's mode stays known: the partner runs on it until the next one,
+  // however long it is idle (src/partnerEffort.mjs).
+  const effortWord = known.findLast(message => message.command === 'partner-effort' && message.state !== 'expired' && message.state !== 'failed')
+  return known
+    .filter(message => message === effortWord
+      || message.state === 'waiting'
       // B285: a queue ask held on the board until its step is refined stays known as long as it is held.
       || message.state === 'held'
       // What did not arrive is shown for a while.

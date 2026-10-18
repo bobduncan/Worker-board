@@ -14,6 +14,7 @@ import vm from 'node:vm'
 
 import { PARTNER_MODES, effortBack, partnerEffort, partnerEffortWords } from '../src/partnerEffort.mjs'
 import { checkSay } from '../src/say.mjs'
+import { outboxNow } from '../src/store.mjs'
 import { parseTail } from '../src/transcript.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -120,6 +121,24 @@ test('partnerEffort, the review: a word that did not arrive changed nothing, and
   const earlier = partnerEffort({ sent: [ask(2, 'high', 'delivered'), ask(5, 'usual', 'expired')], partner: 'Advisor', entries: entriesOf(answer(3, 'claude-fable-5-1', 'max')) })
   assert.deepEqual([earlier.mode, earlier.isSet, earlier.missed.state], ['high', true, 'expired'])
   assert.equal(partnerEffort({ sent: [ask(5, 'high', 'expired'), ask(6, 'high', 'waiting')], partner: 'Advisor', entries: null }).missed, null)
+})
+
+test('the second review: the newest word that arrived stays known in the outbox, however long the partner is idle', () => {
+  const keep = { messageMs: 10 * MIN, answerMs: 24 * 60 * MIN }
+  const word = (id, minute, mode, state) => ({ id, to: 'Main', command: 'partner-effort', about: 'Advisor', mode, at: at + minute * MIN, state })
+  const sent = [word('w1', 0, 'high', 'delivered'), word('w2', 10, 'usual', 'delivered'), word('w3', 20, 'high', 'failed')]
+  // Three hours on: the "usual" word after Go still stands, so an old answer on Fable cannot turn the switch on again;
+  // the failed word is shown for a while, as every word that did not arrive.
+  const kept = outboxNow(sent, at + 200 * MIN, keep)
+  assert.deepEqual(kept.map(message => message.id), ['w2', 'w3'])
+  assert.deepEqual(outboxNow(sent, at + 13 * 60 * MIN, keep).map(message => message.id), ['w2'])
+  const after = partnerEffort({ sent: kept, partner: 'Advisor', entries: entriesOf(answer(5, 'claude-fable-5-1', 'max')) })
+  assert.deepEqual([after.mode, after.isSet], ['usual', false])
+})
+
+test('the second review: a lost word whose mode the partner runs on anyway asks for nothing', () => {
+  const lost = { to: 'Main', command: 'partner-effort', about: 'Advisor', mode: 'high', at: at + 5 * MIN, state: 'expired' }
+  assert.equal(partnerEffort({ sent: [lost], partner: 'Advisor', entries: entriesOf(answer(6, 'claude-fable-5-1', 'max')) }).missed, null)
 })
 
 test('partnerEffort, the review: a helper\'s lines in the partner\'s transcript are not its answers', () => {
