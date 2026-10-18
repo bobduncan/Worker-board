@@ -948,6 +948,10 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .bubble small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
 .message.is-pending { opacity: 0.55; }
 .message.is-status .bubble { background: none; color: var(--muted); padding-left: 0; font-style: italic; }
+/* B280: what the Advisor works on, right above its typing box. */
+.talk-busy { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 10px 14px 0; padding: 8px 12px; border-left: 3px solid var(--working); border-radius: 6px; background: #12261d; font-size: 13.5px; }
+.talk-busy b { color: var(--working); overflow-wrap: anywhere; }
+.talk-busy span { color: var(--muted); }
 .say { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 14px 0; }
 .say textarea { flex: 1; min-width: 0; resize: none; background: var(--panel); }
 .say textarea:focus { border-color: #2f5fb3; }
@@ -1523,6 +1527,26 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .lane-flag { margin: 4px 0 0; padding: 3px 8px; border-left: 3px solid var(--waiting); font-size: 13px; }
 .lane-flag.is-problem { border-left-color: #c0504d; }
 .lane-flag .choice { margin-left: 6px; }
+
+/* B280: the Advisor's card under the workers, set apart: its own label and line, a teal accent, no queue. */
+:root { --advisor: #2dd4bf; }
+.advisor-part { margin-top: 6px; border-top: 2px solid #1f4b4a; }
+.advisor-label { display: flex; align-items: baseline; gap: 10px; margin: 0; padding: 10px 18px 0; font-size: 12.5px; }
+.advisor-label b { color: var(--advisor); text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; }
+.advisor-label span { color: var(--muted); }
+.workers-panel .lane.is-advisor { border-top: 0; box-shadow: inset 3px 0 0 var(--advisor); background: #0e1d22; cursor: pointer; }
+.workers-panel .lane.is-advisor:hover { background: #122a30; }
+.lane.is-advisor:focus-visible { outline: 2px solid var(--advisor); outline-offset: -2px; }
+.lane.is-advisor .worker-icon.is-off { color: var(--unknown); }
+.lane.is-advisor .worker-icon.is-free { color: var(--advisor); }
+.workers-panel .lane.is-advisor .pill.is-off { background: rgba(91, 103, 121, 0.22); color: #c9d3e0; box-shadow: inset 0 0 0 1px rgba(91, 103, 121, 0.6); }
+.workers-panel .lane.is-advisor .pill.is-free { background: var(--advisor); color: #052322; box-shadow: none; }
+.advisor-lane-refine { margin: 6px 0 0; }
+.advisor-waits { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.advisor-waits b { color: var(--text); }
+.advisor-waits small { color: var(--muted); }
+.advisor-open { color: var(--muted); font-size: 22px; font-weight: 700; line-height: 1; padding-right: 8px; }
+.lane.is-advisor[data-standing="working"] .fill { background: var(--working); }
 
 /* B269: the calm window where a chat needs the person's answer: narrower, with room around everything; the step in
    one line, one question as its title, large cards for the answers, the rest folded, a note, one Send. */

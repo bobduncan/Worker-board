@@ -547,6 +547,20 @@ export function refineAsk(step, sent, now) {
   return { ...ask, round, isOpen: ask.isOpen && !isWritten }
 }
 
+/**
+ * B280: what was sent to a chat and is not in its chat yet, by kind: refines, rounds (of the board's clock, or asked
+ * for by the person), and the person's words (a line typed to it, an answer to its question, an answer to its
+ * recommendation). One taken and never settled waits no more after ten minutes, as the outbox shows it (store.mjs).
+ */
+const TAKEN_SHOWN_MS = 10 * MIN
+function queuedFor(sent, name, now) {
+  const open = sent.filter(message => message.to === name
+    && (message.state === 'waiting' || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS)))
+  const refines = open.filter(message => message.command === 'refine').length
+  const rounds = open.filter(message => message.command === 'round' || message.command === 'recheck').length
+  return { refines, rounds, words: open.length - refines - rounds }
+}
+
 /** B100: a chat's task as its card names it, for the window of what it waits for: the topic, the step, since when. */
 const cardOf = task => (task === null ? null : {
   text: task.text, step: task.step, steps: task.steps, name: task.names?.[(task.step ?? 0) - 1] ?? null, startedAt: task.startedAt, stepId: task.stepId ?? null,
@@ -936,6 +950,15 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           .map(one => (one.via === 'board' ? { ...one, ...splitPicture(one.text.replace(TYPED_MARK, '').trim(), config.pictureRoots[0]) } : one)),
       // Typed on the board to the advisor and not in its chat yet.
       pending: sent.filter(message => message.to === advisorChat.name && (message.ask ?? null) === null && (message.command ?? null) === null),
+      // B280: its card on the Overview: its task as its own card names it, its time, why it is held between two
+      // turns, since when it is idle, whether it asks the person something, and what waits for it.
+      task: advisorCard.task,
+      eta: advisorCard.eta,
+      between: advisorCard.between,
+      idle: advisorCard.idle,
+      // B301: it asks with the work store's asks; also when the app says it waits (its question form).
+      asksYou: advisorWaits !== null || waits.asking.has(advisorChat.name.toLowerCase()),
+      queued: queuedFor(sent, advisorChat.name, now),
       // B288: a round runs from when it is sent, by the clock or on the person's request: while it waits to be typed;
       // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then
       // while the Advisor is at work on the turn that began with it (an hour at most). A turn begun later is another.

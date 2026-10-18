@@ -56,6 +56,8 @@ export function storeWaits(work, prefix = '') {
   return {
     blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes').map(item => plainName(valueOf(item, 'Owner'), prefix))),
     form: new Set(open.filter(item => valueOf(item, 'Via') === 'form').map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    // B280: the chats with an open ask of their own for the person, blocking or not; a refine question is the refine's.
+    asking: new Set(open.filter(item => valueOf(item, 'Via') !== 'refine').map(item => plainName(valueOf(item, 'Owner'), prefix))),
     filed,
   }
 }
