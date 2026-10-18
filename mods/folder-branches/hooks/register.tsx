@@ -15,6 +15,7 @@ import {
   withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
+import { blockAsksLine, forYouItems } from './foryou'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
 } from './folders'
@@ -97,6 +98,8 @@ const typedIds = new Set<string>()
 let turnStartedAt: number | null = null
 /** B298: true once the board was told that this turn ended: a second end of the same turn tells it nothing. */
 let isTurnEndTold = true
+/** B317: the asks the board filed from the chat's last "For you" block, named beside its next prompt once. */
+let blockAsks: string[] = []
 /** Review of B298: true once the board named this chat's open instructions in this process. */
 let isOpenKnown = false
 /** B298: this chat's open instructions, as the board last answered them. */
@@ -993,6 +996,9 @@ export const register: Register = on => {
       } else if (!isOpenKnown && myself !== null) await workQuietly($, { action: 'next' })
       const open = instructionsLine(openInstructions)
       if (open !== null) context.push(open)
+      const asked = blockAsksLine(blockAsks)
+      blockAsks = []
+      if (asked !== null) context.push(asked)
     }
 
     return next(context.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...context] })
@@ -1073,13 +1079,17 @@ export const register: Register = on => {
         if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
           isTurnEndTold = true
           const since = turnStartedAt
+          const forYou = forYouItems(e.answer)
           // B300: a worker that holds nothing pulls with the same call, once per turn: when a step queued for it may be
           // taken now, the board puts its line ("work: B286 is yours; run work next") into the outbox once, and it is
           // typed here at once. All of it holds the turn's end 1.5 s at most; a board without a work store refuses, and
-          // nothing changes for the chat (the board says so on its page).
+          // nothing changes for the chat (the board says so on its page). B317: an answer that ends with a "For you" block
+          // hands its items over in the same call; the board files those the chat filed no ask for (Via: chat).
           await withinTime($, (async () => {
             const pulls = await holdsNothing($)
-            const ended = await workQuietly($, { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}) })
+            const ended = await workQuietly($, { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}) })
+            const filed = ended?.asked
+            if (Array.isArray(filed)) blockAsks = filed.filter((id): id is string => typeof id === 'string')
             const line = (ended?.pull as { text?: unknown } | undefined)?.text
             if (typeof line === 'string' && line !== '') await takeFromBoard($)
           })())

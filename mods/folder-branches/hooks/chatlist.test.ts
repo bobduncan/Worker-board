@@ -1389,6 +1389,30 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
     expect(w.typedIn).toEqual([])
   })
 
+  test('B317: an answer that ends with a "For you" block hands its items to the board with the turn\'s end, in the same call', async ($, on) => {
+    mock.clock(on)
+    const w = world('main', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Main' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    const words = 'Closed B277.\n\n> **For you**\n> 1. **Answer:** Keep the golem as it is? I advise yes.\n\n---\n\n```diff\n  Prompt: x\n  Who:    Game - Main\n- Done:   partly\n```'
+    w.workAnswer = { status: 200, text: JSON.stringify({ missed: [], open: [], asked: ['Q7'] }) }
+    await $.turn.complete({ ...ENDED, answer: words, turnId: 't1' })
+    // The next prompt names what was filed, once, so the chat can close one the person answers in the chat.
+    await $.prompt.submit({ text: 'yes, keep it', ...ASKED } as never)
+    await $.prompt.submit({ text: 'and go on', ...ASKED } as never)
+    expect(w.contexts.map(one => one.join(' ').includes('from your last "For you" block: Q7'))).toEqual([true, false])
+    await $.turn.start({ text: 'go', turnId: 't2' })
+    // A subagent's answer with such a block is not the chat's.
+    await $.turn.complete({ ...ENDED, answer: words, turnId: 's1', agentId: 'a1' })
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    expect(sent(w).filter(one => one.action === 'turn-ended').map(one => [one.action, one.forYou ?? null])).toEqual([
+      ['turn-ended', [{ n: 1, kind: 'decide', text: ['Keep the golem as it is? I advise yes.'], options: [], advice: 'yes', pictures: [], play: '', ref: null }]],
+      ['turn-ended', null],
+    ])
+  })
+
   test('the main chat does not pull', async ($, on) => {
     mock.clock(on)
     const w = world('main', { ...listed(), [BOARD]: board })

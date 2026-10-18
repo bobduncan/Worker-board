@@ -159,7 +159,9 @@ async function act(body, ctx) {
   if (action === 'next') return next(body, w)
   if (action === 'list') return list(w)
   const done = await CHANGE[action](body, w)
-  if (!done.ok || done.result.changed === false || !ctx.viewFile || OFF_VIEW.has(action)) return done
+  // B317: a turn's end that filed the asks of the chat's "For you" block shows them on the view, as an ask does.
+  const isOffView = OFF_VIEW.has(action) && !(done.ok && done.result.asked?.length > 0)
+  if (!done.ok || done.result.changed === false || !ctx.viewFile || isOffView) return done
   // The view follows every change: whatever still reads backlog.md reads what the store says.
   const view = await writeView({ dir: ctx.dir, ...(await readStore(ctx.dir, ctx.fs)) }, ctx.viewFile, ctx.fs, { now })
   return { ok: true, result: { ...done.result, view: view.ok ? 'written' : view.why } }
@@ -449,7 +451,7 @@ async function ask(body, w) {
   const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
   const play = line(body.play, 300)
   const advice = line(body.advice, 120)
-  const via = body.via === 'form' && w.role !== 'person' ? 'form' : null
+  const via = ['form', 'chat'].includes(body.via) && w.role !== 'person' ? body.via : null
   const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal })
   if (!made.ok) return made
   const { question, id, title } = made
@@ -479,7 +481,7 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
     sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]])]),
     problem: null,
   })
-  question = said(question, w, `asked (${kind}${blocking ? ', blocking' : ''}${via === 'form' ? ', with the app\'s question form' : via === 'refine' ? ', refining' : ''})`)
+  question = said(question, w, `asked (${kind}${blocking ? ', blocking' : ''}${via === 'form' ? ', with the app\'s question form' : via === 'refine' ? ', refining' : via === 'chat' ? ', from its "For you" block' : ''})`)
   const wrote = await save(question, null, w)
   return wrote.ok ? { ok: true, question, id, title } : wrote
 }
@@ -1004,10 +1006,57 @@ async function turnEnded(body, w) {
     fresh.push(item)
   }
   const open = openOf(chat, w, fresh)
-  const text = missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`
+  // B317: the items of the "For you" block the chat's answer ended with, that it filed no ask for: filed now.
+  const asked = body.forYou === undefined || w.role === 'person' || w.role === 'server' ? undefined : await askForYou(body.forYou, since, w)
+  const filedLine = asked === undefined || asked.length === 0 ? '' : ` Filed from your "For you" block: ${asked.join(', ')}; close one the person answers in the chat with work answered-in-chat.`
+  const text = `${missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`}${filedLine}`
   // The review of B300: with `pull`, the same call answers the chat's pull (one call at a turn's end).
   const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
-  return { ok: true, result: { text, missed, open, changed: missed.length > 0, ...(pulled === undefined ? {} : { pull: pulled }) } }
+  return { ok: true, result: { text, missed, open, changed: missed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...(pulled === undefined ? {} : { pull: pulled }) } }
+}
+
+const MINUTE = 60_000
+const ASK_REF = /^Q\d+$/
+/** B317: an ask's words for comparing: no links, marks of markdown, the work tool's "(Q4, decide, ...)", case or end marks. */
+const askKey = value => line(String(value ?? '').replace(/\[([^\]\n]*)\]\([^)\s]*\)/g, '$1').replace(/\((Q\d+),[^)]*\)\s*$/, '').replace(/[*_`~]/g, ''), 200)
+  .toLowerCase().replace(/[\s.?!:;,]+$/, '')
+/** B317: two asks' words are the same question: equal, or one the start of the other (a title is cut, advice added). */
+const sameAsk = (a, b) => a === b || (a.length >= 12 && b.startsWith(a)) || (b.length >= 12 && a.startsWith(b))
+/** B317: when an ask was filed: its first History line (to the minute), else its Since. */
+const askedMs = item => sinceMs((item.sections.get('History') ?? [])[0]?.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s/)?.[1] ?? valueOf(item, 'Since'))
+
+/**
+ * B317: the items of the "For you" block a chat's answer ended with (the Workers mod reads them, hooks/foryou.ts:
+ * `{ kind, text, options, advice, pictures, play, ref }`), filed as asks of that chat `Via: chat`, not blocking,
+ * under the one step it holds in progress (none, or more than one: the ask stands alone, as the form's do). An item
+ * is left out when it names an ask of the store (`ref`, the work tool's "(Q4, ...)"), or asks what an ask of the chat
+ * filed since the turn began (`since`), or one still open, asks already. The ids filed, in order.
+ */
+async function askForYou(value, since, w) {
+  const items = (Array.isArray(value) ? value : []).filter(one => one !== null && typeof one === 'object' && !Array.isArray(one)).slice(0, 9)
+  const all = [...w.store.items.values()]
+  const turn = Math.floor(since / MINUTE) * MINUTE
+  const known = all.filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && (stateOf(one) === 'open' || askedMs(one) >= turn))
+    .map(one => askKey((one.sections.get('Text') ?? []).find(words => words.trim() !== '') ?? valueOf(one, 'Title')))
+  const held = all.filter(one => kindOf(one) === 'step' && stateOf(one) === 'in progress' && isOwner(one, w.who, w.prefix))
+  const of = held.length === 1 ? valueOf(held[0], 'Id') : null
+  const asked = []
+  for (const one of items) {
+    if (typeof one.ref === 'string' && ASK_REF.test(one.ref) && w.store.items.has(one.ref)) continue
+    const kind = one.kind ?? 'decide'
+    const text = lines(one.text)
+    if (!ASK_KINDS.includes(kind) || text.length === 0) continue
+    const key = askKey(text[0])
+    if (key === '' || known.some(other => sameAsk(other, key))) continue
+    const fields = { kind, text, options: one.options, advice: one.advice, pictures: one.pictures, play: one.play, via: 'chat', blocking: false }
+    // Under the step when the board takes it there, else on its own.
+    let made = of === null ? await ask(fields, w) : await ask({ ...fields, of }, w)
+    if (!made.ok && of !== null) made = await ask(fields, w)
+    if (!made.ok) continue
+    asked.push(made.result.id)
+    known.push(key)
+  }
+  return asked
 }
 
 /** A step is dropped, and why. */
