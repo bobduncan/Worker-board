@@ -86,7 +86,8 @@ test('the frame folds a node\'s lines to one, and unfolds them all', () => {
     'Recommendation (R2): Add signposts at the forks · a visitor gets lost once per walk · about 2 h · B44',
   ])
   assert.deepEqual(plain(page.goalFrameLines(goals, node('G9'))), ['Also part of: M2 · The garden is open (G5)', 'Steps: B07'])
-  assert.deepEqual(plain(page.goalFrameLines(goals, node('G6'))), ['Steps: B04, B05', 'Ask (A1, 2026-10-15 18:40): what differs most from the picture?'])
+  // B258: its asks are blocks of their own, not lines.
+  assert.deepEqual(plain(page.goalFrameLines(goals, node('G6'))), ['Steps: B04, B05'])
 })
 
 test('the focus lives in the address: #advice/goals is the top, #advice/goals/G4 a goal; anything else is not the map', () => {
@@ -122,9 +123,9 @@ test('review: Esc and ‹ go one level up, the top from a top goal; the address 
 })
 
 test('the Advisor tab has the Goals part second, opened from the address, drawn when the map or the zoom changes', () => {
-  assert.deepEqual([...html.matchAll(/data-advisor-pane="([a-z]+)"/g)].map(match => match[1]), ['way', 'goals', 'plan', 'suggestions', 'chat'])
+  assert.deepEqual([...html.matchAll(/data-advisor-pane="([a-z]+)"/g)].map(match => match[1]), ['way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'])
   assert.match(html, /<section class="panel advisor-goals" id="advisor-goals"/)
-  assert.match(script, /const ADVISOR_PANES = \['way', 'goals', 'plan', 'suggestions', 'chat'\]/)
+  assert.match(script, /const ADVISOR_PANES = \['way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'\]/)
   assert.match(script, /once\('goals', goalsData\(state\), \(\) => drawGoals\(state\)\)/)
   assert.match(script, /addEventListener\('popstate'/)
 })

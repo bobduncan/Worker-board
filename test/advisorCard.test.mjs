@@ -13,6 +13,8 @@ import vm from 'node:vm'
 import { answer, step, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from '../src/state.mjs'
+import { parseItem, valueOf } from '../src/work/item.mjs'
+import { storeFromText } from '../src/work/read.mjs'
 
 const MIN = 60_000
 const NOW = Date.UTC(2026, 9, 17, 10, 0)
@@ -26,13 +28,13 @@ const app = name => JSON.stringify({
 const tail = lines => ({ text: lines.join('\n'), isCut: false, modifiedAt: NOW })
 const planLine = task => JSON.stringify({ name: 'x', role: 'worker', state: 'working', task: { isReported: false, ...task }, at: NOW - 10 * MIN })
 
-function build({ advisor, plan = null, outbox = [] }) {
+function build({ advisor, plan = null, outbox = [], work }) {
   const raw = {
     listText: '{"prefix":"Garden · ","main":"Lead"}',
     appChatTexts: [app('Lead'), app('Digger'), app('Advisor')],
     tails: { 'cli-Lead': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Digger': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Advisor': tail(advisor) },
     planLineTexts: plan === null ? {} : { 'cli-Advisor': planLine(plan) },
-    backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {},
+    backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {}, ...(work === undefined ? {} : { work }),
   }
   return buildState(raw, { lines: [], outbox, runs: [], board: null, seen: null, now: NOW, config })
 }
@@ -69,9 +71,21 @@ test('what waits for it is counted by kind, only while it is not in its chat yet
   assert.deepEqual(state.advisor.queued, { refines: 1, rounds: 1, words: 2 })
 })
 
-test('an Advisor that asks the person something says so on its card', () => {
+test('an Advisor with an open ask in the work store says so on its card; a refine question is its refine state', () => {
+  const ask = (id, more) => parseItem([`Id: ${id}`, 'Kind: ask', 'Title: Pond first?', `State: ${more.state ?? 'open'}`, 'Owner: Advisor',
+    'Asks: decide', 'Blocking: no', 'Since: 2026-10-17 09:50', ...(more.via === undefined ? [] : [`Via: ${more.via}`]), '', '## Text', 'Pond first?', ''].join('\n'))
+  const storeWith = items => {
+    const work = storeFromText('', { now: NOW })
+    for (const item of items) work.items.set(valueOf(item, 'Id'), item)
+    return work
+  }
+  const turn = [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, 'I asked on the board.')]
+  assert.equal(build({ advisor: turn, work: storeWith([ask('Q1', {})]) }).advisor.asksYou, true)
+  assert.equal(build({ advisor: turn, work: storeWith([ask('Q1', { via: 'refine' })]) }).advisor.asksYou, false)
+  assert.equal(build({ advisor: turn, work: storeWith([ask('Q1', { state: 'answered' })]) }).advisor.asksYou, false)
+  // The board reads no questions from its chat's words.
   const asking = ['> **For you**', '> 1. **Answer:** Pond first? I advise yes.'].join('\n')
-  assert.equal(build({ advisor: [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, asking)] }).advisor.asksYou, true)
+  assert.equal(build({ advisor: [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, asking)], work: storeWith([]) }).advisor.asksYou, false)
 })
 
 // The page's parts, cut out of board.js between their marks

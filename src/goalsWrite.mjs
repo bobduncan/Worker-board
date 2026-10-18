@@ -1,14 +1,48 @@
 // B256: every change to goals.md as text → text, by id, every other line untouched (spec 2026-10-15, sections 1 and
 // 3), and `editGoals`, which writes one change to the file: read anew right before, written beside and put in place
-// (tick.mjs `rewrite`), with a copy of the file before the first change of a day and an undo of the last twenty.
+// (`rewrite`), with a copy of the file before the first change of a day and an undo of the last twenty.
 // A goal's block is its line and every following line indented deeper; its own lines are the block's lines that are
 // not inside a child's block.
+import { randomBytes } from 'node:crypto'
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
-import { GOAL_LINE, LAST_LINE, nextGoalId, parseGoals } from './goals.mjs'
-import { rewrite } from './tick.mjs'
+import { GOAL_LINE, LAST_LINE, nextAskId, nextGoalId, parseGoals } from './goals.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access }
+
+/**
+ * B221: a file with one change made to it (`change`: the text before, as latin1, to `{ ok, text }` or `{ ok: false,
+ * why }`), read anew right before, written beside and put in its place in one move, and started again from the file
+ * when somebody else wrote it in between. The bytes are handled one to one (latin1), so every byte the change does not
+ * touch stays what it was. Answers `{ ok: true }`, or `{ ok: false, why }`: the change's why, `gone` or `write`.
+ */
+export async function rewrite(file, change, fs) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let before
+    try {
+      before = (await fs.readFile(file)).toString('latin1')
+    } catch {
+      return { ok: false, why: 'gone' }
+    }
+    const ticked = change(before)
+    if (!ticked.ok) return ticked
+    const beside = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+    try {
+      await fs.writeFile(beside, Buffer.from(ticked.text, 'latin1'), { flag: 'wx' })
+      if ((await fs.readFile(file)).toString('latin1') !== before) {
+        await fs.rm(beside, { force: true })
+        continue
+      }
+      await fs.rename(beside, file)
+      return { ok: true }
+    } catch {
+      await fs.rm(beside, { force: true }).catch(() => {})
+      return { ok: false, why: 'write' }
+    }
+  }
+  return { ok: false, why: 'write' }
+}
+
 const refuse = why => ({ ok: false, why })
 const STATE_MARK = { open: ' ', now: '~', done: 'x' }
 const LINKS = ['Enables', 'Also part of']
@@ -133,6 +167,60 @@ function appendOwnLine(text, id, line) {
 export function addGoalNote(text, id, note) {
   const words = oneLine(note, 300)
   return words === '' ? refuse('form') : appendOwnLine(text, id, `Note: ${words}`)
+}
+
+/** B258: the lines of an ask, as src/goals.mjs reads them: the ask, its answer, its page, its read mark. */
+const ASK_HEAD = /^Ask \(A\d+, [^)]+\):/
+const ANSWER_HEAD = /^Answer \([^,]+, [^)]+\):/
+const ASK_PART = /^(?:Ask \(A\d+, [^)]+\):|Answer \([^,]+, [^)]+\):|More:|Read:)/
+
+/**
+ * B258: an ask to the Advisor under the goal: `Ask (A<n>, <at>): <the question, as one line>`, after the goal's last
+ * ask and its lines (also when those stand after its goals inside, as the map reads them), else after its own lines.
+ */
+export function addGoalAsk(text, id, { askId, at, question }) {
+  const words = oneLine(question, 2000)
+  if (words === '') return refuse('form')
+  const line = `Ask (${askId}, ${at}): ${words}`
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const asks = ownLines(file.lines, found).filter(index => ASK_PART.test(file.lines[index].trim()))
+  if (asks.length === 0) return appendOwnLine(text, id, line)
+  file.lines.splice(asks.at(-1) + 1, 0, `${' '.repeat(found.depth + 2)}${line}`)
+  return { ok: true, text: join(file) }
+}
+
+/**
+ * B258: `Read: <at>` after the ask's answer (its last Answer or More line): the person read it. The ask's lines are its
+ * goal's own lines up to its next ask, as src/goals.mjs reads them, other lines (a note) in between too. Refused `none`
+ * when the goal holds no such ask or the ask has no answer yet; an ask read already stays as it is.
+ */
+export function markAskRead(text, id, askId, at) {
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const own = ownLines(file.lines, found)
+  const head = own.findIndex(index => file.lines[index].trim().startsWith(`Ask (${askId}, `))
+  if (head < 0) return refuse('none')
+  let last = null
+  let isRead = false
+  for (const index of own.slice(head + 1)) {
+    const line = file.lines[index].trim()
+    if (ASK_HEAD.test(line)) break
+    if (ANSWER_HEAD.test(line) || (last !== null && line.startsWith('More:'))) last = index
+    if (line.startsWith('Read:')) isRead = true
+  }
+  if (last === null) return refuse('none')
+  if (isRead) return { ok: true, text }
+  file.lines.splice(last + 1, 0, `${' '.repeat(found.depth + 2)}Read: ${at}`)
+  return { ok: true, text: join(file) }
+}
+
+/** B259: what a brainstorm decided, under the goal it was about: `Note (brainstorm <date>): <the note>`, after its own lines. */
+export function addBrainstormNote(text, id, date, note) {
+  const words = oneLine(note, 600)
+  return words === '' ? refuse('form') : appendOwnLine(text, id, `Note (brainstorm ${date}): ${words}`)
 }
 
 export const setGoalSteps = (text, id, ids) => setGoalLine(text, id, 'Steps', [...new Set(ids.filter(one => /^B\d+$/.test(one)))].join(', '))
@@ -288,6 +376,8 @@ export function deleteGoal(text, id) {
 const pad = value => String(value).padStart(2, '0')
 /** This machine's day, as the copy is named. */
 const dayOf = ms => `${new Date(ms).getFullYear()}-${pad(new Date(ms).getMonth() + 1)}-${pad(new Date(ms).getDate())}`
+/** B258: this machine's minute, as an ask and its Read mark are dated ("2026-10-15 20:05"). */
+const minuteOf = ms => `${dayOf(ms)} ${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`
 
 /** The file as it is, kept as `<dir>/<yyyy-mm-dd>.md` once a day: before the board's first change of that day. */
 export async function historyCopy(file, dir, date, fs = files) {
@@ -306,6 +396,8 @@ const WHY = {
   cycle: [409, 'A goal cannot be moved into itself.'],
   children: [409, 'It has goals inside: dissolve it first.'],
   form: [400, 'Not a change the board knows.'],
+  question: [400, 'Say what you want to know.'],
+  none: [409, 'That ask is not under this goal, or has no answer to read yet.'],
   plan: [409, "That is the game plan's own line: change it through the plan."],
   encoding: [409, 'The map is not UTF-8 text: change it by hand first.'],
   tabs: [409, 'The map has lines indented with tabs: make them two spaces per level by hand first.'],
@@ -324,6 +416,9 @@ const UNDO_MOST = 20
 
 const readText = (fs, file) => fs.readFile(file).then(bytes => bytes.toString('latin1'), () => null)
 const isId = value => typeof value === 'string' && /^G\d+$/.test(value)
+const isAskId = value => typeof value === 'string' && /^A\d+$/.test(value)
+/** B258: an ask was typed into the Advisor's chat, and a read answer is read: no change the page's undo takes back. */
+const isMessage = body => body.command === 'ask' || body.command === 'read'
 const isParent = value => value === null || value === undefined || isId(value)
 /** The page a change came from: its own word, so each page undoes its own changes. */
 const pageOf = body => (typeof body.page === 'string' && /^[0-9a-z]{4,40}$/.test(body.page) ? body.page : '')
@@ -349,8 +444,8 @@ export function raiseLastLine(text, id) {
 }
 const withLastLine = (done, id) => (done.ok ? { ok: true, text: raiseLastLine(done.text, id) } : done)
 
-/** The change a body asks for, on the file's text (UTF-8); `made` hears the id of a goal it makes. */
-function changeFor(body, made) {
+/** The change a body asks for, on the file's text (UTF-8); `made` hears the id of a goal or an ask it makes. */
+function changeFor(body, made, now) {
   const id = body.id
   switch (body.command) {
     case 'add': return text => {
@@ -374,13 +469,38 @@ function changeFor(body, made) {
     }
     case 'dissolve': return text => dissolveGoal(text, id)
     case 'delete': return text => deleteGoal(text, id)
+    // B258: an ask to the Advisor under the goal, with the next ask id, and the Read mark after its answer.
+    case 'ask': return text => {
+      if (oneLine(body.text, 2000) === '') return refuse('question')
+      const next = nextAskId(parseGoals(text))
+      made(next)
+      return withLastLine(addGoalAsk(text, id, { askId: next, at: minuteOf(now), question: body.text }), next)
+    }
+    case 'read': return text => (isAskId(body.ask) ? markAskRead(text, id, body.ask, minuteOf(now)) : refuse('form'))
     default: return null
   }
 }
 
 /**
+ * B259: one change to the goal map from elsewhere on the board (a brainstorm's Create): `change(text)` on the file's
+ * UTF-8 text, to `{ ok, text }` or `{ ok: false, why }`. Read, checked and written as a change of the Goals part (a file
+ * that is not UTF-8 or is indented with tabs is not changed), with the daily copy before; no undo. Answers what
+ * `rewrite` answers, `why` also `encoding` or `tabs`.
+ */
+export async function changeGoalsFile(change, { file, historyDir, now, fs = files }) {
+  await historyCopy(file, historyDir, dayOf(now), fs)
+  return rewrite(file, latin => {
+    const text = Buffer.from(latin, 'latin1').toString('utf8')
+    if (Buffer.from(text, 'utf8').toString('latin1') !== latin) return refuse('encoding')
+    if (/^ *\t/m.test(text)) return refuse('tabs')
+    const done = change(text)
+    return done.ok ? { ok: true, text: Buffer.from(done.text, 'utf8').toString('latin1') } : done
+  }, fs)
+}
+
+/**
  * One change to the goal map from the page (`body.command`: add, rename, state, line, note, link, unlink, steps,
- * move, group, dissolve, delete or undo, with the fields the functions above take). Only the board that delivers
+ * move, group, dissolve, delete, ask, read or undo, with the fields the functions above take). Only the board that delivers
  * writes (`canWrite`). The file is read anew right before the change and written beside, then put in place; a write
  * in between makes it read and change again, so the other side's text stays (Review Focus 2). Before the first change
  * of a day a copy goes to `historyDir`. Answers `{ ok: true, result: { id? } }` or `{ ok: false, status, why }`.
@@ -397,7 +517,7 @@ export async function editGoals(body, { canWrite, file, historyDir, now, fs = fi
     undone.splice(undone.lastIndexOf(last), 1)
     return { ok: true, result: {} }
   }
-  const change = changeFor(body, made => { newId = made })
+  const change = changeFor(body, made => { newId = made }, now)
   if (change === null) return { ok: false, status: 400, why: WHY.form[1] }
   if (!['add', 'group'].includes(body.command) && !isId(body.id)) return { ok: false, status: 400, why: 'Name the goal by its id (G12).' }
   let newId = null
@@ -426,6 +546,7 @@ export async function editGoals(body, { canWrite, file, historyDir, now, fs = fi
     const [status, why] = WHY[written.why] ?? WHY.write
     return { ok: false, status, why }
   }
+  if (isMessage(body)) return { ok: true, result: newId === null ? {} : { id: newId } }
   undone.push({ file, page: pageOf(body), before, after })
   const mine = undone.filter(one => one.file === file && one.page === pageOf(body))
   if (mine.length > UNDO_MOST) undone.splice(undone.indexOf(mine[0]), 1)

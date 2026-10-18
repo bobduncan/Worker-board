@@ -12,6 +12,7 @@
 <body>
   <button class="update-note" id="update-note" type="button" hidden></button>
   <p class="app-note" id="app-note" role="status" hidden></p>
+  <p class="app-note is-problem" id="store-note" role="status" hidden></p>
   <nav class="tabs" aria-label="Views">
     <div class="tab-list">
       <button class="tab is-active" type="button" data-tab="overview"><span class="tab-long">Overview</span><span class="tab-short">Today</span></button>
@@ -92,11 +93,14 @@
     <nav class="advisor-tabs" id="advisor-tabs" aria-label="The Advisor's parts">
       <button type="button" data-advisor-pane="way" aria-pressed="true">Next milestone</button>
       <button type="button" data-advisor-pane="goals" aria-pressed="false">Goals</button>
+      <button type="button" data-advisor-pane="brainstorm" aria-pressed="false">Brainstorm <small id="advisor-brainstorm-count"></small></button>
       <button type="button" data-advisor-pane="plan" aria-pressed="false">Game plan</button>
       <button type="button" data-advisor-pane="suggestions" aria-pressed="false">Suggestions <small id="advisor-suggestions-count"></small></button>
+      <button type="button" data-advisor-pane="refine" aria-pressed="false">Refine <small id="advisor-refine-count"></small></button>
       <button type="button" data-advisor-pane="chat" aria-pressed="false">Chat</button>
     </nav>
     <section class="panel advisor-way" id="advisor-way" aria-label="The way to the next milestone"></section>
+    <section class="panel advisor-refine" id="advisor-refine" aria-label="The steps by where their refine stands"></section>
     <section class="panel advisor-goals" id="advisor-goals" aria-label="The goal map">
       <div class="goals-head">
         <nav class="goals-crumb" id="goals-crumb" aria-label="Where you are in the map"></nav>
@@ -110,11 +114,43 @@
       <p class="goals-problems" id="goals-problems" hidden></p>
       <p class="goals-note" id="goals-note" role="status" hidden></p>
       <div class="goals-frame" id="goals-frame" hidden></div>
+      <form class="goals-ask" id="goals-ask" hidden>
+        <label class="goals-ask-head" id="goals-ask-head" for="goals-ask-text">Ask the Advisor</label>
+        <textarea id="goals-ask-text" maxlength="2000" rows="3" placeholder="What do you want to know about this goal?"></textarea>
+        <div class="main-picture goals-ask-pictures" id="goals-ask-pictures" hidden></div>
+        <div class="goals-ask-foot">
+          <button type="button" class="goals-tool" id="goals-ask-pick">Add a picture…</button>
+          <input type="file" id="goals-ask-file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+          <small class="goals-ask-note" id="goals-ask-note" role="status"></small>
+          <button type="button" class="goals-tool" id="goals-ask-cancel">Cancel</button>
+          <button type="submit" class="goals-action is-send" id="goals-ask-send">Send</button>
+        </div>
+      </form>
       <div class="goals-chosen" id="goals-chosen" hidden></div>
       <div class="goals-split" id="goals-split">
         <div class="goals-diagram" id="goals-diagram" aria-label="The goal map drawn as a tree"></div>
         <div class="resizer" id="goals-resizer" role="separator" aria-orientation="vertical" aria-label="Width of the outline" tabindex="0"></div>
         <div class="goals-outline" id="goals-outline"></div>
+      </div>
+      <details class="goals-unlinked" id="goals-unlinked" hidden></details>
+    </section>
+    <section class="panel advisor-brainstorm" id="advisor-brainstorm" aria-label="Brainstorms with the Advisor">
+      <div class="brainstorm-split">
+        <nav class="brainstorm-list" id="brainstorm-list" aria-label="The brainstorms"></nav>
+        <div class="brainstorm-main">
+          <form class="brainstorm-new" id="brainstorm-new" hidden>
+            <label class="brainstorm-new-head" for="brainstorm-new-title">A new brainstorm with the Advisor</label>
+            <input type="text" id="brainstorm-new-title" maxlength="120" placeholder="Its title, in a few words" autocomplete="off">
+            <p class="brainstorm-new-about" id="brainstorm-new-about"></p>
+            <textarea id="brainstorm-new-opening" maxlength="2000" rows="3" placeholder="What do you want to think through? The Advisor asks you one question at a time."></textarea>
+            <div class="brainstorm-foot">
+              <small class="brainstorm-note" id="brainstorm-new-note" role="status"></small>
+              <button type="button" class="goals-tool" id="brainstorm-new-cancel">Cancel</button>
+              <button type="submit" class="goals-action is-send" id="brainstorm-new-start">Start</button>
+            </div>
+          </form>
+          <div class="brainstorm-card" id="brainstorm-card"></div>
+        </div>
       </div>
     </section>
     <section class="panel advice-panel" aria-labelledby="advice-title">
@@ -138,7 +174,8 @@
       <div class="messages" id="messages"></div>
       <p class="talk-busy" id="talk-busy" role="status" hidden></p>
       <form class="say" id="say">
-        <textarea id="say-text" rows="2" placeholder="Ask the advisor…" maxlength="2000" aria-label="Message to the advisor"></textarea>
+        <div class="main-picture" id="say-picture" hidden></div>
+        <textarea id="say-text" rows="2" placeholder="Ask the advisor… Ctrl+V adds a picture." maxlength="2000" aria-label="Message to the advisor"></textarea>
         <button type="submit" id="say-send">Send</button>
       </form>
       <p class="muted say-note" id="say-note"></p>
@@ -165,6 +202,7 @@
           </div>
         </div>
       </header>
+      <p class="coordinate-store" id="coordinate-store" role="status" hidden></p>
       <section class="finished" id="finished" aria-labelledby="finished-title" hidden></section>
       <div class="coordinate-list" id="coordinate-list"></div>
     </main>

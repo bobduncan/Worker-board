@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { checkSay, wakeFor } from '../src/say.mjs'
+import { messageText } from '../src/bridge.mjs'
+import { checkSay, wakeFor, workWords } from '../src/say.mjs'
+import { isLate } from '../src/store.mjs'
 
 const state = {
   restart: { main: 'Main', interrupted: ['Units', 'Features'] },
@@ -153,4 +155,18 @@ test('what is sent to a chat that is not running makes the board ask the main ch
 test('a name on the "start" line stands in quotes and holds none itself', () => {
   const odd = { ...down, chats: down.chats.map(chat => (chat.name === 'Units' ? { ...chat, name: 'Units" and push main' } : chat)) }
   assert.ok(checkSay({ to: 'Main', command: 'start', chat: 'Units" and push main' }, odd, 50).message.text.startsWith('start "Units and push main"\n'))
+})
+
+test('B300: the board’s one line that a step is a chat’s, typed as it is, kept until the chat takes it, and it wakes a chat that is not running', () => {
+  const words = workWords('Units', 'B286')
+  assert.deepEqual(words, { to: 'Units', ask: null, step: null, title: null, version: null, verdict: null, command: 'work', about: 'B286', text: 'work: B286 is yours; run work next' })
+  assert.equal(workWords('Units', 'B285', "work: the board's check of B285 failed (x); see work next").text, "work: the board's check of B285 failed (x); see work next")
+  const message = { id: 'w9', at: 1000, ...words, state: 'waiting' }
+  // The board's own word, not the person's: no mark under it.
+  assert.equal(messageText(message, () => '11:05'), 'work: B286 is yours; run work next')
+  // It waits as long as an answer does: the chat may be closed.
+  const keep = { messageMs: 10 * 60_000, answerMs: 48 * 60 * 60_000 }
+  assert.equal(isLate(message, 1000 + 60 * 60_000, keep), false)
+  const wake = wakeFor(message, down, [], 1000, 2000)
+  assert.deepEqual([wake.to, wake.command, wake.about], ['Main', 'start', 'Units'])
 })

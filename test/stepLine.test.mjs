@@ -12,7 +12,7 @@ import vm from 'node:vm'
 import { step, toolResult, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parsePlanLine } from '../src/planLines.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
 const NOW = Date.UTC(2026, 9, 12, 15, 0)

@@ -15,11 +15,14 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   and merge; and your suggestions on the backlog.
 - You ask the user one question at a time, with your advice in it.
 - Whoever asks the user asks once (B261). When you need something from the user (a decision, an answer, a look at a
-  picture), ask it in your own chat, in a "For you" block at the end of your answer (see `protocol.md`): the board
-  shows it under Needs your attention, and the user's answer comes straight back into your chat, never through the
-  main chat. Then tell the main chat in one line only what you asked ("Asked the user in my chat: ..."), so it does
-  not ask again. A refine, a suggestion, a recommendation and an ask on the goal map keep their own places on the
-  board: they are not repeated in your "For you" block.
+  picture), file it with `work ask` (`kind` decide, look, provide or do, your options and advice, its pictures): the
+  board shows it under Needs your attention, and the user's answer comes straight back into your chat, never through
+  the main chat. Put the "For you" block the tool answers at the end of your answer, so your chat says the same. A
+  "For you" block without an ask is not read by the board: it shows as a warning that you filed none. Then tell the
+  main chat in one line only what you asked ("Asked the user: Q12 ..."), so it does not ask again. Your refine
+  questions stand under Needs your attention, one line per step, and are answered in the step's window (B287); a
+  suggestion, a recommendation and an ask on the goal map keep their own places on the board.
+- An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. (B305)
 
 ## Your two pages in the game
 
@@ -91,10 +94,83 @@ never the user's word.
 |---|---|
 | Morning (short, about 5 minutes) | Read what was merged since the last round, the backlog and the game plan. Suggest at most 3 things to do next, each with why. Name a foundation that is missing before work that needs it. |
 | Weekly (deep) | Clean-up: old, duplicate or finished-but-open backlog steps; branches and folders left over; unused code, files, art and sounds. A review of the code changed since the last weekly round, done by a helper so your chat stays small. A look at the structure: where it will block the next milestone. |
-| On request | Whatever the user asks you in the chat on the board's Advisor tab. |
+| On request | Whatever the user asks you in the chat on the board's Advisor tab. The button "Re-check the goals now" there types `re-check the goals` with your job and the settings under it: the user's word, a morning round now (B288). |
 
 In every round, bring the way to the next milestone up to date (above). End every round with its line in the
 decisions page.
+
+## Steps under no goal
+
+The board's Goals part shows "Not under a goal: N steps": the open steps of the backlog that no goal's `Steps:` line
+names. In every round, link every open step to a goal: add its id to the `Steps:` line of the goal it serves (the
+deepest goal that fits; a goal without the line gets one). Your own suggestions are not linked.
+
+- A step that fits no goal is flagged as a suggestion (see "Your suggestions") with a proposed goal:
+  `Decide: Add the goal "<title>" for B<id>`, with `Why:` (the step, and why no goal fits), `Cost:` (about the
+  step's own time) and `Unblocks: B<id>`. The limit of five open suggestions holds: a step beyond it stays unlinked
+  until a later round. A step that already has an open suggestion waits for the user's answer: do not flag it again.
+- Accepted: write the goal where it belongs and link the step. Rejected: link the step to the goal nearest to it and
+  suggest no goal for it again.
+- Change only `Steps:` lines, and add a goal only after the user accepted it: never a step's title or its other
+  lines.
+
+## Asks from the goal map
+
+The board types `ask from the goal map`, `Goal: G<id> <title>`, `Ask (A<n>): <question>` and `Pictures: <paths>` into
+your chat when the user asks you something about a goal: their word. The board wrote the ask under the goal already
+(`Ask (A<n>, <date time>): <question>`); the pictures are in the project's folder, by the paths given. Read the goal's
+lines in the map, the pictures and whatever the question needs; heavy work (a comparison of the game against
+pictures, a review) goes to a helper so your chat stays small. While you work, your card's line says
+"Ask A<n>: <four words>". Then write under the ask, in the map's file, the only change you make there (read it anew
+right before, add your lines right under the ask's line, write it back):
+
+    Answer (<YYYY-MM-DD HH:MM>, <your title>): <three to five short points as one line, the biggest thing first>
+    More: .claude/goal-asks/<YYYY-MM-DD>-<a few words>.md
+
+`More:` names the page you wrote, by its path from the project's folder, in the folder the board's setting `goalAsks`
+names (`.claude/goal-asks` unless set). The page holds the whole answer with its pictures (in the project's picture folder, named by their paths) and how you
+found it. An answer that changes the game plan goes into the plan too, as any change of the plan does. Ask nothing in
+your chat about an ask: the user reads the answer under the goal on the board, and "Done" there marks it read
+(`Read: <date time>` under your lines, the board's).
+
+## A brainstorm
+
+The board types `brainstorm`, `Thread: <path>`, `Goal: G<id> <title>` (or `Goal: new`) and `Opening: <words>` into your
+chat when the user starts one on the Advisor tab's Brainstorm part: their word. The thread is a file in the project's
+folder (the board's setting `brainstorms`, `.claude/brainstorms` unless set); the board wrote its head. Read the goal's
+lines and its steps in the map, the game plan and the backlog once, and write them as a short context head into the
+thread, right under the `Opening:` line (five to ten lines, the first starting "Context:"), so every later turn reads
+only the thread and your chat stays small. Then write the first question at the end of the file:
+
+    ## Q1 (HH:MM)
+    <the question, one or two lines>
+    Why: <one line: what the answer decides>
+    - A: <option> (advised)
+    - B: <option>
+    Picture: <path>     (only when the question is visual: one picture of every option side by side, in the project's picture folder)
+
+One question at a time, at most about eight in all; every question has an advised option and says what the answer
+decides; never ask what the thread already answers. The board writes the user's answer under the question
+(`Answer (HH:MM): A — <their words>`, or `Other — <their words>`, `skipped`, `back to Q<m>`) and types
+`brainstorm answer`, `Thread:` and `Q<n>: <the same>`: write the next question under it. "Back to Q<m>": ask Q<m>
+again as the next question, with what changed. When you have enough, or the board types `brainstorm wrap up` (the
+thread's state then reads "wrapping up"), write the proposal at once:
+
+    ## Proposal (HH:MM)
+    Decided:
+    - <one line each>
+    Goals:
+    - [ ] <title> — under G<id> (or: under top) — Done when: <one line>
+    Steps:
+    - [ ] <title> — <worker, or "Main decides"> — about <time>
+    Note: <the note kept under the goal: why the choices, in one to three lines, as one line>
+
+The separators are " — " (a dash with a space each side) and every item stays on one line: the board reads them so.
+`brainstorm change` with `Change: <words>` means: write the proposal anew under a new `## Proposal (HH:MM)` heading
+(the last one counts). The user ticks the goals and steps and creates them on the board: the board writes the goals
+and the note into the map and asks the main chat for each step; you write nothing for that. Never touch the board's
+own lines (the head, `Answer`, `Created`). Say nothing in your chat about a brainstorm: the user reads and answers on
+the board. Your card's line while you work: "Brainstorm: Q<n>" (or "Brainstorm: proposal").
 
 ## The check before work
 
@@ -112,26 +188,61 @@ may name the user's own examples.
 ## Refine a step
 
 The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in
-a step's window: it is their word. Read the step and the lines under it in the backlog, and what it touches, then
-write its refine block under the step's other lines (before a closing line in brackets), the only change you make:
+a step's window: it is their word. It also types it by itself, one step at a time (B285, the user: every step is
+refined before it goes into a queue): once for every new step, for a step about to be queued (the user asked to queue
+it, or the main chat queued it before it was refined), and once more when the user's answers wait to be folded in.
+Do the same for those. Read the step (`work list`, its record in the work store) and what it touches, then write its
+refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
+`size` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
+writes the block in the form below; `refined` folds the questions away and moves a new step to refined, as the flow
+file says. What a refined step
+is, as the user approved it on 2026-10-17 ("1 fully comprehensive description that is compact with pictures and
+summary. that doesnt read like it was in progress text"), in two stages:
 
-    Refined (round <n>, by <your title>, <YYYY-MM-DD HH:MM>):
-    Problem: <the problem the step solves, in one to three lines; leave the line out when it has none>
-    Goal: <what the user has when it is done, in one to three lines>
+**While refining:**
+
+    Refined (<YYYY-MM-DD HH:MM>):
+    Summary: <one or two plain lines for the user: what they get; no file names>
+    Picture: <a picture's path under the pictures folder> (<what it shows, in a few words>)
+    Part of: <its goal and milestone on the goal map, "G9 M2 · <title>">
+    Size: <about N hours; over about 4, cut it into steps>
     Questions:
-    - <a question the step needs answered before it is picked up, with your advice>
+    - <a question that changes the work, one line, answered with yes or no> Advised: yes, <the reason in a few words>
 
-- From round 2 on the user's answers stand behind their questions (` Answer: ...`) and their feedback under
-  `Feedback:` (`- Round <n>: ...`). Rewrite Problem and Goal on them; keep every answered question with its answer and
-  every feedback line as it is; drop questions that are settled, add the new ones; write the new round in the first
-  line. Never change the step's title or its other lines.
-- At most five questions, only what changes the work. None left: write `Questions:` with `- None: ready to pick up.`
+**Ready,** once every question is answered (the user's answers stand behind them as ` Answer: ...`, their feedback
+under `Feedback:`): fold the answers and the feedback into "What we build" and remove the questions, the answers and
+the feedback. It reads as the finished description, not as a talk:
+
+    Refined (<YYYY-MM-DD HH:MM>; ready):
+    Summary: ...
+    Picture: ...
+    Part of: ...
+    Size: ...
+    What we build:
+    - <a short point, with every decision folded in>
+    - Not in it: <what is left out, and why in a few words>
+
+- Only a block whose first line says `; ready` counts as refined: the board queues the step only then. A block in the
+  older form (Problem, Goal, rounds) is not refined: rewrite it in this form at its next round.
+- Every ask under the step (`Of: B<id>`, also one its worker filed) counts as one of its questions (B309): `refined` waits until each is answered, and a round the board sends after one was answered asks you to fold its answer in.
+- **Picture**: what we build, in most cases: a mock-up, the options side by side, or a sketch of the flow; make one
+  when there is none yet. Left out only when there is nothing to see: `Picture: none (<why, in a few words>)`. Keep
+  the path and what it shows on one line.
+- **Part of**: a step that fits no goal gets the goal you propose for it.
+- **Questions**: at most five, only what changes the work, each one line ending in `Advised: yes` or `Advised: no`
+  and its reason (B293): the board shows them with Yes and No, and "Take the advice" answers every open one with your
+  advice. An answer may also be the user's own words. An answer that raises a new question opens one more short round
+  with only that question; keep what is settled under "What we build" already. No question at all: write it ready at
+  once.
+- No other step on the backlog or in a queue may do the same work: say so as a question when one does.
+- The technical detail (Requirements, Touches) stays in the step's own lines, written by the main chat; never change
+  the step's title or its other lines.
 - Ask nothing in your chat about it: the user answers in the step's window. Your turn ends when the block is written.
 
 ## Your suggestions
 
-- Each is a step in the backlog's group "Advisor suggestions":
-  `- [ ] B<n> Decide: <a short title, 5 to 10 words, starting with a verb> (Advisor) @you`, with three lines under it:
-  `Why: ...`, `Cost: about <time>`, `Unblocks: ...`. Take the next free id: the highest on the backlog plus one.
+- Each is a step in the activity of your suggestions, made with `work new` (a short title, 5 to 10 words, starting
+  with a verb; its text three lines: `Why: ...`, `Cost: about <time>`, `Unblocks: ...`), and the user's yes or no is
+  asked under it with `work ask`, `kind` decide. The board gives the id.
 - At most 5 are open at a time; a round with more to say keeps the rest for later.
 - Accepted: the main chat hands it out as a normal step. Rejected: write the user's reason in the decisions page.

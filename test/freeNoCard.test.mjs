@@ -11,7 +11,9 @@ import vm from 'node:vm'
 
 import { answer, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { buildState } from '../src/state.mjs'
+import { parseItem } from '../src/work/item.mjs'
+import { storeFromText } from '../src/work/read.mjs'
+import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
 const NOW = Date.UTC(2026, 9, 14, 10, 14)
@@ -28,13 +30,13 @@ const card = JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', t
 const closing = done => `The verdict is recorded.\n\n---\n\n\`\`\`diff\n  Prompt: the warrior verdict\n  Who:    Game - Units\n${done}\n\`\`\``
 const ended = words => ({ text: [typed(NOW - 40 * MIN, 'Record the verdict, please.'), answer(NOW - 20 * MIN, words)].join('\n'), isCut: false, modifiedAt: NOW - 20 * MIN })
 
-function units({ more = {}, words = 'The verdict is recorded.' } = {}) {
+function units({ more = {}, words = 'The verdict is recorded.', work } = {}) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: [app('Main'), app('Units', more)],
     tails: { 'cli-Units': ended(words) },
     planLineTexts: { 'cli-Units': card },
-    backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {},
+    backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {}, work,
   }
   return buildState(raw, { lines: [], outbox: [], runs: [], now: NOW, config }).chats.find(chat => chat.name === 'Units')
 }
@@ -51,7 +53,10 @@ test('free by "Done: yes" (B148) the same', () => {
 })
 
 test('waiting for you keeps the card\'s task: that is the work it waits on', () => {
-  const lane = units({ more: summary('blocked', 'Choose the verdict.') })
+  // B299, B301: it waits on its open blocking ask in the store, not on the app's word that it is blocked.
+  const work = storeFromText('## A\n- [ ] B1 Record the verdict (for Units)\n', { now: NOW })
+  work.items.set('Q1', parseItem('Id: Q1\nKind: ask\nTitle: Which verdict?\nState: open\nOwner: Units\nSince: 2026-10-14 10:00\nAsks: decide\nBlocking: yes\n'))
+  const lane = units({ more: summary('blocked', 'Choose the verdict.'), work })
   assert.deepEqual([lane.state, lane.task.text, lane.lastTask], ['waiting', 'Record the warrior verdict', null])
 })
 

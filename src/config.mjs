@@ -2,7 +2,19 @@
 
 import { constants } from 'node:fs'
 import { access, copyFile, readFile, readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
+
+/**
+ * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
+ * the grace time; a blocking ask that waited longer than the ask time stands first under Needs your attention.
+ */
+export const GRACE_MS = 10 * 60_000
+export const ASK_MS = 60 * 60_000
+/**
+ * B308: a worker that holds a step, has ended its turn with nothing running and filed no ask, for longer than this, is
+ * a hint under Needs your attention: it may wait for the person.
+ */
+export const IDLE_HOLD_MS = 5 * 60_000
 
 const DEFAULTS = {
   /** B129: the project's name, the page's title; by default the project folder's name. */
@@ -64,6 +76,12 @@ const DEFAULTS = {
   brainstorms: '.claude/brainstorms',
   goalAsks: '.claude/goal-asks',
   goalsHistory: '.claude/goals.history',
+  /**
+   * B296: the work store, one file per item (spec 2026-10-17): a path inside the project, or a whole path of its own
+   * (a copy of the board tried beside the person's keeps its store apart that way). B301: the one source of the work;
+   * a project gets it with tools/migrate-backlog.mjs (--make-store from a backlog, --init for an empty one).
+   */
+  work: '.claude/work',
   // The way to the next milestone is part of the goal map since B260 (the setting milestoneMap is gone).
   gamePlan: 'docs/game-plan.md',
   advisorDecisions: 'docs/advisor/decisions.md',
@@ -79,6 +97,21 @@ const BRANCH = /^(?!.*\.\.)[\w][\w./-]{0,120}$/
 
 /** A path inside a folder, written with "/": no way out of it, never absolute. */
 const INSIDE = /^(?!.*(?:^|\/)\.\.(?:\/|$))[\w.-]+(?:\/[\w .-]+)*$/
+
+/** B296: the store's folder: inside the project, written with /, or a whole path. */
+const isWorkPath = value => typeof value === 'string' && (INSIDE.test(value.trim()) || isAbsolute(value.trim()))
+
+/** B296: the work store's folder, as a whole path. */
+export function workFolder(config) {
+  return isAbsolute(config.work) ? config.work : join(config.project, ...config.work.split('/'))
+}
+
+/** B296: whether the store's folder is a whole path outside the project: a copy's own, which it may write. */
+export function isOwnWork(config) {
+  if (!isAbsolute(config.work)) return false
+  const path = relative(config.project, config.work)
+  return path.startsWith('..') || isAbsolute(path)
+}
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 // The paths inside the project or the game's repository, written with /.
@@ -133,6 +166,7 @@ export function parseConfig(text, env) {
   for (const key of PROJECT_PATHS) {
     if (typeof raw[key] === 'string' && INSIDE.test(raw[key].trim())) config[key] = raw[key].trim()
   }
+  if (isWorkPath(raw.work)) config.work = raw.work.trim()
   if (Array.isArray(raw.advisorReadFirst)) config.advisorReadFirst = raw.advisorReadFirst.filter(path => typeof path === 'string' && INSIDE.test(path))
   if (typeof raw.advisorSuggestions === 'string' && raw.advisorSuggestions.trim() !== '') config.advisorSuggestions = raw.advisorSuggestions.trim()
   if (typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim())) config.morningRound = raw.morningRound.trim()
@@ -172,7 +206,8 @@ export function configProblem(fileText) {
   for (const key of PROJECT_PATHS) if (has(key) && !(typeof raw[key] === 'string' && INSIDE.test(raw[key].trim()))) return wrong(key, 'a path inside its folder, written with /')
   if (has('pictureRoots') && !(Array.isArray(raw.pictureRoots) && raw.pictureRoots.length > 0 && raw.pictureRoots.every(one => typeof one === 'string' && /^[\w-][\w.-]*$/.test(one)))) return wrong('pictureRoots', 'a list of one or more plain folder names')
   if (has('advisorReadFirst') && !(Array.isArray(raw.advisorReadFirst) && raw.advisorReadFirst.every(one => typeof one === 'string' && INSIDE.test(one)))) return wrong('advisorReadFirst', 'a list of paths inside the game, written with /')
-  if (has('morningRound') && !(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
+  if (has('work') && !isWorkPath(raw.work)) return wrong('work', 'a path inside the project written with /, or a whole path of its own')
+  if (has('morningRound') &&!(typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim()))) return wrong('morningRound', 'a time like "09:00", or "" for none')
   if (has('weeklyRound') && typeof raw.weeklyRound !== 'boolean') return wrong('weeklyRound', 'true or false')
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')

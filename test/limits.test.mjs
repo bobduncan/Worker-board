@@ -167,3 +167,9 @@ test('with nothing to go by there is no figure, and one window can be known with
   assert.deepEqual([only.fiveHour.used, only.week], [40, null])
   assert.equal(limitsOf({ sample: { at: at(11), fiveHour: 40, week: 12 }, now: at(11) + 3 * DAY }).week.used, 12)
 })
+
+test('B291: a pause sent to the main chat by the app\'s id for it counts as by its title', () => {
+  const byId = [...toMain(at(22, 40), 'Note from Game - Units: paused for the limit until 23:40.', 'local_main-1'), answer(at(22, 41), 'I stop here.')]
+  assert.deepEqual(pauseNote(entries(byId), [MAIN, 'local_main-1']), { at: at(22, 40), until: at(23, 40) })
+  assert.equal(pauseNote(entries(byId), MAIN), null)
+})

@@ -259,28 +259,9 @@ export function withDone(chat: ChatFile): ChatFile {
   return { ...chat, task: null }
 }
 
-/** The chat after it sent another chat a message: with a task open, that is its report. */
+/** B301: the chat after the board took its `work report`: its task is reported, and its card clears when the turn ends. */
 export function withSend(chat: ChatFile): ChatFile {
   return chat.task === null ? chat : { ...chat, task: { ...chat.task, isReported: true } }
-}
-
-/**
- * What a message a chat's model sends another chat is: its report, which ends its task, or a note. What goes to
- * another worker by its name (`others`) is never the report. Else by its first word when it has one of the three
- * ("Report", "Note", "Question"); else a message to the main chat by its name is the report, and one to anybody
- * else, or to an address that names nobody, is a note. `list` names the main chat.
- */
-export function sentKind({ to, text, list, others = [] }: { to: string; text: string; list: ChatList | null; others?: readonly string[] }): 'report' | 'note' {
-  const name = to.replace(/\s\[[^\]]*\]$/, '').trim().toLowerCase()
-  const isNamed = (short: string): boolean => list !== null && (name === `${list.prefix}${short}`.toLowerCase() || name === short.toLowerCase())
-  const isMain = list !== null && isNamed(list.main)
-  if (!isMain && others.some(other => isNamed(other))) return 'note'
-  // The first word, as a whole word, behind whatever marks stand before it ("**Question:**", "> Report").
-  const first = /^[^a-z]{0,8}(report|note|question)\b/i.exec(text)?.[1]?.toLowerCase()
-  if (first === 'report') return 'report'
-  if (first !== undefined) return 'note'
-
-  return isMain ? 'report' : 'note'
 }
 
 /**
@@ -421,6 +402,8 @@ export function chatsSummary(rows: readonly ChatRow[], now: number): string {
  * and nothing that changes while the chat works, so the prompt stays the same from turn to turn.
  */
 export function chatNote(me: ChatFile, tool: string): string {
+  // B297: the work items stand in the worker board's store; its tool is registered beside this one.
+  const work = tool.replace(/chat$/, 'work')
   const shared = `This chat is "${me.name}" in the person's list of chats, which the Workers pane and their worker board show `
     + `them (${tool} with action "list" reads it): one main chat hands out the work and the worker chats do it. `
     + `${me.role === 'main' ? 'You are the main chat' : 'You are a worker'}. Every chat keeps a card of what it is doing, without `
@@ -433,46 +416,23 @@ export function chatNote(me: ChatFile, tool: string): string {
     + 'tool call you make anyway, in the same step, never as a step of their own: a step of its own sends the whole '
     + 'conversation again. A request you answer without any tool call needs no card. The card is kept in a file, so it '
     + 'survives a compaction and a restart of the app; action "list" shows it to you again. '
+    + `The work itself (steps, asks for the person, notes) stands in the worker board's store: ${work} with action "next" `
+    + 'lists yours, and the flow file says who moves an item and when. '
   if (me.role === 'main') {
     return `${shared}Your card clears when you call "done" together with the last tool call of the request, or when `
-      + 'you record the next request. Handing a task to a worker is not a report. A worker that has grown large is '
-      + 'compacted by itself when the turn in which it reported a task ends. When the task after the one you hand over '
-      + `continues the same work, open your message with "Task from ${me.name} (more follows):" and the worker is not `
-      + 'compacted in between.'
+      + `you record the next request. You hand a step to a worker with ${work} action "queue": the board delivers it; no `
+      + 'message carries a task. A worker that has grown large is compacted by itself when the turn in which it reported '
+      + 'a step ends, unless another step is queued for it.'
   }
-  return `${shared}Your card clears by itself when you report to the main chat with SendMessage and your turn ends: `
-    + `start that message with "Report from ${me.name}:". A message to the main chat that is not your final report `
-    + `starts with "Note from ${me.name}:" or "Question from ${me.name}:", and then the card stays; a message to `
-    + 'another worker never clears it. When there is no report to send, call "done" together with your last tool call.'
-}
-
-/** Where the person's own words come from: typed here or on another device, or typed in for them by a mod. */
-const PERSON_KINDS: readonly string[] = ['composer', 'bridge', 'sdk', 'plugin']
-
-/**
- * A task the main chat hands over, as it arrives at a worker: a message of the main chat whose first line opens as
- * a task ("Task from ...", "Next task from ...", "Two tasks from ..."). `moreFollows` when that line says that the
- * task after this one continues the same work ("(more follows)"): the chat is then not compacted in between. Null
- * for anything else: a note, another worker's message, what the person types.
- */
-export function handOver(text: string, origin: { kind?: string } | undefined, list: ChatList | null): { moreFollows: boolean } | null {
-  // What the person types is never a hand-over, whatever it reads like, a pasted frame too: only what the app
-  // brings in from elsewhere counts, in the frame it puts around another chat's message, with the main chat's name.
-  if (list === null || origin?.kind === undefined || PERSON_KINDS.includes(origin.kind)) return null
-  const tag = /<cross-session-message\b[^>]*\bname="([^"]*)"[^>]*>\s*([^\n]*)/.exec(text)
-  if (tag === null) return null
-  const [, name = '', first = ''] = tag
-  if (name.trim().toLowerCase() !== `${list.prefix}${list.main}`.toLowerCase()) return null
-  // "Task from", "Next task from", "Two tasks from", behind whatever marks stand before it ("**Task from").
-  if (!/^[^a-z]{0,8}(?:\w+\s+){0,2}tasks?\s+from\b/i.test(first)) return null
-
-  return { moreFollows: /\(more follows\)/i.test(first) }
+  return `${shared}Your card clears by itself when you report your step with ${work} action "report" and your turn `
+    + 'ends; no message to another chat clears it or ends a step. When you worked on no step, call "done" together with '
+    + 'your last tool call.'
 }
 
 /**
  * Why a chat is NOT compacted when the turn in which it reported its task has ended, in a few words; null when it
- * is to be compacted. Only a worker at rest: its task reported and cleared, larger than `above` tokens, and no word
- * from the main chat that more of the same work follows (the chat would have to read the same files again). B227: a
+ * is to be compacted. Only a worker at rest: its task reported and cleared, larger than `above` tokens, and (B301) no
+ * next step the board named in its answer to the report (the chat would have to read the same files again). B227: a
  * question its answer leaves with the person no longer keeps it, since nearly every report asks one: the compaction
  * keeps open questions word for word (`compactKeep`). The engine allows a compaction only between turns,
  * so this is the moment before the next task.
@@ -497,14 +457,119 @@ export function asksPerson(answer: string): boolean {
 
 /** What the compaction after a reported task is told to keep, for the chat of that name. */
 export function compactKeep(name: string, main: string): string {
-  return `This chat is "${name}", a worker in a project where the main chat "${main}" hands out the tasks and gets the reports. `
-    + 'Its task is reported and the next one comes later, so keep what the next task needs and drop the step by step of finished ones. Keep, in this order: '
+  return `This chat is "${name}", a worker in a project where the main chat "${main}" queues the steps in the worker board's store and the board delivers them. `
+    + 'Its step is reported (work report) and the next one comes later, so keep what the next step needs and drop the step by step of finished ones. Keep, in this order: '
     + `(1) who this chat is: its name ${name}, its role, and that it reports to ${main}; `
     + '(2) the rules it works by: the working agreement, how answers to the person are written, and the rules of the backlog (ids, the kinds Verify, Decide, Provide and Do, the lines under a step); '
-    + `(3) every task ${main} handed it that it has not reported yet, in the words of the hand-over; `
+    + '(3) every step the store holds for it that it has not reported yet, by its id and title (work next lists them), and the person\'s words on it; '
     + '(4) what the person decided or asked for that is not built yet, in their own words, with the date; '
     + '(5) every question or action it put to the person that is still open, word for word and with its number, so that an answer like "1 yes, 2 no" can still be read; '
     + '(6) its open work: branches, folders, servers it started, and what its last report named as still open; '
     + '(7) one line for each task it finished: what it was, where the work is (folder, branch, commit) and how it was checked; '
     + '(8) what it learned the hard way about this machine, the tools and the other chats.'
+}
+
+/** B297: what the work tool's call gives the card: the step's id and title, the plan's steps and times. */
+export type WorkCardInput = { id?: unknown; title?: unknown; names?: readonly unknown[]; steps?: number; step?: number; minutes?: number; stepMinutes?: number }
+
+/** B297: the card's topic for a step: its id and the first five words of its title. */
+const topicOf = (id: unknown, title: unknown): string => [typeof id === 'string' ? id : '', typeof title === 'string' ? title.split(/\s+/).filter(Boolean).slice(0, 5).join(' ') : ''].filter(Boolean).join(' ')
+
+/**
+ * B297: the card after a call of the work tool the board took. `take` names the task after the step; `step` records the
+ * plan when it gives the steps (`names` or `steps`), then the step it is on, as the chat tool's "plan" and "step" do.
+ * Any other action leaves the card: `{}`.
+ */
+export function workCard(chat: ChatFile, action: string, input: WorkCardInput): TaskChange | Record<string, never> {
+  if (action === 'take') return withPlan(chat, { text: topicOf(input.id, input.title), minutes: input.minutes, stepMinutes: input.stepMinutes })
+  if (action !== 'step') return {}
+  const isPlan = input.names !== undefined || input.steps !== undefined
+  if (!isPlan) return withStep(chat, { step: input.step, minutes: input.minutes, stepMinutes: input.stepMinutes })
+  const planned = withPlan(chat, { text: chat.task?.text ?? topicOf(input.id, ''), names: input.names, steps: input.steps, minutes: input.minutes, stepMinutes: input.stepMinutes })
+  if (planned.chat === undefined || input.step === undefined) return planned
+  return withStep(planned.chat, { step: input.step })
+}
+
+/** B298: an instruction of the person's that is still open, as the worker board answers it: its id and the turns it missed. */
+export type OpenInstruction = { id: string; turns: number }
+
+/**
+ * B298: where the person's own typing comes from: this chat's box (`composer`), Remote Control on a phone or the web
+ * (`bridge`), and the desktop app, whose chats run on the SDK (`sdk`). A line the board typed comes as `plugin`.
+ */
+const TYPED_BY_PERSON: readonly string[] = ['composer', 'bridge', 'sdk']
+/** B298: a line the board typed, also pasted by hand: its id at its end, or the board's mark. */
+const FROM_BOARD = /\[I\d+\]\s*$|\((?:typed|answered) on the worker board\b/
+
+/**
+ * B298: whether a prompt is filed on the worker board as the person's instruction: only what they typed themselves,
+ * never what the board or another chat brought in (a board line carries its id already, also when pasted by hand),
+ * and never a slash command.
+ */
+export function isFiled(text: unknown, origin: { kind?: string } | undefined): boolean {
+  return TYPED_BY_PERSON.includes(origin?.kind ?? '') && typeof text === 'string' && text.trim() !== '' && !text.trimStart().startsWith('/') && !FROM_BOARD.test(text)
+}
+
+/** B298: the open instructions as the board's answer gives them (`open`); null when the answer has none. */
+export function openFrom(answer: unknown): OpenInstruction[] | null {
+  if (typeof answer !== 'object' || answer === null || !Array.isArray((answer as { open?: unknown }).open)) return null
+  return ((answer as { open: unknown[] }).open)
+    .filter((one): one is { id: string; turns?: unknown } => typeof one === 'object' && one !== null && typeof (one as { id?: unknown }).id === 'string')
+    .map(one => ({ id: one.id, turns: typeof one.turns === 'number' && one.turns > 0 ? Math.floor(one.turns) : 0 }))
+}
+
+const andList = (ids: readonly string[]): string => (ids.length <= 1 ? ids.join('') : `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`)
+
+/** B298: the section of the composed prompt that names the open instructions: "Open instructions: I17 (new), I15 (2 turns)". */
+export function instructionsLine(open: readonly OpenInstruction[]): string | null {
+  if (open.length === 0) return null
+  const each = open.map(one => `${one.id} (${one.turns === 0 ? 'new' : `${one.turns} turn${one.turns === 1 ? '' : 's'}`})`)
+  return `Open instructions: ${each.join(', ')}. These are the person's words to you, filed on the worker board; close each with `
+    + 'the work tool, "close" with "id" and "as" (what came of it), once it is done. A turn that ends with one still open marks it missed there.'
+}
+
+/**
+ * B298: what the chat is told with the results of a batch of tool calls when the person's words were filed: "Recorded as
+ * I17; close it with work close I17 --as ...", and the ones earlier turns left open. Null when there is nothing to say.
+ */
+export function recordedLine(filed: readonly string[], missed: readonly OpenInstruction[]): string | null {
+  const parts: string[] = []
+  if (filed.length === 1) parts.push(`Recorded as ${filed[0]}; close it with work close ${filed[0]} --as "what came of it" once it is done.`)
+  if (filed.length > 1) parts.push(`Recorded as ${andList(filed)}; close each with work close <id> --as "what came of it" once it is done.`)
+  const left = missed.filter(one => one.turns > 0 && !filed.includes(one.id))
+  if (left.length > 0) parts.push(`Still open from earlier turns: ${left.map(one => `${one.id} (missed ${one.turns} turn${one.turns === 1 ? '' : 's'})`).join(', ')}.`)
+  return parts.length === 0 ? null : parts.join(' ')
+}
+
+/** B299: one question of the app's question form, as the worker board files it: its words and its options. */
+export type FormQuestion = { text: string; options: string[] }
+
+/** B299: the questions an AskUserQuestion call asks (`questions: [{ question, options: [{ label }] }]`), at most four. */
+export function formQuestions(input: unknown): FormQuestion[] {
+  const list = typeof input === 'object' && input !== null ? (input as { questions?: unknown }).questions : undefined
+  if (!Array.isArray(list)) return []
+  return list.slice(0, 4).flatMap(one => {
+    const text = typeof one === 'object' && one !== null ? (one as { question?: unknown }).question : undefined
+    if (typeof text !== 'string' || text.trim() === '') return []
+    const raw = (one as { options?: unknown }).options
+    const options = Array.isArray(raw) ? raw.map(option => (typeof option === 'object' && option !== null ? (option as { label?: unknown }).label : option)).filter((label): label is string => typeof label === 'string' && label.trim() !== '') : []
+    return [{ text: text.trim(), options }]
+  })
+}
+
+/**
+ * B299: what the person gave in the app's form for a question, from the tool's result: their choice (`answers` by
+ * question), else their own words (`response`); '' for neither.
+ */
+export function formAnswer(result: unknown, question: string): string {
+  const read = typeof result === 'object' && result !== null ? result as { answers?: unknown; response?: unknown } : {}
+  const given = typeof read.answers === 'object' && read.answers !== null ? (read.answers as Record<string, unknown>)[question] : undefined
+  if (Array.isArray(given) && given.some(one => typeof one === 'string')) return given.filter(one => typeof one === 'string').join(', ')
+  if (typeof given === 'string' && given.trim() !== '') return given
+  return typeof read.response === 'string' ? read.response.trim() : ''
+}
+
+/** B299: the step a chat's card names first ("B12 Give the golem ..."), for an ask under it; null when none. */
+export function cardStep(chat: ChatFile | null): string | null {
+  return chat?.task?.text.match(/\bB\d+\b/)?.[0] ?? null
 }

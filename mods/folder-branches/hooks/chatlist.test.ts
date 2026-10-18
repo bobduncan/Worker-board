@@ -51,10 +51,22 @@ type World = {
   commanded: string[]
   compactions: string[]
   toasts: string[]
+  /** B297: each call of the work tool that reached the board, and what the board answers it. */
+  worked: string[]
+  workAnswer: { status: number; text: string }
+  /** B299: what the person picks in the app's question form, by question; the board's answers to the work tool, in turn. */
+  formAnswers: Record<string, string>
+  workAnswers: { status: number; text: string }[]
+  /** Review of B298: what the app's form answers besides its choices, whether it was closed unanswered, whether the
+   * board hangs, and what went in beside each prompt for the model. */
+  formResponse: string | null
+  formCloses: boolean
+  hangs: boolean
+  contexts: string[][]
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -127,7 +139,9 @@ function stand(on: On, w: World): void {
   on('tool.call', { tool: 'AskUserQuestion' }, () => {
     w.whileAsked = fileOf(w)
 
-    return { result: { answers: {} } }
+    if (w.formCloses) throw new Error('the person closed the form')
+
+    return { result: { answers: w.formAnswers, ...(w.formResponse === null ? {} : { response: w.formResponse }) } }
   })
   on('fs.exists', (_$, e) => {
     const path = slashed(e.path)
@@ -164,6 +178,13 @@ function stand(on: On, w: World): void {
   })
   on('http.fetch', (_$, e) => {
     if (w.up !== null && !w.up.some(address => e.url.startsWith(address))) return { deny: 'ECONNREFUSED' }
+    if (e.url.endsWith('/api/bridge/work')) {
+      w.worked.push(e.init?.body ?? '')
+      if (w.hangs) return new Promise<never>(() => {})
+      const answer = w.workAnswers.shift() ?? w.workAnswer
+
+      return { value: { status: answer.status, ok: answer.status === 200, headers: {}, text: answer.text } }
+    }
     if (e.url.endsWith('/api/bridge/typed')) {
       w.reported.push(e.init?.body ?? '')
 
@@ -176,6 +197,7 @@ function stand(on: On, w: World): void {
   on('prompt.submit', (_$, e) => {
     if (w.refusesTyping) return { drop: 'no prompt is taken now' }
     w.typedIn.push(`${e.origin.kind}:${e.origin.kind === 'plugin' && e.origin.asUser === true ? 'as the person' : 'framed'}:${e.text}`)
+    w.contexts.push([...(e.context ?? [])])
 
     return { text: e.text }
   })
@@ -197,6 +219,16 @@ const lineOf = (name: string) => ({ type: 'Text', text: new RegExp(`^. ${name}  
 
 const ENDED = { answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' } as const
 const BY_MODEL = { origin: { kind: 'model' } } as const
+/** B297: where the worker board says it is, with its key, and the work tool the mod registers. */
+const BOARD = 'C:/Web/project/.claude/board.json'
+const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
+const WORK = 'mcp__folder-branches__work'
+
+/** B301: the chat reports its step with the work tool, and the board takes it, naming the chat's next step (`more`) or none. */
+async function reported($: { tool: { call(input: never): Promise<unknown> } }, w: World, more: string | null = null): Promise<void> {
+  w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', text: 'B12 is in review: the board checks it.', more }) }
+  await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'it is in' } as never)
+}
 /** A request for the system prompt, as the engine makes one. */
 const COMPOSE = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['desktop'], tools: [], outputStyle: null, traits: [] } as const
 
@@ -207,7 +239,7 @@ describe('a chat keeps its own line in the list', () => {
     stand(on, w)
     await $.session.start(START)
     // The project keeps a list: the tool is in reach from the start, and nothing is listed yet.
-    expect(w.tools).toEqual(['chat:false'])
+    expect(w.tools).toEqual(['chat:false', 'work:false'])
     expect(fileOf(w)).toBeNull()
 
     await $.classic.UserPromptSubmit({ prompt: 'the archer', session_title: 'Game - Units' })
@@ -242,23 +274,24 @@ describe('a chat keeps its own line in the list', () => {
     await ui.unmount()
   })
 
-  test('the task clears by itself when the chat reports and its turn ends', async ($, on) => {
+  test('the task clears by itself when the chat reports its step (work report) and its turn ends', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 5, 5, 3), at: 0 } }))
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 5, 5, 3), at: 0 } }), [BOARD]: board })
     w.agents = [{ id: 'a1b2-judge', name: 'judge' }]
     stand(on, w)
     await $.session.start(START)
     await $.turn.start({ text: 'finish', turnId: 't1' })
 
-    // A message to one of its own agents is no report.
+    // A message is no report: to one of its own agents, or (B301) to the main chat.
     await $.session.send({ to: 'judge', text: 'look again', ...BY_MODEL })
     await $.session.send({ to: 'a1b2-judge [3fa9c1]', text: 'and again', ...BY_MODEL })
     // Nor is one to an agent that finished and is listed no more: its id says what it is.
     await $.session.send({ to: 'a99695cdbace47f46', text: 'once more', ...BY_MODEL })
     await $.turn.complete({ ...ENDED, turnId: 's9', agentId: 'helper-7' })
     await $.session.send({ to: 'helper-7', text: 'thanks', ...BY_MODEL })
-    expect(fileOf(w)?.task?.isReported).toBe(false)
     await $.session.send({ to: 'Game - Main', text: 'The archer is merged.', ...BY_MODEL })
+    expect(fileOf(w)?.task?.isReported).toBe(false)
+    await reported($, w)
     // Its last step, noted after the report, does not take the report back.
     await $.tool.call({ tool: TOOL, action: 'step' })
     expect(w.sent).toHaveLength(5)
@@ -513,7 +546,7 @@ describe('who is in the list', () => {
     const w = world('s1')
     stand(on, w)
     await $.session.start(START)
-    expect(w.tools).toEqual(['chat:true'])
+    expect(w.tools).toEqual(['chat:true', 'work:true'])
     expect(w.opened).toEqual([])
     await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'Game - Units' })
     await $.turn.start({ text: 'hi', turnId: 't1' })
@@ -778,25 +811,44 @@ describe('a working chat never stays without a time on its card', () => {
     for (let i = 0; i < 12; i++) expect(await told($)).toBeNull()
   })
 
-  test('a worker that reports to the main chat is done, whatever step its card stands on', async ($, on) => {
+  test('B301: a worker whose step the board took as reported (work report) is done, whatever step its card stands on', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 1, 3, 30), at: 0 } }))
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 1, 3, 30), at: 0 } }), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.turn.start({ text: 'go on', turnId: 't1' })
     // All three steps done without a word to the card, then the report.
-    await $.session.send({ to: 'Game - Main', text: 'The archer is merged and pushed.', ...BY_MODEL })
+    await reported($, w)
+    expect(fileOf(w)?.task?.isReported).toBe(true)
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(fileOf(w)?.task).toBeNull()
   })
 
-  test('a report in a turn that was cut short does not clear the card at the end of a later turn', async ($, on) => {
+  test('B301: a report message to the main chat ends nothing; nor does a report the board refused', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 2, 3, 30), at: 0 } }))
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 1, 3, 30), at: 0 } }), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.turn.start({ text: 'go on', turnId: 't1' })
-    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: nearly there.', ...BY_MODEL })
+    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: the archer is merged and pushed.', ...BY_MODEL })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    // Review: whatever its words, a message to another chat is no report: the card says the chat waits for that chat.
+    expect(fileOf(w)?.task?.asked).toBe(true)
+    await $.turn.start({ text: 'go on', turnId: 't2' })
+    w.workAnswer = { status: 409, text: 'B12 waits on Q4: withdraw it (work withdraw Q4) or wait for the answer.' }
+    expect((await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'the archer' })).result).toBe('B12 waits on Q4: withdraw it (work withdraw Q4) or wait for the answer.')
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    expect([fileOf(w)?.task?.text, fileOf(w)?.task?.isReported]).toEqual(['Skeleton Archer', false])
+  })
+
+  test('a report in a turn that was cut short does not clear the card at the end of a later turn', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 2, 3, 30), at: 0 } }), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.turn.start({ text: 'go on', turnId: 't1' })
+    await reported($, w)
     await $.turn.complete({ ...ENDED, reason: 'aborted', isAborted: true, turnId: 't1' })
     expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
     await $.turn.start({ text: 'one more thing', turnId: 't2' })
@@ -815,11 +867,11 @@ describe('a working chat never stays without a time on its card', () => {
     expect(fileOf(w)?.task?.isReported).toBe(false)
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
-    // The same by its first word, also to the main chat: a report by address that names nobody.
+    // B301: also one that says it is a report, to an address that names nobody: a message ends no step.
     await $.turn.start({ text: 'go on', turnId: 't2' })
     await $.session.send({ to: 'local_84e3310d-5c34', text: 'Report from Game - Units: the archer is merged.', ...BY_MODEL })
     await $.turn.complete({ ...ENDED, turnId: 't2' })
-    expect(fileOf(w)?.task).toBeNull()
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
   })
 
   test('a card left from the request before is asked about once, when the new request has not touched it', async ($, on) => {
@@ -852,15 +904,14 @@ describe('a working chat never stays without a time on its card', () => {
   })
 })
 
-describe('a large worker is compacted after it reported its task', () => {
+describe('a large worker is compacted after it reported its step', () => {
   const HAND = 'Another Claude session sent a message:\n<cross-session-message from="local_84e3" name="Game - Main">\nTask from Game - Main: the knight\n</cross-session-message>'
   const PEER = { origin: { kind: 'peer', name: 'Game - Main' } } as const
-  const FOLLOWS = HAND.replace('Task from Game - Main:', 'Task from Game - Main (more follows):')
   const REPORT = { to: 'Game - Main', text: 'Report from Game - Units: it is in.', ...BY_MODEL } as const
 
   test('a large chat is compacted when the turn in which it reported its task has ended, and told what to keep', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
@@ -871,7 +922,7 @@ describe('a large worker is compacted after it reported its task', () => {
     expect(w.compactions).toEqual([])
     await $.turn.start({ text: HAND, turnId: 't1' })
     await $.tool.call({ tool: TOOL, action: 'plan', text: 'The knight', names: ['Draw', 'Wire'], minutes: 20 })
-    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: the knight is merged.', ...BY_MODEL })
+    await reported($, w)
     expect(w.compactions).toEqual([])
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(w.compactions.length).toBe(1)
@@ -885,14 +936,14 @@ describe('a large worker is compacted after it reported its task', () => {
 
   test('a compaction that something else refuses leaves the chat as it is and says why', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     w.tokens = 400_000
     w.refusesCompact = true
     await $.turn.start({ text: 'go', turnId: 't1' })
-    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: done.', ...BY_MODEL })
+    await reported($, w)
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(w.toasts).toEqual(['Not compacted after this task: another hook keeps the conversation'])
     expect(fileOf(w)?.compacted).toBeUndefined()
@@ -902,13 +953,13 @@ describe('a large worker is compacted after it reported its task', () => {
 
   test('B227: a question to the person at the end of the report does not keep a large chat from being compacted', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     w.tokens = 400_000
     await $.turn.start({ text: 'go', turnId: 't1' })
-    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: done.', ...BY_MODEL })
+    await reported($, w)
     await $.turn.complete({ ...ENDED, turnId: 't1', answer: 'Done.\n\n> **For you**\n> 1. **Answer:** sheet A or B? I advise A.' } as never)
     expect(w.compactions.length).toBe(1)
     expect(fileOf(w)?.compactNote).toBeUndefined()
@@ -916,14 +967,14 @@ describe('a large worker is compacted after it reported its task', () => {
 
   test('B227: where the engine compacts only by /compact, the chat runs /compact once it is idle, and its card keeps the sizes', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     w.tokens = 400_000
     w.isHeadless = true
     await $.turn.start({ text: 'go', turnId: 't1' })
-    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: done.', ...BY_MODEL })
+    await reported($, w)
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     // The command is queued; once it has run, the card holds the sizes and no note.
     await new Promise(resolve => setTimeout(resolve, 50))
@@ -935,13 +986,13 @@ describe('a large worker is compacted after it reported its task', () => {
 
   test('B227: a small chat is left as it is without a word on the screen, and its card says why', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     w.tokens = 40_000
     await $.turn.start({ text: 'go', turnId: 't1' })
-    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: done.', ...BY_MODEL })
+    await reported($, w)
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(w.compactions).toEqual([])
     expect(w.toasts).toEqual([])
@@ -950,7 +1001,7 @@ describe('a large worker is compacted after it reported its task', () => {
 
   test('not after a note or a question to the main chat, and not after a turn that was cut short', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
@@ -959,7 +1010,7 @@ describe('a large worker is compacted after it reported its task', () => {
     await $.session.send({ to: 'Game - Main', text: 'Question from Game - Units: which knight?', ...BY_MODEL })
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await $.turn.start({ text: 'go on', turnId: 't2' })
-    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: done.', ...BY_MODEL })
+    await reported($, w)
     await $.turn.complete({ ...ENDED, turnId: 't2', isAborted: true, reason: 'aborted' })
     expect(w.compactions).toEqual([])
   })
@@ -978,61 +1029,43 @@ describe('a large worker is compacted after it reported its task', () => {
     expect(w.compactions).toEqual([])
   })
 
-  test('not when the hand-over said that more of the same work follows, and not after a turn without a report', async ($, on) => {
+  test('B301: not when the board names the next step of the chat in its answer to the report, and not after a turn without a report', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     w.tokens = 400_000
-    await $.prompt.submit({ text: HAND.replace('Task from Game - Main:', 'Task from Game - Main (more follows):'), ...PEER } as never)
     await $.turn.start({ text: 'part one', turnId: 't1' })
-    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: part one is in.', ...BY_MODEL })
+    await reported($, w, 'B13')
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(w.compactions).toEqual([])
-    // The next hand-over says nothing of the kind, but its turn ends without a report.
+    // A hand-over message says nothing to it, and a turn that ends without a report compacts nothing.
     await $.prompt.submit({ text: HAND, ...PEER } as never)
     await $.turn.start({ text: 'part two', turnId: 't2' })
     await $.turn.complete({ ...ENDED, turnId: 't2' })
     expect(w.compactions).toEqual([])
   })
 
-  test('a hand-over that comes in while a turn runs counts once that turn has ended', async ($, on) => {
+  test('B301: the next step holds for one report: a later report without one ends in a compaction', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     w.tokens = 400_000
-    await $.prompt.submit({ text: FOLLOWS, ...PEER } as never)
     await $.turn.start({ text: 'part one', turnId: 't1' })
-    await $.session.send(REPORT)
-    // The main chat is quick: part two is there before the turn has ended.
-    await $.prompt.submit({ text: HAND, ...PEER, turnId: 't1' } as never)
+    await reported($, w, 'B13')
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(w.compactions).toEqual([])
     await $.turn.start({ text: 'part two', turnId: 't2' })
-    await $.session.send(REPORT)
+    await reported($, w)
     await $.turn.complete({ ...ENDED, turnId: 't2' })
     expect(w.compactions.length).toBe(1)
-  })
-
-  test('"(more follows)" holds for one report: a task the person types after it ends in a compaction', async ($, on) => {
-    mock.clock(on)
-    const w = world('units', listed())
-    stand(on, w)
-    await $.session.start(START)
-    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
-    w.tokens = 400_000
-    await $.prompt.submit({ text: FOLLOWS, ...PEER } as never)
-    await $.turn.start({ text: 'part one', turnId: 't1' })
+    // A report message to the main chat compacts nothing: it is no report.
+    await $.turn.start({ text: 'part three', turnId: 't3' })
     await $.session.send(REPORT)
-    await $.turn.complete({ ...ENDED, turnId: 't1' })
-    expect(w.compactions).toEqual([])
-    await $.prompt.submit({ text: 'and now the sheet', ...ASKED } as never)
-    await $.turn.start({ text: 'and now the sheet', turnId: 't2' })
-    await $.session.send(REPORT)
-    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await $.turn.complete({ ...ENDED, turnId: 't3' })
     expect(w.compactions.length).toBe(1)
   })
 
@@ -1052,14 +1085,14 @@ describe('a large worker is compacted after it reported its task', () => {
 
   test('not a second time for the same turn', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     w.tokens = 400_000
     // B227: a question to the person in the answer no longer keeps it (it did until 0.8.0).
     await $.turn.start({ text: 'A', turnId: 't2' })
-    await $.session.send(REPORT)
+    await reported($, w)
     await $.turn.complete({ ...ENDED, answer: 'The knight is in.\n\n> **For you**\n> 1. **Answer:** sheet A or B? I advise A.', turnId: 't2' })
     expect(w.compactions.length).toBe(1)
     // The same turn ends once more, and the size the engine names is still the old one.
@@ -1070,14 +1103,358 @@ describe('a large worker is compacted after it reported its task', () => {
 
   test('a small chat is left as it is', async ($, on) => {
     mock.clock(on)
-    const w = world('units', listed())
+    const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
     w.tokens = 100_000
     await $.turn.start({ text: 'go', turnId: 't1' })
-    await $.session.send({ to: 'Game - Main', text: 'Report from Game - Units: done.', ...BY_MODEL })
+    await reported($, w)
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     expect(w.compactions).toEqual([])
+  })
+})
+
+describe('B297: the work tool asks the worker board', () => {
+  const BOARD = 'C:/Web/project/.claude/board.json'
+  const KEY = 'ab'.repeat(32)
+  const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: KEY, startedAt: 1 })
+  const WORK = 'mcp__folder-branches__work'
+
+  test('a call reaches the board with the chat, its session and the fields, and answers the text of the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    const next = await $.tool.call({ tool: WORK, action: 'next' })
+    expect(next.result).toBe('Yours, Units:')
+    expect(w.worked).toEqual(['{"action":"next","chat":"Units","session":"units"}'])
+    // What the chat gives as its name or session is never sent: the mod says who asks.
+    await $.tool.call({ tool: WORK, action: 'note', to: 'main', text: 'Found a bug', chat: 'Main', session: 'x', colour: 'red' })
+    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'note', to: 'main', text: 'Found a bug', chat: 'Units', session: 'units' })
+    // A refusal is the board's own line.
+    w.workAnswer = { status: 409, text: 'B12: Board holds it (in progress).\n' }
+    expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12' })).result).toBe('B12: Board holds it (in progress).')
+    // A subagent reads, and changes nothing.
+    expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12', agentId: 'a1' })).result).toBe("Only the chat's main conversation changes the work: nothing was changed.")
+    expect(w.worked.length).toBe(3)
+  })
+
+  test('a board that is down answers with one line and no throw', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.up = []
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe('The worker board did not answer: nothing was recorded. Try again in a moment.')
+  })
+
+  test('take writes the card from the title of the step, and step moves it', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', title: 'Give the golem its art', text: 'Id: B12' }) }
+    expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12' })).result).toBe('Id: B12')
+    expect(fileOf(w)?.task?.text).toBe('B12 Give the golem its art')
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', text: 'B12: step 1/3.' }) }
+    await $.tool.call({ tool: WORK, action: 'step', id: 'B12', names: ['Read', 'Draw', 'Test'], minutes: 40 })
+    expect([fileOf(w)?.task?.step, fileOf(w)?.task?.steps]).toEqual([1, 3])
+    await $.tool.call({ tool: WORK, action: 'step', id: 'B12', step: 2 })
+    expect(fileOf(w)?.task?.step).toBe(2)
+    // A step the board refused leaves the card as it is.
+    w.workAnswer = { status: 409, text: 'B12 is not in progress for Units: take it first.' }
+    expect((await $.tool.call({ tool: WORK, action: 'step', id: 'B12', step: 3 })).result).toBe('B12 is not in progress for Units: take it first.')
+    expect(fileOf(w)?.task?.step).toBe(2)
+  })
+})
+
+
+describe('B298: the person\'s words are filed on the worker board as instructions', () => {
+  const BOARD = 'C:/Web/project/.claude/board.json'
+  const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
+  const FILED = JSON.stringify({ id: 'I17', text: 'Recorded as I17', open: [{ id: 'I15', turns: 2 }, { id: 'I17', turns: 0 }] })
+  const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 200; i++) await Promise.resolve()
+  }
+
+  test('a prompt typed in the chat is filed before the turn sees it and goes in with its id and the open ones beside it', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.workAnswer = { status: 200, text: FILED }
+    await $.prompt.submit({ text: 'Make the strip blue', ...ASKED } as never)
+    expect(sent(w)).toEqual([{ action: 'instruction', text: 'Make the strip blue', chat: 'Units', session: 'units' }])
+    // The prompt itself goes on unchanged; beside it, for the model: its id and the ones still open.
+    expect(w.typedIn).toEqual(['composer:framed:Make the strip blue'])
+    expect(w.contexts[0]?.join('\n')).toContain('Recorded as I17; close it with work close I17 --as "what came of it" once it is done.')
+    expect(w.contexts[0]?.join('\n')).toContain('Open instructions: I15 (2 turns), I17 (new).')
+    // Review of B298: the system prompt stays the same words, so it stays cached.
+    const composed = await $.prompt.compose(COMPOSE)
+    expect(composed.sections.some(section => section.id === 'folder-branches:instructions')).toBe(false)
+  })
+
+  test('what the person sends by Remote Control is filed; a line the board typed, the same pasted by hand and a slash command are not', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.workAnswer = { status: 200, text: FILED }
+    await $.prompt.submit({ text: 'From my phone: the menu too', origin: { kind: 'bridge' } } as never)
+    await $.prompt.submit({ text: 'Queue the menu [I18]\n(typed on the worker board, 11:05)', origin: { kind: 'plugin', asUser: true } } as never)
+    await $.prompt.submit({ text: 'Queue the menu [I18]', ...ASKED } as never)
+    await $.prompt.submit({ text: '(answered on the worker board, 11:05) Q2 "Box or yew?": yew', ...ASKED } as never)
+    await $.prompt.submit({ text: '/compact', ...ASKED } as never)
+    expect(sent(w).map(one => one.text)).toEqual(['From my phone: the menu too'])
+    // A board line that starts a turn still carries the open ones beside it.
+    expect(w.contexts[1]?.join('\n')).toContain('Open instructions: I15 (2 turns), I17 (new).')
+  })
+
+  test('a prompt held during a turn is filed on submit and goes in with its id', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'I18', open: [{ id: 'I18', turns: 0 }] }) }
+    await $.prompt.submit({ text: 'And the menu too', ...ASKED, turnId: 't1' } as never)
+    expect(sent(w).map(one => one.action)).toEqual(['instruction'])
+    expect(w.contexts[0]?.join('\n')).toContain('Recorded as I18;')
+  })
+
+  test('the end of a turn that answered is told once, with when the turn started; a subagent\'s end is not', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    await clock.advance(5000)
+    const started = await clock.now()
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await clock.advance(60_000)
+    await $.turn.complete({ ...ENDED, turnId: 's1', agentId: 'a1' })
+    expect(w.worked).toEqual([])
+    w.workAnswer = { status: 200, text: JSON.stringify({ missed: ['I15'], open: [{ id: 'I15', turns: 3 }] }) }
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    // B300: a free worker pulls its next step with the same call, once.
+    expect(sent(w)).toEqual([{ action: 'turn-ended', since: started, pull: true, chat: 'Units', session: 'units' }])
+    // The next prompt names it as missed.
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'I16', open: [{ id: 'I15', turns: 3 }, { id: 'I16', turns: 0 }] }) }
+    await $.prompt.submit({ text: 'go on', ...ASKED } as never)
+    expect(w.contexts[0]?.join('\n')).toContain('I15 (3 turns)')
+  })
+
+  test('B301: a board without a work store refuses (503): nothing changes for the chat, and the next prompt asks again', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.workAnswer = { status: 503, text: 'No work store in C:/Web/project/.claude/work: the board shows no work.' }
+    await $.prompt.submit({ text: 'Make the strip blue', ...ASKED } as never)
+    expect([w.typedIn, w.contexts]).toEqual([['composer:framed:Make the strip blue'], [[]]])
+    await $.turn.start({ text: 'Make the strip blue', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await $.prompt.submit({ text: 'And the menu', ...ASKED } as never)
+    // Nothing is remembered: each word of the person's is offered to the board, which says on its page what is wrong.
+    expect(sent(w).map(one => one.action)).toEqual(['instruction', 'turn-ended', 'instruction'])
+    expect(w.toasts).toEqual([])
+  })
+
+  test('a board that hangs holds the prompt at most a moment and a half: the prompt goes in without it', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.hangs = true
+    const submitted = $.prompt.submit({ text: 'Make the strip blue', ...ASKED } as never)
+    await settle()
+    expect(w.typedIn).toEqual([])
+    await clock.advance(1500)
+    await submitted
+    expect(w.typedIn).toEqual(['composer:framed:Make the strip blue'])
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    const ended = $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    // B300: the turn's end with the free worker's pull is one call, held a moment and a half at most in all.
+    await clock.advance(1500)
+    await ended
+    expect(sent(w).map(one => one.action)).toEqual(['instruction', 'turn-ended'])
+  })
+
+  test('a chat started anew asks once for its open instructions, so its first turn names them', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
+    stand(on, w)
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [{ id: 'I9', turns: 1 }] }) }
+    await $.session.start(START)
+    await settle()
+    expect(sent(w).map(one => one.action)).toEqual(['next'])
+    await $.prompt.submit({ text: 'Queue the menu [I10]\n(typed on the worker board, 11:05)', origin: { kind: 'plugin', asUser: true } } as never)
+    expect(w.contexts[0]?.join('\n')).toContain('Open instructions: I9 (1 turn).')
+    expect(w.worked.length).toBe(1)
+  })
+})
+
+describe('B300: a free worker pulls its next step at the end of its turn', () => {
+  const BOARD = 'C:/Web/project/.claude/board.json'
+  const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
+  const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
+  const LINE = 'work: B286 is yours; run work next'
+
+  test('a free worker’s turn end pulls, and the line the board puts out for it is typed at once', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ missed: [], open: [], pull: { text: LINE, id: 'B286', wake: { to: 'Units', id: 'B286' } } }) }
+    w.waiting = [{ id: 'w1', text: LINE }]
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    expect(sent(w).map(one => [one.action, one.pull ?? null])).toEqual([['turn-ended', true]])
+    expect(w.typedIn).toEqual([`plugin:as the person:${LINE}`])
+  })
+
+  test('a worker whose card holds a task does not pull, nor does an interrupted turn', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'working', task: task('B12 Give the golem', 1, 3, 20), at: 0 } }), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await $.turn.start({ text: 'go', turnId: 't2' })
+    await $.turn.complete({ ...ENDED, turnId: 't2', reason: 'aborted', isAborted: true })
+    // A chat in the list at its start asks once for its open instructions ("next"); no pull follows either turn.
+    expect(sent(w).map(one => [one.action, one.pull ?? null])).toEqual([['next', null], ['turn-ended', null]])
+  })
+
+  test('B301: a board that refuses the turn\'s end takes nothing in; the next turn\'s end asks again', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.workAnswer = { status: 503, text: 'No work store in C:/Web/project/.claude/work: the board shows no work.' }
+    for (const turn of ['t1', 't2', 't3']) {
+      await $.turn.start({ text: 'go', turnId: turn })
+      await clock.advance(60_000)
+      await $.turn.complete({ ...ENDED, turnId: turn })
+    }
+    expect(w.worked.length).toBe(3)
+    expect(w.typedIn).toEqual([])
+  })
+
+  test('the main chat does not pull', async ($, on) => {
+    mock.clock(on)
+    const w = world('main', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Main' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    expect(sent(w).map(one => [one.action, one.pull ?? null])).toEqual([['turn-ended', null]])
+  })
+
+  test('a free worker whose pull brings nothing takes nothing', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ missed: [], open: [], pull: { text: '', id: null, wake: null } }) }
+    const takes = w.fetched.length
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    expect(sent(w).map(one => [one.action, one.pull ?? null])).toEqual([['turn-ended', true]])
+    expect(w.fetched.length).toBe(takes)
+    expect(w.typedIn).toEqual([])
+  })
+})
+
+describe('B299: a question asked with the app\u2019s form stands on the worker board too', () => {
+  const BOARD = 'C:/Web/project/.claude/board.json'
+  const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
+  const FORM = { tool: 'AskUserQuestion', questions: [{ question: 'Which port?', header: 'Port', multiSelect: false, options: [{ label: '4320', description: 'free' }, { label: '4330', description: 'taken' }] }] }
+  const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
+  const working = { units: { name: 'Units', role: 'worker' as const, state: 'waiting' as const, task: task('B12 Give the golem', 1, 3, 20), at: 0 } }
+  /** A chat that joins by its title, so it has asked the board nothing before the test's own calls. */
+  const begin = async ($: { session: { start: (e: never) => Promise<unknown> }; classic: { UserPromptSubmit: (e: never) => Promise<unknown> }; turn: { start: (e: never) => Promise<unknown> } }): Promise<void> => {
+    await $.session.start(START as never)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' } as never)
+    await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  }
+
+  test('it is filed as a decide ask under the card\u2019s step, and the answer given in the form follows', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(working), [BOARD]: board })
+    w.workAnswer = { status: 409, text: 'not yet' }
+    stand(on, w)
+    await begin($)
+    w.worked = []
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'Q4', text: '> **For you**' }) }
+    w.formAnswers = { 'Which port?': '4320' }
+    await $.tool.call(FORM as never)
+    expect(sent(w)).toEqual([
+      { action: 'ask', kind: 'decide', via: 'form', text: 'Which port?', options: ['4320', '4330'], of: 'B12', chat: 'Units', session: 'units' },
+      { action: 'answered-in-chat', id: 'Q4', text: '4320', chat: 'Units', session: 'units' },
+    ])
+  })
+
+  test('refused under the step it stands alone; answered in free text it is answered; closed unanswered it is withdrawn', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(working), [BOARD]: board })
+    w.workAnswer = { status: 409, text: 'not yet' }
+    stand(on, w)
+    await begin($)
+    // The 409 above is remembered for five minutes: past them the board is asked again.
+    await clock.advance(5 * 60_000)
+    w.worked = []
+    w.workAnswers = [{ status: 409, text: 'B12 is Board\u2019s' }, { status: 200, text: JSON.stringify({ id: 'Q5' }) }, { status: 200, text: '{}' }]
+    w.formResponse = 'neither, use 4340'
+    await $.tool.call(FORM as never)
+    expect(sent(w).map(one => [one.action, one.of ?? null, one.id ?? null, one.text ?? null])).toEqual([
+      ['ask', 'B12', null, 'Which port?'], ['ask', null, null, 'Which port?'], ['answered-in-chat', null, 'Q5', 'neither, use 4340'],
+    ])
+    w.worked = []
+    w.workAnswers = [{ status: 200, text: JSON.stringify({ id: 'Q6' }) }]
+    w.formCloses = true
+    await $.tool.call(FORM as never).catch(() => null)
+    expect(sent(w).map(one => [one.action, one.id ?? null])).toEqual([['ask', null], ['withdraw', 'Q6']])
+  })
+
+  test('B301: a board without a work store files nothing, and the form is asked as before', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    w.workAnswer = { status: 503, text: 'No work store in C:/Web/project/.claude/work: the board shows no work.' }
+    await begin($)
+    const asked = await $.tool.call(FORM as never)
+    expect(asked.result).toEqual({ answers: {} })
+    expect(sent(w).map(one => one.action)).toEqual(['ask'])
+    expect(w.whileAsked?.state).toBe('asking')
+  })
+
+  test('the chat closes its own ask with the person\u2019s words from the chat, through the work tool', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await begin($)
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'Q7', text: 'Q7 answered in the chat.' }) }
+    expect((await $.tool.call({ tool: 'mcp__folder-branches__work', action: 'answered-in-chat', id: 'Q7', text: 'yes, B' } as never)).result).toBe('Q7 answered in the chat.')
+    expect(sent(w).at(-1)).toEqual({ action: 'answered-in-chat', id: 'Q7', text: 'yes, B', chat: 'Units', session: 'units' })
   })
 })

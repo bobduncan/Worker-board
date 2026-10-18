@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import { readFolders } from '../src/folders.mjs'
 import { listPictures } from '../src/pictures.mjs'
+import { storeFromText } from '../src/work/read.mjs'
 import { answer, assistant, fromChat, modCompaction, step, tool, toolResult, typed, usageResult, user } from './lines.mjs'
 
 const MIN = 60_000
@@ -46,14 +47,14 @@ const BACKLOG = `# Backlog
 
 ## Movement #focus
 - [x] Player input
-- [ ] Integrate player movement (Game - Main; branch feature/player-movement)
+- [ ] Integrate player movement (for Main) (branch feature/player-movement)
 - [ ] B03 Verify: the jump feels right (picture in art-inbox/jump) @you
 - [ ] B04 Do: quit and reopen the app once @you
 
 ## Enemies #focus
-- [ ] Enemy pathfinding (Game - Units; branch feature/enemy-ai)
-- [ ] Add save / load system (Game - Features; branch feature/save-load)
-- [ ] Build first level (Game - Levels / Environment; branch feature/forest)
+- [ ] Enemy pathfinding (for Units) (branch feature/enemy-ai)
+- [ ] Add save / load system (for Features) (branch feature/save-load)
+- [ ] Build first level (for Levels / Environment) (branch feature/forest)
 
 ## Next to hand out (Game - Main)
 - [x] Add save / load system (for Features)
@@ -64,18 +65,31 @@ const BACKLOG = `# Backlog
   - Works for the player and for enemies
   - The jump keeps its own timing
   Context: the jump arc is in art-inbox/jump. Keep the blend under a tenth of a second.
+  Refined (2026-10-14 18:40; ready):
+  Summary: A change of speed flows from walk to run to jump, with no visible snap.
+  Picture: art-inbox/jump/jump-arc.png (the jump's arc, which keeps its own timing)
+  Part of: G2 M1 · A first playable build
+  Size: about 40 min
+  What we build:
+  - Walk, run and jump blend into each other in under a tenth of a second.
+  - The same blend for the player and for enemies.
+  - The jump keeps its own timing; only its start and its landing blend.
+  - Not in it: blending of attacks; they come with the attack patterns.
 - [ ] Review the merge order (for Main; about 15 min)
 - [ ] Plan the next milestone (for Main; about 30 min)
 - [ ] Enemy abilities (for Units; after the pathfinding choice; about 30 min)
 - [ ] Enemy attack patterns (for Units; about 1 h)
 - [ ] Main menu (for Features; after save / load merges; about 1 h)
 - [ ] B12 Settings screen (for Features; about 45 min)
-  Refined (round 1, by Advisor, 2026-10-14 18:52):
-  Problem: Players cannot turn the music down or change the keys, so some stop playing.
-  Goal: One screen for sound, keys and display, reachable from the menu and the pause screen.
+  Refined (round 2, by Advisor, 2026-10-14 18:52):
+  Summary: One screen to turn the music down and change the keys, from the menu and from the pause screen.
+  Picture: art-inbox/settings/settings-screen.png (the screen with its tabs; Save keeps what you set)
+  Part of: G2 M1 · A first playable build
+  Size: about 45 min
   Questions:
-  - Should the keys be changeable, or only shown? Answer: changeable
-  - Does it save per player, or once for the computer?
+  - Can the keys be changed, not only shown? Advised: yes, players asked for it Answer: yes
+  - Saved once for the computer, not per player? Advised: yes, one player per computer so far
+  - A display tab now, though it has nothing to set yet? Advised: no, it waits for the window sizes
 - [ ] Controller support (for Features; about 2 h)
 - [ ] Remove unused assets (for Cleanup; about 20 min)
 - [ ] Lava biome (for Levels / Environment; about 1 h 30 min)
@@ -195,7 +209,8 @@ function transcripts(now) {
       fromChat(ago(150), 'Game - Main', 'Task from Game - Main: choose the enemy approach. Time box: about an hour.'),
       step(ago(149), 'Read the enemy code'),
       toolResult(ago(148)),
-      answer(ago(103), 'Two approaches are worked out. Which one do you want: NavMesh or a custom grid?'),
+      // B299: it asks with the app's own question form: answered in its chat only.
+      assistant(ago(103), 'tool_use', [tool('AskUserQuestion', { questions: [{ question: 'Two approaches are worked out. Which one do you want?', options: [{ label: 'NavMesh' }, { label: 'Custom grid' }] }] })]),
     ], 103),
     'demo-features': tail([
       fromChat(ago(55), 'Game - Main', 'Task from Game - Main: add a save / load system.'),
@@ -230,7 +245,7 @@ function transcripts(now) {
       toolResult(ago(45)),
       answer(ago(44), 'Decide on the pathfinding approach first: **Units** waits for it, and nothing else on enemies can start. After that, hand Cleanup its queued task: it is free.'),
       typed(ago(20), 'Can Features start the main menu while the save system is still in review?'),
-      // B275: its answer asks the person something: it stands under Needs your attention, answered straight to it.
+      // B301: its answer asks the person something but it filed no ask: a warning under Needs your attention leads to its chat.
       answer(ago(19), [
         'Yes, if it does not touch the save files: the main menu only reads whether a save exists.',
         '',
@@ -318,6 +333,96 @@ function history(now) {
 }
 
 /** B255: the demo's goal map, in the form of goals.md, its steps on the demo's backlog. */
+/** B259: the demo's brainstorms: one waiting on a question, one with a proposal to tick, one done the day before. */
+const THREADS = now => {
+  const day = dayOf(now)
+  const before = dayOf(now - 24 * 60 * MIN)
+  return [
+    { path: `.claude/brainstorms/${day}-how-the-enemies-chase.md`, at: now - 5 * MIN, text: `# Brainstorm: How the enemies chase
+Goal: G5 Enemies that chase
+Started: ${day} 09:30 · State: running
+Opening: The enemies should feel clever, not unfair. How do they find the player?
+Context: G5 has no steps yet; its Missing line asks for the enemies' pathfinding. M1 wants moving to feel good first.
+
+## Q1 (09:32)
+Which enemies chase first?
+Why: it decides which enemy the first step builds.
+- A: the wolves, the forest's main enemy (advised)
+- B: the bats, which fly over everything
+Answer (09:35): A
+
+## Q2 (09:37)
+How far does an enemy see you?
+Why: it decides how often a chase starts.
+- A: five tiles (advised)
+- B: the whole screen
+Answer (09:40): A — but less in the fog
+
+## Q3 (09:42)
+How should a wolf find its way to you?
+Why: it decides the pathfinding step and what it costs.
+- A: a navigation mesh: smooth paths round the trees (advised)
+- B: a grid, tile by tile: simpler, a little stiff
+- C: straight at you, no pathfinding: wolves get stuck on trees
+Picture: art-inbox/pathfinding/option-a-navmesh.png
+` },
+    { path: `.claude/brainstorms/${day}-the-forest-level-s-map.md`, at: now - 40 * MIN, text: `# Brainstorm: The forest level's map
+Goal: G8 The forest level
+Started: ${day} 08:10 · State: running
+Opening: I want the forest level to have one moment players remember.
+
+## Q1 (08:12)
+What should the moment be?
+Why: it decides what the map is built around.
+- A: a clearing where the fog lifts (advised)
+- B: a chase across a bridge
+Answer (08:14): A
+
+## Q2 (08:16)
+When does the player reach it?
+Why: it decides where the clearing stands on the map.
+- A: halfway (advised)
+- B: at the very end
+Answer (08:19): B — the clearing at dusk, as the reward
+
+## Proposal (08:30)
+Decided:
+- one clearing at the end is the moment: the fog lifts there at dusk
+- the map first, the light after
+Goals:
+- [ ] The forest map, drawn — under G8 — Done when: a friend walks from the start to the clearing without a guide
+- [ ] The clearing at dusk — under G8 — Done when: the fog lifts as you enter it
+Steps:
+- [ ] Draw the forest level's map — Levels — about 2 h
+- [ ] The fog that lifts in the clearing — Main decides — about 1 h
+- [ ] A test walk with a friend — Advisor — about 30 min
+Note: one moment to remember is enough for the first level; the light makes it, so it comes after the map.
+` },
+    { path: `.claude/brainstorms/${before}-footsteps-that-sound-right.md`, at: now - 20 * 60 * MIN, text: `# Brainstorm: Footsteps that sound right
+Goal: G3 Footsteps and fog
+Started: ${before} 16:00 · State: done
+Opening: The footsteps sound the same on every ground.
+
+## Q1 (16:02)
+Which grounds get their own sound?
+Why: it decides how many sounds are made.
+- A: grass, stone and wood (advised)
+- B: every ground of the game
+Answer (16:05): A
+
+## Proposal (16:12)
+Decided:
+- three grounds, three sounds
+Goals:
+Steps:
+- [ ] Record grass, stone and wood steps — Main decides — about 1 h
+- [ ] Play the step sound by the ground — Units — about 30 min
+Note: three sounds cover nine of ten steps a player takes.
+Created (16:20): no goals; 2 steps asked of the main chat; left out: nothing
+` },
+  ]
+}
+
 const GOALS = now => `# Goals
 
 Rules: a goal is one line "- [ ] G<n> <title>"; two spaces of indentation per level is "part of".
@@ -334,8 +439,12 @@ Rules: a goal is one line "- [ ] G<n> <title>"; two spaces of indentation per le
     - [~] G4 The jump
       Steps: B03, B11
       Missing: a test level with gaps of every width
+      Ask (A2, ${dayOf(now)} 08:40): how does our jump compare with the arc in the picture?
+      Answer (${dayOf(now)} 09:05, Advisor): It rises as in the picture but falls too slowly: the picture falls twice as fast as it rises. Fix the fall first, about 30 min; the height is right (art-inbox/jump/jump-arc.png).
+      More: .claude/goal-asks/${dayOf(now)}-jump-compared.md
     - [ ] G5 Enemies that chase
       Missing: the enemies' pathfinding as a step
+      Brainstorm: .claude/brainstorms/${dayOf(now)}-how-the-enemies-chase.md (running)
   - [ ] G6 M2 · A level to finish
     From the game plan: M2
     - [ ] G7 The menus
@@ -343,6 +452,7 @@ Rules: a goal is one line "- [ ] G<n> <title>"; two spaces of indentation per le
       Ask (A1, ${dayOf(now)} 09:10): which menu does a player open first?
     - [ ] G8 The forest level
       Missing: the level's map
+      Brainstorm: .claude/brainstorms/${dayOf(now)}-the-forest-level-s-map.md (running)
   - [ ] G9 M3+ · More levels
     From the game plan: M3+
 - [~] G10 The team's tools
@@ -354,6 +464,14 @@ Rules: a goal is one line "- [ ] G<n> <title>"; two spaces of indentation per le
     Also part of: G6
     Steps: B30
 `
+
+/** B301: the demo's work store, in memory: its backlog as items, B06 closed through the work API at the time of its report. */
+function demoWork(now) {
+  const work = storeFromText(BACKLOG + FINISHED(now), { now })
+  const stamp = at => `${dayOf(at)} ${clockOf2(at)}`
+  work.items.get('B06')?.sections.set('History', [`- ${stamp(now - 101 * MIN)} Cleanup: in progress → review`, `- ${stamp(now - 100 * MIN)} server: review → done`])
+  return work
+}
 
 /** The demo's sources as they stand at `now`, in the shape `readSources` gives for the real files. */
 /** When the demo's requests were filed: fixed at the first look, as a real request is filed once. */
@@ -373,7 +491,8 @@ export async function demoSources(now) {
     planLineTexts: {
       'demo-main': plan(now, { text: 'Integrate player movement', step: 4, steps: 5, left: 25 * MIN, isReported: false }, 3),
       // B248: an older Workers mod could not compact Units: the app has to start anew.
-      'demo-units': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Choose enemy approach', step: 2, steps: 4, left: 30 * MIN, isReported: false }, 103)), compactNote: { at: now - 110 * MIN, why: 'a-mod: $.session.compact: not available in a headless session yet' } }),
+      // B299: its card says it asks with the app's question form; the mod renews it while it waits.
+      'demo-units': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Choose enemy approach', step: 2, steps: 4, left: 30 * MIN, isReported: false }, 103)), compactNote: { at: now - 110 * MIN, why: 'a-mod: $.session.compact: not available in a headless session yet' }, state: 'asking', at: now - 0.2 * MIN }),
       'demo-features': plan(now, { text: 'Add save / load system', step: 3, steps: 5, left: 114 * MIN, isReported: false }, 9),
       // B235: the Workers mod compacted Cleanup after its report; B247: the size after is not known yet (0).
       'demo-cleanup': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Tidy the docs', step: 2, steps: 2, left: 0, isReported: false }, 105)), compacted: { at: now - 100 * MIN, before: 612000, after: 0 } }),
@@ -381,8 +500,11 @@ export async function demoSources(now) {
       'demo-levels': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Build first level (forest)', step: 2, steps: 6, left: 40 * MIN, isReported: false }, 6)), compactNote: { at: now - 30 * MIN, why: 'it is small enough' } }),
     },
     tails: transcripts(now),
-    backlogText: BACKLOG + FINISHED(now),
+    // B301: the demo's work store, made in memory from its backlog (it has no project folder).
+    work: demoWork(now),
     goalsText: GOALS(now),
+    // B259: the demo's brainstorms, newest first.
+    threadTexts: THREADS(now),
     // B113: the app's usage file, three minutes old.
     usageText: `{"version":2,"samples":[{"t":${now - 3 * MIN},"org":"demo","u":{"fh":86,"sd":64}}]}`,
     adviceText: ADVICE,

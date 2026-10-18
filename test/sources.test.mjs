@@ -8,8 +8,11 @@ import { answer, fromChat, step, typed, usageResult } from '../fixtures/lines.mj
 import { parseConfig } from '../src/config.mjs'
 import { readHead } from '../src/files.mjs'
 import { findPicture, listPictures, mentionedPaths } from '../src/pictures.mjs'
-import { oneAtATime, readSources } from '../src/sources.mjs'
-import { buildState } from '../src/state.mjs'
+import { oneAtATime, readSources, readThreads } from '../src/sources.mjs'
+import { migrateBacklog } from '../src/work/migrate.mjs'
+import { storeKeeper } from '../src/work/read.mjs'
+import { writeStore } from '../src/work/store.mjs'
+import { buildState } from './withStore.mjs'
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data')
 const NOW = Date.UTC(2026, 9, 12, 8, 24)
@@ -33,7 +36,9 @@ async function project(t) {
   // B210: a chat without the Workers mod writes its own card under its name; the mod's card goes first.
   await put('project/.claude/chats/own/main.json', JSON.stringify({ name: 'Main', task: { text: 'Plan the week', minutes: 15 } }))
   await put('project/.claude/chats/own/units.json', JSON.stringify({ name: 'Units', task: { text: 'Not this one' } }))
-  await put('project/.claude/backlog.md', '## Art #focus\n- [ ] Say whether the archer is right (pictures in art-inbox/archer) @you\n')
+  // B301: the work comes from the work store; the backlog file beside it is only its view and is not read.
+  await put('project/.claude/backlog.md', '## Art #focus\n- [ ] Read nothing from here (pictures in secret) @you\n')
+  await writeStore(join(root, 'project', '.claude', 'work'), migrateBacklog('## Art #focus\n- [ ] Say whether the archer is right (pictures in art-inbox/archer) @you\n', { now: NOW }), undefined, { now: NOW })
   await put('project/.claude/asks/units-sheet.json', JSON.stringify({ id: 'units-sheet', from: 'Units', kind: 'verify', title: 'Check the sheet', pictures: ['art-inbox/archer/sheet.png'], at: NOW - 5 * MIN }))
   await put('project/.claude/asks/notes.txt', 'not an ask')
   await put('project/art-inbox/archer/sheet.png', 'made-up picture')
@@ -59,7 +64,7 @@ test('readSources reads a project\'s files into the shape buildState takes, and 
   for (const name of Object.keys(real)) console[name] = (...parts) => printed.push(parts.join(' '))
   let raw
   try {
-    raw = await readSources(config, async () => [{ path: 'C:/game', name: 'game', branch: 'main', ahead: 0, uncommitted: 0, lastCommitAt: NOW }], NOW)
+    raw = await readSources(config, async () => [{ path: 'C:/game', name: 'game', branch: 'main', ahead: 0, uncommitted: 0, lastCommitAt: NOW }], NOW, undefined, storeKeeper({ dir: join(config.project, '.claude', 'work') }))
   } finally {
     Object.assign(console, real)
   }
@@ -80,7 +85,8 @@ test('readSources reads a project\'s files into the shape buildState takes, and 
   assert.equal(JSON.parse(raw.planLineTexts['units-id']).task.text, 'Archer')
   assert.deepEqual(raw.pictureLists, { 'art-inbox/archer': ['art-inbox/archer/sheet.png'] })
   assert.deepEqual(state.forYou.map(need => [need.id, need.from, need.pictures]), [['units-sheet', 'Units', ['art-inbox/archer/sheet.png']]])
-  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.pictures]), [['Say whether the archer is right (pictures in art-inbox/archer)', 'Art', ['art-inbox/archer/sheet.png']]])
+  assert.deepEqual(state.backlogForYou.map(step => [step.title, step.activity, step.pictures]), [['Say whether the archer is right', 'Art', ['art-inbox/archer/sheet.png']]])
+  assert.equal('backlogText' in raw, false)
 })
 
 test('B255: readSources reads the goal map beside the backlog, where the setting goals says', async t => {
@@ -102,7 +108,7 @@ test('readSources never follows a transcript name out of the transcripts folder'
 test('readSources gives empty sources for folders that do not exist, and survives a folders reader that fails', async () => {
   const config = { ...parseConfig('{}', {}), project: join(DATA, 'no-such-project'), appSessions: join(DATA, 'no-such-app'), transcripts: join(DATA, 'none') }
   const raw = await readSources(config, async () => { throw new Error('git is not installed') }, NOW)
-  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, planLineAt: {}, tails: {}, backlogText: null, adviceText: null, folders: null, askTexts: [], goalsText: null, pictureLists: {}, usageText: null, restartNote: null, branches: null, adviceAt: null })
+  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, planLineAt: {}, tails: {}, adviceText: null, folders: null, askTexts: [], goalsText: null, threadTexts: [], pictureLists: {}, work: undefined, usageText: null, restartNote: null, branches: null, adviceAt: null })
 })
 
 test('a picture is found only inside a folder the board may show, also when a path tries to leave it', async t => {
@@ -181,4 +187,19 @@ test('B156: a step that names an idea\'s folder shows the pictures made, not the
   assert.deepEqual(await listPictures(config.project, ['art-inbox'], 'art-inbox/ideas/shop'), ['art-inbox/ideas/shop/v1.png'])
   // Outside the ideas folder such a name is a picture like any other.
   assert.ok((await listPictures(config.project, ['art-inbox'], 'art-inbox/archer')).includes('art-inbox/archer/reference-1.png'))
+})
+
+test('B259: the brainstorms are read from their folder, newest first, the board\'s own names only', async t => {
+  await mkdir(DATA, { recursive: true })
+  const root = await mkdtemp(join(DATA, 'test-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const folder = join(root, '.claude', 'brainstorms')
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, '2026-10-14-older.md'), '# Brainstorm: Older\n')
+  await new Promise(done => setTimeout(done, 30))
+  await writeFile(join(folder, '2026-10-15-newer.md'), '# Brainstorm: Newer\n')
+  await writeFile(join(folder, 'Notes.txt'), 'not a thread')
+  const threads = await readThreads(root, '.claude/brainstorms')
+  assert.deepEqual(threads.map(one => [one.path, one.text]), [['.claude/brainstorms/2026-10-15-newer.md', '# Brainstorm: Newer\n'], ['.claude/brainstorms/2026-10-14-older.md', '# Brainstorm: Older\n']])
+  assert.deepEqual(await readThreads(root, '.claude/none'), [])
 })

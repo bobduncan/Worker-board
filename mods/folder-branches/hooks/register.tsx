@@ -7,14 +7,14 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { ChatFile, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, boardStarts, parseBoard, parseTaken } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_PATH, boardStarts, parseBoard, parseTaken } from './board'
 import type { Board, BoardStart } from './board'
 import {
-  BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, handOver, chatText, chatsSummary, fileName,
-  foldersAbove, hasLeft, isAgentId, nameFromTitle, orderChats, parseChat, parseList, sentKind, sessionOf, status, uniqueByName,
-  withDone, withPlan, withSend, withState, withStep,
+  BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName,
+  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, sessionOf, status, uniqueByName,
+  withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
-import type { TaskChange } from './chats'
+import type { OpenInstruction, TaskChange } from './chats'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
 } from './folders'
@@ -22,6 +22,8 @@ import {
 const PANE = 'folder-branches'
 const WORKERS = 'workers'
 const TOOL = 'mcp__folder-branches__chat'
+/** B297: the tool a chat works the store's items with, on the worker board. */
+const WORK = 'mcp__folder-branches__work'
 /** How often the folders are read again, so a branch switched in a terminal shows in the pane: half a minute. */
 const REFRESH_MS = 30000
 /** How often the chat list is read again, so another chat's change shows in the pane. */
@@ -79,20 +81,26 @@ let isCardSeen = false
 const TELL_MS = 20000
 /** True once the chat sent another chat a note or a question in this turn: it then waits for that chat. */
 let hasAsked = false
-/** True once the chat reported its task to the main chat in this turn. */
+/** B301: true once the chat reported its step with the work tool in this turn (`work report`, taken by the board). */
 let hasReported = false
 /**
- * True when the task handed over last said that more of the same work follows: no compaction after its report. It
- * holds for that one report, and it is not kept over a restart of the app: the chat is then compacted between the
- * two parts after all, which costs it a second reading and nothing else.
+ * B301: true when the board answered that report with the chat's next step (it holds another step queued or taken):
+ * more of the same work follows, so no compaction after it. Not kept over a restart of the app: the chat is then
+ * compacted between the two after all, which costs it a second reading and nothing else.
  */
 let moreFollows = false
-/** The same word of a hand-over that came in while a turn ran: it counts once that turn has ended. Null: none came. */
-let followsNext: boolean | null = null
 /** True while the worker board is asked, so two ticks never take at once. */
 let isTaking = false
 /** The board's messages typed in this process: one the board hands out again is not typed again. */
 const typedIds = new Set<string>()
+/** B298: when this session's running turn started; null between turns. */
+let turnStartedAt: number | null = null
+/** B298: true once the board was told that this turn ended: a second end of the same turn tells it nothing. */
+let isTurnEndTold = true
+/** Review of B298: true once the board named this chat's open instructions in this process. */
+let isOpenKnown = false
+/** B298: this chat's open instructions, as the board last answered them. */
+let openInstructions: OpenInstruction[] = []
 /** The ids and names of this session's own agents, as seen so far: a message to one of them is no report. */
 const ownAgents = new Set<string>()
 
@@ -335,6 +343,95 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
   })
 
   return answer.ok ? answer.text : null
+}
+
+/**
+ * B297: one call of the work tool, sent to the worker board as this chat: `{ ok, text }`, the board's answer or one
+ * line saying why there is none. It never throws.
+ */
+async function workOnBoard($: EngineInterface, fields: Record<string, unknown>): Promise<{ ok: boolean; text: string; status?: number }> {
+  if (myself === null || chatsDir === null) return { ok: false, text: 'This chat is not in the list of chats: the work tool is for the chats of the list.' }
+  try {
+    const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
+    const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
+    if (board === null) return { ok: false, text: 'The worker board is not running: nothing was recorded. Try again once it runs.' }
+    const answer = await $.http.fetch(`${board.url}${WORK_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key },
+      // Who asks is the mod's to say, never the chat's.
+      body: JSON.stringify({ ...fields, chat: myself.name, session: await $.session.id() }),
+    })
+    if (!answer.ok) return { ok: false, text: answer.text.trim() || `The worker board refused it (${answer.status}).`, status: answer.status }
+
+    return { ok: true, text: answer.text, status: answer.status }
+  } catch {
+    return { ok: false, text: 'The worker board did not answer: nothing was recorded. Try again in a moment.' }
+  }
+}
+
+/**
+ * B298: one call of the work tool made by the mod itself (an instruction filed, a turn ended): the board's answer as
+ * fields, or null when there is none (no board, no work store, a refusal). Silent: nothing changes for the chat when
+ * the board does not take it; the board says on its own page what is wrong.
+ */
+async function workQuietly($: EngineInterface, fields: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  try {
+    if (myself === null) await withinTime($, changeMine($, () => null))
+    // Review of B298: a board that hangs or starts anew holds the person's prompt a moment at most.
+    const answer = await withinTime($, workOnBoard($, fields))
+    if (answer === null || !answer.ok) return null
+    const read: unknown = JSON.parse(answer.text)
+    if (typeof read !== 'object' || read === null || Array.isArray(read)) return null
+    const open = openFrom(read)
+    if (open !== null) {
+      openInstructions = open
+      isOpenKnown = true
+    }
+    return read as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+/** Review of B298: how long the mod's own calls to the board may hold a prompt, a turn's end or a form. */
+const BOARD_WAIT_MS = 1500
+
+/** Review of B298: the answer of `run`, or null when it takes longer than the board may hold anything. */
+async function withinTime<T>($: EngineInterface, run: Promise<T>): Promise<T | null> {
+  return Promise.race([run, $.clock.sleep(BOARD_WAIT_MS).then(() => null, () => null)])
+}
+
+/** B300: whether this chat is a worker whose card holds no task, or only one it reported: it is free for the next. */
+async function holdsNothing($: EngineInterface): Promise<boolean> {
+  try {
+    if (myself?.role !== 'worker') return false
+    const dir = await findChatsDir($)
+    const mine = dir === null ? null : await readChat($, dir, await $.session.id())
+
+    return mine !== null && (mine.task === null || mine.task.isReported)
+  } catch {
+    return false
+  }
+}
+
+/** B299: files the questions of the app's question form on the board as asks: `[{ id, text }]` of those it took. */
+async function fileForm($: EngineInterface, input: unknown): Promise<{ id: string; text: string }[]> {
+  const filed: { id: string; text: string }[] = []
+  try {
+    const questions = formQuestions(input)
+    if (questions.length === 0) return filed
+    const dir = await findChatsDir($)
+    const of = dir === null ? null : cardStep(await readChat($, dir, await $.session.id()))
+    for (const question of questions) {
+      const ask = { action: 'ask', kind: 'decide', via: 'form', text: question.text, options: question.options }
+      // Under the card's step when the board takes it there, else on its own.
+      const made = (of === null ? null : await workQuietly($, { ...ask, of })) ?? await workQuietly($, ask)
+      if (typeof made?.id === 'string') filed.push({ id: made.id, text: question.text })
+    }
+  } catch {
+    // the form is asked all the same
+  }
+  return filed
 }
 
 /** Tells the board what became of the messages this chat took: typed here, or not. */
@@ -693,7 +790,7 @@ const CHAT_TOOL = {
     + 'few words; or "steps", only how many there are), "minutes" (the working time still expected for the whole '
     + 'task, roughly) and "stepMinutes" (for the step it is on). "step" moves to the next step, or to the one in '
     + '"step"; with "minutes" and "stepMinutes" it also sets the times still expected. '
-    + '"done" clears the card (a worker\'s clears by itself when it reports to the main chat and its turn ends). '
+    + '"done" clears the card (a worker\'s clears by itself when it reports its step with the work tool and its turn ends). '
     + 'Call it together with another tool call, never alone. "list" reads the line of every chat. '
     + '"join" puts this chat in the list as "name" with "role" main or worker, and "leave" takes it out (with '
     + '"name", the chat of that name instead: one that was closed for good): only when the person or the main chat '
@@ -715,6 +812,73 @@ const CHAT_TOOL = {
   },
 }
 
+/** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
+const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
+  'pictures', 'play', 'to', 'result', 'merged', 'on', 'title', 'activity', 'goal', 'for', 'after', 'about', 'as', 'why', 'summary', 'picture', 'size',
+  'questions', 'what', 'advice']
+
+/** B297: the tool a chat works its items with: the worker board's work store. */
+const WORK_TOOL = {
+  name: 'work',
+  description: "The project's work items, kept by the person's worker board: one record per step, per ask for the "
+    + 'person, per instruction and per note. The flow file says who moves an item and when; the board refuses a move '
+    + 'the flow does not allow, with one line saying why. Work from the record it answers. "next": your open '
+    + 'instructions and your steps, the first in full. "take" ("id", "branch"): start a step queued for you; it also '
+    + 'names your card after the step. "step" ("id", "step", "names", "minutes", "stepMinutes"): the step of your plan '
+    + "you are on, as the chat tool's \"plan\" and \"step\", which it writes to your card too. \"ask\" (\"of\" the step, \"kind\" "
+    + 'decide, look, provide or do, "blocking", "text", "options", "advice", "pictures", "play"): something only the person can '
+    + 'do; put the "For you" block it answers into your answer. "withdraw" ("id", "why"): take your own ask back when '
+    + 'it is no longer needed (the main chat: also an ask with no asking chat, with a why); a step that waited on it goes '
+    + 'on. "answered-in-chat" ("id", "text"): the person answered one of your asks here in the chat (the main chat and the '
+    + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
+    + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
+    + 'never a question. "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
+    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
+    + '"for", "after", "about"), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
+    + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
+    + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "questions") and "refined" ("id", "what"): '
+    + 'the Advisor. "list": every item.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      action: { type: 'string', enum: ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'list'] },
+      id: { type: 'string', description: 'The item: B12 (a step), Q3 (an ask), I4 (an instruction).' },
+      branch: { type: 'string', description: 'take: the branch you work the step on.' },
+      step: { type: 'integer', description: 'step: the step of your plan you are on now.' },
+      steps: { type: 'integer', description: 'step: how many steps your plan has, when they are not named.' },
+      names: { type: 'array', items: { type: 'string' }, description: 'step: your steps by name, in order.' },
+      minutes: { type: 'number', description: 'step: the working time still expected for the whole step, roughly.' },
+      stepMinutes: { type: 'number', description: 'step: the working time the step of your plan you are on still takes.' },
+      of: { type: 'string', description: 'ask, note: the step it belongs to.' },
+      kind: { type: 'string', enum: ['decide', 'look', 'provide', 'do'], description: 'ask: what you ask of the person.' },
+      blocking: { type: 'boolean', description: 'ask: true when your work waits for the answer.' },
+      text: { type: 'string', description: 'ask, note, new: the words.' },
+      options: { type: 'array', items: { type: 'string' }, description: 'ask: the options, each with its letter ("A thin").' },
+      advice: { type: 'string', description: 'ask: the option you advise, in a few words ("B").' },
+      pictures: { type: 'array', items: { type: 'string' }, description: 'ask: pictures to look at, as paths in the project.' },
+      play: { type: 'string', description: "ask: where to play it, as the board's play link names it." },
+      to: { type: 'string', enum: ['you', 'main'], description: 'note: the person or the main chat.' },
+      result: { type: 'string', description: 'report: what the person gets now, in a line.' },
+      merged: { type: 'string', description: 'report: the commit it was merged with.' },
+      on: { type: 'string', description: 'block, unblock: the step it waits on; unblock without it clears Waits for.' },
+      title: { type: 'string', description: "new: the step's title." },
+      activity: { type: 'string', description: 'new: the activity it belongs under.' },
+      goal: { type: 'string', description: 'new, refine: the goal it serves (G17).' },
+      for: { type: 'string', description: 'queue: the chat it is for.' },
+      after: { type: 'string', description: 'queue: the steps it waits on, or what it waits for.' },
+      about: { type: 'string', description: 'queue: how long it takes, roughly ("1 h").' },
+      as: { type: 'string', description: 'close: what came of the instruction ("made step B300").' },
+      why: { type: 'string', description: 'drop: why.' },
+      summary: { type: 'string', description: 'refine: the step in a few lines.' },
+      picture: { type: 'string', description: 'refine: the picture of what it makes.' },
+      size: { type: 'string', description: 'refine: how long it takes, roughly.' },
+      questions: { type: 'array', items: { type: 'string' }, description: 'refine: the questions for the person.' },
+      what: { type: 'array', items: { type: 'string' }, description: 'refined: what we build, one part per line.' },
+    },
+    required: ['action'],
+  },
+}
+
 /**
  * Starts the chat list in this session: the tool, the first reading, the timer. True when chats are listed. It never
  * fails: the folders show whatever becomes of the list.
@@ -726,6 +890,7 @@ async function startChats($: EngineInterface): Promise<boolean> {
     const dir = await findChatsDir($)
     // In a project that keeps a list the chats use the tool at every task; elsewhere it waits behind tool search.
     await $.tool.register({ ...CHAT_TOOL, isDeferred: dir === null })
+    await $.tool.register({ ...WORK_TOOL, isDeferred: dir === null })
     if (dir === null) return false
     // No turn of this process runs at its start: a file left "working" (the app was closed in the middle of a turn)
     // is set right, and the chat learns who it is in the list.
@@ -794,6 +959,8 @@ export const register: Register = on => {
     const view = await load($)
     ensureWatch($)
     const hasChats = await startChats($)
+    // Review of B298: a chat started anew learns once which of the person's instructions are still open.
+    if (myself !== null) void workQuietly($, { action: 'next' })
     // Each pane opens unasked only where it has something to show: a branch, a chat.
     if (view.rows.some(row => row.branch !== null)) void openPane($)
     if (hasChats) void openWorkers($)
@@ -808,23 +975,22 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // B63: a task of the main chat arrives. The engine allows no compaction here (it would run under the turn that is
-  // about to start), so the hand-over only says whether more of the same work follows; the compaction itself runs
-  // when the turn in which the task is reported has ended.
   on('prompt.submit', async ($, e, next) => {
-    try {
-      const dir = await findChatsDir($)
-      const list = dir === null ? null : parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
-      const task = handOver(e.text, e.origin, list)
-      // Delivered into a running turn, it counts once that turn has ended: until then the task before it is the one
-      // whose report is awaited.
-      if (task !== null && (e.turnId !== undefined || isInTurn)) followsNext = task.moreFollows
-      else if (task !== null) moreFollows = task.moreFollows
-    } catch {
-      // the last word on it stands
+    // B298: the person's words are filed on the worker board before the turn sees them, also while a turn runs (the app
+    // holds them until then): nothing they say is lost. Beside the prompt, for the model only, its id and the person's
+    // instructions still open (review: never in the system prompt, which stays the same words and stays cached).
+    const context: string[] = []
+    if (e.command === undefined) {
+      if (isFiled(e.text, e.origin)) {
+        const filed = await workQuietly($, { action: 'instruction', text: e.text })
+        const said = typeof filed?.id === 'string' ? recordedLine([filed.id], []) : null
+        if (said !== null) context.push(said)
+      } else if (!isOpenKnown && myself !== null) await workQuietly($, { action: 'next' })
+      const open = instructionsLine(openInstructions)
+      if (open !== null) context.push(open)
     }
 
-    return next(e)
+    return next(context.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...context] })
   })
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
@@ -871,6 +1037,8 @@ export const register: Register = on => {
     if (!isInTurn) {
       batches = 0
       reminders = 0
+      turnStartedAt = await $.clock.now()
+      isTurnEndTold = false
       isCardSeen = false
       hasAsked = false
       hasReported = false
@@ -889,17 +1057,29 @@ export const register: Register = on => {
       if (e.agentId === undefined) {
         isInTurn = false
         await say($, 'waiting', e.reason)
-        // B63: the task was reported in this turn and the turn has ended: the moment a large chat is compacted.
-        // Both words are used up here, so neither a second end of the same turn nor a later task finds them.
+        // B63: the step was reported in this turn (B301: `work report`) and the turn has ended: the moment a large chat
+        // is compacted. Both words are used up here, so neither a second end of the same turn nor a later step finds them.
         const isReported = hasReported && e.reason === 'answer'
         const at = { moreFollows }
         hasReported = false
-        if (isReported) moreFollows = false
-        if (followsNext !== null) {
-          moreFollows = followsNext
-          followsNext = null
-        }
+        moreFollows = false
         if (isReported) await compactAfter($, at).catch(err => tell($, `Not compacted after this task: ${reason(err)}`))
+        // B298: a turn that answered has ended: the board marks the instructions filed before it and still open as missed.
+        if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
+          isTurnEndTold = true
+          const since = turnStartedAt
+          // B300: a worker that holds nothing pulls with the same call, once per turn: when a step queued for it may be
+          // taken now, the board puts its line ("work: B286 is yours; run work next") into the outbox once, and it is
+          // typed here at once. All of it holds the turn's end 1.5 s at most; a board without a work store refuses, and
+          // nothing changes for the chat (the board says so on its page).
+          await withinTime($, (async () => {
+            const pulls = await holdsNothing($)
+            const ended = await workQuietly($, { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}) })
+            const line = (ended?.pull as { text?: unknown } | undefined)?.text
+            if (typeof line === 'string' && line !== '') await takeFromBoard($)
+          })())
+        }
+        turnStartedAt = null
       } else {
         // A subagent's turn ends inside the chat's own: the chat works on.
         ownAgents.add(e.agentId)
@@ -911,35 +1091,39 @@ export const register: Register = on => {
   })
 
   // A question to the person holds the turn: the list says whose move it is.
+  // B299: each question is filed on the worker board as an ask of kind decide (the app's form: answered in the chat
+  // only), under the step the card names when the board takes it there, so the board shows it too; once the form is
+  // answered, or closed without an answer, the board is told.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     await say($, 'asking')
+    const filed = await fileForm($, e)
+    let result: unknown
+    let isAnswered = false
     try {
-      return await next(e)
+      const out = await next(e)
+      result = out
+      isAnswered = true
+      return out
     } finally {
       // An interrupted turn has ended by now: its file is not set back to working.
       if (isInTurn) await say($, 'working')
+      // Review of B299: a form that returned is answered, also in the person's own words; one closed unanswered goes.
+      for (const one of filed) {
+        const answer = formAnswer((result as { result?: unknown } | undefined)?.result, one.text)
+        await workQuietly($, isAnswered ? { action: 'answered-in-chat', id: one.id, text: answer === '' ? 'answered in the chat' : answer } : { action: 'withdraw', id: one.id, why: 'the question form was closed without an answer' })
+      }
     }
   })
 
-  // A message this chat's model sends another chat while it has a task is its report: the task ends with the turn.
+  // A message this chat's model sends another chat while it has a task: the card then says it waits for that chat.
+  // B301: no message ends a task, whatever its words; a step ends with `work report` (below).
   on('session.send', async ($, e, next) => {
     const sent = await next(e)
     try {
-      if (sent.isDelivered && e.origin.kind === 'model' && e.agentId === undefined && !(await isOwnAgent($, e.to))) {
-        // A report to the main chat ends the task; a note, a question, or a message to another worker does not.
-        const dir = await findChatsDir($)
-        const list = dir === null ? null : parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
-        const others = list === null ? [] : (await readChats($).catch((): ChatRow[] => [])).filter(row => row.role !== 'main').map(row => row.name)
-        if (sentKind({ to: e.to, text: e.text, list, others }) === 'note') hasAsked = true
-        else {
-          hasReported = true
-          // The main chat hands work out with its messages: for it, a message is no report.
-          await changeMine($, chat => (chat.role === 'main' || chat.task === null || chat.task.isReported ? null : withSend(chat)))
-        }
-      }
+      if (sent.isDelivered && e.origin.kind === 'model' && e.agentId === undefined && !(await isOwnAgent($, e.to))) hasAsked = true
     } catch {
-      // the message went out; the line is cleared by hand then
+      // the message went out
     }
 
     return sent
@@ -1000,6 +1184,51 @@ export const register: Register = on => {
     const chats = await loadChats($)
 
     return { result: chatsSummary(chats.rows, chats.now) }
+  })
+
+  // B297: the work tool: each call goes to the worker board as this chat; take and step keep the card as the chat tool does.
+  on('tool.call', { tool: WORK }, async ($, e) => {
+    const input = e as unknown as Record<string, unknown>
+    const action = typeof input.action === 'string' ? input.action : ''
+    if (action !== 'next' && action !== 'list' && e.agentId !== undefined) {
+      return { result: "Only the chat's main conversation changes the work: nothing was changed." }
+    }
+    const fields = Object.fromEntries(WORK_FIELDS.filter(key => input[key] !== undefined).map(key => [key, input[key]]))
+    const answer = await workOnBoard($, fields)
+    if (!answer.ok) return { result: answer.text }
+    let read: Record<string, unknown> = {}
+    try {
+      const parsed: unknown = JSON.parse(answer.text)
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) read = parsed as Record<string, unknown>
+    } catch {
+      return { result: answer.text }
+    }
+    const text = typeof read.text === 'string' ? read.text : answer.text
+    // B298: a close (or next) tells which of the person's instructions stay open.
+    const open = openFrom(read)
+    if (open !== null) openInstructions = open
+    // B301: the board took the report: the step is done for this chat. Its card clears when the turn ends, and a large
+    // chat is compacted then, unless the board names its next step (more of the same work follows).
+    if (action === 'report') {
+      hasReported = true
+      moreFollows = typeof read.more === 'string' && read.more !== ''
+      await changeMine($, chat => (chat.task === null || chat.task.isReported ? null : withSend(chat)))
+      return { result: text }
+    }
+    if (action !== 'take' && action !== 'step') return { result: text }
+    isCardSeen = true
+    const card = {
+      id: input.id, title: read.title, names: Array.isArray(input.names) ? input.names : undefined, steps: numberOf(input.steps),
+      step: numberOf(input.step), minutes: numberOf(input.minutes), stepMinutes: numberOf(input.stepMinutes),
+    }
+    const recorded = await setTask($, chat => {
+      const changed = workCard(chat, action, card)
+      if ('error' in changed && typeof changed.error === 'string') return { error: changed.error }
+
+      return { chat: 'chat' in changed && changed.chat !== undefined ? changed.chat : chat }
+    })
+
+    return { result: recorded.startsWith('Recorded') ? text : `${text}\n(The card: ${recorded})` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

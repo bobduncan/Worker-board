@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { parseConfig } from '../src/config.mjs'
-import { buildState } from '../src/state.mjs'
+import { buildState } from './withStore.mjs'
 import { outboxNow } from '../src/store.mjs'
 
 const MIN = 60_000
