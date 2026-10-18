@@ -84,6 +84,10 @@ const FILES = {
   '/board.css': ['board.css', 'text/css; charset=utf-8'],
   '/board.js': ['board.js', 'text/javascript; charset=utf-8'],
 }
+// B348: the help tour's six paintings (B347), by name only.
+for (const name of ['1-set-up', '2-pick-focus', '3-vibe-and-how', '4-work-divides', '5-answer', '6-check-result']) {
+  FILES[`/help/${name}.webp`] = [join('help', `${name}.webp`), 'image/webp']
+}
 
 // The page may load its own script and style sheet, talk to its own server, and show pictures it fetched from
 // that server. Nothing else, so words from a chat that end up on the page can never run as code or call out.

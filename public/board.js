@@ -10458,8 +10458,10 @@ async function read() {
       return
     }
     if (!answer.ok) throw new Error(String(answer.status))
-    draw(await answer.json())
+    const state = await answer.json()
+    draw(state)
     awaySince = null
+    helpAtStart(state)
   } catch {
     // The board is away (Claude was closed, or the board is being started again): the page keeps asking, and
     // says for how long. When the board is back it has a new token, and the page loads itself anew.
@@ -10698,6 +10700,149 @@ $('say-text').addEventListener('keydown', event => {
     $('say').requestSubmit()
   }
 })
+
+// help:start
+/**
+ * B348: the help tour's six cards (G26, the person's brainstorm of 2026-10-18): each with its painting (B347, no words
+ * in it), its title, one or two plain lines, and what the painting shows for whoever cannot see it.
+ */
+const HELP_CARDS = [
+  {
+    picture: '/help/1-set-up.webp',
+    title: 'Set up a project',
+    lines: ['One command installs the board and makes your project.', 'Then press Initialise: the main chat starts and sets up the rest.'],
+    alt: 'A command window, then a hand pressing a big button, and a robot waving in front of three desks that light up',
+  },
+  {
+    picture: '/help/2-pick-focus.webp',
+    title: 'Pick a goal as your focus',
+    lines: ['Of everything you want, choose the one goal to work on now.', 'The Focus tab keeps it in front of you and your chats.'],
+    alt: 'A hand lifting one glowing goal card out of several',
+  },
+  {
+    picture: '/help/3-vibe-and-how.webp',
+    title: 'Agree its vibe and how with your partner',
+    lines: ['Your partner, the Advisor, works it out with you: how it should feel, and how to build it.'],
+    alt: 'You and a robot partner at a table, agreeing on a goal and its three steps',
+  },
+  {
+    picture: '/help/4-work-divides.webp',
+    title: 'The work divides itself',
+    lines: ['Press Go: your partner makes the steps, and the main chat hands them to the workers.'],
+    alt: 'A goal card splitting into three steps, each going to a robot worker at its desk',
+  },
+  {
+    picture: '/help/5-answer.webp',
+    title: 'Answer what needs you',
+    lines: ['What only you can decide or look at waits under Needs your attention.', 'Answer there; the chat that asked goes on.'],
+    alt: 'You tapping one of two choices on a card a robot sent, and a green arrow going back to it',
+  },
+  {
+    picture: '/help/6-check-result.webp',
+    title: 'Check the result',
+    lines: ['A finished step comes with a picture to look at or a link to try it.', 'Keep it, or say what to change.'],
+    alt: 'You checking the finished picture with a magnifying glass, a green tick beside it, robots cheering',
+  },
+]
+
+/** The card shown after a move: 'next', 'back' or a card's place, never before the first nor past the last. */
+function helpMove(index, to, count) {
+  const wanted = to === 'next' ? index + 1 : to === 'back' ? index - 1 : Number(to)
+  return Math.min(Math.max(wanted, 0), count - 1)
+}
+
+/** What the tour shows of card `index`: its number and title, painting and lines, Back after the first, Done last. */
+function helpView(index, cards) {
+  const card = cards[index]
+  return {
+    heading: `${index + 1} · ${card.title}`,
+    picture: card.picture,
+    alt: card.alt,
+    lines: card.lines,
+    hasBack: index > 0,
+    next: index === cards.length - 1 ? 'Done' : 'Next',
+    dots: cards.map((_, place) => place === index),
+  }
+}
+
+/**
+ * Whether the tour opens by itself: the first time this browser opens the board, on a plain open; never over a link
+ * from a chat (a picture, a game, a step, a tab) and never on the demo, whose pictures the chats take.
+ */
+function helpOpensAtStart({ seen, hash, isDemo }) {
+  return !seen && (hash === '' || hash === '#') && !isDemo
+}
+// help:end
+
+/** B348: the card the tour shows, the address the page was opened with, and whether the first read looked. */
+let helpAt = 0
+const helpStartHash = location.hash
+let helpLooked = false
+
+function drawHelp() {
+  const view = helpView(helpAt, HELP_CARDS)
+  $('help-picture').src = view.picture
+  $('help-picture').alt = view.alt
+  $('help-heading').textContent = view.heading
+  $('help-lines').replaceChildren(...view.lines.map(line => el('p', '', line)))
+  $('help-dots').replaceChildren(...view.dots.map((isAt, place) => {
+    const dot = el('button', 'help-dot')
+    dot.type = 'button'
+    dot.dataset.helpCard = String(place)
+    dot.setAttribute('aria-label', `Card ${place + 1}: ${HELP_CARDS[place].title}`)
+    dot.setAttribute('aria-current', isAt ? 'true' : 'false')
+    return dot
+  }))
+  $('help-back').disabled = !view.hasBack
+  $('help-next').textContent = view.next
+}
+
+function moveHelp(to) {
+  const wasDot = document.activeElement?.classList.contains('help-dot') === true
+  helpAt = helpMove(helpAt, to, HELP_CARDS.length)
+  drawHelp()
+  // Review: the focus stays in the tour, so the arrow keys go on working: a redrawn dot hands it to the card's dot,
+  // a Back that hid itself on the first card to Next.
+  if (wasDot) $('help-dots').querySelector('[aria-current="true"]')?.focus()
+  else if (!$('help').contains(document.activeElement) || document.activeElement.disabled) $('help-next').focus()
+}
+
+function openHelp() {
+  helpAt = 0
+  drawHelp()
+  if (!$('help').open) $('help').showModal()
+  $('help-next').focus()
+}
+
+$('help-button').addEventListener('click', openHelp)
+$('help-close').addEventListener('click', () => $('help').close())
+$('help-back').addEventListener('click', () => moveHelp('back'))
+$('help-next').addEventListener('click', () => (helpAt === HELP_CARDS.length - 1 ? $('help').close() : moveHelp('next')))
+$('help-dots').addEventListener('click', event => {
+  const dot = event.target.closest('[data-help-card]')
+  if (dot !== null) moveHelp(Number(dot.dataset.helpCard))
+})
+// The arrow keys move too, wherever the focus is while the tour is open; with Alt and the like they are the browser's
+// (Alt+Left is Back). Escape closes (the dialog's own).
+document.addEventListener('keydown', event => {
+  if (!$('help').open || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  if (event.key === 'ArrowRight') moveHelp('next')
+  if (event.key === 'ArrowLeft') moveHelp('back')
+})
+// Closed by ×, Done or Escape: this browser saw it, so it opens only from the ? button from now on.
+$('help').addEventListener('close', () => {
+  try { localStorage.setItem('help-seen', 'yes') } catch { /* it opens again next time */ }
+  $('help-button').focus()
+})
+
+/** At the first read: the tour opens by itself, once. A browser that keeps nothing is not shown it every time. */
+function helpAtStart(state) {
+  if (helpLooked) return
+  helpLooked = true
+  let seen = true
+  try { seen = localStorage.getItem('help-seen') === 'yes' } catch { /* seen stays true */ }
+  if (helpOpensAtStart({ seen, hash: helpStartHash, isDemo: state?.isDemo === true })) openHelp()
+}
 
 for (const id of ['refresh', 'refresh-title']) {
   $(id).append(icon('refresh'))
