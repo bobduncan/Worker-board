@@ -1242,6 +1242,79 @@ $('lanes').addEventListener('click', event => {
   if (board !== null) drawLanes(board)
 })
 
+// openchats:start
+/**
+ * B322: the link the Claude desktop app opens as a new chat of its Code tab, in `folder`, with its first words ready
+ * (`claude://code/new`, its `q` and `folder`): the app neither sends them nor names the chat from outside.
+ */
+function openChatLink(folder, words) {
+  return `claude://code/new?q=${encodeURIComponent(words)}&folder=${encodeURIComponent(folder)}`
+}
+
+/**
+ * B322: the first words of a new project's main chat (`kind` main) or its Advisor (advisor): it names itself with its
+ * title (the board then knows it), joins the list of chats, and reads its job and the project's own facts.
+ */
+function firstWords({ kind, title, name, projectName, project, board }) {
+  const isMain = kind === 'main'
+  return [
+    `You are ${isMain ? 'the main chat' : 'the Advisor (the partner)'} of the project ${projectName}, worked on with the worker board.`,
+    `1. Name this chat "${title}": call the app's session tool set_session_title (mcp__ccd_session_mgmt__set_session_title) with session_id "self" and that title.`,
+    `2. Join the list of chats: when the tool mcp__folder-branches__chat is there, call it with action "join", name "${name}", role "${isMain ? 'main' : 'worker'}".`,
+    `3. Read your job, ${board}\\roles\\${isMain ? 'main' : 'partner'}.md, the words the board and the chats share, ${board}\\roles\\protocol.md, ${isMain ? `this project's facts, ${project}\\.claude\\main-briefing.md, ` : ''}and how to answer the user, ${project}\\CLAUDE.md.`,
+    `Then say in one line that you are ready${isMain ? ': the board then asks you for workers' : ''}.`,
+  ].join('\n')
+}
+
+/**
+ * B322: the chats a new project still lacks, each `{ title, words, link }`: its main chat while the list has none, its
+ * Advisor while the settings name one and none is open. None on the demo, on a board that only shows, or without a
+ * list of chats.
+ */
+function chatsToOpen(state) {
+  const open = state?.openChats ?? null
+  const workers = state?.workers ?? null
+  if (open === null || workers === null || typeof workers.mainTitle !== 'string' || typeof workers.project !== 'string' || workers.project === '') return []
+  const prefix = typeof state.chatPrefix === 'string' ? state.chatPrefix : ''
+  const chats = []
+  const offer = (kind, name, title) => {
+    const words = firstWords({ kind, title, name, projectName: open.name || name, project: workers.project, board: open.board })
+    chats.push({ kind, title, words, link: openChatLink(workers.project, words) })
+  }
+  if (workers.main === null) offer('main', workers.mainTitle.slice(prefix.length) || 'Main', workers.mainTitle)
+  if ((state.advisor ?? null) === null && typeof open.advisor === 'string' && open.advisor !== '') offer('advisor', open.advisor, `${prefix}${open.advisor}`)
+  return chats
+}
+// openchats:end
+
+/** B322: the box on the Overview that opens the chats a new project still lacks (see `chatsToOpen`), or null. */
+function drawOpenChats(state) {
+  const chats = chatsToOpen(state)
+  if (chats.length === 0) return null
+  const box = el('section', 'open-chats')
+  box.append(el('h3', '', chats.length === 1 ? `Open ${chats[0].title}` : 'Open the project\'s chats'))
+  box.append(el('p', 'open-chats-about', 'Each button opens a new chat in the Claude app, in this project\'s folder, with its first words ready: press Enter there. The chat names itself, and shows here within a minute.'))
+  for (const chat of chats) {
+    const row = el('div', 'open-chats-row')
+    const link = el('a', 'open-chats-button', `Open ${chat.title}`)
+    link.href = chat.link
+    link.title = `A new chat in ${state.workers.project}`
+    const copy = el('button', 'open-chats-copy', 'Copy its first words')
+    copy.type = 'button'
+    copy.dataset.copyWords = chat.words
+    copy.title = `If the app does not open: start a new chat in ${state.workers.project}, paste these words and send them.`
+    row.append(link, copy)
+    box.append(row)
+  }
+  return box
+}
+
+$('lanes').addEventListener('click', event => {
+  const copy = event.target.closest('[data-copy-words]')
+  if (copy === null) return
+  navigator.clipboard.writeText(copy.dataset.copyWords).then(() => { copy.textContent = 'Copied' }, () => { copy.textContent = 'Not copied' })
+})
+
 // workers:start
 // B124: under the lanes, what the board says about workers: how to make the main chat when the list has none, that
 // it asked the main chat for workers and what happens next, and the button for one more. The names come from the
@@ -1514,7 +1587,7 @@ function drawLanes(state) {
   const focused = document.activeElement?.dataset?.stepsOf ?? null
   // B280: the Advisor's card, drawn anew, keeps the keyboard's focus too.
   const wasOnAdvisor = document.activeElement?.dataset?.openAdvisor !== undefined
-  fill($('lanes'), [...state.chats.map(lane => drawLane(lane, state)), drawWorkers(state), drawAdvisorLane(state)].filter(part => part !== null))
+  fill($('lanes'), [...state.chats.map(lane => drawLane(lane, state)), drawOpenChats(state), drawWorkers(state), drawAdvisorLane(state)].filter(part => part !== null))
   if (wasOnAdvisor) $('lanes').querySelector('[data-open-advisor]')?.focus()
   // B159: the columns are named only when there are lanes under them.
   $('workers-columns').hidden = state.chats.length === 0
