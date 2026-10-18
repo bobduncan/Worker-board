@@ -893,7 +893,7 @@ function nextInQueue(queue) {
   if (!Array.isArray(queue) || queue.length === 0) return null
   const [first] = queue
   const why = whyText(first.why)
-  return { id: first.id ?? null, title: first.title, why: why === null ? null : { tone: why.tone, text: why.text.replace(/^Not started: /, '') }, more: queue.length - 1 }
+  return { id: first.id ?? null, title: first.title, why: why === null ? null : { tone: why.tone, text: why.text.replace(/^Not started: /, '') }, more: queue.length - 1, ...(first.isFix === true ? { isFix: true } : {}) }
 }
 
 /** A note of the Information part as one line: the step it is about, who sent it, its words without "Report from X:". */
@@ -1080,6 +1080,7 @@ function drawMore(lane, state) {
     const list = el('ol')
     lane.queue.forEach((step, place) => {
       const item = el('li')
+      if (step.isFix === true) item.append(fixChip(), ' ')
       const title = el('button', 'link', step.title)
       title.type = 'button'
       title.dataset.lane = lane.name
@@ -1304,6 +1305,7 @@ function drawLane(lane, state) {
     // B113: why it is not started, in full, with how long it takes and the length of the queue.
     item.title = [lane.queue[0].text, [`Queue (${lane.queue.length})`, next.id, about(lane.queue[0].minutes) ?? 'no time given'].filter(Boolean).join(' · '), whyText(lane.queue[0].why)?.text ?? null, 'Show the details'].filter(Boolean).join('\n')
     const words = el('span', 'queue-text')
+    if (next.isFix) words.append(fixChip(), ' ')
     if (next.id !== null) words.append(el('span', 'queue-id', next.id), ' ')
     words.append(next.title)
     if (next.why !== null) words.append(el('span', `why is-${next.why.tone}`, ` · ${next.why.text}`))
@@ -7067,6 +7069,8 @@ function focusView(focus, goals, can = null, ui = {}) {
         tone: part.state,
         percent: part.state === 'done' ? 100 : part.total === 0 ? 0 : Math.round((part.done / part.total) * 100),
         owner: part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null,
+        // Fix first: its worker does a board fix first.
+        ...(typeof part.fixFirst === 'string' ? { fixFirst: `A board fix goes first: ${part.fixFirst}` } : {}),
       })),
       stepsOf: focus.id,
     }
@@ -7376,6 +7380,7 @@ function focusRunCard(view) {
     bar.append(fillBar)
     row.append(top, bar)
     if (part.owner !== null) row.append(el('small', 'focus-owner', part.owner))
+    if (typeof part.fixFirst === 'string') row.append(el('small', 'focus-fix', part.fixFirst))
     card.append(row)
   }
   const steps = el('button', 'focus-steps', 'See the steps behind this →')
@@ -8826,6 +8831,8 @@ function coordinateList(activities, { filter = 'all', find = '', showDone = fals
       if (hideBusy && (step.status === 'progress' || step.status === 'queued')) hidden += 1
       else steps.push(step)
     }
+    // Fix first: an open board fix stands first in its group.
+    steps.sort((a, b) => Number(isOpenFix(b)) - Number(isOpenFix(a)))
     if (steps.length > 0) groups.push({ name: activity.name, isFocus: activity.isFocus, steps })
     shown += steps.length
   }
@@ -8834,9 +8841,14 @@ function coordinateList(activities, { filter = 'all', find = '', showDone = fals
   const number = step => (typeof step.id === 'string' ? Number(step.id.slice(1)) : -1)
   const steps = groups.flatMap(group => group.steps.map(step => ({ ...step, activity: group.name })))
     .map((step, index) => ({ step, index }))
-    .sort((a, b) => number(b.step) - number(a.step) || a.index - b.index)
+    .sort((a, b) => Number(isOpenFix(b.step)) - Number(isOpenFix(a.step)) || number(b.step) - number(a.step) || a.index - b.index)
     .map(one => one.step)
   return { groups: steps.length === 0 ? [] : [{ name: null, isFocus: false, isOne: true, steps }], counts, shown, hidden }
+}
+
+/** Fix first: a step marked as a board fix that is not finished. */
+function isOpenFix(step) {
+  return step.isFix === true && step.status !== 'done'
 }
 
 /**
@@ -8892,6 +8904,13 @@ function isGoalOpen(row, folds) {
   return row.depth === 0 || row.isMilestone === true || row.isNone === true
 }
 // coordinate:end
+
+/** Fix first: the small chip that marks a board fix, in a lane's queue and on the Backlog tab. */
+function fixChip() {
+  const chip = el('span', 'fix-chip', 'fix')
+  chip.title = 'A fix for the worker board: it goes first in its worker\'s queue'
+  return chip
+}
 
 const STEP_STATES = { progress: 'In progress', queued: 'Queued', you: 'Needs your attention', open: 'Open', done: 'Finished' }
 let coordinateFilter = 'all'
@@ -9340,10 +9359,13 @@ function coordinateLine(step, state) {
   row.type = 'button'
   row.dataset.openStep = step.key
   row.title = [step.title, step.activity ?? null, 'Show the details'].filter(Boolean).join('\n')
+  const title = el('span', 'step-title')
+  if (step.isFix === true) title.append(fixChip(), ' ')
+  title.append(step.title)
   row.append(
     el('span', 'step-id', step.id ?? ''),
     el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),
-    el('span', 'step-title', step.title),
+    title,
     el('span', 'step-worker', step.worker ?? (step.status === 'you' ? 'You' : '')),
     el('span', 'step-branch', step.branch ?? ''),
     el('span', `step-state is-${step.status}`, STEP_STATES[step.status] ?? step.status),

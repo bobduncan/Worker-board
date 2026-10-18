@@ -64,6 +64,12 @@ describe('Focus 3: the daily note of the partner on the focus', () => {
   })
 })
 
+describe('Fix first: a step marked as a board fix with the work tool', () => {
+  test('priority is a field of the tool, sent to the board', () => {
+    expect(WORK_FIELDS.includes('priority')).toBe(true)
+  })
+})
+
 describe("B313: the main chat moves a renamed chat's work with the work tool", () => {
   test('rename is an action of the tool, with from and to', () => {
     expect(WORK_ACTIONS.includes('rename')).toBe(true)

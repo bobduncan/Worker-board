@@ -418,8 +418,10 @@ export function queue(backlog, { underWay = new Set() } = {}) {
   return backlog.activities
     .flatMap(activity => open(activity).filter(isQueued))
     .filter(step => step.id === null || !underWay.has(step.id))
+    // Fix first: a board fix stands before the other steps of its worker's queue (the work store marks it).
+    .sort((a, b) => Number(b.isFix === true) - Number(a.isFix === true))
     // B293: its refine block apart, as on the Backlog tab, so its window draws it the same way.
-    .map(({ id, text, title, worker, branch, after, minutes, notes, stepAsks }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(withoutRefined(notes)), refined: withAsks(refinedOf(notes), stepAsks) }))
+    .map(({ id, text, title, worker, branch, after, minutes, notes, stepAsks, isFix }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(withoutRefined(notes)), refined: withAsks(refinedOf(notes), stepAsks), ...(isFix === true ? { isFix: true } : {}) }))
 }
 
 /**
@@ -472,6 +474,8 @@ export function overview(backlog, { underWay = new Set() } = {}) {
         notes: noteSections(withoutRefined(step.notes)),
         // B309: with the asks under it that count as its questions.
         refined: withAsks(refinedOf(step.notes), step.stepAsks),
+        // Fix first: a board fix, shown with its chip and first in its group.
+        ...(step.isFix === true ? { isFix: true } : {}),
         status: step.isDone ? 'done' : step.isYou ? 'you' : step.ownBranch !== null || (step.id !== null && underWay.has(step.id)) ? 'progress' : isQueued(step) ? 'queued' : 'open',
       })),
     }

@@ -53,6 +53,12 @@ tool answers with the record: work from it, not from a message.
 - **The flow file** (`<work>/flow.json`, the default `examples/work/flow.json`) holds the states of a step and who moves
   it from one to the next, and when. It, not a job text, says who moves an item and when; the person may change it.
 - **History**: every change writes one line, `- <date time> <who>: <what>`.
+- **Fix first**: a step with `Priority: fix` in its head is a fix for the worker board (a bug the person reports in
+  the board or in a chat's tools for it). It stays with its owner and jumps that owner's queue: the board delivers it
+  before the owner's other queued steps (a fix that may not be taken yet holds nothing back), `work next` lists it first
+  among steps of the same state ("B<id> queued, board fix: ..."), the lanes' queues and the Backlog tab show it first
+  with a "fix" chip, and the Focus page says of a part that waits for it "A board fix goes first: B<id>". The main
+  chat, the partner and the person mark it, with `priority` fix on `work new` or `work queue`.
 
 | The call | Who, by the default flow | What it does |
 |---|---|---|
@@ -69,8 +75,8 @@ tool answers with the record: work from it, not from a message.
 | `recheck B<id>` (the page's "Check again") | the person | a step in review whose check failed: the board runs its check again with what the last report said (B304) |
 | `work block` / `unblock B<id>` (`on`) | the main chat, a worker | what the step waits on (`Blocked by`) |
 | `work unblock B<id>` without `on` | the main chat, the person | clears the step's `Waits for` (words with no id hold a step until cleared); History: "no longer waits for: <words>" |
-| `work new` (`title`, `activity`, `goal`, `text`) | the main chat, a worker, the Advisor | a new step `B<n>`, state new. Focus 2: the partner's step from an agreed how also gives `summary` and `what` (and `size`, `picture`): it is made refined, its block `Refined (<date time>; ready; from the how of G<n> by <partner>):`, so the board's refine gate sends no round; a decide ask the partner files under it holds nothing back |
-| `work queue B<id>` (`for`, `after`, `about`) | the main chat | a refined step into a worker's queue; a step not refined yet keeps the wish (`Queue when refined:`), and the board queues it by itself once it is refined |
+| `work new` (`title`, `activity`, `goal`, `text`, `priority`) | the main chat, a worker, the Advisor | a new step `B<n>`, state new; `priority` fix (the main chat, the partner, the person) marks it a board fix (`Priority: fix`). Focus 2: the partner's step from an agreed how also gives `summary` and `what` (and `size`, `picture`): it is made refined, its block `Refined (<date time>; ready; from the how of G<n> by <partner>):`, so the board's refine gate sends no round; a decide ask the partner files under it holds nothing back |
+| `work queue B<id>` (`for`, `after`, `about`, `priority`) | the main chat | a refined step into a worker's queue; a step not refined yet keeps the wish (`Queue when refined:`), and the board queues it by itself once it is refined. `priority` fix marks it a board fix; for a step queued already for that worker it only marks it (also the partner and the person) |
 | `work requeue B<id>` (`for`) | the main chat, the person ("Move to") | a queued step to another worker's queue; the board delivers it anew |
 | `work unqueue B<id>` | the main chat, the person ("Take out of the queue") | a queued step out of its queue: refined (or new), without a worker |
 | `work close I<id>` (`as`) | any chat | an instruction is done, and what came of it |
