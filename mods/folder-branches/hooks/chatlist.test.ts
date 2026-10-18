@@ -66,10 +66,18 @@ type World = {
   /** B319: the folder the session was opened in (the project's, unless set), and where each work call went, with its key. */
   root?: string
   workedAt: string[]
+  /** Pause 2: what the board answers the mod's pause-state (null: it refuses, as an old board does), and how often it was asked. */
+  pauseAnswer: Record<string, unknown> | null
+  pauseReads: number
+  /** The description each tool was registered with, by its name. */
+  descriptions: Record<string, string>
 }
 
+/** Pause 2: the board's pause-state answer while nobody paused. */
+const RUNNING = { text: "The board's pause state: running.", state: 'running', since: null, forChat: { holds: [], mustStop: false }, resumeList: [] }
+
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {} }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -100,6 +108,7 @@ function stand(on: On, w: World): void {
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('tool.register', (_$, e) => {
     w.tools.push(`${e.name}:${String(e.isDeferred)}`)
+    w.descriptions[e.name] = e.description
 
     return { value: { tool: `mcp__folder-branches__${e.name}` } }
   })
@@ -181,6 +190,12 @@ function stand(on: On, w: World): void {
   })
   on('http.fetch', (_$, e) => {
     if (w.up !== null && !w.up.some(address => e.url.startsWith(address))) return { deny: 'ECONNREFUSED' }
+    if (e.url.endsWith('/api/bridge/work') && /"action":"pause-state"/.test(e.init?.body ?? '')) {
+      // Pause 2: the mod's own reading of the pause, apart from the work calls the tests count.
+      w.pauseReads += 1
+      if (w.hangs) return new Promise<never>(() => {})
+      return { value: w.pauseAnswer === null ? { status: 400, ok: false, headers: {}, text: 'Unknown action.' } : { status: 200, ok: true, headers: {}, text: JSON.stringify(w.pauseAnswer) } }
+    }
     if (e.url.endsWith('/api/bridge/work')) {
       w.worked.push(e.init?.body ?? '')
       w.workedAt.push(`${e.url} ${e.init?.headers?.['X-Board-Key'] ?? ''}`)
@@ -1558,4 +1573,137 @@ describe('B319: two projects on one PC, each with its own board', () => {
       for (const asked of w.fetched) expect(`${asked.url.startsWith(own.url)} ${asked.key}`).toBe(`true ${own.key}`)
     })
   }
+})
+
+describe('Pause 2: each chat reads the person\'s pause in its own calls to the board', () => {
+  const BATCH = { hook_event_name: 'PostToolBatch', session_id: 'units', transcript_path: 'x', cwd: ROOT, tool_calls: [] } as const
+  const SINCE = Date.UTC(2026, 9, 18, 20, 30)
+  const POINT = { commit: '1a2b3c4', next: 'write the tests', at: SINCE + 60_000, line: '1a2b3c4 · write the tests · 2026-10-18 22:31:00', isSincePause: true }
+  const state = (name: string, holds: unknown[] = [], resumeList: unknown[] = []) => ({ text: 'x', state: name, since: SINCE, forChat: { holds, mustStop: name === 'pausing' }, resumeList })
+  const told = async ($: Parameters<Parameters<typeof test>[1]>[0], more: Record<string, unknown> = {}): Promise<string> => {
+    const result = await $.classic.PostToolBatch({ ...BATCH, ...more } as never)
+    return result.additionalContext?.join('\n') ?? ''
+  }
+  const STOP = 'The person pauses all chats: commit your work, write your checkpoint (work step B12 --commit <hash> --next "<next action>"), then end your turn and start nothing new.'
+  const units = (): Record<string, string> => ({ ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 1, 3, 30), at: 0 } }), [BOARD]: board })
+  const mainChat = (): Record<string, string> => ({ ...listed({ main: { name: 'Main', role: 'main', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
+
+  test('the work tool writes a checkpoint: its description says when, and commit and next reach the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', units())
+    stand(on, w)
+    await $.session.start(START)
+    expect(w.descriptions.work).toContain('"commit"')
+    expect(w.descriptions.work).toContain('checkpoint with every commit and when the person pauses')
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', text: 'B12: checkpoint 1a2b3c4 · write the tests.' }) }
+    await $.tool.call({ tool: WORK, action: 'step', id: 'B12', commit: '1a2b3c4', next: 'write the tests' } as never)
+    expect(w.worked.map(body => JSON.parse(body) as Record<string, unknown>).filter(one => one.action === 'step')).toEqual([{ action: 'step', id: 'B12', commit: '1a2b3c4', next: 'write the tests', chat: 'Units', session: 'units' }])
+  })
+
+  test('while the person pauses, a working chat is told once, at its next tool batch, to checkpoint and end its turn; one board call per 20 s', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', units())
+    stand(on, w)
+    await $.session.start(START)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    // Nobody pauses: nothing is said, and the reading is kept a while.
+    expect(await told($)).not.toContain('pauses all chats')
+    const reads = w.pauseReads
+    w.pauseAnswer = state('pausing', [{ id: 'B12', checkpoint: null }])
+    expect(await told($)).not.toContain('pauses all chats')
+    expect(w.pauseReads).toBe(reads)
+    await clock.advance(21_000)
+    expect(await told($)).toContain(STOP)
+    expect(w.pauseReads).toBe(reads + 1)
+    await clock.advance(21_000)
+    expect(await told($)).not.toContain('pauses all chats')
+    // A subagent's batch is not the chat's.
+    await clock.advance(21_000)
+    const before = w.pauseReads
+    expect(await told($, { agent_id: 'a1b2c3d4e5' })).not.toContain('pauses all chats')
+    expect(w.pauseReads).toBe(before)
+  })
+
+  test('a chat that holds nothing is told to end its turn; the pause in turn-ended\'s answer needs no call of its own', async ($, on) => {
+    mock.clock(on)
+    const w = world('main', mainChat())
+    stand(on, w)
+    await $.session.start(START)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'No instruction was left open.', missed: [], open: [], pause: { state: 'pausing', since: SINCE, forChat: { holds: [], mustStop: true }, resumeList: [] } }) }
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    const reads = w.pauseReads
+    await $.turn.start({ text: 'one more thing', turnId: 't2' })
+    expect(await told($)).toContain('The person pauses all chats: end your turn and start nothing new.')
+    expect(w.pauseReads).toBe(reads)
+  })
+
+  test('after Resume all the main chat is told whom to wake, by session id, when it starts; once', async ($, on) => {
+    mock.clock(on)
+    const w = world('main', mainChat())
+    w.pauseAnswer = state('resuming', [], [
+      { chat: 'Units', session: 'local_units', cliSession: 'units', step: 'B12', checkpoint: POINT, hasStarted: false },
+      { chat: 'Support', session: 'local_support', cliSession: 'support', step: 'B13', checkpoint: POINT, hasStarted: true },
+    ])
+    stand(on, w)
+    await $.session.start(START)
+    const started = await $.classic.SessionStart({ source: 'startup', session_title: 'Game - Main' } as never)
+    const said = started.additionalContext?.join('\n') ?? ''
+    expect(said).toContain("Resume: wake each chat below that has not started, by its session id with SendMessage, one line each: 'resume your step B<id> from your checkpoint'")
+    expect(said).toContain("- Units, session local_units: 'resume your step B12 from your checkpoint' (checkpoint 1a2b3c4 · write the tests)")
+    expect(said).not.toContain('Support')
+    await $.prompt.submit({ text: 'resume', origin: { kind: 'plugin', asUser: true } } as never)
+    expect(w.contexts[0]?.join('\n') ?? '').not.toContain('Resume: wake')
+  })
+
+  test('a main chat that runs gets the list with the board\'s "resume"', async ($, on) => {
+    mock.clock(on)
+    const w = world('main', mainChat())
+    stand(on, w)
+    await $.session.start(START)
+    await $.prompt.submit({ text: 'hello', ...ASKED } as never)
+    w.pauseAnswer = state('resuming', [], [{ chat: 'Units', session: 'local_units', cliSession: 'units', step: 'B12', checkpoint: null, hasStarted: false }])
+    await $.prompt.submit({ text: 'resume\n(typed on the worker board, 22:40)', origin: { kind: 'plugin', asUser: true } } as never)
+    expect(w.contexts[1]?.join('\n') ?? '').toContain("- Units, session local_units: 'resume your step B12 from your checkpoint' (no checkpoint)")
+  })
+
+  test('a worker woken after the resume is told its checkpoint at its first turn; at a session start too, unless the person pauses', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', units())
+    stand(on, w)
+    await $.session.start(START)
+    w.pauseAnswer = state('pausing', [{ id: 'B12', checkpoint: POINT }])
+    const paused = await $.classic.SessionStart({ source: 'startup', session_title: 'Game - Units' } as never)
+    expect(paused.additionalContext ?? []).toEqual([])
+    w.pauseAnswer = state('resuming', [{ id: 'B12', checkpoint: POINT }])
+    await $.prompt.submit({ text: 'resume your step B12 from your checkpoint', origin: { kind: 'peer' } } as never)
+    expect(w.contexts.at(-1)?.join('\n') ?? '').toContain('You hold B12: checkpoint 1a2b3c4 · write the tests; go on from there.')
+    await $.prompt.submit({ text: 'and resume the next', origin: { kind: 'peer' } } as never)
+    expect(w.contexts.at(-1)?.join('\n') ?? '').not.toContain('You hold B12')
+  })
+
+  test('a chat that starts while it holds a step goes on from its checkpoint', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', units())
+    w.pauseAnswer = state('running', [{ id: 'B12', checkpoint: POINT }])
+    stand(on, w)
+    await $.session.start(START)
+    const started = await $.classic.SessionStart({ source: 'startup', session_title: 'Game - Units' } as never)
+    expect(started.additionalContext).toEqual(['You hold B12: checkpoint 1a2b3c4 · write the tests; go on from there.'])
+    await $.prompt.submit({ text: 'go on', ...ASKED } as never)
+    expect(w.contexts.at(-1)?.join('\n') ?? '').not.toContain('You hold B12')
+  })
+
+  test('an old board that does not know pause-state changes nothing for the chat', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', units())
+    w.pauseAnswer = null
+    stand(on, w)
+    await $.session.start(START)
+    const started = await $.classic.SessionStart({ source: 'startup', session_title: 'Game - Units' } as never)
+    expect(started.additionalContext ?? []).toEqual([])
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    expect(await told($)).not.toContain('pauses all chats')
+  })
 })

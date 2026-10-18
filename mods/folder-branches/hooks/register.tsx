@@ -7,8 +7,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { ChatFile, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, parseBoard, parseTaken } from './board'
-import type { Board, BoardStart } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, parseBoard, parsePause, parseTaken, pauseContexts } from './board'
+import type { Board, BoardStart, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, sessionOf, status, uniqueByName,
@@ -106,6 +106,17 @@ let isOpenKnown = false
 let openInstructions: OpenInstruction[] = []
 /** The ids and names of this session's own agents, as seen so far: a message to one of them is no report. */
 const ownAgents = new Set<string>()
+/**
+ * Pause 2 (spec 2026-10-18-pause-resume-design.md): the person's pause as the board last answered it (its
+ * `pause-state`, or turn-ended's `pause`), and when; null before the first reading. A reading is kept this long, so
+ * a batch of tool calls asks the board at most once in that time.
+ */
+let pauseRead: { pause: PauseState | null; at: number } | null = null
+const PAUSE_MS = 20000
+/** Pause 2: the pause's lines this process gave its chat (`pauseContexts`), so each is given once. */
+const pauseGiven = new Set<string>()
+/** Pause 2: true until the first prompt of this process went in: a chat that holds a step learns its checkpoint then. */
+let isFirstPrompt = true
 
 function reason(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err)
@@ -402,6 +413,41 @@ const BOARD_WAIT_MS = 1500
 /** Review of B298: the answer of `run`, or null when it takes longer than the board may hold anything. */
 async function withinTime<T>($: EngineInterface, run: Promise<T>): Promise<T | null> {
   return Promise.race([run, $.clock.sleep(BOARD_WAIT_MS).then(() => null, () => null)])
+}
+
+/** Pause 2: the pause state, read from the board unless the last reading is younger than `PAUSE_MS`. Never throws. */
+async function pauseNow($: EngineInterface, isFresh = false): Promise<PauseState | null> {
+  try {
+    const now = await $.clock.now()
+    if (!isFresh && pauseRead !== null && now - pauseRead.at < PAUSE_MS) return pauseRead.pause
+    const read = await workQuietly($, { action: 'pause-state' })
+    pauseRead = { pause: parsePause(read), at: now }
+    return pauseRead.pause
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Pause 2: the pause's lines for this chat where it is (`pauseContexts`), each once. At a prompt the board is asked
+ * only at the first one of this process, while the last reading was a pause or a resume, or when the words speak of a
+ * resume (the board's "resume", the main chat's "resume your step": then anew); else the last reading stands.
+ */
+async function pauseLines($: EngineInterface, where: PauseWhere, text = ''): Promise<string[]> {
+  try {
+    if (myself === null) await withinTime($, changeMine($, () => null))
+    if (myself === null) return []
+    const isFirst = where === 'prompt' && isFirstPrompt
+    if (where === 'prompt') isFirstPrompt = false
+    // Words of a resume come right after Resume all: they are read anew, whatever the last reading said.
+    const isResume = where === 'prompt' && /\bresume\b/i.test(text)
+    const isAsked = where !== 'prompt' || isFirst || isResume || pauseRead?.pause?.state !== 'running'
+    const pause = isAsked ? await pauseNow($, isResume) : pauseRead?.pause ?? null
+
+    return pauseContexts(pause, { role: myself.role, where, given: pauseGiven, isFirst })
+  } catch {
+    return []
+  }
 }
 
 /** B300: whether this chat is a worker whose card holds no task, or only one it reported: it is free for the next. */
@@ -823,7 +869,9 @@ const WORK_TOOL = {
     + 'the flow does not allow, with one line saying why. Work from the record it answers. "next": your open '
     + 'instructions and your steps, the first in full. "take" ("id", "branch"): start a step queued for you; it also '
     + 'names your card after the step. "step" ("id", "step", "names", "minutes", "stepMinutes"): the step of your plan '
-    + "you are on, as the chat tool's \"plan\" and \"step\", which it writes to your card too. \"ask\" (\"of\" the step, \"kind\" "
+    + "you are on, as the chat tool's \"plan\" and \"step\", which it writes to your card too; with \"commit\" (the hash, or none) "
+    + 'and "next" (the next action, one line) it writes the step\'s checkpoint: write a checkpoint with every commit and when '
+    + 'the person pauses, so the chat goes on from it after a restart. "ask" ("of" the step, "kind" '
     + 'decide, look, provide or do, "blocking", "text", "options", "advice", "pictures", "play"): something only the person can '
     + 'do; put the "For you" block it answers into your answer. "withdraw" ("id", "why"): take your own ask back when '
     + 'it is no longer needed (the main chat: also an ask with no asking chat, with a why); a step that waited on it goes '
@@ -882,6 +930,8 @@ const WORK_TOOL = {
       decided: { type: 'array', items: { type: 'string' }, description: 'note of a goal (the daily note): what you decided for the person, one short line each.' },
       needs: { type: 'array', items: { type: 'string' }, description: 'note of a goal (the daily note): the ids of your open asks that need the person (Q12).' },
       from: { type: 'string', description: "rename: the chat's old name." },
+      commit: { type: 'string', description: 'step: the checkpoint\'s commit, its hash, or none.' },
+      next: { type: 'string', description: 'step: the checkpoint\'s next action, in one line.' },
       priority: { type: 'string', enum: ['fix'], description: 'new, queue: "fix" marks the step a fix for the worker board (the main chat, the partner): it goes first in its worker\'s queue.' },
     },
     required: ['action'],
@@ -910,6 +960,28 @@ async function startChats($: EngineInterface): Promise<boolean> {
     return chats.rows.length > 0
   } catch {
     return false
+  }
+}
+
+/** The word about a card without a time, at the right batch of tool calls; none most of the time. */
+async function cardReminder($: EngineInterface): Promise<string[]> {
+  try {
+    if (reminders >= REMIND_MOST) return []
+    batches += 1
+    if (batches < REMIND_AFTER || (batches - REMIND_AFTER) % REMIND_EVERY !== 0) return []
+    const dir = await findChatsDir($)
+    const chat = dir === null ? null : await readChat($, dir, await $.session.id())
+    const lacks = chat === null ? null : cardGap(chat, TOOL, await $.clock.now())
+    // A card with a task that this request has not touched may be the one before: that is asked first, once.
+    const old = chat === null || isCardSeen ? null : cardOld(chat, TOOL)
+    const gap = old ?? lacks
+    if (gap === null) return []
+    if (old !== null) isCardSeen = true
+    reminders += 1
+
+    return [gap]
+  } catch {
+    return []
   }
 }
 
@@ -980,8 +1052,11 @@ export const register: Register = on => {
   // The app gives a chat's title to the classic hooks: a chat of the project joins the list under it.
   on('classic.SessionStart', async ($, e, next) => {
     await joinByTitle($, e.session_title)
+    const result = await next(e)
+    // Pause 2: a main chat that starts while the person resumes learns whom to wake; a chat holding a step, its checkpoint.
+    const lines = e.agent_type === undefined ? await pauseLines($, 'start') : []
 
-    return next(e)
+    return lines.length === 0 ? result : { ...result, additionalContext: [...(result.additionalContext ?? []), ...lines] }
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -990,6 +1065,8 @@ export const register: Register = on => {
     // instructions still open (review: never in the system prompt, which stays the same words and stays cached).
     const context: string[] = []
     if (e.command === undefined) {
+      // Pause 2: read beside the filing, so both hold the prompt 1.5 s at most together.
+      const paused = pauseLines($, 'prompt', e.text)
       if (isFiled(e.text, e.origin)) {
         const filed = await workQuietly($, { action: 'instruction', text: e.text })
         const said = typeof filed?.id === 'string' ? recordedLine([filed.id], []) : null
@@ -1000,6 +1077,7 @@ export const register: Register = on => {
       const asked = blockAsksLine(blockAsks)
       blockAsks = []
       if (asked !== null) context.push(asked)
+      context.push(...await paused)
     }
 
     return next(context.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...context] })
@@ -1022,26 +1100,13 @@ export const register: Register = on => {
 
   // A working chat without a time on its card is told so, with the results of a batch of tool calls it made
   // anyway: no step of its own, and nothing for a request that is answered without tools.
+  // Pause 2: the same batch carries the person's pause: while pausing, the chat is told once to checkpoint and stop.
   on('classic.PostToolBatch', async ($, e, next) => {
     const result = await next(e)
-    try {
-      if (e.agent_id !== undefined || !isInTurn || myself === null || reminders >= REMIND_MOST) return result
-      batches += 1
-      if (batches < REMIND_AFTER || (batches - REMIND_AFTER) % REMIND_EVERY !== 0) return result
-      const dir = await findChatsDir($)
-      const chat = dir === null ? null : await readChat($, dir, await $.session.id())
-      const lacks = chat === null ? null : cardGap(chat, TOOL, await $.clock.now())
-      // A card with a task that this request has not touched may be the one before: that is asked first, once.
-      const old = chat === null || isCardSeen ? null : cardOld(chat, TOOL)
-      const gap = old ?? lacks
-      if (gap === null) return result
-      if (old !== null) isCardSeen = true
-      reminders += 1
+    if (e.agent_id !== undefined || !isInTurn || myself === null) return result
+    const more = [...await pauseLines($, 'batch'), ...await cardReminder($)]
 
-      return { ...result, additionalContext: [...(result.additionalContext ?? []), gap] }
-    } catch {
-      return result
-    }
+    return more.length === 0 ? result : { ...result, additionalContext: [...(result.additionalContext ?? []), ...more] }
   })
 
   on('turn.start', async ($, e, next) => {
@@ -1089,6 +1154,8 @@ export const register: Register = on => {
           await withinTime($, (async () => {
             const pulls = await holdsNothing($)
             const ended = await workQuietly($, { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}) })
+            // Pause 2: the same answer carries the pause state: the next batch needs no call of its own.
+            if (ended !== null) pauseRead = { pause: parsePause(ended.pause), at: await $.clock.now() }
             const filed = ended?.asked
             if (Array.isArray(filed)) blockAsks = filed.filter((id): id is string => typeof id === 'string')
             const line = (ended?.pull as { text?: unknown } | undefined)?.text
