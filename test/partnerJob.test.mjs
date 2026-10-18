@@ -48,7 +48,7 @@ test('the partner keeps the Advisor\'s refining, goal linking and rounds, and ad
   assert.match(partner, /`how: go`/)
   assert.match(partner, /`work new` with a title/)
   assert.match(partner, /`goal` G<n>/)
-  assert.match(partner, /`work refine` then `work refined`/)
+  assert.match(partner, /each is made refined at once: give `work new` also `summary`, `what`/)
   assert.match(partner, /each part with ` · steps B<id>, B<id>` added/)
   assert.match(partner, /`work note --to main` "Queue for G<n>/)
   assert.match(partner, /Never write `Focus:`, `Vibe agreed:` or `How agreed:` yourself/)
@@ -58,6 +58,7 @@ test('the main chat sends planning questions to the partner and queues the steps
   assert.match(main, /## The partner \(its job: `partner\.md` beside this file/)
   assert.match(main, /Planning questions go to the partner, not to the user/)
   assert.match(main, /"Queue for G<n>/)
+  assert.match(main, /A step the partner made from a how\s+the user agreed is refined when made/)
   assert.doesNotMatch(main, /advisor\.md/)
 })
 

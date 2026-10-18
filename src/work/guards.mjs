@@ -31,7 +31,7 @@ export const GUARDS = {
   // B303: the main chat (or the person) asked to queue it before its refine: the board queues it once it is refined.
   // B309: and once no ask under it is open, nor answered and not yet folded in by the Advisor.
   'a queue was asked before its refine': (item, ctx) => valueOf(item, 'Queue when refined') !== null
-    && openAsksOf(ctx.store?.items, valueOf(item, 'Id')).length === 0 && refineAsksOf(ctx.store?.items, item).length === 0,
+    && openAsksOf(ctx.store?.items, valueOf(item, 'Id'), item).length === 0 && refineAsksOf(ctx.store?.items, item).length === 0,
   'Touches overlaps no taken step': (item, ctx) => (ctx.overlaps?.(item) ?? null) === null,
   // B305: the worker's own take needs only what it is blocked by resolved; Owner free is the board's delivery.
   // B306: "Blocked by" here means what the step waits for too: the ids `Waits for` names, and words not yet cleared.

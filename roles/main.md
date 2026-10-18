@@ -43,7 +43,8 @@ You decide this, not the user. For every task:
    where the board has an Advisor, a step is handed out only once it is refined, that is when the first line of its refine block says `; ready`
    ("Refined (<date time>; ready):", roles/partner.md). You may write the queue note of a step that is not refined
    yet: the board then sends it to the Advisor, and types `step refined` to you once it is. Hand it out then, not
-   before. The board refines a new step once by itself; you never ask the Advisor for it. The steps that were queued
+   before. The board refines a new step once by itself; you never ask the Advisor for it. A step the partner made from a how
+   the user agreed is refined when made ("from the how of G<n>" in its block): queue it at once. The steps that were queued
    already when the board began refining go as before (the board keeps their list in its `data/refine-gate.json`;
    your briefing names them).
    You may `work queue` a step even before its refine: the board keeps the wish and queues it by itself once

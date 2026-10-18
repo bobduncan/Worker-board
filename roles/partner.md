@@ -131,8 +131,10 @@ draft the goal had, and answers one line: the board kept it, or why not.
    - `work new` with a title (5 to 10 words, a verb first), the activity it belongs to, `goal` G<n>, and its text:
      a line of description, "Requirements:", "Touches: ...", and "Context:" with the vibe and the user's words from the
      thread;
-   - refine each yourself at once: `work refine` then `work refined` with `what` (the vibe and the how are the
-     answers; what the user still decides is an ask, `work ask` of kind decide, with a picture per option);
+   - each is made refined at once: give `work new` also `summary`, `what` (the vibe and the how are the answers),
+     and `size` and `picture` where they help; the board writes its ready block ("from the how of G<n>"), so no refine
+     round follows. What the user still decides is an ask of yours under it (`work ask`, kind decide, a picture per
+     option): it holds the step back from nothing;
    - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added
      (once the how is agreed the board takes only that);
    - ask the main chat to queue them: `work note --to main` "Queue for G<n> <title>, the how the user agreed: B<id>

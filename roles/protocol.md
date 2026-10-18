@@ -66,7 +66,7 @@ tool answers with the record: work from it, not from a message.
 | `recheck B<id>` (the page's "Check again") | the person | a step in review whose check failed: the board runs its check again with what the last report said (B304) |
 | `work block` / `unblock B<id>` (`on`) | the main chat, a worker | what the step waits on (`Blocked by`) |
 | `work unblock B<id>` without `on` | the main chat, the person | clears the step's `Waits for` (words with no id hold a step until cleared); History: "no longer waits for: <words>" |
-| `work new` (`title`, `activity`, `goal`, `text`) | the main chat, a worker, the Advisor | a new step `B<n>`, state new |
+| `work new` (`title`, `activity`, `goal`, `text`) | the main chat, a worker, the Advisor | a new step `B<n>`, state new. Focus 2: the partner's step from an agreed how also gives `summary` and `what` (and `size`, `picture`): it is made refined, its block `Refined (<date time>; ready; from the how of G<n> by <partner>):`, so the board's refine gate sends no round; a decide ask the partner files under it holds nothing back |
 | `work queue B<id>` (`for`, `after`, `about`) | the main chat | a refined step into a worker's queue; a step not refined yet keeps the wish (`Queue when refined:`), and the board queues it by itself once it is refined |
 | `work requeue B<id>` (`for`) | the main chat, the person ("Move to") | a queued step to another worker's queue; the board delivers it anew |
 | `work unqueue B<id>` | the main chat, the person ("Take out of the queue") | a queued step out of its queue: refined (or new), without a worker |

@@ -16,7 +16,7 @@ import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
-import { openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
+import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { writeView } from './view.mjs'
 
@@ -626,7 +626,11 @@ async function clearWaits(found, w) {
   return done.ok ? changed(ordered(item)) : done
 }
 
-/** A new step `B<n>` in state new, at the end of its activity. */
+/**
+ * A new step `B<n>` in state new, at the end of its activity. Focus 2 (the review): the partner's step from a how the
+ * person agreed (`goal`, `summary`, `what`, and `picture`, `size` at will) is made refined at once, its block ready
+ * and marked "from the how of G<n> by <partner>", so the board's refine gate sends no second round for it.
+ */
 async function make(body, w) {
   if ((body.kind ?? 'step') !== 'step') return refuse(400, 'Only a step is made with "new"; an ask with "ask", a note with "note".')
   const title = line(body.title, 200)
@@ -637,17 +641,28 @@ async function make(body, w) {
   if (index < 0) return refuse(400, `Name its activity in "activity": ${names.join(', ')}.`)
   const goal = line(body.goal, 20)
   if (goal !== '' && !/^G\d+$/.test(goal)) return refuse(400, 'A goal is named by its id (G17).')
+  const fromHow = body.what === undefined ? null : howBlock(body, goal, w)
+  if (fromHow !== null && !fromHow.ok) return fromHow
   const read = lineFields(title)
   if (read.title !== title || read.isYou || read.owner !== null || read.branch !== null || read.asks !== null || read.id !== null) {
     return refuse(400, 'The title would not read back as written: leave out an id at its start, "Verify:" and the like, brackets at its end and @you.')
   }
   const activitiesText = await readActivitiesText(w.dir, w.fs)
   const id = await nextId(w.dir, 'B', w.fs)
-  const item = said(ordered({
+  let item = said(ordered({
     head: new Map([['Id', id], ['Kind', 'step'], ['Title', title], ['State', 'new'], ['Activity', names[index]], ...(goal === '' ? [] : [['Goal', goal]]), ['Since', stamp(w.now)]]),
     sections: new Map(lines(body.text).length === 0 ? [] : [['Context', lines(body.text).map(one => `  ${one.trim()}`)]]),
     problem: null,
   }), w, 'made')
+  if (fromHow !== null) {
+    const ready = copy(item)
+    for (const [name, value] of fromHow.sections) ready.sections.set(name, value)
+    ready.sections.set('Context', withMark(item))
+    put(ready, 'Refined', 'ready')
+    const moved = move(ordered(said(ready, w, `refined is ready (from the how of ${goal})`)), 'refined', w.role, w)
+    if (!moved.ok) return moved
+    item = ordered(moved.item)
+  }
   const wrote = await save(item, null, w)
   if (!wrote.ok) return wrote
   const activities = w.store.activities.map((one, place) => (place === index ? { ...one, steps: [...(one.steps ?? []), id] } : one))
@@ -722,7 +737,7 @@ function queuesOnceRefined(item, words, w) {
   const refined = put(put(copy(item), 'State', 'refined'), 'Queue when refined', words)
   const ctx = flowCtx(w, [refined])
   // B309: as once its refine is ready: the asks under it answered and folded in.
-  for (const ask of openAsksUnder(ctx.store.items, valueOf(item, 'Id'))) ctx.store.items.delete(valueOf(ask, 'Id'))
+  for (const ask of openAsksUnder(ctx.store.items, valueOf(item, 'Id'), item)) ctx.store.items.delete(valueOf(ask, 'Id'))
   return mayMove(w.store.flow, refined, 'queued', w.role, ctx).ok && mayMove(w.store.flow, refined, 'queued', 'server', ctx).ok
 }
 
@@ -735,7 +750,7 @@ function queueAsked(item, w) {
   const wish = valueOf(item, 'Queue when refined')
   if (wish === null || stateOf(item) !== 'refined') return item
   // B309: it waits for the asks under it too, and for the round that folds their answers in.
-  if (openAsksUnder(w.store.items, valueOf(item, 'Id')).length > 0 || asksCounted(w.store.items, item).length > 0) return item
+  if (openAsksUnder(w.store.items, valueOf(item, 'Id'), item).length > 0 || asksCounted(w.store.items, item).length > 0) return item
   const moved = move(item, 'queued', 'server', w, flowCtx(w, [item]))
   if (!moved.ok) return item
   const part = name => wish.split(';').map(one => one.trim()).find(one => one.startsWith(`${name} `))?.slice(name.length + 1).trim() ?? ''
@@ -879,6 +894,28 @@ const withMark = item => {
   return context.some(one => one.trim() === REFINED_MARK.trim()) ? context : [...context, REFINED_MARK]
 }
 
+/** Focus 2: the ready refine block of a step made from an agreed how, by its sections; refused when it cannot be one. */
+function howBlock(body, goal, w) {
+  if (w.role !== 'advisor') return refuse(403, 'Only the partner makes a step refined at once, from the how the person agreed.')
+  if (goal === '') return refuse(400, 'A step from the agreed how names its goal in "goal" (G17).')
+  const summary = line(body.summary, 600)
+  if (summary === '') return refuse(400, 'Give the summary in "summary".')
+  const what = lines(body.what, 300).map(one => `- ${one.replace(/^[-*]\s+/, '').trim()}`)
+  if (what.length === 0) return refuse(400, 'Say what we build in "what", one line per part.')
+  const picture = line(body.picture, 200)
+  const size = line(body.size, 40).replace(/^about\s+/i, '')
+  const block = [
+    `Refined (${stamp(w.now)}; ready; ${HOW_MARK} ${goal} by ${w.who}):`,
+    `Summary: ${summary}`,
+    ...(picture === '' ? [] : [`Picture: ${picture}`]),
+    `Part of: ${goal}`,
+    ...(size === '' ? [] : [`Size: about ${size}`]),
+    'What we build:',
+    ...what,
+  ].map(one => `  ${one}`)
+  return { ok: true, sections: [['Summary', [summary]], ...(picture === '' ? [] : [['Picture', [picture]]]), ['What we build', what], ['Refined', block]] }
+}
+
 /** The Advisor's refine: the block in today's form (round, summary, picture, goal, size, questions); Refined: open. */
 async function refine(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
@@ -960,7 +997,7 @@ async function refined(body, w) {
   if (block.length === 0) return refuse(409, `${id} has no refine block yet: refine it first.`)
   // B299: a refine is ready only once the person answered its questions. B309: every ask under the step counts, also
   // one its worker filed.
-  const waiting = openAsksUnder(w.store.items, id)
+  const waiting = openAsksUnder(w.store.items, id, found.item)
   if (waiting.length > 0) return refuse(409, `${id}: ${waiting.map(one => `${valueOf(one, 'Id')} ("${valueOf(one, 'Title')}")`).join(', ')} ${waiting.length === 1 ? 'is' : 'are'} still open: the person answers first.`)
   const what = lines(body.what, 300).map(one => `- ${one.replace(/^[-*]\s+/, '').trim()}`)
   if (what.length === 0) return refuse(400, 'Say what we build in "what", one line per part.')
