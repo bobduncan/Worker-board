@@ -916,6 +916,8 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     id: node.id,
     title: node.title,
     stage: focusStage(node),
+    // B354: the goal gets its tick against its Done when.
+    doneWhen: node.doneWhen,
     vibe: node.vibe,
     vibePicture: node.vibePicture,
     vibeAgreed: node.vibeAgreed,

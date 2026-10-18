@@ -5417,6 +5417,10 @@ function drawGoals(state) {
       if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Ask the Advisor…', { goalTool: 'ask' }), tools.children[1] ?? null)
       // B259: think it through with the Advisor, one question at a time, on the Brainstorm part.
       if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Brainstorm this', { goalTool: 'brainstorm' }), tools.children[2] ?? null)
+      // B354: a goal without a Done when is not ticked and not picked as the focus: the partner is asked to write one.
+      if ((state.advisor ?? null) !== null && !focus.fromPlan && focus.state !== 'done' && !hasDoneWhenLine(focus)) {
+        tools.insertBefore(goalButton('goals-tool is-ask', 'Ask your partner for a Done when', { goalTool: 'done-when' }), tools.children[1] ?? null)
+      }
       if (focus.fromPlan) tools.append(el('small', 'muted', 'Its title and Done when are the game plan\'s.'))
       parts.push(tools)
       const editing = goalsUi.editing
@@ -6141,7 +6145,8 @@ async function sendGoals(body) {
   }
   // A change that changed nothing is nothing to undo. B258: an ask and a read mark are no change undo takes back, and
   // after them the map no longer reads as the changes before left it, so those cannot be undone either.
-  if (result !== null && result.unchanged !== true) goalsUi.undoable = body.command === 'ask' || body.command === 'read' ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
+  // B354: a word to the partner (done-when) changes nothing in the map: nothing to count for undo.
+  if (result !== null && result.unchanged !== true && body.command !== 'done-when') goalsUi.undoable = body.command === 'ask' || body.command === 'read' ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   // Changed or refused, the map is read anew (a refusal is often a change made elsewhere in between), and the next
   // key works on the map as it now is.
   await read()
@@ -7022,6 +7027,8 @@ $('goals-frame').addEventListener('click', event => {
   if (tool === undefined || focus === null) return
   if (tool === 'ask') return openGoalAsk(focus)
   if (tool === 'brainstorm') return openBrainstorm(focus)
+  // B354: the partner is asked to write the goal's Done when; the map itself is not changed.
+  if (tool === 'done-when') return sendGoals({ command: 'done-when', id: focus }).then(done => { if (done !== null) goalsSay('Your partner is asked to write its Done when.', 'ok') })
   const node = board?.goals ? goalById(board.goals, focus) : null
   if (tool === 'delete' || tool === 'dissolve') {
     if (!isConfirmed(tool, focus)) {
@@ -7277,6 +7284,15 @@ function focusCan(state) {
   return { canWrite: true, whyNot: null }
 }
 
+/** B354: whether a goal (or the focus) has a Done when line with words in it. */
+function hasDoneWhenLine(node) { return typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== '' }
+
+/** B354: a step's standard as the page shows it: "<kind> · <reference picture> · target <score>", read into its parts. */
+function standardParts(line) {
+  const [kind = '', picture = '', target = ''] = String(line).split(/\s*·\s*/)
+  return { kind, picture, target, line: String(line) }
+}
+
 /**
  * Focus 1: what the Focus page shows (spec 2026-10-18, section 4), from the state's `focus` (null: none) and the goal
  * map (`goals`, the state's): its stage, the head with the goal and, once agreed, its vibe in one line; the strip
@@ -7292,9 +7308,16 @@ function focusView(focus, goals, can = null, ui = {}) {
   const why = allowed ? null : can?.whyNot ?? 'This board only shows.'
   const button = (label, act, isEnabled, title) => ({ label, act, isEnabled: allowed && isEnabled, title: allowed ? title : why })
   const seen = new Set()
+  // B354: a goal is picked only with a Done when; without one its row asks the partner to write it (asked: `ui.asked`).
+  const asked = Array.isArray(ui.asked) ? ui.asked : []
   const rows = (goals?.nodes ?? []).filter(node => node.state !== 'done' && !seen.has(node.id) && seen.add(node.id))
-    .map(node => ({ id: node.id, title: node.title, depth: node.depth, isNow: node.state === 'now' }))
-  const pickOf = question => ({ question, rows, isEnabled: allowed, title: allowed ? 'Make it your focus: you and your partner agree its vibe first' : why })
+    .map(node => ({ id: node.id, title: node.title, depth: node.depth, isNow: node.state === 'now', hasDoneWhen: hasDoneWhenLine(node), isAsked: asked.includes(node.id) }))
+  const pickOf = question => ({
+    question, rows, isEnabled: allowed, title: allowed ? 'Make it your focus: you and your partner agree its vibe first' : why,
+    ask: { label: 'Ask your partner to write it', act: 'done-when', isEnabled: allowed, title: allowed ? 'A goal becomes your focus once its Done when says how you check it: your partner writes one' : why },
+    noDoneWhen: 'No Done when yet',
+    asked: 'Your partner writes its Done when',
+  })
   if (stage === 'pick') return { stage, head: null, strip: null, progress: null, change: null, pick: pickOf('What do you want to work on?') }
   const vibeLine = focus.vibeAgreed === null ? null : focus.vibe.length > 0 ? focus.vibe.join(' · ') : '(no words kept)'
   const view = {
@@ -7342,6 +7365,8 @@ function focusView(focus, goals, can = null, ui = {}) {
         owner: part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null,
         // Fix first: its worker does a board fix first.
         ...(typeof part.fixFirst === 'string' ? { fixFirst: `A board fix goes first: ${part.fixFirst}` } : {}),
+        // B354: what its results are checked against: the kind, the reference picture, the target.
+        standards: (part.standards ?? []).map(standardParts),
       })),
       stepsOf: focus.id,
     }
@@ -7349,13 +7374,17 @@ function focusView(focus, goals, can = null, ui = {}) {
     // Focus 4: the slim talk bar under the parts: the person's words to the partner, in the talk about the goal.
     view.talkBar = { placeholder: 'Talk to your partner about this goal…', act: 'talk-bar', isEnabled: allowed, title: allowed ? 'Your words go to your partner, in the talk about this goal' : why }
     const { done, total } = focus.progress
+    // B354: the goal gets its tick against its Done when; a focus picked before that rule may have none.
+    const hasLine = hasDoneWhenLine(focus)
     view.vibeThere = total > 0 && done === total ? {
       question: 'Is the vibe there?',
       vibe: focus.vibe,
+      doneWhenLine: hasLine ? `Done when: ${focus.doneWhen.trim()}` : null,
       buttons: [
-        button('Yes', 'vibe-there-yes', true, 'The goal is done: your partner asks for your next focus'),
+        button('Yes', 'vibe-there-yes', hasLine, hasLine ? 'The goal is done: your partner asks for your next focus' : 'Its Done when is missing: the goal gets its tick against it'),
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
+      doneWhen: hasLine ? null : button('Ask your partner to write its Done when', 'done-when', true, 'Your partner writes how you check the goal is done'),
     } : null
   }
   if (stage === 'done') view.pick = pickOf(`${focus.id} is done. What do you want to work on next?`)
@@ -7503,12 +7532,13 @@ function drawAdvisorParts(state) {
  * Focus 2: what the person is doing on the Focus page, which a redraw keeps: a move on its way, the line after it, the
  * box of "Not yet" open (`vibe` or `how`) and the words typed in each box, the option picked for the open question.
  */
-const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, words: { talk: '', notYet: '', new: '', bar: '' } }
+// B354: `asked`, the goals whose Done when the person asked the partner for on this page.
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], words: { talk: '', notYet: '', new: '', bar: '' } }
 const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar' }
 
 function focusData(state) {
   const effort = state.advisor?.effort ?? null
-  return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking,
+  return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking, focusUi.asked.join(','),
     // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
     effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null]
 }
@@ -7705,6 +7735,16 @@ function focusRunCard(view) {
     row.append(top, bar)
     if (part.owner !== null) row.append(el('small', 'focus-owner', part.owner))
     if (typeof part.fixFirst === 'string') row.append(el('small', 'focus-fix', part.fixFirst))
+    // B354: what the part's results are checked against, its reference picture opened with a click.
+    for (const standard of part.standards ?? []) {
+      const line = el('small', 'focus-standard', `Checked against: ${standard.kind} · `)
+      const look = el('button', 'focus-standard-picture', standard.picture)
+      look.type = 'button'
+      look.dataset.zoom = standard.picture
+      look.dataset.caption = `The reference for ${standard.kind}`
+      line.append(look, ` · ${standard.target}`)
+      row.append(line)
+    }
     card.append(row)
   }
   const steps = el('button', 'focus-steps', 'See the steps behind this →')
@@ -7729,7 +7769,15 @@ function focusPickCard(view) {
   for (const row of view.pick.rows) {
     const line = el('li', row.isNow ? 'is-now' : '')
     line.style.setProperty('--depth', String(row.depth))
-    line.append(el('span', 'focus-goal-id', row.id), el('span', 'focus-goal-title', row.title), pickButton(row))
+    line.append(el('span', 'focus-goal-id', row.id), el('span', 'focus-goal-title', row.title))
+    // B354: a goal without a Done when is not picked: its row asks the partner to write one, or says it was asked.
+    if (row.hasDoneWhen) line.append(pickButton(row))
+    else if (row.isAsked) line.append(el('small', 'focus-done-when is-asked', view.pick.asked))
+    else {
+      const ask = focusButton(view.pick.ask, 'goals-action focus-ask-done-when')
+      ask.dataset.focusGoal = row.id
+      line.append(el('small', 'focus-done-when', view.pick.noDoneWhen), ask)
+    }
     list.append(line)
   }
   if (view.pick.rows.length === 0) list.append(el('li', 'muted', 'The goal map has no open goal.'))
@@ -7798,6 +7846,9 @@ function focusVibeThereCard(view, can) {
   for (const line of view.vibeThere.vibe) lines.append(el('li', '', line))
   const buttons = el('div', 'focus-buttons')
   view.vibeThere.buttons.forEach((one, index) => buttons.append(focusButton(one, index === 0 ? 'focus-yes' : 'focus-no')))
+  // B354: the goal is ticked against its Done when: it stands under the vibe, or the button asks the partner for it.
+  if (view.vibeThere.doneWhenLine !== null) lines.append(el('li', 'focus-done-when-line', view.vibeThere.doneWhenLine))
+  if (view.vibeThere.doneWhen !== null) buttons.append(focusButton(view.vibeThere.doneWhen, 'focus-ask-done-when'))
   card.append(lines, buttons)
   if (focusUi.notYet === 'there') card.append(focusNotYet('there', can))
   return card
@@ -7806,7 +7857,7 @@ function focusVibeThereCard(view, can) {
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
 function drawFocus(state) {
   const can = focusCan(state)
-  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking })
+  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking, asked: focusUi.asked })
   const box = $('advisor-focus')
   box.dataset.stage = view.stage
   const parts = []
@@ -7921,10 +7972,19 @@ async function focusAct(act, goal = null, extra = null) {
     } else if (act === 'restart-talk' && focus !== null) await sendFocus({ command: 'focus', id: focus.id }, 'The talk starts again: your partner is told.')
     else if (act === 'new') {
       if (words('new') === '') focusUi.note = { isProblem: true, text: 'Write what you want to work on.' }
-      else if (await sendFocus({ command: 'focus', text: words('new') }, 'A new goal, your focus now: your partner starts the talk about its vibe.') !== null) {
-        focusUi.words.new = ''
-        focusUi.picking = false
+      else {
+        const result = await sendFocus({ command: 'focus', text: words('new') }, 'A new goal, your focus now: your partner starts the talk about its vibe.')
+        if (result !== null) focusUi.words.new = ''
+        // B354: a new goal has no Done when yet: it waits in the map while the partner writes one, then the person picks it.
+        if (result?.isFocus === false) {
+          focusUi.asked = [...focusUi.asked, result.id]
+          focusUi.note = { isProblem: false, text: `${result.id} is in your goal map. Your partner writes its Done when: pick it here once it stands.` }
+        } else if (result !== null) focusUi.picking = false
       }
+    } else if (act === 'done-when') {
+      // B354: the partner is asked to write the goal's Done when (a row of the pick list, or the focus itself).
+      const id = goal ?? focus?.id ?? null
+      if (id !== null && await sendFocus({ command: 'done-when', id: goal ?? focus?.id }, 'Your partner is asked to write its Done when.') !== null) focusUi.asked = [...focusUi.asked, id]
     } else if (act === 'vibe-agree' && focus !== null) await sendFocus({ command: 'vibe-agree', id: focus.id }, 'Agreed. Your partner proposes the how next.')
     else if (act === 'how-go' && focus !== null) await sendFocus({ command: 'how-go', id: focus.id }, 'Go: your partner makes the steps, and the main chat hands them out.')
     else if (act === 'send-not-yet' && focus !== null && focusUi.notYet !== null) {

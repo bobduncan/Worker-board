@@ -148,10 +148,10 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
 test('the run shows the parts with progress and who is on each, never a step id; the note card waits for the partner\'s note', () => {
   const run = page.focusView(stateOf(map(AGREED, HOW, RUN)), goalsOf(map()))
   assert.deepEqual(run.run.parts, [
-    { title: 'Draw the bench', chip: 'Done', tone: 'done', percent: 100, owner: null },
-    { title: 'Light the path', chip: 'In progress', tone: 'now', percent: 50, owner: 'Features is on it' },
-    { title: 'Place them', chip: 'Done', tone: 'done', percent: 100, owner: null },
-    { title: 'One look at the whole garden', chip: 'Waiting for the main chat to hand it out', tone: 'handout', percent: 0, owner: null },
+    { title: 'Draw the bench', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [] },
+    { title: 'Light the path', chip: 'In progress', tone: 'now', percent: 50, owner: 'Features is on it', standards: [] },
+    { title: 'Place them', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [] },
+    { title: 'One look at the whole garden', chip: 'Waiting for the main chat to hand it out', tone: 'handout', percent: 0, owner: null, standards: [] },
   ])
   assert.equal(run.run.stepsOf, 'G2')
   assert.doesNotMatch(JSON.stringify(run.run), /\bB\d+\b/)
@@ -165,10 +165,10 @@ test('pick: no focus lists the open goals of the map to choose from; done asks f
   assert.equal(pick.stage, 'pick')
   assert.equal(pick.head, null)
   assert.deepEqual(pick.pick.rows, [
-    { id: 'G1', title: 'A garden people visit', depth: 0, isNow: true },
-    { id: 'G2', title: 'Benches that feel like home', depth: 1, isNow: true },
-    { id: 'G3', title: 'A bench by the pond', depth: 2, isNow: false },
-    { id: 'G4', title: 'Lanterns', depth: 0, isNow: false },
+    { id: 'G1', title: 'A garden people visit', depth: 0, isNow: true, hasDoneWhen: false, isAsked: false },
+    { id: 'G2', title: 'Benches that feel like home', depth: 1, isNow: true, hasDoneWhen: false, isAsked: false },
+    { id: 'G3', title: 'A bench by the pond', depth: 2, isNow: false, hasDoneWhen: false, isAsked: false },
+    { id: 'G4', title: 'Lanterns', depth: 0, isNow: false, hasDoneWhen: false, isAsked: false },
   ])
   assert.equal(pick.pick.question, 'What do you want to work on?')
   assert.equal(pick.pick.isEnabled, false)
