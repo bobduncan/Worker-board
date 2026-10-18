@@ -44,7 +44,9 @@ test('the Workers panel draws the number in front of the topic, in its own quiet
   const title = script.slice(script.indexOf('function taskTitle('), script.indexOf('// stepline:start'))
   assert.match(title, /laneTaskOf\(lane\)/)
   assert.match(title, /el\('span', 'task-code', code\)/)
-  assert.match(script, /what\.append\(taskTitle\(lane\)\)/)
+  // B307: the row's task line, with what it does now in its tooltip.
+  assert.match(script, /const title = taskTitle\(lane\)/)
+  assert.match(script, /what\.append\(title\)/)
   assert.match(cut('lanewindow'), /code: laneTaskOf\(lane\)\.code/)
   assert.match(style, /\.task \.task-code \{[^}]*color:/)
 })

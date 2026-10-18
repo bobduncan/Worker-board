@@ -17,7 +17,7 @@ test('the lanes sit in one panel with its name, the add button and the columns n
   const panel = html.slice(html.indexOf('id="workers-panel"'), html.indexOf('id="lanes"'))
   assert.match(panel, /<h2 id="workers-title">Workers<\/h2>/)
   assert.match(panel, /id="workers-add"/)
-  assert.deepEqual([...panel.matchAll(/<span>([^<]*)<\/span>/g)].map(found => found[1]), ['Worker', 'Current task', 'Progress', 'Est. time', 'Queue', ''])
+  assert.deepEqual([...panel.matchAll(/<span>([^<]*)<\/span>/g)].map(found => found[1]), ['Worker', 'Task', 'Progress', 'Left', 'Next in queue', ''])
   // The other parts of the Overview stay where they are.
   assert.ok(html.indexOf('id="workers-panel"') < html.indexOf('id="today"'))
 })
@@ -32,9 +32,10 @@ test('each worker\'s icon takes the colour of its state, the one its pill names'
   }
 })
 
-test('a row: the worker, its task, its progress, its time, its queue with its length, and "⋯" for the rest', () => {
+test('a row: the worker, its task, its progress, its time, the next in its queue, and "⋯" for the rest', () => {
   assert.match(script, /row\.append\(who, what, progress, drawEta\(lane, state\.readAt\), queue, menu\)/)
-  assert.match(script, /`Queue \(\$\{lane\.queue\.length\}\)`, lane\.queue\[0\]\.id/)
+  // B307: the length of the queue is in the next step's tooltip.
+  assert.match(script, /`Queue \(\$\{lane\.queue\.length\}\)`, next\.id/)
   // Remove sits in the part "⋯" unfolds; its warning still shows under the row.
   assert.match(script, /more\.prepend\(bar\)/)
   assert.match(script, /closest\('\.queue-head, \.lane-menu'\)/)
