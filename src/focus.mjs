@@ -5,9 +5,9 @@
 // move changed nothing (a second click), so a word goes once (Review Focus 3). The moves run one at a time.
 import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
-import { editThread, parseThread } from './brainstorm.mjs'
+import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, nextGoalId, parseGoals } from './goals.mjs'
-import { addGoal, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, setFocus, setHow, setVibe } from './goalsWrite.mjs'
+import { addGoal, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, rewrite, setFocus, setGoalLine, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
@@ -41,15 +41,24 @@ const failed = why => refuse(...(WHY[why] ?? WHY.write))
 /** The goal map as it is now, UTF-8, or null when it is not there. */
 const readMap = (fs, file) => fs.readFile(file).then(bytes => bytes.toString('utf8'), () => null)
 
-/** The running (or wrapping up) thread about a goal in the brainstorms' folder, by its path as the setting names it. */
-async function runningThread(goal, { brainstormDir, brainstormFolder, fs }) {
+/**
+ * The threads about a goal that are not over (running, or wrapping up), newest first: `{ path, file, thread }`, the path
+ * as the setting names it.
+ */
+async function liveThreads(goal, { brainstormDir, brainstormFolder, fs }) {
   const base = String(brainstormDir).replace(/[\\/]+$/, '')
   const names = (await fs.readdir(base).catch(() => [])).filter(name => /^[a-z0-9][a-z0-9-]*\.md$/.test(name)).sort().reverse()
+  const found = []
   for (const name of names) {
     const thread = parseThread(await fs.readFile(`${base}/${name}`).then(bytes => bytes.toString('utf8'), () => ''))
-    if (thread.goal?.id === goal && (thread.state === 'running' || thread.state === 'wrapping up')) return `${brainstormFolder}/${name}`
+    if (thread.goal?.id === goal && (thread.state === 'running' || thread.state === 'wrapping up')) found.push({ path: `${brainstormFolder}/${name}`, file: `${base}/${name}`, thread })
   }
-  return null
+  return found
+}
+
+/** The talk about a goal the page answers in: a running thread with no proposal, by its path; null when none is. */
+async function runningThread(goal, ctx) {
+  return (await liveThreads(goal, ctx)).find(one => one.thread.state === 'running' && one.thread.proposal === null)?.path ?? null
 }
 
 /** The talk about the goal: its running thread, else the one its Brainstorm line names, else none. */
@@ -154,6 +163,20 @@ async function pick(body, before, ctx, goalsAt) {
   if (node === undefined) return failed('gone')
   let thread = await runningThread(id, ctx)
   let isNewThread = false
+  // The review of Focus 2: a talk wrapped up on the Brainstorm part (no proposal yet) is reopened; one that holds a
+  // proposal is the Brainstorm part's to create or discard first; one that is over gives way to a new one.
+  const live = thread === null ? await liveThreads(id, ctx) : []
+  if (live.some(one => one.thread.proposal !== null)) return refuse(409, 'The talk about this goal holds a proposal: create or discard it on the Brainstorm part first.')
+  if (live.length > 0) {
+    const reopened = await rewrite(live[0].file, latin => {
+      const text = Buffer.from(latin, 'latin1').toString('utf8')
+      const done = setThreadState(text, 'running')
+      return done.ok ? { ok: true, text: Buffer.from(done.text, 'utf8').toString('latin1') } : done
+    }, ctx.fs)
+    if (!reopened.ok) return failed(reopened.why)
+    thread = live[0].path
+    isNewThread = true
+  }
   if (thread === null) {
     const started = await editThread({ command: 'start', title: node.title, goal: id, opening: isNew ? oneLine(body.text, 2000) : 'I pick this goal as my focus.' }, {
       canWrite: true, dir: ctx.brainstormDir, folder: ctx.brainstormFolder, goalsFile: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs,
@@ -163,6 +186,10 @@ async function pick(body, before, ctx, goalsAt) {
       isNewThread = true
     } else thread = await runningThread(id, ctx)
     if (thread === null) return refuse(started.status ?? 500, started.why ?? 'The talk could not be started.')
+  }
+  // The goal's Brainstorm line names the talk the page answers in, also when the line named one that is over.
+  if (isNewThread && node.brainstorm?.path !== thread) {
+    await changeGoalsFile(text => (parseGoals(text).byId.has(id) ? setGoalLine(text, id, 'Brainstorm', `${thread} (running)`) : { ok: true, text }), goalsAt).catch(() => null)
   }
   const result = { id, thread }
   if (!moved && !isNewThread) return { ok: true, result: { ...result, unchanged: true }, words: null }

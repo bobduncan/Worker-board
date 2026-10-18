@@ -208,7 +208,9 @@ your chat about an ask: the user reads the answer under the goal on the board, a
 
 ## A brainstorm
 
-The focus's talk is a thread of this form too, with no proposal: its drafts take that place ("The focus", above).
+The focus's talk is a thread of this form too, but it is never wrapped up into a proposal: its drafts take that place
+("The focus", above). A `brainstorm wrap up` for the focus's thread gets no proposal: write nothing; the user starts
+the talk again on the Focus page ("Start the talk": the board reopens it and types `focus:` once more).
 
 The board types `brainstorm`, `Thread: <path>`, `Goal: G<id> <title>` (or `Goal: new`) and `Opening: <words>` into your
 chat when the user starts one on the Focus tab's Brainstorm part: their word. The thread is a file in the project's
@@ -229,7 +231,7 @@ decides; never ask what the thread already answers. The board writes the user's 
 (`Answer (HH:MM): A — <their words>`, or `Other — <their words>`, `skipped`, `back to Q<m>`) and types
 `brainstorm answer`, `Thread:` and `Q<n>: <the same>`: write the next question under it. "Back to Q<m>": ask Q<m>
 again as the next question, with what changed. When you have enough, or the board types `brainstorm wrap up` (the
-thread's state then reads "wrapping up"), write the proposal at once:
+thread's state then reads "wrapping up"), write the proposal at once (never in the focus's thread):
 
     ## Proposal (HH:MM)
     Decided:

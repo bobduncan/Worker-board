@@ -256,3 +256,26 @@ test('the review\'s findings: a draft is for the focus goal only, and a how only
   assert.deepEqual([early.status, early.why], [409, 'The vibe is not agreed yet: draft the how once the person agreed it.'])
   assert.deepEqual(mapOf(fs).byId.get('G2').parts, [])
 })
+
+test('the review\'s findings: "Start the talk" (focus again) on a talk that is over starts or reopens it; one with a proposal is named', async () => {
+  const fs = fakeFs({ [MAP]: latin(GOALS) })
+  const first = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
+  const file = `${DIR}/${first.result.thread.split('/').pop()}`
+  // Wrapped up on the Brainstorm part: reopened, and the partner told.
+  fs.files[file] = fs.files[file].replace('State: running', 'State: wrapping up')
+  const reopened = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
+  assert.equal(reopened.result.thread, first.result.thread)
+  assert.equal(parseThread(utf8(fs.files[file])).state, 'running')
+  assert.match(reopened.words.text, /^focus: G2 /)
+  // Done (or discarded): a new talk.
+  fs.files[file] = fs.files[file].replace('State: running', 'State: done')
+  const fresh = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
+  assert.notEqual(fresh.result.thread, first.result.thread)
+  assert.match(fresh.words.text, /^focus: G2 /)
+  assert.deepEqual(mapOf(fs).byId.get('G2').brainstorm, { path: fresh.result.thread, state: 'running' })
+  // A proposal waits in it: created or discarded on the Brainstorm part first.
+  const other = `${DIR}/${fresh.result.thread.split('/').pop()}`
+  fs.files[other] += latin('## Proposal (14:10)\nDecided:\n- benches\n')
+  const held = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
+  assert.deepEqual([held.status, held.why], [409, 'The talk about this goal holds a proposal: create or discard it on the Brainstorm part first.'])
+})

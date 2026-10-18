@@ -6446,7 +6446,7 @@ function focusCan(state) {
  * without step ids; and, with no focus or a goal done, the open goals to pick. Focus 2: the buttons work where `can`
  * (focusCan) allows; "This is the vibe" once the partner wrote one, "Go" once it proposed parts; each says why not.
  */
-function focusView(focus, goals, can = null) {
+function focusView(focus, goals, can = null, ui = {}) {
   const stage = focus === null || focus === undefined ? 'pick' : focus.stage
   const at = FOCUS_STAGES.findIndex(([name]) => name === stage)
   const strip = FOCUS_STAGES.map(([, label], index) => ({ n: index + 1, label, state: stage === 'done' || index < at ? 'done' : index === at ? 'now' : 'next' }))
@@ -6457,7 +6457,7 @@ function focusView(focus, goals, can = null) {
   const rows = (goals?.nodes ?? []).filter(node => node.state !== 'done' && !seen.has(node.id) && seen.add(node.id))
     .map(node => ({ id: node.id, title: node.title, depth: node.depth, isNow: node.state === 'now' }))
   const pickOf = question => ({ question, rows, isEnabled: allowed, title: allowed ? 'Make it your focus: you and your partner agree its vibe first' : why })
-  if (stage === 'pick') return { stage, head: null, strip: null, progress: null, pick: pickOf('What do you want to work on?') }
+  if (stage === 'pick') return { stage, head: null, strip: null, progress: null, change: null, pick: pickOf('What do you want to work on?') }
   const vibeLine = focus.vibeAgreed === null ? null : focus.vibe.length > 0 ? focus.vibe.join(' · ') : '(no words kept)'
   const view = {
     stage,
@@ -6474,6 +6474,8 @@ function focusView(focus, goals, can = null) {
       empty: focus.parts.length > 0 ? null : 'Your partner proposes the parts here once you talk about the how.',
     },
     buttons: [],
+    // The review of Focus 2: in every stage a way back to the pick list.
+    change: { label: 'Change focus', isEnabled: allowed, title: allowed ? 'Pick another goal as your focus' : why },
   }
   const hasVibe = focus.vibe.length > 0 || focus.vibePicture !== null
   if (stage === 'vibe') view.buttons = [
@@ -6505,6 +6507,10 @@ function focusView(focus, goals, can = null) {
     view.note = 'Your partner writes a note here each morning: what it decided for you, and what needs you. It comes in the next part.'
   }
   if (stage === 'done') view.pick = pickOf(`${focus.id} is done. What do you want to work on next?`)
+  else if (ui.picking === true && allowed) {
+    view.pick = { ...pickOf('What do you want to work on instead?'), rows: rows.filter(row => row.id !== focus.id) }
+    view.back = { label: `Back to ${focus.id}`, act: 'keep-focus' }
+  }
   return view
 }
 
@@ -6514,17 +6520,18 @@ function focusView(focus, goals, can = null) {
  * state.advisor.
  */
 function focusAsk(thread, partner) {
-  if (thread === null || thread === undefined) return { question: null, waiting: 'The talk starts once this goal is your focus: pick it again to start it.' }
+  // The review of Focus 2: no talk, or one that is over, wrapped up or holding a proposal (the Brainstorm part's), is
+  // started anew from here (`restart`: "Start the talk").
+  if (thread === null || thread === undefined) return { question: null, waiting: 'No talk about this goal runs: start one.', restart: true }
   const latest = thread.latest ?? null
-  const isOver = thread.state === 'done' || thread.state === 'discarded'
-  if (!isOver && thread.state === 'running' && thread.proposal === null && latest !== null && latest.answer === null) {
-    return { question: { n: latest.n, why: latest.why ?? null, picture: latest.picture ?? null, options: (latest.options ?? []).map(one => ({ key: one.key, text: one.text, isAdvised: one.isAdvised === true })) }, waiting: null }
+  if (thread.state !== 'running' || thread.proposal !== null) return { question: null, waiting: 'This talk is over: start a new one about this goal.', restart: true }
+  if (latest !== null && latest.answer === null) {
+    return { question: { n: latest.n, why: latest.why ?? null, picture: latest.picture ?? null, options: (latest.options ?? []).map(one => ({ key: one.key, text: one.text, isAdvised: one.isAdvised === true })) }, waiting: null, restart: false }
   }
-  const waiting = isOver ? 'This talk is over: pick the goal again to start a new one.'
-    : partner === null || partner === undefined ? 'No partner chat is on the board.'
-      : partner.isRunning === false ? 'Your partner\'s chat is not running: the main chat is asked to start it.'
-        : 'Your partner is thinking…'
-  return { question: null, waiting }
+  const waiting = partner === null || partner === undefined ? 'No partner chat is on the board.'
+    : partner.isRunning === false ? 'Your partner\'s chat is not running: the main chat is asked to start it.'
+      : 'Your partner is thinking…'
+  return { question: null, waiting, restart: false }
 }
 
 /**
@@ -6621,11 +6628,11 @@ function drawAdvisorParts(state) {
  * Focus 2: what the person is doing on the Focus page, which a redraw keeps: a move on its way, the line after it, the
  * box of "Not yet" open (`vibe` or `how`) and the words typed in each box, the option picked for the open question.
  */
-const focusUi = { busy: false, note: null, notYet: null, picked: null, words: { talk: '', notYet: '', new: '' } }
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, words: { talk: '', notYet: '', new: '' } }
 const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new' }
 
 function focusData(state) {
-  return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked]
+  return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking]
 }
 function redrawFocus() {
   if (board !== null && board !== undefined) once('focus', focusData(board), () => drawFocus(board))
@@ -6702,7 +6709,11 @@ function focusTalkCard(state, can) {
       card.append(options)
     }
     if (ask.question.picture) card.append(picture(ask.question.picture, 'Every option side by side'))
-  } else card.append(el('p', `focus-waiting${/not running|No partner/.test(ask.waiting) ? ' is-off' : ''}`, ask.waiting))
+  } else {
+    const waiting = el('p', `focus-waiting${/not running|No partner|over|No talk/.test(ask.waiting) ? ' is-off' : ''}`, ask.waiting)
+    if (ask.restart) waiting.append(' ', focusButton({ label: 'Start the talk', act: 'restart-talk', isEnabled: can.canWrite, title: can.canWrite ? 'A talk about this goal with your partner, as when you picked it' : can.whyNot }, 'goals-action is-send'))
+    card.append(waiting)
+  }
   const picked = focusUi.picked !== null && ask.question?.options.some(one => one.key === focusUi.picked) ? focusUi.picked : null
   const placeholder = ask.question === null ? 'Your partner has the turn…' : picked !== null ? `Words to go with ${picked} (if any)…` : 'Write to your partner…'
   card.append(focusSay(placeholder, 'focus-say', { box: 'focus-talk-words', act: 'talk', isEnabled: can.canWrite && ask.question !== null, title: can.canWrite ? 'Your partner has the turn' : can.whyNot }))
@@ -6776,6 +6787,7 @@ function focusRunCard(view) {
 
 /** No focus, or the focus is done: the open goals of the map to pick from, and a free line. */
 function focusPickCard(view) {
+  const back = view.back === undefined ? null : focusButton({ label: view.back.label, act: view.back.act, isEnabled: true, title: 'Keep your focus' }, 'focus-change')
   const pickButton = row => {
     const button = focusButton({ label: 'Pick', act: 'pick', isEnabled: view.pick.isEnabled, title: view.pick.title }, 'goals-action')
     button.dataset.focusGoal = row.id
@@ -6783,6 +6795,7 @@ function focusPickCard(view) {
   }
   const card = el('section', 'focus-card focus-pick')
   card.append(el('h2', '', view.pick.question))
+  if (back !== null) card.append(back)
   const list = el('ul', 'focus-goals')
   for (const row of view.pick.rows) {
     const line = el('li', row.isNow ? 'is-now' : '')
@@ -6798,7 +6811,7 @@ function focusPickCard(view) {
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
 function drawFocus(state) {
   const can = focusCan(state)
-  const view = focusView(state.focus ?? null, state.goals ?? null, can)
+  const view = focusView(state.focus ?? null, state.goals ?? null, can, { picking: focusUi.picking })
   const box = $('advisor-focus')
   box.dataset.stage = view.stage
   const parts = []
@@ -6807,6 +6820,7 @@ function drawFocus(state) {
     const title = el('div', 'focus-title')
     title.append(el('small', 'focus-label', view.head.label), el('h2', '', `${view.head.id} · ${view.head.title}`))
     if (view.head.vibeLine !== null) title.append(el('p', 'focus-vibe-line', view.head.vibeLine))
+    if (view.change !== null && view.back === undefined) title.append(focusButton({ ...view.change, act: 'change-focus' }, 'focus-change'))
     const side = el('div', 'focus-side')
     const strip = el('ol', 'focus-strip')
     for (const stage of view.strip) {
@@ -6828,7 +6842,7 @@ function drawFocus(state) {
     head.append(title, side)
     parts.push(head)
   }
-  if (view.stage === 'pick' || view.stage === 'done') parts.push(focusPickCard(view))
+  if (view.stage === 'pick' || view.stage === 'done' || view.back !== undefined) parts.push(focusPickCard(view))
   else {
     const body = el('div', 'focus-body')
     if (view.stage === 'run') {
@@ -6888,6 +6902,12 @@ async function sendFocus(body, done) {
 async function focusAct(act, goal = null) {
   const focus = board?.focus ?? null
   if (focusUi.busy) return
+  if (act === 'change-focus' || act === 'keep-focus') {
+    if (act === 'change-focus') focusUi.picking = true
+    else focusUi.picking = false
+    focusUi.note = null
+    return redrawFocus()
+  }
   if (act === 'vibe-not-yet' || act === 'how-not-yet') {
     const stage = act === 'vibe-not-yet' ? 'vibe' : 'how'
     focusUi.notYet = focusUi.notYet === stage ? null : stage
@@ -6899,10 +6919,15 @@ async function focusAct(act, goal = null) {
   focusUi.note = null
   redrawFocus()
   try {
-    if (act === 'pick') await sendFocus({ command: 'focus', id: goal }, 'Your partner is told: the talk about the vibe starts on the left.')
+    if (act === 'pick') {
+      if (await sendFocus({ command: 'focus', id: goal }, 'Your partner is told: the talk about the vibe starts on the left.') !== null) focusUi.picking = false
+    } else if (act === 'restart-talk' && focus !== null) await sendFocus({ command: 'focus', id: focus.id }, 'The talk starts again: your partner is told.')
     else if (act === 'new') {
       if (words('new') === '') focusUi.note = { isProblem: true, text: 'Write what you want to work on.' }
-      else if (await sendFocus({ command: 'focus', text: words('new') }, 'A new goal, your focus now: your partner starts the talk about its vibe.') !== null) focusUi.words.new = ''
+      else if (await sendFocus({ command: 'focus', text: words('new') }, 'A new goal, your focus now: your partner starts the talk about its vibe.') !== null) {
+        focusUi.words.new = ''
+        focusUi.picking = false
+      }
     } else if (act === 'vibe-agree' && focus !== null) await sendFocus({ command: 'vibe-agree', id: focus.id }, 'Agreed. Your partner proposes the how next.')
     else if (act === 'how-go' && focus !== null) await sendFocus({ command: 'how-go', id: focus.id }, 'Go: your partner makes the steps, and the main chat hands them out.')
     else if (act === 'send-not-yet' && focus !== null && focusUi.notYet !== null) {

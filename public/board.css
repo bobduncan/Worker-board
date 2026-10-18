@@ -215,6 +215,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-note { margin: 0 4px 12px; padding: 9px 14px; border: 1px solid #2d6b47; border-radius: 9px; background: #0f2a1d; color: #c9f2da; }
 .focus-note.is-error { border-color: #b4553c; background: #3a1d14; color: #ffd2c4; }
 .focus-not-yet { margin-top: 12px; }
+.focus-change { margin-top: 8px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 7px; background: none; color: var(--muted); font: inherit; font-size: 13.5px; cursor: pointer; }
+.focus-change:hover:not(:disabled) { color: var(--text); border-color: #3a4a63; }
+.focus-change:disabled { opacity: 0.55; cursor: default; }
+.focus-pick .focus-change { margin: 0 0 12px; }
 .focus-goals .goals-action:disabled { opacity: 0.55; cursor: default; }
 /* B255: the goal map's outline (spec 2026-10-15): one level at a time, the rest folded and dimmed. */
 .advisor-goals { margin: 14px 18px 16px; max-width: 1240px; }

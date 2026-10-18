@@ -52,6 +52,9 @@ test('the partner keeps the Advisor\'s refining, goal linking and rounds, and ad
   assert.match(partner, /each part with ` · steps B<id>, B<id>` added/)
   assert.match(partner, /`work note --to main` "Queue for G<n>/)
   assert.match(partner, /Never write `Focus:`, `Vibe agreed:` or `How agreed:` yourself/)
+  // The review's findings: a focus thread is never wrapped up into a proposal, also in "A brainstorm".
+  assert.match(partner, /never wrapped up into a proposal/)
+  assert.match(partner, /write the proposal at once \(never in the focus's thread\)/)
 })
 
 test('the main chat sends planning questions to the partner and queues the steps it makes', () => {

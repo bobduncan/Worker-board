@@ -237,16 +237,20 @@ test('Focus 2: the moves work on a board that writes, with a partner; each butto
 })
 
 test('Focus 2: the talk answers the partner\'s open question here, as the Brainstorm part does; else it says who has the turn', () => {
-  assert.deepEqual(page.focusAsk(threads[0], { name: 'Partner', isRunning: true }), { question: { n: 3, why: null, picture: null, options: [] }, waiting: null })
+  assert.deepEqual(page.focusAsk(threads[0], { name: 'Partner', isRunning: true }), { question: { n: 3, why: null, picture: null, options: [] }, waiting: null, restart: false })
   const answered = brainstormsState([{ path: 'talks/b.md', text: THREAD + 'Answer (09:06): Other — no\n', at: 1 }], 'talks').threads[0]
-  assert.deepEqual(page.focusAsk(answered, { name: 'Partner', isRunning: true }), { question: null, waiting: 'Your partner is thinking…' })
+  assert.deepEqual(page.focusAsk(answered, { name: 'Partner', isRunning: true }), { question: null, waiting: 'Your partner is thinking…', restart: false })
   assert.equal(page.focusAsk(answered, { name: 'Partner', isRunning: false }).waiting, 'Your partner\'s chat is not running: the main chat is asked to start it.')
   assert.equal(page.focusAsk(answered, null).waiting, 'No partner chat is on the board.')
   const withOptions = brainstormsState([{ path: 'talks/c.md', text: THREAD.replace('## Q3 (09:05)\nAnything else?\n', '## Q3 (09:05)\nHow heavy?\nWhy: it sets the sound.\n- A: a thud (advised)\n- B: a crack\nPicture: pictures/hits.png\n'), at: 1 }], 'talks').threads[0]
   assert.deepEqual(page.focusAsk(withOptions, { name: 'Partner' }).question, { n: 3, why: 'it sets the sound.', picture: 'pictures/hits.png', options: [{ key: 'A', text: 'a thud', isAdvised: true }, { key: 'B', text: 'a crack', isAdvised: false }] })
   const over = brainstormsState([{ path: 'talks/d.md', text: THREAD.replace('State: running', 'State: done'), at: 1 }], 'talks').threads[0]
-  assert.equal(page.focusAsk(over, { name: 'Partner' }).waiting, 'This talk is over: pick the goal again to start a new one.')
-  assert.equal(page.focusAsk(null, { name: 'Partner' }).question, null)
+  // The review's findings: a talk that is over (wrapped up, discarded or created on the Brainstorm part), or none, is
+  // started anew from here.
+  assert.deepEqual(page.focusAsk(over, { name: 'Partner' }), { question: null, waiting: 'This talk is over: start a new one about this goal.', restart: true })
+  assert.deepEqual(page.focusAsk(null, { name: 'Partner' }), { question: null, waiting: 'No talk about this goal runs: start one.', restart: true })
+  const wrapping = brainstormsState([{ path: 'talks/e.md', text: THREAD.replace('State: running', 'State: wrapping up'), at: 1 }], 'talks').threads[0]
+  assert.equal(page.focusAsk(wrapping, { name: 'Partner' }).restart, true)
 })
 
 test('Focus 2: the page sends its moves to /api/goals and the talk\'s answers as the Brainstorm part does', () => {
@@ -258,4 +262,22 @@ test('Focus 2: the page sends its moves to /api/goals and the talk\'s answers as
   assert.doesNotMatch(script.slice(script.indexOf('function focusView'), script.indexOf('// focus:end')), /comes in the next part'\)/)
   assert.match(css, /\.focus-option\b/)
   assert.match(css, /\.focus-note\b/)
+})
+
+test('Focus 2, the review\'s findings: "Change focus" in every stage opens the pick list; the talk is started anew from the page', () => {
+  for (const stage of [map(), map(AGREED, HOW), map(AGREED, HOW, RUN)]) {
+    const view = page.focusView(stateOf(stage), goalsOf(stage), CAN)
+    assert.deepEqual(view.change, { label: 'Change focus', isEnabled: true, title: 'Pick another goal as your focus' })
+    assert.equal(view.pick, undefined)
+  }
+  const picking = page.focusView(stateOf(map()), goalsOf(map()), CAN, { picking: true })
+  assert.equal(picking.stage, 'vibe')
+  assert.equal(picking.pick.question, 'What do you want to work on instead?')
+  assert.deepEqual(picking.pick.rows.map(row => row.id), ['G1', 'G3', 'G4'])
+  assert.deepEqual(picking.back, { label: 'Back to G2', act: 'keep-focus' })
+  assert.equal(page.focusView(stateOf(map()), goalsOf(map()), null).change.isEnabled, false)
+  assert.equal(page.focusView(null, goalsOf(map()), CAN).change, null)
+  assert.match(script, /act === 'restart-talk' && focus !== null\) await sendFocus\(\{ command: 'focus', id: focus\.id \}/)
+  assert.match(script, /'Start the talk'/)
+  assert.match(script, /focusUi\.picking = true/)
 })
