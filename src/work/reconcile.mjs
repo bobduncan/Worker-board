@@ -4,7 +4,7 @@
 // nothing itself and never invents a move the flow does not allow; a file it cannot read is named, not moved.
 
 import { mayMove, statesOf } from './flow.mjs'
-import { overlapsIn } from './guards.mjs'
+import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 
 /** The states in which a step is its Owner's work now. */
@@ -68,6 +68,19 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     if (Number.isFinite(lane.idle?.since) && now - freeSince >= times.graceMs) {
       flags.push({ kind: 'not taken', id, chat: lane.name, text: `${id} queued for ${lane.name}, ${lane.name} free, not taken`, button: null })
     }
+  }
+
+  // B306: a queued step whose only wait is words (`Waits for` with no id, nothing it is blocked by still open) while
+  // its Owner has been free, holding nothing and given nothing, longer than the grace time: someone clears it or keeps it.
+  for (const item of ok.filter(one => stateOf(one) === 'queued' && waitWords(one) !== null)) {
+    const owner = valueOf(item, 'Owner')
+    const lane = laneOf(owner)
+    if (lane === undefined || lane.state !== 'free' || holding.has(plain(owner, prefix)) || deliveries.some(one => one.chat === lane.name)) continue
+    if (blockersOpen(item, { store: { items } }).length > 0 || !Number.isFinite(lane.idle?.since)) continue
+    const freeSince = Math.max(Number.isFinite(sinceMs(valueOf(item, 'Since'))) ? sinceMs(valueOf(item, 'Since')) : 0, lane.idle.since)
+    if (now - freeSince < times.graceMs) continue
+    const id = valueOf(item, 'Id')
+    flags.push({ kind: 'waits', id, chat: lane.name, text: `${id} waits for '${waitWords(item)}': clear it or keep it`, button: null })
   }
 
   // A step taken or in progress whose Owner is not running and not held by the limit: flagged after the grace time.

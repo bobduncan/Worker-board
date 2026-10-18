@@ -154,3 +154,25 @@ test('B306: unblock without "on" clears Waits for: the main chat or the person, 
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('B306: the board shows the words-only wait on its Owner\'s lane', async () => {
+  const { answer, step: did, toolResult, typed } = await import('../../fixtures/lines.mjs')
+  const { parseConfig } = await import('../../src/config.mjs')
+  const { storeFromText } = await import('../../src/work/read.mjs')
+  const { buildState } = await import('../withStore.mjs')
+  const at = NOW + 60 * MIN
+  const app = name => JSON.stringify({ title: `Crew - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\crew', isArchived: false, createdAt: name.length, lastActivityAt: at - 40 * MIN, lastAssistantUuid: 'u-1' })
+  const closing = ['Done.', '', '---', '', '```diff', '  Prompt: the sails', '  Who:    Crew - Kites', '+ Done:   yes', '```'].join('\n')
+  const lines = [typed(at - 45 * MIN, 'The sails, please.'), did(at - 44 * MIN, 'Sew'), toolResult(at - 43 * MIN), answer(at - 30 * MIN, closing)]
+  const raw = {
+    listText: '{"prefix":"Crew - ","main":"Main"}',
+    appChatTexts: [app('Main'), app('Kites')],
+    tails: { 'cli-Kites': { text: lines.join('\n'), isCut: false, modifiedAt: at - 30 * MIN } },
+    planLineTexts: {},
+    work: storeFromText("## Crew work\n- [ ] B43 The new sails (for Kites; after today's crew work)\n", { now: at - 60 * MIN }),
+    adviceText: null, folders: null, askTexts: [], pictureLists: {},
+  }
+  const kites = buildState(raw, { lines: [], outbox: [], runs: [], now: at, config: { ...parseConfig('{}', {}), project: 'C:\crew' } }).chats.find(chat => chat.name === 'Kites')
+  assert.equal(kites.state, 'free')
+  assert.deepEqual(kites.flags.map(flag => [flag.kind, flag.text]), [['waits', "B43 waits for 'today's crew work': clear it or keep it"]])
+})

@@ -50,7 +50,7 @@ const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
 const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined|ask from the goal map|backlog step from the goal map)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
-const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'unreported']
+const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'unreported', 'waits']
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */

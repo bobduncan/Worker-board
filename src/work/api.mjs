@@ -10,7 +10,7 @@ import { minutesOf } from '../backlog.mjs'
 import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
-import { blockersOpen, CLEARED, overlapsIn } from './guards.mjs'
+import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
@@ -137,8 +137,14 @@ const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 
 /** One item in one line: id, state, what it waits for, title. */
 function oneLine(item, items) {
-  const open = idsIn(valueOf(item, 'Blocked by')).filter(id => !CLEARED.includes(stateOf(items.get(id) ?? { head: new Map() })))
-  const waits = [open.length > 0 ? `after ${open.join(', ')}` : null, valueOf(item, 'Waits for') === null ? null : `after ${valueOf(item, 'Waits for')}`].filter(Boolean)
+  const isOpen = id => !CLEARED.includes(stateOf(items.get(id) ?? { head: new Map() }))
+  const open = idsIn(valueOf(item, 'Blocked by')).filter(isOpen)
+  // B306: what `Waits for` says holds the step: words until the main chat clears them, ids until each is resolved.
+  const words = waitWords(item)
+  const waitOpen = waitIds(item).filter(isOpen)
+  const waiting = words !== null ? `waiting: ${words}, until the main chat clears it`
+    : waitOpen.length > 0 ? `waiting: ${valueOf(item, 'Waits for')}; ${waitOpen.map(id => `${id} is ${stateOf(items.get(id) ?? { head: new Map() }) ?? 'not in the store'}`).join(', ')}` : null
+  const waits = [open.length > 0 ? `after ${open.join(', ')}` : null, waiting].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
   const turns = missed > 0 ? `, missed ${missed} turn${missed === 1 ? '' : 's'}` : ''
   return `- ${valueOf(item, 'Id')} ${stateOf(item)}${turns}${waits.length > 0 ? ` (${waits.join('; ')})` : ''}: ${valueOf(item, 'Title') ?? valueOf(item, 'Text') ?? ''}`
@@ -263,6 +269,8 @@ async function take(body, w) {
     // while it still holds another. A flow.json without that move: the board's move, the chat taking it counted free.
     const byChat = (w.store.flow.step?.moves ?? []).some(one => one.from === 'queued' && one.to === 'taken' && (Array.isArray(one.by) ? one.by : [one.by]).includes(w.role))
     const taken = byChat ? move(item, 'taken', w.role, w) : move(item, 'taken', 'server', w, flowCtx(w, [item], [w.who]), ` (for ${w.who})`)
+    // B306: words it waits for that nobody cleared yet hold it whatever else holds.
+    if (!taken.ok && waitWords(item) !== null) return refuse(taken.status, `${id} waits for: ${waitWords(item)}; the main chat clears it with work unblock ${id}`)
     if (!taken.ok) {
       const open = blockersOpen(item, flowCtx(w, [item])).map(one => `${one} is ${stateOf(w.store.items.get(one) ?? { head: new Map() }) ?? 'not in the store'}`)
       return open.length === 0 ? taken : refuse(taken.status, `${taken.why}: ${open.join(', ')}`)
@@ -562,11 +570,12 @@ async function check(body, w) {
   return done.ok ? changed(item) : done
 }
 
-/** Blocked by: one more step, or one less. */
+/** Blocked by: one more step, or one less. B306: unblock without "on" clears what the step waits for (`Waits for`). */
 async function blockOn(body, w, isBlock) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const on = typeof body.on === 'string' ? body.on.trim() : ''
+  if (!isBlock && on === '') return clearWaits(found, w)
   if (!STEP_ID.test(on)) return refuse(400, 'Name the step it waits on in "on" (B12).')
   if (isBlock && !w.store.items.has(on)) return refuse(404, `${on}: no such item in the store.`)
   const id = valueOf(found.item, 'Id')
@@ -575,6 +584,17 @@ async function blockOn(body, w, isBlock) {
   const after = isBlock ? [...new Set([...before, on])] : before.filter(one => one !== on)
   if (after.length === before.length && after.every((one, index) => one === before[index])) return { ok: true, result: { id, text: serializeItem(found.item), changed: false } }
   const item = said(put(copy(found.item), 'Blocked by', after.join(' and ')), w, `${isBlock ? 'blocked by' : 'no longer blocked by'} ${on}`)
+  const done = await save(ordered(item), found.text, w)
+  return done.ok ? changed(ordered(item)) : done
+}
+
+/** B306: the main chat or the person clears a step's `Waits for`: it no longer holds the step; the History says what it was. */
+async function clearWaits(found, w) {
+  const id = valueOf(found.item, 'Id')
+  if (!['main', 'person'].includes(w.role)) return refuse(403, `Only the main chat or the person clears what ${id} waits for.`)
+  const words = valueOf(found.item, 'Waits for')
+  if (words === null) return { ok: true, result: { id, text: `${id} waits for nothing: nothing to clear.`, changed: false } }
+  const item = said(put(copy(found.item), 'Waits for', null), w, `no longer waits for: ${words}`)
   const done = await save(ordered(item), found.text, w)
   return done.ok ? changed(ordered(item)) : done
 }
