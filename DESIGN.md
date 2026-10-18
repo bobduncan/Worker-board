@@ -1886,11 +1886,12 @@ click, then Enter.
 
 Someone who finds the board on GitHub reads one page and knows what it is, what they need and the command to run.
 Part 5 of G12's how. The person's Q53 (15:33): the repository stays private, they invite whom they want, no license
-file (it was public on GitHub when this was built: Q72 asks them).
+file. It was public on GitHub when this was built; Q72 (17:46): "A Make it private: invitees install with a git clone
+line" (the person makes it private on GitHub).
 
-1. The README opens with what the board is (three lines), Install (what you need: Windows and the Claude app; the
-   one-line command, and the two lines for an invited person when the repository is private) and what the board is
-   in more words; the steps by hand stand below under "By hand".
+1. The README opens with what the board is (three lines), Install (what you need: Windows, the Claude app and an
+   invitation; the two lines an invited person pastes, a git clone and the install script; the one line for when the
+   repository is ever public) and what the board is in more words; the steps by hand stand below under "By hand".
 2. The words the board reads travel with it: `examples/CLAUDE.md` (a new project's own, B320) is brought up to date
    with the first project's rules in general words (a picture for every option, the play links, the plain first two
    lines, the forms of a report and a note to the main chat); `roles/main.md`, `roles/worker.md` and the briefings

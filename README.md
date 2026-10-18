@@ -6,19 +6,19 @@ Windows and the Claude desktop app.
 
 ## Install
 
-You need Windows and the Claude desktop app, signed in and opened once. Node 24 and git are installed for you when
-they are missing. Paste this into PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/bobduncan/Worker-board/main/tools/install.ps1 | iex
-```
-
-When the repository is private and you were invited to it on GitHub, use these two lines instead (git asks you to sign
-in to GitHub once; without git, first `winget install --id Git.Git -e`):
+You need Windows and the Claude desktop app, signed in and opened once, and an invitation to this repository on
+GitHub (it is private). Paste these two lines into PowerShell; git asks you to sign in to GitHub once (without git,
+first `winget install --id Git.Git -e`). Node 24 is installed for you when it is missing.
 
 ```powershell
 git clone https://github.com/bobduncan/Worker-board.git "$HOME\worker-board"
 Get-Content -Raw "$HOME\worker-board\tools\install.ps1" | iex
+```
+
+Should the repository ever be public, one line does it all, git included:
+
+```powershell
+irm https://raw.githubusercontent.com/bobduncan/Worker-board/main/tools/install.ps1 | iex
 ```
 
 It checks Windows, the Claude desktop app, Node 24 or newer and git, one line each, and offers to install Node and
