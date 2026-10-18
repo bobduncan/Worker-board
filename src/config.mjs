@@ -64,7 +64,7 @@ const DEFAULTS = {
   usageHistory: '%APPDATA%\\Claude\\plan-usage-history.json',
   limitWarnPercent: 80,
   /**
-   * B173: what one project sets for the Advisor (its job is the board's `roles/advisor.md`). The backlog, in the
+   * B173: what one project sets for the Advisor (its job is the board's `roles/partner.md`). The backlog, in the
    * project; the game plan, the Advisor's decisions and the documents it reads first, in the game's repository; the
    * backlog group its suggestions stand in; and its rounds: the morning one at this time ("" leaves it out, and so
    * does a 5-hour limit above `morningSkipPercent`), the weekly one right after the weekly limit resets.

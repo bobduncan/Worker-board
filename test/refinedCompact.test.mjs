@@ -274,7 +274,7 @@ test('with the work store, the item\'s picture line is a path with what it shows
 
 test('the Advisor\'s job and the protocol name the new form', async () => {
   const roles = join(HERE, '..', 'roles')
-  const advisor = await readFile(join(roles, 'advisor.md'), 'utf8')
+  const advisor = await readFile(join(roles, 'partner.md'), 'utf8')
   for (const words of ['Refined (<YYYY-MM-DD HH:MM>; ready):', 'Summary:', 'Picture:', 'Part of:', 'Size:', 'What we build:', 'Advised: yes', 'Not in it:']) assert.ok(advisor.includes(words), words)
   const protocol = await readFile(join(roles, 'protocol.md'), 'utf8')
   assert.match(protocol, /B293/)

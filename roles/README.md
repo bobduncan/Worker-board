@@ -1,6 +1,7 @@
 # The board's job texts
 
-Each file here is the job of one kind of chat the board works with (`advisor.md`: the Advisor). The board names the
+Each file here is the job of one kind of chat the board works with (`partner.md`: the partner, the chat the setting
+`advisor` names; `advisor.md` only points there). The board names the
 file to the chat; what one project sets comes with it from the settings. `protocol.md` lists the words the board
 and the chats share: what a chat writes for the board to read, and what the board types into a chat (B200).
 `worker.md` is the job of a worker, for any project (B201); a project's own facts stand in its

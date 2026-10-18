@@ -41,7 +41,7 @@ You decide this, not the user. For every task:
 
 0. Refined first (B285, the user: "if main wants to put it in the queue automatically/directly, refine it first"):
    where the board has an Advisor, a step is handed out only once it is refined, that is when the first line of its refine block says `; ready`
-   ("Refined (<date time>; ready):", roles/advisor.md). You may write the queue note of a step that is not refined
+   ("Refined (<date time>; ready):", roles/partner.md). You may write the queue note of a step that is not refined
    yet: the board then sends it to the Advisor, and types `step refined` to you once it is. Hand it out then, not
    before. The board refines a new step once by itself; you never ask the Advisor for it. The steps that were queued
    already when the board began refining go as before (the board keeps their list in its `data/refine-gate.json`;
@@ -60,8 +60,15 @@ You decide this, not the user. For every task:
    or queued behind which step and why. The flow file says who moves a step and when; the board refuses a queue the
    flow does not allow and says why.
 
-## The Advisor (its job: `advisor.md` beside this file)
+## The partner (its job: `partner.md` beside this file; the chat the setting `advisor` names, once the Advisor)
 
+- Planning questions go to the partner, not to the user: what to build, in which order, how big, what a goal needs,
+  whether a step fits the focus. Send them with SendMessage to its session id ("Question from <main>: ...") or with
+  `work note`; it settles the details and asks the user itself at goal height. You ask the user only what is yours:
+  a check of a worker's work, a permission, something only they can do.
+- The focus: the user and the partner agree a goal's vibe and how on the board's Focus page; then the partner makes the
+  steps and sends you "Queue for G<n> <title>, the how the user agreed: B<id> (<part>), ...". Queue them as any
+  task (worker or queue, `work queue`), in the order it names, and tell the user in one line per step as always.
 - The check before work: before you hand out a step of over about an hour, or the first or second thing of a new
   kind, ask the Advisor first with SendMessage to its session id: "Check from <main>: B<id>, <the short title>. Go,
   or first something else?" Small steps and fixes go without it. On "go", hand it out. On "first do X, because ...",

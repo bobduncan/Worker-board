@@ -93,7 +93,7 @@ const queueWords = (to, step) => ({
 
 /**
  * B233: the word that asks the Advisor to refine a step of the backlog: say the problem the step solves or its goal,
- * and ask what it needs to know, as the step's refine block (roles/advisor.md, "Refine a step"). `round` is the round
+ * and ask what it needs to know, as the step's refine block (roles/partner.md, "Refine a step"). `round` is the round
  * it writes; from round 2 on, the person's answers and feedback stand in the block already.
  */
 export const refineWords = (to, step, round) => ({

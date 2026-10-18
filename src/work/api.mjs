@@ -942,7 +942,7 @@ async function refined(body, w) {
   if (head === null) return refuse(409, `${id}: its refine block does not start with "Refined (...):"; fix it by hand first.`)
   const inside = (head[2] ?? '').split(';').map(one => one.trim()).filter(one => one !== '' && !/^ready$/i.test(one))
   const indent = head[1] || '  '
-  // The ready form (roles/advisor.md): the questions, their answers and the feedback are folded in and go; What we
+  // The ready form (roles/partner.md): the questions, their answers and the feedback are folded in and go; What we
   // build stands last, once.
   const kept = []
   let isDropped = false

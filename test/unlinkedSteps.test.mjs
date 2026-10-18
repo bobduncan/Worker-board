@@ -17,7 +17,7 @@ const script = await readFile(join(HERE, '..', 'public', 'board.js'), 'utf8')
 const page = await readFile(join(HERE, '..', 'public', 'index.html'), 'utf8')
 const style = await readFile(join(HERE, '..', 'public', 'board.css'), 'utf8')
 const design = await readFile(join(HERE, '..', 'DESIGN.md'), 'utf8')
-const advisor = await readFile(join(HERE, '..', 'roles', 'advisor.md'), 'utf8')
+const advisor = await readFile(join(HERE, '..', 'roles', 'partner.md'), 'utf8')
 const state = await readFile(join(HERE, '..', 'src', 'state.mjs'), 'utf8')
 
 const MORE = [
@@ -72,5 +72,5 @@ test('the page draws the part under the map, folded, a row opening the step\'s w
   assert.ok(/button\.dataset\.unlinkedStep = row\.id/.test(script) && /closest\('\[data-unlinked-step\]'\)/.test(script), 'a row opens its step')
   assert.ok(/\.goals-unlinked \{/.test(style), 'its style')
   assert.ok(/Not under a goal: N steps/.test(design), 'DESIGN.md')
-  assert.ok(/## Steps under no goal/.test(advisor) && /every open step/i.test(advisor) && /proposed goal/i.test(advisor), 'roles/advisor.md')
+  assert.ok(/## Steps under no goal/.test(advisor) && /every open step/i.test(advisor) && /proposed goal/i.test(advisor), 'roles/partner.md')
 })

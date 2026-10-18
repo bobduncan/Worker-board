@@ -5808,7 +5808,7 @@ function brainstormCard(thread, state) {
     box.append(waiting)
   }
   // Lines of the thread the board cannot read: the Advisor is asked to write them in the form.
-  if (thread.problems.length > 0) box.append(el('p', 'brainstorm-problems', `The thread has ${thread.problems.length === 1 ? 'a line' : 'lines'} the board cannot read (${thread.problems.slice(0, 3).join(' · ')}${thread.problems.length > 3 ? ' …' : ''}): ask the Advisor to write ${thread.problems.length === 1 ? 'it' : 'them'} as roles/advisor.md shows.`))
+  if (thread.problems.length > 0) box.append(el('p', 'brainstorm-problems', `The thread has ${thread.problems.length === 1 ? 'a line' : 'lines'} the board cannot read (${thread.problems.slice(0, 3).join(' · ')}${thread.problems.length > 3 ? ' …' : ''}): ask the Advisor to write ${thread.problems.length === 1 ? 'it' : 'them'} as roles/partner.md shows.`))
   if (thread.proposal !== null) box.append(proposalPart(thread, canWrite))
   if (thread.state === 'discarded') box.append(el('p', 'muted', 'Discarded: nothing of it was created.'))
   if (view.earlier.length > 0) {
