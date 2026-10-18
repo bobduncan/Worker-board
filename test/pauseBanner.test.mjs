@@ -61,19 +61,20 @@ function build({ pause = null, steps = [held('B269', 'Board'), held('B280', 'Sup
   }
   return buildState(raw, { lines: [], outbox, runs: [], now: NOW, config, seen, board })
 }
-const MAIN = { name: 'Main', title: 'Game - Main', session: 'local_Main', isRunning: true }
+const MAIN = { name: 'Main', title: 'Game - Main', session: 'local_Main', isRunning: true, hasActed: false }
 
 test('pausing: the banner names who still runs a turn and who holds a step with no checkpoint since the pause', () => {
   const state = build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, tails: { Board: running(15) }, steps: [held('B269', 'Board'), held('B280', 'Support', PAUSED + 2 * MIN)] })
-  assert.deepEqual(state.pause, { state: 'pausing', since: PAUSED, working: ['Board'], unsaved: [{ chat: 'Board', id: 'B269' }], offBoard: [], isSafe: false, main: MAIN, typedAt: null })
+  assert.deepEqual(state.pause, { state: 'pausing', since: PAUSED, working: ['Board'], asking: [], typing: [], unsaved: [{ chat: 'Board', id: 'B269' }], offBoard: [], isSafe: false, main: MAIN, typedAt: null })
 })
 
-test('pausing: safe to restart once no chat runs a turn and every step held has a checkpoint since the pause', () => {
+test('pausing: safe to restart once no chat runs a turn; a step held with no checkpoint since the pause is named, and blocks nothing (the review of Pause 2)', () => {
   const state = build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, steps: [held('B269', 'Board', PAUSED + MIN), held('B280', 'Support', PAUSED + 2 * MIN)] })
   assert.equal(state.pause.isSafe, true)
   assert.deepEqual([state.pause.working, state.pause.unsaved], [[], []])
-  // One written before the pause is no checkpoint for it.
-  assert.deepEqual(build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, steps: [held('B269', 'Board', PAUSED - MIN)] }).pause.unsaved, [{ chat: 'Board', id: 'B269' }])
+  // One written before the pause is no checkpoint for it: named, and safe all the same.
+  const old = build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, steps: [held('B269', 'Board', PAUSED - MIN)] }).pause
+  assert.deepEqual([old.unsaved, old.isSafe], [[{ chat: 'Board', id: 'B269' }], true])
 })
 
 test('Pause 2: the old reading of a restart is gone: an old "prepare restart" word and restart.md show nothing, with pause.json or without', () => {
@@ -113,12 +114,13 @@ vm.runInNewContext(`${script.slice(script.indexOf('// pause:start'), script.inde
 /** The page's lines, as plain objects of this realm. */
 const pauseLinesOf = pause => JSON.parse(JSON.stringify(page.pauseLines(pause)))
 
-test('the page: "Pausing since HH:MM: still working: ...; holding a step with no checkpoint since the pause: ...", then "Safe to restart"', () => {
+test('the page: "Pausing since HH:MM: still working: ...", then "Safe to restart"; a step with no checkpoint is said beside it', () => {
   const since = new Date(2026, 9, 18, 21, 1).getTime()
-  const pausing = { state: 'pausing', since, working: ['Board'], unsaved: [{ chat: 'Support', id: 'B280' }], isSafe: false, main: MAIN, typedAt: null }
-  assert.deepEqual(pauseLinesOf(pausing), [{ tone: '', text: 'Pausing since 21:01: still working: Board; holding a step with no checkpoint since the pause: Support (B280).' }])
-  assert.deepEqual(pauseLinesOf({ ...pausing, working: [] }), [{ tone: '', text: 'Pausing since 21:01: holding a step with no checkpoint since the pause: Support (B280).' }])
-  assert.deepEqual(pauseLinesOf({ ...pausing, working: [], unsaved: [], isSafe: true }), [{ tone: 'ready', text: 'Safe to restart: paused since 21:01, no chat is working and every step held has its checkpoint. You can quit Claude now.' }])
+  const pausing = { state: 'pausing', since, working: ['Board'], asking: [], typing: [], unsaved: [{ chat: 'Support', id: 'B280' }], offBoard: [], isSafe: false, main: MAIN, typedAt: null }
+  const info = { tone: 'muted', text: 'B280 (Support) has no checkpoint; it resumes from its branch and History.' }
+  assert.deepEqual(pauseLinesOf(pausing), [{ tone: '', text: 'Pausing since 21:01: still working: Board.' }, info])
+  assert.deepEqual(pauseLinesOf({ ...pausing, working: [], isSafe: true }), [{ tone: 'ready', text: 'Safe to restart: paused since 21:01, no chat is working. You can quit Claude now.' }, info])
+  assert.deepEqual(pauseLinesOf({ ...pausing, working: [], unsaved: [], isSafe: true }), [{ tone: 'ready', text: 'Safe to restart: paused since 21:01, no chat is working. You can quit Claude now.' }])
   assert.deepEqual(pauseLinesOf({ state: 'running', since }), [])
   assert.deepEqual(pauseLinesOf(null), [])
 })
@@ -146,15 +148,18 @@ test('the page after Resume all: who has not started yet; "Open <main>" by its s
   assert.deepEqual(pauseLinesOf({ ...resuming, main: { ...MAIN, isRunning: false, session: null } })[1], { tone: 'alert', text: 'Game - Main is not running: open it; its Workers mod tells it whom to wake.' })
 })
 
-test('review 2: the page names a held step whose chat is not on the board, by its title', () => {
+test('review 2: the page names a held step whose chat is not on the board, by its title (beside Safe, the review of Pause 2)', () => {
   const since = new Date(2026, 9, 18, 21, 1).getTime()
-  const pausing = { state: 'pausing', since, working: [], unsaved: [], offBoard: [{ chat: 'Ghost', id: 'B2', title: 'Game - Ghost' }], isSafe: false, main: MAIN, typedAt: null }
-  assert.deepEqual(pauseLinesOf(pausing), [{ tone: '', text: 'Pausing since 21:01: held by a chat not on the board: B2 (Game - Ghost).' }])
+  const pausing = { state: 'pausing', since, working: [], asking: [], typing: [], unsaved: [], offBoard: [{ chat: 'Ghost', id: 'B2', title: 'Game - Ghost' }], isSafe: true, main: MAIN, typedAt: null }
+  assert.deepEqual(pauseLinesOf(pausing), [
+    { tone: 'ready', text: 'Safe to restart: paused since 21:01, no chat is working. You can quit Claude now.' },
+    { tone: 'muted', text: 'B2 (Game - Ghost, not on the board) has no checkpoint; it resumes from its branch and History.' },
+  ])
 })
 
 test('review 2 and 3: the state names an off-board holder, and background work as working', () => {
   const ghost = build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, steps: [held('B9', 'Ghost')] })
-  assert.deepEqual([ghost.pause.offBoard, ghost.pause.isSafe], [[{ chat: 'Ghost', id: 'B9', title: 'Game - Ghost' }], false])
+  assert.deepEqual([ghost.pause.offBoard, ghost.pause.isSafe], [[{ chat: 'Ghost', id: 'B9', title: 'Game - Ghost' }], true])
   const background = { lines: [typed(NOW - 30 * MIN, 'Go on.'), assistantRun(NOW - 25 * MIN), answer(NOW - 20 * MIN, 'Started the server.')], at: NOW - 20 * MIN }
   const state = build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, steps: [], tails: { Board: background } })
   assert.equal(state.chats.find(chat => chat.name === 'Board').heldBy, 'background')

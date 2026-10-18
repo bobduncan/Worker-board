@@ -769,20 +769,27 @@ function drawLimits(state) {
 // pause:start
 /**
  * Pause and resume (spec 2026-10-18): what the banner says of the pause (`state.pause`), from the board's facts alone:
- * while pausing who still works and who holds a step with no checkpoint since the pause, then "Safe to restart"; after
- * Resume all who has not started a turn yet, and the link that opens the main chat when it does not run (`link`).
- * Nothing once all are back (running).
+ * while pausing who still runs a turn (working, in the app's question form, a line being typed into it), then "Safe to
+ * restart" (the review of Pause 2: an app restart loses only a turn in flight); a step with no checkpoint since the pause
+ * is said beside it and blocks nothing, as it resumes from its branch and History. After Resume all who has not started
+ * a turn yet, and the link that opens the main chat when it does not run (`link`). Nothing once all are back (running).
  */
 function pauseLines(pause) {
   if (pause === null || pause === undefined || pause.state === 'running') return []
   if (pause.state === 'pausing') {
-    if (pause.isSafe) return [{ tone: 'ready', text: `Safe to restart: paused since ${clock(pause.since)}, no chat is working and every step held has its checkpoint. You can quit Claude now.` }]
     const parts = [
-      pause.working.length === 0 ? null : `still working: ${pause.working.join(', ')}`,
-      pause.unsaved.length === 0 ? null : `holding a step with no checkpoint since the pause: ${pause.unsaved.map(one => `${one.chat} (${one.id})`).join(', ')}`,
-      (pause.offBoard ?? []).length === 0 ? null : `held by a chat not on the board: ${pause.offBoard.map(one => `${one.id} (${one.title})`).join(', ')}`,
+      (pause.working ?? []).length === 0 ? null : `still working: ${pause.working.join(', ')}`,
+      (pause.asking ?? []).length === 0 ? null : `waiting for you (question form): ${pause.asking.join(', ')}`,
+      (pause.typing ?? []).length === 0 ? null : `a line is being typed into: ${pause.typing.join(', ')}`,
     ].filter(part => part !== null)
-    return [{ tone: '', text: `Pausing since ${clock(pause.since)}: ${parts.join('; ')}.` }]
+    const head = pause.isSafe
+      ? { tone: 'ready', text: `Safe to restart: paused since ${clock(pause.since)}, no chat is working. You can quit Claude now.` }
+      : { tone: '', text: `Pausing since ${clock(pause.since)}: ${parts.join('; ')}.` }
+    const info = [
+      ...(pause.unsaved ?? []).map(one => `${one.id} (${one.chat})`),
+      ...(pause.offBoard ?? []).map(one => `${one.id} (${one.title}, not on the board)`),
+    ].map(what => ({ tone: 'muted', text: `${what} has no checkpoint; it resumes from its branch and History.` }))
+    return [head, ...info]
   }
   const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.id})`).join(', ')}.` }]
   const main = pause.main ?? null
@@ -2237,7 +2244,7 @@ function sentLine(answer, to = null) {
     taken: 'handed to its chat, which runs it when it is idle',
     // B212: no Workers mod types it in: the person pastes it.
     copied: 'copied for you to paste into its chat',
-  }[answer.state] ?? 'waits for its chat to take it'
+  }[answer.state] ?? (answer.isHeld ? 'held until resume' : 'waits for its chat to take it')
   line.append(el('b', '', what), ` at ${clock(answer.at)} · `, where)
   if (answer.text !== '') line.append(el('div', '', answer.text))
   if (answer.state === 'waiting' && to !== null) line.append(...startParts(to))
@@ -8490,7 +8497,7 @@ function drawTalk(state) {
     note: message.via === 'board' ? 'typed on the board' : null,
   }))
   for (const typed of advisor?.pending ?? []) {
-    const note = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle', copied: 'copied for you to paste into its chat' }[typed.state] ?? 'waits for its chat to take it'
+    const note = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle', copied: 'copied for you to paste into its chat' }[typed.state] ?? (typed.isHeld ? 'held until resume' : 'waits for its chat to take it')
     rows.push(drawMessage({ key: `out:${typed.id}`, kind: 'is-you is-pending', time: clock(typed.at), who: 'You', text: typed.text, picture: typed.picture ?? null, note }))
   }
   if (advisor !== null && advisor.state === 'working') {
@@ -8660,7 +8667,7 @@ function drawMainTalk(state) {
     note: message.via === 'board' ? 'typed on the board' : null,
   }))
   for (const typed of talk?.pending ?? []) {
-    const waits = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle', copied: 'copied for you to paste into its chat' }[typed.state] ?? 'waits for its chat to take it'
+    const waits = { expired: 'did not arrive, and is too old to deliver now', failed: 'could not be typed into its chat', taken: 'handed to its chat, which runs it when it is idle', copied: 'copied for you to paste into its chat' }[typed.state] ?? (typed.isHeld ? 'held until resume' : 'waits for its chat to take it')
     rows.push(drawTalkMessage({ key: `main-out:${typed.id}`, from: 'you', who: 'You', at: typed.at, text: typed.text, picture: typed.picture ?? null, note: waits, isPending: true }))
   }
   if (rows.length === 0) rows.push(el('p', 'empty', talk === null ? 'No main chat is open.' : 'Nothing said here yet. Tell the main chat what to do next.'))

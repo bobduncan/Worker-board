@@ -14,6 +14,12 @@ export const PAUSE_STATES = ['pausing', 'resuming', 'running']
  * uncommitted work too.
  */
 export const HELD = ['taken', 'in progress', 'waiting on you', 'review']
+/** The review of Pause 2: the states in which the board hands out nothing that starts a turn (until running). */
+export const HOLDS = ['pausing', 'resuming']
+/** Whether a pause record (pause.json, or the state's `pause`) holds what would start a turn. */
+export const isHolding = pause => HOLDS.includes(pause?.state)
+/** The review of Pause 2: how many of a held step's last History lines a resume without a checkpoint goes by. */
+const HISTORY_LINES = 3
 const SEP = ' · '
 
 const two = n => String(n).padStart(2, '0')
@@ -62,16 +68,22 @@ const plain = (name, prefix = '') => {
 /** Whether a checkpoint was written at or after `since`, to the millisecond (one in the pause's own second counts not). */
 const isSince = (checkpoint, since) => checkpoint !== null && Number.isFinite(checkpoint?.at) && Number.isFinite(since) && checkpoint.at >= since
 
-/** The steps a chat holds (`HELD`), in id order: `{ id, chat, checkpoint }`, `chat` without the prefix. */
+/** A step's last History lines, newest last, without their list mark. */
+const historyOf = item => (item?.sections?.get?.('History') ?? []).map(one => String(one).replace(/^-\s*/, '').trim()).filter(Boolean).slice(-HISTORY_LINES)
+
+/**
+ * The steps a chat holds (`HELD`), in id order: `{ id, chat, checkpoint, branch, history }`, `chat` without the prefix;
+ * `branch` and the last History lines are what a resume goes by when the step has no checkpoint (the review of Pause 2).
+ */
 export function holdersOf(items, prefix = '') {
   const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
   return [...(items?.values?.() ?? [])]
     .filter(item => valueOf(item, 'Kind') === 'step' && HELD.includes(valueOf(item, 'State')) && (valueOf(item, 'Owner') ?? '') !== '')
-    .map(item => ({ id: valueOf(item, 'Id'), owner: valueOf(item, 'Owner'), checkpoint: checkpointOf(item) }))
+    .map(item => ({ id: valueOf(item, 'Id'), owner: valueOf(item, 'Owner'), checkpoint: checkpointOf(item), branch: valueOf(item, 'Branch') ?? null, history: historyOf(item) }))
     .sort((a, b) => byId(a.id, b.id))
-    .map(({ id, owner, checkpoint }) => {
+    .map(({ id, owner, ...rest }) => {
       const name = String(owner).trim()
-      return { id, chat: prefix !== '' && name.toLowerCase().startsWith(prefix.toLowerCase()) ? name.slice(prefix.length).trim() : name, checkpoint }
+      return { id, chat: prefix !== '' && name.toLowerCase().startsWith(prefix.toLowerCase()) ? name.slice(prefix.length).trim() : name, ...rest }
     })
 }
 
@@ -90,22 +102,28 @@ const hasStarted = (lane, since) => lane !== undefined && (runsTurn(lane) || (Nu
 
 /**
  * What the board says of a pause, from facts (spec point 4): `lanes` are the board's chats (`{ name, isMain, state,
- * between, turnAt, session, appSession }`). Null without pause.json. Pausing: `working` (chats running a turn now),
- * `unsaved` (`{ chat, id }`: a step held with no checkpoint since the pause), `offBoard` (`{ chat, id, title }`: one held
- * so by a chat the board does not show, named by its title), `isSafe` when all three are empty. Resuming: `waiting`
- * (`{ chat, id }`: a holder on the board that has not started a turn since the resume), `isResumed` when none is left;
- * a chat not on the board cannot be woken by its session, so it is not waited for (the person's End resume ends it).
+ * between, turnAt, session, appSession, isAsking }`), `pending` the outbox lines handed to a chat and not typed yet
+ * (`{ to }`). Null without pause.json. Pausing: `working` (chats running a turn now), `asking` (chats in the app's
+ * question form: a turn in flight that waits for the person), `typing` (chats a line was handed to, which starts a
+ * turn), and `isSafe` when all three are empty: an app restart loses only a turn in flight, files on disk survive (the
+ * review of Pause 2). `unsaved` (`{ chat, id }`: a step held with no checkpoint since the pause) and `offBoard` (`{ chat,
+ * id, title }`: one held so by a chat the board does not show, named by its title) are said, and block nothing: such a
+ * step resumes from its branch and History. Resuming: `waiting` (`{ chat, id }`: a holder on the board that has not
+ * started a turn since the resume), `isResumed` when none is left; a chat not on the board cannot be woken by its
+ * session, so it is not waited for (the person's End resume ends it).
  */
-export function pauseFacts({ pause, items, lanes = [], prefix = '' }) {
+export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = [] }) {
   if (pause === null || pause === undefined) return null
   const laneOf = chat => lanes.find(lane => plain(lane.name, prefix) === plain(chat, prefix))
   const holders = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) !== undefined)
   if (pause.state === 'pausing') {
-    const working = lanes.filter(runsTurn).map(lane => lane.name)
+    const asking = lanes.filter(lane => lane.isAsking === true && lane.state !== 'off').map(lane => lane.name)
+    const working = lanes.filter(lane => runsTurn(lane) && !asking.includes(lane.name)).map(lane => lane.name)
+    const typing = [...new Set((pending ?? []).map(one => one?.to).filter(to => typeof to === 'string' && to !== ''))]
     const unsaved = holders.filter(holder => !isSince(holder.checkpoint, pause.since)).map(({ chat, id }) => ({ chat, id }))
     const offBoard = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) === undefined && !isSince(holder.checkpoint, pause.since))
       .map(({ chat, id }) => ({ chat, id, title: `${prefix}${chat}` }))
-    return { state: 'pausing', since: pause.since, working, unsaved, offBoard, isSafe: working.length === 0 && unsaved.length === 0 && offBoard.length === 0 }
+    return { state: 'pausing', since: pause.since, working, asking, typing, unsaved, offBoard, isSafe: working.length === 0 && asking.length === 0 && typing.length === 0 }
   }
   if (pause.state === 'resuming') {
     const waiting = holders.filter(holder => !hasStarted(laneOf(holder.chat), pause.since)).map(({ chat, id }) => ({ chat, id }))
@@ -116,10 +134,11 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '' }) {
 
 /**
  * The answer of the bridge's `pause-state` (and of turn-ended's `pause`) for `chat` in `role`: `{ state, since,
- * forChat: { holds: [{ id, checkpoint }], mustStop }, resumeList }`. `state` is running without pause.json. A hold's
- * checkpoint is `{ commit, next, at, line, isSincePause }` or null. `mustStop` while pausing, for every chat.
- * `resumeList`, for the main chat while resuming: every other chat holding a step, `{ chat, session (the app's id for
- * it), cliSession, step, checkpoint, hasStarted }`.
+ * forChat: { holds: [{ id, checkpoint, branch, history }], mustStop }, resumeList }`. `state` is running without
+ * pause.json. A hold's checkpoint is `{ commit, next, at, line, isSincePause }` or null; `branch` and `history` (its last
+ * History lines) are what it goes on from without one. `mustStop` while pausing, for every chat. `resumeList`, for the
+ * main chat while resuming: every other chat holding a step, `{ chat, session (the app's id for it), cliSession, step,
+ * checkpoint, branch, hasStarted }`.
  */
 export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role }) {
   const state = pause?.state ?? 'running'
@@ -128,13 +147,14 @@ export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role 
   const pausedAt = state === 'resuming' ? pause?.pausedSince ?? null : since
   const withMark = checkpoint => (checkpoint === null ? null : { ...checkpoint, isSincePause: isSince(checkpoint, pausedAt) })
   const holders = holdersOf(items, prefix)
-  const holds = holders.filter(holder => plain(holder.chat, prefix) === plain(chat, prefix)).map(holder => ({ id: holder.id, checkpoint: withMark(holder.checkpoint) }))
+  const holds = holders.filter(holder => plain(holder.chat, prefix) === plain(chat, prefix))
+    .map(holder => ({ id: holder.id, checkpoint: withMark(holder.checkpoint), branch: holder.branch, history: holder.history }))
   const laneOf = name => lanes.find(lane => plain(lane.name, prefix) === plain(name, prefix))
   const resumeList = state !== 'resuming' || role !== 'main' ? [] : holders
     .filter(holder => plain(holder.chat, prefix) !== plain(chat, prefix) && laneOf(holder.chat) !== undefined)
     .map(holder => {
       const lane = laneOf(holder.chat)
-      return { chat: lane.name, session: lane.appSession ?? null, cliSession: lane.session ?? null, step: holder.id, checkpoint: withMark(holder.checkpoint), hasStarted: hasStarted(lane, since) }
+      return { chat: lane.name, session: lane.appSession ?? null, cliSession: lane.session ?? null, step: holder.id, checkpoint: withMark(holder.checkpoint), branch: holder.branch, hasStarted: hasStarted(lane, since) }
     })
   return { state, since, forChat: { holds, mustStop: state === 'pausing' }, resumeList }
 }
@@ -147,4 +167,30 @@ export function resumeTypeTo(state) {
   const main = state?.restart?.main ?? null
   if (main === null) return null
   return (state.chats ?? []).some(chat => chat.isMain && chat.name === main && chat.isRunning === true) ? main : null
+}
+
+/**
+ * The review of Pause 2: after "Open <main>" the main chat's process runs while the board still resumes, and the main
+ * chat has done nothing since Resume all (no turn since, none running), and the board typed no "resume" into it since:
+ * the main chat the board types "resume" into now, once (the bridge is there then); else null.
+ */
+export function resumeRetypeTo(state) {
+  const pause = state?.pause ?? null
+  const main = pause?.main ?? null
+  if (pause?.state !== 'resuming' || pause.isResumed === true || main === null || main.isRunning !== true) return null
+  if (Number.isFinite(pause.typedAt) || main.hasActed === true || (pause.waiting ?? []).length === 0) return null
+  return main.name
+}
+
+/**
+ * The review of Pause 2: how long a line in the outbox was held by a pause (`pause` the pause.json record) between
+ * when it was sent and `now`: it does not grow late while the board holds it. From the pause's start (pausing: its
+ * since; resuming and running: `pausedSince`) to its end (running: its since; else now).
+ */
+export function heldMs(message, now, pause) {
+  if (pause === null || pause === undefined || !Number.isFinite(message?.at)) return 0
+  const start = pause.state === 'pausing' ? pause.since : pause.pausedSince ?? null
+  const end = pause.state === 'running' ? pause.since : now
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
+  return Math.max(0, Math.min(end, now) - Math.max(start, message.at))
 }

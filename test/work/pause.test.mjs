@@ -110,7 +110,8 @@ test('pause-all and resume-all are the person\'s: they write pause.json in the s
     assert.equal((await person({ action: 'resumed' })).status, 403)
     at(NOW + 25 * MIN)
     assert.equal((await workApi({ action: 'resumed' }, { dir, now: NOW + 25 * MIN, as: 'server' })).ok, true)
-    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW + 25 * MIN, by: 'server' })
+    // The review of Pause 2: running keeps when the pause began, for the outbox's lines it held.
+    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW + 25 * MIN, by: 'server', pausedSince: NOW })
     assert.equal((await workApi({ action: 'resumed' }, { dir, now: NOW + 26 * MIN, as: 'server' })).result.changed, false)
     // pause.json is no item: the store has no problem with it.
     assert.deepEqual((await readStore(dir)).problems, [])
@@ -129,9 +130,12 @@ test('pause-state: running without pause.json; while pausing every chat must sto
     await board({ action: 'take', id: 'B1' })
     await board({ action: 'step', id: 'B1', commit: 'a1b2c3d', next: 'wire it' })
     const none = await board({ action: 'pause-state' })
-    assert.deepEqual({ ...none.result, text: undefined }, {
+    // The review of Pause 2: each hold carries its branch and last History lines too.
+    const [hold] = none.result.forChat.holds
+    assert.ok(Array.isArray(hold.history) && hold.history.length > 0 && hold.history.length <= 3)
+    assert.deepEqual({ ...none.result, text: undefined, forChat: { ...none.result.forChat, holds: none.result.forChat.holds.map(({ history: _h, ...rest }) => rest) } }, {
       text: undefined, state: 'running', since: null,
-      forChat: { holds: [{ id: 'B1', checkpoint: { commit: 'a1b2c3d', next: 'wire it', at: NOW, line: 'a1b2c3d · wire it · 2026-10-18 21:00:00', isSincePause: false } }], mustStop: false },
+      forChat: { holds: [{ id: 'B1', checkpoint: { commit: 'a1b2c3d', next: 'wire it', at: NOW, line: 'a1b2c3d · wire it · 2026-10-18 21:00:00', isSincePause: false }, branch: null }], mustStop: false },
       resumeList: [],
     })
     at(NOW + MIN)
@@ -163,7 +167,7 @@ test('pause-state while resuming: the main chat gets the list of who to wake, by
     await person({ action: 'resume-all' })
     const asked = await main({ action: 'pause-state' })
     assert.equal(asked.result.state, 'resuming')
-    assert.deepEqual(asked.result.resumeList, [{ chat: 'Board', session: 'local_Board', cliSession: 'cli-Board', step: 'B1', checkpoint: { commit: 'a1b2c3d', next: 'wire it', at: NOW, line: 'a1b2c3d · wire it · 2026-10-18 21:00:00', isSincePause: false }, hasStarted: false }])
+    assert.deepEqual(asked.result.resumeList, [{ chat: 'Board', session: 'local_Board', cliSession: 'cli-Board', step: 'B1', checkpoint: { commit: 'a1b2c3d', next: 'wire it', at: NOW, line: 'a1b2c3d · wire it · 2026-10-18 21:00:00', isSincePause: false }, branch: null, hasStarted: false }])
     // A worker gets no list, only its own holds.
     assert.deepEqual((await board({ action: 'pause-state' })).result.resumeList, [])
     // The existing turn-ended call answers the pause state too: part 2 needs no new call.
@@ -174,16 +178,16 @@ test('pause-state while resuming: the main chat gets the list of who to wake, by
   }
 })
 
-test('the facts of a pause: who still works, who holds a step without a checkpoint since the pause, then safe', () => {
+test('the facts of a pause: who still works, who holds a step without a checkpoint since the pause (said, not waited for), then safe', () => {
   const step = (id, owner, checkpoint = null) => ({ head: new Map([['Id', id], ['Kind', 'step'], ['State', 'in progress'], ['Owner', owner], ...(checkpoint === null ? [] : [['Checkpoint', checkpoint]])]), sections: new Map() })
   const items = new Map([['B1', step('B1', 'Board', 'a1b2c3d · wire it · 2026-10-18 21:02:00')], ['B2', step('B2', 'Team - Support')]])
   const pause = { state: 'pausing', since: NOW + MIN, by: 'person' }
   const facts = pauseFacts({ pause, items, lanes: LANES, prefix: 'Team - ' })
-  assert.deepEqual(facts, { state: 'pausing', since: NOW + MIN, working: ['Board'], unsaved: [{ chat: 'Support', id: 'B2' }], offBoard: [], isSafe: false })
+  assert.deepEqual(facts, { state: 'pausing', since: NOW + MIN, working: ['Board'], asking: [], typing: [], unsaved: [{ chat: 'Support', id: 'B2' }], offBoard: [], isSafe: false })
   // A chat that is between two turns (held, not running one) is not working.
   const calm = LANES.map(lane => ({ ...lane, state: lane.name === 'Board' ? 'working' : lane.state, between: lane.name === 'Board' ? 'its card names a task' : null }))
   items.set('B2', step('B2', 'Support', 'none · start · 2026-10-18 21:03:00'))
-  assert.deepEqual(pauseFacts({ pause, items, lanes: calm, prefix: 'Team - ' }), { state: 'pausing', since: NOW + MIN, working: [], unsaved: [], offBoard: [], isSafe: true })
+  assert.deepEqual(pauseFacts({ pause, items, lanes: calm, prefix: 'Team - ' }), { state: 'pausing', since: NOW + MIN, working: [], asking: [], typing: [], unsaved: [], offBoard: [], isSafe: true })
   // A checkpoint from before the pause does not count.
   items.set('B2', step('B2', 'Support', 'none · start · 2026-10-18 20:59:00'))
   assert.deepEqual(pauseFacts({ pause, items, lanes: calm, prefix: 'Team - ' }).unsaved, [{ chat: 'Support', id: 'B2' }])
@@ -248,10 +252,10 @@ test('after a pause, the resume list of the main chat marks a checkpoint written
 const held = (id, owner, state = 'in progress', checkpoint = null) => ({ head: new Map([['Id', id], ['Kind', 'step'], ['State', state], ['Owner', owner], ...(checkpoint === null ? [] : [['Checkpoint', checkpoint]])]), sections: new Map() })
 const calm = LANES.map(lane => ({ ...lane, state: lane.name === 'Board' ? 'free' : lane.state }))
 
-test('review 1: a step waiting on you or in review is held as the work API holds it: it blocks Safe and is woken on resume', () => {
+test('review 1: a step waiting on you or in review is held as the work API holds it: it is named (the review of Pause 2: it blocks no Safe) and woken on resume', () => {
   const items = new Map([['B1', held('B1', 'Board', 'waiting on you')], ['B2', held('B2', 'Support', 'review')]])
   const pausing = pauseFacts({ pause: { state: 'pausing', since: NOW, by: 'person' }, items, lanes: calm })
-  assert.deepEqual([pausing.unsaved, pausing.isSafe], [[{ chat: 'Board', id: 'B1' }, { chat: 'Support', id: 'B2' }], false])
+  assert.deepEqual([pausing.unsaved, pausing.isSafe], [[{ chat: 'Board', id: 'B1' }, { chat: 'Support', id: 'B2' }], true])
   const resuming = pauseFacts({ pause: { state: 'resuming', since: NOW + MIN, by: 'person' }, items, lanes: calm })
   assert.deepEqual(resuming.waiting, [{ chat: 'Board', id: 'B1' }, { chat: 'Support', id: 'B2' }])
   const list = pauseAnswer({ pause: { state: 'resuming', since: NOW + MIN, by: 'person' }, items, lanes: calm, chat: 'Main', role: 'main' }).resumeList
@@ -271,10 +275,10 @@ test('review 1: a checkpoint stands on a step waiting on you or in review too', 
   }
 })
 
-test('review 2: a held step whose chat is not on the board blocks Safe and is named with its title', () => {
+test('review 2: a held step whose chat is not on the board is named with its title (the review of Pause 2: it blocks no Safe)', () => {
   const items = new Map([['B2', held('B2', 'Ghost')]])
   const facts = pauseFacts({ pause: { state: 'pausing', since: NOW, by: 'person' }, items, lanes: calm, prefix: 'Team - ' })
-  assert.deepEqual([facts.offBoard, facts.isSafe], [[{ chat: 'Ghost', id: 'B2', title: 'Team - Ghost' }], false])
+  assert.deepEqual([facts.offBoard, facts.isSafe], [[{ chat: 'Ghost', id: 'B2', title: 'Team - Ghost' }], true])
   // With a checkpoint since the pause its work is kept: no longer named.
   items.set('B2', held('B2', 'Ghost', 'in progress', 'none · go on · 2026-10-18 21:01:00'))
   assert.deepEqual(pauseFacts({ pause: { state: 'pausing', since: NOW, by: 'person' }, items, lanes: calm, prefix: 'Team - ' }).offBoard, [])

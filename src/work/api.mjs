@@ -21,7 +21,7 @@ import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } fr
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPauseFile, writeNames, writePause } from './store.mjs'
-import { HELD, checkpointLine, pauseAnswer } from './pause.mjs'
+import { HELD, checkpointLine, isHolding, pauseAnswer } from './pause.mjs'
 import { writeView } from './view.mjs'
 
 // B300: kept here for those who import them from the API.
@@ -439,7 +439,10 @@ async function pauseWrite(body, w) {
   if ((to === 'pausing' && now.record?.state === 'pausing') || (to === 'running' && now.record?.state !== 'resuming')) {
     return { ok: true, result: { text: `The pause state stays ${now.record?.state ?? 'running'}.`, pause: now.record, changed: false } }
   }
-  const record = { state: to, since: w.now, by: w.role, ...(to === 'resuming' && now.record?.state === 'pausing' && Number.isFinite(now.record.since) ? { pausedSince: now.record.since } : {}) }
+  // A resume keeps when the pause began, and so does the running after it (the review of Pause 2: the outbox's
+  // lines are not late for the time the pause held them).
+  const pausedSince = to === 'resuming' && now.record?.state === 'pausing' ? now.record.since : to === 'running' ? now.record?.pausedSince : null
+  const record = { state: to, since: w.now, by: w.role, ...(Number.isFinite(pausedSince) ? { pausedSince } : {}) }
   const done = await writePause(w.dir, record, w.fs, { expected: now.text })
   if (!done.ok) return refuse(/could not be written/.test(done.why) ? 500 : 409, `${done.why}; try again.`)
   return { ok: true, result: { text: `The pause state is ${to} since ${stamp(w.now).slice(11)}.`, pause: record, changed: true } }
@@ -1483,6 +1486,8 @@ async function refineText(body, w) {
  * changes nothing: the server sends the line once (src/work/deliver.mjs), and the chat's own take moves the step.
  */
 function pull(body, w) {
+  // The review of Pause 2: while the person pauses (until running) no step is handed out.
+  if (isHolding(w.store.pause)) return { ok: true, result: { text: '', id: null, since: null, wake: null, changed: false } }
   const steps = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, w.who, w.prefix))
   const held = steps.find(item => ['taken', 'in progress', 'waiting on you'].includes(stateOf(item)))
   if (held !== undefined) return { ok: true, result: { text: '', id: valueOf(held, 'Id'), since: null, wake: null, changed: false } }

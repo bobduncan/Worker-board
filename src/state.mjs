@@ -24,7 +24,7 @@ import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
-import { pauseFacts } from './work/pause.mjs'
+import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { refineStop } from './refineGate.mjs'
 import { flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
@@ -621,7 +621,7 @@ const cardOf = task => (task === null ? null : {
 })
 
 const asAnswer = message => (message === undefined ? null : {
-  at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state,
+  at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state, ...(message.isHeld === true ? { isHeld: true } : {}),
   // When its chat took it, and when it was typed there.
   takenAt: message.takenAt ?? null, deliveredAt: message.deliveredAt ?? null,
 })
@@ -961,7 +961,11 @@ function focusRun(node, items, prefix, partner) {
 }
 
 export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], now, config }) {
-  const sent = Array.isArray(outbox) ? outbox : []
+  // The review of Pause 2: while the person pauses (until running) what waits in the outbox is held until the resume,
+  // but the board's own "resume" to the main chat; the page says so (`isHeld`).
+  const isPaused = isHolding(raw.work?.pause)
+  const sent = (Array.isArray(outbox) ? outbox : [])
+    .map(message => (isPaused && message.state === 'waiting' && message.command !== 'resume' ? { ...message, isHeld: true } : message))
   const started = Array.isArray(runs) ? runs : []
   const list = parseList(textOr(raw.listText, ''))
   // The start of the project's chat titles, for reading their words; '' while the list of chats is not right.
@@ -1334,8 +1338,20 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the
   // board typed "resume" into it since the resume.
   const pause = pauseRecord === null ? null : {
-    ...pauseFacts({ pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...(advisorCard === null ? [] : [advisorCard])], prefix }),
-    main: main === undefined ? null : { name: main.name, title: context.main.mainTitle ?? main.name, session: main.appSessionId ?? null, isRunning: runningOf(main.name) },
+    // The review of Pause 2: a line handed to a chat and not typed yet starts a turn: no Safe while one is on its way.
+    ...pauseFacts({
+      pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...(advisorCard === null ? [] : [advisorCard])], prefix,
+      pending: sent.filter(message => message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS),
+    }),
+    // `hasActed`: the main chat ran a turn since the pause's last change, or runs one now (the review of Pause 2: once its
+    // process runs while resuming and it has not, the board types "resume" into it).
+    main: main === undefined ? null : {
+      name: main.name, title: context.main.mainTitle ?? main.name, session: main.appSessionId ?? null, isRunning: runningOf(main.name),
+      hasActed: (() => {
+        const lane = chats.find(one => one.isMain)
+        return lane !== undefined && ((lane.state === 'working' && (lane.between ?? null) === null) || (Number.isFinite(lane.turnAt) && Number.isFinite(pauseRecord.since) && lane.turnAt >= pauseRecord.since))
+      })(),
+    },
     typedAt: main === undefined || !Number.isFinite(pauseRecord.since) ? null
       : sent.findLast(message => message.to === main.name && message.command === 'resume' && Number.isFinite(message.at) && message.at >= pauseRecord.since)?.at ?? null,
   }

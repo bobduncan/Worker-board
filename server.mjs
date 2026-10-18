@@ -59,7 +59,7 @@ import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, undoLine } from './src/focus.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
-import { resumeTypeTo } from './src/work/pause.mjs'
+import { isHolding, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor } from './src/work/deliver.mjs'
 import { followRenames } from './src/work/rename.mjs'
@@ -714,6 +714,8 @@ async function main(args) {
 
   const readState = cached(async () => {
     const raw = await readRaw()
+    // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
+    keep.pause = raw.work?.pause ?? null
     const project = raw.project ?? config.project
     const state = buildState(raw, {
       lines: readLines(raw),
@@ -1058,7 +1060,10 @@ async function main(args) {
       // Who asks runs, also a chat the board shows another session for.
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
       if (!checked.ok) return checked
-      const taken = await store.take(checked.chat, clock(), keep)
+      // The review of Pause 2: while the person pauses (until running) no chat takes what would start a turn; only the
+      // board's own "resume" to the main chat goes. The rest waits in the outbox, held until the resume.
+      const only = isHolding((await readState()).pause) ? message => message.command === 'resume' : undefined
+      const taken = await store.take(checked.chat, clock(), keep, only)
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
       return { ok: true, result: { messages: taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) })) } }
@@ -1228,6 +1233,8 @@ async function main(args) {
   // that delivers, or a copy with a store of its own (whose outbox no chat takes from).
   if (!isDemo && historyFrom === undefined && workWriters !== null) {
     let isReconciling = false
+    /** The review of Pause 2: the main chats the board typed "resume" into by itself, per resume (its since). */
+    const retyped = new Set()
     const reconcileNow = async () => {
       if (isReconciling) return
       isReconciling = true
@@ -1247,6 +1254,14 @@ async function main(args) {
         if (state.pause?.state === 'resuming' && state.pause.isResumed === true) {
           const set = await workAction({ action: 'resumed' }, 'server')
           if (set.ok && set.result.changed !== false) readState.reset()
+        }
+        // The review of Pause 2: after "Open <main>" its process runs while resuming and it has done nothing: the board
+        // types "resume" into it now, once (the bridge is there then; the state's `typedAt` says it went).
+        const retype = isShowOnly ? null : resumeRetypeTo(state)
+        if (retype !== null && sayNow !== null && !retyped.has(`${retype} ${state.pause.since}`)) {
+          retyped.add(`${retype} ${state.pause.since}`)
+          const typed = await sayNow({ to: retype, command: 'resume' })
+          if (typed?.ok === true) readState.reset()
         }
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,

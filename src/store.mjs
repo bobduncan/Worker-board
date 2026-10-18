@@ -6,6 +6,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { changes, lastByChat, parseHistory } from './history.mjs'
+import { heldMs } from './work/pause.mjs'
 
 /** The board watches once a minute. Longer than this without a look means it was off or the PC slept. */
 const GAP_MS = 3 * 60_000
@@ -39,7 +40,8 @@ const TAKEN_SHOWN_MS = 10 * 60_000
 // A step asked of the main chat from the Design tab waits as long as an answer does: the main chat may be closed.
 // B285: so does the word that a step the main chat queued is refined: it waits until the main chat takes it.
 // B300: and the work store's line that a step is a chat's: it is sent once, never again (src/work/deliver.mjs).
-export const isLate = (message, now, keep) => now - message.at > (isAnswer(message) || ['step', 'refined', 'work'].includes(message.command) ? keep.answerMs : keep.messageMs)
+// The review of Pause 2: the time the person's pause held it (`keep.pause`, pause.json's record) does not count.
+export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > (isAnswer(message) || ['step', 'refined', 'work'].includes(message.command) ? keep.answerMs : keep.messageMs)
 
 /**
  * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never
@@ -96,10 +98,11 @@ function storeOver(lines, messages, alive, write) {
     /**
      * Hands out what waits for one chat, for the mod to type there. Every message is marked taken at once, before
      * anything is awaited, so two takes never hand out the same one; and it is written down before it is handed
-     * out, so it is never typed twice. A take that cannot be written down hands out nothing.
+     * out, so it is never typed twice. A take that cannot be written down hands out nothing. The review of Pause 2:
+     * `only`, when given, says which may go now (while the person pauses, the board's own "resume"); the rest wait.
      */
-    async take(to, now, keep) {
-      const taken = messages.filter(message => message.to === to && message.state === 'waiting' && !isLate(message, now, keep))
+    async take(to, now, keep, only = () => true) {
+      const taken = messages.filter(message => message.to === to && message.state === 'waiting' && !isLate(message, now, keep) && only(message))
       for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now })
       try {
         if (taken.length > 0) await write.outbox(taken.map(message => ({ id: message.id, state: 'taken', takenAt: now })))
