@@ -828,8 +828,10 @@ const WORK_TOOL = {
     + "you are on, as the chat tool's \"plan\" and \"step\", which it writes to your card too. \"ask\" (\"of\" the step, \"kind\" "
     + 'decide, look, provide or do, "blocking", "text", "options", "advice", "pictures", "play"): something only the person can '
     + 'do; put the "For you" block it answers into your answer. "withdraw" ("id", "why"): take your own ask back when '
-    + 'it is no longer needed; a step that waited on it goes on. "answered-in-chat" ("id", "text"): the person answered '
-    + 'one of your asks here in the chat: their words, so the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
+    + 'it is no longer needed (the main chat: also an ask with no asking chat, with a why); a step that waited on it goes '
+    + 'on. "answered-in-chat" ("id", "text"): the person answered one of your asks here in the chat (the main chat and the '
+    + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
+    + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question. "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
     + 'chat. "block" and "unblock" ("id", "on"). "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
     + '"for", "after", "about"), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '

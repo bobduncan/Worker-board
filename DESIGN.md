@@ -1104,7 +1104,12 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   Workers mod files each question of the app's question form (AskUserQuestion) as a decide ask, `Via: form`, under the
   card's step when the board takes it there; the person answers those in the chat, and the mod then sends
   `answered-in-chat` with their choice or their own words (or `withdraw` when the form was closed unanswered). Any ask
-  of its own a chat closes the same way when the person answered it in the chat. On the board, a form's question
+  of its own a chat closes the same way when the person answered it in the chat. B305: an ask with no asking chat (no
+  Owner, or "-": one carried over from the old backlog, which kept its B id) is closed with `answered-in-chat` by the
+  main chat or the Advisor, in whose chat the person answered it; the person's words are required, and History says
+  "<chat>: answered in its chat by the person: <words>"; a step that waited on it goes on as with the board's answer.
+  Only the main chat withdraws such an ask, with a why. A worker closes only its own asks; an ask with an asking chat
+  stays that chat's. On the board, a form's question
   whose chat does not run has a **Withdraw** button. `answer` (the person) names the ask's own
   id, so an answer given after the chat moved on answers that ask and no later one; a look takes approve or reject
   (with words), a do takes done; the answer says whom to wake (`wake`). `read` puts a note away.
