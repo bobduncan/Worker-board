@@ -13,7 +13,7 @@ import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
-import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, safePointNote, storePause, usageReadings } from './limits.mjs'
+import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, safePointNote, storePause, storeSafePoint, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
 import { approvalRoute } from './tick.mjs'
@@ -128,6 +128,36 @@ export function settleTurn({ turn, end, isAppEnded, isCut = false, writtenAt, no
 }
 
 const textOr = (value, fallback) => (typeof value === 'string' ? value : fallback)
+
+/**
+ * B315: a lane that counts as working only by what is left of it (its card, its step, or a turn the transcript shows
+ * open) while its process does not run: the app was quit and opened again, and no chat runs until it is opened or a
+ * message reaches it. Stale when its transcript has been quiet since before the app's last start (`appStartedAt`,
+ * known as long as its process has not answered the board: `isRunning` not true), or for longer than the grace time
+ * while its process is known not to run (`isRunning` false). Such a lane is "Not running", never "Working".
+ */
+export function isStaleWork({ state, isRunning, writtenAt, appStartedAt, now, graceMs = GRACE_MS }) {
+  if (state !== 'working' || isRunning === true || !Number.isFinite(writtenAt)) return false
+  if (Number.isFinite(appStartedAt) && writtenAt < appStartedAt) return true
+  return isRunning === false && now - writtenAt > graceMs
+}
+
+/** B315: a stale lane as the board shows it: "Not running", its task and step kept, nothing of a turn or a time. */
+const offLane = (lane, since) => ({
+  ...lane, state: 'off', offSince: since, eta: null, isWithoutTime: false, doingNow: null, between: null, quietMs: null, isQuiet: false, unanswered: null, resting: null,
+})
+
+/**
+ * B315: whether the main chat has taken words that were only copied for the person to paste: the person's words in
+ * its transcript, since they were copied, begin with their first line.
+ */
+function isTakenBy(entries, message, prefix) {
+  if (entries === null) return null
+  const first = String(message.pasteText ?? message.text ?? '').split('\n')[0].trim()
+  if (first === '') return null
+  const said = conversation(entries, { prefix, limit: 400 }).find(one => one.from === 'you' && one.at >= message.at - MIN && one.text.trim().startsWith(first))
+  return said === undefined ? null : said.at
+}
 
 /**
  * Why a chat whose turn has ended is not free, or null when it is: its task is not reported yet, background work
@@ -348,8 +378,12 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const note = told !== null && pauseOver({ limit: told.limit ?? 'fiveHour', since: told.at, percent: told.percent ?? null }) ? null : told
   // B291: it sent the main chat its safe-point line since "prepare restart": stopped for the restart, whatever its
   // transcript's tail shows (a turn cut off, then the stop word answered, can look as if it still runs).
-  const safe = stop !== null || note !== null || entries === null || chat.isMain ? null
-    : safePointNote(scan ?? entries, [main.mainTitle, main.mainSession].filter(Boolean), restartSince)
+  const canStop = stop === null && note === null && entries !== null && !chat.isMain
+  const safeSent = canStop ? safePointNote(scan ?? entries, mains, restartSince) : null
+  // B314: or it filed that line as a work note to the main chat; the newer of the two forms decides.
+  const safeFiled = canStop ? storeSafePoint(notes.get(chat.name.toLowerCase()), scan ?? entries, mains, restartSince) : null
+  const safeWord = [safeSent, safeFiled].filter(Boolean).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+  const safe = safeWord === null || safeWord.isSafe === false ? null : safeWord
   const paused = stop !== null ? { by: 'app', limit: stop.limit, since: stop.at, named: stop.resetsAt }
     : note !== null ? { by: 'note', limit: note.limit ?? 'fiveHour', since: note.at, named: note.until, percent: note.percent ?? null }
       : safe !== null ? { by: 'restart', limit: null, since: safe.at, named: null } : null
@@ -982,13 +1016,39 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const title = !workOk || typeof id !== 'string' ? null : raw.work.items.get(id)?.head.get('Title') ?? null
     return title === null ? null : withoutNotes(title)
   }
-  const cards = read.map(({ usage, ...lane }) => ({
-    ...lane,
-    suspended: heldUntil(lane.suspended, limits, now),
-    task: lane.task === null || titleOf(lane.task.stepId) === null ? lane.task : { ...lane.task, title: titleOf(lane.task.stepId) },
-  }))
+  /**
+   * Whether a chat's process runs: its mod asked the board lately (`seen.shown`, by the chat's name). After a restart
+   * of the app a chat does not run until it is opened or messaged through the app, and until then nothing reaches
+   * it by its name. Null where that cannot be told: no chat can ask this board, or the board has only just
+   * started and not every chat has asked yet.
+   */
+  // B212, B213: no Workers mod has asked this board since it started (null on a board that does not deliver).
+  const isBridgeMissing = seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) ? null
+    : Object.keys(seen.shown ?? {}).length === 0 && Object.keys(seen.other ?? {}).length === 0 && now - board.startedAt >= SEEN_MS
+  function runningOf(name) {
+    // B213: without a mod nobody asks, so the board cannot tell whether a chat runs: unknown, never "not running".
+    if (isBridgeMissing === true) return null
+    if (seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) || now - board.startedAt < SEEN_MS) return null
+    const isFresh = at => Number.isFinite(at) && now - at < SEEN_MS
+    if (isFresh(seen.shown?.[name])) return true
+    // Somebody asks under this name from another session than the one the board shows: it cannot tell.
+    return isFresh(seen.other?.[name]) ? null : false
+  }
+  // B315: when the app last started (its lockfile, sources.mjs): a chat quiet since before then has not run since.
+  const appStartedAt = Number.isFinite(raw.appStartedAt) ? raw.appStartedAt : null
+  const cards = read.map(({ usage, ...lane }) => {
+    const shown = {
+      ...lane,
+      suspended: heldUntil(lane.suspended, limits, now),
+      task: lane.task === null || titleOf(lane.task.stepId) === null ? lane.task : { ...lane.task, title: titleOf(lane.task.stepId) },
+    }
+    // B315: a card left "working" by a quit app, its process not running: "Not running", never "Working".
+    const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
+    const isStale = !lane.isLeftover && isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now })
+    return isStale ? offLane(shown, writtenAt) : shown
+  })
 
-  const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0 }
+  const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0, off: 0 }
   for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
 
   // The steps the workers are on right now, also the ones that name no branch (a check, a comparison, a merge):
@@ -1043,6 +1103,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     if (lane.state === 'working') return { reason: 'busy', worker: lane.name, leftMs: lane.eta === null || lane.eta.isOver ? null : lane.eta.leftMs }
     if (lane.state === 'waiting') return { reason: 'you', worker: lane.name }
     if (lane.state === 'interrupted') return { reason: 'cut', worker: lane.name }
+    // B315: its process does not run: nothing reaches it until its chat is opened.
+    if (lane.state === 'off') return { reason: 'off', worker: lane.name }
     if (lane.state === 'free') return { reason: 'handout', main: context.main.mainTitle, isOwn: lane.isMain }
     return { reason: 'unknown', worker: lane.name }
   }
@@ -1191,28 +1253,22 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // since when it had been off.
   const word = sent.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
 
-  /**
-   * Whether a chat's process runs: its mod asked the board lately (`seen.shown`, by the chat's name). After a restart
-   * of the app a chat does not run until it is opened or messaged through the app, and until then nothing reaches
-   * it by its name. Null where that cannot be told: no chat can ask this board, or the board has only just
-   * started and not every chat has asked yet.
-   */
-  // B212, B213: no Workers mod has asked this board since it started (null on a board that does not deliver).
-  const isBridgeMissing = seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) ? null
-    : Object.keys(seen.shown ?? {}).length === 0 && Object.keys(seen.other ?? {}).length === 0 && now - board.startedAt >= SEEN_MS
-  function runningOf(name) {
-    // B213: without a mod nobody asks, so the board cannot tell whether a chat runs: unknown, never "not running".
-    if (isBridgeMissing === true) return null
-    if (seen === null || typeof seen !== 'object' || !Number.isFinite(board?.startedAt) || now - board.startedAt < SEEN_MS) return null
-    const isFresh = at => Number.isFinite(at) && now - at < SEEN_MS
-    if (isFresh(seen.shown?.[name])) return true
-    // Somebody asks under this name from another session than the one the board shows: it cannot tell.
-    return isFresh(seen.other?.[name]) ? null : false
-  }
+  // B315: a word to the main chat that was only copied (no Workers mod took it: no chat ran) waits until the person
+  // pasted it into the main chat. The newest such word not taken yet, unless a newer one of its kind went another way.
+  const mainTail = main === undefined ? null : raw.tails?.[main.cliSessionId] ?? null
+  const mainEntries = mainTail === null || typeof mainTail.text !== 'string' ? null : parseTail(mainTail.text, mainTail.isCut === true)
+  const takenAt = message => (message?.state !== 'copied' ? null : isTakenBy(mainEntries, message, prefix))
+  const toMain = main === undefined ? [] : sent.filter(message => message.to === main.name)
+  const lastCopied = toMain.findLast(message => message.state === 'copied')
+  const isOpenCopy = lastCopied !== undefined && takenAt(lastCopied) === null
+    && !toMain.some(message => message.at > lastCopied.at && message.state !== 'copied' && (message.command ?? null) === (lastCopied.command ?? null))
+  const wordTaken = takenAt(word)
+  const wordState = word?.state === 'copied' && wordTaken !== null ? 'delivered' : word?.state
   const restart = {
     main: main === undefined ? null : main.name,
     interrupted: live.filter(lane => lane.state === 'interrupted').map(lane => lane.name),
-    notRunning: live.filter(lane => runningOf(lane.name) === false).map(lane => lane.name),
+    // B315: with the lanes whose card was left "working" by a quit app (`off`).
+    notRunning: live.filter(lane => lane.state === 'off' || runningOf(lane.name) === false).map(lane => lane.name),
     // The chats the main chat was lately asked to start, each with how that word fared.
     starting: [...new Map(sent
       .filter(message => message.command === 'start' && typeof message.about === 'string' && now - message.at < 10 * MIN)
@@ -1220,17 +1276,24 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     prepared: Number.isFinite(raw.restartNote?.at) ? { at: raw.restartNote.at } : null,
     // B291: the workers still at work; the main chat does the preparing, and a worker that sent its line is suspended.
     preparing: word?.command === 'prepare restart' ? {
-      at: word.at, state: word.state, working: live.filter(lane => lane.state === 'working' && !lane.isMain).map(lane => lane.name),
+      at: word.at, state: wordState, working: live.filter(lane => lane.state === 'working' && !lane.isMain).map(lane => lane.name),
       // When the last worker sent its safe-point line: restart.md written before it does not count yet.
       lastLine: Math.max(0, ...live.filter(lane => lane.suspended?.by === 'restart').map(lane => lane.suspended.since)) || null,
     } : null,
-    resuming: word?.command === 'resume' && now - word.at < 15 * MIN ? { at: word.at, state: word.state } : null,
+    // B315: one only copied stays until the main chat has taken it; then it shows as handed for a quarter of an hour.
+    resuming: word?.command === 'resume' && ((word.state === 'copied' && wordTaken === null) || now - (wordTaken ?? word.at) < 15 * MIN) ? { at: word.at, state: wordState } : null,
+    // B315: the word to the main chat that was only copied and is not in its chat yet: what to paste, into which chat
+    // (its title from the list of chats), the app's id for it, and whether it runs now.
+    copied: !isOpenCopy ? null : {
+      at: lastCopied.at, command: lastCopied.command ?? null, text: lastCopied.pasteText ?? lastCopied.text, chat: context.main.mainTitle ?? main.name,
+      session: main.appSessionId ?? null, isMainRunning: runningOf(main.name),
+    },
     off: Number.isFinite(board?.offSince) && Number.isFinite(board?.startedAt) && now - board.startedAt < HOUR ? { from: board.offSince, to: board.startedAt } : null,
   }
 
   const chats = lanes.map(lane => ({
     ...lane,
-    isRunning: lane.isLeftover ? null : runningOf(lane.name),
+    isRunning: lane.isLeftover ? null : lane.state === 'off' ? false : runningOf(lane.name),
     // B143: the newest ask to remove this worker; the main chat and a leftover have none.
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
   }))

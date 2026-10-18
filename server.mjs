@@ -915,10 +915,13 @@ async function main(args) {
       }
       // B298: a line to a chat is filed as an instruction first and carries its id.
       message = await withInstruction(message, body => workAction(body, 'person'))
+      // B315: the words as they were copied are kept with them, so the restart banner can copy them again and tell when
+      // the main chat has them.
+      if (isCopied) message = { ...message, pasteText: messageText(message, timeOf, path => inProject(config.project, path)) }
       await store.say(message)
       if (isCopied) {
         readState.reset()
-        const paste = { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
+        const paste = { text: message.pasteText, chat: `${state.chatPrefix ?? ''}${message.to}` }
         return { ok: true, message: { ...message, paste } }
       }
       // Sent to a chat that is not running: the main chat is asked to start it, so nothing waits without a word.

@@ -37,6 +37,14 @@ with the prefix is a lane, the chat named `advisor` in `config.json` is the one 
 a lane like the others. Queues, requests, answers and folders are all keyed by the chat's name. Adding a worker
 is opening a chat titled "Game - <name>".
 
+**One chat shows once (B314).** Seen live 2026-10-18: the Overview showed two lanes "Worker 1", one of them a grey
+leftover in state unknown. Why: the app keeps its list of chats per account it was signed in with
+(`claude-code-sessions<account><organisation>`) and shows only the account in use; the older account's folder still
+held an open chat of that name, last active four days before, which the board read beside today's and took for an
+older chat of the same name. Now only the folder holding the most recently active chat is read (`readAppChats`; two
+folders as recent as each other are both read). A fork or an older chat of the same name in the account in use is
+still a grey leftover.
+
 **The fixed form for what a chat needs from the person** (an "ask"): one JSON file per ask in
 `<project>\.claude\asks\`, written and closed by the chat that asks, read by the board. The fields are in
 `src/asks.mjs`. Three kinds:
@@ -817,6 +825,21 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   tab says so, and `resume` names these chats for the main chat, which starts them through the app by their
   session's id. Nothing is said in the board's first half minute, or about a chat that asks from another session
   than the one the board shows.
+- *Not running, not Working (B315).* Seen live 2026-10-18 at 16:32: after the app was quit and opened again, the
+  Overview showed all four workers "Working" (their cards still said so from before the quit, and "resume" had ended
+  their stop for the restart), while Needs your attention said three of them held a step but were not working. A
+  lane that counts as working only by what is left of it (its card, its step, or a turn its transcript shows open)
+  is stale (`isStaleWork` in `src/state.mjs`) when its process has not asked the board (`runningOf` not true) and its
+  transcript has been quiet since before the app's last start, or when its process is known not to run and its
+  transcript has been quiet longer than the grace time (`GRACE_MS`, 10 min). The app's last start is when it wrote
+  the lock it holds in its own folder, above its chat list (`lockfile` on Windows, `SingletonLock` elsewhere;
+  `appStartedAt` in `src/sources.mjs`); without it only the second rule holds. Such a lane is in the state `off`:
+  its pill and its time column say "Not running", its task and step stay, it has no time, no "Now:", no "no sign of
+  life", and a line under it says it does nothing until its chat is opened or the main chat starts it. It counts as
+  not running for the restart banner and for `resume`, and after the grace time its step gets the `stuck` flag with
+  **Start <chat>**. A chat whose process is known not to run gets no "may wait for you" hint (`idle hold`): its lane
+  says it, and the two never disagree. Once its transcript moves after the app's start, or its process asks the
+  board, it is read as before.
 - *One board delivers.* Of two boards on one project the one that records is the one that delivers; a board
   started with `--history-from` only shows, refuses an answer and says where to give it. A board that starts
   takes the delivery over when the file names a board that no longer takes its key.
@@ -837,11 +860,28 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   `resume` after it) has stopped (`safePointNote`): its lane says "Suspended" ("Stopped for the restart at HH:MM ·
   waits for Resume"; its time column "Stopped for · Restart"), until it works again: a tool of its work after the line
   (a reply to the main chat's thanks, or its card, is not work), or until "resume". The newest restart word stays
-  known for a day, so a restart prepared at night still stands in the morning; "safe to restart" needs restart.md
+  known for a day, so a restart prepared at night still stands in the morning; B314 (seen live 2026-10-18 at 16:19:
+  two workers filed their line as a work note to the main chat, as the job texts allow, and the banner still named
+  them as working): a note to the main chat whose first line is the safe-point line, filed in the minute of the
+  prepare word or later, counts as the message does (`storeSafePoint`). The newer of note and message decides (one
+  that says something else ends the stop); the note's time is when the transcript shows the work tool filing it, else
+  its minute, so work after it in that same minute ends it too; "safe to restart" needs restart.md
   written after the last worker's line; a step waiting on a stopped worker says "<worker> stopped for the restart". The banner names
   only the workers with no line yet ("Still working (no safe point yet): ..."; the main chat, which does the
   preparing, is never waited for), then "Everyone stopped: safe to restart" once the main chat wrote restart.md,
   and says when it last wrote that file.
+- *A word that was only copied (B315).* Seen live 2026-10-18 at 16:32: right after the app was opened again no chat
+  ran, so no Workers mod had asked the board, and "Resume all" was kept as `copied` (B212's way for a board without a
+  mod: the page puts the words on the clipboard). The banner then said nothing plain, and nobody resumed for ten
+  minutes. Now the server keeps the words as they were copied with the message (`pasteText`), and the banner, for the
+  newest word to the main chat that was only copied (`restart.copied`: "Resume all", "Prepare restart", a "Start",
+  or any line to it), says "<Main>'s chat is not running yet: open <its title> in the app (or click it in the
+  sidebar) and paste with Ctrl+V; the word is on your clipboard", with the app's id for the chat when the board
+  knows it and a button **Copy again**. It stays until the main chat has taken it: the person's words in its
+  transcript, since the word was copied, begin with the word's first line (then "Resume" shows as handed for a
+  quarter of an hour), or a newer word of its kind went another way. The main chat's name and title come from the
+  list of chats. Once its chat runs and the word is still not pasted, the line says that; on a PC without the
+  Workers mod it says that no mod types it in. The bar on top that says words were copied names the same reason.
 
 **The Design tab** (the person, 2026-10-12: "i want to be able to prompt an initial idea. let it build a visual in
 codex about what i want, present it to me, if i agree can add information to it what i want and put it either on

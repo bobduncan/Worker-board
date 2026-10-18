@@ -104,9 +104,10 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // ended with nothing running (`resting`, state.mjs), that is not suspended and holds no open ask, for longer than the
   // idle time: it may wait for the person without having said so where the board looks. One hint per chat, naming
   // all its steps; it goes when the chat runs again, files an ask or reports. Nothing of its words is read.
+  // B315: never for a chat whose process is not running: its lane says "Not running", and the hint would contradict it.
   const asking = new Set([...items.values()].filter(item => kindOf(item) === 'ask' && stateOf(item) === 'open' && valueOf(item, 'Owner') !== null).map(item => plain(valueOf(item, 'Owner'), prefix)))
   for (const lane of live) {
-    if (lane.isMain === true || lane.state === 'suspended' || !Number.isFinite(lane.resting?.since) || asking.has(plain(lane.name, prefix))) continue
+    if (lane.isMain === true || lane.state === 'suspended' || lane.isRunning === false || !Number.isFinite(lane.resting?.since) || asking.has(plain(lane.name, prefix))) continue
     const mine = ok.filter(item => ['taken', 'in progress'].includes(stateOf(item)) && laneOf(valueOf(item, 'Owner')) === lane)
     if (mine.length === 0) continue
     const since = Math.max(lane.resting.since, ...mine.map(item => sinceMs(valueOf(item, 'Since'))).filter(Number.isFinite))

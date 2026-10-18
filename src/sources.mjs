@@ -1,8 +1,8 @@
 // Reads the real files into texts, in the shape `buildState` takes. Everything outside this folder is read-only
 // for the board, and a file that is missing or cannot be read comes back as null: the page shows it as unknown.
 
-import { readdir, stat } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { lstat, readdir, stat } from 'node:fs/promises'
+import { dirname, isAbsolute, join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mjs'
 import { readAsks } from './asks.mjs'
@@ -83,6 +83,20 @@ async function pictureLists(config, work, now) {
 }
 
 /**
+ * B315: when the Claude app last started: the app holds a lock in its own folder (the one above its chat list) from
+ * its start, written then (`lockfile` on Windows, `SingletonLock` elsewhere). Null when that cannot be told.
+ */
+export async function appStartedAt(appSessions) {
+  if (typeof appSessions !== 'string' || appSessions === '') return null
+  const folder = dirname(appSessions)
+  for (const name of ['lockfile', 'SingletonLock']) {
+    const at = await lstat(join(folder, name)).then(file => file.mtimeMs, () => null)
+    if (Number.isFinite(at)) return at
+  }
+  return null
+}
+
+/**
  * `readFolders()` answers the working folders (see folders.mjs). B296, B301: `readWork()` answers the work store (see
  * work/read.mjs, `storeKeeper`); undefined where the board has none. The backlog file is not read: it is the store's view.
  */
@@ -142,6 +156,8 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     work,
     // B113: the file the app keeps for its own usage card. The board only reads it.
     usageText: (await readTail(config.usageHistory, USAGE_BYTES))?.text ?? null,
+    // B315: when the app last started: a chat quiet since before then has not run since.
+    appStartedAt: await appStartedAt(config.appSessions),
     // The main chat's note of who was on what before a restart: only whether it is there, and since when.
     restartNote: await stat(join(claude, 'restart.md')).then(file => ({ at: file.mtimeMs }), () => null),
     // B110: the branches that are still there, to tell merged work from work whose branch is open.
