@@ -59,7 +59,10 @@ A dark dashboard: dark blue panels with thin borders on an almost black page, wh
 ## The top bar
 
 The tabs **Overview**, **Advisor**, **Backlog**, **Design**; on the right **Prepare restart** (asks the main chat to
-bring every worker to a safe point before the app is quit; after it the board offers **Resume**), **CPU for the
+bring every worker to a safe point before the app is quit; after it the board offers **Resume**; B315: a word to
+the main chat that was only copied, because its chat did not run yet, stays on the restart banner, "Main's chat is not
+running yet: open Game - Main in the app (or click it in the sidebar) and paste with Ctrl+V", with **Copy again**,
+until the main chat has it), **CPU for the
 chats** (B311: Off, Gentle, Strong, one click each; when not Off, how many processes it applies to, "15 processes,
 below normal"; "not available here" off Windows; a listing that failed is one red line on top), the board's
 version and since when, "Last updated", and a refresh button. When the board's folder holds a newer version, a
@@ -72,10 +75,12 @@ person sent was copied, and into which chat to paste it.
   with a game: starts the base branch's game and opens it, with its commit and last change under it); the plan's
   limits (the 5-hour and the weekly bar, green, yellow from the warning percentage, red when full, with when they
   reset and how old the reading is).
-- **Count pills:** how many workers are working, waiting for the person, free, suspended, cut off or unknown.
+- **Count pills:** how many workers are working, waiting for the person, free, suspended, cut off, not running or
+  unknown.
 - **The Workers panel:** one row per chat of the list, the main chat first. Columns: **Worker** (its icon, name and
   state pill: Working, Waiting for you, Free, Suspended, Interrupted, Unknown, and "not running" when the mod says
-  so), **Current task** (its topic, "Now:" what it does, or "Last task: ..., finished", a red line when it is over
+  so; B315: "Not running" in place of Working for a chat whose card was left working by a quit app, its process not
+  running, with its step kept and no "may wait for you" hint), **Current task** (its topic, "Now:" what it does, or "Last task: ..., finished", a red line when it is over
   its first estimate), **Progress** (a bar with "step n of m" and the time left of the step), **Est. time** (ETA and
   the clock time, "Goes on at ..." when suspended, "Blocked" when it waits), **Queue** (the next step for it, how
   many more, and why it has not started). A ⋯ menu per row holds **Remove**, which asks the main chat to close that
