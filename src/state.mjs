@@ -909,7 +909,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     .map(one => {
       const state = FINISHED.includes(one.head.get('State')) ? 'done' : UNDER_WAY.includes(one.head.get('State')) ? 'now' : 'next'
       const owner = String(one.head.get('Owner') ?? '').replace(prefix, '').trim() || null
-      return { id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state, owner: state === 'done' ? null : owner }
+      return { id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state, owner }
     })
   const own = (threads ?? []).filter(one => one.goal?.id === node.id)
   const thread = own.find(one => one.state === 'running') ?? (threads ?? []).find(one => one.path === node.brainstorm?.path) ?? own[0] ?? null

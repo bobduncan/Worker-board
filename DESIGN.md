@@ -1769,11 +1769,13 @@ workers and maybe what the current focus is with the tasks"). Since B343, after 
 2. Your focus: its steps. The state's `focus.steps` (state.mjs focusState): the goal's steps one by one, its parts' in
    order and then its own, each Done, Working or Next with its worker; the one at work also with its worker's time
    left, read from that worker's lane while it works on that step. A step the store does not hold, or one dropped,
-   is not listed.
+   is not listed. The bar counts these steps (done of all) when the board lists them, else the parts.
 3. Workers: every chat of the list but leftovers, with its step, a bar of its steps and its time left; one without work
    says in a few words why (free, waits for you, paused until 19:23, not running, cut off).
-4. Needs your attention as in Details, without "From the backlog", "Open instructions", the closed cards and the order
-   and closed switches: those stay under Details.
+4. Needs your attention as in Details, without "From the backlog", "Open instructions", the closed and answered
+   cards and the order and closed switches: those stay under Details. On a phone the inbox stays the third column,
+   under the workers (Details puts it first). The restart box shows across the page under the bar, as "Prepare restart"
+   needs it.
 
 ## Two projects side by side (B319)
 

@@ -1873,14 +1873,15 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 /* B343 (the person's Q70: "the simple view needs to be wider"): the page's full width, the bar on top, then three columns:
    the focus goal's steps, the workers, Needs your attention. The overview's own box steps aside (display: contents), so
    its head and the two columns are cells of the view's grid beside the inbox. */
-#view-overview[data-mode="simple"]:not([hidden]) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto 1fr; align-items: start; align-content: start; gap: 14px 16px; padding: 0 24px 24px; overflow-y: auto; }
+#view-overview[data-mode="simple"]:not([hidden]) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; align-content: start; gap: 14px 16px; padding: 0 24px 24px; overflow-y: auto; }
 #view-overview[data-mode="simple"] .overview { display: contents; }
-#view-overview[data-mode="simple"] .head { grid-column: 1 / -1; flex-wrap: wrap; padding-bottom: 0; }
-#view-overview[data-mode="simple"] #simple-focus { grid-column: 1; grid-row: 2; }
-#view-overview[data-mode="simple"] #simple-workers { grid-column: 2; grid-row: 2; }
-#view-overview[data-mode="simple"] .inbox { grid-column: 3; grid-row: 2; min-height: 0; }
+/* The head first, then the restart box when it shows, each across the page; the columns fill the next row in their
+   order: the focus's steps, the workers, then the inbox (also on a phone, where Details puts Needs first). */
+#view-overview[data-mode="simple"] .head { order: -2; grid-column: 1 / -1; flex-wrap: wrap; padding-bottom: 0; }
+#view-overview[data-mode="simple"] #restart { order: -1; grid-column: 1 / -1; }
+#view-overview[data-mode="simple"] .inbox { order: 0; min-height: 0; }
 #view-overview[data-mode="details"] .simple-col { display: none; }
-.simple-col-head { font-size: 19px !important; margin-bottom: 8px !important; }
+.panel .simple-col-head { font-size: 19px; margin-bottom: 8px; }
 .simple-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .simple-what { min-width: 0; }
 .simple-what .task-code { color: #7fb2ff; margin-right: 2px; }
@@ -1896,18 +1897,21 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 #view-overview[data-mode="simple"] .inbox-top,
 #view-overview[data-mode="simple"] #needs .legacy,
 #view-overview[data-mode="simple"] #needs .instructions,
-#view-overview[data-mode="simple"] #needs .need.is-closed { display: none !important; }
+#view-overview[data-mode="simple"] #needs .need.is-closed,
+#view-overview[data-mode="simple"] #needs .need.is-answered { display: none !important; }
 #view-overview[data-mode="simple"] .needs { overflow: visible; padding: 0; }
 @media (max-width: 1100px) {
-  #view-overview[data-mode="simple"]:not([hidden]) { grid-template-columns: 1fr; grid-template-rows: none; padding: 0 12px 16px; }
-  #view-overview[data-mode="simple"] #simple-focus,
-  #view-overview[data-mode="simple"] #simple-workers,
-  #view-overview[data-mode="simple"] .inbox { grid-column: 1; grid-row: auto; }
+  #view-overview[data-mode="simple"]:not([hidden]) { grid-template-columns: 1fr; padding: 0 12px 16px; }
+}
+/* The overview's box is no container in Simple (display: contents): its title shrinks by the window's width. */
+@media (max-width: 600px) {
+  #view-overview[data-mode="simple"] .head h1 { font-size: 24px; }
+  /* a step's worker and time under its title, so the title keeps its room */
+  #simple-focus .simple-who { grid-column: 2; margin-top: -6px; }
 }
 #view-overview[data-mode="simple"] #main-game,
 #view-overview[data-mode="simple"] #limits,
 #view-overview[data-mode="simple"] #counts,
-#view-overview[data-mode="simple"] #restart,
 #view-overview[data-mode="simple"] #workers-panel,
 #view-overview[data-mode="simple"] #phone-more,
 #view-overview[data-mode="simple"] #today,

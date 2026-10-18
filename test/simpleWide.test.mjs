@@ -21,7 +21,7 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('focus')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleView, simpleSteps, simpleWorkers, clock })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\n${cut('calmoverview')}\n${cut('focus')}\n${cut('simpleoverview')}\nObject.assign(this, { simpleView, simpleSteps, simpleWorkers, clock })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const GOALS = [
@@ -30,20 +30,25 @@ const GOALS = [
   '    Vibe: you see the damage before you click',
   '    Vibe agreed: 2026-10-18 10:00',
   '    Part: Show the damage · about 1 h · steps B1, B2',
-  '    Part: Heavier hits · 2 h · steps B3, B4',
+  '    Part: Heavier hits · 2 h · steps B2, B3, B4',
   '    Part: Not made yet · 1 h',
-  '    Steps: B5',
+  '    Steps: B5, B6',
   '    How agreed: 2026-10-18 11:00', '',
 ].join('\n')
 const step = (id, state, owner = null) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id} (a note)\nState: ${state}\n${owner === null ? '' : `Owner: ${owner}\n`}Since: 2026-10-18 11:10\n`)
 
 test('the focus lists its steps: those of its parts in order, then its own; done, now or next, and who is on it', () => {
-  const focus = focusState(parseGoals(GOALS), [step('B1', 'done'), step('B2', 'in progress', 'Game - Worker 2'), step('B3', 'queued', 'Game - Worker 3'), step('B5', 'dropped')], [], 'Game - ')
-  // a step the store does not hold (B4) and a dropped one (B5) are not listed
+  const focus = focusState(parseGoals(GOALS), [
+    step('B1', 'done', 'Game - Worker 1'), step('B2', 'in progress', 'Game - Worker 2'), step('B3', 'queued', 'Game - Worker 3'),
+    step('B5', 'new'), step('B6', 'dropped'),
+  ], [], 'Game - ')
+  // B2, in two parts, once; the goal's own step B5 after the parts'; a step the store does not hold (B4) and a dropped
+  // one (B6) are not listed; a done step keeps its worker, as the drawing shows it
   assert.deepEqual(focus.steps, [
-    { id: 'B1', title: 'Step B1', state: 'done', owner: null },
+    { id: 'B1', title: 'Step B1', state: 'done', owner: 'Worker 1' },
     { id: 'B2', title: 'Step B2', state: 'now', owner: 'Worker 2' },
     { id: 'B3', title: 'Step B3', state: 'next', owner: 'Worker 3' },
+    { id: 'B5', title: 'Step B5', state: 'next', owner: null },
   ])
 })
 
@@ -77,9 +82,15 @@ test('the focus column: each step with Done, Working or Next, its worker, and th
     ],
     empty: null,
   })
-  // before the run, or without steps yet, the column says so; without a focus there is no column
+  // its worker on another step, or one past its time: the time is that of the step it is on, or how far over
+  const elsewhere = [{ ...CHATS[2], task: { ...CHATS[2].task, stepId: 'B9' } }]
+  assert.equal(page.simpleSteps(focus, elsewhere, AT).rows[1].who, 'Worker 2')
+  const over = [{ ...CHATS[2], eta: { at: AT - 25 * MIN, leftMs: -25 * MIN, isOverdue: true, isOwn: true } }]
+  assert.equal(page.simpleSteps(focus, over, AT).rows[1].who, 'Worker 2 · 25 min over')
+  // before the run, or without steps on the board, the column says so; without a focus there is no column
   assert.equal(page.simpleSteps({ ...focus, stage: 'how', steps: [] }, CHATS, AT).empty, 'No steps yet: your partner makes them once you agree the how.')
-  assert.equal(page.simpleSteps({ ...focus, steps: [] }, CHATS, AT).empty, 'No steps yet: your partner makes them once you agree the how.')
+  assert.equal(page.simpleSteps({ ...focus, steps: [] }, CHATS, AT).empty, 'No steps of it on the board.')
+  assert.equal(page.simpleSteps({ ...focus, steps: undefined }, CHATS, AT).empty, 'No steps of it on the board.')
   assert.equal(page.simpleSteps(null, CHATS, AT), null)
 })
 
@@ -99,9 +110,14 @@ test('the workers column: each chat with its step, a bar of its steps and its ti
   assert.equal(page.simpleWorkers([...CHATS, { ...lane('Old', 'free'), isLeftover: true }], {}, AT).rows.length, 5)
 })
 
-test('the bar names the focus goal by its title too, as the drawing does', () => {
-  const view = page.simpleView({ focus: { id: 'G2', title: 'Fights you can read', stage: 'run', progress: { done: 1, total: 3, minutesLeft: 120 } } }, AT)
-  assert.equal(view.bar.text, 'Focus G2 · Fights you can read · 1 of 3 steps done · about 2 h left')
+test('the bar names the focus goal by its title too, and counts the steps the column lists', () => {
+  const focus = { id: 'G2', title: 'Fights you can read', stage: 'run', progress: { done: 1, total: 3, minutesLeft: 120 } }
+  assert.equal(page.simpleView({ focus }, AT).bar.text, 'Focus G2 · Fights you can read · 1 of 3 steps done · about 2 h left')
+  // the parts count only while the board lists no steps: two parts done of three, two steps done of five
+  const steps = ['done', 'done', 'now', 'next', 'next'].map((state, i) => ({ id: `B${i + 1}`, title: '', state, owner: null }))
+  const view = page.simpleView({ focus: { ...focus, progress: { done: 2, total: 3, minutesLeft: 60 }, steps } }, AT)
+  assert.equal(view.bar.text, 'Focus G2 · Fights you can read · 2 of 5 steps done · about 1 h left')
+  assert.equal(view.bar.percent, 40)
 })
 
 test('the page: the two columns beside Needs your attention, full width; the backlog, instructions and closed cards left out', () => {
@@ -110,7 +126,17 @@ test('the page: the two columns beside Needs your attention, full width; the bac
   // the full width: no cap on the view's width in Simple any more
   assert.doesNotMatch(css, /#view-overview\[data-mode="simple"\]:not\(\[hidden\]\) \{[^}]*min\(860px/)
   assert.match(css, /#view-overview\[data-mode="simple"\]:not\(\[hidden\]\) \{[^}]*display: grid/)
-  for (const left of ['.legacy', '.instructions', '.need.is-closed', '.inbox-top']) assert.ok(css.includes(`#view-overview[data-mode="simple"] #needs ${left}`) || css.includes(`#view-overview[data-mode="simple"] ${left}`), left)
+  // what leaves Needs in Simple is hidden there, and only there
+  const hidden = css.match(/((?:#view-overview\[data-mode="simple"\][^,{]+,\s*)+#view-overview\[data-mode="simple"\][^,{]+)\{ display: none !important; \}/g) ?? []
+  for (const left of ['#needs .legacy', '#needs .instructions', '#needs .need.is-closed', '#needs .need.is-answered', '.inbox-top']) {
+    assert.ok(hidden.some(rule => rule.includes(`#view-overview[data-mode="simple"] ${left}`)), left)
+  }
+  assert.match(css, /#view-overview\[data-mode="details"\] \.simple-col \{ display: none; \}/)
+  // the restart box shows in Simple, across the page under the head; the inbox is the third column on a phone too
+  assert.ok(!hidden.some(rule => rule.includes('#restart')), 'the restart box is not hidden in Simple')
+  assert.match(css, /#view-overview\[data-mode="simple"\] #restart \{ order: -1; grid-column: 1 \/ -1; \}/)
+  assert.match(css, /#view-overview\[data-mode="simple"\] \.inbox \{ order: 0;/)
+  assert.match(css, /@media \(max-width: 600px\) \{\s*#view-overview\[data-mode="simple"\] \.head h1 \{ font-size: 24px; \}/)
   // a narrow window stacks the columns
   assert.match(css, /@media \(max-width: [0-9]+px\) \{\s*#view-overview\[data-mode="simple"\]:not\(\[hidden\]\) \{[^}]*grid-template-columns: 1fr/)
   assert.match(script, /function drawSimpleColumns\(state\)/)

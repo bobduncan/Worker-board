@@ -497,13 +497,7 @@ function drawSimpleOverview(state) {
     line.title = view.bar.title
     line.append(el('b', '', view.bar.text))
     parts.push(line)
-    if (view.bar.percent !== null) {
-      const track = el('div', 'simple-track')
-      const fillBar = el('span', '')
-      fillBar.style.width = `${view.bar.percent}%`
-      track.append(fillBar)
-      parts.push(track)
-    }
+    if (view.bar.percent !== null) parts.push(simpleTrack(view.bar.percent))
   } else {
     parts.push(el('p', 'simple-none', 'No goal is your focus yet: pick one on the Focus tab.'))
   }
@@ -521,9 +515,27 @@ function drawSimpleOverview(state) {
   showOverviewMode()
 }
 
-/** B343: the simple view's two columns beside Needs your attention: the focus goal's steps, and the workers. */
+/** A thin bar filled to `percent`, as the simple view draws its bars. */
+function simpleTrack(percent, isSmall = false) {
+  const track = el('div', `simple-track${isSmall ? ' is-small' : ''}`)
+  const fillBar = el('span', '')
+  fillBar.style.width = `${percent}%`
+  track.append(fillBar)
+  return track
+}
+
+/**
+ * B343: the simple view's two columns beside Needs your attention: the focus goal's steps, and the workers. Drawn again
+ * only when what they say changes (a time changes by the minute), so a tooltip or a selection stays put.
+ */
 function drawSimpleColumns(state) {
   const steps = simpleSteps(state.focus ?? null, state.chats ?? [], state.readAt)
+  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt)
+  once('simple-columns', [steps, workers], () => fillSimpleColumns(steps, workers))
+}
+
+/** B343: fills the two columns from their views (simpleSteps, simpleWorkers). */
+function fillSimpleColumns(steps, workers) {
   const focusHead = el('h2', 'simple-col-head', 'Your focus: its steps')
   if (steps !== null) focusHead.append(el('small', 'muted', steps.goal))
   const focusRows = steps === null ? [el('p', 'simple-none', 'No goal is your focus yet.')]
@@ -533,11 +545,11 @@ function drawSimpleColumns(state) {
         const what = el('span', 'simple-what clip')
         what.append(el('b', 'task-code', row.id), ' ', row.title)
         what.title = `${row.id} ${row.title}`
-        line.append(el('span', `simple-state is-${row.tone}`, row.chip), what, el('span', 'simple-who', row.who ?? ''))
+        line.append(el('span', `simple-state is-${row.tone}`, row.chip), what)
+        if (row.who !== null) line.append(el('span', 'simple-who', row.who))
         return line
       })
   fill($('simple-focus'), [focusHead, ...focusRows])
-  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt)
   const workersHead = el('h2', 'simple-col-head', 'Workers')
   workersHead.append(el('small', 'muted', workers.busy))
   const workerRows = workers.rows.map(row => {
@@ -550,13 +562,7 @@ function drawSimpleColumns(state) {
       what.append(row.task)
       what.title = row.code === null ? row.task : `${row.code} ${row.task}`
       middle.append(what)
-      if (row.percent !== null) {
-        const track = el('div', 'simple-track is-small')
-        const fillBar = el('span', '')
-        fillBar.style.width = `${row.percent}%`
-        track.append(fillBar)
-        middle.append(track)
-      }
+      if (row.percent !== null) middle.append(simpleTrack(row.percent, true))
     }
     line.append(el('b', 'simple-name', row.name), middle, el('b', 'simple-left', row.task === null ? '' : row.left))
     return line
@@ -981,7 +987,9 @@ function simpleView({ focus = null, counts = {}, limits = null } = {}, now = Dat
     bar = { text: `Focus ${focus.id} · ${focus.title} · ${doing}`, percent: null, title: `${focus.id} · ${focus.title}` }
   } else if (focus !== null && focus !== undefined) {
     const progress = focus.progress ?? { done: 0, total: 0, minutesLeft: null }
-    const { done, total } = progress
+    // B343: the steps the column lists, when the board names them; else the parts, as the Focus page counts them
+    const listed = focus.steps ?? []
+    const { done, total } = listed.length > 0 ? { done: listed.filter(step => step.state === 'done').length, total: listed.length } : progress
     const left = focus.stage === 'done' ? null : focusTimeLeft(progress.minutesLeft)
     bar = {
       // B343: with the goal's title, as the agreed drawing has it
@@ -990,7 +998,7 @@ function simpleView({ focus = null, counts = {}, limits = null } = {}, now = Dat
       title: `${focus.id} · ${focus.title}`,
     }
   }
-  const all = Object.values(counts ?? {}).reduce((sum, n) => sum + (Number.isFinite(n) ? n : 0), 0)
+  const all = chatsCounted(counts)
   const busy = counts?.working ?? 0
   const five = limits?.fiveHour ?? null
   let limit = null
@@ -1004,11 +1012,13 @@ function simpleView({ focus = null, counts = {}, limits = null } = {}, now = Dat
   return { bar, busy: { text: `${busy} of ${all} workers busy`, isBusy: busy > 0 }, limit }
 }
 
-/** B343: a working chat's time left in a few words ("1 h 50", "10 min over"), or null when it gave none. */
+/** All the chats the head's counts count, whatever their state. */
+const chatsCounted = counts => Object.values(counts ?? {}).reduce((sum, n) => sum + (Number.isFinite(n) ? n : 0), 0)
+
+/** B343: a working chat's time left as its lane's Left column says it ("1 h 50", "10 min over"), or null without one. */
 function simpleLeft(lane, now) {
-  const eta = lane.eta ?? null
-  if (lane.state !== 'working' || eta === null) return null
-  return eta.isOverdue === true || eta.isOver === true ? `${span(now - eta.at)} over` : span(eta.leftMs)
+  if (lane.state !== 'working' || (lane.eta ?? null) === null) return null
+  return leftView(lane, now)?.main ?? null
 }
 
 /**
@@ -1027,7 +1037,8 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
     const who = step.owner === null ? null : left === null ? step.owner : `${step.owner} · ${left}`
     return { id: step.id, title: step.title, chip: chips[step.state] ?? 'Next', tone: chips[step.state] === undefined ? 'next' : step.state, who }
   })
-  return { goal: focus.id, rows, empty: rows.length > 0 ? null : 'No steps yet: your partner makes them once you agree the how.' }
+  const before = focus.stage !== 'run' && focus.stage !== 'done'
+  return { goal: focus.id, rows, empty: rows.length > 0 ? null : before ? 'No steps yet: your partner makes them once you agree the how.' : 'No steps of it on the board.' }
 }
 
 /** B343: what a chat's row says in place of its time when it does not work: a few plain words. */
@@ -1046,7 +1057,7 @@ function simpleIdle(lane) {
  * of its steps and its time left; one without work says so in a few words. `busy`: "4 of 5 busy", by the head's counts.
  */
 function simpleWorkers(chats = [], counts = {}, now = Date.now()) {
-  const all = Object.values(counts ?? {}).reduce((sum, n) => sum + (Number.isFinite(n) ? n : 0), 0)
+  const all = chatsCounted(counts)
   const rows = (chats ?? []).filter(lane => lane.isLeftover !== true).map(lane => {
     const task = lane.task ?? null
     const { code, text } = task === null ? { code: null, text: null } : laneTaskOf(lane)
