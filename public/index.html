@@ -40,6 +40,7 @@
     </details>
     <p class="updated" id="updated">Reading…</p>
     <button class="icon-button" id="refresh" type="button" title="Read again" aria-label="Read again"></button>
+    <button class="icon-button help-button" id="help-button" type="button" title="How the board works" aria-label="Help: how the board works, in six cards">?</button>
   </nav>
 
   <div class="view" id="view-overview" data-mode="simple">
@@ -325,6 +326,18 @@
         <button class="new-project-make" type="submit" id="new-project-make">Make it</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="help-tour" id="help" aria-labelledby="help-heading">
+    <button class="help-close" id="help-close" type="button" title="Close the help (Esc)" aria-label="Close the help">×</button>
+    <img class="help-picture" id="help-picture" alt="" width="1280" height="720">
+    <h2 class="help-heading" id="help-heading"></h2>
+    <div class="help-lines" id="help-lines"></div>
+    <div class="help-dots" id="help-dots" role="group" aria-label="The cards"></div>
+    <div class="help-buttons">
+      <button class="help-back" id="help-back" type="button">Back</button>
+      <button class="help-next" id="help-next" type="button">Next</button>
+    </div>
   </dialog>
 
   <dialog class="lightbox" id="lightbox" aria-label="Picture">
