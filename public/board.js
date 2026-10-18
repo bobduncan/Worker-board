@@ -1501,8 +1501,8 @@ function openChatLink(folder, words) {
 
 /**
  * B322, B335: the first words of a new project's main chat: it names itself with its title (the board then knows it),
- * joins the list of chats, reads its job and the project's own facts, and starts the Advisor by a chip (`advisor`, its
- * title, when the settings name one).
+ * joins the list of chats, reads its job and the project's own facts, and starts the Advisor by a start card or a chip
+ * (`advisor`, its title, when the settings name one).
  */
 function firstWords({ title, name, projectName, project, board, advisor = null }) {
   // Review: a path as the board's folder writes it (a Mac's with /).

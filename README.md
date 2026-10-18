@@ -267,7 +267,9 @@ npm run new -- --name "My garden" --folder "D:\Work\My garden" --prefix "Garden 
 
 Without `--folder` the project goes beside this board's own project, or, for a board that has none yet (the one the
 install got), into `Projects` in your home folder. The install takes the same answers as settings before its second
-line: `$env:WORKER_BOARD_PROJECT`, `$env:WORKER_BOARD_PROJECT_FOLDER` and `$env:WORKER_BOARD_PREFIX`. The new board
+line: `$env:WORKER_BOARD_FOLDER` (where the board goes), `$env:WORKER_BOARD_PROJECT`, `$env:WORKER_BOARD_PROJECT_FOLDER`
+and `$env:WORKER_BOARD_PREFIX`; what is not given is asked, or, where nobody types, takes its default. A project
+folder given that holds a project already is kept as it is. The new board
 shows one button, Initialise: it opens the project's main chat in the Claude app with its first words, you press
 Enter, and the main chat names itself, joins the list and starts the Advisor and the workers by cards you click.
 

@@ -139,6 +139,8 @@ test('B324: the new project can be given up front, so the install needs no keybo
   // The prefix keeps its last space ("Garden - "): the line ends in | so the output's trim leaves it.
   assert.equal(part('((Get-NewProjectArgs) -join "|") + "|"', { WORKER_BOARD_PROJECT: 'My garden', WORKER_BOARD_PROJECT_FOLDER: 'D:\\Work\\My garden', WORKER_BOARD_PREFIX: 'Garden - ' }),
     '--name|My garden|--folder|D:\\Work\\My garden|--prefix|Garden - |')
+  // Review: a folder with a space and a last \ reaches node whole (Windows PowerShell would hand it a quote).
+  assert.equal(part('(Get-NewProjectArgs) -join "|"', { WORKER_BOARD_PROJECT: 'My garden', WORKER_BOARD_PROJECT_FOLDER: 'D:\\Work\\My garden\\' }), '--name|My garden|--folder|D:\\Work\\My garden')
   // A folder or prefix alone, without a name, asks as before.
   assert.equal(part('(Get-NewProjectArgs) -join "|"', { WORKER_BOARD_PROJECT_FOLDER: 'D:\\Work\\x' }), '')
 })
