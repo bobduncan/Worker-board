@@ -91,7 +91,8 @@ person sent was copied, and into which chat to paste it.
   a text field and **Send**, or **Approve** / **Reject** with a reason, or **Done**. An answered card leaves the list at once
   (B307); **Show closed** shows it again, dashed, with where its answer is (waiting for its chat, handed over, typed
   in, copied to paste), beside the closed ones; the steps
-  from the backlog fold under "From the backlog". The work store's asks are the cards (B298, B299: Decide, Look,
+  from the backlog fold under "From the backlog". Focus 4: your partner's questions (its asks of the focus goal and its
+  steps first, then its others) stand first, under **From your partner**. The work store's asks are the cards (B298, B299: Decide, Look,
   Provide or Do, "blocks B1 · Board waits", a **Play it** link), answered into the store; under them **Information**
   (notes and reports, each with **Read**) and **Open instructions** (the person's words per chat: missed ones red,
   closed ones grey with what came of them). B301: no card comes from a chat's words; a chat that wrote questions in
@@ -143,8 +144,13 @@ partner. **The talk** answers your partner's open question as the Brainstorm par
 advised one marked), your words in the box, Send (Enter; Shift+Enter a new line); while your partner has the turn the
 box is off and a line says it thinks, or that its chat is not running. **This is the vibe** (once your partner wrote
 one) and **Go** (once it proposed parts) write their line once and tell your partner; **Not yet** opens a box for what
-is missing and sends your words. A line under the head says what each move did, or why not. The run's talk bar comes
-later.
+is missing and sends your words. A line under the head says what each move did, or why not.
+
+Since Focus 4 the run's **talk bar** sends your words to your partner, in the talk about the goal (Enter sends): with
+its question open they are your answer; while it has the turn they are typed to it as your word; with no talk running
+a new one starts with them. A part whose steps are made but not handed out yet says **Waiting for the main chat to
+hand it out** instead of Next; when they wait longer than the grace time, a hint under Needs your attention opens the
+talk with the main chat.
 
 Since Focus 3 the run follows the work: each part is Done when all its steps are, In progress (with who is on it) while
 one is taken, in progress, waiting on you or in review, else Next; the head counts the parts done and the time the

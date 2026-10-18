@@ -1441,6 +1441,36 @@ but [not] prevent my ability to play the game". A setting in the board's head, b
   platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
   replace.
 
+## The Focus tab, increment 4 (Focus 4): the main chat delegates, the partner's questions first, the talk bar
+
+Spec 2026-10-18, sections 2 and 4; plan Task 7; picture `art-inbox/focus-mockups/inc4-needs.png`.
+
+- **From your partner** (`state.mjs` `markPartner`, `board.js` `partner-needs:start` `partnerFirst`): every card of
+  Needs your attention says whether the partner asked it (`isPartner`: from the chat the setting `advisor` names, with
+  or without the prefix). The page draws those first, in their own group: the asks the focus shows (`state.focus.needs`,
+  its daily note's order) first, then the partner's others; the rest as before.
+- **The talk bar** (`src/focus.mjs` `talkBar`, the move `talk` on `/api/goals`): the person's words go into the focus
+  goal's talk (`talkFor`, shared with the pick: the thread that runs, else one wrapped up reopened, else a new one, linked
+  under the goal): with the partner's question open they are its answer (`brainstorm answer`), in a new thread its
+  opening (`brainstorm`), else `talk: <words>` / `Goal:` / `Thread:` (`focusWords('talk')`). Each typed as the
+  person's word; a partner not running is woken through the main chat.
+- **A note to the main chat wakes it** (`reconcile.mjs` `notes`, `deliver.mjs` `noteKey`): an unread note `To: main`
+  types "work: note N<id> from <chat> for you; run work next" into the main chat once (the key kept in `delivered.json`),
+  not while it is suspended; its `work next` shows its unread notes first and marks them read, which withdraws a line
+  still waiting. A board that only shows does not mark them.
+- **Waiting for the main chat** (`focusState`): a part whose steps are made but none is queued or under way (new or
+  refined) is `handout` with `waitsSince`; the page says "Waiting for the main chat to hand it out", and after the grace
+  time `handoutNeeds` puts a hint under Needs your attention with the way to Talk to Main.
+- **Chat names** (`work/api.mjs` `chatName`): queue and requeue `for`, rename `from` and `to`, a note's `to` and the
+  asking chat lose the list's prefix and match a chat of the list (`chats`, from the board) in any case; an unknown one
+  is refused with the known names. An Owner written as prefix + name counts as that name, and is repaired when its chat
+  takes the step.
+- **The main chat delegates only** (`roles/main.md`): it asks the user nothing about planning (what to build, in which
+  order, how big, which goal); those questions go to the partner. Its own asks are about delegation (a worker to start
+  or stop, a restart). The check before work: the partner settles "first do X" or asks the user itself.
+- Tests: `test/needsPartner.test.mjs`, `test/focusTalkBar.test.mjs`, `test/work/noteWake.test.mjs`,
+  `test/focusHandout.test.mjs`, `test/work/chatNames.test.mjs`, `test/partnerJob.test.mjs`.
+
 ## The Focus tab, increment 3 (Focus 3): the run, the daily note, "Is the vibe there?"
 
 Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mockups/focus-run.png`, pictures

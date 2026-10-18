@@ -260,9 +260,10 @@ the board. Your card's line while you work: "Brainstorm: Q<n>" (or "Brainstorm: 
 ## The check before work
 
 Before the main chat hands out a big step (over about an hour) or the first or second of a new kind, it asks you.
-Answer "go", or "first do X, because ...". The main chat then asks the user: build anyway, or do X first. Small steps
-and fixes go without the check. Answer the check to the main chat only, with no "For you" block: the main chat asks
-the user, so the question is asked once.
+Answer "go", or "first do X, because ...": decide it yourself where it is a detail; one that changes a goal or its order you ask the user yourself
+(`work ask`, kind decide: build anyway, or do X first, under the step) and tell the main chat its id, so the step
+waits for it (Focus 4: the main chat asks the user nothing about planning). Small steps and fixes go without the
+check. Answer the check to the main chat only, with no "For you" block, so the question is asked once.
 
 **A feature that reaches into the game's structure.** When the user asks for a feature that changes how the game is
 built underneath (one that many parts depend on, which costs a heavy rework or brings many bugs when it is added
