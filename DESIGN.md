@@ -855,7 +855,8 @@ choices: the mod starts the board, the workers carry on on their click, no compa
 - *One board delivers.* Of two boards on one project the one that records is the one that delivers; a board
   started with `--history-from` only shows, refuses an answer and says where to give it. A board that starts
   takes the delivery over when the file names a board that no longer takes its key.
-- *Two words, and the main chat does the work.* "Prepare restart" and "Resume all" type `prepare restart` and
+- *Two words, and the main chat does the work* (until 2026-10-18; replaced by *Pause and resume from the store*
+  below, whose part 2 removes the rest). "Prepare restart" and "Resume all" type `prepare restart` and
   `resume` into the main chat, in the board's own wording; `resume` names the chats the board read as cut off.
   The main chat asks every working chat to stop at a safe point and writes who was on what into
   `<project>\.claude\restart.md`, and after the restart it brings them back from that file, then removes it. The
@@ -905,6 +906,27 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   main chat since the copy contains its first line; and in every case after two hours. A button **Dismiss** beside
   **Copy again** keeps the word dismissed (`dismissedAt` on it in the outbox, `dismissCopied` in store.mjs, through
   /api/say with `command: 'dismiss copied'`), so the banner leaves that word alone.
+- *Pause and resume from the store, not from messages* (the person, 2026-10-18 20:25: "I feel like there should be a
+  better way to do the restart and resume all workers? it doesnt feel reliable at all ... find a fundamental better
+  way"; spec `.claude/specs/2026-10-18-pause-resume-design.md`). The old way was a relay of chat words (the board's
+  outbox, Main's restart.md, the workers' "Safe point:" lines, the transcripts, the cards), and the banner guessed from
+  all five. Now the state is in the store. *Checkpoints:* a chat writes its step's checkpoint with `work step`
+  (`commit`, a hash or none, and `next`, the next action in one line), at least at every commit: the step's head holds
+  `Checkpoint: <commit> · <next> · <date time to the second>` and History one line per checkpoint (`work/api.mjs`
+  `step`; a taken step takes one too). *Pause is a flag:* **Pause all** (in place of Prepare restart, after a Yes)
+  writes `<work>/pause.json` `{ "state": "pausing", "since": <ms>, "by": "person" }` through the page's work API
+  (`pause-all`, the person's only); no word is typed to Main. *Safe from facts* (`work/pause.mjs` `pauseFacts`):
+  "Pausing since HH:MM: still working: <chats running a turn now>; holding a step with no checkpoint since the pause:
+  <chat (B<id>)>", then "Safe to restart" once no chat runs a turn (a lane working, not only between two turns) and
+  every step held taken or in progress has a checkpoint at or after the pause; a step of a chat the board does not
+  show counts for nothing. *Resume:* **Resume all** writes `resuming` (`resume-all`; also with no pause.json, for a
+  chat that was cut off); when the main chat runs the board types `resume` into it, as before; when it does not, the
+  banner says so with a link **Open <its title>**, `claude://claude.ai/epitaxy/<the app's id for it>` (title from the
+  list of chats, the id from its app card), and its Workers mod reads the resume from the flag. The banner names each
+  holder that has not started a turn since the resume (its last turn began after it, or it runs one now); once none
+  is left the board sets `running` (`resumed`, the server's only) and the banner goes. *The mod reads it* through
+  the bridge: `pause-state` on `/api/bridge/work`, and the same answer in `turn-ended`'s `pause` (part 2 builds the
+  contexts). Once pause.json is there, the old banner's preparing, restart.md and resume lines no longer show.
 
 **The Design tab** (the person, 2026-10-12: "i want to be able to prompt an initial idea. let it build a visual in
 codex about what i want, present it to me, if i agree can add information to it what i want and put it either on

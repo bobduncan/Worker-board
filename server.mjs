@@ -59,6 +59,7 @@ import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, undoLine } from './src/focus.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
+import { resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor } from './src/work/deliver.mjs'
 import { followRenames } from './src/work/rename.mjs'
@@ -503,6 +504,8 @@ async function main(args) {
       // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
+      // Pause and resume (spec 2026-10-18): the lanes' facts, for pause-state's list of whom the main chat wakes.
+      lanes: [...lanes, ...(state.advisor ? [state.advisor] : [])],
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
@@ -511,7 +514,7 @@ async function main(args) {
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
     }
   }
-  const workReads = new Set(['next', 'list'])
+  const workReads = new Set(['next', 'list', 'pause-state'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
@@ -787,6 +790,8 @@ async function main(args) {
     setInterval(applyCpu, Math.max(5, config.refreshSeconds) * 1000)
   }
 
+  /** The person's words to a chat (POST /api/say), also for the board's own "resume" after Resume all. */
+  let sayNow = null
   const server = createBoard({
     token: randomBytes(32).toString('hex'),
     // B319: the demo is no project's.
@@ -884,7 +889,7 @@ async function main(args) {
       const path = await keepTalkPicture(config.project, bytes, kind, clock(), config.pictureRoots[0])
       return path === null ? { ok: false, status: 409, why: 'Too many pictures in this minute: wait a minute.' } : { ok: true, result: { path } }
     },
-    say: async body => {
+    say: sayNow = async body => {
       // What is answered here would never arrive: this board has no bridge.
       // Focus 2: a copy with a goal map of its own keeps the words of its brainstorms in its own outbox.
       const isOwnTalk = writesMap && typeof body?.command === 'string' && body.command.startsWith('brainstorm')
@@ -1001,6 +1006,14 @@ async function main(args) {
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       const done = await workAction(body, 'person')
+      // Pause and resume (spec 2026-10-18): after Resume all the board types "resume" into the main chat when it runs;
+      // when it does not, the banner opens it, and its Workers mod reads the resume from pause.json.
+      if (done.ok && body?.action === 'resume-all' && !isShowOnly) {
+        const state = await readState()
+        const main = resumeTypeTo(state)
+        const typed = main === null ? null : await sayNow({ to: main, command: 'resume' })
+        return { ok: true, result: { ...done.result, typed: typed?.ok === true } }
+      }
       // Focus 3, the review: and the owner of the step the answer frees, when another chat asked (`wakeOwner`).
       const wakes = done.ok ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
       let paste = null
@@ -1226,6 +1239,12 @@ async function main(args) {
         if (renamed.moved.length > 0) {
           work.reset?.()
           readState.reset()
+        }
+        // Pause and resume (spec 2026-10-18): once every chat holding a step has started a turn since Resume all, the
+        // board sets running, and the banner goes.
+        if (state.pause?.state === 'resuming' && state.pause.isResumed === true) {
+          const set = await workAction({ action: 'resumed' }, 'server')
+          if (set.ok && set.result.changed !== false) readState.reset()
         }
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,

@@ -120,3 +120,13 @@ export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role 
     })
   return { state, since, forChat: { holds, mustStop: state === 'pausing' }, resumeList }
 }
+
+/**
+ * After Resume all: the main chat the board types "resume" into, when it runs (spec point 5); null when it does not,
+ * or the board cannot tell: then the banner opens it, and its Workers mod reads the resume from pause.json.
+ */
+export function resumeTypeTo(state) {
+  const main = state?.restart?.main ?? null
+  if (main === null) return null
+  return (state.chats ?? []).some(chat => chat.isMain && chat.name === main && chat.isRunning === true) ? main : null
+}

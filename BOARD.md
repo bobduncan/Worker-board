@@ -21,8 +21,10 @@ person, and lets the person answer, talk to the main chat, and plan. Every answe
 - **Its routes:** `GET /` (the page), `GET /api/state` (everything the page shows, read anew every `refreshSeconds`),
   `GET /api/picture` (a picture of the project's picture folders), `POST /api/say` (an answer or a line for a chat),
   `POST /api/game` (start or stop a game), `POST /api/design` and `/api/design/reference` (the Design tab),
-  `POST /api/talk/picture` (a pasted picture), `POST /api/restart` (a new version), and for the Workers mod
-  `POST /api/bridge/take` and `/api/bridge/typed`. Every POST needs the page's token and its own origin.
+  `POST /api/talk/picture` (a pasted picture), `POST /api/restart` (a new version), `POST /api/work` (the store;
+  also `pause-all` and `resume-all`, which write `pause.json`), and for the Workers mod `POST /api/bridge/take`,
+  `/api/bridge/typed` and `/api/bridge/work` (the work tool; `pause-state` reads the pause). Every POST of the page
+  needs its token and its own origin; the mod's need the bridge's key.
 - **The page** is `public/index.html`, `public/board.css` and `public/board.js` (no framework). It draws the state
   it is given and redraws only what changed, so typing is never lost.
 - **A keeper** starts the server and starts it anew when the person clicks the yellow "new version" note.
@@ -58,8 +60,12 @@ A dark dashboard: dark blue panels with thin borders on an almost black page, wh
 
 ## The top bar
 
-The tabs **Overview**, **Advisor**, **Backlog**, **Design**; on the right **Prepare restart** (asks the main chat to
-bring every worker to a safe point before the app is quit; after it the board offers **Resume**; B315: a word to
+The tabs **Overview**, **Advisor**, **Backlog**, **Design**; on the right **Pause all** (2026-10-18, in place of
+Prepare restart: after a Yes it writes the work store's `pause.json`, and each chat's Workers mod stops its chat after
+a checkpoint; the restart banner says "Pausing since HH:MM: still working: ...; holding a step with no checkpoint
+since the pause: ...", then "Safe to restart", with **Resume all**; after Resume all it names who has not started a
+turn yet, and when the main chat does not run a link **Open <its title>** that opens it in the app; it goes once every
+chat holding a step has started a turn; see DESIGN.md, "Pause and resume from the store"; B315: a word to
 the main chat that was only copied, because its chat did not run yet, stays on the restart banner, "Main's chat is not
 running yet: open Game - Main in the app (or click it in the sidebar) and paste with Ctrl+V", with **Copy again**
 and **Dismiss**, until the main chat has it or it no longer matters: "resume" once restart.md is gone or the main chat

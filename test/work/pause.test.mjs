@@ -216,3 +216,12 @@ test('a broken pause.json is no pause', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('after Resume all the board types "resume" only into a main chat that runs; else the banner opens it', async () => {
+  const { resumeTypeTo } = await import('../../src/work/pause.mjs')
+  const state = running => ({ restart: { main: 'Main' }, chats: [{ name: 'Main', isMain: true, isRunning: running }, { name: 'Board', isMain: false, isRunning: true }] })
+  assert.equal(resumeTypeTo(state(true)), 'Main')
+  assert.equal(resumeTypeTo(state(false)), null)
+  assert.equal(resumeTypeTo(state(null)), null)
+  assert.equal(resumeTypeTo({ restart: { main: null }, chats: [] }), null)
+})

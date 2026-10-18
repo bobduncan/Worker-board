@@ -1203,6 +1203,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       eta: advisorCard.eta,
       between: advisorCard.between,
       idle: advisorCard.idle,
+      // Pause and resume (spec 2026-10-18): when its last turn began.
+      turnAt: advisorCard.turnAt ?? null,
       // B301: it asks with the work store's asks; also when the app says it waits (its question form).
       asksYou: advisorWaits !== null || waits.asking.has(advisorChat.name.toLowerCase()),
       queued: queuedFor(sent, advisorChat.name, now),
