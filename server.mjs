@@ -468,7 +468,9 @@ async function main(args) {
     if (!done.ok || done.words === null) return done.ok ? { ok: true, result: done.result } : done
     // B352: Go on the how, and another goal as the focus, switch the partner back to the usual mode (the talk about the
     // same goal started again keeps it).
-    const back = body.command === 'focus' && body.id === state.focus?.id ? null : effortBack(body.command, state.advisor?.effort)
+    // B354: something new waits in the map for its Done when: the focus did not change, so neither does the partner.
+    const isSameFocus = body.command === 'focus' && (body.id === state.focus?.id || done.result?.isFocus === false)
+    const back = isSameFocus ? null : effortBack(body.command, state.advisor?.effort)
     const main = state.restart?.main ?? null
     if (back !== null && main !== null) {
       const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back })

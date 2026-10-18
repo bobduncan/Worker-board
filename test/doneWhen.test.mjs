@@ -146,3 +146,10 @@ test('"Is the vibe there?" Yes ticks the goal only with a Done when: an older fo
   assert.equal(ticked.ok, true)
   assert.equal(mapOf(fs).byId.get('G4').state, 'done')
 })
+
+test('something new that waits for its Done when changes no focus, so the partner\'s high effort mode stays as it is', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /const isSameFocus = body\.command === 'focus' && \(body\.id === state\.focus\?\.id \|\| done\.result\?\.isFocus === false\)/)
+  assert.match(server, /const back = isSameFocus \? null : effortBack\(body\.command, state\.advisor\?\.effort\)/)
+})
