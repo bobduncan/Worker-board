@@ -175,7 +175,7 @@ or the crumb zooms out, ▸ folds one more level open; the focus is in the addre
 is written to the file at once: the frame's buttons add, rename, set Done when, Why, notes and links, dissolve or
 delete; a row's dot changes its state; drag a row, or Alt+↑/↓, Tab and Shift+Tab, to move it; Ctrl-click several and
 group them under a new goal; Ctrl+Z undoes; the tree beside the outline shows the same level as boxes under the goal
-zoomed into, "Diagram" and "Outline" hide either side, a click on a box zooms in, dragging a box moves it; on a phone
+zoomed into, "Diagram" and "Outline" hide either side, "Hide done" leaves out the goals done with all inside them done (kept in the browser; "+n done hidden" where they stood shows them again; on a phone behind the bar's "…"), a click on a box zooms in, dragging a box moves it; on a phone
 the outline alone and a "…" menu on every row; "Ask the Advisor…" in the frame or a row's menu asks the Advisor a
 question about that goal, with pictures pasted or picked: the ask stands under the goal, violet, until the Advisor's
 answer comes there, with its pictures and "More ↗" for its whole page; "Make a step from this", "Ask again" and
