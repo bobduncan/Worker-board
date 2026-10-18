@@ -74,7 +74,8 @@ and the briefings for the main chat and the workers.
    cd worker-board
    npm test
    ```
-   → the tests end with `fail 0`. `npm run demo -- --port 4311` shows the page with made-up data, if you
+   → the tests end with `fail 0`. They run on at most half the PC's cores (`tools/test.mjs`), so the PC stays
+   usable meanwhile. `npm run demo -- --port 4311` shows the page with made-up data, if you
    want to look first (Ctrl+C ends it).
 3. **The Workers mod (optional).** The board carries it, in `mods\folder-branches` (B251). In the board's folder:
    ```
