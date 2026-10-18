@@ -32,7 +32,8 @@ test('the counts are the ones the Advisor\'s map gave for the same content', () 
   const old = milestoneWay(map, parseBacklog(BACKLOG))
   const now = way(GOALS)
   assert.deepEqual(now.nodes, old.nodes)
-  assert.deepEqual(now.totals, { done: 3, open: 1, missing: 1, left: 2 })
+  // B328: and the minutes the open steps name, none here
+  assert.deepEqual(now.totals, { done: 3, open: 1, missing: 1, left: 2, minutesLeft: null })
 })
 
 test('the milestone\'s box is its Done when with its own lines; a milestone without sub-goals is not mapped yet', () => {

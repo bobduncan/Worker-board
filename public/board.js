@@ -490,7 +490,7 @@ $('update-note').addEventListener('click', async () => {
 
 /** B327: the Overview's simple view: the bar and its chips, and which view is up (Simple or Details). */
 function drawSimpleOverview(state) {
-  const view = simpleView({ focus: state.focus ?? null, counts: state.counts ?? {}, limits: state.limits ?? null })
+  const view = simpleView({ focus: state.focus ?? null, counts: state.counts ?? {}, limits: state.limits ?? null, milestone: state.milestone ?? null })
   const parts = []
   if (view.bar !== null) {
     const line = el('div', 'simple-line')
@@ -974,14 +974,17 @@ function infoHeightFit(height, room) {
 
 /**
  * What the simple view's bar and chips say. `focus`: the state's (null: none); `counts`: the head's counts (state.counts);
- * `limits`: the state's. `bar`: the focus goal's steps done and the time left, counted as the Focus page counts them
- * (focusView: once the run has started); before that, which stage the goal is in, without a count (`percent` null); null
- * without a focus (B328 counts the next milestone then). `busy`: "4 of 5 workers busy". `limit`:
- * the 5-hour limit's use and its reset, or null when nothing is known of it.
+ * `limits`: the state's; `milestone`: the state's way to the next milestone (src/milestone.mjs; null: none). `bar`: the
+ * focus goal's steps done and the time left, counted as the Focus page counts them (focusView: once the run has
+ * started); before that, which stage the goal is in, without a count (`percent` null). B328: with no focus, or the last
+ * one done, the next milestone's steps done of all and the time its open steps name; null when there is neither.
+ * `busy`: "4 of 5 workers busy". `limit`: the 5-hour limit's use and its reset, or null when nothing is known of it.
  */
-function simpleView({ focus = null, counts = {}, limits = null } = {}, now = Date.now()) {
+function simpleView({ focus = null, counts = {}, limits = null, milestone = null } = {}, now = Date.now()) {
   let bar = null
-  if (focus !== null && focus !== undefined && focus.stage !== 'run' && focus.stage !== 'done') {
+  const hasFocus = focus !== null && focus !== undefined
+  if ((!hasFocus || focus.stage === 'done') && milestone !== null && milestone !== undefined) bar = milestoneBar(milestone)
+  else if (hasFocus && focus.stage !== 'run' && focus.stage !== 'done') {
     // the Focus page shows no progress before the run either
     const doing = focus.stage === 'how' ? 'agreeing the how' : 'agreeing the vibe'
     bar = { text: `Focus ${focus.id} · ${focus.title} · ${doing}`, percent: null, title: `${focus.id} · ${focus.title}` }
@@ -1010,6 +1013,20 @@ function simpleView({ focus = null, counts = {}, limits = null } = {}, now = Dat
   }
   void now
   return { bar, busy: { text: `${busy} of ${all} workers busy`, isBusy: busy > 0 }, limit }
+}
+
+/**
+ * B328: the bar of the next milestone (the person's answer of 2026-10-18): "M1 · The loop is fun · 9 of 23 steps done ·
+ * about 30 h left", every backlog step under it, its sub-goals' too; without steps yet it says so, without a count.
+ */
+function milestoneBar(way) {
+  const { name, title } = way.milestone
+  const { done, open, minutesLeft } = way.totals
+  const head = `${name} · ${title}`
+  const about = `The next milestone, ${head}`
+  if (done + open === 0) return { text: `${head} · no steps of it on the board yet`, percent: null, title: about }
+  const left = focusTimeLeft(minutesLeft)
+  return { text: `${head} · ${done} of ${done + open} steps done${left === null ? '' : ` · about ${left} left`}`, percent: Math.round((done / (done + open)) * 100), title: about }
 }
 
 /** All the chats the head's counts count, whatever their state. */

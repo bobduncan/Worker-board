@@ -9,7 +9,9 @@ const text = (value, max) => (typeof value === 'string' ? value.replace(/\s+/g, 
 /**
  * The way as the page draws it: each step with its backlog steps as they stand now (an id that is not on the backlog
  * counts as missing), what is missing, how many are left, and whether it is done, part done or not started; the
- * milestone's own check last (`isGoal`). `backlog` is the board's parsed backlog.
+ * milestone's own check last (`isGoal`). `backlog` is the board's parsed backlog. B328: each backlog step with the
+ * minutes its "about" names (null: none), and in the totals the minutes the open ones name (`minutesLeft`, null when
+ * none names a time), for the simple view's bar.
  */
 export function milestoneWay(map, backlog) {
   const known = new Map(backlog.activities.flatMap(activity => activity.steps).filter(step => step.id !== null).map(step => [step.id, step]))
@@ -18,7 +20,7 @@ export function milestoneWay(map, backlog) {
   const node = (title, part, isGoal) => {
     const own = [...new Set(part.backlog)].filter(id => !counted.has(id))
     for (const id of own) counted.add(id)
-    const items = own.filter(id => known.has(id)).map(id => ({ id, title: known.get(id).title, isDone: known.get(id).isDone }))
+    const items = own.filter(id => known.has(id)).map(id => ({ id, title: known.get(id).title, isDone: known.get(id).isDone, minutes: known.get(id).minutes ?? null }))
     const missing = [...new Set([...part.missing, ...own.filter(id => !known.has(id)).map(id => `${id}, not on the backlog`)])]
     const done = items.filter(item => item.isDone).length
     const open = items.length - done
@@ -29,10 +31,14 @@ export function milestoneWay(map, backlog) {
   }
   const nodes = [...map.steps.map(step => node(step.title, step, false)), node(map.milestone.check || map.milestone.title, map.milestone, true)]
   const sum = pick => nodes.reduce((total, one) => total + pick(one), 0)
+  const timed = nodes.flatMap(one => one.items).filter(item => !item.isDone && Number.isFinite(item.minutes))
   return {
     milestone: { name: map.milestone.name, title: map.milestone.title, doneWhen: map.milestone.doneWhen },
     nodes,
-    totals: { done: sum(one => one.done), open: sum(one => one.open), missing: sum(one => one.missing.length), left: sum(one => one.left) },
+    totals: {
+      done: sum(one => one.done), open: sum(one => one.open), missing: sum(one => one.missing.length), left: sum(one => one.left),
+      minutesLeft: timed.length === 0 ? null : timed.reduce((total, item) => total + item.minutes, 0),
+    },
     recommendation: map.recommendation,
     updated: map.updated,
   }

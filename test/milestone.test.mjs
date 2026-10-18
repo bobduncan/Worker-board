@@ -82,7 +82,7 @@ test('each step is counted against the backlog as it stands, the milestone\'s ow
     ['Play two runs: fun?', 0, 1, 0, 1, 'none', true],
   ])
   assert.deepEqual(way.nodes[1].missing, ['The outcome preview', 'B99, not on the backlog'])
-  assert.deepEqual(way.totals, { done: 2, open: 3, missing: 4, left: 7 })
+  assert.deepEqual(way.totals, { done: 2, open: 3, missing: 4, left: 7, minutesLeft: null })
   // A step with nothing listed is not done; an id counts once, in the first step that names it.
   const odd = milestoneWay({ ...MAP, steps: [{ title: 'Empty', backlog: [], missing: [] }, { title: 'Twice', backlog: ['B01', 'B01', 'B03'], missing: [] }, { title: 'Again', backlog: ['B03', 'B99', 'B99'], missing: [] }] }, parseBacklog(BACKLOG))
   assert.deepEqual(odd.nodes.map(node => [node.title, node.done, node.open, node.missing, node.state]), [
@@ -91,7 +91,7 @@ test('each step is counted against the backlog as it stands, the milestone\'s ow
     ['Again', 0, 0, ['B99, not on the backlog'], 'none'],
     ['Play two runs: fun?', 0, 1, [], 'none'],
   ])
-  assert.deepEqual(odd.totals, { done: 1, open: 2, missing: 1, left: 3 })
+  assert.deepEqual(odd.totals, { done: 1, open: 2, missing: 1, left: 3, minutesLeft: null })
   // A step ticked since the map was written counts as done at once.
   const later = milestoneWay(MAP, parseBacklog(BACKLOG.replace('- [ ] B04', '- [x] B04')))
   assert.deepEqual([later.nodes[2].state, later.totals.left], ['done', 6])
