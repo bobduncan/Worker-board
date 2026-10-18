@@ -513,6 +513,18 @@ of goals), Also part of…, Mark done, Rename, Dissolve or Delete (the game plan
 stay); there is no drag. The "…" is on wide screens too, faint until the row is hovered. Pictures:
 `art-inbox/board-goals/b257-top.png`, `b257-in-goal.png`, `b257-in-milestone.png` and `b257-phone.png`.
 
+**Hide done (B316).** The person, 2026-10-18: "i want an option to hide complete goals/milestone in the diagram". A
+switch "Hide done" stands in the Goals part's bar after "Diagram" and "Outline", off by default and kept in this
+browser (`goals-hide-done`); on a phone it stands behind the bar's "…". On, a goal hides from the diagram and the
+outline when it is done and every goal inside it is done too (`goalsHidden`): a done goal with an open goal inside
+stays, so nothing open disappears; a milestone is a goal too. The goal zoomed into and the goals on the way down to it
+never hide, so a link to a hidden goal still shows it. A reference box or row of a hidden goal, an "enables" arrow to
+or from it and its ghost hide with it. Where hidden goals stood, one line says how many: "+3 done hidden", under the
+boxes in the diagram and after the goals that stay in each group of the outline; a click on it turns the switch off.
+The switch counts what it hides, on or off: "Hide done (7)". The counters on boxes and rows, the "+n" badge and the
+crumb's count stay as they are: they count everything. Pictures, the top of the map with one goal unfolded in the
+outline: `art-inbox/worker-board/b316/hide-off.png` and `hide-on.png`.
+
 **Asks from the goal map (B258).** The person, 2026-10-15, chose that the Advisor writes the map "through a
 brainstorm or an ask" (spec 2026-10-15, section 4): an ask is a question to the Advisor tied to a goal, which runs
 while the person does other things. "Ask the Advisor…" in the frame of the goal zoomed into (second, after
@@ -1621,7 +1633,8 @@ The spec `.claude/specs/2026-10-18-focus-partner-design.md` and its plan (increm
   the run's parts without step ids, the pick list), `focusTalk` (the thread as bubbles), `goalStepIds` (the goal's
   Steps and Part steps and those of its goals inside) and `advisorPartsShown`. The part kept from last time that the
   bar no longer shows gives way to Focus; the chat opened from the Advisor's card still opens. The Backlog's
-  `coordinateList` takes `goal`: only those steps, finished ones too.
+  `coordinateList` takes `goal`: only those steps; their finished ones only with "Show finished", as without a goal
+  (B325).
 - **Drawn, off until increment 2**: "This is the vibe", "Not yet", "Go", the Pick buttons, the talk boxes and Send;
   the daily note is a line that says it comes next.
 - **A copy tries it apart**: `goals`, `brainstorms`, `goalAsks` and `goalsHistory` may be a whole path of their own,

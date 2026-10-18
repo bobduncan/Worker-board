@@ -4536,14 +4536,20 @@ function goalTags(goals, node, isRef) {
  * click zooms into it at its home). An id used twice is walked once, so a broken file cannot send the outline round in
  * circles. `foldable` says whether a ▸/▾ does something: the focus and its ancestors stay open while zoomed there.
  */
-function goalOutlineRows(goals, focusId, opened) {
+function goalOutlineRows(goals, focusId, opened, hidden = []) {
   const focus = goalById(goals, focusId) === null ? null : focusId
   const chain = new Set(goalCrumb(goals, focus).map(one => one.id).filter(id => id !== null))
+  const hides = new Set(hidden)
   const rows = []
   const walked = new Set()
+  // B316: a group's hidden goals as one line after the goals that stay ("+2 done hidden"); no line when none hide.
+  const hiddenLine = (ids, depth, lit) => {
+    const count = new Set(ids.filter(id => hides.has(id) && goalById(goals, id) !== null)).size
+    if (count > 0) rows.push({ id: null, depth, hidden: count, isDim: focus !== null && !lit })
+  }
   const walk = (id, depth, isRef, inFocus) => {
     const node = goalById(goals, id)
-    if (node === null || (!isRef && walked.has(id))) return
+    if (node === null || (!isRef && walked.has(id)) || hides.has(id)) return
     if (!isRef) walked.add(id)
     const isFocus = !isRef && id === focus
     const lit = inFocus || isFocus
@@ -4554,10 +4560,25 @@ function goalOutlineRows(goals, focusId, opened) {
     if (!isOpen) return
     for (const child of node.children) walk(child, depth + 1, false, lit)
     for (const other of refs) walk(other.id, depth + 1, true, lit)
+    hiddenLine(node.children, depth + 1, lit)
   }
   for (const root of goals.roots) walk(root, 0, false, focus === null)
+  hiddenLine(goals.roots, 0, focus === null)
   return rows
 }
+
+/**
+ * B316: the goals "Hide done" hides: done, with every goal inside done too (a done goal with an open goal inside
+ * stays, so nothing open disappears; a milestone is a goal too). The goal zoomed into and the goals on the way down to
+ * it never hide, so a link to a hidden goal still shows it.
+ */
+function goalsHidden(goals, focusId) {
+  const chain = new Set(goalCrumb(goals, goalById(goals, focusId) === null ? null : focusId).map(one => one.id))
+  return new Set(goals.nodes.filter(node => node.state === 'done' && !chain.has(node.id) && !goalHasOpenInside(goals, node.id)).map(node => node.id))
+}
+
+/** B316: the switch's words, with how many goals it hides ("Hide done (7)"). */
+function goalsHideLabel(count) { return count > 0 ? `Hide done (${count})` : 'Hide done' }
 
 function goalAddress(focusId) { return focusId === null ? '#advice/goals' : `#advice/goals/${focusId}` }
 
@@ -4684,19 +4705,24 @@ function goalLinkChoices(goals, id, name, words) {
 // right edge when its source is out of view. At the top the goals stand as boxes with no frame.
 const GOAL_BOX = { w: 150, h: 92, gap: 20, rowGap: 150, busAbove: 24, firstY: 180, topY: 60, frameH: 64, ghostW: 98, ghostH: 34, ghostsMost: 3 }
 
-function goalTreeLayout(goals, focusId, width) {
+function goalTreeLayout(goals, focusId, width, hidden = []) {
   const focus = goalById(goals, focusId)
+  // B316: the goals "Hide done" hides are no box, no reference, no arrow's end and no ghost; the frame always shows.
+  const hides = new Set(hidden)
+  if (focus !== null) hides.delete(focus.id)
   const seen = new Set()
   const once = id => !seen.has(id) && seen.add(id)
-  const childIds = (focus === null ? goals.roots : focus.children).filter(id => goalById(goals, id) !== null && once(id))
-  const refIds = focus === null ? [] : goals.nodes.filter(other => other.id !== focus.id && other.alsoPartOf.includes(focus.id) && once(other.id)).map(other => other.id)
+  const allChildIds = (focus === null ? goals.roots : focus.children).filter(id => goalById(goals, id) !== null && once(id))
+  const childIds = allChildIds.filter(id => !hides.has(id))
+  const hiddenCount = allChildIds.length - childIds.length
+  const refIds = focus === null ? [] : goals.nodes.filter(other => other.id !== focus.id && !hides.has(other.id) && other.alsoPartOf.includes(focus.id) && once(other.id)).map(other => other.id)
   const shown = new Set([...childIds, ...refIds, ...(focus === null ? [] : [focus.id])])
   // The arrows between goals in view, and one ghost per goal out of view that enables one in view.
   const arrows = []
   const sources = new Map()
   const walked = new Set()
   for (const node of goals.nodes) {
-    if (walked.has(node.id)) continue
+    if (walked.has(node.id) || hides.has(node.id)) continue
     walked.add(node.id)
     for (const to of node.enables) {
       if (!shown.has(to) || to === node.id) continue
@@ -4741,8 +4767,10 @@ function goalTreeLayout(goals, focusId, width) {
     }
   }
   const moreGhosts = outside.length - ghosts.length
-  const bottoms = [frame === null ? 0 : frame.h, ...boxes.map(box => box.y + box.h), ...ghosts.map(ghost => ghost.y + ghost.h + (moreGhosts > 0 ? 18 : 0))]
-  return { width, height: Math.max(...bottoms) + 20, frame, boxes, lines, arrows, ghosts, moreGhosts }
+  // B316: one line under the boxes (where the first row would stand without any) says how many hide here.
+  const hiddenLine = hiddenCount === 0 ? null : { count: hiddenCount, x: Math.round(area / 2), y: boxes.length === 0 ? firstY : boxes.at(-1).y + GOAL_BOX.h + 26 }
+  const bottoms = [frame === null ? 0 : frame.h, ...boxes.map(box => box.y + box.h), ...ghosts.map(ghost => ghost.y + ghost.h + (moreGhosts > 0 ? 18 : 0)), hiddenLine === null ? 0 : hiddenLine.y]
+  return { width, height: Math.max(...bottoms) + 20, frame, boxes, lines, arrows, ghosts, moreGhosts, hiddenLine }
 }
 
 /**
@@ -4835,7 +4863,7 @@ const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, u
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
-  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null]
+  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null]
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
@@ -4897,6 +4925,8 @@ function drawGoals(state) {
   drawUnlinked(goals)
   // B257: the view buttons say what shows at this width (a phone shows the outline unless the diagram is chosen).
   showGoalsViews()
+  // B316: the switch says how many goals it hides, on or off.
+  showGoalsHideDone(goals === null ? 0 : goalsHidden(goals, goalsFocus).size)
   if (goals === null || (goals.nodes.length === 0 && goals.problems.length === 0)) {
     fill($('goals-crumb'), [el('span', 'goals-here', 'Goals')])
     $('goals-count').textContent = ''
@@ -5025,9 +5055,11 @@ function drawGoals(state) {
   const kept = had === null ? null : { goal: had.dataset.goal, isRef: had.classList.contains('is-ref'), part: active.classList.contains('goal-fold') ? '.goal-fold' : active.classList.contains('goal-more') ? '.goal-more' : '.goal-title' }
   const inMenu = active?.closest?.('.goal-menu') ? (active.id === 'goals-menu-words' ? '#goals-menu-words' : /^[a-z]+$/.test(active.dataset?.menuAction ?? '') ? `.goal-menu [data-menu-action="${active.dataset.menuAction}"]` : null) : null
   const inTree = active?.closest?.('#goals-diagram') && /^G\d+$/.test(active.dataset?.goal ?? '') ? `#goals-diagram [data-goal="${active.dataset.goal}"]` : null
-  const rows = goalOutlineRows(goals, focus?.id ?? null, goalsOpened)
+  const rows = goalOutlineRows(goals, focus?.id ?? null, goalsOpened, goalsHiddenNow(goals))
   const chain = new Set(crumb.map(step => step.id).filter(id => id !== null))
   const drawn = rows.map(row => {
+    // B316: where hidden goals stood, one line; a click shows them again.
+    if (row.id === null) return goalButton(`goals-hidden-line goal-depth-${Math.min(row.depth, 8)}${row.isDim ? ' is-dim' : ''}`, `+${row.hidden} done hidden`, { goalsShowDone: '' })
     const line = el('div', `goal-row goal-depth-${Math.min(row.depth, 8)}${row.isFocus ? ' is-focus' : ''}${row.isDim ? ' is-dim' : ''}${row.isRef ? ' is-ref' : ''}${goalsUi.chosen.has(row.id) && !row.isRef ? ' is-chosen' : ''}`)
     line.dataset.goal = row.id
     const mark = row.fold === null ? '' : row.fold === 'open' ? '▾' : '▸'
@@ -5256,7 +5288,7 @@ function drawGoalTree(state) {
     return fill(place, [])
   }
   const focus = goalById(goals, goalsFocus)
-  const layout = goalTreeLayout(goals, focus?.id ?? null, width)
+  const layout = goalTreeLayout(goals, focus?.id ?? null, width, goalsHiddenNow(goals))
   goalsTree = layout
   const svg = svgEl('svg', { viewBox: `0 0 ${layout.width} ${layout.height}`, width: layout.width, height: layout.height, role: 'group', 'aria-label': focus === null ? 'Your goals' : `Inside ${focus.title}` }, 'goal-tree')
   const defs = svgEl('defs')
@@ -5299,6 +5331,13 @@ function drawGoalTree(state) {
       svg.append(goalArrow(from, to, false))
     }
   }
+  // B316: how many done goals hide here, under the boxes; a click shows them again.
+  if (layout.hiddenLine !== null) {
+    const count = layout.hiddenLine.count
+    const line = svgText(layout.hiddenLine.x, layout.hiddenLine.y, `+${count} done hidden`, 'goal-hidden-text')
+    for (const [name, value] of Object.entries({ 'text-anchor': 'middle', 'data-goals-show-done': '', tabindex: 0, role: 'button', 'aria-label': `${count} done goal${count === 1 ? '' : 's'} hidden here: show them` })) line.setAttribute(name, String(value))
+    svg.append(line)
+  }
   // More goals out of view enable these: counted under the ghosts.
   if (layout.moreGhosts > 0) {
     const last = layout.ghosts.at(-1)
@@ -5337,6 +5376,42 @@ function setGoalsViews(views) {
   if (board !== null) drawGoalTree(board)
 }
 showGoalsViews()
+
+// B316: "Hide done" (the person, 2026-10-18: "i want an option to hide complete goals/milestone in the diagram"):
+// off by default, kept in this browser; on, a goal done with every goal inside it done leaves the diagram and the
+// outline (goalsHidden), the goal zoomed into never; the counters still count everything.
+let goalsHideDone = false
+try {
+  goalsHideDone = localStorage.getItem('goals-hide-done') === 'on'
+} catch {
+  // Without storage the switch starts off after each reload.
+}
+/** The goals hidden now: none while the switch is off. */
+function goalsHiddenNow(goals) { return goalsHideDone && goals !== null ? [...goalsHidden(goals, goalsFocus)] : [] }
+function showGoalsHideDone(count) {
+  const button = $('goals-hide-done')
+  button.textContent = goalsHideLabel(count)
+  button.setAttribute('aria-pressed', String(goalsHideDone))
+}
+function setGoalsHideDone(on) {
+  goalsHideDone = on
+  try {
+    localStorage.setItem('goals-hide-done', on ? 'on' : 'off')
+  } catch {
+    // Kept for this page only.
+  }
+  redrawGoals()
+}
+$('goals-hide-done').addEventListener('click', () => setGoalsHideDone(!goalsHideDone))
+$('goals-outline').addEventListener('click', event => {
+  if (event.target.closest('[data-goals-show-done]') !== null) setGoalsHideDone(false)
+})
+// On a phone the switch stands behind the bar's "…".
+$('goals-bar-more').addEventListener('click', () => {
+  const opens = !$('goals-hide-wrap').classList.contains('is-open')
+  $('goals-hide-wrap').classList.toggle('is-open', opens)
+  $('goals-bar-more').setAttribute('aria-expanded', String(opens))
+})
 resizable($('goals-resizer'), $('goals-split'), 'goals-outline-width', 440)
 // The tree is laid out for the width it has: drawn anew when that changes, but not while a box glides into the frame.
 new ResizeObserver(() => {
@@ -5367,6 +5442,8 @@ function goalsGlide(id) {
 
 $('goals-diagram').addEventListener('click', event => {
   if (goalsUi.justDragged || board?.goals === undefined) return
+  // B316: the line where hidden goals stood shows them again.
+  if (event.target.closest('[data-goals-show-done]') !== null) return setGoalsHideDone(false)
   // B258: an ask's box shows its block in the frame.
   const ask = event.target.closest('[data-ask]')
   if (ask !== null) return goalsShowAsk(ask.dataset.ask)
@@ -5387,6 +5464,10 @@ $('goals-diagram').addEventListener('click', event => {
 })
 $('goals-diagram').addEventListener('keydown', event => {
   if (event.key !== 'Enter' && event.key !== ' ') return
+  if (event.target.closest?.('[data-goals-show-done]')) {
+    event.preventDefault()
+    return setGoalsHideDone(false)
+  }
   const ask = event.target.closest?.('[data-ask]')
   if (ask !== null && ask !== undefined) {
     event.preventDefault()
@@ -8621,9 +8702,10 @@ function coordinateFinds(step, find) {
  */
 function coordinateList(activities, { filter = 'all', find = '', showDone = false, asOne = false, hideBusy = false, goal = null } = {}) {
   const counts = {}
-  // Focus 1: only the steps behind a goal (`goal`: their ids), its finished ones too: the whole of it.
+  // Focus 1: only the steps behind a goal (`goal`: their ids). B325: its finished ones only with "Show finished", as
+  // without a goal (the user, 2026-10-18: "the show finished checkbox doesnt work if you have a goal in the filter").
   const isOfGoal = step => goal === null || (typeof step.id === 'string' && goal.includes(step.id))
-  const withDone = showDone || goal !== null
+  const withDone = showDone
   for (const [name] of COORDINATE_FILTERS) counts[name] = 0
   const groups = []
   let shown = 0
