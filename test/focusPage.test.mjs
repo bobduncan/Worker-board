@@ -80,18 +80,18 @@ test('the state\'s focus: the goal, its stage, its lines, its thread; null witho
 test('each part\'s progress follows its steps in the store: done, in progress with its owner, next; the whole as parts done', () => {
   const run = stateOf(map(AGREED, HOW, RUN))
   assert.deepEqual(run.parts, [
-    { title: 'Draw the bench', size: 'about 1 h', state: 'done', owner: null, done: 2, total: 2 },
-    { title: 'Light the path', size: '2 h', state: 'now', owner: 'Features', done: 1, total: 2 },
-    { title: 'Place them', size: '30 min', state: 'done', owner: null, done: 1, total: 1 },
+    { title: 'Draw the bench', size: 'about 1 h', state: 'done', owner: null, done: 2, total: 2, standards: [] },
+    { title: 'Light the path', size: '2 h', state: 'now', owner: 'Features', done: 1, total: 2, standards: [] },
+    { title: 'Place them', size: '30 min', state: 'done', owner: null, done: 1, total: 1, standards: [] },
     // Focus 4: its step is made but not handed out yet: it waits for the main chat.
-    { title: 'One look at the whole garden', size: '1 h', state: 'handout', owner: null, done: 0, total: 1, waitsSince: run.parts[3].waitsSince },
+    { title: 'One look at the whole garden', size: '1 h', state: 'handout', owner: null, done: 0, total: 1, standards: [], waitsSince: run.parts[3].waitsSince },
   ])
   assert.ok(Number.isFinite(run.parts[3].waitsSince))
   assert.deepEqual(run.progress, { done: 2, total: 4, minutesLeft: 180 })
   assert.deepEqual([run.partnerDecides, run.youDecide], [['the wood\'s colour'], ['how many benches']])
   // A part without steps is next; sizes nobody can read leave the time out.
   const bare = stateOf(map(AGREED, ['    Part: Something · soon'], RUN))
-  assert.deepEqual(bare.parts, [{ title: 'Something', size: 'soon', state: 'next', owner: null, done: 0, total: 0 }])
+  assert.deepEqual(bare.parts, [{ title: 'Something', size: 'soon', state: 'next', owner: null, done: 0, total: 0, standards: [] }])
   assert.deepEqual(bare.progress, { done: 0, total: 1, minutesLeft: null })
 })
 
@@ -101,7 +101,7 @@ test('Focus 2, the review\'s findings: a part whose step is in review is in prog
   step.head.set('State', 'review')
   step.head.set('Owner', 'Game - Checks')
   const run = focusState(parseGoals(map(AGREED, HOW, RUN)), [...reviewed.items.values()], threads, 'Game - ')
-  assert.deepEqual(run.parts[3], { title: 'One look at the whole garden', size: '1 h', state: 'now', owner: 'Checks', done: 0, total: 1 })
+  assert.deepEqual(run.parts[3], { title: 'One look at the whole garden', size: '1 h', state: 'now', owner: 'Checks', done: 0, total: 1, standards: [] })
 })
 
 test('the buildState answer carries the focus and the setting advisorParts', () => {

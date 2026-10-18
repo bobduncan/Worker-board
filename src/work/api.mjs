@@ -18,6 +18,7 @@ import { storeFault } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
+import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPauseFile, writeNames, writePause } from './store.mjs'
@@ -820,8 +821,13 @@ async function make(body, w) {
   if (index < 0) return refuse(400, `Name its activity in "activity": ${names.join(', ')}.`)
   const goal = line(body.goal, 20)
   if (goal !== '' && !/^G\d+$/.test(goal)) return refuse(400, 'A goal is named by its id (G17).')
-  const fromHow = body.what === undefined ? null : howBlock(body, goal, w)
+  // B354: a standard given is kept on the step; a step made ready at once names it when it makes a thing of a kind.
+  const standard = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
+  if (standard !== null && !standard.ok) return refuse(400, standard.why)
+  const fromHow = body.what === undefined ? null : howBlock(body, goal, w, standard?.line ?? null)
   if (fromHow !== null && !fromHow.ok) return fromHow
+  const named = fromHow === null || standard !== null ? [] : kindsNamed(`${title}\n${lines(body.text).join('\n')}`, w.kinds)
+  if (named.length > 0) return refuse(409, standardWanted('This step', named))
   const read = lineFields(title)
   if (read.title !== title || read.isYou || read.owner !== null || read.branch !== null || read.asks !== null || read.id !== null) {
     return refuse(400, 'The title would not read back as written: leave out an id at its start, "Verify:" and the like, brackets at its end and @you.')
@@ -836,6 +842,7 @@ async function make(body, w) {
     problem: null,
   }), w, 'made')
   if (priority.fix) item = ordered(markedFix(item, w))
+  if (standard !== null) item.sections.set('Standard', [standard.line])
   if (fromHow !== null) {
     const ready = copy(item)
     for (const [name, value] of fromHow.sections) ready.sections.set(name, value)
@@ -1166,8 +1173,11 @@ const withMark = item => {
   return context.some(one => one.trim() === REFINED_MARK.trim()) ? context : [...context, REFINED_MARK]
 }
 
-/** Focus 2: the ready refine block of a step made from an agreed how, by its sections; refused when it cannot be one. */
-function howBlock(body, goal, w) {
+/**
+ * Focus 2: the ready refine block of a step made from an agreed how, by its sections; refused when it cannot be one.
+ * B354: with its Standard line (`standard`) after the size.
+ */
+function howBlock(body, goal, w, standard = null) {
   if (w.role !== 'advisor') return refuse(403, 'Only the partner makes a step refined at once, from the how the person agreed.')
   if (goal === '') return refuse(400, 'A step from the agreed how names its goal in "goal" (G17).')
   const summary = line(body.summary, 600)
@@ -1182,6 +1192,7 @@ function howBlock(body, goal, w) {
     ...(picture === '' ? [] : [`Picture: ${picture}`]),
     `Part of: ${goal}`,
     ...(size === '' ? [] : [`Size: about ${size}`]),
+    ...(standard === null ? [] : [`Standard: ${standard}`]),
     'What we build:',
     ...what,
   ].map(one => `  ${one}`)
@@ -1199,6 +1210,10 @@ async function refine(body, w) {
   if (goal !== '' && !/^G\d+$/.test(goal)) return refuse(400, 'A goal is named by its id (G17).')
   const size = line(body.size, 40).replace(/^about\s+/i, '')
   const questions = lines(body.questions, 600).map(one => one.replace(/^[-*]\s+/, '').trim())
+  // B354: the standard given, else the one the step had.
+  const given = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
+  if (given !== null && !given.ok) return refuse(400, given.why)
+  const standard = given?.line ?? standardOf(found.item)
   const round = roundOf(found.item) + 1
   const block = [
     `Refined (round ${round}, by ${w.who}, ${stamp(w.now)}):`,
@@ -1206,9 +1221,11 @@ async function refine(body, w) {
     ...(picture === '' ? [] : [`Picture: ${picture}`]),
     ...(goal === '' ? [] : [`Part of: ${goal}`]),
     ...(size === '' ? [] : [`Size: about ${size}`]),
+    ...(standard === null ? [] : [`Standard: ${standard}`]),
     ...(questions.length === 0 ? [] : ['Questions:', ...questions.map(one => `- ${one}`)]),
   ].map(one => `  ${one}`)
   const item = copy(found.item)
+  if (standard !== null) item.sections.set('Standard', [standard])
   item.sections.set('Summary', [summary])
   if (picture === '') item.sections.delete('Picture')
   else item.sections.set('Picture', [picture])
@@ -1298,6 +1315,12 @@ async function refined(body, w) {
   if (waiting.length > 0) return refuse(409, `${id}: ${waiting.map(one => `${valueOf(one, 'Id')} ("${valueOf(one, 'Title')}")`).join(', ')} ${waiting.length === 1 ? 'is' : 'are'} still open: the person answers first.`)
   const what = lines(body.what, 300).map(one => `- ${one.replace(/^[-*]\s+/, '').trim()}`)
   if (what.length === 0) return refuse(400, 'Say what we build in "what", one line per part.')
+  // B354: a step that names a kind of work of the settings is ready only with its standard (given now, or before).
+  const given = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
+  if (given !== null && !given.ok) return refuse(400, given.why)
+  const standard = given?.line ?? standardOf(found.item)
+  const named = standard === null ? kindsNamed(`${valueOf(found.item, 'Title') ?? ''}\n${(found.item.sections.get('Context') ?? []).join('\n')}`, w.kinds) : []
+  if (named.length > 0) return refuse(409, standardWanted(id, named))
   const head = block[0].match(/^(\s*)Refined\s*(?:\(([^)]*)\))?\s*:\s*$/)
   if (head === null) return refuse(409, `${id}: its refine block does not start with "Refined (...):"; fix it by hand first.`)
   const inside = (head[2] ?? '').split(';').map(one => one.trim()).filter(one => one !== '' && !/^ready$/i.test(one))
@@ -1308,11 +1331,14 @@ async function refined(body, w) {
   let isDropped = false
   for (const one of block.slice(1)) {
     const named = one.trim().match(/^([A-Z][A-Za-z /]{1,28}):/)
-    if (named !== null) isDropped = ['Questions', 'Feedback', 'What we build', 'Problem', 'Goal'].includes(named[1])
+    // B354: the Standard line is written anew after the rest, before What we build.
+    if (named !== null) isDropped = ['Questions', 'Feedback', 'What we build', 'Problem', 'Goal', 'Standard'].includes(named[1])
     if (!isDropped) kept.push(one)
   }
   const item = copy(found.item)
-  item.sections.set('Refined', [`${indent}Refined (${[...inside, 'ready'].join('; ')}):`, ...kept, `${indent}What we build:`, ...what.map(one => `${indent}${one}`)])
+  const standardLine = standard === null ? [] : [`${indent}Standard: ${standard}`]
+  if (standard !== null) item.sections.set('Standard', [standard])
+  item.sections.set('Refined', [`${indent}Refined (${[...inside, 'ready'].join('; ')}):`, ...kept, ...standardLine, `${indent}What we build:`, ...what.map(one => `${indent}${one}`)])
   item.sections.set('What we build', what)
   item.sections.set('Context', withMark(found.item))
   put(item, 'Refined', 'ready')

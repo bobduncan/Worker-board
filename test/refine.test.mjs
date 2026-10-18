@@ -37,7 +37,7 @@ test('the refine block is read apart from the step\'s other lines, which end it'
   // B293: the parts of the newer form stay empty for a block in this older form.
   assert.deepEqual(refinedOf(step.notes), {
     round: 1, by: 'Oracle', at: '2026-10-14 18:52', accepted: null, ready: false,
-    summary: '', picture: null, pictureNote: '', partOf: '', size: '',
+    summary: '', picture: null, pictureNote: '', partOf: '', size: '', standard: '',
     problem: 'The zebracorn hums, but nobody can tell the tune.',
     goal: 'One song the herd knows by heart.',
     build: [],

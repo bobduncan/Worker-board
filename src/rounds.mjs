@@ -69,6 +69,8 @@ function settingLines({ board, config }) {
     `Your decisions: ${inGame(config.advisorDecisions)}`,
     config.advisorReadFirst.length === 0 ? null : `Read first: ${config.advisorReadFirst.join(', ')}`,
     `The backlog: ${config.project === '' ? config.backlog : join(config.project, ...config.backlog.split('/'))} (your suggestions under "${config.advisorSuggestions}")`,
+    // B354: the project's kinds of work, each with its definition of done and reference folder, for the Standard lines.
+    (config.kinds ?? []).length === 0 ? null : `Kinds of work, paths in the project: ${config.kinds.map(one => `${one.kind} (done: ${one.done}; references: ${one.reference})`).join('; ')}`,
   ]
 }
 

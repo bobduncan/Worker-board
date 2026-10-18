@@ -97,7 +97,21 @@ export const DEFAULTS = {
   advisorParts: ['focus', 'goals', 'brainstorm'],
   /** B311: the chats' CPU until the person picks one on the board (data/cpu.json): "off", "gentle" or "strong". */
   cpuLimit: 'off',
+  /**
+   * B354: the project's kinds of work, each `{ kind, done, reference }`: its name, its definition of done and its
+   * reference folder, paths inside the project written with /. A refined step that names a kind carries its Standard
+   * line (src/work/standard.mjs). The board knows no kind of its own.
+   */
+  kinds: [],
 }
+
+/** B354: one kind of work of the settings, its paths inside the project. */
+const isKind = one => one !== null && typeof one === 'object' && !Array.isArray(one)
+  && typeof one.kind === 'string' && /^[A-Za-z][A-Za-z0-9 -]{0,39}$/.test(one.kind.trim())
+  && ['done', 'reference'].every(key => typeof one[key] === 'string' && INSIDE.test(one[key].trim()))
+const kindOf = one => ({ kind: one.kind.trim().replace(/\s+/g, ' '), done: one.done.trim(), reference: one.reference.trim() })
+/** B354: the kinds as a list, each once (by name, any case). */
+const isKinds = value => Array.isArray(value) && value.every(isKind) && new Set(value.map(one => kindOf(one).kind.toLowerCase())).size === value.length
 
 /** Focus 1: the Focus tab's parts, in the order of its bar (public/board.js ADVISOR_PANES). */
 const ADVISOR_PARTS = ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat']
@@ -252,6 +266,11 @@ export function parseConfig(text, env) {
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]
   if (typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase())) config.cpuLimit = raw.cpuLimit.trim().toLowerCase()
+  // B354: the kinds that are right, each once.
+  if (Array.isArray(raw.kinds)) {
+    const seen = new Set()
+    config.kinds = raw.kinds.filter(isKind).map(kindOf).filter(one => !seen.has(one.kind.toLowerCase()) && seen.add(one.kind.toLowerCase()))
+  }
   return config
 }
 
@@ -293,6 +312,7 @@ export function configProblem(fileText) {
   if (has('advisorParts') && !(isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0)) return wrong('advisorParts', `a list of one or more of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
   if (has('cpuLimit') && !(typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase()))) return wrong('cpuLimit', '"off", "gentle" or "strong"')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
+  if (has('kinds') && !isKinds(raw.kinds)) return wrong('kinds', 'a list of { "kind", "done", "reference" }: a kind\'s name, its definition of done and its reference folder, paths inside the project written with /, each kind once')
   return null
 }
 

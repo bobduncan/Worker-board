@@ -192,6 +192,8 @@ export const REFINED_HEAD = /^Refined\s*(?:\(([^)]*)\))?\s*:\s*$/
 const REFINED_PARTS = {
   Problem: 'problem', Goal: 'goal', Questions: 'questions', Feedback: 'feedback',
   Summary: 'summary', Picture: 'picture', 'Part of': 'partOf', Size: 'size', 'What we build': 'build', 'Not in it': 'not',
+  // B354: the step's standard, "<kind> · <reference picture> · target <score>" or "none (<why>)".
+  Standard: 'standard',
 }
 const NAMED = /^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/
 /**
@@ -244,6 +246,7 @@ export function refinedOf(notes) {
     pictureNote: '',
     partOf: '',
     size: '',
+    standard: '',
     problem: '',
     goal: '',
     build: [],
@@ -293,7 +296,7 @@ function pictureOf(written) {
 function addRefined(refined, part, line, isMore) {
   const point = line.match(/^[-*]\s+(.*)$/)
   const words = point === null ? line : point[1]
-  if (part === 'problem' || part === 'goal' || part === 'summary' || part === 'partOf' || part === 'size') {
+  if (part === 'problem' || part === 'goal' || part === 'summary' || part === 'partOf' || part === 'size' || part === 'standard') {
     refined[part] = joined(refined[part], words)
     return
   }

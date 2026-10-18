@@ -527,6 +527,8 @@ async function main(args) {
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
+      // B354: the project's kinds of work: a refined step that names one carries its standard.
+      kinds: config.kinds,
     }
   }
   const workReads = new Set(['next', 'list', 'pause-state'])

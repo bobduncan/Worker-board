@@ -29,6 +29,7 @@ import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { refineStop } from './refineGate.mjs'
 import { flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
+import { standardOf } from './work/standard.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -895,7 +896,9 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     const owner = busy === undefined ? null : String(busy.head.get('Owner') ?? '').replace(prefix, '').trim() || null
     const since = unsent.map(one => sinceMs(one.head.get('Since'))).filter(Number.isFinite)
     const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, ...(isHandout ? { waitsSince: since.length > 0 ? Math.max(...since) : null } : {}), ...(fix === null ? {} : { fixFirst: fix }) }
+    // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
+    const standards = [...new Set(known.map(standardOf).filter(one => one !== null && !/^none\b/i.test(one)))]
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, ...(isHandout ? { waitsSince: since.length > 0 ? Math.max(...since) : null } : {}), ...(fix === null ? {} : { fixFirst: fix }) }
   })
   const left = parts.filter(part => part.state !== 'done').map(part => sizeMinutes(part.size)).filter(one => one !== null)
   // B343: the goal's steps one by one, for the simple Overview: its parts' in order, then its own ("Steps:"), each once;
