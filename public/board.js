@@ -8621,9 +8621,10 @@ function coordinateFinds(step, find) {
  */
 function coordinateList(activities, { filter = 'all', find = '', showDone = false, asOne = false, hideBusy = false, goal = null } = {}) {
   const counts = {}
-  // Focus 1: only the steps behind a goal (`goal`: their ids), its finished ones too: the whole of it.
+  // Focus 1: only the steps behind a goal (`goal`: their ids). B325: its finished ones only with "Show finished", as
+  // without a goal (the user, 2026-10-18: "the show finished checkbox doesnt work if you have a goal in the filter").
   const isOfGoal = step => goal === null || (typeof step.id === 'string' && goal.includes(step.id))
-  const withDone = showDone || goal !== null
+  const withDone = showDone
   for (const [name] of COORDINATE_FILTERS) counts[name] = 0
   const groups = []
   let shown = 0
