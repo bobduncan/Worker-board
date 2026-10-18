@@ -926,10 +926,8 @@ async function main(args) {
       // B298: a line to a chat is filed as an instruction first and carries its id.
       message = await withInstruction(message, body => workAction(body, 'person'))
       // B315: the words as they were copied are kept with them, so the restart banner can copy them again and tell when
-      // the main chat has them. A copied "resume" keeps whether a restart file was there (its time, or null): once that
-      // file is gone, the main chat has resumed, and the banner leaves the word alone.
+      // the main chat has them.
       if (isCopied) message = { ...message, pasteText: messageText(message, timeOf, path => inProject(config.project, path)) }
-      if (isCopied && message.command === 'resume') message = { ...message, restartAt: state.restart?.prepared?.at ?? null }
       await store.say(message)
       if (isCopied) {
         readState.reset()

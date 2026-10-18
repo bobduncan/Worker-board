@@ -29,8 +29,6 @@ export function foldOutbox(text) {
 
 const isAnswer = message => (message.ask ?? null) !== null
 const COMMAND_KNOWN_MS = 2 * 60 * 60_000
-/** B291: how long the newest "prepare restart" (or "resume") stays known: a night's restart. */
-const RESTART_KNOWN_MS = 24 * 60 * 60_000
 /** A typed line the mod took and never said it typed is shown as on its way for this long. */
 const TAKEN_SHOWN_MS = 10 * 60_000
 
@@ -49,9 +47,6 @@ export const isLate = (message, now, keep) => now - message.at > (isAnswer(messa
  * known, because it closes its request; a delivered line shows in its chat and is listed no longer.
  */
 export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
-  // B291: the newest word for a restart stays known for a day, so a restart prepared in the evening still stands the
-  // next morning, until "resume".
-  const restartWord = messages.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
   return messages
     .map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
     .filter(message => message.state === 'waiting'
@@ -63,9 +58,8 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
       || ((message.state === 'taken' || message.state === 'delivered') && isAnswer(message))
       // B195: so does an answer to the Advisor's recommendation: it closes the recommendation.
       || ((message.state === 'taken' || message.state === 'delivered') && message.command === 'recommend')
-      // A word for the restart stays known for a while: the board says how the preparing stands.
+      // A word to a chat stays known for a while: the board says how it fared.
       || (typeof message.command === 'string' && now - message.at < COMMAND_KNOWN_MS)
-      || (message === restartWord && now - message.at < RESTART_KNOWN_MS)
       // B212: words copied for the person to paste, without a Workers mod: shown for a while, and an answer stays closed.
       || (message.state === 'copied' && (isAnswer(message) || now - message.at < shownMs))
       // A line that was taken shows as on its way until the chat has it.

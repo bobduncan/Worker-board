@@ -13,7 +13,7 @@ import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
-import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, safePointNote, storePause, storeSafePoint, usageReadings } from './limits.mjs'
+import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
 import { approvalRoute } from './tick.mjs'
@@ -166,17 +166,15 @@ const COPIED_MS = 2 * HOUR
 /**
  * Whether a word to the main chat that was only copied still matters, so the restart banner keeps saying to paste it.
  * It no longer does once the person dismissed it, after two hours, or once what it was for has happened: for
- * "resume", the restart file it was copied with is gone (`restartAt`: the file's time when copied, null when there was
- * none; a word copied before the board kept it counts as copied with one) or a turn of the main chat since the copy has the word "resume", whoever brought it (pasted, another chat, the
- * board); for "prepare restart", the restart file is newer than the copy; for any other line, a turn of the main chat
- * since the copy contains its first line. `entries` null: the main chat's transcript cannot be read.
+ * "resume", a turn of the main chat since the copy has the word "resume", whoever brought it (pasted, another chat,
+ * the board); for any other line, a turn of the main chat since the copy contains its first line. `entries` null: the
+ * main chat's transcript cannot be read. (Pause 2: no restart file any more.)
  */
-function stillMatters(message, { entries, prefix, restartNote, now }) {
+function stillMatters(message, { entries, prefix, now }) {
   if (Number.isFinite(message.dismissedAt) || now - message.at >= COPIED_MS) return false
   const turns = entries === null ? [] : conversation(entries, { prefix, limit: 400 }).filter(one => one.from !== 'chat' && one.at >= message.at)
   const has = test => turns.some(one => test(one.text))
-  if (message.command === 'resume') return !(message.restartAt !== null && restartNote === null) && !has(text => /\bresume\b/i.test(text))
-  if (message.command === 'prepare restart') return !(Number.isFinite(restartNote?.at) && restartNote.at > message.at)
+  if (message.command === 'resume') return !has(text => /\bresume\b/i.test(text))
   const first = String(message.pasteText ?? message.text ?? '').split('\n')[0].trim()
   return first === '' || !has(text => text.includes(first))
 }
@@ -342,7 +340,7 @@ function finishedWith(waits) {
   return { ...waits, handover: parseHandover(waits.words) }
 }
 
-function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, waits, notes = new Map(), restartSince = null, pauseOver = () => false }) {
+function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, waits, notes = new Map(), pauseOver = () => false }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
@@ -398,17 +396,9 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // B312: a pause whose limit a newer reading shows back (`pauseOver`, settled once the limits are known) is over.
   const told = word === null || word.isPaused === false ? null : word
   const note = told !== null && pauseOver({ limit: told.limit ?? 'fiveHour', since: told.at, percent: told.percent ?? null }) ? null : told
-  // B291: it sent the main chat its safe-point line since "prepare restart": stopped for the restart, whatever its
-  // transcript's tail shows (a turn cut off, then the stop word answered, can look as if it still runs).
-  const canStop = stop === null && note === null && entries !== null && !chat.isMain
-  const safeSent = canStop ? safePointNote(scan ?? entries, mains, restartSince) : null
-  // B314: or it filed that line as a work note to the main chat; the newer of the two forms decides.
-  const safeFiled = canStop ? storeSafePoint(notes.get(chat.name.toLowerCase()), scan ?? entries, mains, restartSince) : null
-  const safeWord = [safeSent, safeFiled].filter(Boolean).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
-  const safe = safeWord === null || safeWord.isSafe === false ? null : safeWord
+  // Pause 2: a stop for a restart is the store's pause (pause.json and the checkpoints), no longer a "Safe point:" line.
   const paused = stop !== null ? { by: 'app', limit: stop.limit, since: stop.at, named: stop.resetsAt }
-    : note !== null ? { by: 'note', limit: note.limit ?? 'fiveHour', since: note.at, named: note.until, percent: note.percent ?? null }
-      : safe !== null ? { by: 'restart', limit: null, since: safe.at, named: null } : null
+    : note !== null ? { by: 'note', limit: note.limit ?? 'fiveHour', since: note.at, named: note.until, percent: note.percent ?? null } : null
   const state = paused !== null ? 'suspended' : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // No sign of life is about a turn that runs: between two turns a chat writes nothing.
   const quietMs = state === 'working' && held === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
@@ -541,8 +531,6 @@ function unfiledAsk(entries, scan, turn, waits, name, prefix) {
 function heldUntil(paused, limits, now) {
   if (paused === null) return null
   const { named, percent, ...held } = paused
-  // B291: stopped for a restart, it waits for "resume", not for a limit.
-  if (held.by === 'restart') return { ...held, until: null, isBack: false }
   if (named !== null) return { ...held, until: named, isBack: named <= now }
   const limit = limits[held.limit]
   if (limit === null) return { ...held, until: null, isBack: false }
@@ -992,14 +980,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const waits = storeWaits(raw.work, prefix)
   // B310: the notes each chat filed to the main chat: a pause for the limit may come that way.
   const notes = notesToMain(raw.work, { prefix, main: list.main ?? 'main' })
-  // B291: since when the person's "prepare restart" stands (no "resume" after it): a worker's safe-point line sent
-  // since then says it stopped for the restart.
-  const restartWord = sent.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
   const context = {
     now, config, last, lines, prefix, waits, notes,
     // How a message from the main chat is known: by its title, or by the app's id for it.
     main: { mainTitle: list.main === null ? null : `${prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
-    restartSince: restartWord?.command === 'prepare restart' && Number.isFinite(restartWord.at) ? restartWord.at : null,
   }
   // The advisor is talked with on its own tab. Every other chat is a lane, however many there are.
   const isAdvisor = chat => !chat.isLeftover && !chat.isMain && chat.name === config.advisor
@@ -1300,10 +1284,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   const until = Math.max(now, ...live.flatMap(lane => lane.ahead.map(span => span.to)))
 
-  // A restart of the app: who was cut off, what the main chat wrote down before it, and the last word the person
-  // gave the main chat about it ("prepare restart", then "resume"). `board` says when this board started and
-  // since when it had been off.
-  const word = sent.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
+  // A restart of the app: who was cut off, who does not run, and a word to the main chat only copied. `board` says when
+  // this board started and since when it had been off. Pause 2: how a pause stands is `pause` (pause.json), below.
 
   // B315: a word to the main chat that was only copied (no Workers mod took it: no chat ran) waits until the person
   // pasted it into the main chat. The newest such word not taken yet, unless a newer one of its kind went another way.
@@ -1313,15 +1295,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const toMain = main === undefined ? [] : sent.filter(message => message.to === main.name)
   const lastCopied = toMain.findLast(message => message.state === 'copied')
   // A copied word that no longer matters (see stillMatters) is left alone: dismissed, too old, or done another way.
-  const matters = message => stillMatters(message, { entries: mainEntries, prefix, restartNote: raw.restartNote ?? null, now })
+  const matters = message => stillMatters(message, { entries: mainEntries, prefix, now })
   const isOpenCopy = lastCopied !== undefined && takenAt(lastCopied) === null && matters(lastCopied)
     && !toMain.some(message => message.at > lastCopied.at && message.state !== 'copied' && (message.command ?? null) === (lastCopied.command ?? null))
-  const wordTaken = takenAt(word)
-  const wordState = word?.state === 'copied' && wordTaken !== null ? 'delivered' : word?.state
-  // Pause and resume (spec 2026-10-18): once pause.json is there, the old reading of a restart (the word "prepare
-  // restart", restart.md, "resume") no longer shows; the pause banner says how it stands.
+  // Pause and resume (spec 2026-10-18): the pause banner says how a pause stands, from pause.json.
   const pauseRecord = workOk ? raw.work.pause ?? null : null
-  const isOldRestart = pauseRecord === null
   const restart = {
     main: main === undefined ? null : main.name,
     interrupted: live.filter(lane => lane.state === 'interrupted').map(lane => lane.name),
@@ -1331,16 +1309,6 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     starting: [...new Map(sent
       .filter(message => message.command === 'start' && typeof message.about === 'string' && now - message.at < 10 * MIN)
       .map(message => [message.about, { chat: message.about, at: message.at, state: message.state }])).values()],
-    prepared: isOldRestart && Number.isFinite(raw.restartNote?.at) ? { at: raw.restartNote.at } : null,
-    // B291: the workers still at work; the main chat does the preparing, and a worker that sent its line is suspended.
-    preparing: isOldRestart && word?.command === 'prepare restart' ? {
-      at: word.at, state: wordState, working: live.filter(lane => lane.state === 'working' && !lane.isMain).map(lane => lane.name),
-      // When the last worker sent its safe-point line: restart.md written before it does not count yet.
-      lastLine: Math.max(0, ...live.filter(lane => lane.suspended?.by === 'restart').map(lane => lane.suspended.since)) || null,
-    } : null,
-    // B315: one only copied stays until the main chat has taken it, or it no longer matters (stillMatters); a handed one
-    // shows as handed for a quarter of an hour.
-    resuming: isOldRestart && word?.command === 'resume' && ((word.state === 'copied' && wordTaken === null && matters(word)) || now - (wordTaken ?? word.at) < 15 * MIN) ? { at: word.at, state: wordState } : null,
     // B315: the word to the main chat that was only copied and is not in its chat yet: what to paste, into which chat
     // (its title from the list of chats), the app's id for it, and whether it runs now.
     copied: !isOpenCopy ? null : {

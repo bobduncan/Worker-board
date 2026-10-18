@@ -61,15 +61,17 @@ A dark dashboard: dark blue panels with thin borders on an almost black page, wh
 ## The top bar
 
 The tabs **Overview**, **Advisor**, **Backlog**, **Design**; on the right **Pause all** (2026-10-18, in place of
-Prepare restart: after a Yes it writes the work store's `pause.json`, and each chat's Workers mod stops its chat after
-a checkpoint; the restart banner says "Pausing since HH:MM: still working: ...; holding a step with no checkpoint
+Prepare restart, which is gone with restart.md and the "Safe point:" lines: after a Yes it writes the work store's
+`pause.json`, and each chat's Workers mod (0.13.9) tells its chat at its next tool batch to write its checkpoint and
+end its turn; the restart banner says "Pausing since HH:MM: still working: ...; holding a step with no checkpoint
 since the pause: ...", then "Safe to restart", with **Resume all**; after Resume all it names who has not started a
-turn yet, and when the main chat does not run a link **Open <its title>** that opens it in the app; it goes once every
-chat holding a step has started a turn; see DESIGN.md, "Pause and resume from the store"; B315: a word to
+turn yet, and when the main chat does not run a link **Open <its title>** that opens it in the app (its mod then
+gives it the list of whom to wake by session id, and each holder's mod its checkpoint); it goes once every chat
+holding a step has started a turn; see DESIGN.md, "Pause and resume from the store"; B315: a word to
 the main chat that was only copied, because its chat did not run yet, stays on the restart banner, "Main's chat is not
 running yet: open Game - Main in the app (or click it in the sidebar) and paste with Ctrl+V", with **Copy again**
-and **Dismiss**, until the main chat has it or it no longer matters: "resume" once restart.md is gone or the main chat
-got "resume" another way, "prepare restart" once restart.md is written, and any word after two hours), **CPU for the
+and **Dismiss**, until the main chat has it or it no longer matters: "resume" once the main chat got "resume" another
+way, and any word after two hours), **CPU for the
 chats** (B311: Off, Gentle, Strong, one click each; when not Off, how many processes it applies to, "15 processes,
 below normal"; "not available here" off Windows; a listing that failed is one red line on top), the board's
 version and since when, "Last updated", and a refresh button. When the board's folder holds a newer version, a

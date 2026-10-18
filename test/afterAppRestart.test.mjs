@@ -47,7 +47,7 @@ const NAMES = ['Main', 'Board', 'Support']
 /** No Workers mod has asked the board since it started five minutes ago: no chat runs. */
 const NOBODY = { seen: { shown: {}, other: {} }, board: { startedAt: NOW - 5 * MIN, offSince: NOW - 20 * MIN } }
 
-function build({ tails = {}, appStartedAt = APP, outbox = [], seen = NOBODY.seen, board = NOBODY.board, restartNote = null } = {}) {
+function build({ tails = {}, appStartedAt = APP, outbox = [], seen = NOBODY.seen, board = NOBODY.board } = {}) {
   const work = storeFromText('## Board\n', { now: NOW - 120 * MIN })
   for (const item of [held('B269', 'Board'), held('B280', 'Support')]) work.items.set(item.head.get('Id'), item)
   const turns = { Main: ended(30), Board: ended(30), Support: ended(30), ...tails }
@@ -57,7 +57,7 @@ function build({ tails = {}, appStartedAt = APP, outbox = [], seen = NOBODY.seen
     tails: Object.fromEntries(NAMES.map(name => [`cli-${name}`, { text: turns[name].lines.join('\n'), isCut: false, modifiedAt: turns[name].at }])),
     planLineTexts: { 'cli-Board': card('B269'), 'cli-Support': card('B280') },
     work, adviceText: null, folders: null, askTexts: [], pictureLists: {},
-    appStartedAt, restartNote,
+    appStartedAt,
   }
   return buildState(raw, { lines: [], outbox, runs: [], now: NOW, config, seen, board })
 }
@@ -112,17 +112,16 @@ test('the rule on its own', () => {
 })
 
 const PASTE = 'resume\nNot running, as the worker board reads it: Board, Support.\n(typed on the worker board, 16:20)'
-const resume = (extra = {}) => ({ id: 'r1', at: NOW - 20 * MIN, to: 'Main', ask: null, command: 'resume', text: 'resume\nNot running, as the worker board reads it: Board, Support.', pasteText: PASTE, state: 'copied', restartAt: null, ...extra })
+const resume = (extra = {}) => ({ id: 'r1', at: NOW - 20 * MIN, to: 'Main', ask: null, command: 'resume', text: 'resume\nNot running, as the worker board reads it: Board, Support.', pasteText: PASTE, state: 'copied', ...extra })
 
 test('"Resume all" only copied: the banner keeps it until the main chat has taken it, with the words to copy again', () => {
   const state = build({ outbox: [resume()] })
   assert.deepEqual(state.restart.copied, { id: 'r1', at: NOW - 20 * MIN, command: 'resume', text: PASTE, chat: 'Game - Main', session: 'local_Main', isMainRunning: null })
-  // Longer than the quarter of an hour a handed word shows: it stays while it is not taken.
-  assert.deepEqual(state.restart.resuming, { at: NOW - 20 * MIN, state: 'copied' })
-  // Pasted into the main chat: taken, and said as handed for a while.
+  // Pause 2: the old "Resume" line of the banner is gone; how a resume stands is the pause's (pause.json).
+  assert.equal('resuming' in state.restart, false)
+  // Pasted into the main chat: taken.
   const pasted = build({ outbox: [resume()], tails: { Main: { lines: [...ended(30).lines, typed(NOW - 3 * MIN, PASTE)], at: NOW - 3 * MIN } } })
   assert.equal(pasted.restart.copied, null)
-  assert.deepEqual(pasted.restart.resuming, { at: NOW - 20 * MIN, state: 'delivered' })
   // A newer word of the same kind that the board could hand over takes its place.
   const again = build({ outbox: [resume(), resume({ id: 'r2', at: NOW - MIN, state: 'waiting' })] })
   assert.equal(again.restart.copied, null)
@@ -181,24 +180,14 @@ test('the bar on top says why the words were only copied: no chat runs yet, or n
 })
 
 // Seen live 2026-10-18: "resume" was copied at 16:32, another chat handed "resume" to the main chat by its session id,
-// the main chat resumed every worker and deleted restart.md; the banner still said to paste the word long after, as
-// it only cleared once the main chat's transcript showed the copied words pasted. A copied word clears once it no
-// longer matters, after two hours in any case, or when the person dismisses it.
+// the main chat resumed every worker; the banner still said to paste the word long after, as it only cleared once
+// the main chat's transcript showed the copied words pasted. A copied word clears once it no longer matters, after
+// two hours in any case, or when the person dismisses it. Pause 2: no restart file is read for it any more.
 const mainSaid = (...lines) => ({ Main: { lines: [...ended(30).lines, ...lines], at: NOW - MIN } })
-const FILE = { at: NOW - 60 * MIN }
 
-test('a copied "resume" clears once the restart file it was copied with is gone', () => {
-  const word = resume({ restartAt: FILE.at })
-  assert.notEqual(build({ outbox: [word], restartNote: FILE }).restart.copied, null)
-  const gone = build({ outbox: [word] })
-  assert.equal(gone.restart.copied, null)
-  // It no longer holds the restart part of the banner either.
-  assert.equal(gone.restart.resuming, null)
-  // Copied while no restart file was there (workers cut off by a crash): its absence says nothing.
-  assert.notEqual(build({ outbox: [resume({ restartAt: null })] }).restart.copied, null)
-  // Copied before the board kept that (the live word of 16:32): no restart file now clears it.
-  assert.equal(build({ outbox: [resume({ restartAt: undefined })] }).restart.copied, null)
-  assert.notEqual(build({ outbox: [resume({ restartAt: undefined })], restartNote: FILE }).restart.copied, null)
+test('Pause 2: a copied "resume" no longer reads a restart file: an old word with restartAt stands until the main chat has the word', () => {
+  assert.notEqual(build({ outbox: [resume({ restartAt: NOW - 60 * MIN })] }).restart.copied, null)
+  assert.notEqual(build({ outbox: [resume({ restartAt: undefined })] }).restart.copied, null)
 })
 
 test('a copied "resume" clears once a turn of the main chat since the copy has the word, from whatever source', () => {
@@ -213,13 +202,6 @@ test('a copied "resume" clears once a turn of the main chat since the copy has t
   assert.notEqual(build({ outbox: [resume()], tails: mainSaid(typed(NOW - 10 * MIN, 'Who resumed?')) }).restart.copied, null)
 })
 
-test('a copied "prepare restart" clears once the restart file is newer than the copy', () => {
-  const prepare = resume({ id: 'p1', command: 'prepare restart', text: 'prepare restart', pasteText: 'prepare restart\n(typed on the worker board, 16:20)' })
-  assert.notEqual(build({ outbox: [prepare] }).restart.copied, null)
-  assert.notEqual(build({ outbox: [prepare], restartNote: { at: NOW - 30 * MIN } }).restart.copied, null)
-  assert.equal(build({ outbox: [prepare], restartNote: { at: NOW - 10 * MIN } }).restart.copied, null)
-})
-
 test('any other copied line clears once a turn of the main chat since the copy contains its first line', () => {
   const line = { id: 'l1', at: NOW - 20 * MIN, to: 'Main', ask: null, text: 'Hand out B290 [I7]', pasteText: 'Hand out B290 [I7]\n(typed on the worker board, 16:20)', state: 'copied' }
   assert.equal(build({ outbox: [line], tails: mainSaid(fromChat(NOW - 10 * MIN, 'Game - Board', 'The person asks: Hand out B290 [I7]')) }).restart.copied, null)
@@ -227,7 +209,7 @@ test('any other copied line clears once a turn of the main chat since the copy c
 })
 
 test('every copied word clears after two hours, and when the person dismissed it', () => {
-  for (const extra of [{}, { command: 'prepare restart', text: 'prepare restart', pasteText: 'prepare restart' }, { command: undefined, text: 'Hand out B290', pasteText: 'Hand out B290' }]) {
+  for (const extra of [{}, { command: undefined, text: 'Hand out B290', pasteText: 'Hand out B290' }]) {
     assert.notEqual(build({ outbox: [resume({ ...extra, at: NOW - 119 * MIN })] }).restart.copied, null)
     assert.equal(build({ outbox: [resume({ ...extra, at: NOW - 120 * MIN })] }).restart.copied, null)
   }
@@ -244,10 +226,10 @@ test('"Dismiss" keeps the copied word dismissed in the outbox; a word not waitin
   assert.equal((await dismissCopied(store, 'nope', NOW)).status, 409)
 })
 
-test('the banner has a "Dismiss" button; the server takes it and keeps with a copied "resume" whether a restart file was there', async () => {
+test('the banner has a "Dismiss" button; the server takes it, and keeps no restart file\'s time with a copied "resume" (Pause 2)', async () => {
   assert.match(script, /button\('Dismiss', 'is-quiet', 'dismiss'\)/)
   assert.match(script, /command: 'dismiss copied', id: board\.restart\.copied\.id/)
   const server = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'server.mjs'), 'utf8')
   assert.match(server, /if \(body\?\.command === 'dismiss copied'\) return dismissCopied\(store, body\.id, clock\(\)\)/)
-  assert.match(server, /restartAt: state\.restart\?\.prepared\?\.at \?\? null/)
+  assert.doesNotMatch(server, /restartAt/)
 })

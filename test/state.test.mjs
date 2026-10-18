@@ -754,52 +754,34 @@ test('a chat that keeps no file of its own in this turn is never called interrup
   assert.equal(chatNamed(build({ apps: [app('Units', summary('completed'))], tails: { Units: tail(ended) }, plans: { Units: ownFile('waiting', NOW - MIN) } }), 'Units').state, 'free')
 })
 
-test('the restart: who was cut off, what was prepared, and how long the board was off', () => {
+test('the restart: who was cut off, and how long the board was off; Pause 2: nothing of "prepare restart" or restart.md', () => {
   const quiet = build({ apps: [app('Main'), app('Units', summary('completed'))], tails: { Units: tail(ended) } })
-  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], notRunning: [], starting: [], prepared: null, preparing: null, resuming: null, copied: null, off: null })
+  assert.deepEqual(quiet.restart, { main: 'Main', interrupted: [], notRunning: [], starting: [], copied: null, off: null })
 
   const prepare = { id: 'p1', at: NOW - 10 * MIN, to: 'Main', ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
-  const preparing = build({
+  const after = build({
     apps: [app('Main'), app('Units'), app('Features', summary('completed'))],
     tails: { Units: tail(running), Features: tail(ended) },
     outbox: [prepare],
     restartNote: { at: NOW - 3 * MIN },
     board: { startedAt: NOW - 20 * MIN, offSince: NOW - 28 * MIN },
   })
-  assert.deepEqual(preparing.restart.preparing, { at: NOW - 10 * MIN, state: 'delivered', working: ['Units'], lastLine: null })
-  assert.deepEqual(preparing.restart.prepared, { at: NOW - 3 * MIN })
-  assert.deepEqual(preparing.restart.off, { from: NOW - 28 * MIN, to: NOW - 20 * MIN })
-
-  // "resume" ends the preparing; a board that has run for long says no more about having been off.
-  const resume = { id: 'r1', at: NOW - MIN, to: 'Main', ask: null, command: 'resume', text: 'resume', state: 'waiting' }
-  const resumed = build({ apps: [app('Main')], outbox: [prepare, resume], board: { startedAt: NOW - 3 * 60 * MIN, offSince: NOW - 4 * 60 * MIN } })
-  assert.deepEqual([resumed.restart.preparing, resumed.restart.resuming, resumed.restart.off], [null, { at: NOW - MIN, state: 'waiting' }, null])
+  assert.deepEqual(after.restart, { main: 'Main', interrupted: [], notRunning: [], starting: [], copied: null, off: { from: NOW - 28 * MIN, to: NOW - 20 * MIN } })
+  // A board that has run for long says no more about having been off.
+  const later = build({ apps: [app('Main')], board: { startedAt: NOW - 3 * 60 * MIN, offSince: NOW - 4 * 60 * MIN } })
+  assert.equal(later.restart.off, null)
   // Without a main chat there is nobody to do the resuming.
   assert.equal(build({ apps: [app('Units')] }).restart.main, null)
 })
 
-test('B291: a worker that sent its safe-point line after the prepare word is suspended and no longer still working', () => {
+test('Pause 2: a worker\'s "Safe point:" line to the main chat no longer stops it: a stop for a restart is the store\'s pause', () => {
   const prepare = { id: 'p1', at: NOW - 10 * MIN, to: 'Main', ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
   const toMain = (when, message, to) => [assistant(when, 'tool_use', [tool('SendMessage', { to, message })]), toolResult(when + 1000)]
-  // Units: its turn was cut off, it took the stop word and sent its line, and its tail still looks busy.
   const units = [typed(NOW - 30 * MIN, 'Go'), step(NOW - 20 * MIN, 'Build'), fromChat(NOW - 9 * MIN, 'Game - Main', 'prepare restart'),
     ...toMain(NOW - 8 * MIN, 'Note from Game - Units: Safe point: B12 at b12 1a2b3c4; next: the tests.', 'local_Main')]
-  const state = build({
-    apps: [app('Main'), app('Units'), app('Features')],
-    // The main chat works too, writing restart.md: it does the preparing and is not waited for.
-    tails: { Main: tail(running), Units: tail(units), Features: tail(running) },
-    outbox: [prepare],
-    restartNote: { at: NOW - 2 * MIN },
-  })
-  assert.equal(chatNamed(state, 'Units').state, 'suspended')
-  assert.deepEqual([chatNamed(state, 'Units').suspended.by, chatNamed(state, 'Units').suspended.since], ['restart', NOW - 8 * MIN])
-  assert.equal(chatNamed(state, 'Main').state, 'working')
-  assert.deepEqual(state.restart.preparing.working, ['Features'])
-  // When the last line came: restart.md written before it does not make it safe yet.
-  assert.equal(state.restart.preparing.lastLine, NOW - 8 * MIN)
-  // A line from before the prepare word says nothing about this restart.
-  const old = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(units) }, outbox: [{ ...prepare, at: NOW - 5 * MIN }] })
-  assert.notEqual(chatNamed(old, 'Units').state, 'suspended')
+  const state = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(units) }, outbox: [prepare], restartNote: { at: NOW - 2 * MIN } })
+  assert.notEqual(chatNamed(state, 'Units').state, 'suspended')
+  assert.equal(chatNamed(state, 'Units').suspended, null)
 })
 
 test('a turn that kept writing after its chat\'s file said waiting is alive, not interrupted', () => {

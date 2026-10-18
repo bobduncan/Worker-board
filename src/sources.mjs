@@ -158,8 +158,6 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     usageText: (await readTail(config.usageHistory, USAGE_BYTES))?.text ?? null,
     // B315: when the app last started: a chat quiet since before then has not run since.
     appStartedAt: await appStartedAt(config.appSessions),
-    // The main chat's note of who was on what before a restart: only whether it is there, and since when.
-    restartNote: await stat(join(claude, 'restart.md')).then(file => ({ at: file.mtimeMs }), () => null),
     // B110: the branches that are still there, to tell merged work from work whose branch is open.
     branches: await readBranches().catch(() => null),
     // When the game plan was last written.

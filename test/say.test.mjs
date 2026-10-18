@@ -75,8 +75,8 @@ test('an answer goes only to the chat that asked, and only while the request is 
   assert.equal(check({ to: 'Advisor', text: 'Hi', verdict: 'approve' }).status, 400)
 })
 
-test('the two words for a restart go to the main chat only, in the board\'s own wording', () => {
-  assert.deepEqual(check({ to: 'Main', command: 'prepare restart' }).message, { to: 'Main', ask: null, step: null, title: null, version: null, verdict: null, command: 'prepare restart', text: 'prepare restart' })
+test('"resume" goes to the main chat only, in the board\'s own wording; "prepare restart" is no word any more (Pause 2)', () => {
+  assert.equal(check({ to: 'Main', command: 'prepare restart' }).status, 400)
   const resume = check({ to: 'Main', command: 'resume' }).message
   assert.equal(resume.command, 'resume')
   assert.equal(resume.text, 'resume\nCut off in the middle of a turn, as the worker board reads it: Units, Features.')
@@ -102,8 +102,6 @@ test('"resume" also names the chats that are not running, so the main chat knows
     'resume\nCut off in the middle of a turn, as the worker board reads it: Units.\nNot running, as the worker board reads it: Levels / Environment, Units.')
   const idle = { ...state, restart: { main: 'Main', interrupted: [], notRunning: ['Units'] } }
   assert.equal(checkSay({ to: 'Main', command: 'resume' }, idle, 50).message.text, 'resume\nNot running, as the worker board reads it: Units.')
-  // "prepare restart" stays the one word.
-  assert.equal(checkSay({ to: 'Main', command: 'prepare restart' }, after, 50).message.text, 'prepare restart')
 })
 
 const down = {

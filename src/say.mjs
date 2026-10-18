@@ -271,9 +271,9 @@ export function checkSay(body, state, maxChars) {
   }
 
   if (body.command !== undefined && body.command !== null) {
-    // The two words for a restart of the app. The main chat does the rest: it asks the workers to stop at a safe
-    // point and writes down who was on what, or brings them back. The words are the board's, never the page's.
-    if (!['prepare restart', 'resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step'].includes(body.command)) return refuse(400, 'No such command.')
+    // The board's words, never the page's. Pause 2: a pause is pause.json, no word; "resume" is typed after Resume all
+    // into a main chat that runs, and its Workers mod gives it whom to wake.
+    if (!['resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
     // B233, B258: the commands that go to the Advisor only.

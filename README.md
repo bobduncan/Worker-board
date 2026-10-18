@@ -51,7 +51,7 @@ and gives each project its own copy (A new project in one click, below).
 | Node 24 or newer, and git | Node runs the board (no `npm install`, no dependencies; `package.json` names the Node it needs and the scripts `start`, `demo`, `test` and `setup`); git gets it and lists the working folders. |
 | The Workers mod `folder-branches` (optional; the board carries it and `npm run setup` installs it, `MODS.md`) | Keeps each chat's card (a chat without it can write its card itself, see `roles/worker.md`), types your answers from the board into the chats (without it the board copies them for you to paste, B212, and says under the lanes what it cannot tell, B213), and keeps the board running. |
 | A project folder | Holds the code's repository and the board as folders of their own. Every chat of the project is opened in the project folder itself, not in a folder inside it: the app keeps the transcripts per folder. |
-| One main chat, titled `<prefix>Main` | It hands out the work, and the board types its words (restart, resume, start a chat) into it. |
+| One main chat, titled `<prefix>Main` | It hands out the work, and the board types its words (resume, start a chat) into it. |
 | `<project>\.claude\chats\list.json` | Names the prefix of the chats' titles and the main chat. |
 | `<project>\.claude\work` | The work store (B301): the steps, the queues and what waits for you come from it, and from nothing else. The board writes `backlog.md` from it as a view. Without it the board shows no work and says on top what to run. |
 | A launch entry | `<project>\.claude\launch.json`, from which the mod starts the board. |
@@ -153,7 +153,8 @@ and the briefings for the main chat and the workers.
 - A lane shows what a worker does now and the time it expects to need; a step that waits says why ("Not started:
   ...").
 - The head shows the plan's limits; a worker that paused for the limit shows as "Suspended" until it goes on.
-- Before you quit the app: "Prepare restart" on the board, and "Resume all" after it is open again.
+- Before you quit the app: "Pause all" on the board (each chat writes its checkpoint and stops; the board says when
+  it is safe), and "Resume all" after it is open again (open the main chat when the board says so).
 - "CPU for the chats" in the head (B311, Windows only): when the PC lags while you play or work, click Gentle (the
   project's chats and everything they started run below normal priority) or Strong (idle priority, on the higher
   half of the cores); Off gives them normal priority and all cores back. The board keeps applying it at every refresh,

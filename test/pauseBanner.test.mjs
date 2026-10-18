@@ -70,18 +70,16 @@ test('pausing: safe to restart once no chat runs a turn and every step held has 
   assert.deepEqual(build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, steps: [held('B269', 'Board', PAUSED - MIN)] }).pause.unsaved, [{ chat: 'Board', id: 'B269' }])
 })
 
-test('the old "Preparing the restart" stays away once pause.json is there; without it the old reading stands for now', () => {
+test('Pause 2: the old reading of a restart is gone: an old "prepare restart" word and restart.md show nothing, with pause.json or without', () => {
   const outbox = [{ id: 'p1', at: PAUSED - MIN, to: 'Main', ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }]
   const old = build({ outbox, restartNote: { at: PAUSED - 30_000 } })
-  assert.notEqual(old.restart.preparing, null)
-  assert.notEqual(old.restart.prepared, null)
+  for (const key of ['preparing', 'prepared', 'resuming']) assert.equal(key in old.restart, false, key)
   assert.equal(old.pause, null)
   const now = build({ outbox, restartNote: { at: PAUSED - 30_000 }, pause: { state: 'pausing', since: PAUSED, by: 'person' } })
-  assert.deepEqual([now.restart.preparing, now.restart.prepared, now.restart.resuming], [null, null, null])
-  // Running again: nothing of the pause or the old restart shows.
+  assert.equal(now.pause.state, 'pausing')
+  // Running again: nothing of the pause shows.
   const done = build({ outbox, restartNote: { at: PAUSED - 30_000 }, pause: { state: 'running', since: NOW - MIN, by: 'server' } })
   assert.deepEqual(done.pause, { state: 'running', since: NOW - MIN, main: MAIN, typedAt: null })
-  assert.deepEqual([done.restart.preparing, done.restart.prepared], [null, null])
 })
 
 test('resuming with the main chat not running: who has not started a turn yet, and the main chat\'s title and session for the open link', () => {

@@ -856,14 +856,15 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   started with `--history-from` only shows, refuses an answer and says where to give it. A board that starts
   takes the delivery over when the file names a board that no longer takes its key.
 - *Two words, and the main chat does the work* (until 2026-10-18; replaced by *Pause and resume from the store*
-  below, whose part 2 removes the rest). "Prepare restart" and "Resume all" type `prepare restart` and
+  below; Pause 2 removed the word "prepare restart", restart.md and their reading). "Prepare restart" and "Resume all" type `prepare restart` and
   `resume` into the main chat, in the board's own wording; `resume` names the chats the board read as cut off.
   The main chat asks every working chat to stop at a safe point and writes who was on what into
   `<project>\.claude\restart.md`, and after the restart it brings them back from that file, then removes it. The
   board says how the preparing stands: who still works, and "Ready" when every chat is at rest and the file is
   written. A message from the main chat reaches a chat in the middle of its turn; what the board types waits
   until a chat is idle, which is why the main chat does the messaging.
-- *Stopped once its safe-point line is in (B291).* The person, 2026-10-17, with a banner that still said "Still
+- *Stopped once its safe-point line is in (B291; gone with Pause 2, 2026-10-18: no "Safe point:" line is read, and
+  no lane is "Stopped for the restart"; a stop for a restart is the store's pause and the checkpoints).* The person, 2026-10-17, with a banner that still said "Still
   working: Support, Features" after all five chats had sent their "Safe point:" line: "board says we are still
   waiting put on backlog to fix/investigate this issue", and "part of B291 is that i want the workers to show status
   suspended." Why: "Still working" was read only from each chat's transcript, and a turn cut off by the main chat,
@@ -898,12 +899,10 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   Seen live again that day: the copied "resume" of 16:32 reached the main chat another way (another chat sent it by
   its session id), the main chat resumed every worker and deleted restart.md, and the banner still said to paste it
   long after. So a copied word also clears once it no longer matters (`stillMatters` in state.mjs): for "resume",
-  once the restart file it was copied with is gone (the server keeps with it `restartAt`, the file's time when
-  copied, null when there was none: a resume after a crash without restart.md does not clear on that; one
-  copied before the board kept it counts as copied with one) or once a turn
-  of the main chat since the copy has the word "resume", whoever brought it (pasted, a message from another chat,
-  the board); for "prepare restart", once restart.md is newer than the copy; for any other line, once a turn of the
-  main chat since the copy contains its first line; and in every case after two hours. A button **Dismiss** beside
+  once a turn of the main chat since the copy has the word "resume", whoever brought it (pasted, a message from
+  another chat, the board); for any other line, once a turn of the main chat since the copy contains its first line;
+  and in every case after two hours. (Pause 2: the restart file's part of this, `restartAt`, and the "prepare
+  restart" word are gone.) A button **Dismiss** beside
   **Copy again** keeps the word dismissed (`dismissedAt` on it in the outbox, `dismissCopied` in store.mjs, through
   /api/say with `command: 'dismiss copied'`), so the banner leaves that word alone.
 - *Pause and resume from the store, not from messages* (the person, 2026-10-18 20:25: "I feel like there should be a
@@ -925,8 +924,29 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   list of chats, the id from its app card), and its Workers mod reads the resume from the flag. The banner names each
   holder that has not started a turn since the resume (its last turn began after it, or it runs one now); once none
   is left the board sets `running` (`resumed`, the server's only) and the banner goes. *The mod reads it* through
-  the bridge: `pause-state` on `/api/bridge/work`, and the same answer in `turn-ended`'s `pause` (part 2 builds the
-  contexts). Once pause.json is there, the old banner's preparing, restart.md and resume lines no longer show.
+  the bridge: `pause-state` on `/api/bridge/work`, and the same answer in `turn-ended`'s `pause`.
+- *Pause 2: each chat stops and goes on by itself* (the Workers mod 0.13.9, `mods/folder-branches/hooks/board.ts`
+  `pauseContexts`). The work tool's `step` takes `commit` and `next`, and its description says to write a checkpoint
+  with every commit and when the person pauses. The mod reads the pause only in calls it makes anyway: `turn-ended`'s
+  answer (kept as the last reading), and on a batch of tool calls `pause-state` at most once per 20 s, inside the 1.5 s
+  the mod may hold anything; at a prompt only at the first one of its process, while the last reading was a pause or a
+  resume, or when the words speak of a resume (then anew); at a session start (the classic SessionStart hook) once.
+  Each line is given once, as context for the model, never typed: *while pausing*, at the chat's next tool batch, "The
+  person pauses all chats: commit your work, write your checkpoint (work step B<id> --commit <hash> --next "<next
+  action>"), then end your turn and start nothing new." (holding nothing: "end your turn and start nothing new");
+  *while resuming*, to the main chat at its session start or the board's `resume`, "Resume: wake each chat below that
+  has not started, by its session id with SendMessage, one line each: 'resume your step B<id> from your checkpoint'"
+  with one line per holder that has not started (its app session id, else its CLI one, its step and checkpoint); to a
+  chat holding a step, at its first turn after the resume, "You hold B<id>: checkpoint <commit> · <next>; go on from
+  there." The same line goes in at a session start (or the first prompt of its process) while it holds a step and the
+  person does not pause. A board without `pause-state` changes nothing. *Gone* (spec point 7): the word "prepare
+  restart" (the board refuses it), `.claude/restart.md` (not read, `restartNote`, `restartAt`), the "Safe point:"
+  lines and their reading (B291 `safePointNote`, B314 `storeSafePoint`, the lane "Stopped for the restart", the
+  banner's preparing and resume lines, the restart word kept a day); the copied-word banner (B315) stays for the
+  other words, and **Resume all (N cut off)** without a pause for chats that were cut off. The job texts: a worker and
+  the partner write a checkpoint with every commit and stop as the mod's line says; the main chat wakes the holders
+  from the mod's list and keeps no restart file (`roles/worker.md` "A pause of all chats", `roles/main.md`,
+  `roles/partner.md`, `roles/protocol.md` "What the Workers mod puts beside a chat's turn").
 
 **The Design tab** (the person, 2026-10-12: "i want to be able to prompt an initial idea. let it build a visual in
 codex about what i want, present it to me, if i agree can add information to it what i want and put it either on
