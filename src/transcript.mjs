@@ -124,9 +124,10 @@ export function parseTail(text, isCut) {
     if (entry.type === 'attachment') {
       // A message from another chat that arrives while a turn runs is no user entry: the app keeps it with the
       // turn, as a queued command. It opens no turn and ends none, but it can hand over a task (`queued`).
+      // B310: so does the report of a helper or command sent to the background that arrives while a turn runs.
       const held = entry.attachment
       if (held === null || typeof held !== 'object' || held.type !== 'queued_command' || typeof held.prompt !== 'string') continue
-      if (held.origin === null || typeof held.origin !== 'object' || held.origin.kind !== 'peer') continue
+      if (held.origin === null || typeof held.origin !== 'object' || !['peer', 'task-notification'].includes(held.origin.kind)) continue
       entries.push({
         type: 'queued', at: Number.isNaN(at) ? null : at, isMeta: true, isSidechain: entry.isSidechain === true,
         isCompactSummary: false, origin: held.origin, stopReason: null, blocks: blocksOf(held.prompt),
@@ -226,18 +227,24 @@ const SENT_TO_BACKGROUND = /^(Async agent launched|Command running in background
 /**
  * How many pieces of background work these entries show as started and not yet reported back: a chat ends its
  * turn while a subagent or a command runs, and the app starts it again when that reports. Counted from what the
- * app itself writes; nothing of the chat's own words is read.
+ * app itself writes; nothing of the chat's own words is read. B310: a report ends the call it names (its
+ * `<tool-use-id>`), also one that arrived in the middle of a turn (a queued entry); a report that names a call not
+ * seen here (sent off before the tail began) ends nothing, one that names none ends the oldest.
  */
 export function backgroundRunning(entries) {
-  let running = 0
+  const running = []
   for (const entry of entries) {
-    if (entry.isSidechain || entry.type !== 'user') continue
+    if (entry.isSidechain || (entry.type !== 'user' && entry.type !== 'queued')) continue
     for (const block of entry.blocks) {
-      if (block.type === 'tool_result' && SENT_TO_BACKGROUND.test(resultText(block).trimStart())) running += 1
-      else if (block.type === 'text' && typeof block.text === 'string' && block.text.includes('<task-notification>')) running = Math.max(0, running - 1)
+      if (entry.type === 'user' && block.type === 'tool_result' && SENT_TO_BACKGROUND.test(resultText(block).trimStart())) running.push(block.tool_use_id ?? null)
+      else if (block.type === 'text' && typeof block.text === 'string' && block.text.includes('<task-notification>')) {
+        const named = block.text.match(/<tool-use-id>\s*([^<\s]+)\s*<\/tool-use-id>/)?.[1] ?? null
+        const at = named === null ? 0 : running.indexOf(named)
+        if (at >= 0 && running.length > 0) running.splice(at, 1)
+      }
     }
   }
-  return running
+  return running.length
 }
 
 const baseName = path => String(path).split(/[\\/]/).filter(part => part !== '').pop() ?? ''

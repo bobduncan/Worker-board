@@ -13,7 +13,7 @@ import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
-import { limitStop, limitsOf, parseUsageHistory, pauseNote, safePointNote, usageReadings } from './limits.mjs'
+import { limitStop, limitsOf, parseUsageHistory, pauseNote, safePointNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
 import { approvalRoute } from './tick.mjs'
@@ -22,7 +22,7 @@ import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
-import { informationOf, instructionsOf, storeNeeds, storeWaits } from './work/lists.mjs'
+import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
@@ -288,7 +288,7 @@ function finishedWith(waits) {
   return { ...waits, handover: parseHandover(waits.words) }
 }
 
-function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, waits, restartSince = null }) {
+function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, waits, notes = new Map(), restartSince = null }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
@@ -335,7 +335,13 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // B113: held by a limit of the plan. The app stopped it there, or the worker told the main chat that it paused
   // and its turn has ended. Until when is settled once the limits are known (`heldUntil`).
   const stop = entries === null ? null : limitStop(entries)
-  const note = stop !== null || entries === null || chat.isMain || turn !== 'ended' ? null : pauseNote(entries, [main.mainTitle, main.mainSession])
+  const mains = [main.mainTitle, main.mainSession].filter(Boolean)
+  const canPause = stop === null && entries !== null && !chat.isMain && turn === 'ended'
+  // B310: or it filed that line as a work note to the main chat; the newer of the two forms decides.
+  const sent = canPause ? pauseNote(entries, mains) : null
+  const filed = canPause ? storePause(notes.get(chat.name.toLowerCase()), scan ?? entries, mains) : null
+  const word = [sent, filed].filter(Boolean).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+  const note = word === null || word.isPaused === false ? null : word
   // B291: it sent the main chat its safe-point line since "prepare restart": stopped for the restart, whatever its
   // transcript's tail shows (a turn cut off, then the stop word answered, can look as if it still runs).
   const safe = stop !== null || note !== null || entries === null || chat.isMain ? null
@@ -759,11 +765,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const last = new Map(lines.filter(line => line.gap !== true).map(line => [line.chat, line]))
   // B299: who waits for the person by the store's asks.
   const waits = storeWaits(raw.work, prefix)
+  // B310: the notes each chat filed to the main chat: a pause for the limit may come that way.
+  const notes = notesToMain(raw.work, { prefix, main: list.main ?? 'main' })
   // B291: since when the person's "prepare restart" stands (no "resume" after it): a worker's safe-point line sent
   // since then says it stopped for the restart.
   const restartWord = sent.findLast(message => message.command === 'prepare restart' || message.command === 'resume')
   const context = {
-    now, config, last, lines, prefix, waits,
+    now, config, last, lines, prefix, waits, notes,
     // How a message from the main chat is known: by its title, or by the app's id for it.
     main: { mainTitle: list.main === null ? null : `${prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
     restartSince: restartWord?.command === 'prepare restart' && Number.isFinite(restartWord.at) ? restartWord.at : null,

@@ -60,6 +60,26 @@ export function storeWaits(work, prefix = '') {
   }
 }
 
+/**
+ * B310: the notes each chat filed to the main chat (`To` main, or the main chat's own name): per chat (plain name,
+ * lower case) `[{ at, text }]`, `at` its Since (to the minute) and `text` its words as written under Text (else the
+ * head's one line). A worker may send its pause line for the limit this way; state.mjs reads it (limits.mjs,
+ * `storePause`). Empty when the store cannot be read.
+ */
+export function notesToMain(work, { prefix = '', main = 'main' } = {}) {
+  const mains = new Set(['main', plainName(main, prefix)])
+  const byChat = new Map()
+  for (const item of itemsOf(work)) {
+    if (valueOf(item, 'Kind') !== 'note' || !mains.has(plainName(valueOf(item, 'To'), prefix)) || valueOf(item, 'From') === null) continue
+    const at = sinceMs(valueOf(item, 'Since'))
+    if (!Number.isFinite(at)) continue
+    const words = textOf(item)
+    const name = plainName(valueOf(item, 'From'), prefix)
+    byChat.set(name, [...(byChat.get(name) ?? []), { at, text: words.length > 0 ? words.join('\n') : valueOf(item, 'Text') ?? '' }])
+  }
+  return byChat
+}
+
 /** Whether an option is the one advised: its text, or its letter ("B" of "B thick"). */
 const isAdvised = (option, advice) => advice !== null && (option === advice || option.toLowerCase().startsWith(`${advice.toLowerCase()} `))
 

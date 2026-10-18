@@ -144,6 +144,8 @@ export const SAFE_POINT = /^(?:note\s+from\s+[^:]+:\s*)?safe\s+point:/i
  * Anything else (a command, a file read or written, a helper) is work.
  */
 const isCoordination = name => name === 'SendMessage' || /^mcp__folder-branches__/.test(name)
+  // B310: also the app's end of a turn (its recap and plan) and a look at the limits.
+  || /^mcp__ccd_turn__/.test(name) || name === 'mcp__ccd_session_mgmt__get_usage'
 
 /**
  * B291: a worker stopped for a restart: `{ at }` when it sent the main chat (`mains`: its title and the app's id for
@@ -167,6 +169,34 @@ export function safePointNote(entries, mains, since) {
     }
   }
   return note
+}
+
+/**
+ * B310: a worker's pause for the limit filed as a work note to the main chat (`work note --to main`), as `pauseNote`
+ * reads the message form. `notes` are the chat's notes to the main chat in the store, `{ at, text }` (`at` its Since,
+ * to the minute). The newest decides: `{ at, isPaused: true, until }` when its first line is the pause line, with the
+ * clock time after "until" (the next such time after the note), else `{ at, isPaused: false }`: it told the main chat
+ * something else. Null without notes, or when the pause no longer stands: after the note's minute the chat did work
+ * of its own (`entries`: a tool that does not only coordinate, as for the safe point) or sent the main chat
+ * (`mains`: its title and the app's id for it) a message. Whether its turn has ended is the caller's.
+ */
+export function storePause(notes, entries, mains) {
+  const newest = (notes ?? []).filter(one => Number.isFinite(one?.at)).reduce((a, b) => (a === null || b.at >= a.at ? b : a), null)
+  if (newest === null) return null
+  const first = String(newest.text ?? '').trim().split('\n')[0]
+  if (!PAUSED.test(first)) return { at: newest.at, isPaused: false }
+  const names = [mains].flat().filter(Boolean)
+  // The note's time is written to the minute: what the chat did within that minute belongs to the turn that paused.
+  const after = newest.at + MIN
+  for (const entry of entries ?? []) {
+    if (entry.type !== 'assistant' || entry.isSidechain || !(entry.at >= after)) continue
+    for (const block of entry.blocks) {
+      if (block.type !== 'tool_use') continue
+      if (!isCoordination(block.name) || (block.name === 'SendMessage' && names.includes(block.input?.to))) return null
+    }
+  }
+  const until = first.match(/\buntil\s+(.*)$/i)
+  return { at: newest.at, isPaused: true, until: until === null ? null : clockAfter(newest.at, until[1]) }
 }
 
 /** One limit as the board shows it, or null when nothing is known of it. */
