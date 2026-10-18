@@ -3,6 +3,7 @@
 // `overlaps(item)` is the server's: the id of a taken step whose Touches overlap this one's, or null.
 
 import { valueOf } from './item.mjs'
+import { openAsksOf, refineAsksOf } from './stepAsks.mjs'
 
 const idsIn = value => (value ?? '').match(/\b[A-Z]\d+\b/g) ?? []
 const asksOf = (item, ctx) => [...(ctx.store?.items?.values() ?? [])]
@@ -28,7 +29,9 @@ const isFree = (item, ctx) => blockersOpen(item, ctx).length === 0 && waitWords(
 export const GUARDS = {
   'refined is ready': item => valueOf(item, 'Refined') === 'ready',
   // B303: the main chat (or the person) asked to queue it before its refine: the board queues it once it is refined.
-  'a queue was asked before its refine': item => valueOf(item, 'Queue when refined') !== null,
+  // B309: and once no ask under it is open, nor answered and not yet folded in by the Advisor.
+  'a queue was asked before its refine': (item, ctx) => valueOf(item, 'Queue when refined') !== null
+    && openAsksOf(ctx.store?.items, valueOf(item, 'Id')).length === 0 && refineAsksOf(ctx.store?.items, item).length === 0,
   'Touches overlaps no taken step': (item, ctx) => (ctx.overlaps?.(item) ?? null) === null,
   // B305: the worker's own take needs only what it is blocked by resolved; Owner free is the board's delivery.
   // B306: "Blocked by" here means what the step waits for too: the ids `Waits for` names, and words not yet cleared.

@@ -307,6 +307,20 @@ are about to be queued, not all at once; the steps that were queued already at t
 with `since` as `queuedBefore`), so a board that starts refining does not send the whole queue to the Advisor.
 Without a Workers mod nothing of this runs.
 
+**A step's asks are its refine questions (B309).** Seen live on 2026-10-18: the board sent the Advisor a fold round for
+a step whose block listed no questions of its own while two asks under it, filed by its worker, were still open. Every
+ask under a step (`Of: B<id>`) now counts as one of its refine questions wherever the board decides
+(`src/work/stepAsks.mjs`, `refineAsksOf`; folded into the step's `refined` as `asks`, backlog.mjs `withAsks`): one
+that is open makes the step wait for the person ("Your answers waiting" on the Advisor tab, no round sent, not refined,
+also on a ready block); one answered since the block was last written waits for the next round, as an answered
+question in the block does, so the board sends one fold round once the last is answered (its words name the asks);
+the refine's own questions (`Via: refine`) count there through the block, which holds their answers.
+Which came last is read from the step's History ("Q<n> answered" after "refined, round n" or "refined is ready"), else
+from the times, the same minute counting as after. `work refined` is refused while any ask under the step is open,
+naming them; a queue asked before the refine waits for them and for that round (`queueAsked`, the guard "a queue was
+asked before its refine"), and Main's queue of a refined step with such asks keeps the wish the same way. A step with no
+block keeps its first round: an open ask holds back only a fold round.
+
 **Stop, move or take out of the queue (B83).** The person, 2026-10-14, of the two choices: "1. A" (stop lets the worker
 reach a safe point: work committed and pushed, nothing new started) and "2. A" (the main chat makes the change). A
 worker's "⋯" menu has "■ Stop its task" for a worker on a task; it asks once ("Stop its task? It finishes what runs,

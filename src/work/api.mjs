@@ -16,6 +16,7 @@ import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
+import { openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { writeView } from './view.mjs'
 
@@ -645,6 +646,19 @@ async function queue(body, w) {
   if (about !== '' && minutesOf(`about ${about}`) === null) return refuse(400, '"about" is a time such as "1 h" or "40 min".')
   const words = [`for ${owner}`, after === '' ? null : `after ${after}`, about === '' ? null : `about ${about}`].filter(Boolean).join('; ')
   const moved = move(found.item, 'queued', w.role, w)
+  // B309: a refined step with asks under it that count as its refine questions (open, or answered and not folded in
+  // yet) is not refined for the queue: the wish is kept, and the board queues it once the Advisor folded them in.
+  const pending = asksCounted(w.store.items, found.item)
+  if (moved.ok && pending.length > 0) {
+    const id = valueOf(found.item, 'Id')
+    const open = pending.filter(one => one.answer === null).map(one => one.id)
+    const why = open.length > 0
+      ? `waits for ${open.join(', ')}: the person answers, the Advisor folds it in`
+      : `waits for the Advisor to fold in the answers to ${pending.map(one => one.id).join(', ')}`
+    const next = ordered(said(put(copy(found.item), 'Queue when refined', words), w, `${QUEUE_ASKED}: ${words}`))
+    const done = await save(next, found.text, w)
+    return done.ok ? changed(next, `${id} ${why}, then the board queues it for ${owner} by itself.`, { queueWhenRefined: words }) : done
+  }
   if (!moved.ok) {
     if (!queuesOnceRefined(found.item, words, w)) return moved
     // B303: not refined yet: the wish is kept on the step; the refine gate sends it to the Advisor, and once it is
@@ -681,6 +695,8 @@ function queuesOnceRefined(item, words, w) {
   if (stateOf(item) !== 'new') return false
   const refined = put(put(copy(item), 'State', 'refined'), 'Queue when refined', words)
   const ctx = flowCtx(w, [refined])
+  // B309: as once its refine is ready: the asks under it answered and folded in.
+  for (const ask of openAsksUnder(ctx.store.items, valueOf(item, 'Id'))) ctx.store.items.delete(valueOf(ask, 'Id'))
   return mayMove(w.store.flow, refined, 'queued', w.role, ctx).ok && mayMove(w.store.flow, refined, 'queued', 'server', ctx).ok
 }
 
@@ -692,6 +708,8 @@ function queuesOnceRefined(item, words, w) {
 function queueAsked(item, w) {
   const wish = valueOf(item, 'Queue when refined')
   if (wish === null || stateOf(item) !== 'refined') return item
+  // B309: it waits for the asks under it too, and for the round that folds their answers in.
+  if (openAsksUnder(w.store.items, valueOf(item, 'Id')).length > 0 || asksCounted(w.store.items, item).length > 0) return item
   const moved = move(item, 'queued', 'server', w, flowCtx(w, [item]))
   if (!moved.ok) return item
   const part = name => wish.split(';').map(one => one.trim()).find(one => one.startsWith(`${name} `))?.slice(name.length + 1).trim() ?? ''
@@ -914,8 +932,9 @@ async function refined(body, w) {
   const id = valueOf(found.item, 'Id')
   const block = found.item.sections.get('Refined') ?? []
   if (block.length === 0) return refuse(409, `${id} has no refine block yet: refine it first.`)
-  // B299: a refine is ready only once the person answered its questions.
-  const waiting = refineAsksOf(w, id)
+  // B299: a refine is ready only once the person answered its questions. B309: every ask under the step counts, also
+  // one its worker filed.
+  const waiting = openAsksUnder(w.store.items, id)
   if (waiting.length > 0) return refuse(409, `${id}: ${waiting.map(one => `${valueOf(one, 'Id')} ("${valueOf(one, 'Title')}")`).join(', ')} ${waiting.length === 1 ? 'is' : 'are'} still open: the person answers first.`)
   const what = lines(body.what, 300).map(one => `- ${one.replace(/^[-*]\s+/, '').trim()}`)
   if (what.length === 0) return refuse(400, 'Say what we build in "what", one line per part.')

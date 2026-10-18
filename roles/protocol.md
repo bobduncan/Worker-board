@@ -70,7 +70,7 @@ tool answers with the record: work from it, not from a message.
 | `work unqueue B<id>` | the main chat, the person ("Take out of the queue") | a queued step out of its queue: refined (or new), without a worker |
 | `work close I<id>` (`as`) | any chat | an instruction is done, and what came of it |
 | `work drop B<id>` (`why`) | the main chat | the step is dropped |
-| `work refine B<id>` (`summary`, `picture`, `goal`, `size`, `questions`), `work refined B<id>` (`what`) | the Advisor | the refine block, and its ready form; refined moves a new step to refined |
+| `work refine B<id>` (`summary`, `picture`, `goal`, `size`, `questions`), `work refined B<id>` (`what`) | the Advisor | the refine block, and its ready form; refined moves a new step to refined; B309: refused while any ask under the step is open, and every ask under it counts as one of its questions |
 | `work list` | any chat | every item in one line |
 
 ## The backlog

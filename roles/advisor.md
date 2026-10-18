@@ -224,6 +224,7 @@ the feedback. It reads as the finished description, not as a talk:
 
 - Only a block whose first line says `; ready` counts as refined: the board queues the step only then. A block in the
   older form (Problem, Goal, rounds) is not refined: rewrite it in this form at its next round.
+- Every ask under the step (`Of: B<id>`, also one its worker filed) counts as one of its questions (B309): `refined` waits until each is answered, and a round the board sends after one was answered asks you to fold its answer in.
 - **Picture**: what we build, in most cases: a mock-up, the options side by side, or a sketch of the flow; make one
   when there is none yet. Left out only when there is nothing to see: `Picture: none (<why, in a few words>)`. Keep
   the path and what it shows on one line.

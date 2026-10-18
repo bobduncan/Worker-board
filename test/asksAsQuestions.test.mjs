@@ -30,6 +30,7 @@ const CHATS = ['Lead', 'Worker 1', 'Advisor']
 
 const BACKLOG = [
   '## Work',
+  '- [ ] B12 Count the moon beetles',
   '- [ ] B20 Build the tower',
   '  Refined (round 1, by Advisor, 2026-10-17 09:00):',
   '  Summary: A tower to watch the herd from.',
@@ -39,14 +40,14 @@ const BACKLOG = [
   '  Summary: The bridge in the herd\'s colours.',
   '  What we build:',
   '  - One coat of paint.',
-  '- [ ] B22 Count the moon beetles',
+  
   '',
 ].join('\n')
 
 /** An ask item under a step, as the work API writes one. */
-const ask = (id, of, state = 'open', since = '2026-10-17 09:00', words = null) => parseItem([
+const ask = (id, of, state = 'open', since = '2026-10-17 09:00', words = null, via = null) => parseItem([
   `Id: ${id}`, 'Kind: ask', `Title: Question ${id}?`, `State: ${state}`, 'Owner: Worker 1', 'Activity: Work', `Since: ${since}`,
-  'Asks: decide', 'Blocking: yes', `Of: ${of}`, '', '## Text', `Question ${id}?`,
+  'Asks: decide', 'Blocking: yes', `Of: ${of}`, ...(via === null ? [] : [`Via: ${via}`]), '', '## Text', `Question ${id}?`,
   ...(words === null ? [] : ['', '## Answer', words]),
   '', '## History', `- 2026-10-17 09:00 Worker 1: asked (decide, blocking)`, '',
 ].join('\n'))
@@ -77,7 +78,7 @@ function build(work, outbox = []) {
   return buildState(raw, { lines: [], outbox, runs: [], board: { startedAt: NOW - 10 * MIN, offSince: null }, seen, now: NOW, config })
 }
 const stepOf = (state, id) => state.backlog.flatMap(activity => activity.steps).find(step => step.id === id)
-/** B20 and B21 are new to the board (above `since`); B22 is not, so it asks for no first round here. */
+/** B20 and B21 are new to the board (above `since`); B12 is not, so it asks for no first round here. */
 const KEPT = { since: 19, queuedBefore: [], waiting: [] }
 const BASE = { ask: null, step: null, title: null, version: null, verdict: null }
 const refineSent = (at, about, before) => ({ id: `r${at}${about}`, at, ...BASE, to: 'Advisor', command: 'refine', about, round: 2, board: true, before, text: `refine step\nStep: ${about}\nRound: 2`, state: 'delivered', deliveredAt: at + 5000 })
@@ -161,12 +162,14 @@ test('a ready step with an ask filed after it is not refined: a held queue ask w
   const open = build(storeWith([ask('Q4', 'B21')], { B21: ['- 2026-10-17 09:00 Advisor: refined is ready', '- 2026-10-17 09:30 Worker 1: asked Q4'] }), outbox)
   assert.equal(stepOf(open, 'B21').refineState, 'answers')
   assert.equal(groupOf(open, 'B21'), 'answers')
-  let due = refineWhenDue(open, outbox, KEPT, NOW)
+  // Only B21 is new here, so B20 (answered, no asks) asks for nothing.
+  const kept = { ...KEPT, since: 20 }
+  let due = refineWhenDue(open, outbox, kept, NOW)
   assert.deepEqual([due.release, due.refine], [[], null])
   const answered = build(storeWith([ask('Q4', 'B21', 'answered', '2026-10-17 10:00', 'Yes.')], {
     B21: ['- 2026-10-17 09:00 Advisor: refined is ready', '- 2026-10-17 09:30 Worker 1: asked Q4', '- 2026-10-17 10:00 person: Q4 answered'],
   }), outbox)
-  due = refineWhenDue(answered, outbox, KEPT, NOW)
+  due = refineWhenDue(answered, outbox, kept, NOW)
   assert.deepEqual([due.release, due.refine?.about, due.refine?.why], [[], 'B21', 'queue'])
   // A ready block with answers to fold in is not "checked again": its words say what to fold in.
   assert.doesNotMatch(due.refine.text, /check it again/)
@@ -174,13 +177,23 @@ test('a ready step with an ask filed after it is not refined: a held queue ask w
 })
 
 test('a step without a refine block keeps its first round: an open ask holds back only a fold round', () => {
-  const state = build(storeWith([ask('Q5', 'B22')]))
-  assert.equal(stepOf(state, 'B22').refineState, 'none')
-  assert.equal(refineWhenDue(state, [], { since: 21, queuedBefore: [], waiting: [] }, NOW).refine?.about, 'B22')
+  const state = build(storeWith([ask('Q5', 'B12')]))
+  assert.equal(stepOf(state, 'B12').refineState, 'none')
+  assert.equal(refineWhenDue(state, [], { since: 11, queuedBefore: [], waiting: [] }, NOW).refine?.about, 'B12')
+})
+
+test('the refine\'s own question answered in the step\'s window counts as the block\'s answer, not twice', () => {
+  // As the live store had it: answered in the window and folded in within the same minute, no "Q<n> answered" line.
+  const work = storeWith([ask('Q7', 'B21', 'answered', '2026-10-17 09:00', 'yes', 'refine')], {
+    B21: ['- 2026-10-17 09:00 person: answered the refine questions', '- 2026-10-17 09:00 Advisor: refined is ready'],
+  })
+  assert.equal(stepOf(build(work), 'B21').refineState, 'ready')
+  // Open, it is still a question that waits.
+  assert.equal(stepOf(build(storeWith([ask('Q7', 'B20', 'open', '2026-10-17 09:00', null, 'refine')])), 'B20').refineState, 'answers')
 })
 
 test('an ask under another step changes nothing', () => {
-  const state = build(storeWith([ask('Q6', 'B22')], { B21: ['- 2026-10-17 09:00 Advisor: refined is ready'] }))
+  const state = build(storeWith([ask('Q6', 'B12')], { B21: ['- 2026-10-17 09:00 Advisor: refined is ready'] }))
   assert.equal(stepOf(state, 'B21').refineState, 'ready')
   assert.equal(stepOf(state, 'B20').refineState, 'answered')
 })

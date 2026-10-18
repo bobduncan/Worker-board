@@ -2207,11 +2207,13 @@ const hasNewForm = refined => refined !== null && refined !== undefined && (refi
  */
 function refinedChips(refined, isDone = false) {
   if (!hasNewForm(refined)) return null
-  const open = isDone ? 0 : refined.questions.filter(one => one.answer === null).length
+  // B309: the open asks under the step count as its questions; one answered and not folded in yet keeps Ready away.
+  const asks = refined.asks ?? []
+  const open = isDone ? 0 : (refined.ready ? 0 : refined.questions.filter(one => one.answer === null).length) + asks.filter(one => one.answer === null).length
   return [
     ...(refined.partOf === '' ? [] : [{ text: refined.partOf, tone: 'goal' }]),
     ...(refined.size === '' ? [] : [{ text: sizeText(refined.size), tone: 'plain' }]),
-    ...(refined.ready ? [{ text: 'Ready', tone: 'ready' }] : open > 0 ? [{ text: `${open} question${open === 1 ? '' : 's'} for you`, tone: 'wait' }] : []),
+    ...(refined.ready && asks.length === 0 ? [{ text: 'Ready', tone: 'ready' }] : open > 0 ? [{ text: `${open} question${open === 1 ? '' : 's'} for you`, tone: 'wait' }] : []),
   ]
 }
 /**

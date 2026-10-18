@@ -329,20 +329,33 @@ function addRefined(refined, part, line, isMore) {
  * without it, also one in the older form with every question answered, is not refined; nor is a step without one.
  */
 export function isRefined(refined) {
-  return refined !== null && refined !== undefined && refined.ready === true
+  // B309: an ask under the step that is open, or answered since the block was written, holds it back too.
+  return refined !== null && refined !== undefined && refined.ready === true && (refined.asks ?? []).length === 0
+}
+
+/**
+ * B309: a refine block with the asks under its step that count as its questions now (`stepAsks`, work/stepAsks.mjs)
+ * as `asks: [{ id, title, answer }]`; the block as it is when there are none, so its key stays.
+ */
+export function withAsks(refined, stepAsks) {
+  return refined === null || !Array.isArray(stepAsks) || stepAsks.length === 0 ? refined : { ...refined, asks: stepAsks }
 }
 
 /**
  * B285, B286: where a step stands in its refine: `none` (no block), `asking` (the Advisor works on it: `refineAsk`
  * is open), `answers` (questions wait for the person's answers), `answered` (none open, or accepted, but not folded
  * in yet: the Advisor's next round makes it ready) or `ready` (its head says "; ready"). `step` holds `refined` and
- * `refineAsk`.
+ * `refineAsk`. B309: the asks under the step count as questions (`refined.asks`, `withAsks`): one open waits for
+ * the person, also on a ready block (accepting the refine does not answer it); one answered since the block was
+ * written waits for the next round.
  */
 export function refineStateOf(step) {
   if (step.refineAsk?.isOpen === true) return 'asking'
   const refined = step.refined ?? null
   if (refined === null) return 'none'
-  if (refined.ready === true) return 'ready'
+  const asks = refined.asks ?? []
+  if (asks.some(ask => ask.answer === null)) return 'answers'
+  if (refined.ready === true) return asks.length === 0 ? 'ready' : 'answered'
   return refined.accepted === null && refined.questions.some(question => question.answer === null) ? 'answers' : 'answered'
 }
 
@@ -406,7 +419,7 @@ export function queue(backlog, { underWay = new Set() } = {}) {
     .flatMap(activity => open(activity).filter(isQueued))
     .filter(step => step.id === null || !underWay.has(step.id))
     // B293: its refine block apart, as on the Backlog tab, so its window draws it the same way.
-    .map(({ id, text, title, worker, branch, after, minutes, notes }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(withoutRefined(notes)), refined: refinedOf(notes) }))
+    .map(({ id, text, title, worker, branch, after, minutes, notes, stepAsks }) => ({ id, text, title, worker, branch, after, minutes, notes: noteSections(withoutRefined(notes)), refined: withAsks(refinedOf(notes), stepAsks) }))
 }
 
 /**
@@ -457,7 +470,8 @@ export function overview(backlog, { underWay = new Set() } = {}) {
         minutes: step.minutes,
         after: step.after,
         notes: noteSections(withoutRefined(step.notes)),
-        refined: refinedOf(step.notes),
+        // B309: with the asks under it that count as its questions.
+        refined: withAsks(refinedOf(step.notes), step.stepAsks),
         status: step.isDone ? 'done' : step.isYou ? 'you' : step.ownBranch !== null || (step.id !== null && underWay.has(step.id)) ? 'progress' : isQueued(step) ? 'queued' : 'open',
       })),
     }

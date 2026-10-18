@@ -7,6 +7,7 @@ import { storeAsBacklog, storeProblems } from './adapter.mjs'
 import { DEFAULT_FLOW, nextMoves, statesOf } from './flow.mjs'
 import { valueOf } from './item.mjs'
 import { migrateBacklog } from './migrate.mjs'
+import { refineAsksOf } from './stepAsks.mjs'
 import { readStore } from './store.mjs'
 
 /** How long a read of the store is kept when nothing changed it through the board: a hand edit shows within this time. */
@@ -72,7 +73,19 @@ export function storeBacklog(work, rules, { backlog = null } = {}) {
   if (fault !== null) return { backlog: empty, store: { ok: false, dir: work.dir ?? null, items: 0, problems: [], why: fault } }
   const problems = [...new Set([...work.problems.map(one => one.line), ...storeProblems(work.items, work.activities)])]
   const kept = work.viewKept ?? null
-  return { backlog: storeAsBacklog(work.items, work.activities, rules), store: { ok: true, dir: work.dir ?? null, items: work.items.size, problems, why: null, ...(kept === null ? {} : { kept }) } }
+  return { backlog: withStepAsks(storeAsBacklog(work.items, work.activities, rules), work.items), store: { ok: true, dir: work.dir ?? null, items: work.items.size, problems, why: null, ...(kept === null ? {} : { kept }) } }
+}
+
+/**
+ * B309: each step with an id carries `stepAsks`, the asks under it that count as its refine questions now
+ * (stepAsks.mjs); backlog.mjs folds them into the step's `refined`.
+ */
+function withStepAsks(backlog, items) {
+  for (const step of backlog.activities.flatMap(activity => activity.steps)) {
+    const item = step.id === null ? undefined : items.get(step.id)
+    step.stepAsks = item === undefined ? [] : refineAsksOf(items, item)
+  }
+  return backlog
 }
 
 /**
