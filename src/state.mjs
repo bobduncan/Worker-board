@@ -542,13 +542,16 @@ export function refineAsk(step, sent, now) {
 }
 
 /**
- * B280: what was sent to a chat and is not in its chat yet, by kind: refines, rounds of the board's clock, and the
- * person's words (a line typed to it, an answer to its question, an answer to its recommendation).
+ * B280: what was sent to a chat and is not in its chat yet, by kind: refines, rounds (of the board's clock, or asked
+ * for by the person), and the person's words (a line typed to it, an answer to its question, an answer to its
+ * recommendation). One taken and never settled waits no more after ten minutes, as the outbox shows it (store.mjs).
  */
-function queuedFor(sent, name) {
-  const open = sent.filter(message => message.to === name && (message.state === 'waiting' || message.state === 'taken'))
+const TAKEN_SHOWN_MS = 10 * MIN
+function queuedFor(sent, name, now) {
+  const open = sent.filter(message => message.to === name
+    && (message.state === 'waiting' || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS)))
   const refines = open.filter(message => message.command === 'refine').length
-  const rounds = open.filter(message => message.command === 'round').length
+  const rounds = open.filter(message => message.command === 'round' || message.command === 'recheck').length
   return { refines, rounds, words: open.length - refines - rounds }
 }
 
@@ -947,7 +950,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       idle: advisorCard.idle,
       // B301: it asks with the work store's asks; also when the app says it waits (its question form).
       asksYou: advisorWaits !== null || waits.asking.has(advisorChat.name.toLowerCase()),
-      queued: queuedFor(sent, advisorChat.name),
+      queued: queuedFor(sent, advisorChat.name, now),
       // B288: a round runs from when it is sent, by the clock or on the person's request: while it waits to be typed;
       // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then
       // while the Advisor is at work on the turn that began with it (an hour at most). A turn begun later is another.

@@ -1523,10 +1523,10 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .workers-panel .lane.is-advisor { border-top: 0; box-shadow: inset 3px 0 0 var(--advisor); background: #0e1d22; cursor: pointer; }
 .workers-panel .lane.is-advisor:hover { background: #122a30; }
 .lane.is-advisor:focus-visible { outline: 2px solid var(--advisor); outline-offset: -2px; }
-.worker-icon.is-off { color: var(--unknown); }
+.lane.is-advisor .worker-icon.is-off { color: var(--unknown); }
 .lane.is-advisor .worker-icon.is-free { color: var(--advisor); }
-.pill.is-off { background: var(--unknown); }
-.lane.is-advisor .pill.is-free { background: var(--advisor); color: #052322; }
+.workers-panel .lane.is-advisor .pill.is-off { background: rgba(91, 103, 121, 0.22); color: #c9d3e0; box-shadow: inset 0 0 0 1px rgba(91, 103, 121, 0.6); }
+.workers-panel .lane.is-advisor .pill.is-free { background: var(--advisor); color: #052322; box-shadow: none; }
 .advisor-lane-refine { margin: 6px 0 0; }
 .advisor-waits { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .advisor-waits b { color: var(--text); }

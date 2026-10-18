@@ -1060,7 +1060,8 @@ function drawWorkers(state) {
 function advisorStanding(advisor) {
   if (advisor.isRunning === false) return { key: 'off', label: 'Not running' }
   if (advisor.state === 'working') return { key: 'working', label: 'Working' }
-  if (advisor.asksYou === true) return { key: 'waiting', label: 'Needs your answer' }
+  // A server without the card's fields: an Advisor that waits (its question form) asks you something.
+  if (advisor.asksYou === true || (advisor.asksYou === undefined && advisor.state === 'waiting')) return { key: 'waiting', label: 'Needs your answer' }
   if (advisor.state === 'interrupted') return { key: 'interrupted', label: 'Cut off' }
   if (advisor.state === 'suspended') return { key: 'suspended', label: 'Suspended' }
   return { key: 'free', label: 'Idle' }
@@ -1140,11 +1141,12 @@ function drawAdvisorLane(state) {
   }
 
   const time = advisor.state === 'working' ? drawEta(lane, state.readAt) : el('div', 'eta is-muted')
-  if (advisor.state !== 'working') time.append(el('span', 'state', standing.key === 'off' ? 'Not running' : standing.key === 'waiting' ? 'Waits for you' : 'Idle'))
+  if (advisor.state !== 'working') time.append(el('span', 'state', standing.label))
 
   const queued = advisorQueued(advisor.queued)
   const waits = el('div', 'queue advisor-waits')
-  if (queued === null) waits.append(el('span', 'queue-empty', 'Nothing waits for it'))
+  // A server without the count says nothing about it.
+  if (advisor.queued === undefined) { /* nothing to say */ } else if (queued === null) waits.append(el('span', 'queue-empty', 'Nothing waits for it'))
   else waits.append(el('b', '', `${queued.count} waiting for it`), el('small', '', queued.text))
 
   const open = el('div', 'lane-menu-cell')
@@ -1173,7 +1175,10 @@ $('lanes').addEventListener('keydown', event => {
  */
 function drawLanes(state) {
   const focused = document.activeElement?.dataset?.stepsOf ?? null
+  // B280: the Advisor's card, drawn anew, keeps the keyboard's focus too.
+  const wasOnAdvisor = document.activeElement?.dataset?.openAdvisor !== undefined
   fill($('lanes'), [...state.chats.map(lane => drawLane(lane, state)), drawWorkers(state), drawAdvisorLane(state)].filter(part => part !== null))
+  if (wasOnAdvisor) $('lanes').querySelector('[data-open-advisor]')?.focus()
   // B159: the columns are named only when there are lanes under them.
   $('workers-columns').hidden = state.chats.length === 0
   if (focused !== null) [...$('lanes').querySelectorAll('[data-steps-of]')].find(node => node.dataset.stepsOf === focused)?.focus()
@@ -6395,7 +6400,12 @@ function drawTalk(state) {
   busy.hidden = advisor?.state !== 'working'
   if (!busy.hidden) {
     const topic = advisor.task?.text || advisor.doingNow || 'its turn'
-    busy.replaceChildren(el('b', '', `Working: ${topic}`), el('span', '', 'What you type waits until it is done.'))
+    // Written anew only when its words change: it is a status line, and a reader would hear it again each time.
+    const words = `Working: ${topic}`
+    if (busy.dataset.words !== words) {
+      busy.dataset.words = words
+      busy.replaceChildren(el('b', '', words), el('span', '', 'What you type waits until it is done.'))
+    }
   }
   // B282: why a send or a paste did not go, else where what is sent goes.
   const sayProblem = problems.get('talk') ?? pictureSlots.advisor.problem

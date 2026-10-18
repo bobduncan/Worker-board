@@ -13,7 +13,7 @@ import vm from 'node:vm'
 import { answer, step, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from '../src/state.mjs'
-import { parseItem, valueOf } from '../src/work/item.mjs'
+import { parseItem, serializeItem, valueOf } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
 
 const MIN = 60_000
@@ -69,6 +69,12 @@ test('what waits for it is counted by kind, only while it is not in its chat yet
     ],
   })
   assert.deepEqual(state.advisor.queued, { refines: 1, rounds: 1, words: 2 })
+  // A message taken long ago and never settled waits no more; a round asked for by the person is a round.
+  const later = build({
+    advisor: [typed(NOW - 12 * MIN, 'Plan the pond'), step(NOW - MIN, 'Read')],
+    outbox: [sent('stuck', { state: 'taken', at: NOW - 40 * MIN, takenAt: NOW - 30 * MIN }), sent('again', { command: 'recheck' })],
+  })
+  assert.deepEqual(later.advisor.queued, { refines: 0, rounds: 1, words: 0 })
 })
 
 test('an Advisor with an open ask in the work store says so on its card; a refine question is its refine state', () => {
@@ -81,6 +87,8 @@ test('an Advisor with an open ask in the work store says so on its card; a refin
   }
   const turn = [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, 'I asked on the board.')]
   assert.equal(build({ advisor: turn, work: storeWith([ask('Q1', {})]) }).advisor.asksYou, true)
+  const prefixed = parseItem(serializeItem(ask('Q2', {})).replace('Owner: Advisor', 'Owner: Garden · Advisor'))
+  assert.equal(build({ advisor: turn, work: storeWith([prefixed]) }).advisor.asksYou, true, 'an owner with the prefix is the same chat')
   assert.equal(build({ advisor: turn, work: storeWith([ask('Q1', { via: 'refine' })]) }).advisor.asksYou, false)
   assert.equal(build({ advisor: turn, work: storeWith([ask('Q1', { state: 'answered' })]) }).advisor.asksYou, false)
   // The board reads no questions from its chat's words.
@@ -105,6 +113,23 @@ test('its card says how it stands: working, needs your answer, idle, or not runn
   assert.equal(at({}), 'Idle')
   assert.equal(at({ isRunning: false, state: 'working' }), 'Not running')
   assert.equal(at({ state: 'interrupted' }), 'Cut off')
+  // A server without the card's fields: an Advisor that waits (its question form) still needs your answer.
+  assert.equal(page.advisorStanding({ isRunning: true, state: 'waiting' }).label, 'Needs your answer')
+  assert.equal(page.advisorStanding({ isRunning: true, state: 'waiting', asksYou: false }).label, 'Idle')
+})
+
+test('the card keeps the keyboard focus over a redraw, says its standing in the time column, and shows no count it does not have', () => {
+  const card = script.slice(script.indexOf('function drawAdvisorLane'), script.indexOf('function drawLanes'))
+  assert.ok(card.includes("el('span', 'state', standing.label)"))
+  assert.ok(card.includes('if (advisor.queued === undefined)'))
+  const lanes = script.slice(script.indexOf('function drawLanes'), script.indexOf('function drawLanes') + 1200)
+  assert.ok(lanes.includes("const wasOnAdvisor = document.activeElement?.dataset?.openAdvisor !== undefined"))
+  assert.ok(lanes.includes("$('lanes').querySelector('[data-open-advisor]')?.focus()"))
+  // The line over the typing box is written anew only when its words change, so a reader does not hear it again.
+  assert.ok(script.includes('if (busy.dataset.words !== words)'))
+  // Its own looks stay on its card.
+  assert.match(style, /\.lane\.is-advisor \.worker-icon\.is-off/)
+  assert.match(style, /\.lane\.is-advisor \.pill\.is-off/)
 })
 
 test('what waits for it, as a count and its kinds; nothing says nothing', () => {
@@ -139,5 +164,6 @@ test('B287: the card says what it refines, as the Advisor tab does', () => {
 test('while it works, the Advisor tab says on what, right above the typing box, and that what you type waits', () => {
   assert.match(html, /<div class="messages" id="messages"><\/div>\n\s+<p class="talk-busy" id="talk-busy" role="status" hidden><\/p>\n\s+<form class="say" id="say">/)
   assert.ok(script.includes("busy.hidden = advisor?.state !== 'working'"))
-  assert.ok(script.includes("el('b', '', `Working: ${topic}`), el('span', '', 'What you type waits until it is done.')"))
+  assert.ok(script.includes('const words = `Working: ${topic}`'))
+  assert.ok(script.includes("el('b', '', words), el('span', '', 'What you type waits until it is done.')"))
 })
