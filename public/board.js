@@ -1017,16 +1017,20 @@ function simpleView({ focus = null, counts = {}, limits = null, milestone = null
 
 /**
  * B328: the bar of the next milestone (the person's answer of 2026-10-18): "M1 · The loop is fun · 9 of 23 steps done ·
- * about 30 h left", every backlog step under it, its sub-goals' too; without steps yet it says so, without a count.
+ * about 30 h left", every backlog step under it, its sub-goals' too, and the parts its Missing lines name ("2 not made
+ * yet"), so all steps done is not all of it; without steps yet, or not mapped yet, it says so, without a count, as the
+ * Next milestone row does.
  */
 function milestoneBar(way) {
   const { name, title } = way.milestone
-  const { done, open, minutesLeft } = way.totals
+  const { done, open, missing, minutesLeft } = way.totals
   const head = `${name} · ${title}`
   const about = `The next milestone, ${head}`
+  if (way.isMapped === false) return { text: `${head} · not mapped yet`, percent: null, title: about }
   if (done + open === 0) return { text: `${head} · no steps of it on the board yet`, percent: null, title: about }
   const left = focusTimeLeft(minutesLeft)
-  return { text: `${head} · ${done} of ${done + open} steps done${left === null ? '' : ` · about ${left} left`}`, percent: Math.round((done / (done + open)) * 100), title: about }
+  const unmade = missing > 0 ? `, ${missing} not made yet` : ''
+  return { text: `${head} · ${done} of ${done + open} steps done${unmade}${left === null ? '' : ` · about ${left} left`}`, percent: Math.round((done / (done + open)) * 100), title: about }
 }
 
 /** All the chats the head's counts count, whatever their state. */
