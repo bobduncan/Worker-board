@@ -1717,7 +1717,9 @@ the work stores itself as well." 15:26: "windows only and claude only ... with a
    (a form: the name, the folder, which follows the name beside this project until typed, and the chats' prefix,
    "<name> - " unless given; `POST /api/new-project`, the page's token, one at a time; the demo and a board that only
    shows refuse). Windows only.
-2. A folder that is there and not empty is refused (`folderIsFree`): nothing is ever overwritten.
+2. A folder that is there and not empty is refused (`folderIsFree`): nothing is ever overwritten. A run that fails half
+   way takes away what it made (the folder too when it made it) and its place in the PC's list, so it can be tried
+   again (review).
 3. What it makes (`projectFiles`): the folder with `git init`; `.gitignore` keeping the board's copy and `.claude/` out
    of the project's repository; a README; the board's own copy in `worker-board`, a clone of the board that makes it at
    its commit, with that board's origin (a plain copy of its files when it is no repository); its `config.json` from
@@ -1730,7 +1732,12 @@ the work stores itself as well." 15:26: "windows only and claude only ... with a
 5. The icon "<name> board" (`shortcutScript`, PowerShell's WScript.Shell): on the desktop and in the Start menu's
    programs, running `node start-board.mjs --open` in the copy, minimised, with `public/board.ico` (drawn by
    `tools/make-icon.mjs`: three lanes in the page's colours). `start-board.mjs --open` opens the page once the board
-   runs (`openCommand`). An icon that cannot be made is said, with the command that starts the board instead.
+   runs (`openCommand`). An icon that cannot be made is said, with the command that starts the board instead. Review:
+   the script holds no word of the person's: the name and paths reach PowerShell as its environment (`shortcutEnv`),
+   so no quote (also ’), `$` or backtick is read as PowerShell; an icon of that name that is there already is kept and
+   said. What went wrong on the way (`warnings`) stands under the form's link.
+   A board that is no repository of its own (a download, or a folder in a larger repository) is copied as files and
+   the copy made a repository of its own, so it delivers rather than only shows.
 6. The board is started at once (`startBoard`), and the form shows the link to it.
 7. Not in it: a game (added later in `config.json`), the first chats (B322), Mac.
 

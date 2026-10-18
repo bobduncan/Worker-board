@@ -145,10 +145,16 @@ export async function makeShortcuts(shortcut) {
   return { kept: answer.out.split(/\r?\n/).filter(line => line.startsWith('KEPT:')).map(line => line.slice(5).trim()) }
 }
 
-/** Takes away what a run that failed made: the folder's contents, and the folder when it was not there before. */
+/** What a run makes at the top of the project's folder: all that a run that failed takes away again. */
+const MADE = ['.git', BOARD_FOLDER, '.claude', '.gitignore', 'README.md', 'CLAUDE.md']
+
+/**
+ * Takes away what a run that failed made, and only that (review: something else written into the folder meanwhile
+ * stays), then the folder itself when this run made it and it is empty again.
+ */
 async function undo(project, wasThere) {
-  if (!wasThere) return rm(project, { recursive: true, force: true, maxRetries: 3 })
-  for (const name of await readdir(project)) await rm(join(project, name), { recursive: true, force: true, maxRetries: 3 })
+  for (const name of MADE) await rm(join(project, name), { recursive: true, force: true, maxRetries: 3 })
+  if (!wasThere && (await readdir(project).catch(() => null))?.length === 0) await rm(project, { recursive: true, force: true })
 }
 
 /** Starts the new project's board in the background and opens its page (start-board.mjs --open). */
