@@ -1375,7 +1375,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // lines (work/deliver.mjs), the page shows its flags. Null while the store cannot be read.
   // B301: when each step of the store went done, for the finished list and the board's own notes (finished.mjs).
   const doneAtOf = doneTimes(raw.work, prefix)
-  const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix })
+  // B356, the review: a board without a partner chat makes no result check, here too.
+  const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined })
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null)

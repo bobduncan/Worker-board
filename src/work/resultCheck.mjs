@@ -9,10 +9,14 @@ import { standardOf } from './standard.mjs'
 const VERDICTS = ['pass', 'fail', 'ask']
 const HISTORY_TIME = /^-\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s+/
 
-/** Whether a step needs the result check: it has agreed points ("What we build") or a Standard line. */
+/**
+ * Whether a step needs the result check: it has agreed points ("What we build", "Not in it" lines left out) or a
+ * Standard line that is not "none (...)".
+ */
 export function needsResultCheck(item) {
-  const points = (item?.sections?.get('What we build') ?? []).map(one => one.replace(/^\s*[-*]\s+/, '').trim()).filter(Boolean)
-  return points.length > 0 || standardOf(item) !== null
+  const points = (item?.sections?.get('What we build') ?? []).map(one => one.replace(/^\s*[-*]\s+/, '').trim()).filter(one => one !== '' && !/^Not in it\b/i.test(one))
+  const standard = standardOf(item)
+  return points.length > 0 || (standard !== null && !/^none\b/i.test(standard))
 }
 
 /**
@@ -32,19 +36,44 @@ export function parsePoints(value) {
   return { ok: true, points }
 }
 
-/** The words of a History line, without its time and who wrote it ("server: check passed: ..." → "check passed: ..."). */
-const wordsOf = line => line.replace(HISTORY_TIME, '').replace(/^[^:]{1,80}:\s+/, '')
+/**
+ * The words that follow who wrote a History line ("- <date time> <who>: <words>"), found by what they say, so a
+ * chat whose name holds a ":" is read right (the review).
+ */
+const said = (line, pattern) => line.replace(HISTORY_TIME, '').match(new RegExp(`(?:^|:\\s)(${pattern.source})`))?.[1] ?? null
+const historyOf = item => item?.sections?.get('History') ?? []
+const RESULT = /result check (?:passed|failed|waits)\b/
+/** A report's History line: its move to review, or "reported again". */
+const REPORTED = /(?:^|:\s)(?:in progress → review|reported again)\s*$/
 
-/** Where the step's last result check stands: 'passed', 'failed', 'waits' (for the person), or null (none yet). */
+/**
+ * Where the step's last result check since its last report stands: 'passed', 'failed', 'waits' (for the person), or
+ * null (none yet). The review: a report anew asks for a check anew.
+ */
 export function resultCheckOf(item) {
-  const last = (item?.sections?.get('History') ?? []).map(wordsOf).filter(one => /^result check (?:passed|failed|waits)\b/.test(one)).at(-1)
+  const lines = historyOf(item)
+  const from = lines.findLastIndex(one => REPORTED.test(one.replace(HISTORY_TIME, '')))
+  const last = lines.slice(Math.max(0, from)).map(one => said(one, RESULT)).filter(Boolean).at(-1)
   return last === undefined ? null : last.startsWith('result check passed') ? 'passed' : last.startsWith('result check failed') ? 'failed' : 'waits'
 }
 
 /** Whether the board's own check (git) passed last: its History's last "check passed", "failed" or "pending". */
 export function gitCheckPassed(item) {
-  const last = (item?.sections?.get('History') ?? []).map(wordsOf).filter(one => /^check (?:passed|failed|pending)\b/.test(one)).at(-1)
+  const last = historyOf(item).map(one => said(one, /check (?:passed|failed|pending)\b/)).filter(Boolean).at(-1)
   return last !== undefined && last.startsWith('check passed')
+}
+
+/** The steps of the store (`items`) made as fixes of the step `id`. */
+export const fixesOf = (id, items) => [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'step' && valueOf(one, 'Fix of') === id)
+
+/**
+ * The review of B356: a step whose result check failed counts as checked once its fixes are through: every fix of it
+ * done or dropped, one at least done, and no point of its last check waiting for the person.
+ */
+export function fixesThrough(item, items) {
+  if (resultCheckOf(item) !== 'failed' || (checkedOf(item)?.points ?? []).some(one => one.verdict === 'ask')) return false
+  const fixes = fixesOf(valueOf(item, 'Id'), items)
+  return fixes.length > 0 && fixes.every(one => ['done', 'dropped'].includes(valueOf(one, 'State'))) && fixes.some(one => valueOf(one, 'State') === 'done')
 }
 
 /**

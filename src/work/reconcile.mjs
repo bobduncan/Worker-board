@@ -40,7 +40,7 @@ const span = ms => {
  * `chat` is set, else a line on top; a flag with `say` tells its chat that once (`key`); an `idle hold` flag (B308) also
  * names all its chat's steps (`ids`) and is a hint under Needs your attention, not on the lane.
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '' }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -179,7 +179,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     for (const move of flow[kind]?.moves ?? []) {
       const by = Array.isArray(move.by) ? move.by : [move.by]
       if (!by.includes('server') || move.to === 'taken' || move.to === from || (move.from !== from && move.from !== '*')) continue
-      if (!mayMove(flow, item, move.to, 'server', { store: { items }, freeChats: new Set(), now, overlaps }).ok) continue
+      if (!mayMove(flow, item, move.to, 'server', { store: { items }, freeChats: new Set(), now, overlaps, hasPartner }).ok) continue
       moves.push({ id: valueOf(item, 'Id'), to: move.to, why: `${from} → ${move.to}${move.when === undefined ? '' : ` (${move.when})`}` })
       break
     }

@@ -3,7 +3,7 @@
 // `overlaps(item)` is the server's: the id of a taken step whose Touches overlap this one's, or null.
 
 import { valueOf } from './item.mjs'
-import { gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
+import { fixesThrough, gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
 import { openAsksOf, refineAsksOf } from './stepAsks.mjs'
 
 const idsIn = value => (value ?? '').match(/\b[A-Z]\d+\b/g) ?? []
@@ -46,7 +46,7 @@ export const GUARDS = {
   // B356: "the check" is the board's own, and for a step with agreed points or a Standard line also the result check
   // by a helper that did not build it (resultCheck.mjs), on a board with a partner to make it.
   'the check passed and no ask of kind look is open': (item, ctx) => gitCheckPassed(item)
-    && (!needsResultCheck(item) || ctx.hasPartner === false || resultCheckOf(item) === 'passed')
+    && (!needsResultCheck(item) || ctx.hasPartner === false || resultCheckOf(item) === 'passed' || fixesThrough(item, ctx.store?.items))
     && !asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Asks') === 'look'),
 }
 

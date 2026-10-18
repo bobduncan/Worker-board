@@ -18,7 +18,7 @@ import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
+import { fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
 import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
@@ -797,6 +797,9 @@ async function checked(body, w) {
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
   if (stateOf(found.item) !== 'review') return refuse(409, `${id} is ${stateOf(found.item)}: only a step in review is checked.`)
+  // The review: one fix at a time; its own check closes this step once it is done.
+  const open = fixesOf(id, w.store.items).filter(one => !['done', 'dropped'].includes(stateOf(one))).map(one => valueOf(one, 'Id'))
+  if (open.length > 0) return refuse(409, `${id} has an open fix, ${open.join(', ')}: check that one once it is reported; ${id} is done with it.`)
   const evidence = line(body.evidence, 300)
   if (evidence === '') return refuse(400, 'Name the evidence picture in "evidence", by its path, or "none (<why>)".')
   const read = parsePoints(body.points)
@@ -825,9 +828,23 @@ async function checked(body, w) {
     if (closed.ok) item = closed.item
   }
   const done = await save(item, found.text, w)
-  if (!done.ok) return done
+  if (!done.ok) {
+    // The review: the step changed meanwhile: its fix is taken back, so a try again makes one, not two.
+    if (fix !== null) await undoFix(fix, w)
+    return done
+  }
   if (stateOf(item) === 'done') await closeFixed(item, w)
   return changed(item, undefined, fix === null ? {} : { fix })
+}
+
+/** B356, the review: a fix step taken back: its file and its place in its activity. */
+async function undoFix(id, w) {
+  await removeItem(w.dir, id, w.fs).catch(() => {})
+  const text = await readActivitiesText(w.dir, w.fs)
+  const store = await readStore(w.dir, w.fs).catch(() => null)
+  if (store === null) return
+  const activities = store.activities.map(one => ({ ...one, steps: (one.steps ?? []).filter(step => step !== id) }))
+  await writeActivities(w.dir, { preamble: store.preamble, activities }, w.fs, { expected: text }).catch(() => {})
 }
 
 /**
@@ -891,11 +908,12 @@ async function closeFixed(item, w) {
     if (originId === null) return
     const found = await load(originId, w, { kind: ['step'] })
     if (!found.ok || stateOf(found.item) !== 'review') return
-    // Read anew: the fix that was just written is done in the files, not yet in the store this call read.
+    // Read anew: the fix that was just written is done in the files, not yet in the store this call read. The review:
+    // every fix through, and no point of its check waiting for the person.
     const items = (await readStore(w.dir, w.fs)).items
-    if ([...items.values()].some(one => valueOf(one, 'Fix of') === originId && !['done', 'dropped'].includes(stateOf(one)))) return
+    if (!fixesThrough(found.item, items)) return
     let origin = appendHistory(found.item, 'server', `result check passed: its fix ${valueOf(fixed, 'Id')} is done`, w.now)
-    const closed = move(origin, 'done', 'server', w, flowCtx(w, [origin]))
+    const closed = move(origin, 'done', 'server', { ...w, store: { ...w.store, items } }, flowCtx({ ...w, store: { ...w.store, items } }, [origin]))
     if (closed.ok) origin = closed.item
     const done = await save(origin, found.text, w)
     if (!done.ok || stateOf(origin) !== 'done') return
