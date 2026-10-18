@@ -15,7 +15,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`${cut('calm')}\nObject.assign(this, { isCalm, calmGroup, splitAsk, cardsOf, calmAnswer, noteLabel, sendLabel, standingOf, pictureWords })`, page)
+vm.runInNewContext(`${cut('calm')}\nObject.assign(this, { isCalm, calmGroup, splitAsk, cardsOf, calmAnswer, calmPlan, isGoneAlready, noteLabel, sendLabel, standingOf, pictureWords })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 /** A made-up ask of the work store as the board's state gives it. */
@@ -54,6 +54,8 @@ test('the question is the title; the why and the advice stand under it', () => {
   // Without a question mark: its first sentence; a long one stays whole.
   assert.deepEqual(plain(page.splitAsk('open the gate before Tuesday. The cows wait.')), { question: 'open the gate before Tuesday.', rest: 'The cows wait.' })
   assert.deepEqual(plain(page.splitAsk(`${'very '.repeat(80)}long?`)).rest, '')
+  // An abbreviation ends no sentence.
+  assert.deepEqual(plain(page.splitAsk('Plant a hedge, e.g. Yew. It grows slowly.')), { question: 'Plant a hedge, e.g. Yew.', rest: 'It grows slowly.' })
 })
 
 test('the cards: its options with their letter and words, Yes and No for a look or a decide, Done for a do', () => {
@@ -74,6 +76,31 @@ test('the cards: its options with their letter and words, Yes and No for a look 
   assert.deepEqual(decide.map(card => [card.verdict, card.title, card.isAdvised]), [['yes', 'Yes', false], ['no', 'No', true]])
   assert.deepEqual(plain(page.cardsOf(ask('Q4', { kind: 'do', asks: 'do' }))).map(card => card.verdict), ['done'])
   assert.deepEqual(plain(page.cardsOf(ask('Q5', { asks: 'provide' }))), [], 'a provide takes the person\'s words alone')
+  // The advice names a letter: its card is marked, whatever the form of the letter.
+  const marked = plain(page.cardsOf(ask('Q6', { advice: 'B', options: [{ label: 'A: thin', picture: null, isRecommended: false }, { label: 'B. thick', picture: null, isRecommended: false }] })))
+  assert.deepEqual(marked.map(card => [card.key, card.title, card.isAdvised]), [['A', 'thin', false], ['B', 'thick', true]])
+  // A leading "A " is a letter only when every option has one: else it is the word "A".
+  const words = plain(page.cardsOf(ask('Q7', { options: [{ label: 'A new tab', picture: null, isRecommended: false }, { label: 'Keep it', picture: null, isRecommended: false }] })))
+  assert.deepEqual(words.map(card => [card.key, card.title]), [[null, 'A new tab'], [null, 'Keep it']])
+})
+
+test('the send plan: the answers given go in order; a No without words or a look without a pick holds them all back', () => {
+  const look = ask('Q2', { kind: 'verify', asks: 'look' })
+  const group = [ask('Q1'), look, ask('Q3', { asks: 'provide' })]
+  const plan = (picks, words = {}) => plain(page.calmPlan(group, id => picks[id] ?? null, id => words[id] ?? ''))
+  assert.deepEqual(plan({}), { none: 'work:Q1' }, 'nothing given: the first question says to pick')
+  assert.deepEqual(plan({ 'work:Q1': 'yes' }).send.map(one => [one.id, one.answer.text]), [['work:Q1', 'Yes']], 'the rest stay open')
+  assert.deepEqual(plan({ 'work:Q1': 'yes', 'work:Q2': 'reject' }), { lacks: 'work:Q2', what: 'words' })
+  assert.deepEqual(plan({ 'work:Q1': 'yes' }, { 'work:Q2': 'hm' }), { lacks: 'work:Q2', what: 'pick' })
+  const all = plan({ 'work:Q1': 'no', 'work:Q2': 'approve' }, { 'work:Q1': 'too tall', 'work:Q3': 'the key' })
+  assert.deepEqual(all.send.map(one => [one.id, one.answer.verdict, one.answer.text]), [['work:Q1', null, 'No\ntoo tall'], ['work:Q2', 'approve', ''], ['work:Q3', null, 'the key']])
+})
+
+test('an ask answered or withdrawn meanwhile is passed over, not a failure', () => {
+  assert.equal(page.isGoneAlready('Not sent: Q3 is answered already.'), true)
+  assert.equal(page.isGoneAlready('Not sent: Q3 is withdrawn already.'), true)
+  assert.equal(page.isGoneAlready('Not sent: the board\'s server does not answer'), false)
+  assert.equal(page.isGoneAlready(undefined), false)
 })
 
 test('what is sent: the store\'s verdict and words; a No needs words; a look or a do needs a pick', () => {
@@ -120,7 +147,7 @@ test('the window: the step on top, one question at a time, cards, the rest folde
   const calm = cut('calmwindow')
   for (const words of [
     "el('button', 'calm-step'", "`Question ${at + 1} of ${group.length}`", "el('h3', 'calm-question'",
-    "button.setAttribute('role', 'radio')", "el('span', 'calm-advised', 'Recommended')", "el('span', 'calm-key', card.key)",
+    "button.setAttribute('aria-pressed', String(pick === card.verdict))", "el('span', 'calm-advised', 'Recommended')", "el('span', 'calm-key', card.key)",
     "el('summary', '', 'View context')", 'calmContext(need, state)', 'askLinks(need)',
     'noteLabel(need, pick)', 'dataset.calmGo', "'Cancel'", 'dataset.calmSend', 'calmSendText(group)',
   ]) assert.ok(calm.includes(words), words)
@@ -130,7 +157,9 @@ test('the window: the step on top, one question at a time, cards, the rest folde
   // Sending: every answer given goes to the store; a No without words, or a look without a pick, is not sent: the
   // window shows that question and says why. Sent without a problem, the window closes.
   const send = script.slice(script.indexOf('async function sendCalm('), script.indexOf('// calmsend:end'))
-  for (const words of ["sendWork({ action: 'answer', id: need.workId, ...answer }, need.id)", "'Say in the note why No: the chat needs to know what to change.'", "'Pick an answer first.'", 'closeDetails()'])assert.ok(send.includes(words), words)
+  for (const words of ["sendWork({ action: 'answer', id: need.workId, ...answer }, need.id)", 'calmPlan(group,', "'Say in the note why No: the chat needs to know what to change.'", "'Pick an answer first.'", 'closeDetails()', 'isGoneAlready(', 'isShowing()']) assert.ok(send.includes(words), words)
+  // The other windows leave nothing of the calm one behind.
+  assert.equal((script.match(/box\.classList\.remove\('is-calm'\)\n\s+delete box\.dataset\.calmAt/g) ?? []).length, 2)
 })
 
 test('the style: a narrower window with room around everything, large cards, and a phone layout', () => {

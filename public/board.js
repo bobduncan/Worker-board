@@ -2355,7 +2355,9 @@ function calmGroup(need, needs) {
 function splitAsk(words) {
   const text = String(words ?? '').replace(/\s+/g, ' ').trim()
   const mark = text.search(/\?(?=\s|$)/)
-  const at = mark >= 0 ? mark : text.search(/[.!](?=\s+[A-Z0-9"“])/)
+  // A sentence ends at a full stop before a capital, but not after an abbreviation ("e.g. Yew").
+  const ends = [...text.matchAll(/[.!](?=\s+[A-Z0-9"“])/g)].map(found => found.index)
+  const at = mark >= 0 ? mark : ends.find(index => !/\b(?:e\.g|i\.e|etc|vs|cf)$/i.test(text.slice(0, index))) ?? -1
   if (at < 0 || at > 280) return { question: text, rest: '' }
   return { question: text.slice(0, at + 1), rest: text.slice(at + 1).trim() }
 }
@@ -2373,13 +2375,22 @@ const adviceSays = advice => String(advice ?? '').trim().match(/^(yes|no)\b/i)?.
  */
 function cardsOf(need) {
   const says = adviceSays(need.advice)
+  // A letter before punctuation ("A: thin", "B. thick") is always one; before a space ("A thin") only when the options
+  // so lettered run A, B, ... (two at least), else it is the word "A" ("A new tab").
+  const marked = /^([A-H])(?:[.:)]\s*|\s+[—–-]\s+)(.+)$/
+  const spaced = /^([A-H])\s+(.+)$/
+  const options = need.options ?? []
+  const letters = options.map(one => (one.label.match(marked) ?? one.label.match(spaced))?.[1] ?? null).filter(one => one !== null)
+  const isSpacedLettered = letters.length >= 2 && letters.every((letter, at) => letter === 'ABCDEFGH'[at])
+  const advisedKey = String(need.advice ?? '').trim().match(/^([A-H])(?:\b|$)/)?.[1] ?? null
   const option = one => {
-    const lettered = one.label.match(/^([A-H])(?:[.:)]\s*|\s+[—–-]\s+|\s+)(.+)$/)
+    const lettered = one.label.match(marked) ?? (isSpacedLettered ? one.label.match(spaced) : null)
     const words = lettered === null ? one.label : lettered[2]
     const parts = words.match(/^(.{1,60}?)(?::\s+|\s+[—–]\s+)(.+)$/)
-    return { verdict: one.label, key: lettered?.[1] ?? null, title: parts === null ? words : parts[1], text: parts === null ? '' : parts[2], isAdvised: one.isRecommended === true }
+    const key = lettered?.[1] ?? null
+    return { verdict: one.label, key, title: parts === null ? words : parts[1], text: parts === null ? '' : parts[2], isAdvised: one.isRecommended === true || (key !== null && key === advisedKey) }
   }
-  if ((need.options ?? []).length > 0) return need.options.map(option)
+  if (options.length > 0) return options.map(option)
   if (need.kind === 'do') return [{ verdict: 'done', key: null, title: 'Done', text: '', isAdvised: false }]
   if (need.asks === 'provide') return []
   const [yes, no] = need.kind === 'verify' ? ['approve', 'reject'] : ['yes', 'no']
@@ -2405,6 +2416,23 @@ function calmAnswer(need, pick, words) {
   const label = pick === 'yes' ? 'Yes' : pick === 'no' ? 'No' : pick
   return { verdict: null, text: note === '' ? label : `${label}\n${note}` }
 }
+
+/**
+ * B269: what one Send of a calm window does, from the card picked (`pickOf(id)`) and the note (`wordsOf(id)`) of each
+ * of its asks: `{ send: [{ id, need, answer }] }`, the answers given in order (the questions without one stay open);
+ * `{ lacks: id, what: 'words' | 'pick' }` for the first that cannot go as it is, which holds them all back; or
+ * `{ none: id }` when nothing is given.
+ */
+function calmPlan(group, pickOf, wordsOf) {
+  const answers = group.map(need => ({ id: need.id, need, answer: calmAnswer(need, pickOf(need.id), wordsOf(need.id)) }))
+  const lacking = answers.find(one => one.answer?.lacks !== undefined)
+  if (lacking !== undefined) return { lacks: lacking.id, what: lacking.answer.lacks }
+  const send = answers.filter(one => one.answer !== null)
+  return send.length === 0 ? { none: group[0]?.id ?? null } : { send }
+}
+
+/** B269: whether the store refused an answer because the ask was answered or withdrawn meanwhile ("Q3 is answered already."). */
+const isGoneAlready = problem => /\bQ\d+ is [a-z ]+ already\.$/.test(String(problem ?? ''))
 
 /** B269: what stands over the note: optional, except for a No, which needs words; for a provide it is the answer. */
 const noteLabel = (need, pick) => (need.asks === 'provide' && (need.options ?? []).length === 0 ? 'Your answer'
@@ -2512,6 +2540,7 @@ $('details').addEventListener('click', event => {
   const go = event.target.closest('[data-calm-go]')
   if (go !== null && detailsOf?.need !== undefined) {
     detailsOf = { ...detailsOf, need: go.dataset.calmGo }
+    calmFocus = 'question'
     detailsShown = null
     drawDetails(board)
     return
@@ -2521,10 +2550,10 @@ $('details').addEventListener('click', event => {
   if (pick !== null && detailsOf?.need !== undefined) {
     const id = detailsOf.need
     calmPicks.set(id, calmPicks.get(id) === pick.dataset.calmPick ? null : pick.dataset.calmPick)
-    problems.delete(id)
+    problems.delete(`calm:${id}`)
+    calmFocus = `pick:${pick.dataset.calmPick}`
     detailsShown = null
     drawDetails(board)
-    $('details').querySelector(`[data-calm-pick="${CSS.escape(pick.dataset.calmPick)}"]`)?.focus()
     return
   }
   if (event.target.closest('[data-calm-send]') !== null && detailsOf?.need !== undefined) sendCalm(detailsOf.need)
@@ -2533,6 +2562,8 @@ $('details').addEventListener('input', event => {
   // B269: the note of the calm window, kept per ask until it is sent.
   if (!event.target.matches('[data-calm-words]') || detailsOf?.need === undefined) return
   calmWords.set(detailsOf.need, event.target.value)
+  // The words came: what held the answers back is said no more.
+  if (problems.delete(`calm:${detailsOf.need}`)) $('details').querySelector('.calm-answer .problem')?.remove()
   const need = findNeed(detailsOf.need)
   const send = $('details').querySelector('[data-calm-send]')
   if (need !== undefined && send !== null && board !== null) send.textContent = calmSendText(calmGroup(need, everyNeed(board)))
@@ -2958,9 +2989,13 @@ function drawCalm(box, need, state) {
   const group = calmGroup(need, everyNeed(state))
   const at = Math.max(0, group.indexOf(need))
   const pick = calmPicks.get(need.id) ?? null
-  const typing = box.contains(document.activeElement) && document.activeElement.matches('[data-calm-words]')
-  const wasAt = box.dataset.calmAt === need.id
+  // Only while it stays open: a window opened anew starts at its top, folded.
+  const wasAt = box.open && box.dataset.calmAt === need.id
+  // Drawn anew on the same question: the caret where it was, the scroll and the fold as they were.
+  const active = document.activeElement
+  const typing = wasAt && box.contains(active) && active.matches('[data-calm-words]') ? [active.selectionStart, active.selectionEnd] : null
   const scroll = wasAt ? box.querySelector('.details-body')?.scrollTop ?? 0 : 0
+  const wasUnfolded = wasAt && box.querySelector('.calm-context')?.open === true
 
   // The head: who asks and since when; nothing else.
   const head = el('header', 'details-head calm-head')
@@ -2992,8 +3027,10 @@ function drawCalm(box, need, state) {
   const ask = el('div', 'calm-ask')
   if (group.length > 1) ask.append(el('p', 'calm-count', `Question ${at + 1} of ${group.length}`))
   const { question, rest } = splitAsk(need.question ?? need.title)
-  ask.append(el('h3', 'calm-question', capitalized(question)))
-  const why = [rest, need.text].filter(one => one !== '').join(' ')
+  const title = el('h3', 'calm-question', capitalized(question))
+  title.tabIndex = -1
+  ask.append(title)
+  const why = [rest, need.text].filter(one => one !== '').join('\n')
   if (why !== '') ask.append(el('p', 'calm-why', why))
   const links = askLinks(need)
   if (links.length > 0) {
@@ -3006,21 +3043,21 @@ function drawCalm(box, need, state) {
   // The answers as large cards; the advised one says so.
   const cardList = cardsOf(need)
   if (cardList.length > 0) {
+    // Toggle buttons: a click picks the card, a second click takes the pick back.
     const cards = el('div', 'calm-cards')
-    cards.setAttribute('role', 'radiogroup')
+    cards.setAttribute('role', 'group')
     cards.setAttribute('aria-label', group.length > 1 ? `Your answer to question ${at + 1}` : 'Your answer')
     for (const card of cardList) {
       const button = el('button', `calm-card${pick === card.verdict ? ' is-chosen' : ''}`)
       button.type = 'button'
       button.dataset.calmPick = card.verdict
-      button.setAttribute('role', 'radio')
-      button.setAttribute('aria-checked', String(pick === card.verdict))
-      const title = el('span', 'calm-card-title')
-      if (card.key !== null) title.append(el('span', 'calm-key', card.key))
-      title.append(el('span', '', capitalized(card.title)))
-      if (card.isAdvised) title.append(el('span', 'calm-advised', 'Recommended'))
+      button.setAttribute('aria-pressed', String(pick === card.verdict))
+      const cardTitle = el('span', 'calm-card-title')
+      if (card.key !== null) cardTitle.append(el('span', 'calm-key', card.key))
+      cardTitle.append(el('span', '', capitalized(card.title)))
+      if (card.isAdvised) cardTitle.append(el('span', 'calm-advised', 'Recommended'))
       const cardWords = el('span', 'calm-card-words')
-      cardWords.append(title)
+      cardWords.append(cardTitle)
       if (card.text !== '') cardWords.append(el('span', 'calm-card-text', capitalized(card.text)))
       button.append(el('span', 'calm-dot'), cardWords)
       cards.append(button)
@@ -3028,8 +3065,9 @@ function drawCalm(box, need, state) {
     part.append(cards)
   }
 
-  // Everything else, folded behind one line.
-  const context = el('details', 'task-details calm-context')
+  // Everything else, folded behind one line; its own fold, so no other window opens it.
+  const context = el('details', 'calm-context')
+  context.open = wasUnfolded
   context.append(el('summary', '', 'View context'), ...calmContext(need, state))
 
   const note = el('label', 'calm-note')
@@ -3046,7 +3084,8 @@ function drawCalm(box, need, state) {
   // The foot: Cancel, Back and Next between the questions, one Send at the end.
   const foot = el('footer', 'details-foot calm-foot')
   const form = el('div', 'calm-answer')
-  const problem = group.map(one => problems.get(one.id)).find(one => one !== undefined)
+  // What held the answers back (only here), else what the store refused.
+  const problem = group.map(one => problems.get(`calm:${one.id}`) ?? problems.get(one.id)).find(one => one !== undefined)
   if (problem !== undefined) form.append(el('p', 'problem', problem))
   const buttons = el('div', 'calm-buttons')
   const button = (label, className) => {
@@ -3081,13 +3120,22 @@ function drawCalm(box, need, state) {
   body.append(main)
   box.classList.add('is-calm')
   box.dataset.calmAt = need.id
-  keepUnfolded(box, () => fill(box, [head, body, foot]))
+  fill(box, [head, body, foot])
   body.scrollTop = scroll
-  if (typing) {
+  // Focus: back in the note while typing; else where the last step asks for it (see `calmFocus`).
+  const focus = typing === null ? calmFocus : null
+  calmFocus = null
+  if (typing !== null) {
     area.focus()
-    area.setSelectionRange(area.value.length, area.value.length)
-  }
+    area.setSelectionRange(...typing)
+  } else if (focus === 'words') area.focus()
+  else if (focus === 'question') title.focus()
+  else if (focus === 'pick') (box.querySelector('.calm-card') ?? area).focus()
+  else if (typeof focus === 'string' && focus.startsWith('pick:')) [...box.querySelectorAll('[data-calm-pick]')].find(one => one.dataset.calmPick === focus.slice(5))?.focus()
 }
+
+/** B269: where the calm window puts the focus when it is drawn next: 'question', 'words', 'pick', or `pick:<verdict>`. */
+let calmFocus = null
 // calmwindow:end
 
 // calmsend:start
@@ -3100,19 +3148,33 @@ async function sendCalm(id) {
   const need = findNeed(id)
   if (board === null || need === undefined) return
   const group = calmGroup(need, everyNeed(board))
-  const answers = group.map(one => ({ need: one, answer: calmAnswer(one, calmPicks.get(one.id) ?? null, calmWords.get(one.id) ?? '') }))
-  for (const one of group) problems.delete(one.id)
-  const lacking = answers.find(one => one.answer?.lacks !== undefined)
-  if (lacking !== undefined) {
-    detailsOf = { ...detailsOf, need: lacking.need.id }
-    return fail(lacking.need.id, lacking.answer.lacks === 'words' ? 'Say in the note why No: the chat needs to know what to change.' : 'Pick an answer first.')
+  // Whether the window still shows these asks: the person may close it, or open another, while the answers go.
+  const isShowing = () => detailsOf !== null && group.some(one => one.id === detailsOf.need)
+  const show = (at, focus) => {
+    if (!isShowing()) return
+    detailsOf = { ...detailsOf, need: at }
+    calmFocus = focus
   }
-  const given = answers.filter(one => one.answer !== null)
-  if (given.length === 0) return fail(id, 'Pick an answer first.')
-  for (const { need, answer } of given) {
+  for (const one of group) {
+    problems.delete(one.id)
+    problems.delete(`calm:${one.id}`)
+  }
+  const plan = calmPlan(group, at => calmPicks.get(at) ?? null, at => calmWords.get(at) ?? '')
+  if (plan.lacks !== undefined) {
+    show(plan.lacks, plan.what === 'words' ? 'words' : 'pick')
+    return fail(`calm:${plan.lacks}`, plan.what === 'words' ? 'Say in the note why No: the chat needs to know what to change.' : 'Pick an answer first.')
+  }
+  if (plan.none !== undefined) {
+    show(plan.none, 'pick')
+    return fail(`calm:${plan.none}`, 'Pick an answer first.')
+  }
+  for (const { need, answer } of plan.send) {
     await sendWork({ action: 'answer', id: need.workId, ...answer }, need.id)
-    if (problems.has(need.id)) {
-      detailsOf = { ...detailsOf, need: need.id }
+    // Answered or withdrawn meanwhile (in its chat, or on its card): nothing to send any more; the rest go on.
+    if (isGoneAlready(problems.get(need.id))) problems.delete(need.id)
+    else if (problems.has(need.id)) {
+      // It did not go: the window shows it, with why, while it still shows these asks; the rest wait for another Send.
+      show(need.id, 'question')
       detailsShown = null
       return drawDetails(board)
     }
@@ -3120,7 +3182,7 @@ async function sendCalm(id) {
     calmWords.delete(need.id)
   }
   // The cards on the right say where the answers are.
-  if (group.some(one => one.id === detailsOf?.need)) closeDetails()
+  if (isShowing()) closeDetails()
 }
 // calmsend:end
 
@@ -3138,6 +3200,7 @@ function drawLaneWindow(box, lane, state) {
   const body = el('div', `details-body${right.children.length === 0 ? ' is-single' : ''}`)
   body.append(left, ...(right.children.length === 0 ? [] : [right]))
   box.classList.remove('is-calm')
+  delete box.dataset.calmAt
   keepUnfolded(box, () => fill(box, [detailsHead(view, el('span', 'kind is-working', '▶'), state.readAt), body]))
   body.scrollTop = scroll
 }
@@ -3253,6 +3316,7 @@ function drawDetails(state) {
   // B269: an ask of the work store gets the calm window.
   if (isCalm(need)) return drawCalm(box, need, state)
   box.classList.remove('is-calm')
+  delete box.dataset.calmAt
   const head = detailsHead(view, el('span', `kind is-${need === null ? 'queued' : need.kind}`, need === null ? '≡' : KINDS[need.kind].sign), now)
 
   // The left column, the wider one: what it is about and what to look at
