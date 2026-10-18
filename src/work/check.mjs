@@ -7,7 +7,7 @@
 // When none can be told, the check fails and says so; it never passes in silence. A repository is named by its
 // folder's last part.
 
-import { isAbsolute, join } from 'node:path'
+import { join } from 'node:path'
 
 import { readBranches } from '../folders.mjs'
 
@@ -54,11 +54,15 @@ export async function repoOfStep({ branch, merged, repos, run }) {
 export async function reportCheck({ id, branch, result, merged, repos, run, project = '', touches = [], exists = null }) {
   // B363: work outside git (no branch of its own, no merged commit a repository holds): its files are checked instead.
   const own = typeof branch === 'string' ? branch.trim() : ''
-  const isOwnBranch = own !== '' && own.toLowerCase() !== 'none' && !repos.some(repo => repo.base === own)
-  if (!isOwnBranch && exists !== null && await repoOfCommit(merged, repos, run) === null) return outsideCheck({ result, touches, roots: [project, ...repos.map(repo => repo.dir)], exists })
+  const isOwnBranch = own !== '' && own !== '-' && own.toLowerCase() !== 'none' && !repos.some(repo => repo.base === own)
+  if (!isOwnBranch && exists !== null && project !== '' && await repoOfCommit(merged, repos, run) === null) {
+    return outsideCheck({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists })
+  }
   const faults = []
   const passed = []
   const repo = await repoOfStep({ branch, merged, repos, run })
+  // The review of B363: work merged on the repository's base branch itself has no branch of its own to be gone.
+  let isOnBase = false
   if (repo === null) faults.push(`could not tell which repository ${id}'s work is in`)
   else {
     const name = nameOf(repo.dir)
@@ -68,7 +72,8 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
     else if (remote === null) passed.push(`${base} of ${name} has no remote`)
     else if (local.trim() !== remote.trim()) faults.push(`${base} of ${name} is not the same as origin/${base}`)
     else passed.push(`${base} of ${name} equals origin/${base}`)
-    if (typeof branch === 'string' && branch.trim() !== '') {
+    isOnBase = typeof branch === 'string' && branch.trim() === base
+    if (typeof branch === 'string' && branch.trim() !== '' && !isOnBase) {
       const [branches, remotes] = await Promise.all([readBranches([dir], run), run(['-C', dir, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes'])])
       if (branches === null) faults.push(`git did not answer: the branches of ${name} are not known`)
       else if (branches.includes(branch.trim())) faults.push(`the branch ${branch.trim()} is still there`)
@@ -82,46 +87,62 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
   }
   if (String(result ?? '').trim() === '') faults.push('no result named')
   const failed = faults.filter(line => !line.startsWith('work in '))
-  return failed.length === 0 ? { passed: true, lines: [...passed, 'branch gone', 'result named'] } : { passed: false, lines: faults }
+  return failed.length === 0 ? { passed: true, lines: [...passed, isOnBase ? `worked on ${branch.trim()} itself` : 'branch gone', 'result named'] } : { passed: false, lines: faults }
 }
 
+/** A path written with "/", without its end "/", for comparing (any case, as on Windows). */
+const plainPath = path => String(path).replace(/\\/g, '/').replace(/\/+$/, '')
+
 /**
- * B363: the paths a report's words name: a word with a "/" in it, not inside an address (after "/", ":" or a letter),
- * its end marks left off. `isNamed`: it reads as a file or folder for certain (a file's ending, a "/" at its end, or
- * two "/"), so it must be there; another ("and/or", "B1/B2") counts only when it is there.
+ * B363: the paths a report's words name, in the project: a word with a "/" in it (a "\" read as one; the project's own
+ * whole path left off), not inside an address (after "/", ":" or a letter) nor starting at a site ("example.com/a"), its
+ * end marks left off. `isCertain`: it reads as a file or folder for certain (a file's ending, or a "/" at its end), so
+ * it must be there; another ("and/or", "B1/B2/B3", "a/b") counts only when it is there.
  */
-function pathsIn(words) {
+function pathsIn(words, project) {
+  const home = plainPath(project)
+  let text = String(words ?? '').replace(/\\/g, '/')
+  if (home !== '') text = text.replace(new RegExp(`${escape(home)}/`, 'gi'), '')
   const found = []
-  for (const [whole] of String(words ?? '').matchAll(/(?<![\w:/.@-])(?:[\w.@-]+\/)+[\w.@-]*/g)) {
+  for (const [whole] of text.matchAll(/(?<![\w:/.@-])(?:[\w.@-]+\/)+[\w.@-]*/g)) {
     const raw = whole.replace(/[.,;:]+$/, '')
     const path = raw.replace(/\/+$/, '')
-    if (path === '' || path.split('/').includes('..')) continue
-    const isNamed = raw.endsWith('/') || /\.[A-Za-z0-9]{1,6}$/.test(path) || (path.match(/\//g) ?? []).length >= 2
-    if (!found.some(one => one.path === path)) found.push({ path, isNamed })
+    if (path === '' || path.split('/').includes('..') || /^[\w-]+\.[\w.-]+$/.test(path.split('/')[0])) continue
+    const isCertain = raw.endsWith('/') || /\.[A-Za-z0-9]{1,6}$/.test(path)
+    if (!found.some(one => one.path === path)) found.push({ path, isCertain })
   }
   return found
 }
 
 /**
- * B363: the check of a step whose work is outside git: the files its report's result names (else those its Touches
- * name) are there, in the project's folder or a repository's (`roots`); `exists(path)` answers whether a path is there.
+ * B363: the check of a step whose work is outside git: the files its report's result names (else, when none of those
+ * is a file for certain or there, those its Touches name) are there in the project's folder, outside every repository
+ * (`repoDirs`): a file in a repository is work in git, reported with its merged commit. `exists(path)` answers whether
+ * a path is there.
  */
-async function outsideCheck({ result, touches, roots, exists }) {
-  const there = async path => {
-    for (const where of isAbsolute(path) ? [path] : roots.filter(Boolean).map(root => join(root, ...path.split('/')))) if (await exists(where)) return true
-    return false
+async function outsideCheck({ result, touches, project, repoDirs, exists }) {
+  const repos = repoDirs.map(dir => plainPath(dir).toLowerCase())
+  const isInRepo = where => repos.some(dir => where.toLowerCase() === dir || where.toLowerCase().startsWith(`${dir}/`))
+  const weigh = async named => {
+    const found = []
+    const missing = []
+    const inGit = []
+    for (const one of named) {
+      const where = join(project, ...one.path.split('/'))
+      if (isInRepo(plainPath(where))) {
+        if (one.isCertain) inGit.push(one.path)
+      } else if (await exists(where)) found.push(one.path)
+      else if (one.isCertain) missing.push(one.path)
+    }
+    return { found, missing, inGit }
   }
-  const fromResult = pathsIn(result)
-  const named = fromResult.length > 0 ? fromResult : pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'))
-  const found = []
-  const missing = []
-  for (const one of named) {
-    if (await there(one.path)) found.push(one.path)
-    else if (one.isNamed) missing.push(one.path)
-  }
+  let seen = await weigh(pathsIn(result, project))
+  if (seen.found.length + seen.missing.length + seen.inGit.length === 0) seen = await weigh(pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), project))
+  const { found, missing, inGit } = seen
   const lines = ['work outside git']
   if (missing.length > 0) lines.push(`not there: ${missing.join(', ')}`)
-  else if (found.length === 0) lines.push('no file named: name the files it made in the result')
+  if (inGit.length > 0) lines.push(`in a repository: ${inGit.join(', ')}; report that work with its merged commit`)
+  if (missing.length + inGit.length === 0 && found.length === 0) lines.push('no file named: name the files it made in the result')
   if (String(result ?? '').trim() === '') lines.push('no result named')
   return lines.length === 1 ? { passed: true, lines: [...lines, `there: ${found.join(', ')}`, 'result named'] } : { passed: false, lines }
 }

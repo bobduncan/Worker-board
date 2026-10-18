@@ -1269,9 +1269,12 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   repository by its folder's last part. When no repository can be told, the check fails with "could not tell which
   repository B<id>'s work is in", never a silent pass. B363: a step whose work is outside git (pictures or pages
   in the project's folder: taken with branch `none`, or on no branch of its own, a repository's base or none, and no
-  merged commit a repository holds) is checked by its files: those its result names (else its Touches; a word with a
-  "/", a file's ending, a "/" at its end or two "/" must be there, "and/or" counts only when it is), in the project's
-  folder or a repository's: "work outside git", "there: ...", or "not there: ..." (B353, B347). A failed check runs again on the person's "Check again" (the
+  merged commit a repository holds) is checked by its files: those its result names (else its Touches), in the
+  project's folder outside every repository: a word with a "/" and a file's ending or a "/" at its end must be there;
+  another ("and/or", "B1/B2/B3", a date) counts only when it is; one inside a repository is work in git, to be reported
+  with its merged commit: "work outside git", "there: ...", "not there: ...", "in a repository: ..." (B353, B347). The
+  review of B363: work merged on a repository's base branch itself passes without "branch gone" ("worked on main
+  itself"). A failed check runs again on the person's "Check again" (the
   lane's flag, `recheck`) or the owner's report from review. The board that delivers writes backlog.md; a copy with a store of its own
   writes the view into that folder; a copy without one only reads. The Backlog tab's line says "backlog.md is its
   view".

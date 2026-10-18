@@ -90,14 +90,26 @@ test('B363: a named file that is not there fails, by its path; with no path name
   assert.deepEqual(touches, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named'] })
   const nothing = await reportCheck(outside({ branch: 'none', result: 'The five pictures and the page.' }))
   assert.deepEqual(nothing, { passed: false, lines: ['work outside git', 'no file named: name the files it made in the result'] })
-  // A file in a repository counts, by its path there; a link to the board names its picture; "and/or" or "B1/B2" is no path.
-  const inRepo = await reportCheck(outside({ branch: 'none', result: 'See http://127.0.0.1:4310/#picture=art-inbox/gap-9/gap.html and docs/notes.md, and/or B1/B2.', exists: files(['/projects/art-inbox/gap-9/gap.html', '/projects/garden/docs/notes.md']) }))
-  assert.deepEqual(inRepo, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9/gap.html, docs/notes.md', 'result named'] })
+  // A link to the board names its picture; "and/or", "B1/B2/B3", a date or a site are no path, and none is missing.
+  const words = await reportCheck(outside({ branch: 'none', result: 'See http://127.0.0.1:4310/#picture=art-inbox/gap-9/gap.html, and/or B1/B2/B3 of 2026/10/18 (www.example.com/a/b.png).' }))
+  assert.deepEqual(words, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9/gap.html', 'result named'] })
+  // The review: words that are no path for certain in the result still let the Touches name the files.
+  const onlyWords = await reportCheck(outside({ branch: 'none', result: 'Done, and/or as agreed.', touches: ['art-inbox/gap-9/'] }))
+  assert.deepEqual(onlyWords.lines, ['work outside git', 'there: art-inbox/gap-9', 'result named'])
+  // A path written with "\", or as the project's whole path, is read as its path in the project.
+  const written = await reportCheck(outside({ branch: 'none', result: 'The page art-inbox\\gap-9\\gap.html, and /projects/art-inbox/gap-9/ too.' }))
+  assert.deepEqual(written.lines, ['work outside git', 'there: art-inbox/gap-9/gap.html, art-inbox/gap-9', 'result named'])
+})
+
+test('B363, the review: a file in a repository is work in git, no proof of work outside it', async () => {
+  const inRepo = await reportCheck(outside({ branch: 'main', merged: '', result: 'Changed tools/board/src/check.mjs (not committed).', exists: files(['/projects/tools/board/src/check.mjs']) }))
+  assert.deepEqual(inRepo, { passed: false, lines: ['work outside git', 'in a repository: tools/board/src/check.mjs; report that work with its merged commit'] })
 })
 
 test('B363: a step on the base branch whose merged commit a repository holds, or on a branch of its own, keeps the check of its repository', async () => {
+  // The review: merged on the base branch itself, it has no branch of its own to be gone.
   const merged = await reportCheck(outside({ branch: 'main', merged: 'c0ffee1' }))
-  assert.equal(merged.lines[0], 'work in board')
+  assert.deepEqual(merged, { passed: true, lines: ['work in board', 'main of board equals origin/main', 'worked on main itself', 'result named'] })
   const own = await reportCheck(outside({ branch: 'b5-lamps', merged: '' }))
-  assert.equal(own.lines[0], 'work in board')
+  assert.deepEqual(own.lines, ['work in board', 'main of board equals origin/main', 'branch gone', 'result named'])
 })
