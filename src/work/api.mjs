@@ -14,7 +14,7 @@ import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.
 import { ASK_KINDS, HEAD_KEYS, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
-import { storeFault } from './read.mjs'
+import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
@@ -685,7 +685,7 @@ async function report(body, w) {
   // context for it instead of compacting it after this report.
   const more = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && valueOf(one, 'Id') !== id && isOwner(one, w.who, w.prefix) && ['queued', 'taken'].includes(stateOf(one)))
     .map(one => valueOf(one, 'Id')).sort(byId)[0] ?? null
-  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result, merged: merged === '' ? lastReport(found.item).merged : merged }, more })
+  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result, merged: merged === '' ? lastReport(found.item).merged : merged, touches: touchesLines(item) }, more })
 }
 
 const REPORTED = /^Reported (?:again )?by .+? on \d{4}-\d\d-\d\d at \d\d:\d\d: (.*?)(?: \(merged ([^()\s]+)\))?$/
@@ -704,7 +704,7 @@ async function recheck(body, w) {
   const item = appendHistory(said(found.item, w, 'check asked again'), 'server', 'check pending', w.now)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
-  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), ...lastReport(item) } })
+  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), ...lastReport(item), touches: touchesLines(item) } })
 }
 
 /** The open asks under a step, by id. */

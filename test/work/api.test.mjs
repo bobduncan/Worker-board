@@ -162,7 +162,7 @@ test('report moves to review and records "check pending"; the board\'s check clo
     assert.equal((await board({ action: 'report', id: 'B1' })).status, 400)
     const reported = await board({ action: 'report', id: 'B1', result: 'The strip shows on the board.', merged: 'abc1234' })
     assert.equal(reported.ok, true, reported.why)
-    assert.deepEqual(reported.result.check, { id: 'B1', branch: 'b1-strip', result: 'The strip shows on the board.', merged: 'abc1234' })
+    assert.deepEqual(reported.result.check, { id: 'B1', branch: 'b1-strip', result: 'The strip shows on the board.', merged: 'abc1234', touches: [] })
     assert.equal(await state(dir, 'B1'), 'review')
     assert.equal((await history(dir, 'B1')).at(-1), '- 2026-10-17 11:06 server: check pending')
     assert.equal((await item(dir, 'B1')).sections.get('Context').at(-1), '  Reported by Board on 2026-10-17 at 11:06: The strip shows on the board. (merged abc1234)')

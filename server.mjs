@@ -545,10 +545,12 @@ async function main(args) {
       readState.reset()
     }
     if (done.ok && done.result.check !== undefined) {
-      const { id, branch, result, merged } = done.result.check
+      const { id, branch, result, merged, touches } = done.result.check
       // B304: the repositories the board knows; the check finds the one the step's work is in among them.
       const repos = [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
-      void reportCheck({ id, branch, result, merged, repos, run: gitRunner() })
+      // B363: work outside git is checked by its files, in the project's folder or a repository's.
+      const exists = path => stat(path).then(() => true, () => false)
+      void reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists })
         .then(async outcome => workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' }))
         .then(() => {
           work.reset?.()

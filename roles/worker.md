@@ -85,6 +85,10 @@ step therefore says what it touches ("Touches: ...").
   one line); after a restart you go on from it (below, "A pause of all chats"). When the work is
   merged: `work report B<id>` with what the user gets and the commit; the board checks the merge itself. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
+- A step whose work is outside git (pictures or pages in the project's folder, in no repository; B363): take it with
+  branch `none`, report it with `merged` none and name the files it made in the result, by their paths in the project
+  (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that those
+  files are there (else the paths its Touches name), not a merged branch.
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
   wait for it, with its pictures; a choice with each option apart in `options`, its letter first (`A thin`), and
   your `advice` (the letter, or yes or no), so the board shows them as cards; put the block it answers into your answer. The user answered it in your chat:

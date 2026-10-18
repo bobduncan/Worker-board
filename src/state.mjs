@@ -1035,7 +1035,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     if (item === undefined) return null
     const id = item.head.get('Id')
     const branch = item.head.get('Branch')
-    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' ? null : branch, about: null }
+    // B363: a step taken with branch none has its work outside git: no branch to show or play.
+    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null }
   }
   const workerChats = found.filter(chat => !isAdvisor(chat))
   const firstRead = workerChats.map(chat => card(chat, raw, { ...context, stepOf: stepOfChat, stepById }))

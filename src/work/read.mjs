@@ -103,7 +103,7 @@ export function storeFromText(text, { now = Date.now(), dir = '(in memory)' } = 
 export const itemsOf = work => (work?.ok === true && work.items instanceof Map ? [...work.items.values()] : [])
 
 /** B299: a step's lines that start "Touches:" (under Context, or a Touches section), each path once. */
-function touchesLines(item) {
+export function touchesLines(item) {
   const own = (item.sections.get('Touches') ?? []).map(one => one.replace(/^\s*[-*]\s+/, '').trim()).filter(Boolean)
   const said = (item.sections.get('Context') ?? []).flatMap(one => one.trim().match(/^Touches:\s*(.+)$/)?.[1] ?? [])
   return [...new Set([...own, ...said])]

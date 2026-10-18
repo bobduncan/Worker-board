@@ -33,7 +33,7 @@ async function failedCheck(flow) {
   const store = await fresh(flow)
   await store.lamplighter({ action: 'take', id: 'B1', branch: 'b1-lamps' })
   const reported = await store.lamplighter({ action: 'report', id: 'B1', result: 'The lamps glow.', merged: 'c0ffee1' })
-  assert.deepEqual(reported.result.check, { id: 'B1', branch: 'b1-lamps', result: 'The lamps glow.', merged: 'c0ffee1' })
+  assert.deepEqual(reported.result.check, { id: 'B1', branch: 'b1-lamps', result: 'The lamps glow.', merged: 'c0ffee1', touches: [] })
   await store.server({ action: 'check', id: 'B1', passed: false, lines: ['main of lantern is not the same as origin/main'] })
   return store
 }
@@ -44,7 +44,7 @@ test('the person\'s "Check again" runs the check anew with what the report said'
     assert.equal((await lamplighter({ action: 'recheck', id: 'B1' })).status, 403)
     const again = await person({ action: 'recheck', id: 'B1' })
     assert.equal(again.ok, true, again.why)
-    assert.deepEqual(again.result.check, { id: 'B1', branch: 'b1-lamps', result: 'The lamps glow.', merged: 'c0ffee1' })
+    assert.deepEqual(again.result.check, { id: 'B1', branch: 'b1-lamps', result: 'The lamps glow.', merged: 'c0ffee1', touches: [] })
     assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'review')
     assert.deepEqual((await history(dir, 'B1')).slice(-2), ['- 2026-10-17 11:06 person: check asked again', '- 2026-10-17 11:06 server: check pending'])
     // Only a step in review is checked again.
@@ -61,7 +61,7 @@ test('the owner\'s report from review runs the check again (the flow\'s move rev
     const again = await lamplighter({ action: 'report', id: 'B1', result: 'The lamps glow, all of them.' })
     assert.equal(again.ok, true, again.why)
     // No merged commit named this time: the one reported before still counts.
-    assert.deepEqual(again.result.check, { id: 'B1', branch: 'b1-lamps', result: 'The lamps glow, all of them.', merged: 'c0ffee1' })
+    assert.deepEqual(again.result.check, { id: 'B1', branch: 'b1-lamps', result: 'The lamps glow, all of them.', merged: 'c0ffee1', touches: [] })
     assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'review')
     assert.deepEqual((await history(dir, 'B1')).slice(-2), ['- 2026-10-17 11:06 Lamplighter: reported again', '- 2026-10-17 11:06 server: check pending'])
     assert.equal((await item(dir, 'B1')).sections.get('Context').at(-1), '  Reported again by Lamplighter on 2026-10-17 at 11:06: The lamps glow, all of them.')

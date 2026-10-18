@@ -66,3 +66,38 @@ test('a Windows folder is named by its last part', async () => {
   const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos: [repos[0], { dir: 'C:\\work\\board-copy', base: 'main' }], run: git(win) })
   assert.equal(done.lines[0], 'work in board-copy')
 })
+
+// B363: a step whose work is outside git (pictures or pages in the project's folder): taken with branch none, on no
+// branch of its own (none, or a repository's base branch), with no merged commit a repository holds. Its check is that
+// the files its report names are there, in the project or a repository; a step on a branch of its own keeps the above.
+const PROJECT = '/projects'
+const files = paths => async path => paths.includes(path.replace(/\\/g, '/'))
+const outside = (extra = {}) => ({ id: 'B9', result: 'The gap page (art-inbox/gap-9/gap.html, 0-summary.png) and the pictures in art-inbox/gap-9/.', merged: 'none', repos, run: git(world), project: PROJECT, exists: files(['/projects/art-inbox/gap-9/gap.html', '/projects/art-inbox/gap-9']), ...extra })
+
+test('B363: work outside git, taken with branch none or on the base branch: the files its report names are there', async () => {
+  const none = await reportCheck(outside({ branch: 'none' }))
+  assert.deepEqual(none, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9/gap.html, art-inbox/gap-9', 'result named'] })
+  // Taken on the base branch (main) with no merged commit, as B353 was: the same check, not "the branch main is still there".
+  assert.deepEqual(await reportCheck(outside({ branch: 'main' })), none)
+  // No branch at all and no commit: outside git too.
+  assert.deepEqual(await reportCheck(outside({ branch: null, merged: '' })), none)
+})
+
+test('B363: a named file that is not there fails, by its path; with no path named the step\'s Touches name them; none at all fails', async () => {
+  const missing = await reportCheck(outside({ branch: 'none', exists: files(['/projects/art-inbox/gap-9']) }))
+  assert.deepEqual(missing, { passed: false, lines: ['work outside git', 'not there: art-inbox/gap-9/gap.html'] })
+  const touches = await reportCheck(outside({ branch: 'none', result: 'The five pictures and the page.', touches: ['art-inbox/gap-9/ (the five pictures and the page), nothing in the game'] }))
+  assert.deepEqual(touches, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9', 'result named'] })
+  const nothing = await reportCheck(outside({ branch: 'none', result: 'The five pictures and the page.' }))
+  assert.deepEqual(nothing, { passed: false, lines: ['work outside git', 'no file named: name the files it made in the result'] })
+  // A file in a repository counts, by its path there; a link to the board names its picture; "and/or" or "B1/B2" is no path.
+  const inRepo = await reportCheck(outside({ branch: 'none', result: 'See http://127.0.0.1:4310/#picture=art-inbox/gap-9/gap.html and docs/notes.md, and/or B1/B2.', exists: files(['/projects/art-inbox/gap-9/gap.html', '/projects/garden/docs/notes.md']) }))
+  assert.deepEqual(inRepo, { passed: true, lines: ['work outside git', 'there: art-inbox/gap-9/gap.html, docs/notes.md', 'result named'] })
+})
+
+test('B363: a step on the base branch whose merged commit a repository holds, or on a branch of its own, keeps the check of its repository', async () => {
+  const merged = await reportCheck(outside({ branch: 'main', merged: 'c0ffee1' }))
+  assert.equal(merged.lines[0], 'work in board')
+  const own = await reportCheck(outside({ branch: 'b5-lamps', merged: '' }))
+  assert.equal(own.lines[0], 'work in board')
+})
