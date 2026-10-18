@@ -1541,6 +1541,30 @@ named so, drops the note (`withoutNote` in board.js). Of two steps the store hol
 lane shows the one its card names, else the one it took last, never one it was taken off. And a worker whose last
 answer closed "- Done:   partly" or "no" is between two turns, not free, whatever the app calls its turn.
 
+## A calmer Overview (B307)
+
+The person, 2026-10-18 on the Advisor tab: "I want to see if i can make this overview slightly easier and have less
+text/details. what would you recommend to cut?" Of the six cuts the Advisor drew they kept the refresh icon by the
+project's name, the limits' reset times, "Estimates lately" and the next step in each queue, and asked for a handle to
+make Information smaller or bigger. Nothing is gone: what leaves a row is in its tooltip or in the details "⋯" opens.
+1. Information has a box of its own under the asks (`#information`), as high as the handle above it is dragged (the
+   arrow keys too; a double-click gives the usual 260 pixels; kept in this browser, `infoHeightFit`). Each note is one
+   line: the step it is about, who sent it, its words without "Report from ...:" (`infoLine`); a click opens the whole
+   note with its Read button; "Mark all read" reads each new one in turn. All read and hidden, the box is one line.
+2. One line per worker: its task, or "free since 13:01" (`freeShort`). "Now:" and "Between turns" are in the task's
+   tooltip and its details; the compaction note shows only when it warns, else on hovering the name; "No active task"
+   and "Ready for a new task" go, and so does the empty bar of a worker without a task. Alerts, flags, a held or cut-off
+   worker and "Needs your decision" stay on the row: they say something is wrong. The Advisor's card follows: its task,
+   else what it refines, else how it stands.
+3. The time left once, in the column Left ("1 h 34"; over its time "12 min over"), its end time and where the time is
+   from in the tooltip (`leftView`); the step line keeps its own time for the list that opens on hover.
+4. "Next in queue": the next step's id and title and why it waits ("waits for B277"), "+2" for the rest, nothing when
+   the queue is empty (`nextInQueue`); its tooltip has the length of the queue and its time.
+5. The head: which commit main is on, on hovering Run game (a running game keeps its link); "0 waiting for you" goes
+   (`shownCounts`); how old the limits' figure is shows only when it is old.
+6. The top bar: CPU for the chats, its processes and the board's version sit behind ⚙ (`#settings`), whose tooltip says
+   the level and the version; a click elsewhere or Escape folds it; on a phone it opens across the screen.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

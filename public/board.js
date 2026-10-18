@@ -282,6 +282,7 @@ function drawCpu(state) {
   const noteText = problem ?? shown?.note ?? null
   note.hidden = noteText === null
   if (noteText !== null) note.textContent = noteText
+  drawSettings(state, shown)
   if (shown === null) return
   $('cpu-label').textContent = shown.label
   $('cpu-count').textContent = shown.count
@@ -294,6 +295,32 @@ function drawCpu(state) {
     button.hidden = state.cpu.available !== true
   }
 }
+
+/**
+ * B307: the ⚙ button on the top bar that holds CPU for the chats, its processes and the board's version; its tooltip
+ * says the level and the version, so a hover tells them. Hidden when it holds nothing.
+ */
+function drawSettings(state, cpu) {
+  const version = versionLine(state.version)
+  const settings = $('settings')
+  settings.hidden = cpu === null && version === ''
+  const level = cpu === null || cpu.level === null ? null : `CPU for the chats: ${cpu.level[0].toUpperCase()}${cpu.level.slice(1)}${cpu.count === '' ? '' : ` (${cpu.count})`}`
+  $('settings-button').title = [level, version].filter(part => part !== null && part !== '').join('\n') || 'CPU for the chats and the board\'s version'
+}
+
+// A click elsewhere, or Escape, folds it again.
+document.addEventListener('click', event => {
+  if ($('settings').open && !$('settings').contains(event.target)) $('settings').open = false
+})
+// On a narrow screen the part stands fixed under the button: a scroll folds it, so it never floats away from it.
+window.addEventListener('scroll', () => {
+  if ($('settings').open && window.matchMedia('(max-width: 760px)').matches) $('settings').open = false
+}, { passive: true })
+$('settings').addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || !$('settings').open) return
+  $('settings').open = false
+  $('settings-button').focus()
+})
 
 /** The level being sent, lit at once. */
 let cpuPending = null
@@ -362,8 +389,8 @@ function drawTop(state) {
   updated.textContent = `Last updated ${clock(state.readAt)}${state.isDemo ? ' · demo data' : ''}`
   $('version').textContent = versionLine(state.version)
   updated.classList.remove('is-stale')
-  fill($('counts'), ['working', 'waiting', 'free', 'suspended', 'interrupted', 'unknown']
-    .filter(name => (name !== 'unknown' && name !== 'interrupted' && name !== 'suspended') || (state.counts[name] ?? 0) > 0)
+  // B307: "0 waiting for you" goes; the yellow count shows when something waits.
+  fill($('counts'), shownCounts(state.counts)
     .map(name => {
       const pill = el('div', `count-pill is-${name}`)
       pill.append(el('span', 'dot'), el('b', '', String(state.counts[name])), STATES[name].toLowerCase())
@@ -506,18 +533,22 @@ function drawLimit(shown, isSmall) {
   return box
 }
 
+const LIMITS_TIP = 'From the Claude app\'s own usage file on this PC, which it renews about every 15 minutes while it is open. The reset time comes from the last time a chat looked the limits up. Reading it asks no chat and costs nothing.'
+
 /** B113: the limits in the head, in one place. A board whose server does not give them shows nothing there. */
 function drawLimits(state) {
   const box = $('limits')
   const shown = state.limits === undefined ? null : limitsView(state.limits, state.readAt)
   box.hidden = state.limits === undefined
   if (state.limits === undefined) return
-  box.title = 'From the Claude app\'s own usage file on this PC, which it renews about every 15 minutes while it is open. The reset time comes from the last time a chat looked the limits up. Reading it asks no chat and costs nothing.'
+  box.title = LIMITS_TIP
   if (shown === null) return fill(box, [el('small', 'limit-age', 'Limits not known: the app\'s usage file was not found')])
+  // B307: how old the figure is shows when it is old; else it is in the tooltip.
+  box.title = `${LIMITS_TIP}\n${shown.age.text}`
   fill(box, [
     shown.five === null ? null : drawLimit(shown.five, false),
     shown.week === null ? null : drawLimit(shown.week, true),
-    el('small', `limit-age${shown.age.isOld ? ' is-old' : ''}`, shown.age.text),
+    shown.age.isOld ? el('small', 'limit-age is-old', shown.age.text) : null,
   ].filter(part => part !== null))
 }
 
@@ -640,6 +671,58 @@ function timeOf(lane, now) {
 }
 // lanetime:end
 
+// calmoverview:start
+// B307: a calmer Overview, one line per worker and per note. The person, 2026-10-18: "I want to see if i can make this
+// overview slightly easier and have less text/details." What goes from a row stays in its tooltip or its details.
+
+/**
+ * What the column Left shows of a lane: for a worker that works, its time once ("1 h 34"; over its time "12 min over"),
+ * with its end time and where the time is from in the tooltip (`title`). A free worker shows nothing (null); one that
+ * is held, cut off or blocked says so as `timeOf` does.
+ */
+function leftView(lane, now) {
+  if (lane.state === 'free') return null
+  const time = timeOf(lane, now)
+  const eta = lane.eta ?? null
+  if (lane.state !== 'working') return time
+  if (eta === null) return { ...time, label: '', main: time.tone === 'fault' ? time.main : time.small[0] ?? time.main, small: [], title: time.title ?? time.small.join(' · ') }
+  const from = time.from === null ? [] : [`${time.from.text}: ${time.from.title}`]
+  const title = (words, ...more) => [words, ...more, ...from].join('\n')
+  if (eta.isOverdue) return { label: '', main: time.main, tone: 'bad', small: [], from: null, title: title(`Overdue: ${time.small[0]}`) }
+  if (eta.isOver === true) return { label: '', main: time.main, tone: 'time', small: [], from: null, title: title(time.small[0]) }
+  return { label: '', main: span(eta.leftMs), tone: 'time', small: [], from: null, title: title(`${span(eta.leftMs)} left, ${time.small[0]}`) }
+}
+
+/** A free worker's one line: since when it is free ("free since 13:01"); null when that is not known. */
+function freeShort(lane, clockOf = null) {
+  if (lane.state !== 'free' || clockOf === null || !Number.isFinite(lane.idle?.since)) return null
+  return `free since ${clockOf(lane.idle.since)}`
+}
+
+/** The column "Next in queue": the next step by its id and title, why it is not started, and how many come after it. */
+function nextInQueue(queue) {
+  if (!Array.isArray(queue) || queue.length === 0) return null
+  const [first] = queue
+  const why = whyText(first.why)
+  return { id: first.id ?? null, title: first.title, why: why === null ? null : { tone: why.tone, text: why.text.replace(/^Not started: /, '') }, more: queue.length - 1 }
+}
+
+/** A note of the Information part as one line: the step it is about, who sent it, its words without "Report from X:". */
+function infoLine(row) {
+  return { about: row.about ?? null, from: row.from ?? null, words: (row.text ?? '').replace(/^(?:Report|Note|Question) from [^:\n]{1,80}?:\s*/, '') }
+}
+
+/** The counts in the head: working and free always, the others only when there is one ("0 waiting for you" goes). */
+function shownCounts(counts) {
+  return ['working', 'waiting', 'free', 'suspended', 'interrupted', 'unknown'].filter(name => name === 'working' || name === 'free' || (counts[name] ?? 0) > 0)
+}
+
+/** The Information part's height: at least 90 pixels, and the asks above it keep 120 of the `room` both share. */
+function infoHeightFit(height, room) {
+  return Math.round(Math.max(90, Math.min(height, room - 120)))
+}
+// calmoverview:end
+
 /**
  * B82: the topic the chat recorded for its task. A chat that recorded nothing has no words to show: what was typed to
  * it stays in its chat. B182: the backlog step it is on stands in front ("B173 Build the new Advisor's job and
@@ -690,11 +773,13 @@ function drawStepLine(lane, line) {
   now.type = 'button'
   now.dataset.stepsOf = lane.name
   now.setAttribute('aria-label', `${line.label}. All steps: ${line.steps.map((step, index) => `${index + 1}. ${step.name}${step.state === 'now' ? ' (now)' : step.state === 'done' ? ' (done)' : ''}`).join('; ')}`)
-  now.append(el('span', 'step-count', line.count), el('span', 'step-name', line.name), el('span', `step-time is-${line.tone}`, line.time))
+  // B307: the time left shows once on the row, in the column Left; the step's own time is in the list that opens.
+  now.append(el('span', 'step-count', line.count), el('span', 'step-name', line.name))
+  now.title = line.label
   const list = el('ol', 'step-list')
   for (const step of line.steps) {
     const item = el('li', `is-${step.state}`, step.name)
-    if (step.state === 'now') item.append(el('small', '', 'now'))
+    if (step.state === 'now') item.append(el('small', '', 'now'), el('span', `step-time step-list-time is-${line.tone}`, line.time))
     list.append(item)
   }
   box.append(now, list)
@@ -710,8 +795,10 @@ function betweenTurns(lane) {
   return [note]
 }
 
+/** B307: the column Left (see `leftView`); empty for a free worker. */
 function drawEta(lane, now) {
-  const time = timeOf(lane, now)
+  const time = leftView(lane, now)
+  if (time === null) return el('div', 'eta is-muted')
   const box = el('div', `eta is-${time.tone}`)
   if (time.title !== undefined) box.title = time.title
   if (time.label !== '') box.append(el('small', '', time.label))
@@ -785,6 +872,13 @@ function drawMore(lane, state) {
     if (lane.eta !== null && lane.eta.isOwn === false) list.append(el('li', 'muted', `It gave no estimate: ${task.stepId ?? 'its step'} says ${about(task.stepMinutes)}, counted from the start.`))
     if (task.source === 'plan' && (task.stepId ?? null) !== null) list.append(el('li', 'muted', `It is on step ${task.stepId} of the backlog.`))
   }
+  // B307: what the row no longer says, here in full.
+  if (lane.state === 'working' && (lane.doingNow ?? null) !== null) list.append(el('li', '', `Now: ${lane.doingNow}`))
+  if (lane.state === 'working' && (lane.between ?? null) !== null) list.append(el('li', 'muted', `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}`))
+  const free = freeLine(lane, clock)
+  if (free !== null) list.append(el('li', '', free))
+  const compacted = compactionLine(lane.compaction ?? null, clock)
+  if (compacted !== null) list.append(el('li', 'muted', compacted.title))
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
   for (const folder of lane.folders) list.append(el('li', '', folderLine(folder, now)))
   if (lane.lastActivityAt !== null) list.append(el('li', 'muted', `Last activity ${ago(lane.lastActivityAt, now)}`))
@@ -854,13 +948,14 @@ function drawLane(lane, state) {
     idle.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
     names.append(idle)
   }
-  // B235: whether the Workers mod compacted it after its last report, or why not.
+  // B235: whether the Workers mod compacted it after its last report, or why not. B307: on the row only when something
+  // is wrong; else on hovering the name.
   const compacted = compactionLine(lane.compaction ?? null, clock)
-  if (compacted !== null) {
-    const note = el('small', `compaction${compacted.isWarning ? ' is-warning' : ''}`, compacted.text)
+  if (compacted !== null && compacted.isWarning) {
+    const note = el('small', 'compaction is-warning', compacted.text)
     note.title = compacted.title
     names.append(note)
-  }
+  } else if (compacted !== null) names.title = compacted.title
   // B143: a worker can be removed; the main chat cannot. The board asks the main chat, which closes the worker.
   const main = state.workers?.mainTitle ?? 'the main chat'
   const removal = removalView(lane, main, state.readAt)
@@ -884,14 +979,30 @@ function drawLane(lane, state) {
   sign.append(icon('chat'))
   who.append(sign, names)
 
+  // B307: one line: the task, or since when it is free. What it does now and why it counts as working between two
+  // turns are in the task's tooltip and in the details "⋯" unfolds.
   const what = el('div', 'what')
   const task = lane.task
+  const more = [
+    lane.state === 'working' && (lane.doingNow ?? null) !== null ? `Now: ${lane.doingNow}` : null,
+    lane.state === 'working' && (lane.between ?? null) !== null ? `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}` : null,
+  ].filter(Boolean)
   if (task === null) {
-    what.append(el('p', 'task is-none', lane.state === 'working' ? 'Task not recorded yet' : 'No active task'))
-    const free = freeLine(lane, clock)
-    if (free !== null) what.append(el('p', 'note', free))
+    if (lane.state === 'working') {
+      const none = el('p', 'task is-none', 'Task not recorded yet')
+      if (more.length > 0) none.title = more.join('\n')
+      what.append(none)
+    }
+    const free = freeShort(lane, clock)
+    if (free !== null) {
+      const line = el('p', 'note free-since', free)
+      line.title = freeLine(lane, clock)
+      what.append(line)
+    }
   } else {
-    what.append(taskTitle(lane))
+    const title = taskTitle(lane)
+    if (more.length > 0) title.title = [title.title, ...more].filter(Boolean).join('\n')
+    what.append(title)
   }
   // B159: the progress of its task in a column of its own: a bar of its steps, and its step line (B108) under it.
   const progress = el('div', 'progress-cell')
@@ -900,17 +1011,12 @@ function drawLane(lane, state) {
   const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
   done.style.width = hasSteps ? `${Math.max(0, Math.min(100, (task.step / task.steps) * 100))}%` : '0%'
   bar.append(done)
-  progress.append(bar)
+  // B307: a worker without a task has no bar either.
+  if (task !== null) progress.append(bar)
   const steps = task === null ? null : stepLine(lane, state.readAt)
   if (steps !== null) progress.append(drawStepLine(lane, steps))
   else if (hasSteps) progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
   else if (task !== null) progress.append(el('small', 'progress-count', 'no steps given'))
-  if (lane.state === 'working' && lane.doingNow !== null) {
-    const now = el('p', 'now clip')
-    now.append(el('b', '', 'Now: '), el('span', '', lane.doingNow))
-    what.append(now)
-  }
-  what.append(...betweenTurns(lane))
   if (lane.state === 'interrupted') what.append(el('p', 'alert', 'Cut off in the middle of its turn: it does nothing until it is resumed.'))
   if (lane.state === 'suspended') what.append(el('p', `held${lane.suspended.isBack ? ' is-back' : ''}`, heldText(lane.suspended)))
   if (lane.state === 'waiting') {
@@ -946,29 +1052,24 @@ function drawLane(lane, state) {
   if (removal.line !== null) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
   if (problems.has(`remove:${lane.name}`)) what.append(el('p', 'remove-line is-problem', problems.get(`remove:${lane.name}`)))
 
+  // B307: the column "Next in queue": the next step's id and title, and why it waits; empty when nothing is queued.
   const queue = el('div', 'queue')
-  if (lane.queue.length === 0) queue.append(el('span', 'queue-empty', 'Queue (0)'))
-  if (lane.queue.length > 0) {
+  const next = nextInQueue(lane.queue)
+  if (next !== null) {
     const first = el('div', 'queue-first')
-    const item = el('button', 'queue-item')
+    const item = el('button', 'queue-item queue-next')
     item.type = 'button'
     item.dataset.lane = lane.name
     item.dataset.step = '0'
-    item.title = `${lane.queue[0].text}\nShow the details`
-    const listSign = el('span', 'queue-icon')
-    listSign.append(icon('list'))
+    // B113: why it is not started, in full, with how long it takes and the length of the queue.
+    item.title = [lane.queue[0].text, [`Queue (${lane.queue.length})`, next.id, about(lane.queue[0].minutes) ?? 'no time given'].filter(Boolean).join(' · '), whyText(lane.queue[0].why)?.text ?? null, 'Show the details'].filter(Boolean).join('\n')
     const words = el('span', 'queue-text')
-    words.append(el('b', '', lane.queue[0].title), el('small', '', [`Queue (${lane.queue.length})`, lane.queue[0].id, about(lane.queue[0].minutes) ?? 'no time given'].filter(Boolean).join(' · ')))
-    item.append(listSign, words)
-    // B113: why it is not started.
-    const why = whyText(lane.queue[0].why)
-    if (why !== null) {
-      const line = el('small', `why is-${why.tone}`, why.text)
-      line.title = why.text
-      words.append(line)
-    }
+    if (next.id !== null) words.append(el('span', 'queue-id', next.id), ' ')
+    words.append(next.title)
+    if (next.why !== null) words.append(el('span', `why is-${next.why.tone}`, ` · ${next.why.text}`))
+    item.append(words)
     first.append(item)
-    if (lane.queue.length > 1) first.append(el('div', 'queue-more', `+${lane.queue.length - 1}`))
+    if (next.more > 0) first.append(el('div', 'queue-more', `+${next.more}`))
     queue.append(first)
   }
 
@@ -1172,18 +1273,24 @@ function drawAdvisorLane(state) {
   names.append(el('h3', '', advisor.name), el('span', `pill is-${standing.key}`, standing.label))
   who.append(sign, names)
 
+  // B307: one line, as a worker's: its task, else what it refines, else how it stands; the rest in the tooltip.
   const what = el('div', 'what')
-  if (lane.task !== null && (lane.task.text ?? '') !== '') what.append(taskTitle(lane))
-  else what.append(el('p', 'task is-none', advisor.state === 'working' ? 'Task not recorded yet' : 'No active task'))
-  if (advisor.state === 'working' && advisor.doingNow !== null) {
-    const now = el('p', 'now clip')
-    now.append(el('b', '', 'Now: '), el('span', '', advisor.doingNow))
-    what.append(now)
-  }
-  what.append(...betweenTurns(lane))
-  // B287: what it refines, as on the Advisor tab.
+  const hasTask = lane.task !== null && (lane.task.text ?? '') !== ''
+  if (hasTask) {
+    const title = taskTitle(lane)
+    const more = [
+      advisor.state === 'working' && advisor.doingNow !== null ? `Now: ${advisor.doingNow}` : null,
+      advisor.state === 'working' && lane.between !== null ? `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}` : null,
+    ].filter(Boolean)
+    if (more.length > 0) title.title = [title.title, ...more].filter(Boolean).join('\n')
+    what.append(title)
+  } else if (advisor.state === 'working') what.append(el('p', 'task is-none', 'Task not recorded yet'))
+  // B287: what it refines, as on the Advisor tab; under a task only when it is stopped and waits for Send again.
   const refine = advisorRefine(state.backlog)
-  if (refine !== null) {
+  // What the row does not say, on hovering the card and its line.
+  const tip = []
+  if (refine !== null && hasTask && refine.canSend !== true) tip.push(refine.text)
+  if (refine !== null && (!hasTask || refine.canSend === true)) {
     const line = el('p', 'advisor-lane-refine')
     line.append(el('span', `advisor-refine-state is-${refine.tone}`, refine.text))
     // B312: the board stopped refining it: one round more, in the Refine button's words.
@@ -1199,9 +1306,18 @@ function drawAdvisorLane(state) {
     }
     what.append(line)
   }
-  if (standing.key === 'waiting') what.append(el('p', 'note', 'It asks you something: see Needs your attention.'))
+  const isSaid = what.childElementCount > 0
+  if (standing.key === 'waiting' && !isSaid) what.append(el('p', 'note', 'It asks you something: see Needs your attention.'))
   if (standing.key === 'off') what.append(el('p', 'note', 'Its chat is not running: what is sent to it waits until it is opened.'))
-  if (standing.key === 'free' && Number.isFinite(advisor.idle?.since)) what.append(el('p', 'note', `Idle since ${clock(advisor.idle.since)}`))
+  if (standing.key === 'free' && Number.isFinite(advisor.idle?.since)) {
+    if (isSaid) tip.push(`Idle since ${clock(advisor.idle.since)}`)
+    else what.append(el('p', 'note', `idle since ${clock(advisor.idle.since)}`))
+  }
+  if (tip.length > 0) {
+    card.title = [card.title, ...tip].join('\n')
+    const first = what.firstElementChild
+    if (first !== null) first.title = [first.title, ...tip].filter(Boolean).join('\n')
+  }
 
   const progress = el('div', 'progress-cell')
   const task = lane.task
@@ -1216,14 +1332,17 @@ function drawAdvisorLane(state) {
     progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
   }
 
+  // B307: its time left once while it works; else nothing, as its pill says how it stands.
   const time = advisor.state === 'working' ? drawEta(lane, state.readAt) : el('div', 'eta is-muted')
-  if (advisor.state !== 'working') time.append(el('span', 'state', standing.label))
 
+  // B307: what waits for it, by kind in the tooltip; nothing when nothing waits (or the server does not count it).
   const queued = advisorQueued(advisor.queued)
   const waits = el('div', 'queue advisor-waits')
-  // A server without the count says nothing about it.
-  if (advisor.queued === undefined) { /* nothing to say */ } else if (queued === null) waits.append(el('span', 'queue-empty', 'Nothing waits for it'))
-  else waits.append(el('b', '', `${queued.count} waiting for it`), el('small', '', queued.text))
+  if (queued !== null) {
+    const count = el('span', 'advisor-waits-count', `${queued.count} waiting for it`)
+    count.title = queued.text
+    waits.append(count)
+  }
 
   const open = el('div', 'lane-menu-cell')
   open.append(el('span', 'advisor-open', '›'))
@@ -1779,18 +1898,20 @@ function drawMainGame(state) {
     stop.dataset.game = 'stop'
     row.append(stop)
   }
+  // B307: which commit main is on, and since when, on hovering Run game; a running game keeps its link under it.
   const facts = [state.baseBranch, game.commit?.hash ?? null, game.lastCommitAt === null ? null : `last change ${ago(game.lastCommitAt, state.readAt)}`].filter(Boolean)
-  const note = el('small', 'run-note', facts.join(' · '))
-  if (game.commit?.subject) note.title = game.commit.subject
+  run.title = [run.title, facts.join(' · '), game.commit?.subject ?? null].filter(Boolean).join('\n')
+  let note = null
   if (game.url !== null) {
+    note = el('small', 'run-note', 'running at ')
     const link = el('a', '', game.url.replace(/^http:\/\//, '').replace(/\/$/, ''))
     link.href = game.url
     link.target = '_blank'
     link.rel = 'noreferrer noopener'
-    note.append(' · running at ', link)
+    note.append(link)
   }
   const problem = problems.get('game:main')
-  fill($('main-game'), [row, note, problem === undefined ? null : el('p', 'problem', problem)])
+  fill($('main-game'), [row, note, problem === undefined ? null : el('p', 'problem', problem)].filter(part => part !== null))
 }
 
 /**
@@ -1879,7 +2000,8 @@ function storeAskParts(need, isRunning = null) {
 /** B299: the Information list: notes and reports, unread first, one line each; read ones fade. */
 function informationRows(list) {
   return (list ?? []).map(one => ({
-    id: one.id, text: one.text, isRead: one.isRead,
+    // B307: who sent it and the step it is about, for its one line.
+    id: one.id, text: one.text, isRead: one.isRead, from: one.from ?? null, about: one.about ?? null,
     head: `${one.from ?? 'the board'}${one.to === 'main' ? ' → Main' : ''}${one.about === null ? '' : ` · ${one.about}`}`,
     at: one.since,
   }))
@@ -1912,35 +2034,116 @@ function storeAskLines(need, state) {
   return out
 }
 
-/** B299: the part "Information" under Needs your attention: what the chats told the person; "Read" puts it away. */
+/** B307: the notes opened to their whole words, by id. */
+const openInfos = new Set()
+
+/**
+ * B299: the part "Information" under Needs your attention: what the chats told the person; "Read" puts it away. B307:
+ * in a box of its own under a handle that sets its height, each note one line (the step it is about, who sent it, its
+ * words cut at the edge); a click opens the whole note with its Read button. "Mark all read" reads every new one.
+ */
 function drawInformation(state) {
-  const rows = informationRows(state.information)
-  if (rows.length === 0) return null
-  const unread = rows.filter(row => !row.isRead).length
+  const box = $('information')
+  // A note that is no longer there is no longer open.
+  for (const id of openInfos) if (!(state.information ?? []).some(one => one.id === id)) openInfos.delete(id)
+  const rows = informationRows(state.information).filter(row => !row.isRead || showsClosed())
+  const isEmpty = rows.length === 0 && (state.information ?? []).length === 0
+  box.hidden = isEmpty
+  $('info-resizer').hidden = isEmpty
+  if (isEmpty) return fill(box, [])
+  const top = box.scrollTop
+  const focused = document.activeElement?.closest?.('#information [data-info-open]')?.dataset.infoOpen ?? null
+  const unread = informationRows(state.information).filter(row => !row.isRead)
+  // All read, however: what held "Mark all read" back is said no more.
+  if (unread.length === 0) problems.delete('read:all')
   const part = el('section', 'information')
   const head = el('h3', '', 'Information')
-  head.append(el('small', 'muted', unread === 0 ? 'all read' : `${unread} new`))
+  head.append(el('small', 'muted', unread.length === 0 ? 'all read' : `${unread.length} new`))
+  if (unread.length > 0) {
+    const all = el('button', 'choice info-read-all', sending.has('read:all') ? 'Reading…' : 'Mark all read')
+    all.type = 'button'
+    all.dataset.readAll = ''
+    all.disabled = sending.has('read:all')
+    all.title = `Marks the ${unread.length} new notes read; they stay under "Show closed" for a day`
+    head.append(all)
+  }
   part.append(head)
+  if (problems.has('read:all')) part.append(el('p', 'problem', problems.get('read:all')))
   for (const row of rows) {
-    if (row.isRead && !showsClosed()) continue
-    const line = el('div', `info${row.isRead ? ' is-read' : ''}`)
+    const isOpen = openInfos.has(row.id)
+    const line = el('div', `info${row.isRead ? ' is-read' : ''}${isOpen ? ' is-open' : ''}`)
     line.dataset.info = row.id
-    const words = el('p', '')
-    words.append(el('b', '', row.head), ' ', row.text)
-    line.append(words, el('small', 'muted', row.at === null ? row.id : `${row.id} · ${ago(row.at, state.readAt)}`))
-    if (!row.isRead) {
-      const read = el('button', 'choice', sending.has(`read:${row.id}`) ? 'Reading…' : 'Read')
-      read.type = 'button'
-      read.dataset.read = row.id
-      read.disabled = sending.has(`read:${row.id}`)
-      line.append(read)
+    const short = infoLine(row)
+    const toggle = el('button', 'info-line')
+    toggle.type = 'button'
+    toggle.dataset.infoOpen = row.id
+    toggle.setAttribute('aria-expanded', String(isOpen))
+    toggle.title = isOpen ? 'Fold the note' : 'Show the whole note'
+    if (short.about !== null) toggle.append(el('span', 'info-about', short.about), ' ')
+    if (short.from !== null) toggle.append(el('span', 'info-from', `${short.from}:`), ' ')
+    toggle.append(el('span', 'info-words', short.words))
+    line.append(toggle)
+    if (isOpen) {
+      const whole = el('div', 'info-whole')
+      const words = el('p', '')
+      words.append(el('b', '', row.head), ' ', row.text)
+      whole.append(words, el('small', 'muted', row.at === null ? row.id : `${row.id} · ${ago(row.at, state.readAt)}`))
+      if (!row.isRead) {
+        const read = el('button', 'choice', sending.has(`read:${row.id}`) ? 'Reading…' : 'Read')
+        read.type = 'button'
+        read.dataset.read = row.id
+        read.disabled = sending.has(`read:${row.id}`) || sending.has('read:all')
+        whole.append(read)
+      }
+      line.append(whole)
     }
     const problem = problems.get(`read:${row.id}`)
     if (problem !== undefined) line.append(el('p', 'problem', problem))
     part.append(line)
   }
-  return part
+  // All read and hidden: one line, no height to drag.
+  if (rows.length === 0) part.append(el('p', 'empty', 'All read: "Show closed" shows them.'))
+  box.classList.toggle('is-all-read', rows.length === 0)
+  $('info-resizer').hidden = rows.length === 0
+  fill(box, [part])
+  box.scrollTop = top
+  if (focused !== null) [...box.querySelectorAll('[data-info-open]')].find(node => node.dataset.infoOpen === focused)?.focus()
 }
+
+/** B307: "Mark all read": each new note read in turn; the first that is refused stops it and says why. */
+async function readAllInformation(ids) {
+  sending.add('read:all')
+  problems.delete('read:all')
+  if (board !== null) drawInformation(board)
+  for (const id of ids) {
+    let problem = null
+    try {
+      const answer = await fetch('/api/work', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ action: 'read', id }) })
+      if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
+    } catch {
+      problem = 'the board\'s server does not answer'
+    }
+    if (problem !== null) {
+      problems.set('read:all', `Not all read: ${id} ${problem}`)
+      break
+    }
+  }
+  sending.delete('read:all')
+  await read()
+}
+
+$('information').addEventListener('click', event => {
+  if (board === null) return
+  const read = event.target.closest('[data-read]')
+  if (read !== null) return sendWork({ action: 'read', id: read.dataset.read }, `read:${read.dataset.read}`)
+  if (event.target.closest('[data-read-all]') !== null && !sending.has('read:all')) {
+    return readAllInformation(informationRows(board.information).filter(row => !row.isRead).map(row => row.id))
+  }
+  const toggle = event.target.closest('[data-info-open]')
+  if (toggle === null) return
+  if (!openInfos.delete(toggle.dataset.infoOpen)) openInfos.add(toggle.dataset.infoOpen)
+  drawInformation(board)
+})
 
 /**
  * B258: the part "Answers to your asks" under Needs your attention: each ask on the goal map the Advisor answered and
@@ -2236,9 +2439,11 @@ function drawNeeds(state) {
   const oldCards = shown.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   const cards = shown.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
   const none = cardsOpen.length > 0 || lines.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
-  fill(box, [none, drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawLegacy(state), drawInformation(state), drawInstructions(state)])
+  fill(box, [none, drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawLegacy(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
+  // B307: Information in its own box under the asks, as high as the person dragged it.
+  drawInformation(state)
 }
 
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
@@ -7911,6 +8116,73 @@ function resizable(handle, view, name, usual) {
 
 resizable($('inbox-resizer'), $('view-overview'), 'for-you-width', 390)
 resizable($('talk-resizer'), $('view-advice'), 'chat-width', 500)
+
+/**
+ * B307: the handle above Information sets that part's height (see `infoHeightFit`): by dragging, by the arrow keys,
+ * and back to the usual height with a double-click. The height is kept in this browser.
+ */
+function resizableInformation(handle, side, usual) {
+  // The height the person chose, apart from the one that fits now: a window made narrow and wide again keeps it.
+  let wanted = usual
+  let height = usual
+  try {
+    wanted = Number(localStorage.getItem('information-height')) || usual
+  } catch {
+    // Without storage the height is the usual one after each reload.
+  }
+  // Where the side flows under the Overview (a narrow window) it has no height of its own to share.
+  const flows = window.matchMedia('(max-width: 1250px)')
+  handle.setAttribute('aria-valuemin', '90')
+  /** Applies `next` as far as it fits; `isChosen`: the person chose it (it is kept, also in this browser). */
+  const set = (next, isChosen = true) => {
+    const room = side.getBoundingClientRect().height
+    height = flows.matches || room <= 0 ? Math.round(next) : infoHeightFit(next, room)
+    side.style.setProperty('--info-height', `${height}px`)
+    handle.setAttribute('aria-valuenow', String(height))
+    if (room > 0 && !flows.matches) handle.setAttribute('aria-valuemax', String(Math.max(90, Math.round(room - 120))))
+    if (!isChosen) return
+    wanted = height
+    try {
+      localStorage.setItem('information-height', String(height))
+    } catch {
+      // Not kept; it still applies until the page is closed.
+    }
+  }
+  set(wanted, false)
+  handle.addEventListener('pointerdown', event => {
+    // Only the main button drags.
+    if (event.button !== 0) return
+    event.preventDefault()
+    try {
+      handle.setPointerCapture(event.pointerId)
+    } catch {
+      // A pointer that cannot be captured still drags while it stays on the handle.
+    }
+    document.body.classList.add('is-resizing-rows')
+    // Information reaches from the pointer to the bottom of the side.
+    const move = moved => set(side.getBoundingClientRect().bottom - moved.clientY, false)
+    const stop = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', stop)
+      handle.removeEventListener('pointercancel', stop)
+      document.body.classList.remove('is-resizing-rows')
+      set(height)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', stop)
+    handle.addEventListener('pointercancel', stop)
+  })
+  handle.addEventListener('keydown', event => {
+    if (event.key === 'ArrowUp') set(height + 24)
+    else if (event.key === 'ArrowDown') set(height - 24)
+    else return
+    event.preventDefault()
+  })
+  handle.addEventListener('dblclick', () => set(usual))
+  window.addEventListener('resize', () => set(wanted, false))
+}
+
+resizableInformation($('info-resizer'), $('side-needs'), 260)
 
 // finished:start
 // B155: the steps finished last, newest first, at the top of the Backlog tab. The person, 2026-10-14: "i want a

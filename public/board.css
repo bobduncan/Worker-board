@@ -1720,3 +1720,60 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
   .calm-buttons .button { flex: 1 1 0; min-width: 0; }
   .calm-buttons .button:first-child { margin-right: 0; }
 }
+
+/* B307: a calmer Overview. One line per worker and per note; the time left once; the next step in each queue as
+   text; CPU for the chats and the board's version behind ⚙; Information as high as the person drags it. */
+.settings { position: relative; margin-right: 8px; }
+.settings[hidden] { display: none; }
+.settings > summary { display: grid; place-items: center; list-style: none; font-size: 17px; line-height: 1; }
+.settings > summary::-webkit-details-marker { display: none; }
+.settings[open] > summary { background: var(--inset); color: var(--text); }
+.settings-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; display: flex; flex-direction: column; gap: 10px; min-width: 270px; padding: 12px 14px; border: 1px solid #2a3850; border-radius: 10px; background: #0f1724; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55); }
+.settings-pop .cpu { margin-right: 0; flex-wrap: wrap; row-gap: 6px; white-space: normal; }
+.settings-pop .cpu-label { flex-basis: 100%; margin: 0; }
+.settings-pop .cpu-count { flex-basis: 100%; margin: 0; }
+.settings-pop .cpu-count:empty { display: none; }
+.settings-pop .version { white-space: normal; }
+.settings-pop .version:empty { display: none; }
+
+.lane-row .free-since { color: var(--muted); }
+.workers-panel .queue-next { display: block; width: 100%; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-size: 14px; line-height: 1.35; text-align: left; }
+.workers-panel .queue-next:hover { border: 0; text-decoration: underline; text-decoration-color: var(--muted); }
+.workers-panel .queue-next:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; border-radius: 4px; }
+.queue-next .queue-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.queue-id { color: #9db8e8; font-weight: 700; font-variant-numeric: tabular-nums; }
+.queue-next .why { display: inline; margin: 0; white-space: normal; overflow: visible; }
+.step-list .step-list-time { margin-left: 8px; }
+.advisor-waits-count { color: var(--text); }
+
+.info-resizer { flex: none; position: relative; height: 10px; border-top: 1px solid var(--line); outline: 0; cursor: row-resize; touch-action: none; }
+.info-resizer[hidden] { display: none; }
+.info-resizer::after { content: ""; position: absolute; left: 50%; top: 3px; width: 40px; height: 3px; margin-left: -20px; border-radius: 2px; background: #2a3850; }
+.info-resizer:hover::after, .info-resizer:focus-visible::after, .is-resizing-rows .info-resizer::after { background: #2f5fb3; }
+.info-resizer:hover, .info-resizer:focus-visible, .is-resizing-rows .info-resizer { border-top-color: #2f5fb3; }
+body.is-resizing-rows { cursor: row-resize; user-select: none; }
+.info-box { flex: none; height: var(--info-height, 260px); overflow-y: auto; padding: 0 12px 12px; }
+.info-box[hidden] { display: none; }
+.info-box.is-all-read { height: auto; }
+.info-box .information { margin-top: 0; padding-top: 4px; border-top: 0; }
+.info-box .information h3 { position: sticky; top: 0; z-index: 1; margin: 0; padding: 6px 0; background: #0c121d; align-items: center; }
+.info-read-all { margin-left: auto; }
+.info-box .info { display: block; margin: 0; }
+.info-line { display: block; width: 100%; padding: 5px 6px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 13.5px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.info-line:hover, .info.is-open .info-line { background: var(--inset); }
+.info-line:focus-visible { outline: 2px solid var(--free); outline-offset: -2px; }
+.info-about { color: #7fb0ff; font-weight: 700; }
+.info-from { color: var(--muted); font-weight: 600; }
+.info-whole { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 4px 6px 10px; }
+.info-whole p { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.info-whole small { grid-column: 1; }
+.info-whole button { grid-column: 2; grid-row: 1 / span 2; }
+@media (max-width: 1250px) {
+  .info-box { height: auto; overflow: visible; }
+  .info-resizer { display: none; }
+  .info-box .information h3 { position: static; }
+}
+/* On a narrow screen the ⚙ part opens across the screen, under the button. */
+@media (max-width: 760px) {
+  .settings-pop { position: fixed; left: 10px; right: 10px; top: auto; min-width: 0; margin-top: 6px; }
+}
