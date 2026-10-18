@@ -1,7 +1,7 @@
 // Pause and resume from the store, not from messages (spec 2026-10-18-pause-resume-design.md). A step a chat holds
 // carries a checkpoint in its record (`Checkpoint: <commit or none> · <next action> · <date time>`, written with work
 // step's `commit` and `next`). The person's "Pause all" and "Resume all" write `<work>/pause.json`
-// (`{ state: pausing | resuming | running, since, by }`); the board says from facts alone whether it is safe to restart,
+// (`{ state: pausing | resuming | running, since, by, pausedSince }`); the board says from facts alone whether it is safe to restart,
 // and whom a resume still waits for. Nothing here reads a chat's words.
 
 import { sinceMs, valueOf } from './item.mjs'
@@ -25,7 +25,9 @@ export function parsePause(text) {
   try {
     const raw = JSON.parse(text)
     if (!PAUSE_STATES.includes(raw?.state)) return null
-    return { state: raw.state, since: Number.isFinite(raw.since) ? raw.since : null, by: typeof raw.by === 'string' ? raw.by : null }
+    const record = { state: raw.state, since: Number.isFinite(raw.since) ? raw.since : null, by: typeof raw.by === 'string' ? raw.by : null }
+    // A resume after a pause keeps when the pause began (`pausedSince`).
+    return Number.isFinite(raw.pausedSince) ? { ...record, pausedSince: raw.pausedSince } : record
   } catch {
     return null
   }
@@ -108,7 +110,9 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '' }) {
 export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role }) {
   const state = pause?.state ?? 'running'
   const since = pause?.since ?? null
-  const withMark = checkpoint => (checkpoint === null ? null : { ...checkpoint, isSincePause: pause !== null && pause !== undefined && isSince(checkpoint, since) })
+  // While resuming a checkpoint counts from when the pause began; a resume with no pause before it has none.
+  const pausedAt = state === 'resuming' ? pause?.pausedSince ?? null : since
+  const withMark = checkpoint => (checkpoint === null ? null : { ...checkpoint, isSincePause: isSince(checkpoint, pausedAt) })
   const holders = holdersOf(items, prefix)
   const holds = holders.filter(holder => plain(holder.chat, prefix) === plain(chat, prefix)).map(holder => ({ id: holder.id, checkpoint: withMark(holder.checkpoint) }))
   const laneOf = name => lanes.find(lane => plain(lane.name, prefix) === plain(name, prefix))

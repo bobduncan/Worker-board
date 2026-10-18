@@ -104,7 +104,8 @@ test('pause-all and resume-all are the person\'s: they write pause.json in the s
     assert.equal(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')).since, NOW)
     at(NOW + 20 * MIN)
     await person({ action: 'resume-all' })
-    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'resuming', since: NOW + 20 * MIN, by: 'person' })
+    // The resume keeps when the pause began: a checkpoint of the pause still counts as one in the main chat's list.
+    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'resuming', since: NOW + 20 * MIN, by: 'person', pausedSince: NOW })
     // Only the board sets running, and only from resuming.
     assert.equal((await person({ action: 'resumed' })).status, 403)
     at(NOW + 25 * MIN)
@@ -224,4 +225,21 @@ test('after Resume all the board types "resume" only into a main chat that runs;
   assert.equal(resumeTypeTo(state(false)), null)
   assert.equal(resumeTypeTo(state(null)), null)
   assert.equal(resumeTypeTo({ restart: { main: null }, chats: [] }), null)
+})
+
+test('after a pause, the resume list of the main chat marks a checkpoint written during the pause as one since the pause', async () => {
+  const { dir, board, main, person, at } = await fresh(LANES.map(lane => (lane.name === 'Board' ? { ...lane, state: 'off', isRunning: false } : lane)))
+  try {
+    await board({ action: 'take', id: 'B1' })
+    at(NOW + MIN)
+    await person({ action: 'pause-all' })
+    at(NOW + 2 * MIN)
+    await board({ action: 'step', id: 'B1', commit: 'a1b2c3d', next: 'wire it' })
+    at(NOW + 20 * MIN)
+    await person({ action: 'resume-all' })
+    const list = (await main({ action: 'pause-state' })).result.resumeList
+    assert.deepEqual(list.map(one => [one.step, one.checkpoint.isSincePause, one.hasStarted]), [['B1', true, false]])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })

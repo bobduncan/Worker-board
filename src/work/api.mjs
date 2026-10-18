@@ -438,7 +438,7 @@ async function pauseWrite(body, w) {
   if ((to === 'pausing' && now.record?.state === 'pausing') || (to === 'running' && now.record?.state !== 'resuming')) {
     return { ok: true, result: { text: `The pause state stays ${now.record?.state ?? 'running'}.`, pause: now.record, changed: false } }
   }
-  const record = { state: to, since: w.now, by: w.role }
+  const record = { state: to, since: w.now, by: w.role, ...(to === 'resuming' && now.record?.state === 'pausing' && Number.isFinite(now.record.since) ? { pausedSince: now.record.since } : {}) }
   const done = await writePause(w.dir, record, w.fs, { expected: now.text })
   if (!done.ok) return refuse(/could not be written/.test(done.why) ? 500 : 409, `${done.why}; try again.`)
   return { ok: true, result: { text: `The pause state is ${to} since ${stamp(w.now).slice(11)}.`, pause: record, changed: true } }
