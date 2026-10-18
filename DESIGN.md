@@ -1901,6 +1901,21 @@ line" (the person makes it private on GitHub).
    first project's folders in words; `test/anyProject.test.mjs` checks every file of the repository (its own
    patterns and pictures aside).
 
+## A new project's chats with one button (B335)
+
+The person on B322's box of two buttons with copy buttons, Q71 (2026-10-18 17:44): "Rejected. its not clear what im
+looking at. if i need to create chats for a new project then just 1 button saying initialise or something is
+sufficient". The Advisor's picture: `art-inbox/board-init/initialise.png`.
+
+1. While a new project has no main chat, its board shows one box: "This project has no chats yet", one line, and one
+   button, Initialise (`setupBox`), in the workers part and under the simple view's bar alike; nothing else of the
+   workers part shows then. Once the main chat has its name, the box is gone.
+2. The button opens the main chat in the Claude app (B322's link, `setupChat`); its first words have it name itself,
+   join the list, read its job and the project's facts, and start the Advisor by a chip (when the settings name one
+   apart from the main chat and none is open), telling the person to click it. Five minutes after a click the button
+   says when the chat was opened.
+3. Gone: the Advisor's own box, the second button, the copy buttons and the instructions (B322's parts 1 and 3).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

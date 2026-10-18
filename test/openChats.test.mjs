@@ -74,9 +74,9 @@ test('firstWords: paths as the board\'s folder writes them, on Windows and on a 
 })
 
 test('the button says Initialise, and for a while after its click that the main chat was opened', () => {
-  assert.equal(page.initLabel(null, 0, () => ''), 'Initialise the chats')
+  assert.equal(page.initLabel(null, 0, () => ''), 'Initialise')
   assert.equal(page.initLabel(1000, 1000 + 60_000, () => '17:01'), 'Opened 17:01: press Enter in the Claude app')
-  assert.equal(page.initLabel(1000, 1000 + 6 * 60_000, () => ''), 'Initialise the chats')
+  assert.equal(page.initLabel(1000, 1000 + 6 * 60_000, () => ''), 'Initialise')
 })
 
 test('one box, one button: in the workers part and under the simple view\'s bar; no copy buttons, no second box', () => {

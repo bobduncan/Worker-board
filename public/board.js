@@ -1398,7 +1398,7 @@ function setupChat(state) {
 
 /** B335: the button's words: Initialise, or, within five minutes of its click, that the main chat was opened. */
 function initLabel(openedAt, now, clockOf) {
-  return openedAt !== null && openedAt !== undefined && now - openedAt < 5 * 60_000 ? `Opened ${clockOf(openedAt)}: press Enter in the Claude app` : 'Initialise the chats'
+  return openedAt !== null && openedAt !== undefined && now - openedAt < 5 * 60_000 ? `Opened ${clockOf(openedAt)}: press Enter in the Claude app` : 'Initialise'
 }
 // openchats:end
 
@@ -1408,7 +1408,7 @@ let initialisedAt = null
 /** B335: a new project's box: one line and the Initialise button, which opens its main chat in the Claude app. */
 function setupBox(chat) {
   const box = el('section', 'open-chats')
-  box.append(el('h3', '', 'Set up this project\'s chats'), el('p', 'open-chats-about', 'Opens the main chat in the Claude app: press Enter there, and it sets up the rest.'))
+  box.append(el('h3', '', 'This project has no chats yet'), el('p', 'open-chats-about', 'One click opens its main chat in the Claude app; the rest follows by itself.'))
   const link = el('a', 'open-chats-button', initLabel(initialisedAt, Date.now(), clock))
   link.href = chat.link
   link.title = `Opens ${chat.title} in the Claude app`
