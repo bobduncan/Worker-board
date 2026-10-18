@@ -126,12 +126,13 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     flags.push({ kind: 'old ask', id: valueOf(item, 'Id'), chat: laneOf(owner)?.name ?? owner, text: `${valueOf(item, 'Id')} has waited for your answer for ${span(waited)}`, button: null })
   }
 
-  // Focus 4: an unread note to the main chat wakes it (deliver.mjs, once per note), unless it is suspended for the limit.
+  // Focus 4: a note to the main chat it has not read wakes it (deliver.mjs), unless it is suspended for the limit. The
+  // review: never for its own notes, nor for the board's note of a report (Via: report: the worker tells it itself).
   const notes = []
   const mainLane = live.find(lane => lane.isMain === true)
   if (mainLane !== undefined && mainLane.state !== 'suspended') {
     const mains = new Set(['main', plain(mainLane.name, prefix)])
-    for (const item of [...items.values()].filter(one => kindOf(one) === 'note' && stateOf(one) === 'unread' && mains.has(plain(valueOf(one, 'To'), prefix))).sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
+    for (const item of [...items.values()].filter(one => kindOf(one) === 'note' && valueOf(one, 'Main read') === null && valueOf(one, 'Via') !== 'report' && mains.has(plain(valueOf(one, 'To'), prefix)) && !mains.has(plain(valueOf(one, 'From'), prefix))).sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
       notes.push({ id: valueOf(item, 'Id'), chat: mainLane.name, from: valueOf(item, 'From') === null ? 'the board' : laneOf(valueOf(item, 'From'))?.name ?? plainFrom(valueOf(item, 'From'), prefix), since: valueOf(item, 'Since') })
     }
   }

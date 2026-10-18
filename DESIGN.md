@@ -1454,10 +1454,12 @@ Spec 2026-10-18, sections 2 and 4; plan Task 7; picture `art-inbox/focus-mockups
   under the goal): with the partner's question open they are its answer (`brainstorm answer`), in a new thread its
   opening (`brainstorm`), else `talk: <words>` / `Goal:` / `Thread:` (`focusWords('talk')`). Each typed as the
   person's word; a partner not running is woken through the main chat.
-- **A note to the main chat wakes it** (`reconcile.mjs` `notes`, `deliver.mjs` `noteKey`): an unread note `To: main`
-  types "work: note N<id> from <chat> for you; run work next" into the main chat once (the key kept in `delivered.json`),
-  not while it is suspended; its `work next` shows its unread notes first and marks them read, which withdraws a line
-  still waiting. A board that only shows does not mark them.
+- **A note to the main chat wakes it** (`reconcile.mjs` `notes`, `deliver.mjs` `noteLine`): the notes `To: main` it has
+  not read (`Main read`), from another chat and not the board's note of a report (`Via: report`), wake it with one line
+  per refresh, "work: notes N62, N65 for you; run work next" (key per set of notes in `delivered.json`); none while such
+  a line waits or was taken, none while it is suspended, none for notes filed before the board's first refresh with
+  this (`notesFrom`). Its `work next` shows them first and writes `Main read`, which withdraws a line still waiting; the
+  person's Read under Information is the State, apart. A board that only shows marks nothing.
 - **Waiting for the main chat** (`focusState`): a part whose steps are made but none is queued or under way (new or
   refined) is `handout` with `waitsSince`; the page says "Waiting for the main chat to hand it out", and after the grace
   time `handoutNeeds` puts a hint under Needs your attention with the way to Talk to Main.

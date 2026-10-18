@@ -211,9 +211,12 @@ async function next(body, w) {
   return { ok: true, result: { ...found.result, text: `${notes.text}\n\n${found.result.text}`, notes: notes.ids, changed: true } }
 }
 
-/** Focus 4: the unread notes to the main chat, each in one line, marked read; `{ text, ids }`. */
+/**
+ * Focus 4: the notes to the main chat it has not read, each in one line, marked read by it (`Main read`; the person's
+ * read on the board is the note's State, kept apart); `{ text, ids }`.
+ */
 async function readNotes(chat, w) {
-  const unread = [...w.store.items.values()].filter(item => kindOf(item) === 'note' && stateOf(item) === 'unread' && plain(valueOf(item, 'To'), w.prefix) === 'main')
+  const unread = [...w.store.items.values()].filter(item => kindOf(item) === 'note' && valueOf(item, 'Main read') === null && plain(valueOf(item, 'To'), w.prefix) === 'main')
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   const ids = []
   const shown = []
@@ -222,7 +225,7 @@ async function readNotes(chat, w) {
     if (!found.ok) continue
     const words = found.item.sections.get('Text') ?? []
     shown.push(`- ${valueOf(item, 'Id')} from ${valueOf(item, 'From') ?? 'the board'}: ${words.length > 0 ? words.join(' ') : valueOf(item, 'Text') ?? ''}`)
-    const done = await save(said(put(put(copy(found.item), 'State', 'read'), 'Since', stamp(w.now)), w, 'read (work next)'), found.text, w)
+    const done = await save(said(put(copy(found.item), 'Main read', stamp(w.now)), w, 'read by the main chat (work next)'), found.text, w)
     if (done.ok) ids.push(valueOf(item, 'Id'))
   }
   return { text: shown.length === 0 ? '' : `Notes for you, ${chat}:\n${shown.join('\n')}`, ids }
@@ -580,10 +583,10 @@ async function undo(body, w) {
   return done.ok ? changed(next, undefined, { undo }) : done
 }
 
-async function makeNote(w, to, text, of) {
+async function makeNote(w, to, text, of, via = null) {
   const id = await nextId(w.dir, 'N', w.fs)
   const item = said({
-    head: new Map([['Id', id], ['Kind', 'note'], ['From', w.who], ['To', to], ['State', 'unread'], ['Since', stamp(w.now)], ['Text', line(text.join(' '), LINE_CHARS)]]),
+    head: new Map([['Id', id], ['Kind', 'note'], ['From', w.who], ['To', to], ...(via === null ? [] : [['Via', via]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', line(text.join(' '), LINE_CHARS)]]),
     sections: new Map([['Text', text], ...(of === null ? [] : [['About', [of]]])]),
     problem: null,
   }, w, 'noted')
@@ -615,7 +618,8 @@ async function report(body, w) {
   const item = appendHistory(underStep(moved.item, [`Reported ${isAgain ? 'again ' : ''}by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`]), 'server', 'check pending', w.now)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
-  await makeNote(w, 'main', [`${id} reported ${isAgain ? 'again ' : ''}by ${w.who}: ${line(result, 200)}`], id)
+  // Focus 4, the review: the board's own note of a report (Via: report) wakes nobody: the worker tells the main chat.
+  await makeNote(w, 'main', [`${id} reported ${isAgain ? 'again ' : ''}by ${w.who}: ${line(result, 200)}`], id, 'report')
   // B301: the chat's next step, when the store holds one for it (queued or taken): the Workers mod keeps the chat's
   // context for it instead of compacting it after this report.
   const more = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && valueOf(one, 'Id') !== id && isOwner(one, w.who, w.prefix) && ['queued', 'taken'].includes(stateOf(one)))

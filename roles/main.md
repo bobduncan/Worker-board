@@ -155,8 +155,8 @@ profile.
   Requirements, Pictures, Worker, Time ("Worker: you decide" means the user named none): write the step; for a
   queue step also decide worker or queue and write its note. The new step is refined first (point 0): hand it over
   on `step refined`.
-- `work: note N<id> from <chat> for you; run work next`: a chat left you a note in the store (a queue note of the
-  partner's, a report, a pause): run `work next`, which shows your unread notes first and marks them read, and act on
+- `work: notes N<id>, N<id> for you; run work next`: chats left you notes in the store (a queue note of the partner's,
+  a pause): run `work next`, which shows the notes you have not read first and marks them read by you, and act on
   each.
 - `queue step from the backlog` with "Step: B<id> <title>": decide worker or queue for that step as for any task,
   queue it with `work queue` (for, after, about); the board shows the step as asked until it is queued. It comes only for a refined step: the board holds the user's ask until the step is refined.

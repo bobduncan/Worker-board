@@ -15,8 +15,9 @@ export const HEAD_KEYS = {
   // many of the chat's turns ended while it stood open, `Filed` when it was filed to the millisecond (review: the
   // turn's start is compared with it).
   instruction: ['Id', 'Kind', 'Chat', 'State', 'Since', 'Filed', 'Via', 'Missed', 'Text', 'Closed as'],
-  // Focus 3: `Of` names the goal of the partner's daily note (dailyNote.mjs).
-  note: ['Id', 'Kind', 'From', 'To', 'Of', 'State', 'Since', 'Text'],
+  // Focus 3: `Of` names the goal of the partner's daily note (dailyNote.mjs). Focus 4: `Via: report` marks the board's
+  // note of a report; `Main read` when the main chat read it with work next (the person's read is its State).
+  note: ['Id', 'Kind', 'From', 'To', 'Of', 'Via', 'State', 'Since', 'Main read', 'Text'],
 }
 const REQUIRED = ['Id', 'Kind', 'State', 'Since']
 const KIND_NAME = { step: 'a step', ask: 'an ask', instruction: 'an instruction', note: 'a note' }
