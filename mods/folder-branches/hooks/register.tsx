@@ -833,7 +833,7 @@ const WORK_TOOL = {
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
     + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question. "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
-    + 'chat. "block" and "unblock" ("id", "on"). "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
+    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
     + '"for", "after", "about"), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
     + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "questions") and "refined" ("id", "what"): '
@@ -860,7 +860,7 @@ const WORK_TOOL = {
       to: { type: 'string', enum: ['you', 'main'], description: 'note: the person or the main chat.' },
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
       merged: { type: 'string', description: 'report: the commit it was merged with.' },
-      on: { type: 'string', description: 'block, unblock: the step it waits on.' },
+      on: { type: 'string', description: 'block, unblock: the step it waits on; unblock without it clears Waits for.' },
       title: { type: 'string', description: "new: the step's title." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
       goal: { type: 'string', description: 'new, refine: the goal it serves (G17).' },

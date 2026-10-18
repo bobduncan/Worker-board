@@ -53,8 +53,8 @@ tool answers with the record: work from it, not from a message.
 
 | The call | Who, by the default flow | What it does |
 |---|---|---|
-| `work next` | any chat | your open instructions, then your steps by state, each in one line; the first in full |
-| `work take B<id>` (`branch`) | a worker | a step queued for you: taken, then in progress, on that branch; names your card after it. It needs only what the step is blocked by resolved (a step done or dropped, an ask answered or withdrawn), also while you still hold another step; a refusal names what is still open. A step in progress that names nobody is claimed by the worker on it |
+| `work next` | any chat | your open instructions, then your steps by state, each in one line (a step held by its `Waits for` says "waiting: ..."); the first in full |
+| `work take B<id>` (`branch`) | a worker | a step queued for you: taken, then in progress, on that branch; names your card after it. It needs only what the step is blocked by or waits for resolved (a step done or dropped, an ask answered or withdrawn, the ids in `Blocked by` and `Waits for` alike), also while you still hold another step; a refusal names what is still open. A `Waits for` of words with no id holds it until the main chat clears it; the refusal names the words. A step in progress that names nobody is claimed by the worker on it |
 | `work step B<id>` (`step`, `names`, `minutes`, `stepMinutes`) | a worker | the step of your plan you are on: one History line, and your card |
 | `work ask` (`of`, `kind` decide, look, provide or do, `blocking`, `text`, `options`, `pictures`, `play`) | any chat | something only the person can do, `Q<n>` under the step; blocking moves the step to waiting on you. It answers the "For you" block for your answer |
 | `work withdraw Q<id>` (`why`) | the chat that asked; for an ask with no asking chat (carried over from the old backlog), the main chat, with a why | the ask is withdrawn; a step that waited only on it goes on. A step waiting on you is reported only after its asks are answered or withdrawn |
@@ -63,6 +63,7 @@ tool answers with the record: work from it, not from a message.
 | `work report B<id>` (`result`, `merged`) | a worker | in progress to review; the board checks the repository the step's work is in (the one holding the `merged` commit, else the one that has or had the branch; none to tell is a failed check): its base branch against its remote and that the branch is gone, writes it in History, and tells the main chat. A report from review (the owner, worker or main chat, after a fix) runs the check again (B304; the flow's move review → review). The only way a step ends: the worker's card clears when its turn ends |
 | `recheck B<id>` (the page's "Check again") | the person | a step in review whose check failed: the board runs its check again with what the last report said (B304) |
 | `work block` / `unblock B<id>` (`on`) | the main chat, a worker | what the step waits on (`Blocked by`) |
+| `work unblock B<id>` without `on` | the main chat, the person | clears the step's `Waits for` (words with no id hold a step until cleared); History: "no longer waits for: <words>" |
 | `work new` (`title`, `activity`, `goal`, `text`) | the main chat, a worker, the Advisor | a new step `B<n>`, state new |
 | `work queue B<id>` (`for`, `after`, `about`) | the main chat | a refined step into a worker's queue; a step not refined yet keeps the wish (`Queue when refined:`), and the board queues it by itself once it is refined |
 | `work requeue B<id>` (`for`) | the main chat, the person ("Move to") | a queued step to another worker's queue; the board delivers it anew |

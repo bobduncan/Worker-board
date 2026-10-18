@@ -1,6 +1,6 @@
 {
   "name": "folder-branches",
-  "version": "0.13.2",
+  "version": "0.13.3",
   "description": "Two side panes. Git: each folder directly inside the session's folder with the git branch checked out in it, or \"no git\"; /git opens it. Workers: the project's chats, who is working on what, which step, how long, and whose turn it is; /workers opens it. A chat in the list also takes what the person answered for it on the worker board and types it in as their own words. A worker that has grown large (list.json \"compactAbove\", 250000 tokens unless set, 0 for never) is compacted when the turn in which it reported its task ends.",
   "types": "./types/index.d.ts"
 }

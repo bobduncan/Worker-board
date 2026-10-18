@@ -1150,7 +1150,15 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   (an ask), for the board's delivery and for `next`. The guard is split: the board's move queued → taken (its wake of
   the Owner) keeps "Blocked by all done and Owner free"; the worker's own `take` is the flow's move by the worker,
   "Blocked by all done", so a chat still holding a step takes its next one. A flow.json without that move (made
-  before B305) keeps the board's move for `take`, the taking chat counted free; a refused take names what is open. On the board, a form's question
+  before B305) keeps the board's move for `take`, the taking chat counted free; a refused take names what is open.
+  B306: a step's `Waits for` holds it as `Blocked by` does, under the same guard names (no flow.json changes): the
+  ids it names (`B<n>`, `Q<n>`) until each is resolved as above; words with no id ("today's board work", kept from
+  the old backlog's queue notes) until the main chat or the person clears them with `unblock B<id>` without `on`
+  (History "no longer waits for: <words>"; a worker may not). The board does not deliver it; `take` refuses it naming
+  the words ("B243 waits for: today's board work; the main chat clears it with work unblock B243") or the open ids;
+  `next` shows it "waiting: ...". The reconciler flags (`waits`, on the Owner's lane) a queued step whose only wait is
+  words once its Owner has been free, holding and given nothing, past the grace time: "B243 waits for 'today's board
+  work': clear it or keep it". On the board, a form's question
   whose chat does not run has a **Withdraw** button. `answer` (the person) names the ask's own
   id, so an answer given after the chat moved on answers that ask and no later one; a look takes approve or reject
   (with words), a do takes done; the answer says whom to wake (`wake`). `read` puts a note away.

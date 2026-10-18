@@ -76,7 +76,7 @@ You decide this, not the user. For every task:
 ## Queue a step
 
 - Queueing is the hand-over: `work queue B<id>` with `for` (the worker), `after` (what it waits for) and `about` (its
-  time). A queued step goes to another worker with `work requeue B<id>` (`for`), and out of its queue with `work
+  time). An `after` without a step or ask id (only words) holds the step until you clear it with `work unblock B<id>` (no `on`); name ids where you can. A queued step goes to another worker with `work requeue B<id>` (`for`), and out of its queue with `work
   unqueue B<id>` (back to refined, or new); the user does the same with "Move to" and "Take out of the queue" on the
   board, and the board delivers the step to its new worker (B301). You send no task text. The board delivers it: once the step may be taken and its worker is free, the board
   types one line into the worker's chat, "work: B<id> is yours; run work next", and the worker reads the step with
