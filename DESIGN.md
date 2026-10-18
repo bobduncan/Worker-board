@@ -1770,6 +1770,10 @@ workers and maybe what the current focus is with the tasks"). Since B343, after 
    order and then its own, each Done, Working or Next with its worker; the one at work also with its worker's time
    left, read from that worker's lane while it works on that step. A step the store does not hold, or one dropped,
    is not listed. The bar counts these steps (done of all) when the board lists them, else the parts.
+   B328: with no focus goal, or the last one done, the bar counts the next milestone instead, the one the Advisor tab's
+   Next milestone row shows: "M1 · The loop is fun · 9 of 23 steps done · about 30 h left", every backlog step under
+   it and its sub-goals (done of done and open; Missing lines are no steps yet), and the time the open ones name
+   (`totals.minutesLeft` in src/milestone.mjs; left out when none names one).
 3. Workers: every chat of the list but leftovers, with its step, a bar of its steps and its time left; one without work
    says in a few words why (free, waits for you, paused until 19:23, not running, cut off).
 4. Needs your attention as in Details, without "From the backlog", "Open instructions", the closed and answered
