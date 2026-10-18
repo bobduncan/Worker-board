@@ -13,7 +13,7 @@ import { hourEnd, hourStart, taskFacts, today } from './history.mjs'
 import { finishedList } from './finished.mjs'
 import { brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
-import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, safePointNote, storePause, usageReadings } from './limits.mjs'
+import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, safePointNote, storePause, storeSafePoint, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
 import { approvalRoute } from './tick.mjs'
@@ -348,8 +348,12 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   const note = told !== null && pauseOver({ limit: told.limit ?? 'fiveHour', since: told.at, percent: told.percent ?? null }) ? null : told
   // B291: it sent the main chat its safe-point line since "prepare restart": stopped for the restart, whatever its
   // transcript's tail shows (a turn cut off, then the stop word answered, can look as if it still runs).
-  const safe = stop !== null || note !== null || entries === null || chat.isMain ? null
-    : safePointNote(scan ?? entries, [main.mainTitle, main.mainSession].filter(Boolean), restartSince)
+  const canStop = stop === null && note === null && entries !== null && !chat.isMain
+  const safeSent = canStop ? safePointNote(scan ?? entries, mains, restartSince) : null
+  // B314: or it filed that line as a work note to the main chat; the newer of the two forms decides.
+  const safeFiled = canStop ? storeSafePoint(notes.get(chat.name.toLowerCase()), scan ?? entries, mains, restartSince) : null
+  const safeWord = [safeSent, safeFiled].filter(Boolean).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+  const safe = safeWord === null || safeWord.isSafe === false ? null : safeWord
   const paused = stop !== null ? { by: 'app', limit: stop.limit, since: stop.at, named: stop.resetsAt }
     : note !== null ? { by: 'note', limit: note.limit ?? 'fiveHour', since: note.at, named: note.until, percent: note.percent ?? null }
       : safe !== null ? { by: 'restart', limit: null, since: safe.at, named: null } : null

@@ -37,6 +37,14 @@ with the prefix is a lane, the chat named `advisor` in `config.json` is the one 
 a lane like the others. Queues, requests, answers and folders are all keyed by the chat's name. Adding a worker
 is opening a chat titled "Game - <name>".
 
+**One chat shows once (B314).** Seen live 2026-10-18: the Overview showed two lanes "Worker 1", one of them a grey
+leftover in state unknown. Why: the app keeps its list of chats per account it was signed in with
+(`claude-code-sessions<account><organisation>`) and shows only the account in use; the older account's folder still
+held an open chat of that name, last active four days before, which the board read beside today's and took for an
+older chat of the same name. Now only the folder holding the most recently active chat is read (`readAppChats`; two
+folders as recent as each other are both read). A fork or an older chat of the same name in the account in use is
+still a grey leftover.
+
 **The fixed form for what a chat needs from the person** (an "ask"): one JSON file per ask in
 `<project>\.claude\asks\`, written and closed by the chat that asks, read by the board. The fields are in
 `src/asks.mjs`. Three kinds:
@@ -837,7 +845,12 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   `resume` after it) has stopped (`safePointNote`): its lane says "Suspended" ("Stopped for the restart at HH:MM ·
   waits for Resume"; its time column "Stopped for · Restart"), until it works again: a tool of its work after the line
   (a reply to the main chat's thanks, or its card, is not work), or until "resume". The newest restart word stays
-  known for a day, so a restart prepared at night still stands in the morning; "safe to restart" needs restart.md
+  known for a day, so a restart prepared at night still stands in the morning; B314 (seen live 2026-10-18 at 16:19:
+  two workers filed their line as a work note to the main chat, as the job texts allow, and the banner still named
+  them as working): a note to the main chat whose first line is the safe-point line, filed in the minute of the
+  prepare word or later, counts as the message does (`storeSafePoint`). The newer of note and message decides (one
+  that says something else ends the stop); the note's time is when the transcript shows the work tool filing it, else
+  its minute, so work after it in that same minute ends it too; "safe to restart" needs restart.md
   written after the last worker's line; a step waiting on a stopped worker says "<worker> stopped for the restart". The banner names
   only the workers with no line yet ("Still working (no safe point yet): ..."; the main chat, which does the
   preparing, is never waited for), then "Everyone stopped: safe to restart" once the main chat wrote restart.md,

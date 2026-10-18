@@ -209,6 +209,47 @@ export function safePointNote(entries, mains, since) {
 }
 
 /**
+ * B314: a worker's safe-point line filed as a work note to the main chat (`work note --to main`), as `safePointNote`
+ * reads the message form. `notes` are the chat's notes to the main chat in the store, `{ at, text }` (`at` its Since, to
+ * the minute); only those of the minute of `since` (the person's "prepare restart") or later count. The newest decides:
+ * `{ at, isSafe: true }` when its first line is the safe-point line, else `{ at, isSafe: false }`: it told the main chat
+ * something else. `at` is when the chat filed it by its transcript (`entries`: the work tool's note with that first
+ * line), else the note's minute. Null without such notes, without a prepare word, or once the line no longer stands:
+ * after it the chat did work of its own (a tool that does not only coordinate) or sent the main chat (`mains`: its
+ * title and the app's id for it) a message, which `safePointNote` then reads.
+ */
+export function storeSafePoint(notes, entries, mains, since) {
+  if (!Number.isFinite(since)) return null
+  const newest = (notes ?? []).filter(one => Number.isFinite(one?.at) && one.at + MIN > since)
+    .reduce((a, b) => (a === null || b.at >= a.at ? b : a), null)
+  if (newest === null) return null
+  const first = String(newest.text ?? '').trim().split('\n')[0]
+  if (!SAFE_POINT.test(first)) return { at: newest.at, isSafe: false }
+  const names = [mains].flat().filter(Boolean)
+  const all = (entries ?? []).filter(entry => entry.type === 'assistant' && !entry.isSidechain)
+  // The filing itself, in the note's minute: its exact time, so work in that same minute after it is seen.
+  const isFiling = block => block.type === 'tool_use' && block.name === 'mcp__folder-branches__work' && block.input?.action === 'note'
+    && String(block.input?.text ?? '').trim().split('\n')[0] === first
+  const filed = all.findLast(entry => entry.at >= newest.at && entry.at < newest.at + MIN && entry.blocks.some(isFiling))
+  const at = filed === undefined ? newest.at : filed.at
+  // Without the filing in sight, what the chat did within the note's minute belongs to the turn that filed it.
+  const after = filed === undefined ? newest.at + MIN : filed.at
+  for (const entry of all) {
+    if (!(entry.at >= after) || entry === filed) continue
+    for (const block of entry.blocks) {
+      if (block.type !== 'tool_use') continue
+      if (!isCoordination(block.name) || (block.name === 'SendMessage' && names.includes(block.input?.to))) return null
+    }
+  }
+  if (filed !== undefined) {
+    // Blocks after the filing in its own entry.
+    const blocks = filed.blocks.slice(filed.blocks.findLastIndex(isFiling) + 1)
+    if (blocks.some(block => block.type === 'tool_use' && (!isCoordination(block.name) || (block.name === 'SendMessage' && names.includes(block.input?.to))))) return null
+  }
+  return { at, isSafe: true }
+}
+
+/**
  * B310: a worker's pause for the limit filed as a work note to the main chat (`work note --to main`), as `pauseNote`
  * reads the message form. `notes` are the chat's notes to the main chat in the store, `{ at, text }` (`at` its Since,
  * to the minute). The newest decides: `{ at, isPaused: true, until, limit, percent }` when its first line is the pause

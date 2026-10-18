@@ -133,21 +133,40 @@ async function list(dir) {
   }
 }
 
-/** Reads `<dir>\*\*\local_*.json`. A file that cannot be read or does not fit is left out. */
+/** When a chat file's chat was last active, or 0. */
+function activeAt(text) {
+  try {
+    const at = JSON.parse(text)?.lastActivityAt
+    return Number.isFinite(at) ? at : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Reads `<dir>\<account>\<organisation>\local_*.json`. A file that cannot be read or does not fit is left out.
+ * B314: the app keeps one such folder per account it was signed in with, and shows only the chats of the account in
+ * use; an older account's folder keeps its chats as they were (on 2026-10-18 an open chat of four days before,
+ * named as one of today's: a second lane of that name). Only the folder with the most recently active chat is read.
+ */
 export async function readAppChats(dir) {
-  const texts = []
+  const folders = []
   for (const outer of await list(dir)) {
     if (!outer.isDirectory()) continue
     for (const inner of await list(join(dir, outer.name))) {
       if (!inner.isDirectory()) continue
       const folder = join(dir, outer.name, inner.name)
+      const texts = []
       for (const file of await list(folder)) {
         if (!file.isFile() || !/^local_.*\.json$/.test(file.name)) continue
         // A file that cannot be read is being rewritten by the app; the next read has it. One cut short is no JSON.
         const head = await readHead(join(folder, file.name), CHAT_FILE_BYTES)
         if (head !== null && head.isWhole) texts.push(head.text)
       }
+      if (texts.length > 0) folders.push({ texts, at: Math.max(...texts.map(activeAt)) })
     }
   }
-  return texts
+  // Two folders as recent as each other cannot be told apart: both are read.
+  const newest = Math.max(0, ...folders.map(folder => folder.at))
+  return folders.filter(folder => folder.at === newest).flatMap(folder => folder.texts)
 }
