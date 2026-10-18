@@ -920,9 +920,20 @@ function blockQuestions(item) {
   for (const one of item.sections.get('Refined') ?? []) {
     const named = one.trim().match(/^([A-Z][A-Za-z /]{1,28}):/)
     if (named !== null) isIn = named[1] === 'Questions'
-    else if (isIn && /^\s*[-*]\s+/.test(one)) out.push(line(one.trim().replace(/^[-*]\s+/, '').replace(/\s+Answer:\s.*$/, ''), 200))
+    else if (isIn && /^\s*[-*]\s+/.test(one)) out.push(line(one.trim().replace(/^[-*]\s+/, '').replace(/\s+Answer:\s.*$/, ''), TEXT_CHARS))
   }
   return out
+}
+
+/**
+ * Focus 3: the place of an ask's question among a refine block's questions (blockQuestions), or -1. By its whole words
+ * (the ask's Text), else by its title: a title is cut at 200 characters, and a cut at a space once matched no question.
+ */
+function questionIndex(questions, ask) {
+  const whole = line((ask.sections.get('Text') ?? [])[0] ?? '', TEXT_CHARS)
+  const title = line(valueOf(ask, 'Title') ?? '', 200)
+  const byWords = whole === '' ? -1 : questions.indexOf(whole)
+  return byWords >= 0 ? byWords : questions.findIndex(one => title !== '' && one.slice(0, 200).trim() === title)
 }
 
 /** The Advisor folded every answer in: the block says "ready", What we build is written, and the step is refined. */
@@ -993,7 +1004,7 @@ async function answer(body, w) {
   const done = await answerStep(w, item, found.text, of, step => {
     let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
     // B293: a refine question answered here is answered in the step's refine block too, as in the step's window.
-    if (isRefine) mine = withRefineAnswer(mine, valueOf(found.item, 'Title') ?? '', short, w)
+    if (isRefine) mine = withRefineAnswer(mine, found.item, short, w)
     if (stateOf(mine) === 'waiting on you') {
       const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
       if (goesOn.ok) mine = goesOn.item
@@ -1007,12 +1018,12 @@ async function answer(body, w) {
 }
 
 /**
- * B293: the step with the person's answer to its refine question `title` written into its refine block (" Answer:
+ * B293: the step with the person's answer to the question of the refine ask `ask` (Focus 3: questionIndex) written into its refine block (" Answer:
  * ..." behind the question, refineText.mjs), read back as refineText does; the step as it was when the question is
  * no longer in the block.
  */
-function withRefineAnswer(step, title, words, w) {
-  const index = blockQuestions(step).indexOf(title)
+function withRefineAnswer(step, ask, words, w) {
+  const index = questionIndex(blockQuestions(step), ask)
   if (index < 0) return step
   const id = valueOf(step, 'Id')
   const written = answerRefine(`## -\n${stepLine(step)}\n${stepNotes(step).join('\n')}\n`, id, [{ index, answer: words }], '')
@@ -1104,7 +1115,7 @@ async function refineText(body, w) {
   for (const ask of refineAsksOf(w, id)) {
     if (w.action === 'refine-accept') await settleAsk(w, ask, 'answered', 'Accepted as refined.', 'accepted as refined')
     else {
-      const index = questions.indexOf(valueOf(ask, 'Title'))
+      const index = questionIndex(questions, ask)
       const given = answers.find(one => one !== null && typeof one === 'object' && one.index === index)?.answer
       if (index >= 0 && typeof given === 'string' && given.trim() !== '') await settleAsk(w, ask, 'answered', line(given, 1000), `answered in the step's window: ${line(given, 200)}`)
     }

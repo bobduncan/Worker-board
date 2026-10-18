@@ -1224,6 +1224,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
 - **Refine questions are asks**: `refine` makes one decide ask per question under the step (`Via: refine`, Owner the
   Advisor), and withdraws the open ones of an earlier round; `refined` is refused while one is open, naming it; the
   answers given in the step's window (`refine-answer`) answer the matching asks, `refine-accept` answers the rest.
+  Focus 3: an ask and its question are matched by the ask's whole words (its Text), else by its title (`questionIndex`):
+  a title cut at 200 characters on a space once matched no question, so the asks stayed open and the fold was refused.
+  Both ways hold: a window answer answers the ask (a History line on it), an ask answered alone writes into the block.
 - **The lists** (`work/lists.mjs`, `state.mjs`): Needs your attention takes the store's open asks (and the ones
   answered within ten minutes, until their answer has arrived) as cards: the ask's kind, what it blocks and who waits
   ("blocks B1 · Board waits"), the options with the advised one marked, pictures, a Play link; answered through
