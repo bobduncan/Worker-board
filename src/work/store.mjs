@@ -12,6 +12,7 @@ import { storeProblems } from './adapter.mjs'
 import { DEFAULT_FLOW, parseFlow } from './flow.mjs'
 import { parseItem, serializeItem, validateHead, valueOf } from './item.mjs'
 import { isLegacyId } from './line.mjs'
+import { heldLine } from './names.mjs'
 import { stamp } from './migrate.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, readdir }
@@ -99,6 +100,11 @@ export async function readStore(dir, fs = files) {
     if (typeof kept === 'string' && await readOr(fs, kept, null) !== null) viewKept = kept
   } catch {
     viewKept = null
+  }
+  // B313: a rename the board saw but did not carry out, while open items still name the old name.
+  for (const held of (await readNamesFile(dir, fs)).record.held) {
+    const said = heldLine(held, items)
+    if (said !== null) problems.push({ file: NAMES, line: said })
   }
   return { exists: true, items, ...listed, lastIds, flow: read.flow, problems, viewKept }
 }
@@ -299,4 +305,35 @@ export async function removeItem(dir, id, fs = files, { expected } = {}) {
 /** B297, review 6: puts an item's file back as it was (`text`), only while it holds what was written (`expected`). */
 export async function putBack(dir, id, text, fs = files, { expected } = {}) {
   return putInPlace(join(dir, `${id}.md`), text, fs, expected)
+}
+
+/**
+ * B313: the last name the board saw per chat session (`<dir>/names.json`): `sessions[<session id>] = <name>`, so a rename
+ * is seen also across a restart, and `held`: the renames it saw but did not carry out (`{ from, to, why, prefix, at }`),
+ * shown on top while open items name the old name.
+ */
+const NAMES = 'names.json'
+
+function parseNames(text) {
+  try {
+    const raw = JSON.parse(text ?? '{}') ?? {}
+    const sessions = raw.sessions !== null && typeof raw.sessions === 'object' && !Array.isArray(raw.sessions)
+      ? Object.fromEntries(Object.entries(raw.sessions).filter(([, name]) => typeof name === 'string')) : {}
+    const held = Array.isArray(raw.held) ? raw.held.filter(one => typeof one?.from === 'string' && typeof one?.to === 'string' && typeof one?.why === 'string') : []
+    return { record: { sessions, held }, text }
+  } catch {
+    return { record: { sessions: {}, held: [] }, text }
+  }
+}
+
+/** B313: names.json as it is now, with the text it was read from (for `writeNames`'s `expected`). */
+export async function readNamesFile(dir, fs = files) {
+  return parseNames(await readOr(fs, join(dir, NAMES), null))
+}
+
+/** B313: writes names.json, only while the file still holds `expected` (the text it was read from). */
+export async function writeNames(dir, record, fs = files, { expected } = {}) {
+  await fs.mkdir(dir, { recursive: true })
+  return putInPlace(join(dir, NAMES), `${JSON.stringify(record, null, 1)}
+`, fs, expected)
 }

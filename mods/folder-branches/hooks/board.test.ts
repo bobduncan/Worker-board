@@ -63,3 +63,10 @@ describe('Focus 3: the daily note of the partner on the focus', () => {
     for (const field of ['decided', 'needs']) expect(WORK_FIELDS.includes(field)).toBe(true)
   })
 })
+
+describe("B313: the main chat moves a renamed chat's work with the work tool", () => {
+  test('rename is an action of the tool, with from and to', () => {
+    expect(WORK_ACTIONS.includes('rename')).toBe(true)
+    for (const field of ['from', 'to']) expect(WORK_FIELDS.includes(field)).toBe(true)
+  })
+})

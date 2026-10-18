@@ -53,12 +53,13 @@ import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, undoLine } from './src/focus.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor } from './src/work/deliver.mjs'
+import { followRenames } from './src/work/rename.mjs'
 import { storeKeeper } from './src/work/read.mjs'
 import { readStore } from './src/work/store.mjs'
 import { fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
@@ -452,19 +453,22 @@ async function main(args) {
   }
   /**
    * Focus 3 (spec 2026-10-18, sections 5 and 6): the person's Undo of a line the partner decided for them, from the Focus
-   * page (`note` the daily note, `line` its words): the store marks it "undo asked", once (work/api.mjs `undo`), and only
-   * then the board types `undo: <line>` to the partner; a second Undo types nothing (Review Focus 4).
+   * page (`note-undo` on /api/goals, or `undo` on /api/work; `note` the daily note, `line` its words): the board types
+   * `undo: <line>` to the partner, then the store marks it "undo asked" (work/api.mjs `undo`); a second Undo types
+   * nothing (Review Focus 4), and a word not kept leaves the line unmarked (the review).
    */
   const undoNow = async body => {
     const state = await readState()
     const partner = state.advisor ?? null
     if (partner === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
-    const done = await workAction({ action: 'undo', id: body?.note, line: body?.line }, 'person')
-    if (!done.ok) return done
-    if (done.result.changed === false) return { ok: true, result: { unchanged: true } }
-    const { of, line } = done.result.undo
-    const title = (state.goals?.nodes ?? []).find(node => node.id === of)?.title ?? ''
-    return toPartner(focusWords('undo', { to: partner.name, goal: { id: of, title }, words: line, note: done.result.id }), { id: done.result.id }, state)
+    // The review: typed first, marked after (src/focus.mjs `undoLine`); a word not kept leaves the line unmarked.
+    return undoLine({ note: body?.note, line: body?.line }, {
+      work: action => workAction(action, 'person'),
+      type: ({ of, line }) => {
+        const title = (state.goals?.nodes ?? []).find(node => node.id === of)?.title ?? ''
+        return toPartner(focusWords('undo', { to: partner.name, goal: { id: of, title }, words: line, note: body?.note }), {}, state)
+      },
+    })
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   const workCtx = async () => {
@@ -479,6 +483,8 @@ async function main(args) {
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
+      // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
+      hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
     }
   }
   const workReads = new Set(['next', 'list'])
@@ -933,21 +939,25 @@ async function main(args) {
     bridgeKey,
     // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
     work: async body => {
+      // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
+      if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       const done = await workAction(body, 'person')
-      const wake = done.ok ? done.result.wake ?? null : null
-      if (wake !== null && !isShowOnly) {
+      // Focus 3, the review: and the owner of the step the answer frees, when another chat asked (`wakeOwner`).
+      const wakes = done.ok ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
+      let paste = null
+      for (const wake of isShowOnly ? [] : wakes) {
         const state = await readState()
         const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].some(chat => chat.name === wake.to)
-        if (shown) {
-          const isCopied = state.bridge?.isMissing === true
-          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...answerWords(wake), state: isCopied ? 'copied' : 'waiting' }
-          await store.say(message)
-          const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-          if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
-          readState.reset()
-          if (isCopied) return { ok: true, result: { ...done.result, paste: { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
-        }
+        if (!shown) continue
+        const isCopied = state.bridge?.isMissing === true
+        const message = { id: randomBytes(8).toString('hex'), at: clock(), ...answerWords(wake), state: isCopied ? 'copied' : 'waiting' }
+        await store.say(message)
+        const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+        if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
+        readState.reset()
+        if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
       }
+      if (paste !== null) return { ok: true, result: { ...done.result, paste } }
       return done
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
@@ -1144,6 +1154,15 @@ async function main(args) {
       isReconciling = true
       try {
         const state = await readState()
+        // B313: a chat renamed (its session under another name) takes its open items along, once.
+        const renamed = await followRenames({
+          dir: workDir, chats: [...(state.chats ?? []), ...(state.advisor ? [state.advisor] : [])].map(chat => ({ session: chat.session, name: chat.name })),
+          apply: body => workAction(body, 'server'), now: clock(), prefix: state.chatPrefix ?? '',
+        })
+        if (renamed.moved.length > 0) {
+          work.reset?.()
+          readState.reset()
+        }
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,

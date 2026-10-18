@@ -19,13 +19,15 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
+import { openNaming, renamedItem } from './names.mjs'
+import { readNamesFile, writeNames } from './store.mjs'
 import { writeView } from './view.mjs'
 
 // B300: kept here for those who import them from the API.
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -46,6 +48,7 @@ const ROLES = {
   'how-draft': ['advisor'],
   requeue: ['main', 'person'],
   unqueue: ['main', 'person'],
+  rename: ['main', 'person', 'server'],
 }
 /** The order of a chat's own steps in `next`: what it works on first. */
 const MINE = ['in progress', 'waiting on you', 'taken', 'review', 'queued']
@@ -88,7 +91,7 @@ function serial(dir, run) {
 
 /**
  * One action on the store. `body = { action, chat, ...fields }`; `ctx = { dir, fs, now, as, roleOf, freeChats,
- * overlaps, prefix, viewFile, boardUrl }`: `as` is 'person' (the page) or 'server' (the board itself), else the chat
+ * overlaps, prefix, viewFile, boardUrl, hasGoal }` (Focus 3: `hasGoal(id)`, whether the goal map holds that goal): `as` is 'person' (the page) or 'server' (the board itself), else the chat
  * of `body.chat` asks, in the role `roleOf(chat)` gives ('main', 'worker', 'advisor', or null: no chat of the list).
  * `freeChats` the chats free now, `overlaps(item)` the id of a taken step whose Touches overlap, `viewFile` the
  * backlog file the view is written to after a change (none: not written).
@@ -369,6 +372,9 @@ export function forYouBlock({ id, of = null, kind, blocking = false, title, opti
 async function ask(body, w) {
   // Focus 3: an ask of a goal (the partner's question on the focus) stands under no step; its Of names the goal.
   const goal = typeof body.of === 'string' && GOAL_ID.test(body.of) ? body.of : null
+  // The review: only the partner asks of a goal, and only of one in the goal map (`hasGoal`, from the board).
+  if (goal !== null && w.role !== 'advisor') return refuse(403, 'Only the partner asks of a goal; ask under a step.')
+  if (goal !== null && w.hasGoal?.(goal) !== true) return refuse(409, `${goal} is not in the goal map.`)
   const isAlone = goal !== null || body.of === undefined || body.of === null || body.of === ''
   const of = isAlone ? { ok: true, item: null, text: null } : await load(body.of, w, { kind: ['step'] })
   if (!of.ok) return of
@@ -378,7 +384,10 @@ async function ask(body, w) {
   }
   const kind = body.kind ?? 'decide'
   if (!ASK_KINDS.includes(kind)) return refuse(400, `"kind" is ${ASK_KINDS.join(', ')}.`)
-  const blocking = body.blocking === true || body.blocking === 'yes'
+  // Focus 3, the review: a blocking ask holds a step only when the chat that holds it asks; the partner's or the main
+  // chat's ask under a worker's step is not blocking for it, so the step never waits on an ask its owner cannot close.
+  const isHolder = holder !== null && isOwner(of.item, w.who, w.prefix)
+  const blocking = (body.blocking === true || body.blocking === 'yes') && (isAlone || holder === null || isHolder)
   const text = lines(body.text)
   if (text.length === 0) return refuse(400, 'Say what you ask in "text".')
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
@@ -394,7 +403,7 @@ async function ask(body, w) {
   if (isAlone) return changed(question, block)
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
   let moved = ''
-  if (blocking && stateOf(item) === 'in progress') {
+  if (blocking && isHolder && stateOf(item) === 'in progress') {
     const waits = move(item, 'waiting on you', w.role, w, flowCtx(w, [item, question]))
     if (waits.ok) item = waits.item
     else moved = ` (${stepId} stays ${stateOf(item)}: ${waits.why})`
@@ -478,6 +487,7 @@ async function note(body, w) {
 async function dailyNoteMade(body, w) {
   if (w.role !== 'advisor') return refuse(403, 'Only the partner writes the note of a goal (its daily note).')
   if ((body.to ?? 'you') !== 'you') return refuse(400, 'The note of a goal is to you, the person.')
+  if (w.hasGoal?.(body.of) !== true) return refuse(409, `${body.of} is not in the goal map.`)
   const decided = lines(body.decided, LINE_CHARS).map(one => line(one)).filter(Boolean).slice(0, 12)
   const needs = [...new Set((Array.isArray(body.needs) ? body.needs : typeof body.needs === 'string' ? body.needs.split(',') : []).map(one => line(String(one), 20)).filter(Boolean))]
   const text = lines(body.text)
@@ -509,12 +519,15 @@ async function undo(body, w) {
   if (!isDailyNote(found.item)) return refuse(409, `${id} is no daily note of a goal: nothing in it can be undone.`)
   const wanted = line(body.line)
   if (!decidedOf(found.item).includes(wanted)) return refuse(409, `${id} decided no such thing: "${wanted.slice(0, 80)}".`)
-  if (undoneOf(found.item).includes(wanted)) return { ok: true, result: { id, text: 'Undo was asked already.', changed: false } }
+  const undo = { of: valueOf(found.item, 'Of'), from: valueOf(found.item, 'From'), line: wanted }
+  if (undoneOf(found.item).includes(wanted)) return { ok: true, result: { id, text: 'Undo was asked already.', changed: false, asked: true } }
+  // The review: `check` only says whether it may be asked; the board types the word first, then marks it.
+  if (body.check === true) return { ok: true, result: { id, text: 'Undo may be asked.', changed: false, asked: false, undo } }
   const item = copy(found.item)
   item.sections.set(UNDONE, [...(found.item.sections.get(UNDONE) ?? []), `- ${wanted} (${stamp(w.now)})`])
   const next = said(item, w, `undo asked: ${line(wanted, 200)}`)
   const done = await save(next, found.text, w)
-  return done.ok ? changed(next, undefined, { undo: { of: valueOf(next, 'Of'), from: valueOf(next, 'From'), line: wanted } }) : done
+  return done.ok ? changed(next, undefined, { undo }) : done
 }
 
 async function makeNote(w, to, text, of) {
@@ -1035,20 +1048,34 @@ function blockQuestions(item) {
   for (const one of item.sections.get('Refined') ?? []) {
     const named = one.trim().match(/^([A-Z][A-Za-z /]{1,28}):/)
     if (named !== null) isIn = named[1] === 'Questions'
-    else if (isIn && /^\s*[-*]\s+/.test(one)) out.push(line(one.trim().replace(/^[-*]\s+/, '').replace(/\s+Answer:\s.*$/, ''), TEXT_CHARS))
+    // The review: kept with the answer written behind it, if any; questionIndex reads the question off its start, so a
+    // question that holds " Answer: " itself is never cut.
+    else if (isIn && /^\s*[-*]\s+/.test(one)) out.push(line(one.trim().replace(/^[-*]\s+/, ''), TEXT_CHARS))
   }
   return out
 }
 
+/** The whole words of an ask's question (its Text). */
+const askWords = ask => line((ask.sections.get('Text') ?? [])[0] ?? '', TEXT_CHARS)
+
 /**
  * Focus 3: the place of an ask's question among a refine block's questions (blockQuestions), or -1. By its whole words
- * (the ask's Text), else by its title: a title is cut at 200 characters, and a cut at a space once matched no question.
+ * (the ask's Text), with or without an answer behind it, else by its title: a title is cut at 200 characters, and a cut
+ * at a space once matched no question. The review: equal questions match by their place: the newest asks of the step's
+ * refine with these words (`w`'s store), in id order, are the block's equal questions in order.
  */
-function questionIndex(questions, ask) {
-  const whole = line((ask.sections.get('Text') ?? [])[0] ?? '', TEXT_CHARS)
+function questionIndex(questions, ask, w) {
+  const whole = askWords(ask)
   const title = line(valueOf(ask, 'Title') ?? '', 200)
-  const byWords = whole === '' ? -1 : questions.indexOf(whole)
-  return byWords >= 0 ? byWords : questions.findIndex(one => title !== '' && one.slice(0, 200).trim() === title)
+  const isIt = question => whole !== '' && (question === whole || question.startsWith(`${whole} Answer: `))
+  let found = questions.flatMap((question, index) => (isIt(question) ? [index] : []))
+  if (found.length === 0) found = questions.flatMap((question, index) => (title !== '' && question.slice(0, 200).trim() === title ? [index] : []))
+  if (found.length <= 1) return found[0] ?? -1
+  const twins = [...w.store.items.values()]
+    .filter(one => kindOf(one) === 'ask' && valueOf(one, 'Of') === valueOf(ask, 'Of') && valueOf(one, 'Via') === 'refine' && stateOf(one) !== 'withdrawn' && askWords(one) === whole)
+    .map(one => valueOf(one, 'Id')).sort(byId).slice(-found.length)
+  const at = twins.indexOf(valueOf(ask, 'Id'))
+  return at >= 0 ? found[at] : found[0]
 }
 
 /** The Advisor folded every answer in: the block says "ready", What we build is written, and the step is refined. */
@@ -1116,20 +1143,28 @@ async function answer(body, w) {
   if (of === null && !/^Q\d+$/.test(id)) item = underStep(item, [`Answered by you on the worker board on ${at(w.now)}: ${short}`])
   item = said(item, w, `answered: ${short}`)
   const isRefine = valueOf(found.item, 'Via') === 'refine'
+  // Focus 3, the review: the owner of the step this answer frees.
+  let freed = null
   const done = await answerStep(w, item, found.text, of, step => {
     let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`]), w, `${id} answered`)
     // B293: a refine question answered here is answered in the step's refine block too, as in the step's window.
     if (isRefine) mine = withRefineAnswer(mine, found.item, short, w)
     if (stateOf(mine) === 'waiting on you') {
       const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
-      if (goesOn.ok) mine = goesOn.item
+      if (goesOn.ok) {
+        mine = goesOn.item
+        freed = valueOf(mine, 'Owner')
+      }
     }
     return mine
   })
   // B299: the chat that asked is woken with the answer (the server sends it); an ask the person made wakes nobody.
   const owner = valueOf(found.item, 'Owner')
-  const wake = owner === null || !/^Q\d+$/.test(id) ? null : { to: owner, id, title: valueOf(found.item, 'Title') ?? '', text: text.join('\n') }
-  return done.ok ? { ok: true, result: { ...done.result, wake } } : done
+  const told = { id, title: valueOf(found.item, 'Title') ?? '', text: text.join('\n') }
+  const wake =owner === null || !/^Q\d+$/.test(id) ? null : { to: owner, ...told }
+  // Focus 3, the review: the step goes on, so its owner is woken too (the flow's "wake Owner") when another chat asked.
+  const wakeOwner = freed !== null && (owner === null || plain(freed, w.prefix) !== plain(owner, w.prefix)) ? { to: freed, ...told } : null
+  return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner } } : done
 }
 
 /**
@@ -1138,7 +1173,7 @@ async function answer(body, w) {
  * no longer in the block.
  */
 function withRefineAnswer(step, ask, words, w) {
-  const index = questionIndex(blockQuestions(step), ask)
+  const index = questionIndex(blockQuestions(step), ask, w)
   if (index < 0) return step
   const id = valueOf(step, 'Id')
   const written = answerRefine(`## -\n${stepLine(step)}\n${stepNotes(step).join('\n')}\n`, id, [{ index, answer: words }], '')
@@ -1230,7 +1265,7 @@ async function refineText(body, w) {
   for (const ask of refineAsksOf(w, id)) {
     if (w.action === 'refine-accept') await settleAsk(w, ask, 'answered', 'Accepted as refined.', 'accepted as refined')
     else {
-      const index = questionIndex(questions, ask)
+      const index = questionIndex(questions, ask, w)
       const given = answers.find(one => one !== null && typeof one === 'object' && one.index === index)?.answer
       if (index >= 0 && typeof given === 'string' && given.trim() !== '') await settleAsk(w, ask, 'answered', line(given, 1000), `answered in the step's window: ${line(given, 200)}`)
     }
@@ -1274,6 +1309,40 @@ async function advance(body, w) {
   return done.ok ? changed(ordered(moved.item)) : done
 }
 
+/**
+ * B313: a chat goes on under a new name: every open item naming `from` (a step not done or dropped, an open ask, an open
+ * instruction, an unread note, a queue asked before the refine) names `to`, one History line each. The board does it
+ * when it sees a session renamed (`same`: "(same chat)", src/work/rename.mjs); the main chat and the person for a rename
+ * the board could not see (a chat replaced by a new one). Theirs also clears the board's held line for `from`.
+ */
+async function rename(body, w) {
+  const from = line(body.from, 80)
+  const to = line(body.to, 80)
+  if (from === '' || to === '') return refuse(400, 'Name the old name in "from" and the new one in "to".')
+  if (plain(from, w.prefix) === plain(to, w.prefix)) return refuse(400, `${from} and ${to} are one name.`)
+  const same = body.same === true && w.role === 'server' ? ' (same chat)' : ''
+  const moved = []
+  const failed = []
+  for (const id of openNaming(w.store.items, from, w.prefix)) {
+    const found = await load(id, w)
+    const next = found.ok ? renamedItem(found.item, from, to, w.prefix) : null
+    if (!found.ok) failed.push(found.why)
+    if (next === null) continue
+    const done = await save(said(next, w, `${from} renamed to ${to}${same}`), found.text, w)
+    if (done.ok) moved.push(id)
+    else failed.push(done.why)
+  }
+  if (w.role !== 'server') {
+    const names = await readNamesFile(w.dir, w.fs)
+    const held = names.record.held.filter(one => plain(one.from, w.prefix) !== plain(from, w.prefix))
+    if (held.length !== names.record.held.length) await writeNames(w.dir, { ...names.record, held }, w.fs, { expected: names.text })
+  }
+  const unknown = w.role === 'main' && (w.roleOf?.(to) ?? null) === null ? ` ${to} is no chat of the list yet.` : ''
+  const text = moved.length + failed.length === 0 ? `Nothing open names ${from}.`
+    : `${from} renamed to ${to}: ${moved.length === 0 ? 'nothing' : moved.join(', ')} moved.${failed.length === 0 ? '' : ` Not moved: ${failed.join(' ')}`}${unknown}`
+  return { ok: true, result: { text, moved, failed, changed: moved.length > 0 } }
+}
+
 const CHANGE = {
   take, step, ask, withdraw, note, report, check, recheck, new: make, queue, requeue, unqueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
@@ -1285,4 +1354,5 @@ const CHANGE = {
   'refine-answer': refineText,
   'refine-accept': refineText,
   undo,
+  rename,
 }

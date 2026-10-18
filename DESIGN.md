@@ -1227,6 +1227,8 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   Focus 3: an ask and its question are matched by the ask's whole words (its Text), else by its title (`questionIndex`):
   a title cut at 200 characters on a space once matched no question, so the asks stayed open and the fold was refused.
   Both ways hold: a window answer answers the ask (a History line on it), an ask answered alone writes into the block.
+  The review of Focus 3: a question is read off the start of its line, so one holding " Answer: " still matches; equal
+  questions match by their place (the step's newest refine asks with those words, in id order).
 - **The lists** (`work/lists.mjs`, `state.mjs`): Needs your attention takes the store's open asks (and the ones
   answered within ten minutes, until their answer has arrived) as cards: the ask's kind, what it blocks and who waits
   ("blocks B1 · Board waits"), the options with the advised one marked, pictures, a Play link; answered through
@@ -1379,6 +1381,33 @@ said so only in prose in its chat, filed no ask and wrote no "For you" block, so
   ask, or reports. A chat whose answer ends with a "For you" block and filed no ask has that warning instead, not both.
   Nothing of the chat's words is read for it.
 
+## A chat renamed keeps its work (B313)
+
+Seen live on 2026-10-18: the person renamed the worker chats (Support to Worker 1, Board to Worker 2, Features to
+Worker 3, Units to Worker 4). The store names chats by their short name, so the steps in progress under the old names
+were stranded: the store refuses a take or a report from a chat under another name, and one step was moved by hand.
+
+- **The board follows a rename by itself** (`src/work/rename.mjs`, `followRenames`, at every refresh of the board that
+  writes the store, before the delivery). It knows each chat by its session id (the key of its card,
+  `.claude/chats/<session>.json`) and the name the list gives it (the lanes, leftovers and the Advisor too), and keeps
+  the last name it saw per session in `<work>/names.json` (`sessions`), so a rename while the board was off is seen at
+  its start. A session under another name than before is the same chat renamed: the work API's `rename` as the board
+  moves every open item naming the old name, one History line each, "<old> renamed to <new> (same chat)". A session
+  seen for the first time only records its name; a rename that could not be written is tried again at the next refresh.
+- **What moves** (`src/work/names.mjs`): the Owner of a step not done or dropped and of an open ask, the Chat of an open
+  instruction, the From and To of an unread note (a To of `you` or `main` is a word, never moved), and the "for" of a
+  step's `Queue when refined`. Done, dropped, answered, withdrawn, closed and read items keep the name they were done
+  under; History lines stay as written. Names compare as the API compares them: without the title's prefix, any case.
+- **A name two chats had is not moved**: the old name is still another listed chat's, two sessions left the same name
+  in one refresh, or the new name is another chat's too. The rename stands under `held` in names.json (once), and the
+  board says on top, while open items still name the old name: "names.json: the board did not move the open items of
+  <old> (<ids>) to <new>, as two chats had the name <old>: the main chat moves them with work rename ...".
+- **`work rename` (`from`, `to`)**, the main chat and the person (the mod 0.13.5 knows it): the same move for a rename
+  the board could not see, such as a chat replaced by a new one. It clears the held line of that old name.
+- **delivered.json stays**: its keys name the chat a line went to. A queued step whose Owner moved is delivered once
+  more under the new name, and the waiting line under the old name is withdrawn as for any step no longer that chat's;
+  copying the keys would leave the renamed chat without its line.
+
 ## CPU for the chats (B311)
 
 The person, 2026-10-18, while playing the game: the workers made the PC lag; "i want the board to not completely stop
@@ -1426,11 +1455,13 @@ Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mo
   (no step to follow when it is answered or withdrawn). The state's `focus` carries `note` (the partner's newest daily
   note of the goal: `{ id, since, decided: [{ text, undoAsked }], needs }`) and `needs` (the partner's open asks of the
   goal or its steps, the note's first, with options and pictures); `focusState` takes the partner's name (the setting
-  `advisor`).
-- **Undo** (Review Focus 4): the page's `note-undo` on `/api/goals` (`server.mjs` `undoNow`) runs the store's
-  person-only `undo`, which adds the line under `## Undo asked` with its time, once per request in turn; only a change
-  types `undo: <line>` / `Goal:` / `Note:` to the partner (`focusWords('undo')`), so a second Undo, also from another
-  tab, types nothing. The page shows "undo asked" from the note's section.
+  `advisor`); since the review, by the name of the chat the board shows for it, as the work API gives it the role advisor.
+- **Undo** (Review Focus 4): the page's `note-undo` on `/api/goals`, and an `undo` on `/api/work`, go through
+  `server.mjs` `undoNow` and `src/focus.mjs` `undoLine`, one at a time: the store's person-only `undo` with `check`
+  says whether the line may be undone, the board types `undo: <line>` / `Goal:` / `Note:` to the partner
+  (`focusWords('undo')`), and only then the store adds the line under `## Undo asked` with its time. A second Undo,
+  also from another tab, types nothing; a word that could not be kept leaves the line unmarked (the review). The page
+  shows "undo asked" from the note's section.
 - **Is the vibe there?** (`src/focus.mjs` `vibe-there-yes`, `vibe-there-no`): asked when every part is done; the server
   passes `allDone` from the store. Yes ticks the goal and clears `Focus:` in one change of the map, once (a second Yes
   finds the goal done: no word); No (with words) takes `How agreed` away (`goalsWrite.mjs` `reopenHow`). Each types its
@@ -1439,7 +1470,11 @@ Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mo
   today's note on it: ..." or "No focus: have the user pick one ...". The partner's job: `roles/partner.md`, "The daily
   note" (what it may decide without the person: small visual details, numbers, wording, the order of the parts; never a
   rule of the game, a new screen or more than about an hour's extra work).
-- The Workers mod's work tool 0.13.6: the fields `decided` and `needs`.
+- The Workers mod's work tool 0.13.6: the fields `decided` and `needs` (beside B313's `rename` and `from` of 0.13.5).
+- The review's findings: a blocking ask holds a step only when the chat that holds the step asks it (the partner's
+  or the main chat's ask under a worker's step is written `Blocking: no` and leaves the step as it is), and an answer
+  that frees a step waiting on you also wakes the step's owner when another chat asked (`answer`'s `wakeOwner`, sent by
+  the server as the asker's `wake`).
 - Tests: `test/focusRun.test.mjs`, `test/focusNote.test.mjs`.
 
 ## The Focus tab, increment 2 (Focus 2): the vibe and how moves, and the partner

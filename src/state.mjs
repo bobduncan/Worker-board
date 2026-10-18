@@ -1369,7 +1369,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     brainstorms,
     brainstormNeeds: brainstormNeeds(brainstorms.threads),
     // Focus 1 (spec 2026-10-18): the focus goal for the Focus part, and the parts the tab's bar shows.
-    focus: focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, config.advisor ?? null),
+    // The review of Focus 3: the partner by the chat the board shows for it, the one the work API gives the role advisor.
+    focus: focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null),
     advisorParts: config.advisorParts,
   }
 }
