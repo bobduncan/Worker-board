@@ -10798,8 +10798,13 @@ function drawHelp() {
 }
 
 function moveHelp(to) {
+  const wasDot = document.activeElement?.classList.contains('help-dot') === true
   helpAt = helpMove(helpAt, to, HELP_CARDS.length)
   drawHelp()
+  // Review: the focus stays in the tour, so the arrow keys go on working: a redrawn dot hands it to the card's dot,
+  // a Back that hid itself on the first card to Next.
+  if (wasDot) $('help-dots').querySelector('[aria-current="true"]')?.focus()
+  else if (!$('help').contains(document.activeElement) || document.activeElement.disabled) $('help-next').focus()
 }
 
 function openHelp() {
@@ -10817,8 +10822,10 @@ $('help-dots').addEventListener('click', event => {
   const dot = event.target.closest('[data-help-card]')
   if (dot !== null) moveHelp(Number(dot.dataset.helpCard))
 })
-// The arrow keys move too; Escape closes (the dialog's own).
-$('help').addEventListener('keydown', event => {
+// The arrow keys move too, wherever the focus is while the tour is open; with Alt and the like they are the browser's
+// (Alt+Left is Back). Escape closes (the dialog's own).
+document.addEventListener('keydown', event => {
+  if (!$('help').open || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
   if (event.key === 'ArrowRight') moveHelp('next')
   if (event.key === 'ArrowLeft') moveHelp('back')
 })

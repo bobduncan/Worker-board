@@ -78,6 +78,17 @@ test('helpOpensAtStart: the first time only, on a plain open of the board; never
   assert.equal(page.helpOpensAtStart({ seen: false, hash: '', isDemo: true }), false)
 })
 
+test('the page\'s wiring: the address is kept before anything rewrites it, the first read looks once, closing keeps it seen', () => {
+  // The address the page was opened with, before the tab shown at the start or a link from a chat rewrites it.
+  const kept = script.indexOf('const helpStartHash = location.hash')
+  assert.ok(kept > 0 && kept < script.indexOf('show(tabOfAddress(location.hash) ?? \'overview\')'))
+  // The first state drawn, then the tour looks whether to open.
+  assert.match(script, /const state = await answer\.json\(\)\s+draw\(state\)\s+awaySince = null\s+helpAtStart\(state\)/)
+  assert.match(script, /\$\('help'\)\.addEventListener\('close', \(\) => \{\s+try \{ localStorage\.setItem\('help-seen', 'yes'\) \}/)
+  // Review: the arrow keys are heard wherever the focus is while the tour is open, and are the browser's with Alt.
+  assert.match(script, /document\.addEventListener\('keydown', event => \{\s+if \(!\$\('help'\)\.open \|\| event\.altKey \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return/)
+})
+
 test('the ? button stands in the bar of tabs, top right, so it is there on every tab; the tour is a dialog of its own', () => {
   const bar = html.slice(html.indexOf('<nav class="tabs"'), html.indexOf('</nav>', html.indexOf('<nav class="tabs"')))
   assert.match(bar, /<button class="icon-button help-button" id="help-button" type="button"[^>]*aria-label="[^"]+"[^>]*>\?<\/button>\s*$/)
