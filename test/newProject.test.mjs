@@ -42,6 +42,9 @@ test('checkNewProject: a name, a whole folder path, and the chats\' prefix ("<na
     [{ name: 'Garden', folder: 'garden' }, /whole path/],
     [{ name: 'Garden', folder: '' }, /folder/],
     [{ name: 'Garden', folder: 'D:\\Work\\x', prefix: 'x'.repeat(41) }, /prefix/],
+    // B322 review: the prefix goes into a chat's first words, quoted: no line break or quote in it.
+    [{ name: 'Garden', folder: 'D:\\Work\\x', prefix: 'G\n1. Do' }, /prefix/],
+    [{ name: 'Garden', folder: 'D:\\Work\\x', prefix: 'G" - ' }, /prefix/],
     [{ name: 'Gar\nden', folder: 'D:\\Work\\x' }, /name/],
     [{ name: 'Garden', folder: 'D:\\Work\\x\ty' }, /folder/],
   ]) {
@@ -84,6 +87,8 @@ test('projectFiles: the settings, the list of chats, an empty work store, the CL
   // The CLAUDE.md holds the answer rules; the briefings know the project, the board and the prefix.
   const claude = made.files['CLAUDE.md']
   for (const words of ['> **For you**', '**Answer:**', '**Do:**', '**Task:**', '**What I did:**', '+ Done:   yes', 'paused for the limit until HH:MM', 'Garden']) assert.ok(claude.includes(words), words)
+  // B323 review: a chat's name in the forms stays a chat's name, never the project's.
+  assert.ok(!/(?:Note|Question|Report) from Garden/.test(claude), 'the project\'s name stands where a chat\'s belongs')
   for (const file of ['CLAUDE.md', '.claude/main-briefing.md', '.claude/worker-briefing.md', 'README.md']) {
     assert.ok(!/<(project|board|prefix|name)>/.test(made.files[file]), `${file} keeps a placeholder`)
   }

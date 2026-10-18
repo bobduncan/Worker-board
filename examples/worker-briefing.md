@@ -10,7 +10,8 @@ project's code.
 
 - The main chat: "<prefix>Main" (the "main" of the list of chats).
 - The code: `<repository>`. Its working agreement: its `CLAUDE.md`, when it has one.
-- How to answer the user: `<project>\CLAUDE.md`, when there is one.
+- How to answer the user: `<project>\CLAUDE.md` (a new project gets it from `<board>\examples\CLAUDE.md`: the For you
+  block, the first two lines of a finished task, the closing block and the limit pause the board reads).
 - The worker board: `<board>`; the user's board runs on port <port>.
 
 ## What to read for each kind of task

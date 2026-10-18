@@ -810,7 +810,10 @@ async function main(args) {
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
       return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
-        newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject } }
+        newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
+        // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
+        // job texts), the project's name and the Advisor's; only the board that delivers opens chats.
+        openChats: isDemo || isShowOnly ? null : { board: HERE, name: config.name, advisor: typeof config.advisor === 'string' && config.advisor !== '' ? config.advisor : null } }
     },
     // B320: a new project, from the New project button (src/newProject.mjs); one at a time, and only on the board that
     // delivers, so it is made from the version of the board the person works with.

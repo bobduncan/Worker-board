@@ -19,6 +19,15 @@ projects. so we need to reevaluate the current that for that and maybe refactor 
 | The notes read as this project's | `BRIEF.md`, `DESIGN.md`, the README's "Not yet portable" (B138) | documents |
 | Done already | the Advisor: its job is general (`roles/advisor.md`), its pages live in the game (B173); its settings in `config.json` | — |
 
+**Where it stands (B323, 2026-10-18).** Every tie in the table is removed: settings and start-up (B127, B128, B131,
+B136, B137), the names (B129, B130), the folders and branch (B167, B194, B198), the game (B132, B133, B197), the
+protocol (`examples/CLAUDE.md`, made the project's own by B320 and brought up to date by B323, with the briefings and
+`roles/` pointing to it; `roles/protocol.md` lists every word), the mods (carried by the board, B251; installed by
+`npm run setup` or the install command, B321), this PC (B134, B135; no path of it in any file of the repository,
+kept so by `test/anyProject.test.mjs` since B323) and the notes (B138). Two projects run side by side (B319), a new
+one is made in one click (B320) and opens its first chats (B322). Still open: a Mac, not tried (B215); a real
+installer, a goal of its own later.
+
 ## The order
 
 The work goes in small increments, one at a time, each merged on its own; a part may take several. The user, on

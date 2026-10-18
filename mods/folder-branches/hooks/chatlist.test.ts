@@ -5,8 +5,8 @@ import type { ChatFile, ChatTask } from '../types'
 import { chatText, parseChat } from './chats'
 
 const TOOL = 'mcp__folder-branches__chat'
-const ROOT = 'C:\\Web\\project'
-const CHATS = 'C:/Web/project/.claude/chats'
+const ROOT = 'D:\\Work\\project'
+const CHATS = 'D:/Work/project/.claude/chats'
 const MIN = 60000
 
 /** A path as a hook is handed it, with forward slashes. */
@@ -224,7 +224,7 @@ const lineOf = (name: string) => ({ type: 'Text', text: new RegExp(`^. ${name}  
 const ENDED = { answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' } as const
 const BY_MODEL = { origin: { kind: 'model' } } as const
 /** B297: where the worker board says it is, with its key, and the work tool the mod registers. */
-const BOARD = 'C:/Web/project/.claude/board.json'
+const BOARD = 'D:/Work/project/.claude/board.json'
 const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
 const WORK = 'mcp__folder-branches__work'
 
@@ -572,7 +572,7 @@ describe('who is in the list', () => {
 })
 
 describe('what the person answers on the worker board reaches the chat it is for', () => {
-  const BOARD = 'C:/Web/project/.claude/board.json'
+  const BOARD = 'D:/Work/project/.claude/board.json'
   const KEY = 'ab'.repeat(32)
   const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: KEY, startedAt: 1 })
   /** Lets the timer's reading and typing run to their end. */
@@ -676,8 +676,8 @@ describe('what the person answers on the worker board reaches the chat it is for
 })
 
 describe('the worker board is kept running by the chats', () => {
-  const LAUNCH = 'C:/Web/project/.claude/launch.json'
-  const launch = JSON.stringify({ configurations: [{ name: 'worker-board', runtimeExecutable: 'node', runtimeArgs: ['C:/Web/project/worker-board/server.mjs'], port: 4310 }] })
+  const LAUNCH = 'D:/Work/project/.claude/launch.json'
+  const launch = JSON.stringify({ configurations: [{ name: 'worker-board', runtimeExecutable: 'node', runtimeArgs: ['D:/Work/project/worker-board/server.mjs'], port: 4310 }] })
   const withBoards = (): Record<string, string> => ({
     ...listed(),
     [`${CHATS}/list.json`]: '{ "prefix": "Game - ", "main": "Main", "boards": ["worker-board"] }\n',
@@ -696,7 +696,7 @@ describe('the worker board is kept running by the chats', () => {
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Main' })
     await clock.advance(5000)
     await settle()
-    expect(w.spawned).toEqual(['node C:/Web/project/worker-board/server.mjs'])
+    expect(w.spawned).toEqual(['node D:/Work/project/worker-board/server.mjs'])
     // It answers now: nothing more is started, however long the chat lives.
     await clock.advance(5 * MIN)
     await settle()
@@ -1120,7 +1120,7 @@ describe('a large worker is compacted after it reported its step', () => {
 })
 
 describe('B297: the work tool asks the worker board', () => {
-  const BOARD = 'C:/Web/project/.claude/board.json'
+  const BOARD = 'D:/Work/project/.claude/board.json'
   const KEY = 'ab'.repeat(32)
   const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: KEY, startedAt: 1 })
   const WORK = 'mcp__folder-branches__work'
@@ -1221,7 +1221,7 @@ describe('B297: the work tool asks the worker board', () => {
 
 
 describe('B298: the person\'s words are filed on the worker board as instructions', () => {
-  const BOARD = 'C:/Web/project/.claude/board.json'
+  const BOARD = 'D:/Work/project/.claude/board.json'
   const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
   const FILED = JSON.stringify({ id: 'I17', text: 'Recorded as I17', open: [{ id: 'I15', turns: 2 }, { id: 'I17', turns: 0 }] })
   const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
@@ -1306,7 +1306,7 @@ describe('B298: the person\'s words are filed on the worker board as instruction
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
-    w.workAnswer = { status: 503, text: 'No work store in C:/Web/project/.claude/work: the board shows no work.' }
+    w.workAnswer = { status: 503, text: 'No work store in D:/Work/project/.claude/work: the board shows no work.' }
     await $.prompt.submit({ text: 'Make the strip blue', ...ASKED } as never)
     expect([w.typedIn, w.contexts]).toEqual([['composer:framed:Make the strip blue'], [[]]])
     await $.turn.start({ text: 'Make the strip blue', turnId: 't1' })
@@ -1354,7 +1354,7 @@ describe('B298: the person\'s words are filed on the worker board as instruction
 })
 
 describe('B300: a free worker pulls its next step at the end of its turn', () => {
-  const BOARD = 'C:/Web/project/.claude/board.json'
+  const BOARD = 'D:/Work/project/.claude/board.json'
   const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
   const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
   const LINE = 'work: B286 is yours; run work next'
@@ -1393,7 +1393,7 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
-    w.workAnswer = { status: 503, text: 'No work store in C:/Web/project/.claude/work: the board shows no work.' }
+    w.workAnswer = { status: 503, text: 'No work store in D:/Work/project/.claude/work: the board shows no work.' }
     for (const turn of ['t1', 't2', 't3']) {
       await $.turn.start({ text: 'go', turnId: turn })
       await clock.advance(60_000)
@@ -1455,7 +1455,7 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
 })
 
 describe('B299: a question asked with the app\u2019s form stands on the worker board too', () => {
-  const BOARD = 'C:/Web/project/.claude/board.json'
+  const BOARD = 'D:/Work/project/.claude/board.json'
   const board = JSON.stringify({ url: 'http://127.0.0.1:4311', key: 'ab'.repeat(32), startedAt: 1 })
   const FORM = { tool: 'AskUserQuestion', questions: [{ question: 'Which port?', header: 'Port', multiSelect: false, options: [{ label: '4320', description: 'free' }, { label: '4330', description: 'taken' }] }] }
   const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
@@ -1509,7 +1509,7 @@ describe('B299: a question asked with the app\u2019s form stands on the worker b
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
     stand(on, w)
-    w.workAnswer = { status: 503, text: 'No work store in C:/Web/project/.claude/work: the board shows no work.' }
+    w.workAnswer = { status: 503, text: 'No work store in D:/Work/project/.claude/work: the board shows no work.' }
     await begin($)
     const asked = await $.tool.call(FORM as never)
     expect(asked.result).toEqual({ answers: {} })
