@@ -769,13 +769,13 @@ function sizeMinutes(size) {
 }
 
 const FINISHED = ['done', 'closed', 'dropped']
-const UNDER_WAY = ['taken', 'in progress', 'waiting on you']
+const UNDER_WAY = ['taken', 'in progress', 'waiting on you', 'review']
 
 /**
  * Focus 1 (spec 2026-10-18, sections 4 and 5): the focus goal as the Focus page draws it, or null without a goal map,
  * without a focus, or with one that is no longer in the map (the page then asks to pick one). Its stage and lines from
- * goals.md; each part's progress from its steps in the store (`items`): all finished → done; one taken, in progress or
- * waiting on the person → now, with that step's owner (without the chats' `prefix`); else next. The whole: the parts
+ * goals.md; each part's progress from its steps in the store (`items`): all finished → done; one taken, in progress,
+ * waiting on the person or in review → now, with that step's owner (without the chats' `prefix`); else next. The whole: the parts
  * done of all, and the minutes the sizes of the parts not done name. `thread`: the goal's brainstorm, the vibe and how
  * talk: a running thread about it first, else the one its Brainstorm line names.
  */

@@ -93,6 +93,15 @@ test('each part\'s progress follows its steps in the store: done, in progress wi
   assert.deepEqual(bare.progress, { done: 0, total: 1, minutesLeft: null })
 })
 
+test('Focus 2, the review\'s findings: a part whose step is in review is in progress, with its owner', () => {
+  const reviewed = storeFromText(BACKLOG, { now: NOW })
+  const step = reviewed.items.get('B15')
+  step.head.set('State', 'review')
+  step.head.set('Owner', 'Game - Checks')
+  const run = focusState(parseGoals(map(AGREED, HOW, RUN)), [...reviewed.items.values()], threads, 'Game - ')
+  assert.deepEqual(run.parts[3], { title: 'One look at the whole garden', size: '1 h', state: 'now', owner: 'Checks', done: 0, total: 1 })
+})
+
 test('the buildState answer carries the focus and the setting advisorParts', () => {
   const config = { ...parseConfig('{}', {}), project: 'C:\\garden' }
   const state = buildState({ listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [], tails: {}, planLineTexts: {}, backlogText: BACKLOG, adviceText: null, folders: null, askTexts: [], pictureLists: {}, goalsText: map(AGREED), threadTexts: [{ path: 'talks/2026-10-18-benches.md', text: THREAD, at: 1 }] }, { outbox: [], now: NOW, config: { ...config, brainstorms: 'talks' } })
