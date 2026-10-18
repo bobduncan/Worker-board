@@ -1860,7 +1860,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .simple-chip.is-full { border-color: #c0483f; color: #ffb3a8; }
 .simple-none { margin: 0; color: var(--muted, #8b98ad); }
 #view-overview[data-mode="details"] #simple-bar { display: none; }
-#view-overview[data-mode="simple"]:not([hidden]) { display: block; max-width: 860px; margin: 0 auto; overflow-y: auto; }
+#view-overview[data-mode="simple"]:not([hidden]) { display: block; width: min(860px, 100%); margin: 0 auto; overflow-y: auto; }
 #view-overview[data-mode="simple"] .overview { overflow: visible; padding-bottom: 8px; }
 #view-overview[data-mode="simple"] .head { flex-wrap: wrap; }
 #view-overview[data-mode="simple"] #main-game,
@@ -1876,7 +1876,8 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 #view-overview[data-mode="simple"] #information,
 #view-overview[data-mode="simple"] .side-tab[data-side="main"],
 #view-overview[data-mode="simple"] #side-main { display: none !important; }
-/* Its heading with the count stays: "Needs your attention 2", as the tab on its own. */
+/* Its heading with the count stays: "Needs your attention 2", as the tab on its own, always the shown one. */
 #view-overview[data-mode="simple"] .side-tabs { padding-left: 0; border-bottom: 0; }
+#view-overview[data-mode="simple"] .side-tab[data-side="needs"] { color: var(--text); background: var(--panel); border-bottom-color: var(--free); pointer-events: none; }
 #view-overview[data-mode="simple"] .inbox { border: 0; background: none; }
 #view-overview[data-mode="simple"] #side-needs { display: flex !important; }

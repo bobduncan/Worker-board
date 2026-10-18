@@ -496,11 +496,14 @@ function drawSimpleOverview(state) {
     const line = el('div', 'simple-line')
     line.title = view.bar.title
     line.append(el('b', '', view.bar.text))
-    const track = el('div', 'simple-track')
-    const fillBar = el('span', '')
-    fillBar.style.width = `${view.bar.percent}%`
-    track.append(fillBar)
-    parts.push(line, track)
+    parts.push(line)
+    if (view.bar.percent !== null) {
+      const track = el('div', 'simple-track')
+      const fillBar = el('span', '')
+      fillBar.style.width = `${view.bar.percent}%`
+      track.append(fillBar)
+      parts.push(track)
+    }
   } else {
     parts.push(el('p', 'simple-none', 'No goal is your focus yet: pick one on the Focus tab.'))
   }
@@ -514,28 +517,37 @@ function drawSimpleOverview(state) {
   showOverviewMode()
 }
 
-/** B327: puts the Overview in the view the person chose (kept in this browser), and marks the switch. */
-function showOverviewMode() {
+/**
+ * B327: puts the Overview in the view the person chose and marks the switch: `chosen` when a click chose it (it holds
+ * for this visit even where the browser keeps nothing), else the one this browser kept, else Simple.
+ */
+function showOverviewMode(chosen = null) {
   let stored = null
   try { stored = localStorage.getItem('overview-mode') } catch { /* a browser without storage shows Simple */ }
-  const mode = overviewMode(stored)
+  const mode = overviewMode(chosen ?? overviewChosen ?? stored)
   $('view-overview').dataset.mode = mode
   for (const button of document.querySelectorAll('[data-overview-mode]')) {
     button.setAttribute('aria-pressed', String(button.dataset.overviewMode === mode))
   }
 }
 
+/** The view chosen by a click in this visit (null: none yet), so it holds where the browser keeps nothing. */
+let overviewChosen = null
 $('overview-mode').addEventListener('click', event => {
   const button = event.target.closest('[data-overview-mode]')
   if (button === null) return
-  try { localStorage.setItem('overview-mode', button.dataset.overviewMode) } catch { /* kept for this visit only */ }
-  showOverviewMode()
+  overviewChosen = overviewMode(button.dataset.overviewMode)
+  try { localStorage.setItem('overview-mode', overviewChosen) } catch { /* kept for this visit only */ }
+  showOverviewMode(overviewChosen)
 })
+// The chosen view from the start, before the board is first read.
+showOverviewMode()
 
 function drawTop(state) {
   const updated = $('updated')
   updated.textContent = `Last updated ${clock(state.readAt)}${state.isDemo ? ' · demo data' : ''}`
-  drawSimpleOverview(state)
+  // B327: a failure in the simple view must not stop the rest of the board from drawing
+  try { drawSimpleOverview(state) } catch (error) { console.error('[board] the simple view:', error) }
   $('version').textContent = versionLine(state.version)
   updated.classList.remove('is-stale')
   // B307: "0 waiting for you" goes; the yellow count shows when something waits.
@@ -908,12 +920,17 @@ function infoHeightFit(height, room) {
 /**
  * What the simple view's bar and chips say. `focus`: the state's (null: none); `counts`: the head's counts (state.counts);
  * `limits`: the state's. `bar`: the focus goal's steps done and the time left, counted as the Focus page counts them
- * (focusView), or null without a focus (B328 counts the next milestone then). `busy`: "4 of 5 workers busy". `limit`:
+ * (focusView: once the run has started); before that, which stage the goal is in, without a count (`percent` null); null
+ * without a focus (B328 counts the next milestone then). `busy`: "4 of 5 workers busy". `limit`:
  * the 5-hour limit's use and its reset, or null when nothing is known of it.
  */
 function simpleView({ focus = null, counts = {}, limits = null } = {}, now = Date.now()) {
   let bar = null
-  if (focus !== null && focus !== undefined) {
+  if (focus !== null && focus !== undefined && focus.stage !== 'run' && focus.stage !== 'done') {
+    // the Focus page shows no progress before the run either
+    const doing = focus.stage === 'how' ? 'agreeing the how' : 'agreeing the vibe'
+    bar = { text: `Focus ${focus.id} · ${doing}`, percent: null, title: `${focus.id} · ${focus.title}` }
+  } else if (focus !== null && focus !== undefined) {
     const progress = focus.progress ?? { done: 0, total: 0, minutesLeft: null }
     const { done, total } = progress
     const left = focus.stage === 'done' ? null : focusTimeLeft(progress.minutesLeft)
