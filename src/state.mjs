@@ -16,6 +16,7 @@ import { focusStage, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinked
 import { limitStop, limitsOf, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
+import { partnerEffort } from './partnerEffort.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
@@ -51,7 +52,7 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined|ask from the goal map|backlog step from the goal map)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|step refined|ask from the goal map|partner effort|backlog step from the goal map)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'waits']
 /** How long a window of the 5-hour limit lasts. */
@@ -1173,6 +1174,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   if (advisorChat !== undefined) {
     const { state, doingNow: doing, session, appSession } = advisorCard
     const tail = raw.tails?.[advisorChat.cliSessionId] ?? null
+    // Its transcript, read once: for its mode (B352) and whether a round runs (B288).
+    const advisorEntries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
     advisorWaits = advisorCard.state === 'waiting' ? { ...advisorCard, isAdvisor: true } : null
     advisor = {
       name: advisorChat.name,
@@ -1180,9 +1183,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       appSession,
       state,
       doingNow: doing,
-      messages: tail === null || typeof tail.text !== 'string'
+      messages: advisorEntries === null
         ? []
-        : conversation(parseTail(tail.text, tail.isCut === true), { self: advisorChat.name, prefix, titles })
+        : conversation(advisorEntries, { self: advisorChat.name, prefix, titles })
           // B173: a round the board's clock typed is the clock's, not the person's.
           .filter(message => !(message.from === 'you' && isClockLine(message.text)))
           // B282: a line typed on the board shows its words and the picture pasted with it apart, as in Talk to Main.
@@ -1205,6 +1208,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // B288: a round runs from when it is sent, by the clock or on the person's request: while it waits to be typed;
       // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then
       // while the Advisor is at work on the turn that began with it (an hour at most). A turn begun later is another.
+      // B352: the high effort mode last asked for it, what its last answer ran on, and whether that is the mode asked.
+      effort: partnerEffort({ sent, partner: advisorChat.name, entries: advisorEntries }),
       roundRuns: (() => {
         const last = sent.findLast(message => message.to === advisorChat.name && (message.command === 'round' || message.command === 'recheck'))
         if (last === undefined) return false
@@ -1213,8 +1218,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         if (last.state !== 'delivered') return false
         const arrived = last.deliveredAt ?? last.at
         if (now - arrived < ROUND_SHOWS_MS) return true
-        const entries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
-        const begun = entries === null ? null : turnStart(entries, { prefix })?.at ?? null
+        const begun = advisorEntries === null ? null : turnStart(advisorEntries, { prefix })?.at ?? null
         return state === 'working' && now - arrived < HOUR && (begun === null || begun <= arrived + ROUND_SHOWS_MS)
       })(),
     }

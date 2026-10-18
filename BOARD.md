@@ -174,6 +174,14 @@ box is off and a line says it thinks, or that its chat is not running. **This is
 one) and **Go** (once it proposed parts) write their line once and tell your partner; **Not yet** opens a box for what
 is missing and sends your words. A line under the head says what each move did, or why not.
 
+B352: under the talk, **High effort mode** with a switch: off is the usual partner (Opus 5.5, extra high effort), on
+is Fable 5.1 at max effort, for the vibe and the how of a hard goal. Flipping it types `partner effort` into the main
+chat, which sets your partner's chat; until your partner's next answer runs on that model and effort (its transcript
+names both) the line is dashed and says "Switching…", then solid. Go on the how and another goal as your focus switch
+it back to off by themselves; a word the main chat never took says so and changes nothing. The switch stands as the
+last word asked (kept however long your partner is idle), else as what your partner runs on, so it
+survives a reload.
+
 Since Focus 4 the run's **talk bar** sends your words to your partner, in the talk about the goal (Enter sends): with
 its question open they are your answer; while it has the turn they are typed to it as your word; with no talk running
 a new one starts with them. A part whose steps are made but not handed out yet says **Waiting for the main chat to

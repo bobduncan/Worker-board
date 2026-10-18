@@ -2108,6 +2108,26 @@ the worker board"): help you can follow in a minute, its pictures the paintings 
 5. The server serves the six paintings by name (`/help/<name>.webp`), nothing else from their folder.
 6. Not in it: help texts inside the board's own parts.
 
+## High effort mode for the partner (B352)
+
+The person, 2026-10-18 (I16): "while refining a goal, i want a button to change the claude chat working on it, to
+other model/effort, lets call it high effort mode. so like fable 5.1 max effort. otherwise it will use opus extra".
+
+1. A switch under the talk with the partner on the Focus page (the vibe and the how): "High effort mode · off: Opus
+   5.5, extra high" or "· on: Fable 5.1, max", amber when on (`src/partnerEffort.mjs`, `PARTNER_MODES`).
+2. The board cannot change a chat itself: the switch types `partner effort` (Chat, Mode, Model, Effort, Session when
+   known, Why) into the main chat, which sets the partner's chat with the app's `set_session_model` and
+   `set_session_effort` (roles/main.md, roles/protocol.md). It is one of the board's words, never the person's.
+3. The mode shown is the last such word in the outbox that arrived, which the outbox keeps however long the partner is
+   idle (`outboxNow`, review); without one (none asked) what the partner's last answer ran on says it, so high effort
+   is still known and switched back on Go. It is set once the partner's next answer runs on that model and effort: the app writes both on every
+   answer in the transcript (`parseTail` keeps `model` and `effort`; a helper's lines do not count); until then the
+   line is dashed and says "Switching…". A word that did not arrive (expired, or the Workers mod could not type it)
+   changed nothing and says so.
+4. Go on the how and another goal as the focus switch it back to the usual partner (the person's yes, 2026-10-18), so
+   the run's refining and rounds use the usual partner; the talk about the same goal started again keeps it.
+5. Not in it: a switch for the workers' chats or the main chat.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

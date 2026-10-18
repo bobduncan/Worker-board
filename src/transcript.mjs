@@ -147,6 +147,9 @@ export function parseTail(text, isCut) {
       stopReason: typeof message.stop_reason === 'string' ? message.stop_reason : null,
       // What the app says went wrong where it wrote the entry itself: `rate_limit` when the chat ran into a limit.
       error: typeof entry.error === 'string' ? entry.error : null,
+      // B352: what an answer ran on: its model, and the effort the app writes beside it.
+      model: entry.type === 'assistant' && typeof message.model === 'string' ? message.model : null,
+      effort: entry.type === 'assistant' && typeof entry.effort === 'string' ? entry.effort : null,
       blocks: blocksOf(message.content),
     })
   }
