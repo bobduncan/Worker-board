@@ -1428,7 +1428,7 @@ Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mo
   (no step to follow when it is answered or withdrawn). The state's `focus` carries `note` (the partner's newest daily
   note of the goal: `{ id, since, decided: [{ text, undoAsked }], needs }`) and `needs` (the partner's open asks of the
   goal or its steps, the note's first, with options and pictures); `focusState` takes the partner's name (the setting
-  `advisor`).
+  `advisor`); since the review, by the name of the chat the board shows for it, as the work API gives it the role advisor.
 - **Undo** (Review Focus 4): the page's `note-undo` on `/api/goals`, and an `undo` on `/api/work`, go through
   `server.mjs` `undoNow` and `src/focus.mjs` `undoLine`, one at a time: the store's person-only `undo` with `check`
   says whether the line may be undone, the board types `undo: <line>` / `Goal:` / `Note:` to the partner
