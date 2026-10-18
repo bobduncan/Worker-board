@@ -1997,6 +1997,21 @@ board on this PC into a folder of its own, beside the first project's running bo
 3. Cleaned up after: the trial boards stopped, their icons, the project in the home folder and their places in the
    PC's list removed. Recorded in the README ("Not yet portable", 19) and ANY-PROJECT-PLAN.md.
 
+## The help tour's pictures (B347)
+
+G26, the person's brainstorm of 2026-10-18: a help tour of six cards, one painting each, warm and showing the idea
+rather than the screen, so the pictures stay true while the board changes. The person picked the style (card 4, the
+work divides itself) and, on 2026-10-18, kept all six (Q109).
+
+1. `public/help/`, 1280 by 720 WebP, about 40 KB each: `1-set-up` (one command, then Initialise), `2-pick-focus`,
+   `3-vibe-and-how` (with the partner), `4-work-divides`, `5-answer` (what needs you), `6-check-result`.
+2. Painted by Codex, with card 4 as the style for the others: the board's navy with blue, green and amber, rounded soft
+   3D, the person in an amber sweater and the white robot workers; no words, letters or numbers, so the card's own
+   lines carry the words.
+3. The person's test: a card whose idea cannot be painted simply points at a part of the board to simplify. All six
+   were painted simply at the first try.
+4. Not served yet: the tour (B348) adds them to the page.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.
