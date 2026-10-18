@@ -47,6 +47,21 @@ export function gitCheckPassed(item) {
   return last !== undefined && last.startsWith('check passed')
 }
 
+/**
+ * The step's last result check as its "## Checked" section keeps it: `{ evidence, score, points: [{ verdict, text }],
+ * passed, total }`, or null when it has none.
+ */
+export function checkedOf(item) {
+  const lines = (item?.sections?.get('Checked') ?? []).map(one => one.trim()).filter(Boolean)
+  if (lines.length === 0) return null
+  const named = name => lines.find(one => one.startsWith(`${name}: `))?.slice(name.length + 2) ?? null
+  const points = lines.flatMap(one => {
+    const found = one.match(/^-\s+(pass|fail|ask):\s+(.+)$/)
+    return found === null ? [] : [{ verdict: found[1], text: found[2] }]
+  })
+  return { evidence: named('Evidence'), score: named('Score'), points, passed: points.filter(one => one.verdict === 'pass').length, total: points.length }
+}
+
 /** A fix step's title: "Fix: <the failed points in a few words>", no brackets at its end, at most about 100 characters. */
 export function fixTitle(failed) {
   const words = failed.map(one => one.text.replace(/\s*\([^()]*\)\s*$/, '').trim()).filter(Boolean).join('; ')

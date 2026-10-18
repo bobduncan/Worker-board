@@ -7,6 +7,7 @@ import { storeAsBacklog, storeProblems } from './adapter.mjs'
 import { DEFAULT_FLOW, nextMoves, statesOf } from './flow.mjs'
 import { isFix, valueOf } from './item.mjs'
 import { migrateBacklog } from './migrate.mjs'
+import { checkedOf } from './resultCheck.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
 import { readStore } from './store.mjs'
 
@@ -133,6 +134,8 @@ export function itemOfStep(work, key) {
     touches: touchesLines(item), history: section('History').map(one => one.replace(/^[-*]\s+/, '')),
     // B303: the queue the main chat asked before the step's refine, or null.
     queueWhenRefined: valueOf(item, 'Queue when refined'),
+    // B356: its last result check (the evidence, the ticks, the score), and the step it fixes.
+    checked: checkedOf(item), fixOf: valueOf(item, 'Fix of'), attempts: Number(valueOf(item, 'Attempts') ?? 0),
   }
 }
 

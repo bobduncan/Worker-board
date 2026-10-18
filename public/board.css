@@ -1989,3 +1989,14 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
   .focus-goals li > .goals-action, .focus-goals li .focus-done-when.is-asked { margin-left: auto; white-space: nowrap; }
   .focus-goals li .focus-done-when.is-asked + .goals-action { margin-left: 0; }
 }
+
+/* B356: the result check by a helper: the ticks in a step's window, and a line under a part on the Focus page. */
+.checked-points { margin: 6px 0 10px; padding-left: 0; list-style: none; }
+.checked-points li { padding: 2px 0; }
+.checked-points li.is-pass { color: var(--working); }
+.checked-points li.is-fail { color: var(--warn); }
+.checked-points li.is-ask { color: var(--waiting); }
+.checked-head { font-weight: 600; }
+.focus-checked { align-self: flex-start; color: var(--muted); overflow-wrap: anywhere; }
+.focus-checked.is-pass { color: var(--working); }
+.focus-checked.is-fail { color: var(--warn); }

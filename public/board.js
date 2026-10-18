@@ -3211,11 +3211,23 @@ function itemPartsOf(item, hasFlow) {
     item.goal !== null ? { key: 'goal', title: 'Goal', lines: [item.goal], isFolded: false } : null,
     hasFlow ? { key: 'flow', title: 'Flow', lines: [], isFolded: false } : null,
     item.what.length > 0 ? { key: 'what', title: 'What we build', lines: item.what, isFolded: false } : null,
+    // B356: the result check by a helper that did not build it: the ticks, the score and the evidence picture.
+    (item.checked ?? null) !== null ? { key: 'checked', title: 'Checked by a helper', lines: checkedLines(item.checked), isFolded: false, checked: item.checked } : null,
+    (item.fixOf ?? null) !== null ? { key: 'fixof', title: 'A fix of', lines: [item.fixOf], isFolded: false } : null,
     item.requirements.length > 0 ? { key: 'requirements', title: 'Requirements', lines: item.requirements, isFolded: true } : null,
     item.touches.length > 0 ? { key: 'touches', title: 'Touches', lines: item.touches, isFolded: true } : null,
     item.history.length > 0 ? { key: 'history', title: 'History', lines: item.history, isFolded: false } : null,
   ]
   return parts.filter(part => part !== null)
+}
+
+/** B356: a result check's lines: "2 of 3 points pass · score 82 of 75", then each point with its tick. */
+function checkedLines(checked) {
+  const marks = { pass: '✓', fail: '✗', ask: '?' }
+  return [
+    `${checked.passed} of ${checked.total} points pass${checked.score === null ? '' : ` · score ${checked.score}`}`,
+    ...checked.points.map(one => `${marks[one.verdict] ?? '·'} ${one.text}${one.verdict === 'ask' ? ' (for you to judge)' : ''}`),
+  ]
 }
 
 /**
@@ -4414,6 +4426,15 @@ function itemPart(part, strip) {
   if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
   // B293: what we build as the refine shows it, "Not in it" greyed.
   if (part.key === 'what') return section('What we build', [buildList(part.lines)])
+  // B356: the ticks of the result check, each point green, red or amber, and the evidence picture under them.
+  if (part.key === 'checked') {
+    const [head, ...points] = part.lines
+    const list = el('ul', 'checked-points')
+    part.checked.points.forEach((one, index) => list.append(el('li', `is-${one.verdict}`, points[index])))
+    const evidence = pictureOfLine(part.checked.evidence ?? 'none')
+    return section(part.title, [el('p', 'checked-head', head), list, ...(evidence.path === null ? [el('p', 'muted', `Evidence: ${evidence.note || 'none'}`)] : [pictureRow(evidence.path, 'The evidence: the result beside its reference')])])
+  }
+  if (part.key === 'fixof') return el('p', 'chip is-goal', `A fix of ${part.lines[0]}: done once it is checked, and ${part.lines[0]} with it`)
   if (part.isFolded) {
     const box = el('details', 'item-fold')
     box.append(el('summary', '', `${part.title} (${part.lines.length})`), listOf(part.lines))
@@ -7377,6 +7398,12 @@ function focusView(focus, goals, can = null, ui = {}) {
         ...(typeof part.fixFirst === 'string' ? { fixFirst: `A board fix goes first: ${part.fixFirst}` } : {}),
         // B354: what its results are checked against: the kind, the reference picture, the target.
         standards: (part.standards ?? []).map(standardParts),
+        // B356: the result checks of its steps by a helper that did not build them, each with its evidence picture.
+        checked: (part.checked ?? []).map(one => ({
+          text: `Checked by a helper: ${one.passed} of ${one.total} points pass (${one.id})`,
+          isPass: one.passed === one.total,
+          picture: /\.(?:png|jpe?g|gif|webp)$/i.test(one.evidence ?? '') ? one.evidence : null,
+        })),
       })),
       stepsOf: focus.id,
     }
@@ -7755,6 +7782,18 @@ function focusRunCard(view) {
       look.dataset.zoom = standard.picture
       look.dataset.caption = `The reference for ${standard.kind}`
       line.append(look, ` · ${standard.target}`)
+      row.append(line)
+    }
+    // B356: the result checks of its steps, the evidence opened with a click.
+    for (const check of part.checked ?? []) {
+      const line = el('small', `focus-checked ${check.isPass ? 'is-pass' : 'is-fail'}`, check.text)
+      if (check.picture !== null) {
+        const look = el('button', 'focus-standard-picture', 'the evidence')
+        look.type = 'button'
+        look.dataset.zoom = check.picture
+        look.dataset.caption = check.text
+        line.append(' · ', look)
+      }
       row.append(line)
     }
     card.append(row)
