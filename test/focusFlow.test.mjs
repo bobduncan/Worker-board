@@ -242,6 +242,17 @@ test('the partner keeps its drafts through the work tool (vibe-draft, how-draft)
 
 test('a how drafted in the tool\'s words: each part "<title> · <size> · steps B<n>" as goals.md reads a Part line', async () => {
   const fs = await inVibe()
+  await focusMove({ command: 'vibe-agree', id: 'G2' }, ctx(fs))
   await focusMove({ command: 'how-draft', id: 'G2', parts: ['Draw the bench · about 1 h · steps B20, B21', 'Place them'] }, ctx(fs))
   assert.deepEqual(mapOf(fs).byId.get('G2').parts, [{ title: 'Draw the bench', size: 'about 1 h', steps: ['B20', 'B21'] }, { title: 'Place them', size: null, steps: [] }])
+})
+
+test('the review\'s findings: a draft is for the focus goal only, and a how only once the vibe is agreed', async () => {
+  const fs = await inVibe()
+  const other = await focusMove({ command: 'vibe-draft', id: 'G4', lines: ['bright'] }, ctx(fs))
+  assert.deepEqual([other.status, other.why], [409, 'That goal is not the focus: draft only the focus goal.'])
+  assert.deepEqual(mapOf(fs).byId.get('G4').vibe, [])
+  const early = await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw the bench' }] }, ctx(fs))
+  assert.deepEqual([early.status, early.why], [409, 'The vibe is not agreed yet: draft the how once the person agreed it.'])
+  assert.deepEqual(mapOf(fs).byId.get('G2').parts, [])
 })

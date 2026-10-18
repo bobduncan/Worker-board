@@ -84,7 +84,7 @@ async function move(body, ctx) {
   if (command === 'focus') return pick(body, text, ctx, goalsAt)
   if (!isId(body.id)) return refuse(400, 'Name the goal by its id (G12).')
   const node = parseGoals(text).byId.get(body.id)
-  if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt)
+  if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt, parseGoals(text).focus)
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
   if (parseGoals(text).focus !== body.id) return refuse(409, 'That goal is not your focus any more.')
   const say = async (kind, words = null) => focusWords(kind, { to: ctx.partner.name, goal: node, thread: await talkOf(node, ctx), words })
@@ -184,12 +184,16 @@ const agreedOf = node => JSON.stringify([node.parts.map(part => [part.title, par
 /**
  * The partner's drafts. `vibe-draft`: `lines` (three to five short lines) and `picture` (a path, or none), in place of
  * the goal's vibe, until the vibe is agreed. `how-draft`: `parts` ({ title, size, steps }), `partnerDecides`,
- * `youDecide`, in place of the goal's how; once the how is agreed only the parts' steps may change.
+ * `youDecide`, in place of the goal's how, once its vibe is agreed; once the how is agreed only the parts' steps may
+ * change. Only the focus goal is drafted.
  */
-async function draft(body, node, ctx, goalsAt) {
+async function draft(body, node, ctx, goalsAt, focus) {
+  // The review of Focus 2: a draft is the focus goal's, and a how comes once its vibe is agreed.
+  const notFocus = () => refuse(409, 'That goal is not the focus: draft only the focus goal.')
   if (body.command === 'vibe-draft') {
     if (!isLines(body.lines) || (body.picture !== undefined && body.picture !== null && typeof body.picture !== 'string')) return refuse(400, 'A vibe is lines of words, and a picture\'s path or none.')
     if (node === undefined) return failed('gone')
+    if (node.id !== focus) return notFocus()
     if (node.vibeAgreed !== null) return refuse(409, 'The vibe is agreed: talk about the how now.')
     let late = false
     const done = await changeGoalsFile(text => {
@@ -208,6 +212,8 @@ async function draft(body, node, ctx, goalsAt) {
     return refuse(400, 'A how is its parts ({ title, size, steps }) and the lines of who decides what.')
   }
   if (node === undefined) return failed('gone')
+  if (node.id !== focus) return notFocus()
+  if (node.vibeAgreed === null) return refuse(409, 'The vibe is not agreed yet: draft the how once the person agreed it.')
   let changed = false
   const done = await changeGoalsFile(text => {
     const now = parseGoals(text).byId.get(node.id)
