@@ -1707,6 +1707,33 @@ in it.
    the same port, runs them at once, and checks their ports, their notes and keys, the list, the second's launch entry,
    and that the first takes its own port again after a restart.
 
+## A new project in one click (B320)
+
+The person, 2026-10-18 15:23: "also starting a new project feels like 1 click, the board setsup the folder and chat and
+the work stores itself as well." 15:26: "windows only and claude only ... with an icon to run it." Part 3 of G12's how.
+
+1. One flow, `src/newProject.mjs` (`makeProject`), from two doors: `npm run new` (`tools/new-project.mjs`, which asks in
+   the terminal or takes `--name`, `--folder`, `--prefix`) and **New project…** under ⚙ on the board that delivers
+   (a form: the name, the folder, which follows the name beside this project until typed, and the chats' prefix,
+   "<name> - " unless given; `POST /api/new-project`, the page's token, one at a time; the demo and a board that only
+   shows refuse). Windows only.
+2. A folder that is there and not empty is refused (`folderIsFree`): nothing is ever overwritten.
+3. What it makes (`projectFiles`): the folder with `git init`; `.gitignore` keeping the board's copy and `.claude/` out
+   of the project's repository; a README; the board's own copy in `worker-board`, a clone of the board that makes it at
+   its commit, with that board's origin (a plain copy of its files when it is no repository); its `config.json` from
+   `examples/config.json` (name, project, no game; the ports from the board's defaults); `.claude/chats/list.json`
+   (prefix, main chat; no `boards`: the icon starts the board); `.claude/work` with the default flow, `last-ids.json`
+   and one activity named after the project; `CLAUDE.md` from `examples/CLAUDE.md` (the answer rules: compact, the
+   For you block, Task and What I did, the closing block, the limit pause); the briefings from `examples/`, filled in.
+4. Its port (B319): chosen with the PC's list and written into it at once, so a second new project takes another; the
+   launch entry `worker-board` names it.
+5. The icon "<name> board" (`shortcutScript`, PowerShell's WScript.Shell): on the desktop and in the Start menu's
+   programs, running `node start-board.mjs --open` in the copy, minimised, with `public/board.ico` (drawn by
+   `tools/make-icon.mjs`: three lanes in the page's colours). `start-board.mjs --open` opens the page once the board
+   runs (`openCommand`). An icon that cannot be made is said, with the command that starts the board instead.
+6. The board is started at once (`startBoard`), and the form shows the link to it.
+7. Not in it: a game (added later in `config.json`), the first chats (B322), Mac.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.
