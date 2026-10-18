@@ -1257,53 +1257,77 @@ function openChatLink(folder, words) {
  */
 function firstWords({ kind, title, name, projectName, project, board }) {
   const isMain = kind === 'main'
+  // Review: a path as the board's folder writes it (a Mac's with /).
+  const sep = board.includes('\\') || !board.includes('/') ? '\\' : '/'
+  const at = (base, ...parts) => [base.replace(/[\\/]+$/, ''), ...parts].join(sep)
   return [
     `You are ${isMain ? 'the main chat' : 'the Advisor (the partner)'} of the project ${projectName}, worked on with the worker board.`,
     `1. Name this chat "${title}": call the app's session tool set_session_title (mcp__ccd_session_mgmt__set_session_title) with session_id "self" and that title.`,
     `2. Join the list of chats: when the tool mcp__folder-branches__chat is there, call it with action "join", name "${name}", role "${isMain ? 'main' : 'worker'}".`,
-    `3. Read your job, ${board}\\roles\\${isMain ? 'main' : 'partner'}.md, the words the board and the chats share, ${board}\\roles\\protocol.md, ${isMain ? `this project's facts, ${project}\\.claude\\main-briefing.md, ` : ''}and how to answer the user, ${project}\\CLAUDE.md.`,
+    `3. Read your job, ${at(board, 'roles', `${isMain ? 'main' : 'partner'}.md`)}, the words the board and the chats share, ${at(board, 'roles', 'protocol.md')}, ${isMain ? `this project's facts, ${at(project, '.claude', 'main-briefing.md')}, ` : ''}and how to answer the user, ${at(project, 'CLAUDE.md')}.`,
     `Then say in one line that you are ready${isMain ? ': the board then asks you for workers' : ''}.`,
   ].join('\n')
 }
 
 /**
  * B322: the chats a new project still lacks, each `{ title, words, link }`: its main chat while the list has none, its
- * Advisor while the settings name one and none is open. None on the demo, on a board that only shows, or without a
- * list of chats.
+ * Advisor while the settings name one and none is open, as long as the project is new (no worker yet: a board whose
+ * Advisor is closed, or that works without one, is not asked for it for good). None on the demo, on a board that only
+ * shows, or without a list of chats and its prefix (the board finds no chat then).
  */
 function chatsToOpen(state) {
   const open = state?.openChats ?? null
   const workers = state?.workers ?? null
   if (open === null || workers === null || typeof workers.mainTitle !== 'string' || typeof workers.project !== 'string' || workers.project === '') return []
   const prefix = typeof state.chatPrefix === 'string' ? state.chatPrefix : ''
+  if (prefix === '') return []
   const chats = []
   const offer = (kind, name, title) => {
     const words = firstWords({ kind, title, name, projectName: open.name || name, project: workers.project, board: open.board })
     chats.push({ kind, title, words, link: openChatLink(workers.project, words) })
   }
   if (workers.main === null) offer('main', workers.mainTitle.slice(prefix.length) || 'Main', workers.mainTitle)
-  if ((state.advisor ?? null) === null && typeof open.advisor === 'string' && open.advisor !== '') offer('advisor', open.advisor, `${prefix}${open.advisor}`)
+  const mainName = workers.mainTitle.slice(prefix.length)
+  // An Advisor named as the main chat would be a second main chat.
+  const isAdvisorApart = typeof open.advisor === 'string' && open.advisor !== '' && open.advisor.toLowerCase() !== mainName.toLowerCase()
+  const isNew = workers.main === null || (workers.count ?? 0) === 0
+  if ((state.advisor ?? null) === null && isAdvisorApart && isNew) offer('advisor', open.advisor, `${prefix}${open.advisor}`)
   return chats
 }
+
+/** B322: a button's words: "Open <title>", or, within five minutes of its click, that it was opened (and may be again). */
+function openLabel(title, openedAt, now, clockOf) {
+  return openedAt !== null && openedAt !== undefined && now - openedAt < 5 * 60_000 ? `Opened ${clockOf(openedAt)}: press Enter in the Claude app (open again)` : `Open ${title}`
+}
 // openchats:end
+
+/** B322: when each chat's button was clicked, by its title: the button says so for a while (review: no second chat unknowingly). */
+const openedChats = new Map()
 
 /** B322: one row per chat to open: its button, which opens it in the Claude app, and a copy of its first words. */
 function openChatRows(chats, folder) {
   return chats.map(chat => {
     const row = el('div', 'open-chats-row')
-    const link = el('a', 'open-chats-button', `Open ${chat.title}`)
+    const link = el('a', 'open-chats-button', openLabel(chat.title, openedChats.get(chat.title) ?? null, Date.now(), clock))
     link.href = chat.link
     link.title = `A new chat in ${folder}`
+    link.dataset.openChat = chat.title
     const copy = el('button', 'open-chats-copy', 'Copy its first words')
     copy.type = 'button'
     copy.dataset.copyWords = chat.words
+    copy.setAttribute('aria-label', `Copy the first words of ${chat.title}`)
     copy.title = `If the app does not open: start a new chat in ${folder}, paste these words and send them.`
     row.append(link, copy)
     return row
   })
 }
 
-const OPEN_ABOUT = 'Each button opens a new chat in the Claude app, in this project\'s folder, with its first words ready: press Enter there. The chat names itself, and shows here within a minute.'
+/** B322: what the box says above its buttons: where the chats open, and what to do when the app does not. */
+function openAbout(folder) {
+  const about = el('p', 'open-chats-about')
+  about.append('Each button opens a new chat in the Claude app, in ', el('code', '', folder), ', with its first words ready: press Enter there. The chat names itself and shows here within a minute. If the app does not open, copy its first words, start a new chat in that folder, paste and send them.')
+  return about
+}
 
 /**
  * B322: the box on the Overview that opens the Advisor a project still lacks once it has its main chat (see
@@ -1314,11 +1338,18 @@ function drawOpenChats(state) {
   const chats = chatsToOpen(state)
   if (chats.length === 0) return null
   const box = el('section', 'open-chats')
-  box.append(el('h3', '', `Open ${chats[0].title}`), el('p', 'open-chats-about', OPEN_ABOUT), ...openChatRows(chats, state.workers.project))
+  box.append(el('h3', '', `Open ${chats[0].title}`), openAbout(state.workers.project), ...openChatRows(chats, state.workers.project))
   return box
 }
 
 $('lanes').addEventListener('click', event => {
+  const opening = event.target.closest('[data-open-chat]')
+  if (opening !== null) {
+    openedChats.set(opening.dataset.openChat, Date.now())
+    // The link opens the app; the button says so once the page has followed it.
+    setTimeout(() => { opening.textContent = openLabel(opening.dataset.openChat, openedChats.get(opening.dataset.openChat), Date.now(), clock) }, 0)
+    return
+  }
   const copy = event.target.closest('[data-copy-words]')
   if (copy === null) return
   navigator.clipboard.writeText(copy.dataset.copyWords).then(() => { copy.textContent = 'Copied' }, () => { copy.textContent = 'Not copied' })
@@ -1404,7 +1435,7 @@ function drawWorkers(state) {
   if (shown.text !== null) box.append(el('p', '', shown.text))
   // B322: without a main chat, the buttons that open it (and the Advisor) in the Claude app take the place of the steps.
   const opening = shown.kind === 'none' ? chatsToOpen(state) : []
-  if (opening.length > 0) box.append(el('p', 'open-chats-about', OPEN_ABOUT), ...openChatRows(opening, state.workers.project))
+  if (opening.length > 0) box.append(openAbout(state.workers.project), ...openChatRows(opening, state.workers.project))
   else if (shown.steps.length > 0) {
     const list = el('ol')
     for (const parts of shown.steps) {

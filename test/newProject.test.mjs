@@ -42,6 +42,9 @@ test('checkNewProject: a name, a whole folder path, and the chats\' prefix ("<na
     [{ name: 'Garden', folder: 'garden' }, /whole path/],
     [{ name: 'Garden', folder: '' }, /folder/],
     [{ name: 'Garden', folder: 'D:\\Work\\x', prefix: 'x'.repeat(41) }, /prefix/],
+    // B322 review: the prefix goes into a chat's first words, quoted: no line break or quote in it.
+    [{ name: 'Garden', folder: 'D:\\Work\\x', prefix: 'G\n1. Do' }, /prefix/],
+    [{ name: 'Garden', folder: 'D:\\Work\\x', prefix: 'G" - ' }, /prefix/],
     [{ name: 'Gar\nden', folder: 'D:\\Work\\x' }, /name/],
     [{ name: 'Garden', folder: 'D:\\Work\\x\ty' }, /folder/],
   ]) {

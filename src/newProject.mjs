@@ -36,7 +36,7 @@ export function checkNewProject({ name, folder, prefix } = {}) {
   if (at === '' || isControl(at)) return { ok: false, why: 'Give the project\'s folder.' }
   if (!isAbsolute(at) || !/^([A-Za-z]:[\\/]|\\\\|\/)/.test(at)) return { ok: false, why: `Give the folder as a whole path, such as D:\\Work\\${named}.` }
   const given = typeof prefix === 'string' ? prefix.replace(/^\s+/, '') : ''
-  if (given.length > 40) return { ok: false, why: 'Keep the chats\' prefix to 40 characters.' }
+  if (given.length > 40 || isControl(given) || given.includes('"')) return { ok: false, why: 'Keep the chats\' prefix to 40 characters, without " or a line break.' }
   return { ok: true, name: named, folder: at, prefix: given.trim() === '' ? `${named} - ` : given }
 }
 

@@ -18,7 +18,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`${cut('openchats')}\nObject.assign(this, { openChatLink, firstWords, chatsToOpen })`, page)
+vm.runInNewContext(`${cut('openchats')}\nObject.assign(this, { openChatLink, firstWords, chatsToOpen, openLabel })`, page)
 
 const project = 'D:\\Work\\My garden'
 const board = 'D:\\Work\\My garden\\worker-board'
@@ -67,6 +67,26 @@ test('chatsToOpen: the main chat and the Advisor while the project has none, eac
   for (const none of [state({ openChats: null }), state({ workers: null }), state({ workers: { main: null, mainTitle: null, project } }), state({ workers: { main: null, mainTitle: 'Garden - Main', project: '' } })]) {
     assert.equal(page.chatsToOpen(none).length, 0)
   }
+  // Review: the Advisor is offered only while the project is new (no worker yet), so a board whose Advisor is closed,
+  // or that works without one, is not asked for it for good.
+  const working = { main: 'Main', mainTitle: 'Garden - Main', project, count: 2 }
+  assert.equal(page.chatsToOpen(state({ workers: working })).length, 0)
+  // An Advisor named as the main chat would make a second main chat: not offered.
+  assert.deepEqual([...page.chatsToOpen(state({ openChats: { board, name: 'My garden', advisor: 'main' } })).map(one => one.title)], ['Garden - Main'])
+  // Without a prefix the board finds no chat, so nothing is offered (the board says what it looks for).
+  assert.equal(page.chatsToOpen(state({ chatPrefix: '', workers: { main: null, mainTitle: 'Main', project } })).length, 0)
+})
+
+test('firstWords: paths as the board\'s folder writes them, on Windows and on a Mac', () => {
+  const mac = page.firstWords({ kind: 'main', title: 'Garden - Main', name: 'Main', projectName: 'Garden', project: '/Users/x/garden', board: '/Users/x/garden/worker-board' })
+  assert.ok(mac.includes('/Users/x/garden/worker-board/roles/main.md') && mac.includes('/Users/x/garden/.claude/main-briefing.md') && !mac.includes('\\'), mac)
+})
+
+test('a chat just opened says so on its button, so a second click does not open a second chat unknowingly', () => {
+  const opened = page.openLabel('Garden - Main', 1000, 1000 + 60_000, (at) => '17:01')
+  assert.equal(opened, 'Opened 17:01: press Enter in the Claude app (open again)')
+  assert.equal(page.openLabel('Garden - Main', null, 0, () => ''), 'Open Garden - Main')
+  assert.equal(page.openLabel('Garden - Main', 1000, 1000 + 6 * 60_000, () => ''), 'Open Garden - Main')
 })
 
 test('the page\'s script as a whole has no syntax error (the tests above run parts of it only)', () => {
