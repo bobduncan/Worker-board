@@ -83,7 +83,8 @@ step therefore says what it touches ("Touches: ...").
   merged: `work report B<id>` with what the user gets and the commit; the board checks the merge itself. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
-  wait for it, with its pictures; put the block it answers into your answer. The user answered it in your chat:
+  wait for it, with its pictures; a choice with each option apart in `options`, its letter first (`A thin`), and
+  your `advice` (the letter, or yes or no), so the board shows them as cards; put the block it answers into your answer. The user answered it in your chat:
   `work answered-in-chat Q<id>` with their words. An ask you no longer need: `work withdraw Q<id>`;
   a step that waits on you is reported only once its asks are answered or withdrawn. Information for the person or the main
   chat: `work note`. An instruction of the user's that you finished: `work close I<id>` with what came of it.
@@ -106,6 +107,7 @@ branch is on the remote), then sends the main chat a note whose first line is ex
     Note from <your title>: paused for the limit until HH:MM
 
 HH:MM is the time it goes on. The board shows the worker as "Suspended" until then, so nothing else goes on that line.
+The note may be a work note (`work note --to main`, with that line first in its text) or a message to the main chat.
 
 ## Not yours
 
