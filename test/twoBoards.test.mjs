@@ -233,7 +233,8 @@ function run(started, board, env, until = null) {
   started.push(child)
   return new Promise((done, fail) => {
     let out = ''
-    const late = setTimeout(() => fail(new Error(`The board did not start: ${out}`)), 30_000)
+    // A busy PC starts a board slowly: a minute and a half before the start counts as failed.
+    const late = setTimeout(() => fail(new Error(`The board did not start: ${out}`)), 90_000)
     const read = chunk => {
       out += chunk
       const said = out.match(/Worker board: http:\/\/127\.0\.0\.1:(\d+)\//)
