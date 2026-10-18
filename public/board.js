@@ -2421,6 +2421,36 @@ $('needs').addEventListener('click', event => {
   if (askDone !== null) sendGoals({ command: 'read', id: askDone.dataset.goalAskDone, ask: askDone.dataset.ask })
 })
 
+// partner-needs:start
+/** Focus 4 (spec 2026-10-18, section 4): the group of the partner's questions, first under Needs your attention. */
+const PARTNER_GROUP = 'From your partner'
+
+/**
+ * The cards split into the partner's (`isPartner`, marked by the server) and the rest: the partner's asks of the focus
+ * first, in the order the focus shows them (`focusIds`, the ids of state.focus.needs: its daily note's first), then
+ * its other asks; within each, and the rest, the order the cards came in (the one the person chose).
+ */
+function partnerFirst(needs, focusIds) {
+  const order = Array.isArray(focusIds) ? focusIds : []
+  const rank = need => (need.workId !== undefined && order.includes(need.workId) ? order.indexOf(need.workId) : order.length)
+  const partner = needs.filter(need => need.isPartner === true)
+    .map((need, at) => ({ need, at }))
+    .sort((a, b) => rank(a.need) - rank(b.need) || a.at - b.at)
+    .map(one => one.need)
+  return { partner, rest: needs.filter(need => need.isPartner !== true) }
+}
+// partner-needs:end
+
+/** Focus 4: the group "From your partner" with its cards, or null when the partner asks nothing. */
+function drawPartnerNeeds(cards, open) {
+  if (cards.length === 0) return null
+  const part = el('section', 'partner-needs')
+  const head = el('h3', '', PARTNER_GROUP)
+  head.append(el('small', 'muted', open === 0 ? 'all answered' : `${open} wait${open === 1 ? 's' : ''} for you`))
+  part.append(head, ...cards)
+  return part
+}
+
 function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
@@ -2434,12 +2464,15 @@ function drawNeeds(state) {
   // B287: the refine questions count once per step, as their lines stand.
   const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
+  // Focus 4: the partner's questions first, under "From your partner"; the rest as before.
   const shown = ordered(shownNeeds(state.forYou, showsClosed()).filter(need => !isRefineQuestion(need)))
+  const { partner, rest } = partnerFirst(shown, (state.focus?.needs ?? []).map(need => need.id))
+  const partnerCards = partner.map(need => drawNeed(need, state))
   // B300: a blocking ask that waited too long stands first, above the refine lines too.
-  const oldCards = shown.filter(need => need.isOld === true).map(need => drawNeed(need, state))
-  const cards = shown.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
+  const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
+  const cards = rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
   const none = cardsOpen.length > 0 || lines.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
-  fill(box, [none, drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawLegacy(state), drawInstructions(state)])
+  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawLegacy(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
   // B307: Information in its own box under the asks, as high as the person dragged it.
@@ -2449,7 +2482,7 @@ function drawNeeds(state) {
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
 // A card says how long ago it was filed: the minute is part of what is drawn.
-const needsData = state => [state.forYou, state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], state.goalAskNeeds ?? [], state.brainstormNeeds ?? [], state.goalsEdit?.canWrite ?? null, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
+const needsData = state => [state.forYou, (state.focus?.needs ?? []).map(need => need.id), state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], state.goalAskNeeds ?? [], state.brainstormNeeds ?? [], state.goalsEdit?.canWrite ?? null, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {

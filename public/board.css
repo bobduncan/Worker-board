@@ -1796,3 +1796,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 @media (max-width: 760px) {
   .settings-pop { position: fixed; left: 10px; right: 10px; top: auto; min-width: 0; margin-top: 6px; }
 }
+
+/* Focus 4: the partner's questions first under Needs your attention. */
+.partner-needs { margin-bottom: 12px; padding: 8px 10px 2px; border: 1px solid var(--line); border-left: 3px solid var(--ask); border-radius: 8px; }
+.partner-needs > h3 { margin: 0 0 8px; display: flex; gap: 8px; align-items: baseline; }

@@ -29,8 +29,9 @@ test('per chat, the missed ones first and named as missed, the closed ones last 
 })
 
 test('the part sits under Needs your attention, missed red and closed grey', () => {
-  // B258: the answers to the person's asks on the goal map stand first; B287: the refine lines before the cards.
-  assert.match(script, /fill\(box, \[none, drawGoalAskNeeds\(state\), drawBrainstormNeeds\(state\), \.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards, drawLegacy\(state\), drawInstructions\(state\)\]\)/)
+  // Focus 4: the partner's questions first; B258: then the answers to the person's asks on the goal map; B287: the
+  // refine lines before the cards.
+  assert.match(script, /fill\(box, \[none, drawPartnerNeeds\(partnerCards, [^\n]*?\.length\), drawGoalAskNeeds\(state\), drawBrainstormNeeds\(state\), \.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards, drawLegacy\(state\), drawInstructions\(state\)\]\)/)
   // B307: Information in its own box under the asks, as high as the person drags it.
   assert.match(script, /refocus\(box, focused\)\n  \/\/ B307[^\n]*\n  drawInformation\(state\)/)
   assert.match(style, /\.instruction\.is-missed \.instruction-id, \.instruction\.is-missed \.instruction-note \{ color: var\(--warn\); \}/)

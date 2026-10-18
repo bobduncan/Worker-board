@@ -702,6 +702,17 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
     .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
 }
 
+/**
+ * Focus 4 (spec 2026-10-18, section 4): each card of Needs your attention says whether it is the partner's
+ * (`isPartner`): asked by the chat the setting advisor names (`partner`), with or without the project's prefix. The
+ * page shows those first, under "From your partner". No partner: none is.
+ */
+export function markPartner(needs, partner, prefix = '') {
+  const plain = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
+  const own = plain(partner)
+  return needs.map(need => ({ ...need, isPartner: own !== '' && need.from !== null && need.from !== undefined && plain(need.from) === own }))
+}
+
 /** A name for a backlog step that stays the same as long as its words do: an answer is kept under it. */
 function hashOf(words) {
   let hash = 5381
@@ -1230,13 +1241,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     changeAsks: {
       stop: Object.fromEntries(lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => [lane.name, removalAsk(sent.findLast(message => message.command === 'stop' && message.about === lane.name), now)]).filter(([, ask]) => ask !== null)),
     },
-    forYou: [
+    // Focus 4: the partner's cards marked, for the group "From your partner".
+    forYou: markPartner([
       ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold') }),
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       ...storeNeeds(raw.work, { now, names: [...names, ...(advisorChat === undefined ? [] : [advisorChat.name])], prefix, answerOf: id => answerOf(sent, id) })
         .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
-    ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)),
+    ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), config.advisor ?? null, prefix),
     // B299: notes and reports for the person.
     information: informationOf(raw.work, now),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
