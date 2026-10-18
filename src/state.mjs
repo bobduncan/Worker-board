@@ -1179,6 +1179,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   if (advisorChat !== undefined) {
     const { state, doingNow: doing, session, appSession } = advisorCard
     const tail = raw.tails?.[advisorChat.cliSessionId] ?? null
+    // Its transcript, read once: for its mode (B352) and whether a round runs (B288).
+    const advisorEntries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
     advisorWaits = advisorCard.state === 'waiting' ? { ...advisorCard, isAdvisor: true } : null
     advisor = {
       name: advisorChat.name,
@@ -1208,7 +1210,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then
       // while the Advisor is at work on the turn that began with it (an hour at most). A turn begun later is another.
       // B352: the high effort mode last asked for it, what its last answer ran on, and whether that is the mode asked.
-      effort: partnerEffort({ sent, partner: advisorChat.name, entries: tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true) }),
+      effort: partnerEffort({ sent, partner: advisorChat.name, entries: advisorEntries }),
       roundRuns: (() => {
         const last = sent.findLast(message => message.to === advisorChat.name && (message.command === 'round' || message.command === 'recheck'))
         if (last === undefined) return false
@@ -1217,8 +1219,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
         if (last.state !== 'delivered') return false
         const arrived = last.deliveredAt ?? last.at
         if (now - arrived < ROUND_SHOWS_MS) return true
-        const entries = tail === null || typeof tail.text !== 'string' ? null : parseTail(tail.text, tail.isCut === true)
-        const begun = entries === null ? null : turnStart(entries, { prefix })?.at ?? null
+        const begun = advisorEntries === null ? null : turnStart(advisorEntries, { prefix })?.at ?? null
         return state === 'working' && now - arrived < HOUR && (begun === null || begun <= arrived + ROUND_SHOWS_MS)
       })(),
     }

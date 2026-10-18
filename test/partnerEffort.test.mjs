@@ -101,6 +101,33 @@ test('partnerEffort: the mode last asked, and set once the partner answered on i
   assert.equal(partnerEffort({ sent: [ask(5, 'high')], partner: 'Advisor', entries: null }).runsOn, null)
 })
 
+test('partnerEffort, the review: the outbox forgets a word after two hours; what the partner runs on still says the mode', () => {
+  const forgot = partnerEffort({ sent: [], partner: 'Advisor', entries: entriesOf(answer(1, 'claude-fable-5-1', 'max')) })
+  assert.deepEqual([forgot.mode, forgot.isSet, forgot.asked], ['high', true, null])
+  // So Go still switches it back.
+  assert.equal(effortBack('how-go', forgot), 'Go on the how: back to the usual partner')
+  // Fable at another effort is not high effort mode.
+  assert.equal(partnerEffort({ sent: [], partner: 'Advisor', entries: entriesOf(answer(1, 'claude-fable-5-1', 'high')) }).mode, 'usual')
+})
+
+test('partnerEffort, the review: a word that did not arrive changed nothing, and says so', () => {
+  const ask = (minute, mode, state) => ({ to: 'Main', command: 'partner-effort', about: 'Advisor', mode, at: at + minute * MIN, state })
+  for (const state of ['expired', 'failed']) {
+    const lost = partnerEffort({ sent: [ask(5, 'high', state)], partner: 'Advisor', entries: entriesOf(answer(1, 'claude-opus-5-5', 'xhigh')) })
+    assert.deepEqual([lost.mode, lost.isSet, lost.asked, lost.missed], ['usual', true, null, { at: at + 5 * MIN, state }], state)
+  }
+  // An earlier word that arrived still counts; a later one that arrived clears the miss.
+  const earlier = partnerEffort({ sent: [ask(2, 'high', 'delivered'), ask(5, 'usual', 'expired')], partner: 'Advisor', entries: entriesOf(answer(3, 'claude-fable-5-1', 'max')) })
+  assert.deepEqual([earlier.mode, earlier.isSet, earlier.missed.state], ['high', true, 'expired'])
+  assert.equal(partnerEffort({ sent: [ask(5, 'high', 'expired'), ask(6, 'high', 'waiting')], partner: 'Advisor', entries: null }).missed, null)
+})
+
+test('partnerEffort, the review: a helper\'s lines in the partner\'s transcript are not its answers', () => {
+  const helper = JSON.stringify({ ...JSON.parse(answer(9, 'claude-opus-5-5', 'xhigh')), isSidechain: true })
+  const read = partnerEffort({ sent: [], partner: 'Advisor', entries: entriesOf(answer(1, 'claude-fable-5-1', 'max'), helper) })
+  assert.deepEqual(read.runsOn, { model: 'claude-fable-5-1', effort: 'max', at: at + MIN })
+})
+
 test('effortBack: Go on the how, and a new focus, switch the partner back to the usual, only when high effort is on', () => {
   const on = { mode: 'high' }
   assert.equal(effortBack('how-go', on), 'Go on the how: back to the usual partner')
@@ -120,14 +147,15 @@ test('effortView: the switch\'s line and its note, as in the picture', () => {
   assert.equal(switching.note, 'Switching… the main chat sets it; the line turns solid once your partner runs on it.')
   const on = page.effortView({ mode: 'high', isSet: true, asked: { at, state: 'delivered' }, labels: { usual: 'Opus 5.5, extra high', high: 'Fable 5.1, max' } })
   assert.equal(on.note, 'Your partner runs on Fable 5.1, max. Go on the how switches it back.')
-  // A word the main chat never took says so.
-  assert.equal(page.effortView({ mode: 'high', isSet: false, asked: { at, state: 'expired' }, labels: { usual: 'U', high: 'H' } }).note, 'The main chat did not take the word: flip the switch again.')
+  // A word the main chat never took says so; the switch shows what the partner runs on.
+  const missed = page.effortView({ mode: 'usual', isSet: true, asked: null, missed: { at, state: 'expired' }, labels: { usual: 'U', high: 'H' } })
+  assert.deepEqual([missed.isOn, missed.note], [false, 'The main chat did not take the word: flip the switch again.'])
   // No partner on the board: no switch.
   assert.equal(page.effortView(null), null)
 })
 
 test('the switch sits in the talk with the partner, is a switch to the screen reader, and has its look', () => {
-  assert.match(script, /card\.append\(effortSwitch\(state\)\)/)
+  assert.match(script, /card\.append\(effortSwitch\(state, can\)\)/)
   assert.match(script, /setAttribute\('role', 'switch'\)/)
   assert.match(script, /command: 'partner-effort'/)
   assert.match(style, /\.effort-switch \{/)

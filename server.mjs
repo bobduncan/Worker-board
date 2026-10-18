@@ -471,7 +471,9 @@ async function main(args) {
     const main = state.restart?.main ?? null
     if (back !== null && main !== null) {
       const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back })
-      await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' })
+      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
+      // Review: copied, it keeps its words as pasted, with the board's mark, as every copied word (the restart banner).
+      await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
     }
     return toPartner(done.words, done.result, state)
   }

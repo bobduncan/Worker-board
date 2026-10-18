@@ -25,21 +25,27 @@ export function partnerEffortWords({ to, partner, session, mode, why }) {
 }
 
 /**
- * The partner's mode for the page: the mode last asked for it (`sent`, the outbox; the usual one when none was), what
- * its last answer ran on (`entries`, its parsed transcript; null when it cannot be read), and whether that is the mode
- * asked, answered after the ask. `labels` name both modes for the switch.
+ * The partner's mode for the page: the mode last asked for it (`sent`, the outbox), what its last answer ran on
+ * (`entries`, its parsed transcript; null when it cannot be read), and whether that is the mode asked, answered after
+ * the ask. Without a word (none was asked, or the outbox forgot it after two hours) what the partner runs on says the
+ * mode, so high effort is still known, and switched back on Go. A word that did not arrive (expired, or the Workers mod
+ * could not type it) changed nothing: it is `missed`. `labels` name both modes for the switch.
  */
 export function partnerEffort({ sent, partner, entries }) {
-  const last = (sent ?? []).findLast(message => message.command === 'partner-effort' && message.about === partner && (message.mode === 'high' || message.mode === 'usual'))
-  const mode = last?.mode ?? 'usual'
-  // The app's own lines (an error, a limit) carry no model of Claude's.
-  const answer = (entries ?? []).findLast(entry => entry.type === 'assistant' && typeof entry.model === 'string' && entry.model.startsWith('claude-'))
+  const words = (sent ?? []).filter(message => message.command === 'partner-effort' && message.about === partner && (message.mode === 'high' || message.mode === 'usual'))
+  const isMissed = message => message.state === 'expired' || message.state === 'failed'
+  const last = words.findLast(message => !isMissed(message))
+  const latest = words.at(-1)
+  // The app's own lines (an error, a limit) carry no model of Claude's; a helper's lines are not the partner's.
+  const answer = (entries ?? []).findLast(entry => entry.type === 'assistant' && !entry.isSidechain && typeof entry.model === 'string' && entry.model.startsWith('claude-'))
   const runsOn = answer === undefined || answer.at === null ? null : { model: answer.model, effort: answer.effort, at: answer.at }
-  const wanted = PARTNER_MODES[mode]
-  const isSet = last === undefined || (runsOn !== null && runsOn.model === wanted.model && runsOn.effort === wanted.effort && runsOn.at >= last.at)
+  const runs = mode => runsOn !== null && runsOn.model === PARTNER_MODES[mode].model && runsOn.effort === PARTNER_MODES[mode].effort
+  const mode = last?.mode ?? (runs('high') ? 'high' : 'usual')
+  const isSet = last === undefined || (runs(mode) && runsOn.at >= last.at)
   return {
     mode,
-    asked: last === undefined ? null : { at: last.at, state: last.state, label: wanted.label },
+    asked: last === undefined ? null : { at: last.at, state: last.state, label: PARTNER_MODES[mode].label },
+    missed: latest !== undefined && isMissed(latest) ? { at: latest.at, state: latest.state } : null,
     runsOn,
     isSet,
     labels: { usual: PARTNER_MODES.usual.label, high: PARTNER_MODES.high.label },
