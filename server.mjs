@@ -47,7 +47,7 @@ import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
-import { findPicture } from './src/pictures.mjs'
+import { findPicture, shownRoots } from './src/pictures.mjs'
 import { answerWords, checkSay, focusWords, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
@@ -965,7 +965,7 @@ async function main(args) {
     gameFile: (path, alt) => findGameFile(config, path, alt),
     picture: async path => {
       const { project } = await readState()
-      const found = await findPicture(project, config.pictureRoots, path)
+      const found = await findPicture(project, shownRoots(config), path)
       return found === null ? null : { type: found.type, body: await readFile(found.file) }
     },
     // B221: the person closes or deletes a step on the Backlog tab, through the work API (the store, then its view).

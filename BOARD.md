@@ -200,7 +200,7 @@ goal goes back to the how.
 
 B354: a goal becomes your focus, and gets its tick, only with a **Done when** that says how you check it. In the pick
 list a goal without one says "No Done when yet" with **Ask your partner to write it** in place of Pick (then "Your
-partner writes its Done when"); something new is put into the map at once and your partner is asked for its Done
+partner writes its Done when", with **Ask again**); something new is put into the map at once and your partner is asked for its Done
 when: you pick it once the line stands. On the Goals part such a goal has **Ask your partner for a Done when** beside
 "Done when…", and its tick is refused with why. "Is the vibe there?" shows the Done when under the vibe; without one
 Yes is off and the button asks your partner for it. In the run each part shows what its results are checked against,

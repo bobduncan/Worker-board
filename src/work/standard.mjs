@@ -5,11 +5,16 @@
 const SEP = ' · '
 const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** A kind's name as whole words in a text, in any case, its last word also with s or es behind it. */
+/**
+ * A kind's name as whole words in a text, in any case, its last word also in the plural (s, es; a y after a consonant
+ * as ies). The review: not inside a compound or a path ("high-level", "art/levels/"), so a hyphen or a slash beside
+ * it is no word's end.
+ */
 function namePattern(kind) {
-  const words = kind.trim().split(/\s+/).map(escape)
+  const words = kind.trim().split(/\s+/)
   const last = words.pop()
-  return new RegExp(`(?<![A-Za-z0-9])${[...words, `${last}(?:s|es)?`].join('[\\s-]+')}(?![A-Za-z0-9])`, 'i')
+  const plural = /[^aeiou]y$/i.test(last) ? `${escape(last.slice(0, -1))}(?:y|ies)` : `${escape(last)}(?:s|es)?`
+  return new RegExp(`(?<![\\w/.-])${[...words.map(escape), plural].join('[\\s-]+')}(?![\\w/-]|\\.\\w)`, 'i')
 }
 
 /** The kinds of the settings (`kinds`) a text names, in the settings' order. */
@@ -55,5 +60,5 @@ export function standardOf(item) {
 export function standardWanted(who, named) {
   const first = named[0]
   const names = named.map(one => `"${one.kind}"`).join(', ')
-  return `${who} names the kind${named.length > 1 ? 's' : ''} of work ${names}: give its standard in "standard", as "${first.kind} · <a reference picture from ${first.reference}> · target <score>" (checked against ${first.done}), or "none (<why>)" when it makes no ${first.kind}.`
+  return `${who} names the kind${named.length > 1 ? 's' : ''} of work ${names}: give its standard in "standard" (or as a line of "what" that starts with "Standard:"), as "${first.kind} · <a reference picture from ${first.reference}> · target <score>" (checked against ${first.done}), or "none (<why>)" when it makes no ${first.kind}.`
 }

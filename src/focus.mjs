@@ -7,7 +7,7 @@ import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
-import { addGoal, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
+import { addGoal, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
@@ -222,7 +222,8 @@ async function pick(body, before, ctx, goalsAt) {
     const node = parseGoals(before).byId.get(body.id)
     if (node === undefined) return refuse(409, 'That goal is not in the map.')
     if (node.state === 'done') return refuse(409, 'That goal is done: pick an open one.')
-    if (!hasDoneWhen(node)) return refuse(409, NO_DONE_WHEN(node.id))
+    // The review of B354: the focus picked again ("Start the talk") changes no focus, also for one picked before the rule.
+    if (!hasDoneWhen(node) && parseGoals(before).focus !== body.id) return refuse(409, NO_DONE_WHEN(node.id))
   }
   let id = isNew ? null : body.id
   let moved = false
@@ -232,12 +233,15 @@ async function pick(body, before, ctx, goalsAt) {
       id = nextGoalId(parseGoals(out))
       const added = addGoal(out, { parent: null, after: null, title: line, id })
       if (!added.ok) return added
-      // B354: a new goal has no Done when yet: it waits in the map, not as the focus, while the partner writes one.
-      return { ok: true, text: raiseLastLine(added.text, id) }
+      // B354: a new goal has no Done when yet: it waits in the map, not as the focus, while the partner writes one. The
+      // review: the person's words longer than its title stay under it, for the talk once it is picked.
+      const words = oneLine(body.text, 2000)
+      const noted = words === line ? added : addGoalNote(added.text, id, `In your words: ${words}`)
+      return noted.ok ? { ok: true, text: raiseLastLine(noted.text, id) } : noted
     }
     const now = parseGoals(out).byId.get(id)
     if (now === undefined) return { ok: false, why: 'gone' }
-    if (!hasDoneWhen(now)) return { ok: false, why: 'doneWhen' }
+    if (!hasDoneWhen(now) && parseGoals(out).focus !== id) return { ok: false, why: 'doneWhen' }
     moved = parseGoals(out).focus !== id
     return setFocus(out, id)
   }, goalsAt)

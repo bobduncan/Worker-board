@@ -2152,6 +2152,12 @@ agnostic. it just needs to have clear ways on defining the goal, but also verify
    The Workers mod sends `standard` since 0.13.10 (the person's yes, Q142, 2026-10-18 22:33).
 5. The Focus page's run shows each part's standards (its steps', each once, none left out).
 6. Not in it: the checks themselves (the next parts of G11), the project's own definitions of done (B355).
+7. The review's findings: the focus picked again ("Start the talk") is never refused, also one picked before the rule
+   without a Done when; the person's words longer than a new goal's title stay under it (`Note: In your words: ...`);
+   the board shows the pictures of each kind's reference folder too (`shownRoots`, src/pictures.mjs), inside the
+   deepest shown folder; a kind's name inside a compound, a path or a file name does not count, and a y after a
+   consonant takes ies; a goal asked for can be asked again ("Ask again"), and the Goals part puts the word on the
+   clipboard without the Workers mod; a goal of the game plan has the ask too (the partner takes its line from the plan).
 
 ## What it does not do
 

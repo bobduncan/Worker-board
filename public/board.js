@@ -5418,7 +5418,8 @@ function drawGoals(state) {
       // B259: think it through with the Advisor, one question at a time, on the Brainstorm part.
       if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Brainstorm this', { goalTool: 'brainstorm' }), tools.children[2] ?? null)
       // B354: a goal without a Done when is not ticked and not picked as the focus: the partner is asked to write one.
-      if ((state.advisor ?? null) !== null && !focus.fromPlan && focus.state !== 'done' && !hasDoneWhenLine(focus)) {
+      // The review: also a goal of the game plan, whose line the partner takes from its milestone in the plan.
+      if ((state.advisor ?? null) !== null && focus.state !== 'done' && !hasDoneWhenLine(focus)) {
         tools.insertBefore(goalButton('goals-tool is-ask', 'Ask your partner for a Done when', { goalTool: 'done-when' }), tools.children[1] ?? null)
       }
       if (focus.fromPlan) tools.append(el('small', 'muted', 'Its title and Done when are the game plan\'s.'))
@@ -7028,7 +7029,14 @@ $('goals-frame').addEventListener('click', event => {
   if (tool === 'ask') return openGoalAsk(focus)
   if (tool === 'brainstorm') return openBrainstorm(focus)
   // B354: the partner is asked to write the goal's Done when; the map itself is not changed.
-  if (tool === 'done-when') return sendGoals({ command: 'done-when', id: focus }).then(done => { if (done !== null) goalsSay('Your partner is asked to write its Done when.', 'ok') })
+  // The review: without the Workers mod the word is put on the clipboard to paste, as every word to the partner.
+  if (tool === 'done-when') {
+    return sendGoals({ command: 'done-when', id: focus }).then(done => {
+      if (done === null) return
+      showPaste(done.paste ?? null)
+      goalsSay(done.paste ? 'Copied: paste it into your partner\'s chat.' : 'Your partner is asked to write its Done when.', 'ok')
+    })
+  }
   const node = board?.goals ? goalById(board.goals, focus) : null
   if (tool === 'delete' || tool === 'dissolve') {
     if (!isConfirmed(tool, focus)) {
@@ -7317,6 +7325,8 @@ function focusView(focus, goals, can = null, ui = {}) {
     ask: { label: 'Ask your partner to write it', act: 'done-when', isEnabled: allowed, title: allowed ? 'A goal becomes your focus once its Done when says how you check it: your partner writes one' : why },
     noDoneWhen: 'No Done when yet',
     asked: 'Your partner writes its Done when',
+    // The review of B354: a word that got lost can be asked again.
+    askAgain: { label: 'Ask again', act: 'done-when', isEnabled: allowed, title: allowed ? 'Ask your partner once more to write its Done when' : why },
   })
   if (stage === 'pick') return { stage, head: null, strip: null, progress: null, change: null, pick: pickOf('What do you want to work on?') }
   const vibeLine = focus.vibeAgreed === null ? null : focus.vibe.length > 0 ? focus.vibe.join(' · ') : '(no words kept)'
@@ -7384,7 +7394,9 @@ function focusView(focus, goals, can = null, ui = {}) {
         button('Yes', 'vibe-there-yes', hasLine, hasLine ? 'The goal is done: your partner asks for your next focus' : 'Its Done when is missing: the goal gets its tick against it'),
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
-      doneWhen: hasLine ? null : button('Ask your partner to write its Done when', 'done-when', true, 'Your partner writes how you check the goal is done'),
+      doneWhen: hasLine ? null : asked.includes(focus.id)
+        ? button('Ask your partner again', 'done-when', true, 'Your partner was asked: ask once more when its Done when does not come')
+        : button('Ask your partner to write its Done when', 'done-when', true, 'Your partner writes how you check the goal is done'),
     } : null
   }
   if (stage === 'done') view.pick = pickOf(`${focus.id} is done. What do you want to work on next?`)
@@ -7772,8 +7784,11 @@ function focusPickCard(view) {
     line.append(el('span', 'focus-goal-id', row.id), el('span', 'focus-goal-title', row.title))
     // B354: a goal without a Done when is not picked: its row asks the partner to write one, or says it was asked.
     if (row.hasDoneWhen) line.append(pickButton(row))
-    else if (row.isAsked) line.append(el('small', 'focus-done-when is-asked', view.pick.asked))
-    else {
+    else if (row.isAsked) {
+      const again = focusButton(view.pick.askAgain, 'goals-action focus-ask-done-when')
+      again.dataset.focusGoal = row.id
+      line.append(el('small', 'focus-done-when is-asked', view.pick.asked), again)
+    } else {
       const ask = focusButton(view.pick.ask, 'goals-action focus-ask-done-when')
       ask.dataset.focusGoal = row.id
       line.append(el('small', 'focus-done-when', view.pick.noDoneWhen), ask)
@@ -7977,14 +7992,14 @@ async function focusAct(act, goal = null, extra = null) {
         if (result !== null) focusUi.words.new = ''
         // B354: a new goal has no Done when yet: it waits in the map while the partner writes one, then the person picks it.
         if (result?.isFocus === false) {
-          focusUi.asked = [...focusUi.asked, result.id]
+          focusUi.asked = [...new Set([...focusUi.asked, result.id])]
           focusUi.note = { isProblem: false, text: `${result.id} is in your goal map. Your partner writes its Done when: pick it here once it stands.` }
         } else if (result !== null) focusUi.picking = false
       }
     } else if (act === 'done-when') {
       // B354: the partner is asked to write the goal's Done when (a row of the pick list, or the focus itself).
       const id = goal ?? focus?.id ?? null
-      if (id !== null && await sendFocus({ command: 'done-when', id: goal ?? focus?.id }, 'Your partner is asked to write its Done when.') !== null) focusUi.asked = [...focusUi.asked, id]
+      if (id !== null && await sendFocus({ command: 'done-when', id: goal ?? focus?.id }, 'Your partner is asked to write its Done when.') !== null) focusUi.asked = [...new Set([...focusUi.asked, id])]
     } else if (act === 'vibe-agree' && focus !== null) await sendFocus({ command: 'vibe-agree', id: focus.id }, 'Agreed. Your partner proposes the how next.')
     else if (act === 'how-go' && focus !== null) await sendFocus({ command: 'how-go', id: focus.id }, 'Go: your partner makes the steps, and the main chat hands them out.')
     else if (act === 'send-not-yet' && focus !== null && focusUi.notYet !== null) {

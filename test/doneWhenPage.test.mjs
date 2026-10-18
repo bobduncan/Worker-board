@@ -76,5 +76,14 @@ test('the page sends the button\'s word, says a new goal waits for its Done when
   assert.match(script, /command: 'done-when', id: goal \?\? focus\?\.id/)
   assert.match(script, /result\?\.isFocus === false/)
   assert.match(script, /goalButton\('goals-tool is-ask', 'Ask your partner for a Done when', \{ goalTool: 'done-when' \}\)/)
-  assert.match(script, /if \(tool === 'done-when'\) return sendGoals\(\{ command: 'done-when', id: focus \}\)/)
+  assert.match(script, /if \(tool === 'done-when'\) \{\n    return sendGoals\(\{ command: 'done-when', id: focus \}\)\.then\(done => \{\n      if \(done === null\) return\n      showPaste\(done\.paste \?\? null\)/)
+  // The review: each goal once in the page's list of goals asked for.
+  assert.match(script, /focusUi\.asked = \[\.\.\.new Set\(\[\.\.\.focusUi\.asked, id\]\)\]/)
+})
+
+test('the review: a goal asked for already can be asked again, in the pick list and on the vibe card', () => {
+  const view = focusView(null, parseGoals(PICK), CAN, { asked: ['G3'] })
+  assert.deepEqual(view.pick.askAgain, { label: 'Ask again', act: 'done-when', isEnabled: true, title: 'Ask your partner once more to write its Done when' })
+  const asked = focusView(focusState(parseGoals(RUN), ITEMS, [], ''), parseGoals(RUN), CAN, { asked: ['G6'] })
+  assert.equal(asked.vibeThere.doneWhen.label, 'Ask your partner again')
 })

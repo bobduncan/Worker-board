@@ -153,3 +153,22 @@ test('something new that waits for its Done when changes no focus, so the partne
   assert.match(server, /const isSameFocus = body\.command === 'focus' && \(body\.id === state\.focus\?\.id \|\| done\.result\?\.isFocus === false\)/)
   assert.match(server, /const back = isSameFocus \? null : effortBack\(body\.command, state\.advisor\?\.effort\)/)
 })
+
+test('the review: the focus picked again ("Start the talk") is never refused, also one picked before the rule without a Done when', async () => {
+  const older = GOALS.replace('# Goals\n', '# Goals\nFocus: G4\n')
+  const fs = fakeFs({ [MAP]: latin(older) })
+  const again = await focusMove({ command: 'focus', id: 'G4' }, ctx(fs))
+  assert.equal(again.ok, true, again.why)
+  assert.equal(mapOf(fs).focus, 'G4')
+  assert.match(again.words.text, /^focus: G4 Lanterns\n/)
+})
+
+test('the review: the person\'s words longer than the new goal\'s title stay under it as a note', async () => {
+  const fs = fakeFs({ [MAP]: latin(GOALS) })
+  const long = `A pond with fish people feed ${'and ducks that come when you call them '.repeat(4)}`
+  const made = await focusMove({ command: 'focus', text: long }, ctx(fs))
+  const goal = mapOf(fs).byId.get(made.result.id)
+  assert.equal(goal.title.length, 120)
+  assert.deepEqual(goal.notes, [`Note: In your words: ${long.replace(/\s+/g, ' ').trim()}`])
+  assert.equal(made.words.text.split('\n')[1], `Words: ${long.replace(/\s+/g, ' ').trim()}`)
+})

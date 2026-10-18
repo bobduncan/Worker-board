@@ -13,13 +13,21 @@ const IDEA_REFERENCE = /^reference-[1-9]\.(png|jpg|webp)$/
 const TYPES = { png: 'image/png', webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif' }
 const PICTURE_BYTES = 12 * 1024 * 1024
 
-const isShown = (path, roots) => roots.some(root => path === root || path.startsWith(`${root}/`))
+/**
+ * B354: the folders whose pictures the board shows: the settings' `pictureRoots`, and each kind of work's reference
+ * folder (`kinds`), so a step's reference picture opens.
+ */
+export const shownRoots = config => [...(config.pictureRoots ?? []), ...(config.kinds ?? []).map(one => one.reference)]
 
-/** A real path inside the project's shown folder it claims to be in, also after links are followed. Or null. */
+/**
+ * A real path inside the project's shown folder it claims to be in, also after links are followed. Or null. B354: a
+ * shown folder may be deeper than the project's top (a kind's reference folder); the path stays inside the deepest one.
+ */
 async function inside(project, roots, path) {
-  if (!isShown(path, roots)) return null
+  const shown = roots.filter(root => path === root || path.startsWith(`${root}/`)).sort((a, b) => b.length - a.length)[0]
+  if (shown === undefined) return null
   try {
-    const root = await realpath(join(project, path.split('/')[0]))
+    const root = await realpath(join(project, ...shown.split('/')))
     const real = await realpath(join(project, path))
     return real === root || real.toLowerCase().startsWith(`${root.toLowerCase()}${sep}`) ? real : null
   } catch {
