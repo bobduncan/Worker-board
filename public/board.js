@@ -515,7 +515,7 @@ function drawSimpleOverview(state) {
   parts.push(chips)
   // B322, B335: a new project's Initialise button stands here too: the simple view hides the workers.
   const setup = setupChat(state)
-  if (setup !== null) parts.push(setupBox(setup))
+  if (setup !== null) parts.push(setupBox(setup, hasOtherChats(state)))
   fill($('simple-bar'), parts)
   showOverviewMode()
 }
@@ -1402,13 +1402,19 @@ function initLabel(openedAt, now, clockOf) {
 }
 // openchats:end
 
+/** B335: whether the project has chats at all, its main chat missing (one archived, for example). */
+const hasOtherChats = state => (state.chats ?? []).length > 0 || (state.advisor ?? null) !== null
+
 /** B335: when the Initialise button was clicked: it says so for a while, so a second click is no surprise. */
 let initialisedAt = null
 
-/** B335: a new project's box: one line and the Initialise button, which opens its main chat in the Claude app. */
-function setupBox(chat) {
+/**
+ * B335: a new project's box: one line and the Initialise button, which opens its main chat in the Claude app. Its
+ * heading says no chats only when there are none (a project whose main chat is gone has its other chats still).
+ */
+function setupBox(chat, hasChats = false) {
   const box = el('section', 'open-chats')
-  box.append(el('h3', '', 'This project has no chats yet'), el('p', 'open-chats-about', 'One click opens its main chat in the Claude app; the rest follows by itself.'))
+  box.append(el('h3', '', hasChats ? 'No main chat yet' : 'This project has no chats yet'), el('p', 'open-chats-about', 'One click opens its main chat in the Claude app: press Enter there, and it sets up the rest.'))
   const link = el('a', 'open-chats-button', initLabel(initialisedAt, Date.now(), clock))
   link.href = chat.link
   link.title = `Opens ${chat.title} in the Claude app`
@@ -1417,7 +1423,8 @@ function setupBox(chat) {
   return box
 }
 
-$('lanes').addEventListener('click', event => {
+// Review: on the page as a whole, so the button under the simple view's bar says so too.
+document.addEventListener('click', event => {
   const button = event.target.closest('[data-initialise]')
   if (button === null) return
   initialisedAt = Date.now()
@@ -1505,7 +1512,7 @@ function drawWorkers(state) {
   if (shown.text !== null) box.append(el('p', '', shown.text))
   // B335: a new project without a main chat: one Initialise button, nothing else.
   const setup = shown.kind === 'none' ? setupChat(state) : null
-  if (setup !== null) return setupBox(setup)
+  if (setup !== null) return setupBox(setup, hasOtherChats(state))
   if (shown.steps.length > 0) {
     const list = el('ol')
     for (const parts of shown.steps) {

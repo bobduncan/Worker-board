@@ -85,6 +85,8 @@ test('one box, one button: in the workers part and under the simple view\'s bar;
   assert.ok(!script.includes('Copy its first words') && !script.includes('drawOpenChats'))
   const simple = script.slice(script.indexOf('function drawSimpleOverview(state)'), script.indexOf('fill($(\'simple-bar\'), parts)'))
   assert.match(simple, /setupChat\(state\)/)
-  assert.match(script, /if \(setup !== null\) return setupBox\(setup\)/)
+  assert.match(script, /if \(setup !== null\) return setupBox\(setup, hasOtherChats\(state\)\)/)
+  // Review: the click is heard on the whole page: the simple view's button is outside the lanes.
+  assert.match(script, /document\.addEventListener\('click', event => \{\n  const button = event\.target\.closest\('\[data-initialise\]'\)/)
   assert.match(style, /\.open-chats-button \{/)
 })

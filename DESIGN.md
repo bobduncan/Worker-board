@@ -1858,6 +1858,8 @@ the checks and an icon now, a real installer (.exe, signed) later. Part 2 of G12
 
 ## A new project's first chats (B322)
 
+Replaced on the page by B335 (one Initialise button, below); what the app allows stands as found here.
+
 Right after a new project is made, its main chat and its Advisor are opened in its folder with their names. Part 4 of
 G12's how. What the Claude desktop app allows from outside (read in the app's own code, 2026-10-18): its link
 `claude://code/new?q=<first words>&folder=<folder>` opens a new chat of the Code tab in that folder with its first
@@ -1907,9 +1909,11 @@ The person on B322's box of two buttons with copy buttons, Q71 (2026-10-18 17:44
 looking at. if i need to create chats for a new project then just 1 button saying initialise or something is
 sufficient". The Advisor's picture: `art-inbox/board-init/initialise.png`.
 
-1. While a new project has no main chat, its board shows one box: "This project has no chats yet", one line, and one
-   button, Initialise (`setupBox`), in the workers part and under the simple view's bar alike; nothing else of the
-   workers part shows then. Once the main chat has its name, the box is gone.
+1. While a new project has no main chat, its board shows one box: "This project has no chats yet" ("No main chat yet"
+   when it has other chats, its main chat archived for example), one line, and one button, Initialise (`setupBox`),
+   in the workers part and under the simple view's bar alike; nothing else of the workers part shows then. Once the
+   main chat has its name, the box is gone. A project with a main chat and no Advisor is offered nothing here: its
+   main chat starts one.
 2. The button opens the main chat in the Claude app (B322's link, `setupChat`); its first words have it name itself,
    join the list, read its job and the project's facts, and start the Advisor by a chip (when the settings name one
    apart from the main chat and none is open), telling the person to click it. Five minutes after a click the button
