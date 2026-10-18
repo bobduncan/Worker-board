@@ -48,6 +48,7 @@ This one the board leans on. It is several things in one; each is weighed on its
 | Whether a chat runs | "Not running" on a lane, and the main chat starts such a chat | The board cannot tell a closed chat from an idle one | None on every system; drop the mark. About 30 min | **Keep with the mod only** |
 | Compacting a large worker | A worker is made smaller after it reports, so it does not slow down | Chats grow until the app compacts them in the middle of work | None | **Keep with the mod only** |
 | The panes (Workers, Git) | The list of chats and the branches inside the app | The board shows both | None needed | **Keep with the mod** |
+| Filing a "For you" block (B317, 0.13.7) | At a chat's turn end, the items of the "For you" block its answer ends with go to the board with `turn-ended`; the board files those the chat filed no ask for as asks `Via: chat`, so they get an answer box | The chat's questions stand only in its chat, and the board warns "filed no ask" | The chats file every question with `work ask`, as their job texts say | **Keep with the mod only** |
 
 **Verdict: keep the Workers mod, but make the board work without it.** The bridge has no real stand-in, so with the
 mod the board stays better; without it the board still shows everything and asks the person to paste instead of

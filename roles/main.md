@@ -31,8 +31,8 @@ titles, both from the list of chats.
   or its note to you says which) is not repeated in your "For you": your answer confirms the merge and hands out the
   next step, with at most one plain line ("Worker 2 asked you Q12 on the board"). Your "For you" holds only your own
   questions and the checks of a worker that reported only to you, each an ask filed with `work ask` (below): the block
-  in your answer is the one the tool answers. The board reads no
-  question from your answer: a block without an ask shows as a warning that you filed none (B301).
+  in your answer is the one the tool answers.
+  An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
 - An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. One you no longer need: `work withdraw <id>` with a why (B305).
 
 ## A task comes in: worker or queue

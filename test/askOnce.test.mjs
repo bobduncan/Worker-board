@@ -17,8 +17,9 @@ test('a worker asks the user with an ask of the work store and says in its repor
   assert.match(worker, /file it with `work ask` under your step/)
   assert.match(worker, /say in your report in one line what you asked/)
   assert.match(worker, /With nothing to ask, report only: the main chat puts the check to the user itself/)
-  // B301: the board reads no question from a chat's answer.
-  assert.match(worker, /The board reads no question from your answer/)
+  // B317: a "For you" item without an ask is filed for it at the turn's end; one answered in the chat it closes.
+  assert.match(worker, /filed for you when your turn ends/)
+  assert.match(worker, /close it in that turn with `work answered-in-chat Q<id>`/)
 })
 
 test('the main chat repeats nothing a worker asked; its "For you" holds its own questions and the checks of a worker that reported only to it', () => {

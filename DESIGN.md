@@ -1793,6 +1793,38 @@ the work stores itself as well." 15:26: "windows only and claude only ... with a
 6. The board is started at once (`startBoard`), and the form shows the link to it.
 7. Not in it: a game (added later in `config.json`), the first chats (B322), Mac.
 
+## A chat's "For you" block is filed by itself (B317)
+
+The person, 2026-10-18, yes to: "Should the Workers mod file them by itself from a chat's 'For you' block, so the
+board always shows them with an answer box?" Chats sometimes ended an answer with a "For you" block without `work
+ask`; the board then showed only the warning "<chat> wrote questions in its chat but filed no ask" (B301).
+
+- **The mod reads the block** (`hooks/foryou.ts`, `forYouItems`): at `turn.complete` of the chat's own turn (reason
+  answer, never a subagent's), from the turn's final answer (`e.answer`), when its last part is a "For you" block (the
+  board's rule, `handover.mjs` `asksAtEnd`: followed by nothing but a rule and the closing block; a title or an item
+  written a little off still counts). Each numbered item is an ask: **Answer:** a decide, or a look when it has a
+  picture or play link and no options; **Do:** a do; a numbered item with neither word a decide. Options from lines
+  under it (`- **A:** red`) or from its words when clear ("A thin, B thick or C none", "A ... or B ...; ...", the
+  letters alone "A, B or C"), else none; the advice from "I advise ..." (to the first comma or full stop); pictures
+  from `#picture=` paths, play from `#play=` (`<branch>&<settings>`), each checked as `handover.mjs` checks them; the
+  ask's id when the item is one the work tool wrote ("(Q4, decide, blocks B1)"). Nine items at most, and no more than
+  fit 12,000 characters of the board's call (it takes 16 KB).
+- **One call at the turn's end**: the items go with `turn-ended` as `forYou`, so the turn's end stays one call held
+  1.5 s at most, the free worker's pull included.
+- **The board files the missing ones** (`api.mjs`, `askForYou`): an item is left out when it names an ask of the
+  store, or asks what an ask of the chat filed since the turn began, or one still open, asks already (the words
+  compared without markdown, links or the id note; equal, or one the start of the other). The others are asks of that
+  chat, `Via: chat`, `Blocking: no`, History "asked (decide, from its "For you" block)", under the one step it holds
+  in progress, else alone (none, or more than one), as the app form's asks are. The answer names them (`asked`), and
+  the view is written when there are some.
+- **On the board** they are asks like any other: a card with an answer box under Needs your attention, and an answer
+  there wakes the chat. The warning "filed no ask" goes by its own rule, as an ask of the chat now stands since that
+  turn began. It stays for a chat without the mod 0.13.7, or when the board did not answer in time.
+- **Answered in the chat instead**: beside the chat's next prompt, once, the mod names what was filed ("Filed on the
+  worker board from your last "For you" block: Q20. ... close it with work answered-in-chat <id> and their words"); the
+  job texts say so too (`roles/worker.md`, `main.md`, `partner.md`).
+- Tests: `test/work/forYouAsks.test.mjs`; in the mod, `hooks/foryou.test.ts` and `hooks/chatlist.test.ts` (B317).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

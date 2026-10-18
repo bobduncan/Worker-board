@@ -28,8 +28,8 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   question, a decision), file it with `work ask` under your step (below) and put the "For you" block it answers into
   your answer; say in your report in one line what you asked ("Asked the user: Q12, the picture of the new screen");
   the main chat then does not ask it again. With nothing to ask, report only: the main chat puts the check to the user
-  itself. The board reads no question from your answer: a "For you" block without an ask shows on the board as a
-  warning that you filed none.
+  itself.
+  An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
 - Close every browser you start (B266). A browser you start for a check or a picture (a headless one, one driven over
   CDP or by Playwright, one with a temporary profile folder) is closed in the same script that started it, also when
   the script fails (close it in a `finally`). Before you report, look among the running browser processes for one

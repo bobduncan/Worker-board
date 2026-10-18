@@ -142,7 +142,9 @@ const mainJob = await plain('main.md')
 test('the Advisor files what it needs from the person with work ask, and tells the main chat in one line what it asked', () => {
   assert.match(advisorJob, /Whoever asks the user asks once/)
   assert.match(advisorJob, /file it with `work ask`/)
-  assert.match(advisorJob, /A "For you" block without an ask is not read by the board/)
+  // B317: the mod files such an item at the turn's end; one answered in the chat the partner closes.
+  assert.match(advisorJob, /filed for you when your turn ends/)
+  assert.match(advisorJob, /`work answered-in-chat Q<id>`/)
   assert.match(advisorJob, /tell the main chat in one line only what you asked/)
   assert.match(mainJob, /What a worker or the Advisor asked the user/)
 })
