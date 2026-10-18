@@ -96,5 +96,8 @@ test('the page\'s script as a whole has no syntax error (the tests above run par
 test('the box is drawn on the Overview with each chat\'s button and a copy of its first words', () => {
   assert.match(script, /function drawOpenChats\(state\)/)
   assert.match(script, /drawOpenChats\(state\), drawWorkers\(state\)/)
+  // The simple view (B327) hides the workers: the chats to open stand under its bar.
+  const simple = script.slice(script.indexOf('function drawSimpleOverview(state)'), script.indexOf('fill($(\'simple-bar\'), parts)'))
+  assert.match(simple, /chatsToOpen\(state\)/)
   assert.match(style, /\.open-chats \{/)
 })

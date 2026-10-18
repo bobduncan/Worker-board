@@ -1843,8 +1843,11 @@ click, then Enter.
    ready. The board knows the chat by its title, so it shows within a minute; the main chat is then asked for workers
    as before.
 3. Where they are: without a main chat, the box "No main chat yet" holds the buttons in place of the steps by hand;
-   with one and no Advisor, a box of its own above the workers. Each button has "Copy its first words" beside it, for
-   when the app does not open from the link.
+   with one and no Advisor, a box of its own above the workers; on the simple view (B327), which hides the workers,
+   under its bar. Each button has "Copy its first words" beside it, for when the app does not open from the link, and
+   says for five minutes after its click that the chat was opened (review: no second chat unknowingly). The Advisor is
+   offered only while the project is new (no worker yet) and never under the main chat's name; nothing without a
+   prefix. Paths in the first words are written as the board's folder writes them.
 4. Not in it: the workers' chats (the main chat starts those, as before).
 
 ## What it does not do
