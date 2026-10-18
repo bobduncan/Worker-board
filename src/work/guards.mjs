@@ -3,6 +3,7 @@
 // `overlaps(item)` is the server's: the id of a taken step whose Touches overlap this one's, or null.
 
 import { valueOf } from './item.mjs'
+import { gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
 import { openAsksOf, refineAsksOf } from './stepAsks.mjs'
 
 const idsIn = value => (value ?? '').match(/\b[A-Z]\d+\b/g) ?? []
@@ -42,10 +43,10 @@ export const GUARDS = {
   },
   'an ask with Blocking yes is open': (item, ctx) => asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Blocking') === 'yes'),
   'its asks are answered': (item, ctx) => !asksOf(item, ctx).some(isOpen),
-  'the check passed and no ask of kind look is open': (item, ctx) => {
-    const checks = (item.sections?.get('History') ?? []).filter(line => /\bcheck\b/i.test(line))
-    return checks.length > 0 && /\bcheck passed\b/i.test(checks.at(-1)) && !asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Asks') === 'look')
-  },
+  // B356: "the check" is the board's own, and for a step with agreed points or a Standard line also the result check
+  // by a helper that did not build it (resultCheck.mjs).
+  'the check passed and no ask of kind look is open': (item, ctx) => gitCheckPassed(item) && (!needsResultCheck(item) || resultCheckOf(item) === 'passed')
+    && !asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Asks') === 'look'),
 }
 
 /** The actions a move's `then` may name; the server carries them out (increment 2 and later). */

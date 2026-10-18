@@ -1,0 +1,153 @@
+// B356: a step with agreed points ("What we build") or a Standard line becomes done only after a helper that did not
+// build it checked the result: the partner files it with `checked` (the evidence picture, every point pass, fail or
+// ask, the score). A failed point makes a fix step for the same worker; the step stays in review until its fix is done
+// and checked. A step without agreed points keeps the board's own check alone. Made-up samples only.
+
+import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import test from 'node:test'
+
+import { workApi } from '../../src/work/api.mjs'
+import { valueOf } from '../../src/work/item.mjs'
+import { migrateBacklog } from '../../src/work/migrate.mjs'
+import { needsResultCheck } from '../../src/work/resultCheck.mjs'
+import { readStore, writeStore } from '../../src/work/store.mjs'
+
+const NOW = new Date(2026, 9, 19, 9, 0).getTime()
+const BACKLOG = ['# Backlog', '', '## Lamps', '- [ ] B1 Trim the wicks (for Lamplighter; about 1 h)', ''].join('\n')
+const ROLES = { Keeper: 'main', Lamplighter: 'worker', Partner: 'advisor' }
+
+async function fresh() {
+  const dir = await mkdtemp(join(tmpdir(), 'work-result-check-'))
+  await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
+  const ctx = { dir, now: NOW + 60_000, prefix: '', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(['Lamplighter']) }
+  const as = chat => body => workApi({ chat, ...body }, ctx)
+  return { dir, lamplighter: as('Lamplighter'), keeper: as('Keeper'), partner: as('Partner'), server: body => workApi(body, { ...ctx, as: 'server' }) }
+}
+const item = async (dir, id) => (await readStore(dir)).items.get(id)
+const LAMP = { action: 'new', title: 'Light the garden lamps', activity: 'Lamps', goal: 'G3', text: 'Warm light on every path.', summary: 'Every path has a warm lamp.', size: '1 h', what: ['a lamp at every bench', 'warm yellow light, never white', 'Not in it: new paths'] }
+
+/** B2, made from the agreed how, queued for the Lamplighter, taken, reported and its git check passed. */
+async function reported(store, gitPassed = true) {
+  const made = await store.partner(LAMP)
+  assert.equal(made.ok, true, made.why)
+  const id = made.result.id
+  assert.equal((await store.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })).ok, true)
+  assert.equal((await store.lamplighter({ action: 'take', id, branch: 'b2-lamps' })).ok, true)
+  assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })).ok, true)
+  const git = await store.server({ action: 'check', id, passed: gitPassed, lines: gitPassed ? ['work in garden', 'branch gone', 'result named'] : ['the branch b2-lamps is still there'] })
+  return { id, git }
+}
+
+test('a step with agreed points or a Standard line needs the result check; one without keeps the board\'s check alone', async () => {
+  const store = await fresh()
+  try {
+    const { id, git } = await reported(store)
+    assert.equal(needsResultCheck(await item(store.dir, id)), true)
+    assert.equal(needsResultCheck(await item(store.dir, 'B1')), false)
+    // The board's own check passed: the step waits in review, and the board asks the partner for the result check.
+    assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
+    assert.deepEqual(git.result.resultCheck, { id, title: 'Light the garden lamps', owner: 'Lamplighter' })
+    // A step without agreed points is done by the board's check, as before.
+    await store.lamplighter({ action: 'take', id: 'B1', branch: 'b1-wicks' })
+    await store.lamplighter({ action: 'report', id: 'B1', result: 'The wicks are trimmed.', merged: 'abc1234' })
+    const plain = await store.server({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] })
+    assert.equal(plain.result.resultCheck, undefined)
+    assert.equal(valueOf(await item(store.dir, 'B1'), 'State'), 'done')
+  } finally {
+    await rm(store.dir, { recursive: true, force: true })
+  }
+})
+
+test('every point passes: the partner\'s checked closes the step, with the evidence, the ticks and the score kept on it', async () => {
+  const store = await fresh()
+  try {
+    const { id } = await reported(store)
+    const checked = await store.partner({ action: 'checked', id, evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'], score: '82 of 75' })
+    assert.equal(checked.ok, true, checked.why)
+    const step = await item(store.dir, id)
+    assert.equal(valueOf(step, 'State'), 'done')
+    assert.deepEqual(step.sections.get('Checked'), ['Evidence: pictures/b2/evidence.png', 'Score: 82 of 75', '- pass: a lamp at every bench', '- pass: warm yellow light, never white'])
+    assert.ok(step.sections.get('History').some(one => one.endsWith('Partner: result check passed: 2 of 2 points pass, score 82 of 75')))
+  } finally {
+    await rm(store.dir, { recursive: true, force: true })
+  }
+})
+
+test('a result check that passed before the board\'s own check waits for it: the step is done once both passed', async () => {
+  const store = await fresh()
+  try {
+    const { id } = await reported(store, false)
+    await store.partner({ action: 'checked', id, evidence: 'none (nothing to see)', points: ['pass: a lamp at every bench'] })
+    assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
+    const again = await store.server({ action: 'check', id, passed: true, lines: ['branch gone'] })
+    assert.equal(again.result.resultCheck, undefined)
+    assert.equal(valueOf(await item(store.dir, id), 'State'), 'done')
+  } finally {
+    await rm(store.dir, { recursive: true, force: true })
+  }
+})
+
+test('a failed point makes a fix step, refined from the failed points and queued for the same worker; the step waits for it', async () => {
+  const store = await fresh()
+  try {
+    const { id } = await reported(store)
+    const checked = await store.partner({ action: 'checked', id, evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (two lamps are white)'], score: '61 of 75' })
+    assert.equal(checked.ok, true, checked.why)
+    const fixId = checked.result.fix
+    assert.match(fixId, /^B\d+$/)
+    const origin = await item(store.dir, id)
+    assert.deepEqual([valueOf(origin, 'State'), valueOf(origin, 'Attempts')], ['review', '1'])
+    const fix = await item(store.dir, fixId)
+    assert.deepEqual(['Title', 'State', 'Owner', 'Activity', 'Goal', 'Fix of', 'Refined'].map(key => valueOf(fix, key)),
+      ['Fix: warm yellow light, never white', 'queued', 'Lamplighter', 'Lamps', 'G3', id, 'ready'])
+    assert.deepEqual(fix.sections.get('What we build'), ['- warm yellow light, never white (two lamps are white)'])
+    assert.ok(origin.sections.get('History').some(one => one.endsWith(`Partner: result check failed: 1 of 2 points pass, score 61 of 75; fix ${fixId} for Lamplighter`)))
+    // The fix is done and checked: the step it fixes is done too.
+    await store.lamplighter({ action: 'take', id: fixId, branch: 'b-fix-lamps' })
+    await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
+    await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
+    assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
+    const fixed = await store.partner({ action: 'checked', id: fixId, evidence: 'pictures/fix/evidence.png', points: ['pass: warm yellow light, never white'] })
+    assert.equal(fixed.ok, true, fixed.why)
+    assert.equal(valueOf(await item(store.dir, fixId), 'State'), 'done')
+    const after = await item(store.dir, id)
+    assert.equal(valueOf(after, 'State'), 'done')
+    assert.ok(after.sections.get('History').some(one => one.endsWith(`server: result check passed: its fix ${fixId} is done`)))
+  } finally {
+    await rm(store.dir, { recursive: true, force: true })
+  }
+})
+
+test('a point only the person can judge (ask) makes no fix step: the step waits in review for the partner\'s ask', async () => {
+  const store = await fresh()
+  try {
+    const { id } = await reported(store)
+    const checked = await store.partner({ action: 'checked', id, evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'ask: warm yellow light, never white (is this yellow warm enough?)'] })
+    assert.equal(checked.ok, true, checked.why)
+    assert.equal(checked.result.fix, undefined)
+    const step = await item(store.dir, id)
+    assert.equal(valueOf(step, 'State'), 'review')
+    assert.ok(step.sections.get('History').some(one => one.endsWith('Partner: result check waits for you: 1 of 2 points pass; 1 for you to judge')))
+    assert.equal([...(await readStore(store.dir)).items.values()].filter(one => valueOf(one, 'Fix of') === id).length, 0)
+  } finally {
+    await rm(store.dir, { recursive: true, force: true })
+  }
+})
+
+test('only the partner files a check, of a step in review, with every point as pass, fail or ask', async () => {
+  const store = await fresh()
+  try {
+    const { id } = await reported(store)
+    const point = ['pass: a lamp at every bench']
+    assert.equal((await store.lamplighter({ action: 'checked', id, evidence: 'x.png', points: point })).status, 403)
+    assert.equal((await store.partner({ action: 'checked', id, evidence: 'x.png', points: [] })).status, 400)
+    assert.equal((await store.partner({ action: 'checked', id, evidence: 'x.png', points: ['maybe: a lamp'] })).status, 400)
+    assert.equal((await store.partner({ action: 'checked', id, points: point })).status, 400)
+    assert.equal((await store.partner({ action: 'checked', id: 'B1', evidence: 'x.png', points: point })).status, 409)
+  } finally {
+    await rm(store.dir, { recursive: true, force: true })
+  }
+})

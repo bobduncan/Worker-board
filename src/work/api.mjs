@@ -18,6 +18,7 @@ import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
+import { fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
 import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
@@ -29,7 +30,7 @@ import { writeView } from './view.mjs'
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list', 'pause-state'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -46,6 +47,8 @@ const ROLES = {
   unblock: ['main', 'worker', 'person'],
   new: ['main', 'worker', 'advisor', 'person'],
   refine: ['advisor', 'main'],
+  // B356: the result check, by a helper the partner runs.
+  checked: ['advisor'],
   'vibe-draft': ['advisor'],
   'how-draft': ['advisor'],
   requeue: ['main', 'person'],
@@ -774,7 +777,129 @@ async function check(body, w) {
     if (closed.ok) item = closed.item
   }
   const done = await save(item, found.text, w)
-  return done.ok ? changed(item) : done
+  if (!done.ok) return done
+  if (stateOf(item) === 'done') await closeFixed(item, w)
+  // B356: the board's check passed and the step waits for its result check, none asked yet: the server asks the partner.
+  const isWaiting = passed && stateOf(item) === 'review' && needsResultCheck(item) && resultCheckOf(item) === null
+  return changed(item, undefined, isWaiting ? { resultCheck: { id: valueOf(item, 'Id'), title: valueOf(item, 'Title'), owner: valueOf(item, 'Owner') } } : {})
+}
+
+/**
+ * B356: the result check of a step in review, filed by the partner (a helper that did not build it checked it):
+ * `evidence` (the evidence picture's path, or "none (<why>)"), `points` (every agreed point, "pass: ...", "fail: ..."
+ * or "ask: ..."), `score` at will ("82 of 75"). Kept under "## Checked". All pass: the step is done once the board's
+ * own check passed too. A failed point makes a fix step for the same worker (fixStep) and counts an attempt; a point
+ * only the person can judge (ask) makes none: the partner asks them, and the step waits in review.
+ */
+async function checked(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (stateOf(found.item) !== 'review') return refuse(409, `${id} is ${stateOf(found.item)}: only a step in review is checked.`)
+  const evidence = line(body.evidence, 300)
+  if (evidence === '') return refuse(400, 'Name the evidence picture in "evidence", by its path, or "none (<why>)".')
+  const read = parsePoints(body.points)
+  if (!read.ok) return refuse(400, read.why)
+  const score = line(body.score, 60)
+  const { points } = read
+  const failed = points.filter(one => one.verdict === 'fail')
+  const judged = points.filter(one => one.verdict === 'ask')
+  const summary = `${points.filter(one => one.verdict === 'pass').length} of ${points.length} points pass${score === '' ? '' : `, score ${score}`}`
+  let item = copy(found.item)
+  item.sections.set('Checked', [`Evidence: ${evidence}`, ...(score === '' ? [] : [`Score: ${score}`]), ...points.map(one => `- ${one.verdict}: ${one.text}`)])
+  let fix = null
+  if (failed.length > 0) {
+    const made = await fixStep(found.item, failed, w)
+    if (!made.ok) return made
+    fix = made.id
+    item = put(item, 'Attempts', String(Number(valueOf(found.item, 'Attempts') ?? 0) + 1))
+  }
+  const owner = valueOf(found.item, 'Owner') ?? 'its worker'
+  const words = failed.length > 0
+    ? `result check failed: ${summary}; fix ${fix} for ${owner}${judged.length === 0 ? '' : `; ${judged.length} for you to judge`}`
+    : judged.length > 0 ? `result check waits for you: ${summary}; ${judged.length} for you to judge` : `result check passed: ${summary}`
+  item = said(ordered(item), w, words)
+  if (failed.length === 0 && judged.length === 0) {
+    const closed = move(item, 'done', 'server', w, flowCtx(w, [item]))
+    if (closed.ok) item = closed.item
+  }
+  const done = await save(item, found.text, w)
+  if (!done.ok) return done
+  if (stateOf(item) === 'done') await closeFixed(item, w)
+  return changed(item, undefined, fix === null ? {} : { fix })
+}
+
+/**
+ * B356: the fix step a failed result check makes: "Fix: <the failed points>", refined from them at once (ready, "from
+ * the result check of B<id>"), with the step's activity, goal and standard, queued for the same worker. Answers
+ * `{ ok, id }`.
+ */
+async function fixStep(origin, failed, w) {
+  const originId = valueOf(origin, 'Id')
+  const owner = valueOf(origin, 'Owner')
+  const activity = valueOf(origin, 'Activity')
+  const goal = valueOf(origin, 'Goal')
+  const standard = standardOf(origin)
+  const what = failed.map(one => `- ${one.text}`)
+  const summary = `Fix what the result check of ${originId} found: ${failed.map(one => one.text).join('; ')}`.slice(0, 600)
+  const block = [
+    `Refined (${stamp(w.now)}; ready; from the result check of ${originId} by ${w.who}):`,
+    `Summary: ${summary}`,
+    ...(goal === null ? [] : [`Part of: ${goal}`]),
+    ...(standard === null ? [] : [`Standard: ${standard}`]),
+    'What we build:',
+    ...what,
+  ].map(one => `  ${one}`)
+  const activitiesText = await readActivitiesText(w.dir, w.fs)
+  const id = await nextId(w.dir, 'B', w.fs)
+  let item = said(ordered({
+    head: new Map([['Id', id], ['Kind', 'step'], ['Title', fixTitle(failed)], ...(isFix(origin) ? [['Priority', 'fix']] : []), ['State', 'queued'], ...(owner === null ? [] : [['Owner', owner]]),
+      ...(activity === null ? [] : [['Activity', activity]]), ...(goal === null ? [] : [['Goal', goal]]), ['Since', stamp(w.now)], ['Fix of', originId], ['Refined', 'ready']]),
+    sections: new Map([
+      ['Context', [`  Fix of ${originId}: the result check by ${w.who} failed on ${failed.length === 1 ? 'one point' : `${failed.length} points`}.`, REFINED_MARK]],
+      ['Summary', [summary]],
+      ...(standard === null ? [] : [['Standard', [standard]]]),
+      ['What we build', what],
+      ['Refined', block],
+    ]),
+    problem: null,
+  }), w, `made by the result check of ${originId}`)
+  item = appendHistory(item, 'server', `queued for ${owner ?? 'nobody'} (a fix of ${originId})`, w.now)
+  const wrote = await save(item, null, w)
+  if (!wrote.ok) return wrote
+  const index = w.store.activities.findIndex(one => one.name === activity)
+  if (index >= 0) {
+    const activities = w.store.activities.map((one, place) => (place === index ? { ...one, steps: [...(one.steps ?? []), id] } : one))
+    const listed = await writeActivities(w.dir, { preamble: w.store.preamble, activities }, w.fs, { expected: activitiesText })
+    if (!listed.ok) {
+      await removeItem(w.dir, id, w.fs)
+      return refuse(409, `activities.json: ${listed.why}; try again.`)
+    }
+  }
+  return { ok: true, id }
+}
+
+/**
+ * B356: a fix step that is done closes the step it fixes, once no other fix of it is open: "result check passed: its
+ * fix B<n> is done", then done by the flow (its own check passed before). Up the chain, a fix of a fix too.
+ */
+async function closeFixed(item, w) {
+  let fixed = item
+  for (let depth = 0; depth < 10; depth += 1) {
+    const originId = valueOf(fixed, 'Fix of')
+    if (originId === null) return
+    const found = await load(originId, w, { kind: ['step'] })
+    if (!found.ok || stateOf(found.item) !== 'review') return
+    // Read anew: the fix that was just written is done in the files, not yet in the store this call read.
+    const items = (await readStore(w.dir, w.fs)).items
+    if ([...items.values()].some(one => valueOf(one, 'Fix of') === originId && !['done', 'dropped'].includes(stateOf(one)))) return
+    let origin = appendHistory(found.item, 'server', `result check passed: its fix ${valueOf(fixed, 'Id')} is done`, w.now)
+    const closed = move(origin, 'done', 'server', w, flowCtx(w, [origin]))
+    if (closed.ok) origin = closed.item
+    const done = await save(origin, found.text, w)
+    if (!done.ok || stateOf(origin) !== 'done') return
+    fixed = origin
+  }
 }
 
 /** Blocked by: one more step, or one less. B306: unblock without "on" clears what the step waits for (`Waits for`). */
@@ -1605,7 +1730,7 @@ async function rename(body, w) {
 }
 
 const CHANGE = {
-  take, step, ask, withdraw, note, report, check, recheck, new: make, queue, requeue, unqueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
+  take, step, ask, withdraw, note, report, check, checked, recheck, new: make, queue, requeue, unqueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,
