@@ -61,6 +61,8 @@ test('a move from "*" is allowed from every state', () => {
 test('nextMoves lists the moves out of the item\'s state, who makes them and when', () => {
   assert.deepEqual(nextMoves(DEFAULT_FLOW, step('queued')), [
     { to: 'taken', by: ['server'], when: 'Blocked by all done and Owner free' },
+    // B305: the worker takes its own queued step once what it is blocked by is resolved; Owner free is the board's delivery.
+    { to: 'taken', by: ['worker'], when: 'Blocked by all done' },
     // B301, the review: out of its queue (unqueue), back to refined or new.
     { to: 'refined', by: ['main', 'person'], when: null },
     { to: 'new', by: ['main', 'person'], when: null },
@@ -80,4 +82,17 @@ test('the guards read the store: an open blocking ask, answered asks, the check'
   assert.equal(GUARDS['the check passed and no ask of kind look is open'](review, { store: storeOf(review, ask) }), false)
   assert.equal(GUARDS['the check passed and no ask of kind look is open'](review, { store: storeOf(review) }), true)
   assert.equal(GUARDS['refined is ready'](step('new', 'Refined: open\n'), ctx), false)
+})
+
+test('B305: a worker takes its own queued step once Blocked by is resolved, free or not; the board delivers only to a free Owner', () => {
+  const before = item('Id: B281\nKind: step\nState: in progress\nSince: -\n')
+  const done = item('Id: B281\nKind: step\nState: done\nSince: -\n')
+  const answered = item('Id: B279\nKind: ask\nState: answered\nSince: -\n')
+  const queued = step('queued', 'Owner: Support\nBlocked by: B281\n')
+  const busy = { freeChats: new Set() }
+  assert.deepEqual(mayMove(DEFAULT_FLOW, queued, 'taken', 'worker', { store: storeOf(before, queued), ...busy }), { ok: false, why: 'B285: "Blocked by all done" does not hold (flow.json)' })
+  assert.equal(mayMove(DEFAULT_FLOW, queued, 'taken', 'worker', { store: storeOf(done, queued), ...busy }).ok, true)
+  assert.equal(mayMove(DEFAULT_FLOW, queued, 'taken', 'server', { store: storeOf(done, queued), ...busy }).ok, false)
+  const onAsk = step('queued', 'Owner: Support\nBlocked by: B279\n')
+  assert.equal(GUARDS['Blocked by all done'](onAsk, { store: storeOf(answered, onAsk) }), true)
 })

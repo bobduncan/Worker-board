@@ -10,7 +10,7 @@ import { minutesOf } from '../backlog.mjs'
 import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
-import { overlapsIn } from './guards.mjs'
+import { blockersOpen, CLEARED, overlapsIn } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
@@ -137,7 +137,7 @@ const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 
 /** One item in one line: id, state, what it waits for, title. */
 function oneLine(item, items) {
-  const open = idsIn(valueOf(item, 'Blocked by')).filter(id => !['done', 'dropped'].includes(stateOf(items.get(id) ?? { head: new Map() })))
+  const open = idsIn(valueOf(item, 'Blocked by')).filter(id => !CLEARED.includes(stateOf(items.get(id) ?? { head: new Map() })))
   const waits = [open.length > 0 ? `after ${open.join(', ')}` : null, valueOf(item, 'Waits for') === null ? null : `after ${valueOf(item, 'Waits for')}`].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
   const turns = missed > 0 ? `, missed ${missed} turn${missed === 1 ? '' : 's'}` : ''
@@ -259,9 +259,14 @@ async function take(body, w) {
   }
   if (state === 'queued') {
     if (owner === null || !isOwner(item, w.who, w.prefix)) return refuse(409, `${id} is queued for ${owner ?? 'nobody'}, not for ${w.who}.`)
-    // No reconciler moves it yet (increment 5): the chat that takes it is free for it.
-    const taken = move(item, 'taken', 'server', w, flowCtx(w, [item], [w.who]), ` (for ${w.who})`)
-    if (!taken.ok) return taken
+    // B305: the chat takes its own queued step once what blocks it is resolved (the flow's move by the worker), also
+    // while it still holds another. A flow.json without that move: the board's move, the chat taking it counted free.
+    const byChat = (w.store.flow.step?.moves ?? []).some(one => one.from === 'queued' && one.to === 'taken' && (Array.isArray(one.by) ? one.by : [one.by]).includes(w.role))
+    const taken = byChat ? move(item, 'taken', w.role, w) : move(item, 'taken', 'server', w, flowCtx(w, [item], [w.who]), ` (for ${w.who})`)
+    if (!taken.ok) {
+      const open = blockersOpen(item, flowCtx(w, [item])).map(one => `${one} is ${stateOf(w.store.items.get(one) ?? { head: new Map() }) ?? 'not in the store'}`)
+      return open.length === 0 ? taken : refuse(taken.status, `${taken.why}: ${open.join(', ')}`)
+    }
     item = taken.item
   }
   const started = move(item, 'in progress', w.role, w)
@@ -380,22 +385,29 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
 /**
  * B299: the person answered one of the chat's asks in the chat itself (the app's question form, or its "For you" block
  * answered in words): the chat that asked closes it with their words (`text`), so the board no longer shows it open,
- * and a step that waited only on its asks goes on. Review: any ask of its own, not only the form's.
+ * and a step that waited only on its asks goes on. Review: any ask of its own, not only the form's. B305: an ask with
+ * no asking chat (one carried over from the old backlog) is closed by the main chat or the Advisor, in whose chat the
+ * person answered it, with the person's words.
  */
 async function answeredInChat(body, w) {
   const found = await load(body.id, w, { kind: ['ask'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
-  if (!isOwner(found.item, w.who, w.prefix)) return refuse(409, `${id} is ${valueOf(found.item, 'Owner') ?? 'the person'}'s: only the chat that asked closes it.`)
+  const isOrphan = valueOf(found.item, 'Owner') === null
+  if (isOrphan && !['main', 'advisor'].includes(w.role)) return refuse(409, `${id} has no asking chat: only the main chat or the Advisor closes it, in whose chat the person answered it.`)
+  if (!isOrphan && !isOwner(found.item, w.who, w.prefix)) return refuse(409, `${id} is ${valueOf(found.item, 'Owner')}'s: only the chat that asked closes it.`)
   if (stateOf(found.item) !== 'open') return { ok: true, result: { id, text: `${id} is ${stateOf(found.item)} already.`, changed: false } }
   const text = lines(body.text)
+  if (isOrphan && text.length === 0) return refuse(400, `Give the person's words in "text" (with the date): ${id} has no asking chat.`)
   const short = line(text.join(' '), 200)
   let item = put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now))
   if (text.length > 0) item.sections.set('Answer', text)
-  item = said(item, w, `answered in the chat${short === '' ? '' : `: ${short}`}`)
+  // B305: an ask that stands on the backlog itself (an @you step) shows the answer under its line, as the board's answer does.
+  if (isOrphan && valueOf(found.item, 'Of') === null && !/^Qd+$/.test(id)) item = underStep(item, [`Answered in ${w.who}'s chat by the person on ${at(w.now)}: ${short}`])
+  item = said(item, w, isOrphan ? `answered in its chat by the person: ${short}` : `answered in the chat${short === '' ? '' : `: ${short}`}`)
   const of = valueOf(found.item, 'Of')
   const done = await answerStep(w, item, found.text, of, step => {
-    let mine = said(underStep(step, [`${id} answered in ${w.who}'s chat on ${at(w.now)}${short === '' ? '' : `: ${short}`}`]), w, `${id} answered`)
+    let mine = said(underStep(step, [`${id} answered in ${w.who}'s chat${isOrphan ? ' by the person' : ''} on ${at(w.now)}${short === '' ? '' : `: ${short}`}`]), w, `${id} answered`)
     if (stateOf(mine) === 'waiting on you') {
       const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered)`)
       if (goesOn.ok) mine = goesOn.item
@@ -487,7 +499,8 @@ const openAsksOf = (w, id) => [...w.store.items.values()]
 
 /**
  * Review 1: the chat that asked takes its ask back (it found the answer, or the question went): the ask is withdrawn,
- * and a step that waited only on its asks goes on (the flow's move by the server). The step is written first.
+ * and a step that waited only on its asks goes on (the flow's move by the server). The step is written first. B305:
+ * an ask with no asking chat (carried over from the old backlog) is the main chat's to withdraw, with a why.
  */
 async function withdraw(body, w) {
   const found = await load(body.id, w, { kind: ['ask'] })
@@ -495,8 +508,11 @@ async function withdraw(body, w) {
   const id = valueOf(found.item, 'Id')
   if (stateOf(found.item) !== 'open') return refuse(409, `${id} is not open.`)
   const asker = valueOf(found.item, 'Owner')
-  if (w.role !== 'person' && (asker === null || plain(asker, w.prefix) !== plain(w.who, w.prefix))) return refuse(409, `${id} is ${asker ?? 'the person'}'s to withdraw.`)
   const why = line(body.why, 300)
+  if (asker === null && w.role !== 'person') {
+    if (w.role !== 'main') return refuse(409, `${id} has no asking chat: only the main chat withdraws it.`)
+    if (why === '') return refuse(400, `Say why in "why": ${id} has no asking chat.`)
+  } else if (w.role !== 'person' && plain(asker, w.prefix) !== plain(w.who, w.prefix)) return refuse(409, `${id} is ${asker}'s to withdraw.`)
   const item = said(put(put(copy(found.item), 'State', 'withdrawn'), 'Since', stamp(w.now)), w, `withdrawn${why === '' ? '' : `: ${why}`}`)
   const of = valueOf(found.item, 'Of')
   return answerStep(w, item, found.text, of, step => {

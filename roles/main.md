@@ -33,6 +33,7 @@ titles, both from the list of chats.
   questions and the checks of a worker that reported only to you, each an ask filed with `work ask` (below): the block
   in your answer is the one the tool answers. The board reads no
   question from your answer: a block without an ask shows as a warning that you filed none (B301).
+- An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. One you no longer need: `work withdraw <id>` with a why (B305).
 
 ## A task comes in: worker or queue
 

@@ -8,19 +8,24 @@ const idsIn = value => (value ?? '').match(/\b[A-Z]\d+\b/g) ?? []
 const asksOf = (item, ctx) => [...(ctx.store?.items?.values() ?? [])]
   .filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === valueOf(item, 'Id'))
 const isOpen = ask => valueOf(ask, 'State') === 'open'
+/** B305: what a step's `Blocked by` names no longer holds it: a step done or dropped, an ask answered or withdrawn. */
+export const CLEARED = ['done', 'dropped', 'answered', 'withdrawn']
+/** The ids the step's `Blocked by` names that still hold it (one the store does not hold counts as open). */
+export const blockersOpen = (item, ctx) => idsIn(valueOf(item, 'Blocked by')).filter(id => {
+  const other = ctx.store?.items?.get(id)
+  return other === undefined || !CLEARED.includes(valueOf(other, 'State'))
+})
 
 export const GUARDS = {
   'refined is ready': item => valueOf(item, 'Refined') === 'ready',
   // B303: the main chat (or the person) asked to queue it before its refine: the board queues it once it is refined.
   'a queue was asked before its refine': item => valueOf(item, 'Queue when refined') !== null,
   'Touches overlaps no taken step': (item, ctx) => (ctx.overlaps?.(item) ?? null) === null,
+  // B305: the worker's own take needs only what it is blocked by resolved; Owner free is the board's delivery.
+  'Blocked by all done': (item, ctx) => blockersOpen(item, ctx).length === 0,
   'Blocked by all done and Owner free': (item, ctx) => {
-    const done = idsIn(valueOf(item, 'Blocked by')).every(id => {
-      const other = ctx.store?.items?.get(id)
-      return other !== undefined && ['done', 'dropped'].includes(valueOf(other, 'State'))
-    })
     const owner = valueOf(item, 'Owner')
-    return done && owner !== null && (ctx.freeChats?.has(owner) ?? false)
+    return blockersOpen(item, ctx).length === 0 && owner !== null && (ctx.freeChats?.has(owner) ?? false)
   },
   'an ask with Blocking yes is open': (item, ctx) => asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Blocking') === 'yes'),
   'its asks are answered': (item, ctx) => !asksOf(item, ctx).some(isOpen),

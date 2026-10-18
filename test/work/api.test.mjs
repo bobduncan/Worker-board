@@ -85,9 +85,9 @@ test('take: the board moves a queued step to taken for its chat, the chat to in 
     assert.equal(taken.result.title, 'Draw the strip')
     assert.equal(await state(dir, 'B1'), 'in progress')
     assert.equal(valueOf(await item(dir, 'B1'), 'Branch'), 'b1-strip')
-    assert.deepEqual((await history(dir, 'B1')).slice(-2), ['- 2026-10-17 11:06 server: queued → taken (for Board)', '- 2026-10-17 11:06 Board: taken → in progress'])
+    assert.deepEqual((await history(dir, 'B1')).slice(-2), ['- 2026-10-17 11:06 Board: queued → taken', '- 2026-10-17 11:06 Board: taken → in progress'])
     // Its step waits for B1: the flow's guard says no.
-    assert.deepEqual(await board({ action: 'take', id: 'B2' }), { ok: false, status: 409, why: 'B2: "Blocked by all done and Owner free" does not hold (flow.json)' })
+    assert.deepEqual(await board({ action: 'take', id: 'B2' }), { ok: false, status: 409, why: 'B2: "Blocked by all done" does not hold (flow.json): B1 is in progress' })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -441,5 +441,29 @@ test('review: requeue gives a queued step to another chat, unqueue takes it out 
     assert.equal((await main({ action: 'unqueue', id: 'B4' })).status, 409)
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('B305: a worker that still holds a step takes its next queued one; an older flow.json without the worker\'s move still lets it', async () => {
+  for (const isOld of [false, true]) {
+    const { dir, ctx, main } = await fresh()
+    try {
+      if (isOld) {
+        // The flow file of a project made before B305: the server's move only; the chat taking it counts as free.
+        const old = JSON.parse(await readFile(new URL('../../examples/work/flow.json', import.meta.url), 'utf8'))
+        old.step.moves = old.step.moves.filter(move => !(move.from === 'queued' && move.to === 'taken' && move.by === 'worker'))
+        await writeFile(join(dir, 'flow.json'), JSON.stringify(old, null, 2))
+        assert.deepEqual((await readStore(dir)).problems, [])
+      }
+      const support = body => workApi({ chat: 'Support', ...body }, { ...ctx, freeChats: new Set() })
+      assert.equal(await state(dir, 'B4'), 'in progress')
+      assert.equal((await main({ action: 'queue', id: 'B5', for: 'Support' })).ok, true)
+      const taken = await support({ action: 'take', id: 'B5', branch: 'b5-strip' })
+      assert.equal(taken.ok, true, taken.why)
+      assert.equal(await state(dir, 'B5'), 'in progress')
+      assert.equal((await history(dir, 'B5')).at(-2), isOld ? '- 2026-10-17 11:06 server: queued → taken (for Support)' : '- 2026-10-17 11:06 Support: queued → taken')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   }
 })
