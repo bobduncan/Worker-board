@@ -811,7 +811,8 @@ async function clearWaits(found, w) {
  * person agreed (`goal`, `summary`, `what`, and `picture`, `size` at will) is made refined at once, its block ready
  * and marked "from the how of G<n> by <partner>", so the board's refine gate sends no second round for it.
  */
-async function make(body, w) {
+async function make(call, w) {
+  const body = withStandard(call)
   if ((body.kind ?? 'step') !== 'step') return refuse(400, 'Only a step is made with "new"; an ask with "ask", a note with "note".')
   const title = line(body.title, 200)
   if (title === '') return refuse(400, 'Give the step a title.')
@@ -861,6 +862,18 @@ async function make(body, w) {
     return refuse(409, `activities.json: ${listed.why}; try again.`)
   }
   return changed(item)
+}
+
+/**
+ * B354: the call with its standard read: `standard` as given, else a line of `what` that starts with "Standard:" (a
+ * chat whose work tool has no field "standard" yet writes it there), taken out of `what`.
+ */
+function withStandard(body) {
+  if (body.standard !== undefined || body.what === undefined) return body
+  const all = lines(body.what, 300)
+  const at = all.findIndex(one => /^(?:[-*]\s+)?Standard:\s*\S/i.test(one.trim()))
+  if (at < 0) return body
+  return { ...body, standard: all[at].trim().replace(/^(?:[-*]\s+)?Standard:\s*/i, ''), what: all.filter((one, index) => index !== at) }
 }
 
 /** Fix first: who marks a step as a fix for the worker board (`priority: 'fix'` on new and queue). */
@@ -1303,7 +1316,8 @@ function questionIndex(questions, ask, w) {
 }
 
 /** The Advisor folded every answer in: the block says "ready", What we build is written, and the step is refined. */
-async function refined(body, w) {
+async function refined(call, w) {
+  const body = withStandard(call)
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')

@@ -2128,6 +2128,30 @@ other model/effort, lets call it high effort mode. so like fable 5.1 max effort.
    the run's refining and rounds use the usual partner; the talk about the same goal started again keeps it.
 5. Not in it: a switch for the workers' chats or the main chat.
 
+## Done when and the standard per kind of work (B354)
+
+Part 2 of G11's how (agreed 2026-10-18 21:21). The vibe: nothing is done unchecked; every kind of work has its standard
+and reference written before it is built. The person, 21:18: "i want to ensure the way the new board works is work
+agnostic. it just needs to have clear ways on defining the goal, but also verifying its actually reached".
+
+1. A goal is picked as the focus and ticked only with a `Done when:` line with words in it (`hasDoneWhen`,
+   src/goals.mjs). The focus pick, "Is the vibe there?" Yes (src/focus.mjs) and the Goals part's tick (src/goalsWrite.mjs,
+   `doneWhen`) refuse it with why. The person's button asks the partner (`done-when`, a Focus move: the word
+   `done when: G<n> <title>` with the partner's job, roles/partner.md "Done when"); it changes nothing in the map.
+2. Something new goes into the map without a focus, and the partner is asked for its Done when with the person's words;
+   the person picks it once the line stands. The board cannot know when the partner wrote it, so it picks nothing by itself.
+3. The settings' `kinds` (src/config.mjs): `{ kind, done, reference }`, the name, the definition of done and the
+   reference folder, paths inside the project; each kind once. The board names no kind itself; the partner's rounds list
+   them ("Kinds of work").
+4. A step's `Standard:` line (src/work/standard.mjs): `<kind> · <reference picture> · target <score>`, or `none (<why>)`.
+   The work tool's `refine`, `refined` and `new` take `standard`; the block keeps it after Size (and the step its
+   `## Standard` section), so a next round and the person's answers keep it. `refined`, and `new` from an agreed how,
+   are refused for a step whose title or text names a kind (its name or plural, whole words, any case) without one; the
+   refusal names the kind's reference folder and definition of done. A chat whose work tool has no `standard` yet
+   (its process started before the mod had it) gives it as a line of `what` starting "Standard:" (`withStandard`).
+5. The Focus page's run shows each part's standards (its steps', each once, none left out).
+6. Not in it: the checks themselves (the next parts of G11), the project's own definitions of done (B355).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

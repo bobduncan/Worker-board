@@ -32,5 +32,12 @@
   "advisorSuggestions": "Advisor suggestions",
   "morningRound": "09:00",
   "weeklyRound": true,
-  "morningSkipPercent": 80
+  "morningSkipPercent": 80,
+  "kinds": [
+    {
+      "kind": "level",
+      "done": "docs/done/level.md",
+      "reference": "art/references/levels"
+    }
+  ]
 }

@@ -99,6 +99,15 @@ the board's own). It goes in three moves; the goal's lines in the map say where 
 user's yes (`Vibe agreed: <date time>`, `How agreed: <date time>`). Never write `Focus:`, `Vibe agreed:` or
 `How agreed:` yourself. The words below are typed into your chat by the board, marked as the user's word.
 
+**Done when.** A goal becomes the focus, and gets its tick, only with a `Done when:` line under it that says how the
+user checks it is done: something that exists and can be looked at or played, a number reached, a check that passes;
+never a feeling alone (the vibe holds the feeling). The board types `done when: G<n> <title>` and `Your job: ...`
+(with `Words: <their words>` for a goal the user just wrote as "something new", which waits in the map without a
+focus) when the user asks you for one: their word. Read the goal, its vibe and steps if any, and the game plan once,
+then write the one line under the goal in the map (at most 300 characters; read the file anew right before and change
+only that line). A goal of the game plan takes its line from its milestone in the plan. Say nothing in your chat: the
+user picks the goal on the Focus page once the line stands.
+
 **The talk** is the goal's brainstorm thread (the file the word names, in the board's setting `brainstorms`), kept as
 "A brainstorm" below shows: your context head under the opening, then one question at a time (`## Q<n> (HH:MM)`,
 `Why:`, options with one advised when there are choices; a question without options is answered in the user's
@@ -135,8 +144,8 @@ draft the goal had, and answers one line: the board kept it, or why not.
      a line of description, "Requirements:", "Touches: ...", and "Context:" with the vibe and the user's words from the
      thread;
    - each is made refined at once: give `work new` also `summary`, `what` (the vibe and the how are the answers),
-     and `size` and `picture` where they help; the board writes its ready block ("from the how of G<n>"), so no refine
-     round follows. What the user still decides is an ask of yours under it (`work ask`, kind decide, a picture per
+     and `size` and `picture` where they help, and `standard` for a step that makes a thing of a kind of work ("Refine
+     a step", Standard); the board writes its ready block ("from the how of G<n>"), so no refine round follows. What the user still decides is an ask of yours under it (`work ask`, kind decide, a picture per
      option): it holds the step back from nothing;
    - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added
      (once the how is agreed the board takes only that);
@@ -301,6 +310,7 @@ summary. that doesnt read like it was in progress text"), in two stages:
     Picture: <a picture's path under the pictures folder> (<what it shows, in a few words>)
     Part of: <its goal and milestone on the goal map, "G9 M2 · <title>">
     Size: <about N hours; over about 4, cut it into steps>
+    Standard: <kind> · <reference picture> · target <score>     (or: none (<why>); only for a step that names a kind of work)
     Questions:
     - <a question that changes the work, one line, answered with yes or no> Advised: yes, <the reason in a few words>
 
@@ -313,6 +323,7 @@ the feedback. It reads as the finished description, not as a talk:
     Picture: ...
     Part of: ...
     Size: ...
+    Standard: ...
     What we build:
     - <a short point, with every decision folded in>
     - Not in it: <what is left out, and why in a few words>
@@ -324,6 +335,15 @@ the feedback. It reads as the finished description, not as a talk:
   when there is none yet. Left out only when there is nothing to see: `Picture: none (<why, in a few words>)`. Keep
   the path and what it shows on one line.
 - **Part of**: a step that fits no goal gets the goal you propose for it.
+- **Standard** (B354): the project names its kinds of work in the board's settings (`kinds`; your rounds list them as
+  "Kinds of work", each with its definition of done and its reference folder). A step that makes a thing of one of
+  them carries its standard, written before it is built: give `standard` with `work refine` (or `work refined`), as
+  `<kind> · <reference picture> · target <score>`: the kind as the settings name it, a picture from its reference
+  folder that the result is held against, and the score its definition of done must reach. The board writes it as the
+  block's `Standard:` line and keeps it for the next round. A step whose title or text names a kind by chance (a fix of
+  the board that mentions a map) gets `none (<why>)`. Without one, `refined` is refused for a step that names a kind.
+  When your work tool has no field `standard` yet (a chat started before it came), give it as a line of `what` that
+  starts with `Standard:`; the board takes it out of What we build.
 - **Questions**: at most five, only what changes the work, each one line ending in `Advised: yes` or `Advised: no`
   and its reason (B293): the board shows them with Yes and No, and "Take the advice" answers every open one with your
   advice. An answer may also be the user's own words. An answer that raises a new question opens one more short round

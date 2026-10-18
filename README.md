@@ -190,6 +190,11 @@ These four may also be a whole path of their own, as `work`: a copy tried beside
 required: without it the board shows no work and says on top what to run.
 `cpuLimit` (`"off"` unless set; `"gentle"` or `"strong"`): the level of "CPU for the chats" until one is clicked on the
 board; a copy beside your board starts at Off whatever it says.
+`kinds` (none unless set): the project's kinds of work, each `{ "kind": "<name>", "done": "<its definition of done>",
+"reference": "<its folder of reference pictures>" }`, paths inside `<project>` written with `/`; `examples\config.json`
+shows one. A refined step whose title or text names a kind carries its standard (`Standard: <kind> · <reference
+picture> · target <score>`, written by the partner), so every result is checked against something written before it
+was built. The board knows no kind of its own.
 
 ## The work store
 

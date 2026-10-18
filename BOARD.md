@@ -198,6 +198,15 @@ and its pictures. Once every part is done, **Is the vibe there?** stands above t
 the goal and clears the focus (the page then asks for the next one); **No** opens a box for what is missing, and the
 goal goes back to the how.
 
+B354: a goal becomes your focus, and gets its tick, only with a **Done when** that says how you check it. In the pick
+list a goal without one says "No Done when yet" with **Ask your partner to write it** in place of Pick (then "Your
+partner writes its Done when"); something new is put into the map at once and your partner is asked for its Done
+when: you pick it once the line stands. On the Goals part such a goal has **Ask your partner for a Done when** beside
+"Done when…", and its tick is refused with why. "Is the vibe there?" shows the Done when under the vibe; without one
+Yes is off and the button asks your partner for it. In the run each part shows what its results are checked against,
+"Checked against: <kind> · <reference picture> · target <score>", the picture opened with a click: the Standard line
+of its steps (below, "Kinds of work").
+
 The other parts: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
 milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the
 last box; "No milestone to go to yet" until there is one, "not mapped yet" while it has no sub-goals), **Goals** (the project's goal map, `goals.md`, one level at

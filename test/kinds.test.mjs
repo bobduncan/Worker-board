@@ -167,3 +167,16 @@ test('the partner\'s rounds name the kinds of work with their definitions of don
   assert.ok(recheckText({ board: 'D:/Work/board', config }).split('\n').includes('Kinds of work, paths in the project: creature (done: docs/done/creature.md; references: art/creatures); level (done: docs/done/level.md; references: art/levels)'))
   assert.ok(!recheckText({ board: 'D:/Work/board', config: parseConfig('{}', {}) }).includes('Kinds of work'))
 })
+
+test('a chat whose work tool has no "standard" yet gives it as a line of "what" that starts with Standard:', async () => {
+  const { dir, advisor } = await fresh()
+  await advisor({ ...REFINE, id: 'B1' })
+  const ready = await advisor({ action: 'refined', id: 'B1', what: ['Standard: level · art/levels/forest.png · target 8', 'three forest levels'] })
+  assert.equal(ready.ok, true, ready.why)
+  const step = await itemOf(dir, 'B1')
+  assert.equal(standardOf(step), 'level · art/levels/forest.png · target 8')
+  assert.deepEqual(step.sections.get('What we build'), ['- three forest levels'])
+  const made = await advisor({ ...HOW, what: ['a wolf in four directions', '- Standard: none (the wolf is bought, not drawn)'] })
+  assert.equal(made.ok, true, made.why)
+  assert.equal(standardOf(await itemOf(dir, made.result.id)), 'none (the wolf is bought, not drawn)')
+})
