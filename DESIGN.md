@@ -770,7 +770,10 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   by the app's id for it, not its title, was not known as one, nor for a pause). Now a worker whose word to the main
   chat, by its title or its id, starts with `Note from <name>: Safe point:` after the person's `prepare restart` (no
   `resume` after it) has stopped (`safePointNote`): its lane says "Suspended" ("Stopped for the restart at HH:MM ·
-  waits for Resume"; its time column "Stopped for · Restart"), until it works again after that turn. The banner names
+  waits for Resume"; its time column "Stopped for · Restart"), until it works again: a tool of its work after the line
+  (a reply to the main chat's thanks, or its card, is not work), or until "resume". The newest restart word stays
+  known for a day, so a restart prepared at night still stands in the morning; "safe to restart" needs restart.md
+  written after the last worker's line; a step waiting on a stopped worker says "<worker> stopped for the restart". The banner names
   only the workers with no line yet ("Still working (no safe point yet): ..."; the main chat, which does the
   preparing, is never waited for), then "Everyone stopped: safe to restart" once the main chat wrote restart.md,
   and says when it last wrote that file.

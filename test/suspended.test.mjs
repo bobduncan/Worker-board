@@ -185,7 +185,7 @@ test('a condition that is not met comes before the worker: an open step by its i
 
 test('a suspended worker and a full limit come before everything else, also for a step that names no worker here', () => {
   const held = build({ tails: { Features: tail(paused()) } })
-  assert.deepEqual(why(held, 'Features', 'B06'), { reason: 'suspended', worker: 'Features', until: at(23, 40), isBack: false })
+  assert.deepEqual(why(held, 'Features', 'B06'), { reason: 'suspended', worker: 'Features', until: at(23, 40), isBack: false, by: 'note' })
   assert.deepEqual(held.unassigned.map(one => [one.id, one.why]), [['B08', { reason: 'nobody' }]])
   const full = build({ tails: { Features: tail(stopped), Units: tail(busy) } })
   for (const [name, id] of [['Units', 'B03'], ['Units', 'B04'], ['Features', 'B06'], ['Main', 'B07']]) assert.deepEqual(why(full, name, id), { reason: 'limit', limit: 'fiveHour', until: at(23, 40) }, id)

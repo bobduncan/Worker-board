@@ -766,7 +766,7 @@ test('the restart: who was cut off, what was prepared, and how long the board wa
     restartNote: { at: NOW - 3 * MIN },
     board: { startedAt: NOW - 20 * MIN, offSince: NOW - 28 * MIN },
   })
-  assert.deepEqual(preparing.restart.preparing, { at: NOW - 10 * MIN, state: 'delivered', working: ['Units'] })
+  assert.deepEqual(preparing.restart.preparing, { at: NOW - 10 * MIN, state: 'delivered', working: ['Units'], lastLine: null })
   assert.deepEqual(preparing.restart.prepared, { at: NOW - 3 * MIN })
   assert.deepEqual(preparing.restart.off, { from: NOW - 28 * MIN, to: NOW - 20 * MIN })
 
@@ -795,6 +795,8 @@ test('B291: a worker that sent its safe-point line after the prepare word is sus
   assert.deepEqual([chatNamed(state, 'Units').suspended.by, chatNamed(state, 'Units').suspended.since], ['restart', NOW - 8 * MIN])
   assert.equal(chatNamed(state, 'Main').state, 'working')
   assert.deepEqual(state.restart.preparing.working, ['Features'])
+  // When the last line came: restart.md written before it does not make it safe yet.
+  assert.equal(state.restart.preparing.lastLine, NOW - 8 * MIN)
   // A line from before the prepare word says nothing about this restart.
   const old = build({ apps: [app('Main'), app('Units')], tails: { Units: tail(units) }, outbox: [{ ...prepare, at: NOW - 5 * MIN }] })
   assert.notEqual(chatNamed(old, 'Units').state, 'suspended')

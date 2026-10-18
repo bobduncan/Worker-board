@@ -392,7 +392,9 @@ function whyText(why) {
   const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
   switch (why.reason) {
     case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
-    case 'suspended': return said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is suspended${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    // B291: stopped at a safe point for a restart, not held by a limit.
+    case 'suspended': if (why.by === 'restart') return said('wait', `${why.worker} stopped for the restart`)
+      return said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is suspended${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
       const [last, ...first] = [...why.steps].reverse()
@@ -496,7 +498,8 @@ function drawRestart(state) {
   }
   const preparing = restart.preparing
   if (preparing !== null) {
-    const isWritten = restart.prepared !== null && restart.prepared.at >= preparing.at
+    // B291: written after the last worker's safe-point line too, so it holds what every worker said.
+    const isWritten = restart.prepared !== null && restart.prepared.at >= Math.max(preparing.at, preparing.lastLine ?? 0)
     if (preparing.state === 'waiting') parts.push(line('', `"Prepare restart" waits for ${restart.main} to take it: its chat must be open.`))
     else if (preparing.state === 'expired' || preparing.state === 'failed') parts.push(line('problem', `"Prepare restart" did not reach ${restart.main}. Open its chat and press it again.`))
     // B291: a worker that sent its safe-point line counts as stopped (its lane says Suspended), whatever its

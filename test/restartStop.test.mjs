@@ -64,3 +64,20 @@ test('the banner: only the chats with no line yet, "everyone stopped" when none 
   assert.match(script, /Everyone stopped: safe to restart\./)
   assert.match(script, /last wrote down who was on what at \$\{clock\(restart\.prepared\.at\)\} \(restart\.md\)/)
 })
+
+test('the review: a reply to the main chat\'s thanks keeps it stopped; real work after the line, also after a cut, ends it', () => {
+  const line = [...cut, ...toMain(at(9, 43), 'Note from Team - Units: Safe point: done.')]
+  // The main chat thanks it, it answers in words and updates its card: still stopped.
+  const thanked = [...line, answer(at(9, 44), 'Stopped.'), fromChat(at(9, 50), MAIN[0], 'Thanks, wait for the restart.'),
+    assistant(at(9, 51), 'tool_use', [tool('mcp__folder-branches__chat', { action: 'done' })]), toolResult(at(9, 51) + 1000), answer(at(9, 52), 'Waiting.')]
+  assert.deepEqual(safePointNote(entries(thanked), MAIN, SINCE), { at: at(9, 43) })
+  // Its turn was cut right after the line, and it was started again: once it runs a tool of its work, it works.
+  const started = [...line, user(at(9, 45), [{ type: 'text', text: '[Request interrupted by user]' }]),
+    fromChat(at(10, 30), MAIN[0], 'Resume from Team - Main: go on.'), answer(at(10, 31), 'Going on.'), step(at(10, 32), 'Run the tests')]
+  assert.equal(safePointNote(entries(started), MAIN, SINCE), null)
+})
+
+test('the review: "safe to restart" only once restart.md was written after the last line; the queue says why a step waits', () => {
+  assert.match(script, /const isWritten = restart\.prepared !== null && restart\.prepared\.at >= Math\.max\(preparing\.at, preparing\.lastLine \?\? 0\)/)
+  assert.match(script, /case 'suspended': if \(why\.by === 'restart'\) return said\('wait', `\$\{why\.worker\} stopped for the restart`\)/)
+})

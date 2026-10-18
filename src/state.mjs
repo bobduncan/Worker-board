@@ -838,7 +838,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const knownIds = new Set(withId.map(one => one.id))
   function whyNot(step, lane) {
     for (const limit of ['fiveHour', 'week']) if (limits[limit]?.level === 'full') return { reason: 'limit', limit, until: limits[limit].resetsAt }
-    if (lane?.state === 'suspended') return { reason: 'suspended', worker: lane.name, until: lane.suspended.until, isBack: lane.suspended.isBack }
+    if (lane?.state === 'suspended') return { reason: 'suspended', worker: lane.name, until: lane.suspended.until, isBack: lane.suspended.isBack, by: lane.suspended.by }
     if (step.after !== null) {
       const ids = [...new Set(step.after.match(/\bB\d+\b/g) ?? [])]
       const open = ids.filter(id => openIds.has(id))
@@ -1016,7 +1016,11 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       .map(message => [message.about, { chat: message.about, at: message.at, state: message.state }])).values()],
     prepared: Number.isFinite(raw.restartNote?.at) ? { at: raw.restartNote.at } : null,
     // B291: the workers still at work; the main chat does the preparing, and a worker that sent its line is suspended.
-    preparing: word?.command === 'prepare restart' ? { at: word.at, state: word.state, working: live.filter(lane => lane.state === 'working' && !lane.isMain).map(lane => lane.name) } : null,
+    preparing: word?.command === 'prepare restart' ? {
+      at: word.at, state: word.state, working: live.filter(lane => lane.state === 'working' && !lane.isMain).map(lane => lane.name),
+      // When the last worker sent its safe-point line: restart.md written before it does not count yet.
+      lastLine: Math.max(0, ...live.filter(lane => lane.suspended?.by === 'restart').map(lane => lane.suspended.since)) || null,
+    } : null,
     resuming: word?.command === 'resume' && now - word.at < 15 * MIN ? { at: word.at, state: word.state } : null,
     off: Number.isFinite(board?.offSince) && Number.isFinite(board?.startedAt) && now - board.startedAt < HOUR ? { from: board.offSince, to: board.startedAt } : null,
   }

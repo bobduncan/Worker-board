@@ -136,5 +136,12 @@ test('outboxNow: an answer waits long for its chat, and a taken or typed answer 
 test('outboxNow: a word for the restart stays known for two hours, so the board can say how the preparing stands', () => {
   const command = { id: 'p', at: 0, ask: null, command: 'prepare restart', text: 'prepare restart', state: 'delivered' }
   assert.deepEqual(outboxNow([command], 90 * MIN, keep).map(message => message.id), ['p'])
-  assert.deepEqual(outboxNow([command], 121 * MIN, keep), [])
+  // B291: the newest word for a restart stays known for a day, so a restart prepared at night still stands in the
+  // morning; an older one, and other words, for two hours.
+  assert.deepEqual(outboxNow([command], 121 * MIN, keep).map(message => message.id), ['p'])
+  assert.deepEqual(outboxNow([command], 25 * 60 * MIN, keep), [])
+  const resume = { ...command, id: 'r', at: 10 * MIN, command: 'resume', text: 'resume' }
+  assert.deepEqual(outboxNow([command, resume], 121 * MIN, keep).map(message => message.id), ['r'])
+  const stop = { ...command, id: 's', command: 'stop', text: 'stop task' }
+  assert.deepEqual(outboxNow([stop], 121 * MIN, keep), [])
 })
