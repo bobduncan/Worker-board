@@ -75,6 +75,20 @@ const plain = (name, prefix = '') => {
   if (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase())) words = words.slice(prefix.length)
   return words.trim().toLowerCase()
 }
+/**
+ * Focus 4: a chat's name as the list writes it: without the list's prefix, matched to a known chat (`chats`, the
+ * list's names) in any case. `{ ok, name }`, or a refusal naming the known ones; without a list (`chats` not given)
+ * the name without the prefix. `mayBeGone`: an old name (a rename's `from`) need not be known.
+ */
+export function chatName(value, { chats, prefix = '' }, { mayBeGone = false } = {}) {
+  let words = String(value ?? '').replace(/\s+/g, ' ').trim()
+  if (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase())) words = words.slice(prefix.length).trim()
+  if (!Array.isArray(chats) || chats.length === 0) return { ok: true, name: words }
+  const known = chats.find(name => plain(name, prefix) === words.toLowerCase())
+  if (known !== undefined) return { ok: true, name: known }
+  if (mayBeGone) return { ok: true, name: words }
+  return { ok: false, status: 400, why: `${words} is no chat of the list: ${chats.map(name => name.replace(prefix, '').trim()).join(', ')}.` }
+}
 const at = now => stamp(now).replace(' ', ' at ')
 /** B298: the time to the second, for an instruction's Since: a turn that starts a moment later can tell it. */
 const toSecond = now => `${stamp(now)}:${String(new Date(now).getSeconds()).padStart(2, '0')}`
@@ -113,6 +127,11 @@ async function act(body, ctx) {
   } else {
     who = line(body.chat, 80)
     if (who === '') return refuse(400, 'Name the chat.')
+    // Focus 4: the chat's whole title is the chat of the list.
+    if ((ctx.roleOf?.(who) ?? null) === null) {
+      const named = chatName(who, ctx)
+      if (named.ok) who = named.name
+    }
     role = ctx.roleOf?.(who) ?? null
     if (role === null) return refuse(403, `${who} is no chat of the list.`)
   }
@@ -309,6 +328,8 @@ async function take(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   let item = found.item
+  // Focus 4: an Owner written as the chat's whole title is repaired to the list's name when its chat takes it.
+  if (valueOf(item, 'Owner') !== null && valueOf(item, 'Owner') !== w.who && isOwner(item, w.who, w.prefix)) item = put(copy(item), 'Owner', w.who)
   const id = valueOf(item, 'Id')
   const state = stateOf(item)
   const owner = valueOf(item, 'Owner')
@@ -493,7 +514,10 @@ async function answeredInChat(body, w) {
 /** Information, never a question: a note `N<n>` to the person or to the main chat. */
 async function note(body, w) {
   if (typeof body.of === 'string' && GOAL_ID.test(body.of)) return dailyNoteMade(body, w)
-  const to = body.to === 'main' ? 'main' : body.to === 'you' || body.to === undefined ? 'you' : null
+  // Focus 4: the main chat by its name (with or without the prefix) is main.
+  const named = typeof body.to === 'string' ? chatName(body.to, w, { mayBeGone: true }).name : null
+  const isMain = body.to === 'main' || (named !== null && named !== '' && w.roleOf?.(named) === 'main')
+  const to = isMain ? 'main' : body.to === 'you' || body.to === undefined ? 'you' : null
   if (to === null) return refuse(400, '"to" is you or main.')
   const text = lines(body.text)
   if (text.length === 0) return refuse(400, 'Say it in "text".')
@@ -769,9 +793,12 @@ async function make(body, w) {
 async function queue(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
-  const owner = line(body.for, 80)
-  if (owner === '') return refuse(400, 'Name the chat it is for in "for".')
-  if (owner.includes(';')) return refuse(400, '"for" holds no ";".')
+  if (line(body.for, 80) === '') return refuse(400, 'Name the chat it is for in "for".')
+  if (line(body.for, 80).includes(';')) return refuse(400, '"for" holds no ";".')
+  // Focus 4: the chat as the list names it.
+  const named = chatName(line(body.for, 80), w)
+  if (!named.ok) return named
+  const owner = named.name
   const after = line(body.after, 200).replace(/^after\s+/i, '')
   if (after.includes(';')) return refuse(400, '"after" holds no ";".')
   const about = line(body.about, 40).replace(/^about\s+/i, '')
@@ -858,8 +885,10 @@ async function requeue(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
-  const owner = line(body.for, 80)
-  if (owner === '') return refuse(400, 'Name the chat it goes to in "for".')
+  if (line(body.for, 80) === '') return refuse(400, 'Name the chat it goes to in "for".')
+  const named = chatName(line(body.for, 80), w)
+  if (!named.ok) return named
+  const owner = named.name
   const state = stateOf(found.item)
   if (state !== 'queued') return refuse(409, `${id} is ${state}, not queued: only a queued step moves to another chat.`)
   const was = valueOf(found.item, 'Owner')
@@ -1342,9 +1371,10 @@ async function advance(body, w) {
  * the board could not see (a chat replaced by a new one). Theirs also clears the board's held line for `from`.
  */
 async function rename(body, w) {
-  const from = line(body.from, 80)
-  const to = line(body.to, 80)
-  if (from === '' || to === '') return refuse(400, 'Name the old name in "from" and the new one in "to".')
+  if (line(body.from, 80) === '' || line(body.to, 80) === '') return refuse(400, 'Name the old name in "from" and the new one in "to".')
+  // Focus 4: both without the list's prefix; the new one as the list names it, when it does.
+  const from = chatName(line(body.from, 80), w, { mayBeGone: true }).name
+  const to = chatName(line(body.to, 80), w, { mayBeGone: true }).name
   if (plain(from, w.prefix) === plain(to, w.prefix)) return refuse(400, `${from} and ${to} are one name.`)
   const same = body.same === true && w.role === 'server' ? ' (same chat)' : ''
   const moved = []
