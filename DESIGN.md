@@ -2012,6 +2012,14 @@ work divides itself) and, on 2026-10-18, kept all six (Q109).
    were painted simply at the first try.
 4. Not served yet: the tour (B348) adds them to the page.
 
+## Public for anyone (B349)
+
+The person, 2026-10-18 20:35 (Q107): "its ok to keep it public", which takes back B323's private repository (Q53,
+Q72). The README's Install speaks to anyone: what you need (Windows and the Claude app), the one line that fetches the
+install script from GitHub and gets the board, git included, and the git clone for whoever wants to read the script
+first. Nothing in it says private or invited; the Git part reminds that anyone reads what is pushed. Not in it: a
+license file (Q53 left it out).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.
