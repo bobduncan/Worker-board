@@ -1978,6 +1978,25 @@ sufficient". The Advisor's picture: `art-inbox/board-init/initialise.png`.
    says when the chat was opened.
 3. Gone: the Advisor's own box, the second button, the copy buttons and the instructions (B322's parts 1 and 3).
 
+## The proof: a stranger installs it and runs two projects (B324)
+
+Part 6 of G12's how, the last. On 2026-10-18 a helper chat that had only the README (read from GitHub) installed the
+board on this PC into a folder of its own, beside the first project's running board, and made a project "Trial".
+
+1. What held: the install's checks; the board kept as it was on a run again; setup left the PC's Workers mod as it was
+   ("Nothing to do"); the new project's board ran at once on a port of its own (two trial projects, 4313 and 4314,
+   beside 4310), each answering `/api/board` with its own project, the first board untouched; the Trial board offered
+   Initialise, and the person's click and Enter gave a main chat that named itself, joined, read its job and, asked
+   by the board, put up cards for three workers.
+2. What it stumbled on, now fixed: the install's project questions cannot be answered in a window where nobody types
+   (the settings `WORKER_BOARD_PROJECT`, `WORKER_BOARD_PROJECT_FOLDER`, `WORKER_BOARD_PREFIX`, passed on to
+   `new-project.mjs`, `Get-NewProjectArgs`); `npm run new`'s options and where a project goes without `--folder`
+   were not in the README (one went into `Projects` in the home folder); the main chat's first words named
+   `spawn_task`, which that chat did not have: they now name the start card (`start_session`) and the chip and take
+   whichever the app gives.
+3. Cleaned up after: the trial boards stopped, their icons, the project in the home folder and their places in the
+   PC's list removed. Recorded in the README ("Not yet portable", 19) and ANY-PROJECT-PLAN.md.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

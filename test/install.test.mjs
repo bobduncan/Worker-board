@@ -133,6 +133,16 @@ test('a check only: one line for each of Windows, the Claude app, Node and git, 
   assert.equal(part('[string](Test-IsCheck)', { WORKER_BOARD_CHECK: '1' }), 'True')
 })
 
+test('B324: the new project can be given up front, so the install needs no keyboard', { skip: !isWindows }, () => {
+  assert.equal(part('(Get-NewProjectArgs) -join "|"'), '')
+  assert.equal(part('(Get-NewProjectArgs) -join "|"', { WORKER_BOARD_PROJECT: 'My garden' }), '--name|My garden')
+  // The prefix keeps its last space ("Garden - "): the line ends in | so the output's trim leaves it.
+  assert.equal(part('((Get-NewProjectArgs) -join "|") + "|"', { WORKER_BOARD_PROJECT: 'My garden', WORKER_BOARD_PROJECT_FOLDER: 'D:\\Work\\My garden', WORKER_BOARD_PREFIX: 'Garden - ' }),
+    '--name|My garden|--folder|D:\\Work\\My garden|--prefix|Garden - |')
+  // A folder or prefix alone, without a name, asks as before.
+  assert.equal(part('(Get-NewProjectArgs) -join "|"', { WORKER_BOARD_PROJECT_FOLDER: 'D:\\Work\\x' }), '')
+})
+
 test('the README holds the one command', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
   assert.match(readme, /irm https:\/\/raw\.githubusercontent\.com\/[\w.-]+\/[\w.-]+\/main\/tools\/install\.ps1 \| iex/)

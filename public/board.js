@@ -1513,7 +1513,8 @@ function firstWords({ title, name, projectName, project, board, advisor = null }
     `1. Name this chat "${title}": call the app's session tool set_session_title (mcp__ccd_session_mgmt__set_session_title) with session_id "self" and that title.`,
     `2. Join the list of chats: when the tool mcp__folder-branches__chat is there, call it with action "join", name "${name}", role "main".`,
     `3. Read your job, ${at(board, 'roles', 'main.md')}, the words the board and the chats share, ${at(board, 'roles', 'protocol.md')}, this project's facts, ${at(project, '.claude', 'main-briefing.md')}, and how to answer the user, ${at(project, 'CLAUDE.md')}.`,
-    ...(advisor === null ? [] : [`4. Start the Advisor: put up a chip with mcp__ccd_session__spawn_task titled "${advisor.title}", whose prompt tells it that it is the Advisor (the partner) of this project, to join the list as "${advisor.name}" with role "worker", and to read ${at(board, 'roles', 'partner.md')}, ${at(board, 'roles', 'protocol.md')} and ${at(project, 'CLAUDE.md')}. Tell the user in one line to click it.`]),
+    // B324: the trial's main chat had no spawn_task, only start cards: the words name both and take the one there is.
+    ...(advisor === null ? [] : [`4. Start the Advisor as you start a worker: a new chat titled "${advisor.title}" (a start card, mcp__ccd_session__start_session, or a chip, mcp__ccd_session__spawn_task, whichever the app gives you), whose prompt tells it that it is the Advisor (the partner) of this project, to join the list as "${advisor.name}" with role "worker", and to read ${at(board, 'roles', 'partner.md')}, ${at(board, 'roles', 'protocol.md')} and ${at(project, 'CLAUDE.md')}. Tell the user in one line to click it.`]),
     'Then say in one line that you are ready: the board then asks you for workers.',
   ].join('\n')
 }

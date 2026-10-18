@@ -25,8 +25,13 @@ protocol (`examples/CLAUDE.md`, made the project's own by B320 and brought up to
 `roles/` pointing to it; `roles/protocol.md` lists every word), the mods (carried by the board, B251; installed by
 `npm run setup` or the install command, B321), this PC (B134, B135; no path of it in any file of the repository,
 kept so by `test/anyProject.test.mjs` since B323) and the notes (B138). Two projects run side by side (B319), a new
-one is made in one click (B320) and opens its first chats (B322). Still open: a Mac, not tried (B215); a real
-installer, a goal of its own later.
+one is made in one click (B320) and opens its first chats (B322, one Initialise button since B335). Still open: a
+Mac, not tried (B215); a real installer, a goal of its own later.
+
+**The proof (B324, 2026-10-18).** A helper with only the README installed the board on this PC beside the first
+project's running board, made a project and ran its board at once on its own port; the first board, its port and the
+PC's mod stayed as they were; the new project's main chat, opened with Initialise, set itself up and asked for
+workers. What it stumbled on is fixed (the README's "Not yet portable", point 19).
 
 ## The order
 
