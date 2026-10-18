@@ -292,6 +292,21 @@ export async function registerHome(file, board) {
   })
 }
 
+/** B320: takes a project's board out of the PC's list (a new project that could not be made). */
+export async function unregisterHome(file, project) {
+  return withLock(file, async () => {
+    const boards = (await readBoards(file)).filter(one => pathKey(one.project) !== pathKey(project))
+    const draft = `${file}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`
+    await writeFile(draft, `${JSON.stringify({ boards }, null, 2)}\n`)
+    try {
+      await again(() => rename(draft, file))
+    } finally {
+      await rm(draft, { force: true })
+    }
+    return boards
+  })
+}
+
 /** True when something listens on the port on this machine already. */
 export function portIsBusy(port, host = '127.0.0.1') {
   return new Promise(done => {

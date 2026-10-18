@@ -821,7 +821,7 @@ async function main(args) {
       makingProject = true
       try {
         const made = await makeProject({ name: body?.name, folder: body?.folder, prefix: body?.prefix, here: HERE })
-        return made.ok ? { ok: true, result: { url: made.url, project: made.project, lines: made.lines } } : made
+        return made.ok ? { ok: true, result: { url: made.url, project: made.project, lines: made.lines, warnings: made.warnings } } : made
       } finally {
         makingProject = false
       }

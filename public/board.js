@@ -386,9 +386,9 @@ function suggestedFolder(parent, name) {
   return `${parent.replace(/[\\/]+$/, '')}${separator}${name}`
 }
 
-/** What the form says once the project is made: where it is, and the link to its board. */
+/** What the form says once the project is made: where it is, the link to its board, and what went wrong on the way. */
 function newProjectDone(result) {
-  return { text: `Made ${result.project}. Its board: `, link: result.url }
+  return { text: `Made ${result.project}. Its board: `, link: result.url, warnings: Array.isArray(result.warnings) ? result.warnings : [] }
 }
 // newproject:end
 
@@ -413,6 +413,8 @@ $('new-project-folder').addEventListener('input', () => {
   isFolderTyped = true
 })
 $('new-project-cancel').addEventListener('click', () => $('new-project').close())
+// Closed, the focus goes back to the ⚙ button that holds New project….
+$('new-project').addEventListener('close', () => $('settings-button').focus())
 $('new-project-form').addEventListener('submit', async event => {
   event.preventDefault()
   if (sending.has('new-project')) return
@@ -420,6 +422,8 @@ $('new-project-form').addEventListener('submit', async event => {
   const status = $('new-project-status')
   status.className = 'new-project-status'
   status.textContent = 'Making the project: its folder, its copy of the board, its icon… (this takes a few seconds)'
+  // The focus stays in the form while its button waits.
+  $('new-project-cancel').focus()
   $('new-project-make').disabled = true
   try {
     const body = { name: $('new-project-name').value, folder: $('new-project-folder').value, prefix: $('new-project-prefix').value }
@@ -431,8 +435,11 @@ $('new-project-form').addEventListener('submit', async event => {
     link.target = '_blank'
     link.rel = 'noopener'
     status.replaceChildren(document.createTextNode(done.text), link)
+    // Review: an icon not made, or a board that did not start, is said under it.
+    for (const warning of done.warnings) status.append(el('span', 'new-project-warning', warning))
     status.classList.add('is-done')
     $('new-project-cancel').textContent = 'Close'
+    $('new-project-cancel').focus()
   } catch (error) {
     status.textContent = `Not made: ${error instanceof Error ? error.message : 'the board did not answer'}`
     status.classList.add('is-problem')

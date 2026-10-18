@@ -8,7 +8,7 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -18,7 +18,7 @@ import vm from 'node:vm'
 
 import { createBoard } from '../server.mjs'
 import { openCommand } from '../start-board.mjs'
-import { checkNewProject, folderIsFree, makeProject, projectFiles, shortcutScript } from '../src/newProject.mjs'
+import { checkNewProject, folderIsFree, makeProject, projectFiles, shortcutEnv, shortcutScript } from '../src/newProject.mjs'
 import { readBoards } from '../src/ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -42,6 +42,8 @@ test('checkNewProject: a name, a whole folder path, and the chats\' prefix ("<na
     [{ name: 'Garden', folder: 'garden' }, /whole path/],
     [{ name: 'Garden', folder: '' }, /folder/],
     [{ name: 'Garden', folder: 'D:\\Work\\x', prefix: 'x'.repeat(41) }, /prefix/],
+    [{ name: 'Gar\nden', folder: 'D:\\Work\\x' }, /name/],
+    [{ name: 'Garden', folder: 'D:\\Work\\x\ty' }, /folder/],
   ]) {
     const checked = checkNewProject(input)
     assert.equal(checked.ok, false, JSON.stringify(input))
@@ -92,16 +94,27 @@ test('projectFiles: the settings, the list of chats, an empty work store, the CL
   assert.match(made.files['.gitignore'], /^\.claude\/$/m)
   assert.match(made.files['README.md'], /^# Garden$/m)
   assert.match(made.files['README.md'], /Garden board/)
+  // Review: a $ in a name is a $, never a pattern of the text it is put into.
+  const cash = projectFiles({ name: "Cash $' flow $&", prefix: 'C - ', project: 'D:\\$$', board: 'D:\\$$\\worker-board', examples: await examples() })
+  assert.match(cash.files['CLAUDE.md'], /^# Cash \$' flow \$&: how every chat answers the user$/m)
+  assert.ok(cash.files['.claude/worker-briefing.md'].includes('D:\\$$\\worker-board'))
 })
 
-test('shortcutScript: an icon on the desktop and in the Start menu, every path in single quotes', () => {
-  const script = shortcutScript({ name: "Bob's board", target: 'C:\\Program Files\\nodejs\\node.exe', args: '"D:\\Work\\garden\\worker-board\\start-board.mjs" --open', cwd: 'D:\\Work\\garden\\worker-board', icon: 'D:\\Work\\garden\\worker-board\\public\\board.ico' })
+test('shortcutScript: an icon on the desktop and in the Start menu; the words come in apart, never inside the script', () => {
+  // Review: a name or folder with quotes of any kind (’ is one to PowerShell too), $ or ` cannot change the script.
+  const shortcut = { name: 'Bob’s $(calc) `board', target: 'C:\\Program Files\\nodejs\\node.exe', args: '"D:\\W\\x’;calc;’\\start-board.mjs" --open', cwd: 'D:\\W\\x’;calc;’', icon: 'D:\\W\\x’;calc;’\\public\\board.ico' }
+  const script = shortcutScript()
+  for (const word of ['Bob', 'calc', 'D:\\W']) assert.ok(!script.includes(word), word)
   assert.match(script, /GetFolderPath\('Desktop'\)/)
   assert.match(script, /GetFolderPath\('Programs'\)/)
-  assert.ok(script.includes("'Bob''s board.lnk'"), script)
-  assert.ok(script.includes("'C:\\Program Files\\nodejs\\node.exe'"))
-  assert.ok(script.includes(`'"D:\\Work\\garden\\worker-board\\start-board.mjs" --open'`))
   assert.match(script, /WindowStyle = 7/)
+  // An icon of that name that is there already is left as it is, and named.
+  assert.match(script, /Test-Path -LiteralPath \$file/)
+  assert.match(script, /KEPT:/)
+  assert.deepEqual(shortcutEnv(shortcut), {
+    BOARD_ICON_NAME: 'Bob’s $(calc) `board.lnk', BOARD_ICON_TARGET: shortcut.target, BOARD_ICON_ARGS: shortcut.args,
+    BOARD_ICON_CWD: shortcut.cwd, BOARD_ICON_FILE: `${shortcut.icon},0`, BOARD_ICON_ABOUT: 'Starts the worker board of Bob’s $(calc) `board and opens its page',
+  })
 })
 
 test('start-board --open opens the board\'s page in the person\'s browser', () => {
@@ -170,6 +183,43 @@ test('makeProject: the whole project, its own copy of the board at the same vers
   assert.equal(await read(join(project, 'README.md')), before)
 })
 
+test('makeProject: an icon of that name already there is left as it is, and said', { timeout: 120_000 }, async t => {
+  const dir = await folder(t)
+  const kept = 'C:\\Users\\x\\Desktop\\Garden board.lnk'
+  const made = await makeProject({ name: 'Garden', folder: join(dir, 'garden'), here: ROOT, boards: join(dir, 'pc', 'boards.json'), shortcuts: async () => ({ kept: [kept] }), start: async () => ({ ok: true }) })
+  assert.equal(made.ok, true, made.why)
+  assert.ok(made.warnings.some(line => line.includes(kept) && line.includes('left as it is')), made.warnings.join('\n'))
+})
+
+test('makeProject: from a board that is no repository, the copy is a repository of its own, so it delivers', { timeout: 120_000 }, async t => {
+  const dir = await folder(t)
+  const plain = join(dir, 'plain-board')
+  for (const part of ['server.mjs', 'run-game.mjs', 'start-board.mjs', 'package.json', 'src', 'public', 'roles', 'examples', 'fixtures', 'mods']) {
+    await cp(join(ROOT, part), join(plain, part), { recursive: true })
+  }
+  const made = await makeProject({ name: 'Plain', folder: join(dir, 'plain'), here: plain, boards: join(dir, 'pc', 'boards.json'), shortcuts: async () => {}, start: async () => ({ ok: true }) })
+  assert.equal(made.ok, true, made.why)
+  const top = execFileSync('git', ['-C', made.board, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
+  assert.equal(top.replaceAll('/', '\\').toLowerCase(), made.board.toLowerCase())
+})
+
+test('makeProject: a project that fails half way leaves nothing behind, so it can be tried again', { timeout: 60_000 }, async t => {
+  const dir = await folder(t)
+  const broken = join(dir, 'broken-board')
+  await mkdir(broken)
+  const project = join(dir, 'half')
+  const failed = await makeProject({ name: 'Half', folder: project, here: broken, boards: join(dir, 'pc', 'boards.json'), shortcuts: async () => {}, start: async () => ({ ok: true }) })
+  assert.equal(failed.ok, false)
+  assert.match(failed.why, /nothing of it was kept/)
+  assert.equal(await there(project), false)
+  assert.deepEqual(await readBoards(join(dir, 'pc', 'boards.json')), [])
+  // An empty folder the person gave stays, empty.
+  await mkdir(join(dir, 'given'))
+  await makeProject({ name: 'Half', folder: join(dir, 'given'), here: broken, boards: join(dir, 'pc', 'boards.json'), shortcuts: async () => {}, start: async () => ({ ok: true }) })
+  assert.equal(await folderIsFree(join(dir, 'given')), true)
+  assert.equal(await there(join(dir, 'given')), true)
+})
+
 test('makeProject: a second project on the same PC takes another port', { timeout: 120_000 }, async t => {
   const dir = await folder(t)
   const boards = join(dir, 'pc', 'boards.json')
@@ -228,5 +278,10 @@ test('the New project button: in the ⚙ part, a form that asks the name, the fo
   assert.equal(page.suggestedFolder('D:\\Work\\', 'My garden'), 'D:\\Work\\My garden')
   assert.equal(page.suggestedFolder(null, 'Garden'), '')
   // What the page says once it is made: where, and the link to the new board.
-  assert.deepEqual({ ...page.newProjectDone({ url: 'http://127.0.0.1:4313/', project: 'D:\\Work\\Garden', lines: [] }) }, { text: 'Made D:\\Work\\Garden. Its board: ', link: 'http://127.0.0.1:4313/' })
+  const warning = 'The icon "Garden board" could not be made (x): start the board with: node "D:\\Work\\Garden\\worker-board\\start-board.mjs" --open'
+  const done = page.newProjectDone({ url: 'http://127.0.0.1:4313/', project: 'D:\\Work\\Garden', lines: ['Made D:\\Work\\Garden, a git repository.', warning], warnings: [warning] })
+  assert.deepEqual([done.text, done.link], ['Made D:\\Work\\Garden. Its board: ', 'http://127.0.0.1:4313/'])
+  // Review: what went wrong on the way stands under it (an icon not made, a board that did not start).
+  assert.deepEqual([...done.warnings], [warning])
+  assert.deepEqual([...page.newProjectDone({ url: 'u', project: 'p', lines: ['The board runs: u'] }).warnings], [])
 })

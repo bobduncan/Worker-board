@@ -27,13 +27,18 @@ const config = await loadConfig(join(BOARD, 'config.json')).catch(() => null)
 const parent = config?.project ? dirname(resolve(BOARD, config.project)) : join(homedir(), 'Projects')
 
 const asking = createInterface({ input: process.stdin, output: process.stdout })
-const ask = async (question, fallback) => {
+// An answer as typed; only an empty one takes the suggestion. A prefix keeps its last space ("Garden - ").
+const ask = async (question, fallback, keepEnd = false) => {
   if (!process.stdin.isTTY) return fallback
-  const answer = (await asking.question(fallback ? `${question} [${fallback}]: ` : `${question}: `)).trim()
-  return answer === '' ? fallback : answer
+  const answer = await asking.question(fallback ? `${question} [${fallback}]: ` : `${question}: `)
+  const typed = keepEnd ? answer.replace(/^\s+/, '') : answer.trim()
+  return typed.trim() === '' ? fallback : typed
 }
 let name = given('name') ?? ''
-while (checkNewProject({ name, folder: join(parent, 'x') }).ok === false) {
+for (;;) {
+  const checked = checkNewProject({ name, folder: join(parent, 'x') })
+  if (checked.ok) break
+  if (name !== '') console.error(checked.why)
   if (!process.stdin.isTTY) {
     console.error('Give the project\'s name with --name.')
     process.exit(1)
@@ -41,7 +46,7 @@ while (checkNewProject({ name, folder: join(parent, 'x') }).ok === false) {
   name = await ask('The project\'s name', '')
 }
 const folder = given('folder') ?? await ask('Its folder (new or empty)', join(parent, name.trim()))
-const prefix = given('prefix') ?? await ask('The chats\' titles start with', `${name.trim()} - `)
+const prefix = given('prefix') ?? await ask('The chats\' titles start with', `${name.trim()} - `, true)
 asking.close()
 
 console.log('Making the project: its folder, its copy of the board, its icon (this takes a few seconds)…')
