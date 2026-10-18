@@ -19,7 +19,8 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   board shows it under Needs your attention, and the user's answer comes straight back into your chat, never through
   the main chat. Put the "For you" block the tool answers at the end of your answer, so your chat says the same. A
   "For you" block without an ask is not read by the board: it shows as a warning that you filed none. Then tell the
-  main chat in one line only what you asked ("Asked the user: Q12 ..."), so it does not ask again. A refine, a
+  main chat in one line only what you asked ("Asked the user: Q12 ..."), so it does not ask again. Your refine
+  questions stand under Needs your attention, one line per step, and are answered in the step's window (B287); a
   suggestion, a recommendation and an ask on the goal map keep their own places on the board.
 - An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. (B305)
 

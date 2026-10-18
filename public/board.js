@@ -1752,6 +1752,66 @@ function drawGoalAskNeeds(state) {
   return part
 }
 
+// refinelines:start
+/**
+ * B287: a refine question of the work store (an ask made by the Advisor's refine, on a step): it has no card of its
+ * own under Needs your attention, answered or not; its step's line says it (the person, on G17: "show refine
+ * questions under Needs your attention, one line per step").
+ */
+const isRefineQuestion = need => need.isRefine === true && (need.of ?? null) !== null
+
+/**
+ * B287: the open refine questions as one line per step, the step that waits longest first: `{ step, title, count, at,
+ * ids }`, `at` its oldest question's time. `needs` are the cards of Needs your attention.
+ */
+function refineLines(needs) {
+  const lines = new Map()
+  for (const need of needs) {
+    if (!isRefineQuestion(need) || need.isClosed === true || (need.answer ?? null) !== null) continue
+    const line = lines.get(need.of) ?? { step: need.of, title: need.ofTitle ?? '', count: 0, at: need.at, ids: [] }
+    line.count += 1
+    line.ids.push(need.workId)
+    if (need.at !== null && (line.at === null || need.at < line.at)) line.at = need.at
+    lines.set(need.of, line)
+  }
+  return [...lines.values()].sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity) || a.step.localeCompare(b.step, 'en', { numeric: true }))
+}
+
+/** B287: the part "Refine questions" under Needs your attention: a line per step, opening its window to answer them. */
+function drawRefineNeeds(state) {
+  const lines = refineLines(state.forYou)
+  if (lines.length === 0) return null
+  const part = el('section', 'information refine-needs')
+  const head = el('h3', '', 'Refine questions')
+  head.append(el('small', 'muted', `${lines.length} step${lines.length === 1 ? '' : 's'} wait${lines.length === 1 ? 's' : ''} for your answers`))
+  part.append(head)
+  for (const line of lines) {
+    const row = el('div', 'info')
+    const words = el('p', '')
+    words.append(el('b', '', line.step), ' ', line.title === '' ? '' : `${line.title}: `, `${line.count} question${line.count === 1 ? '' : 's'}`)
+    const open = el('button', 'choice', 'Answer them →')
+    open.type = 'button'
+    open.dataset.refineOpen = line.step
+    // Where the step is not on the Backlog tab to open, its first question's own window opens.
+    open.dataset.refineFirst = line.ids[0]
+    open.title = 'Opens the step\'s window: answer each question there with Yes or No, or take the advice'
+    row.append(words, el('small', 'muted', line.at === null ? 'the Advisor asks' : `asked ${ago(line.at, state.readAt)}`), open)
+    part.append(row)
+  }
+  return part
+}
+// refinelines:end
+
+// B287: a refine line opens its step's window, where its questions are answered.
+$('needs').addEventListener('click', event => {
+  const button = event.target.closest('[data-refine-open]')
+  if (button === null) return
+  const step = (board?.backlog ?? []).flatMap(activity => activity.steps).find(one => one.id === button.dataset.refineOpen)
+  // A finished step's window answers no refine question: then, as for a step not on the tab, the question's own.
+  if (step !== undefined && step.status !== 'done') openDetails({ step: step.key })
+  else openDetails({ need: `work:${button.dataset.refineFirst}` })
+})
+
 /** B259: the part "Brainstorms" under Needs your attention: a question of the Advisor's waiting, a proposal to tick. */
 function drawBrainstormNeeds(state) {
   const needs = state.brainstormNeeds ?? []
@@ -1944,13 +2004,20 @@ function drawNeeds(state) {
   const focused = focusedNeed(box)
   const top = box.scrollTop
   const open = state.forYou.filter(need => !isClosed(need))
-  const answered = state.forYou.length - open.length
+  // B287: a refine question has no card: its step's line says it, and only while it is open.
+  const lines = refineLines(open)
+  const cardsOpen = open.filter(need => !isRefineQuestion(need))
+  const answered = state.forYou.filter(need => isClosed(need) && !isRefineQuestion(need)).length
   // B258: an answer to an ask on the goal map waits to be read, and counts.
-  const unanswered = open.filter(need => !isAnswered(need)).length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length
+  // B287: the refine questions count once per step, as their lines stand.
+  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
-  const cards = ordered(showsClosed() ? state.forYou : open).map(need => drawNeed(need, state))
-  const none = open.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
-  fill(box, [none, drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...cards, drawLegacy(state), drawInformation(state), drawInstructions(state)])
+  const shown = ordered((showsClosed() ? state.forYou : open).filter(need => !isRefineQuestion(need)))
+  // B300: a blocking ask that waited too long stands first, above the refine lines too.
+  const oldCards = shown.filter(need => need.isOld === true).map(need => drawNeed(need, state))
+  const cards = shown.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
+  const none = cardsOpen.length > 0 || lines.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  fill(box, [none, drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawLegacy(state), drawInformation(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
 }
@@ -6153,13 +6220,37 @@ function drawMessage({ key, kind, time, who, text, picture: shown = null, note =
   return row
 }
 
+// advisorrefine:start
+/**
+ * B287: the Advisor's refine state, from the backlog's steps: the step it refines now (asked and not written yet), else
+ * a step whose answers are all in and wait for it to fold them in; null when neither. `{ step, text, tone }`.
+ */
+function advisorRefine(backlog) {
+  const steps = (backlog ?? []).flatMap(activity => activity.steps ?? [])
+  // The one it has in hand first, else one on its way.
+  const asks = steps.filter(step => step.refineAsk?.isOpen === true)
+  const asked = asks.find(step => step.refineAsk.state === 'delivered') ?? asks[0]
+  if (asked !== undefined) {
+    const round = asked.refineAsk.round ?? 1
+    const text = asked.refineAsk.state === 'delivered' ? `Refining ${asked.id}${round > 1 ? `, round ${round}` : ''}` : `${asked.id} to refine, on its way`
+    return { step: asked.id, text, tone: 'working' }
+  }
+  // Answers folded in only for a step not taken up yet (open or queued), as the board's own refining does (B285).
+  const answered = steps.find(step => step.refineState === 'answered' && (step.status === 'open' || step.status === 'queued'))
+  return answered === undefined ? null : { step: answered.id, text: `Your answers on ${answered.id} wait for it`, tone: 'waiting' }
+}
+// advisorrefine:end
+
 function drawTalk(state) {
   const advisor = state.advisor
   const box = $('messages')
   const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60
   $('talk-title').textContent = advisor?.name ?? 'Advisor'
+  // B287: what it refines, beside its state.
+  const refine = advisorRefine(state.backlog)
   fill($('talk-state'), [
     advisor === null ? null : el('span', `pill is-${advisor.state}`, STATES[advisor.state]),
+    advisor === null || refine === null ? null : el('span', `advisor-refine-state is-${refine.tone}`, refine.text),
     // A chat that does not run takes nothing: what is typed here waits until its chat is opened.
     // A chat that does not run takes nothing: the main chat is asked to start it when something is typed here.
     ...(advisor === null ? [] : startParts(advisor.name)),
@@ -8053,7 +8144,7 @@ function draw(state) {
     $('advice-age').className = `advice-age${age !== null && age.isOld ? ' is-old' : ''}`
     $('advice-age').textContent = age === null ? '' : age.text
   })
-  once('talk', [state.advisor, runningData(state), [...problems], [...sending]], () => drawTalk(state))
+  once('talk', [state.advisor, advisorRefine(state.backlog), runningData(state), [...problems], [...sending]], () => drawTalk(state))
   once('main-talk', [state.mainTalk ?? null, state.maxMessageChars, problems.get('main-talk') ?? null, sending.has('main-talk')], () => drawMainTalk(state))
   drawDesign()
 }
