@@ -373,8 +373,8 @@ async function ask(body, w) {
   const of = isAlone ? { ok: true, item: null, text: null } : await load(body.of, w, { kind: ['step'] })
   if (!of.ok) return of
   const holder = isAlone ? null : valueOf(of.item, 'Owner')
-  if (holder !== null && !['main', 'person'].includes(w.role) && !isOwner(of.item, w.who, w.prefix)) {
-    return refuse(409, `${valueOf(of.item, 'Id')} is ${holder}'s: only ${holder}, the main chat or the person asks under it.`)
+  if (holder !== null && !['main', 'advisor', 'person'].includes(w.role) && !isOwner(of.item, w.who, w.prefix)) {
+    return refuse(409, `${valueOf(of.item, 'Id')} is ${holder}'s: only ${holder}, the main chat, the partner or the person asks under it.`)
   }
   const kind = body.kind ?? 'decide'
   if (!ASK_KINDS.includes(kind)) return refuse(400, `"kind" is ${ASK_KINDS.join(', ')}.`)

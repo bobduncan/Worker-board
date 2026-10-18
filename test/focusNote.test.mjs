@@ -64,6 +64,18 @@ test('the partner asks of the focus goal itself: Of the goal; answered on the bo
   }
 })
 
+test('the partner asks under a step of the focus that a worker holds, as the main chat may (spec section 5)', async () => {
+  const { dir, partner } = await fresh()
+  try {
+    const asked = await partner({ action: 'ask', of: 'B1', kind: 'decide', text: 'A number or a bar?' })
+    assert.equal(asked.ok, true, asked.why)
+    const q1 = await item(dir, 'Q1')
+    assert.deepEqual(['Of', 'Owner'].map(key => valueOf(q1, key)), ['B1', 'Partner'])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('the partner\'s daily note: a note to you Of the goal, with "Decided for you" and "Needs you"; only the partner writes one', async () => {
   const { dir, partner, main } = await fresh()
   try {

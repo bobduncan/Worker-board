@@ -407,7 +407,7 @@ test('review 7: a chat asks only under its own step, or one nobody holds; Main a
   const { dir, board, support, main } = await fresh()
   try {
     await board({ action: 'take', id: 'B1' })
-    assert.equal((await support({ action: 'ask', of: 'B1', text: 'Mine?' })).why, 'B1 is Board\'s: only Board, the main chat or the person asks under it.')
+    assert.equal((await support({ action: 'ask', of: 'B1', text: 'Mine?' })).why, 'B1 is Board\'s: only Board, the main chat, the partner or the person asks under it.')
     assert.equal((await main({ action: 'ask', of: 'B1', text: 'Go on?' })).ok, true)
     assert.equal((await support({ action: 'ask', of: 'B7', text: 'Which?' })).ok, true)
   } finally {
