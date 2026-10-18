@@ -118,7 +118,7 @@ person sent was copied, and into which chat to paste it.
   path; a click closes it.
 - **A game** (`#play=<branch>&<settings>`): the branch's game started and this tab turned into it.
 
-## Focus (`05-advisor.png`; Focus 1: `art-inbox/focus-mockups/inc1-*.png`; Focus 2: `inc2-vibe.png`, `inc2-how.png`)
+## Focus (`05-advisor.png`; Focus 1: `art-inbox/focus-mockups/inc1-*.png`; Focus 2: `inc2-vibe.png`, `inc2-how.png`; Focus 3: `inc3-run.png`, `inc3-vibe-there.png`)
 
 The tab was named Advisor until Focus 1 (spec 2026-10-18). Its bar shows three parts: **Focus**, **Goals** and
 **Brainstorm**; the others (Next milestone, Game plan, Suggestions, Refine, Chat) are hidden, not deleted, and the
@@ -143,8 +143,18 @@ partner. **The talk** answers your partner's open question as the Brainstorm par
 advised one marked), your words in the box, Send (Enter; Shift+Enter a new line); while your partner has the turn the
 box is off and a line says it thinks, or that its chat is not running. **This is the vibe** (once your partner wrote
 one) and **Go** (once it proposed parts) write their line once and tell your partner; **Not yet** opens a box for what
-is missing and sends your words. A line under the head says what each move did, or why not. The run's talk bar and the
-daily note come in Focus 3.
+is missing and sends your words. A line under the head says what each move did, or why not. The run's talk bar comes
+later.
+
+Since Focus 3 the run follows the work: each part is Done when all its steps are, In progress (with who is on it) while
+one is taken, in progress, waiting on you or in review, else Next; the head counts the parts done and the time the
+others still name. **Today's note from your partner** (its daily note, written in its morning round) lists what it
+**decided for you**, each line with **Undo**: a click asks your partner to undo it (it is typed into its chat as your
+word, once) and the line then says "undo asked". **Needs you** shows your partner's open questions on the goal or its
+steps, three at most ("and n more"), each with its options as buttons (the advised one marked; a click answers it)
+and its pictures. Once every part is done, **Is the vibe there?** stands above the note with the vibe: **Yes** ticks
+the goal and clears the focus (the page then asks for the next one); **No** opens a box for what is missing, and the
+goal goes back to the how.
 
 The other parts: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
 milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the

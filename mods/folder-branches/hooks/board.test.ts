@@ -57,3 +57,9 @@ describe('Focus 2: the partner keeps its drafts of the focus with the work tool'
     for (const field of ['goal', 'lines', 'picture', 'parts', 'partnerDecides', 'youDecide']) expect(WORK_FIELDS.includes(field)).toBe(true)
   })
 })
+
+describe('Focus 3: the daily note of the partner on the focus', () => {
+  test('a note carries what it decided and the asks that need the person', () => {
+    for (const field of ['decided', 'needs']) expect(WORK_FIELDS.includes(field)).toBe(true)
+  })
+})

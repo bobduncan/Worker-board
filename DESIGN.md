@@ -1412,6 +1412,36 @@ but [not] prevent my ability to play the game". A setting in the board's head, b
   platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
   replace.
 
+## The Focus tab, increment 3 (Focus 3): the run, the daily note, "Is the vibe there?"
+
+Spec 2026-10-18, sections 3 to 6; plan Tasks 5 and 6; mockup `art-inbox/focus-mockups/focus-run.png`, pictures
+`inc3-run.png` and `inc3-vibe-there.png` beside it.
+
+- **Parts follow their steps** (`state.mjs` `focusState`, since Focus 1, pinned by `test/focusRun.test.mjs`): all
+  finished (done, closed, dropped) → done; one taken, in progress, waiting on you or in review → in progress with that
+  step's owner; else next. The progress counts parts done, and the minutes the sizes of the others name.
+- **The daily note** (`src/work/dailyNote.mjs`, `api.mjs` `note`): the partner's `work note` with `of` G<n> (role
+  advisor only, to you) writes `N<n>` with `Of: G<n>` (a new note key) and the sections `## Decided for you` (one line
+  each) and `## Needs you` (the ids of asks in the store). `work ask` with `of` G<n> makes an ask of the goal itself
+  (no step to follow when it is answered or withdrawn). The state's `focus` carries `note` (the partner's newest daily
+  note of the goal: `{ id, since, decided: [{ text, undoAsked }], needs }`) and `needs` (the partner's open asks of the
+  goal or its steps, the note's first, with options and pictures); `focusState` takes the partner's name (the setting
+  `advisor`).
+- **Undo** (Review Focus 4): the page's `note-undo` on `/api/goals` (`server.mjs` `undoNow`) runs the store's
+  person-only `undo`, which adds the line under `## Undo asked` with its time, once per request in turn; only a change
+  types `undo: <line>` / `Goal:` / `Note:` to the partner (`focusWords('undo')`), so a second Undo, also from another
+  tab, types nothing. The page shows "undo asked" from the note's section.
+- **Is the vibe there?** (`src/focus.mjs` `vibe-there-yes`, `vibe-there-no`): asked when every part is done; the server
+  passes `allDone` from the store. Yes ticks the goal and clears `Focus:` in one change of the map, once (a second Yes
+  finds the goal done: no word); No (with words) takes `How agreed` away (`goalsWrite.mjs` `reopenHow`). Each types its
+  words, as the person's: `vibe there: yes`, `vibe there: no` with `Words:`.
+- **The morning round** (`rounds.mjs` `roundText` with the state's `focus`): "Your focus: G<n> <title> (<stage>). Write
+  today's note on it: ..." or "No focus: have the user pick one ...". The partner's job: `roles/partner.md`, "The daily
+  note" (what it may decide without the person: small visual details, numbers, wording, the order of the parts; never a
+  rule of the game, a new screen or more than about an hour's extra work).
+- The Workers mod's work tool 0.13.5: the fields `decided` and `needs`.
+- Tests: `test/focusRun.test.mjs`, `test/focusNote.test.mjs`.
+
 ## The Focus tab, increment 2 (Focus 2): the vibe and how moves, and the partner
 
 The plan's Tasks 3 and 4 (spec `.claude/specs/2026-10-18-focus-partner-design.md`, sections 2, 3, 5 and 6). Pictures

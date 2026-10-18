@@ -827,7 +827,7 @@ const WORK_TOOL = {
     + 'on. "answered-in-chat" ("id", "text"): the person answered one of your asks here in the chat (the main chat and the '
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
     + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
-    + 'never a question. "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
+    + 'never a question; the partner\'s daily note on the focus goal is a note to you with "of" G<n>, "decided" and "needs". "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
     + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text"): a new step. "queue" ("id", '
     + '"for", "after", "about"), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
     + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
@@ -846,7 +846,7 @@ const WORK_TOOL = {
       names: { type: 'array', items: { type: 'string' }, description: 'step: your steps by name, in order.' },
       minutes: { type: 'number', description: 'step: the working time still expected for the whole step, roughly.' },
       stepMinutes: { type: 'number', description: 'step: the working time the step of your plan you are on still takes.' },
-      of: { type: 'string', description: 'ask, note: the step it belongs to.' },
+      of: { type: 'string', description: 'ask, note: the step it belongs to; the partner: also the focus goal (G6).' },
       kind: { type: 'string', enum: ['decide', 'look', 'provide', 'do'], description: 'ask: what you ask of the person.' },
       blocking: { type: 'boolean', description: 'ask: true when your work waits for the answer.' },
       text: { type: 'string', description: 'ask, note, new: the words.' },
@@ -875,6 +875,8 @@ const WORK_TOOL = {
       parts: { type: 'array', items: { type: 'string' }, description: 'how-draft: the parts, each "<title> · about <N> h", with " · steps B1, B2" once made.' },
       partnerDecides: { type: 'array', items: { type: 'string' }, description: 'how-draft: the details you settle yourself, one per line.' },
       youDecide: { type: 'array', items: { type: 'string' }, description: 'how-draft: what you bring to the person, one per line.' },
+      decided: { type: 'array', items: { type: 'string' }, description: 'note of a goal (the daily note): what you decided for the person, one short line each.' },
+      needs: { type: 'array', items: { type: 'string' }, description: 'note of a goal (the daily note): the ids of your open asks that need the person (Q12).' },
     },
     required: ['action'],
   },
