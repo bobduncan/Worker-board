@@ -2000,3 +2000,8 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-checked { align-self: flex-start; color: var(--muted); overflow-wrap: anywhere; }
 .focus-checked.is-pass { color: var(--working); }
 .focus-checked.is-fail { color: var(--warn); }
+
+/* B358: the goal's re-check before its tick, on the Focus page's run. */
+.focus-recheck.is-asked h3 { color: var(--waiting); }
+.focus-recheck.is-failed h3 { color: var(--warn); }
+.focus-recheck.is-waits h3 { color: var(--waiting); }

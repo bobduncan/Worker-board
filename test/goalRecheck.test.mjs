@@ -156,3 +156,33 @@ test('the board routes a tick on the Goals part through the re-check while a par
   assert.match(server, /if \(body\?\.command === 'state' && body\?\.state === 'done' && \(\(await readState\(\)\)\.advisor \?\? null\) !== null\) return focusNow\(\{ command: 'goal-done', id: body\.id \}\)/)
   assert.match(server, /goalChecked: async body => \{\n\s+const done = await goalChecked\(body, \{/)
 })
+
+test('the pages: the Goals part names the re-check and every outcome under a goal; the Focus run shows it in place of the question', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { dirname, join: joinPath } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const vm = await import('node:vm')
+  const script = await readFile(joinPath(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
+  const cut = (from, to) => script.slice(script.indexOf(from), script.indexOf(to))
+  const page = {}
+  vm.runInNewContext(`${cut('// goals:start', '// goals:end')}\n${cut('// focus:start', '// focus:end')}\nthis.goalFrameLine = goalFrameLine; this.goalFrameLines = goalFrameLines; this.focusView = focusView`, page)
+  const node = parseGoals([
+    '- [ ] G1 Lanterns',
+    '  Done when: every path is lit',
+    '  Rechecked (2026-10-19 08:00, Partner): failed · 1 of 2 points pass · gap: the gate path is dark · evidence pictures/g1/e.png',
+    '  Overturned (2026-10-19 08:40): ticked by you after the re-check failed',
+    '',
+  ].join('\n')).byId.get('G1')
+  assert.equal(page.goalFrameLine(node), 'Done when: every path is lit · re-check failed (attempt 1): the gate path is dark')
+  const lines = page.goalFrameLines({ nodes: [node] }, node)
+  assert.ok(lines.includes('Re-checked 2026-10-19 08:00 by Partner: failed · 1 of 2 points pass · gap: the gate path is dark · evidence pictures/g1/e.png'))
+  assert.ok(lines.includes('Overturned: ticked by you after the re-check failed'))
+  assert.equal(page.goalFrameLine({ ...node, recheckAsked: '2026-10-19 09:00' }).endsWith('your partner re-checks it'), true)
+  const focus = { id: 'G1', title: 'Lanterns', stage: 'run', doneWhen: 'every path is lit', vibe: [], vibePicture: null, vibeAgreed: 'x', parts: [{ title: 'Hang them', size: '1 h', state: 'done', owner: null, done: 1, total: 1 }], partnerDecides: [], youDecide: [], howAgreed: 'y', progress: { done: 1, total: 1, minutesLeft: null }, note: null, needs: [], recheckAsked: '2026-10-19 09:00', lastRecheck: null, attempts: 0 }
+  const asked = JSON.parse(JSON.stringify(page.focusView(focus, null, { canWrite: true, whyNot: null })))
+  assert.deepEqual([asked.vibeThere, asked.recheck.tone, asked.recheck.title], [null, 'asked', 'Your partner re-checks it'])
+  const gap = JSON.parse(JSON.stringify(page.focusView({ ...focus, recheckAsked: null, lastRecheck: { verdict: 'failed', summary: '1 of 2 points pass', gap: 'the gate path is dark' }, attempts: 1 }, null, { canWrite: true, whyNot: null })))
+  assert.deepEqual(gap.recheck, { tone: 'failed', title: 'The re-check found a gap (attempt 1)', text: '1 of 2 points pass; the gap: the gate path is dark. Your partner makes the steps that close it.' })
+  assert.notEqual(gap.vibeThere, null)
+  assert.match(script, /goalTickSaid\(await sendGoals\(\{ command: 'state', id, state: next \}\)\)/)
+})

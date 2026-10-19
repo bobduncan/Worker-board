@@ -4893,7 +4893,21 @@ function goalFrameLine(node) {
   const notes = node.notes.filter(line => line.startsWith('Note')).length
   if (notes > 0) parts.push(`${notes} note${notes === 1 ? '' : 's'}`)
   if (node.missing.length > 0) parts.push(`${node.missing.length} missing`)
+  // B358: where its re-check before the tick stands.
+  const recheck = goalRecheckLine(node)
+  if (recheck !== null) parts.push(recheck)
   return parts.join(' · ')
+}
+
+/** B358: a goal's re-check in a few words: asked, or its last outcome with the attempts so far; null without one. */
+function goalRecheckLine(node) {
+  if ((node.recheckAsked ?? null) !== null) return 'your partner re-checks it'
+  const last = (node.rechecks ?? []).at(-1)
+  if (last === undefined) return null
+  const attempts = (node.rechecks ?? []).filter(one => one.verdict === 'failed').length
+  if (last.verdict === 'passed') return `re-checked: ${last.summary}`
+  if (last.verdict === 'waits for you') return `re-check waits for you: ${last.gap ?? last.summary}`
+  return `re-check failed (attempt ${attempts}): ${last.gap ?? last.summary}`
 }
 
 /** A node's own lines unfolded, as the file names them; another goal by its title and id. Its asks are blocks of their own (B258). */
@@ -4912,6 +4926,10 @@ function goalFrameLines(goals, node) {
     lines.push(`Recommendation (${rec.id}): ${[rec.title, rec.why, rec.cost, rec.step ?? 'none'].filter(Boolean).join(' · ')}`)
   }
   if (node.brainstorm) lines.push(`Brainstorm: ${node.brainstorm.path} (${node.brainstorm.state})`)
+  // B358: its re-checks before the tick, each with its outcome and evidence, and the person's tick after a failed one.
+  for (const one of node.rechecks ?? []) lines.push(`Re-checked ${one.at}${one.by ? ` by ${one.by}` : ''}: ${one.verdict} · ${one.summary}${one.gap ? ` · ${one.verdict === 'waits for you' ? 'for you' : 'gap'}: ${one.gap}` : ''}${one.evidence ? ` · evidence ${one.evidence}` : ''}`)
+  for (const one of node.overturned ?? []) lines.push(`Overturned: ${one}`)
+  if ((node.recheckAsked ?? null) !== null) lines.push(`Re-check asked ${node.recheckAsked}: your partner re-checks it against its Done when before its tick`)
   lines.push(...node.notes)
   return lines
 }
@@ -6097,7 +6115,7 @@ $('goals-outline').addEventListener('click', event => {
     }
     goalsUi.confirm = null
     close()
-    return sendGoals({ command: 'state', id, state: 'done' })
+    return sendGoals({ command: 'state', id, state: 'done' }).then(goalTickSaid)
   }
   if (name === 'delete' || name === 'dissolve') {
     if (!isConfirmed(name, id)) {
@@ -6225,6 +6243,13 @@ async function goalsLink(target) {
   }
 }
 
+/** B358: what a tick on the Goals part did when it did not tick at once: the partner's re-check asked, or an overturn. */
+function goalTickSaid(result) {
+  if (result?.recheck === 'asked') goalsSay('Your partner re-checks it against its Done when first: it gets its tick once that passed.', 'ok')
+  else if (result?.overturned === true) goalsSay('Ticked by you after its re-check failed: the overturn is written under the goal.', 'ok')
+  return result
+}
+
 /** The dot: the next state; done with open goals inside asks once. */
 async function goalsCycle(id) {
   const node = board?.goals ? goalById(board.goals, id) : null
@@ -6236,7 +6261,7 @@ async function goalsCycle(id) {
     return redrawGoals()
   }
   goalsUi.confirm = null
-  await sendGoals({ command: 'state', id, state: next })
+  goalTickSaid(await sendGoals({ command: 'state', id, state: next }))
 }
 
 async function goalsMove(id, target) {
@@ -7313,6 +7338,18 @@ function focusCan(state) {
   return { canWrite: true, whyNot: null }
 }
 
+/**
+ * B358: the focus goal's re-check before its tick, for the run's card: asked (it runs), or its last outcome: a gap the
+ * partner closes with follow-up steps, or points for the person. Null without one, or after a passed one.
+ */
+function focusRecheckView(focus) {
+  if ((focus.recheckAsked ?? null) !== null) return { tone: 'asked', title: 'Your partner re-checks it', text: `Against its Done when and its vibe, with the steps' evidence: ${focus.id} gets its tick once that passed.` }
+  const last = focus.lastRecheck ?? null
+  if (last === null || last.verdict === 'passed') return null
+  if (last.verdict === 'waits for you') return { tone: 'waits', title: 'The re-check waits for you', text: `${last.summary}; for you to judge: ${last.gap ?? 'see the questions from your partner'}.` }
+  return { tone: 'failed', title: `The re-check found a gap (attempt ${focus.attempts ?? 1})`, text: `${last.summary}; the gap: ${last.gap ?? 'named under the goal'}. Your partner makes the steps that close it.` }
+}
+
 /** B354: whether a goal (or the focus) has a Done when line with words in it. */
 function hasDoneWhenLine(node) { return typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== '' }
 
@@ -7418,13 +7455,16 @@ function focusView(focus, goals, can = null, ui = {}) {
       vibe: focus.vibe,
       doneWhenLine: hasLine ? `Done when: ${focus.doneWhen.trim()}` : null,
       buttons: [
-        button('Yes', 'vibe-there-yes', hasLine, hasLine ? 'The goal is done: your partner asks for your next focus' : 'Its Done when is missing: the goal gets its tick against it'),
+        button('Yes', 'vibe-there-yes', hasLine, hasLine ? 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed' : 'Its Done when is missing: the goal gets its tick against it'),
         button('No', 'vibe-there-no', true, 'Say what is missing: your partner changes the how'),
       ],
       doneWhen: hasLine ? null : asked.includes(focus.id)
         ? button('Ask your partner again', 'done-when', true, 'Your partner was asked: ask once more when its Done when does not come')
         : button('Ask your partner to write its Done when', 'done-when', true, 'Your partner writes how you check the goal is done'),
     } : null
+    // B358: the re-check before the tick: while it runs it stands in place of the question; a gap it found is named.
+    view.recheck = focusRecheckView(focus)
+    if (view.recheck?.tone === 'asked') view.vibeThere = null
   }
   if (stage === 'done') view.pick = pickOf(`${focus.id} is done. What do you want to work on next?`)
   else if (ui.picking === true && allowed) {
@@ -7908,6 +7948,13 @@ function focusVibeThereCard(view, can) {
   return card
 }
 
+/** B358: the run's card of the goal's re-check: it runs, it found a gap, or it waits for the person. */
+function focusRecheckCard(recheck) {
+  const card = el('section', `focus-card focus-recheck is-${recheck.tone}`)
+  card.append(el('h3', '', recheck.title), el('p', '', recheck.text))
+  return card
+}
+
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
 function drawFocus(state) {
   const can = focusCan(state)
@@ -7949,6 +7996,7 @@ function drawFocus(state) {
       const left = el('div', 'focus-column')
       left.append(focusRunCard(view), focusSay(view.talkBar.placeholder, 'focus-say is-slim', { box: 'focus-bar-words', act: view.talkBar.act, isEnabled: view.talkBar.isEnabled, title: view.talkBar.title }))
       const right = el('div', 'focus-column')
+      if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
       if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can))
       right.append(focusNoteCard(view))
       body.append(left, right)

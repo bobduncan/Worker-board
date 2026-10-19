@@ -205,7 +205,7 @@ test('every part done: the question "Is the vibe there?" with the vibe, Yes and 
     vibe: ['every fight reads at a glance', 'hits feel heavy'],
     doneWhenLine: 'Done when: you judge a fight fun in one playthrough',
     buttons: [
-      { label: 'Yes', act: 'vibe-there-yes', isEnabled: true, title: 'The goal is done: your partner asks for your next focus' },
+      { label: 'Yes', act: 'vibe-there-yes', isEnabled: true, title: 'Your partner re-checks it against its Done when and its vibe; it gets its tick once that passed' },
       { label: 'No', act: 'vibe-there-no', isEnabled: true, title: 'Say what is missing: your partner changes the how' },
     ],
     doneWhen: null,

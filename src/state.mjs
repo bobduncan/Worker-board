@@ -924,6 +924,10 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     stage: focusStage(node),
     // B354: the goal gets its tick against its Done when.
     doneWhen: node.doneWhen,
+    // B358: its re-check before the tick: asked (the time), and the last outcome with the attempts so far.
+    recheckAsked: node.recheckAsked ?? null,
+    lastRecheck: node.rechecks?.at(-1) ?? null,
+    attempts: (node.rechecks ?? []).filter(one => one.verdict === 'failed').length,
     vibe: node.vibe,
     vibePicture: node.vibePicture,
     vibeAgreed: node.vibeAgreed,
