@@ -3623,11 +3623,25 @@ function needsView(state, ui) {
 
 /**
  * The Focus page as drawn (drawFocus): the focus, the map, the talks, the partner (its name, whether it runs, its
- * effort), the Partner answers switch, and what the daily note gathers, drawn as Needs your attention draws it.
+ * effort), the Partner answers switch, and the note's linked words (the asks' and the steps' ids). While the daily
+ * note gathers recaps or asks, they are drawn as Needs your attention draws them (who runs, the minute, the whole
+ * asks); without them none of that is drawn, so the page is not drawn anew each minute and its talk stays where the
+ * person reads it (the review of B408).
  */
 function focusPageView(state, ui) {
+  const gathers = gatheredRecaps(state).length > 0 || gatheredAsks(state).length > 0
+  // An ask's id for the linked words, and what gatheredAsks and gatheredRecaps decide by.
+  const linkable = list => (list ?? []).map(one => ({ id: one.id, workId: one.workId, blocking: one.blocking, isRefine: one.isRefine, isForm: one.isForm, isClosed: one.isClosed }))
+  const cards = gathers ? cardsView(state) : {
+    forYou: linkable(state.forYou),
+    backlogForYou: linkable(state.backlogForYou),
+    backlogClosed: linkable(state.backlogClosed),
+    recaps: linkable(state.recaps),
+    recapsShow: state.recapsShow ?? null,
+    backlog: stepKeysOf(state.backlog),
+  }
   return {
-    ...cardsView(state),
+    ...cards,
     focus: state.focus ?? null,
     goals: state.goals ?? null,
     brainstorms: state.brainstorms ?? null,
@@ -3638,10 +3652,16 @@ function focusPageView(state, ui) {
     ui,
   }
 }
-// redraw:end
 
 /** B408: what the person does in Needs your attention, for its view: the order, Show closed, what is picked, sent, open. */
 const needsUi = () => ({ showsClosed: showsClosed(), order: $('needs-order').value, withPartnerOpen: withPartnerUi.isOpen, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+
+/**
+ * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw
+ * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
+ */
+const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, asked: [...focusUi.asked], chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+// redraw:end
 
 /** B408: Needs your attention, drawn from its view when that changed. */
 function needsOnce(state) {
@@ -8945,12 +8965,6 @@ function drawAdvisorParts(state) {
 // B354: `asked`, the goals whose Done when the person asked the partner for on this page.
 const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], words: { talk: '', notYet: '', new: '', bar: '' } }
 const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar' }
-
-/**
- * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw
- * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
- */
-const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, asked: [...focusUi.asked], chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
 
 /** B408: the Focus page, drawn from its view when that changed. */
 function focusOnce(state) {

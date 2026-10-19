@@ -17,19 +17,46 @@ const cut = name => {
   return from === -1 || to === -1 ? '' : script.slice(from, to)
 }
 const MIN = 60_000
+const plain = value => JSON.parse(JSON.stringify(value))
 
-const page = {}
-vm.runInNewContext(`const MIN = ${MIN}\n${cut('redraw')}\nObject.assign(this, { needsView: typeof needsView === 'function' ? needsView : null, focusPageView: typeof focusPageView === 'function' ? focusPageView : null })`, page)
+/**
+ * The page's own code: its click table, the views and what of the person's they hold (needsUi, focusPageUi), run as
+ * the page runs them, over the page's sets of what is picked, sent and refused, with a document that keeps its click
+ * handler. `view.needs` and `view.focus` are what once() is keyed on.
+ */
+function loadPage() {
+  const page = {
+    listeners: [],
+    sent: [],
+    redrawn: [],
+    chosen: new Map(),
+    problems: new Map(),
+    sending: new Set(),
+    openForms: new Set(),
+    starting: new Set(),
+    focusUi: { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], words: { talk: '', notYet: '', new: '', bar: '' } },
+  }
+  page.document = { addEventListener: (type, handler) => page.listeners.push({ type, handler }) }
+  page.sendWork = (body, sendKey) => page.sent.push(plain([body, sendKey]))
+  page.redrawNeeds = () => page.redrawn.push('needs')
+  page.$ = id => (id === 'needs-order' ? { value: 'newest' } : null)
+  page.showsClosed = () => false
+  vm.runInNewContext(`const MIN = ${MIN}\nconst HOUR = 60 * MIN\n${cut('recaps')}\n${cut('clicks')}\n${cut('redraw')}
+Object.assign(this, { view: { needs: state => needsView(state, needsUi()), focus: state => focusPageView(state, focusPageUi()) } })`, page)
+  page.click = target => page.listeners.filter(one => one.type === 'click').forEach(one => one.handler({ target }))
+  return page
+}
 
 /** The redraw key once() compares: the view's JSON. */
 const key = view => JSON.stringify(view)
 
-const NEEDS_UI = { showsClosed: false, order: 'newest', withPartnerOpen: false, chosen: [], problems: [], sending: [], openForms: [], starting: [] }
+/** A button drawn anywhere on the page, with these data attributes; `closest` finds it by them, as the browser does. */
+const button = (attributes, dataset, disabled = false) => ({ dataset, disabled, closest: selector => (attributes.some(name => selector === `[data-${name}]`) ? button(attributes, dataset, disabled) : null) })
 
 function state(extra = {}) {
   return {
     readAt: Date.UTC(2026, 9, 19, 23, 30, 5),
-    forYou: [{ id: 'work:Q7', workId: 'Q7', from: 'Digger', title: 'Number or bar?', answer: null }],
+    forYou: [{ id: 'work:Q7', workId: 'Q7', from: 'Digger', title: 'Number or bar?', answer: null, blocking: false }],
     backlogForYou: [],
     backlogClosed: [],
     recaps: [],
@@ -55,85 +82,90 @@ function state(extra = {}) {
   }
 }
 
-test('bug a: the "With your partner" toggle changes what Needs your attention draws, so it opens at once', () => {
-  assert.equal(typeof page.needsView, 'function', 'Needs your attention has a view')
-  const closed = page.needsView(state(), NEEDS_UI)
-  const open = page.needsView(state(), { ...NEEDS_UI, withPartnerOpen: true })
-  assert.notEqual(key(open), key(closed), 'the click is part of the key: the part is drawn again at once')
-  assert.equal(open.ui.withPartnerOpen, true, 'and drawn from the view')
+test('bug a: the "With your partner" line opens at once: the click redraws Needs your attention with a new key', () => {
+  const page = loadPage()
+  const closed = key(page.view.needs(state()))
+  page.click(button(['with-partner'], { withPartner: 'toggle' }))
+  assert.deepEqual(page.redrawn, ['needs'], 'Needs your attention is drawn again')
+  const open = page.view.needs(state())
+  assert.notEqual(key(open), closed, 'with a key that changed, so once() draws it')
+  assert.equal(open.ui.withPartnerOpen, true, 'and the line is drawn open, from the view')
+  page.click(button(['with-partner'], { withPartner: 'toggle' }))
+  assert.equal(key(page.view.needs(state())), closed, 'a second click closes it')
   // The list it opens, and the partner's decided lines, are drawn from the view too: a new one shows at once.
-  assert.notEqual(key(page.needsView(state({ withPartner: [] }), NEEDS_UI)), key(closed))
-  assert.deepEqual(closed.withPartner, state().withPartner)
-  const decided = state({ partnerDecided: [{ ask: 'Q9', line: 'Q9: A (your advice)' }] })
-  assert.notEqual(key(page.needsView(decided, NEEDS_UI)), key(closed))
+  assert.notEqual(key(page.view.needs(state({ withPartner: [] }))), closed)
+  assert.notEqual(key(page.view.needs(state({ partnerDecided: [{ ask: 'Q9', line: 'Q9: A (your advice)' }] }))), closed)
 })
 
 test('bug b: the Partner answers switch shows what the store holds, its change on its way, and a refused change', () => {
-  assert.equal(typeof page.focusPageView, 'function', 'the Focus page has a view')
-  const ui = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], chosen: [], problems: [], sending: [], openForms: [], starting: [] }
-  const on = page.focusPageView(state(), ui)
-  assert.deepEqual(on.partnerAnswers, { on: true }, 'drawn from the view')
-  assert.notEqual(key(page.focusPageView(state({ partnerAnswers: { on: false } }), ui)), key(on), 'the store switched it off')
-  const asking = page.focusPageView(state(), { ...ui, sending: ['partner-answers'] })
-  assert.notEqual(key(asking), key(on), 'a change on its way turns the box off')
-  const refused = page.focusPageView(state(), { ...ui, problems: [['partner-answers', 'Not done: refused (409)']] })
-  assert.notEqual(key(refused), key(asking), 'the refusal shows, and the box shows the store again')
-  assert.notEqual(key(refused), key(on))
+  const page = loadPage()
+  const on = page.view.focus(state())
+  assert.deepEqual(plain(on.partnerAnswers), { on: true }, 'drawn from the view')
+  assert.notEqual(key(page.view.focus(state({ partnerAnswers: { on: false } }))), key(on), 'the store switched it off')
+  page.sending.add('partner-answers')
+  const asking = key(page.view.focus(state()))
+  assert.notEqual(asking, key(on), 'a change on its way turns the box off')
+  page.sending.delete('partner-answers')
+  page.problems.set('partner-answers', 'Not sent: refused (409)')
+  const refused = key(page.view.focus(state()))
+  assert.notEqual(refused, asking, 'the refusal shows, and the box shows the store again')
+  assert.notEqual(refused, key(on))
 })
 
 test('bug c: Undo of a partner\'s answer works wherever it is drawn, the daily note on the Focus page too', () => {
-  const sent = []
-  const redrawn = []
-  const listeners = []
-  const context = {
-    document: { addEventListener: (type, handler) => listeners.push({ type, handler }) },
-    sendWork: (body, sendKey) => sent.push([body, sendKey]),
-    redrawNeeds: () => redrawn.push('needs'),
-  }
-  vm.runInNewContext(`${cut('clicks')}\nthis.withPartnerUi = typeof withPartnerUi === 'object' ? withPartnerUi : null`, context)
-  const clicks = listeners.filter(one => one.type === 'click')
-  assert.equal(clicks.length, 1, 'one click handler on the document')
+  const page = loadPage()
+  assert.equal(page.listeners.filter(one => one.type === 'click').length, 1, 'one click handler on the document')
   // A button under the daily note: in no box of Needs your attention or the details.
-  const button = (attributes, dataset, disabled = false) => ({ dataset, disabled, closest: selector => (attributes.some(name => selector === `[data-${name}]`) ? button(attributes, dataset, disabled) : null) })
-  const click = target => clicks[0].handler({ target })
-  click(button(['take-back'], { takeBack: 'Q7' }))
-  assert.deepEqual(JSON.parse(JSON.stringify(sent)), [[{ action: 'undo', id: 'Q7' }, 'work:Q7']], 'the board\'s undo of the ask, by its id')
-  click(button(['take-back'], { takeBack: 'Q7' }, true))
-  assert.equal(sent.length, 1, 'an Undo on its way is not sent twice')
-  click({ closest: () => null })
-  assert.equal(sent.length, 1, 'a click on nothing of the table does nothing')
-  // Bug a's click goes through the same table: the line opens, and Needs your attention is drawn again.
-  assert.equal(context.withPartnerUi.isOpen, false)
-  click(button(['with-partner'], { withPartner: 'toggle' }))
-  assert.equal(context.withPartnerUi.isOpen, true)
-  assert.deepEqual(redrawn, ['needs'])
+  page.click(button(['take-back'], { takeBack: 'Q7' }))
+  assert.deepEqual(page.sent, [[{ action: 'undo', id: 'Q7' }, 'work:Q7']], 'the board\'s undo of the ask, by its id')
+  page.click(button(['take-back'], { takeBack: 'Q7' }, true))
+  assert.equal(page.sent.length, 1, 'an Undo on its way is not sent twice')
+  page.click({ closest: () => null })
+  assert.equal(page.sent.length, 1, 'a click on nothing of the table does nothing')
   // No box binds it any more, so a click is never handled twice.
   assert.doesNotMatch(script, /addEventListener\('click', takeBackClick\)/)
 })
 
 test('the key is what is drawn: what the parts do not show leaves them alone, so typing and scrolling stay', () => {
-  const before = page.needsView(state(), NEEDS_UI)
+  const page = loadPage()
+  const before = key(page.view.needs(state()))
   const busy = state({ readAt: state().readAt + 20_000, chats: [{ name: 'Digger', isRunning: true, state: 'waiting', doingNow: 'Testing', session: 's2' }] })
-  assert.equal(key(page.needsView(busy, NEEDS_UI)), key(before), 'a chat\'s work and the seconds are not drawn there')
-  const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], chosen: [], problems: [], sending: [], openForms: [], starting: [] }
-  assert.equal(key(page.focusPageView(busy, focusUi)), key(page.focusPageView(state(), focusUi)))
+  assert.equal(key(page.view.needs(busy)), before, 'a chat\'s work and the seconds are not drawn there')
   // What is drawn: whether a chat runs (a card asks to start it), the next minute (how long ago), a step's id (a link).
-  assert.notEqual(key(page.needsView(state({ chats: [{ name: 'Digger', isRunning: false }] }), NEEDS_UI)), key(before))
-  assert.notEqual(key(page.needsView(state({ readAt: state().readAt + MIN }), NEEDS_UI)), key(before))
-  assert.notEqual(key(page.needsView(state({ backlog: [{ name: 'Store', steps: [{ key: 'B2' }] }] }), NEEDS_UI)), key(before))
-  // The partner's effort switch and the main chat it asks are on the Focus page only.
-  assert.notEqual(key(page.focusPageView(state({ advisor: { name: 'Guide', isRunning: true, effort: { mode: 'low', isSet: true } } }), focusUi)), key(page.focusPageView(state(), focusUi)))
-  assert.equal(key(page.needsView(state({ workers: { main: 'Other' } }), NEEDS_UI)), key(before))
+  assert.notEqual(key(page.view.needs(state({ chats: [{ name: 'Digger', isRunning: false }] }))), before)
+  assert.notEqual(key(page.view.needs(state({ readAt: state().readAt + MIN }))), before)
+  assert.notEqual(key(page.view.needs(state({ backlog: [{ name: 'Store', steps: [{ key: 'B2' }] }] }))), before)
+  assert.equal(key(page.view.needs(state({ workers: { main: 'Other' } }))), before, 'the main chat of the effort switch is the Focus page\'s')
+})
+
+test('the review of B408: the Focus page is drawn anew each minute and for every ask only while the daily note gathers', () => {
+  const page = loadPage()
+  const quiet = key(page.view.focus(state()))
+  assert.equal(key(page.view.focus(state({ readAt: state().readAt + 3 * MIN }))), quiet, 'no new minute drawn: the talk stays where it is read')
+  assert.equal(key(page.view.focus(state({ chats: [{ name: 'Digger', isRunning: false }] }))), quiet, 'nor who runs')
+  const answered = state({ forYou: [{ ...state().forYou[0], answer: { by: 'person', text: 'A', at: 1 } }] })
+  assert.equal(key(page.view.focus(answered)), quiet, 'nor an answer to an ask')
+  assert.notEqual(key(page.view.focus(state({ forYou: [...state().forYou, { id: 'work:Q9', workId: 'Q9' }] }))), quiet, 'a new ask: the note may link it')
+  assert.notEqual(key(page.view.focus(state({ advisor: { name: 'Guide', isRunning: true, effort: { mode: 'low', isSet: true } } }))), quiet, 'the partner\'s effort switch')
+  // "Bother me: once a day": the ask is gathered under the note, drawn as a card: its minute and who runs count.
+  const daily = state({ recapsShow: 'daily' })
+  const gathered = key(page.view.focus(daily))
+  assert.notEqual(key(page.view.focus({ ...daily, readAt: daily.readAt + MIN })), gathered)
+  assert.notEqual(key(page.view.focus({ ...daily, chats: [{ name: 'Digger', isRunning: false }] })), gathered)
+  assert.notEqual(key(page.view.focus({ ...daily, forYou: [{ ...daily.forYou[0], answer: { by: 'partner', text: 'A', at: 1 } }] })), gathered)
 })
 
 /**
- * What a drawing reads of the state passed to it: `state.<field>` in its function and in every function it calls,
- * followed through the page's own functions. A view must hold each, or the part draws it from nothing.
+ * What a drawing reads of the state passed to it (`state.<field>`) and of the page's own `board`, in its function and
+ * every function it calls or passes on, followed through the page's own functions, but not into what a click does
+ * (`ACTS`) or `skip`. A view
+ * must hold each field, or the part draws it from nothing. Only a field's name is checked: a part of a field the view
+ * slims (a chat as its name and whether it runs) is kept by the view's own helpers (runnerOf, stepKeysOf, linkable).
  */
-function readsOf(start) {
+function readsOf(start, skip = []) {
   const names = new Set([...script.matchAll(/\n(?:async )?function (\w+)\(|\nconst (\w+) = /g)].map(m => m[1] ?? m[2]))
   const body = name => {
-    const fn = script.indexOf(`\nfunction ${name}(`)
+    const fn = script.search(new RegExp(`\\n(?:async )?function ${name}\\(`))
     if (fn !== -1) return script.slice(fn, script.indexOf('\n}\n', fn))
     const arrow = script.indexOf(`\nconst ${name} = `)
     if (arrow === -1) return ''
@@ -141,22 +173,37 @@ function readsOf(start) {
     const rest = script.slice(arrow + 1)
     return rest.slice(0, rest.search(/\n(?![\s)\]}])/))
   }
-  const seen = new Set()
-  const reads = new Set()
+  const strip = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  // What a button does on a click, and the page drawn anew: not part of the drawing.
+  const ACTS = ['send', 'sendWork', 'sendFocus', 'sendGoals', 'read', 'redrawNeeds', 'redrawFocus', 'focusAct', 'game', 'draw', 'once']
+  const seen = new Set([...ACTS, ...skip])
+  const reads = { state: new Set(), board: new Set() }
   const walk = name => {
     if (seen.has(name)) return
     seen.add(name)
-    const text = body(name)
-    for (const m of text.matchAll(/\bstate\??\.(\w+)/g)) reads.add(m[1])
-    for (const m of text.matchAll(/\b(\w+)\(/g)) if (names.has(m[1])) walk(m[1])
+    const text = strip(body(name))
+    for (const m of text.matchAll(/\b(state|board)\??\.(\w+)/g)) reads[m[1]].add(m[2])
+    // A call (not of a method), or a function handed on as an argument.
+    for (const m of text.matchAll(/(?<![.\w])(\w+)\s*\(|[(,]\s*(\w+)\s*(?=[),])/g)) {
+      const called = m[1] ?? m[2]
+      if (names.has(called)) walk(called)
+    }
   }
   walk(start)
   return reads
 }
 
+function assertHeld(part, view, reads) {
+  const fields = Object.keys(view)
+  for (const field of reads.state) assert.ok(fields.includes(field), `${part} reads state.${field}: its view must hold it`)
+  // board.<field> in a drawing is drawn from the whole state, outside the view: its view must hold that field too.
+  for (const field of reads.board) assert.ok(fields.includes(field), `${part} reads board.${field}: its view must hold it`)
+}
+
 test('each field Needs your attention and the Focus page read is in their views', () => {
-  const needs = Object.keys(page.needsView(state(), NEEDS_UI))
-  for (const field of readsOf('drawNeeds')) assert.ok(needs.includes(field), `Needs your attention reads state.${field}: its view must hold it`)
-  const focus = Object.keys(page.focusPageView(state(), {}))
-  for (const field of readsOf('drawFocus')) assert.ok(focus.includes(field), `the Focus page reads state.${field}: its view must hold it`)
+  const page = loadPage()
+  assertHeld('Needs your attention', page.view.needs(state()), readsOf('drawNeeds'))
+  // The Focus page with the daily note's cards, and without them (then its view holds no cards' fields).
+  assertHeld('The Focus page', page.view.focus(state({ recapsShow: 'daily' })), readsOf('drawFocus'))
+  assertHeld('The Focus page without gathered cards', page.view.focus(state()), readsOf('drawFocus', ['gatheredCards', 'focusRecapCard', 'focusAsksCard']))
 })

@@ -2409,7 +2409,7 @@ Picture: `art-inbox/worker-board/partner-answers/note.png`.
 6. **Undo** (`api.mjs` `undo`, `takeBack`; `focus.mjs` `undoLine` with a `tell` port; `server.mjs` `undoNow`): the
    note's Undo on a line that lists a partner's answer (the ask whose `Daily note` is that note and whose `Note line`
    is that line), and the Undo on the answered ask's card ("Show closed": a partner's answer stays among the closed cards for 7 days,
-   `canTakeBack`; `partnerAnswerView`, `partnerAnswerParts`, `takeBackClick`), take it back: the ask is open again with
+   `canTakeBack`; `partnerAnswerView`, `partnerAnswerParts`, the click table's `take-back`, B408), take it back: the ask is open again with
    `Route: person` and "Your partner had answered: <answer>; you took it back" under `## Route`, a step its holder blocked
    on it waits on the person again (the flow's move as its holder's role), the note's line is marked under "Undo
    asked" (the page says "taken back"), and the asking chat gets one line, "The person took back the partner's answer
