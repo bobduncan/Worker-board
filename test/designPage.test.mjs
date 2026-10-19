@@ -15,7 +15,7 @@ const markup = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = script.slice(script.indexOf('// design:start'), script.indexOf('// design:end'))
 const page = {}
-vm.runInNewContext(`${cut}\nObject.assign(this, { limitsOf, ideaName, ideaBadge, designView, timeTyped, makeBody, againBody, retryBody, missingOf, sendBody, firstForm, blankForm, sentWords, pastedReference })`, page)
+vm.runInNewContext(`${cut}\nObject.assign(this, { limitsOf, ideaName, ideaBadge, designView, timeTyped, makeBody, againBody, retryBody, missingOf, sendBody, firstForm, blankForm, bareSentWords, sentWords, pastedReference })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const MIN = 60_000
@@ -221,6 +221,8 @@ test('B368: part 3 is open without a picture: for a new idea, and for an idea no
   const form = { title: 'Sort the backlog', description: '', requirements: [''], worker: '', time: '' }
   assert.deepEqual(plain(page.sendBody(null, form, 'backlog', design())), { body: { action: 'send', where: 'backlog', title: 'Sort the backlog', description: '', requirements: [], worker: null, minutes: null } })
   assert.deepEqual(plain(page.blankForm()), { title: '', description: '', requirements: [''], worker: '', time: '' })
+  assert.equal(page.bareSentWords({ where: 'queue', worker: 'Units', title: 'Sort it' }, 'Main'), 'Sent: you asked Main to have "Sort it" put in the queue of Units. It shows on the backlog once Main wrote it.')
+  assert.match(script, /\$\('design-fields'\)\.disabled = !isOpen \|\| isDesignSending/)
   // With a picture everything is as it was: agree, take it back, and the idea's id in the step.
   assert.equal(page.sendBody(idea(), form, 'queue', design()).body.idea, 'i1')
   const agreed = view(design([idea({ agreed: 2, status: 'agreed' })]))

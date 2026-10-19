@@ -10101,6 +10101,13 @@ function sendBody(idea, form, where, design) {
   return { body: idea === null ? body : { action: 'send', idea: idea.id, ...body } }
 }
 
+/** B368: what part 3 says after a step without an idea was sent: that it was sent and where it goes, not more. */
+function bareSentWords(sent, main = null) {
+  const who = main ?? 'the main chat'
+  const what = sent.where === 'queue' ? `put in ${sent.worker === null ? 'a queue' : `the queue of ${sent.worker}`}` : 'put on the backlog'
+  return `Sent: you asked ${who} to have "${sent.title}" ${what}. It shows on the backlog once ${who} wrote it.`
+}
+
 /** B368: the empty form of a step asked without an idea. */
 function blankForm() {
   return { title: '', description: '', requirements: [''], worker: '', time: '' }
@@ -10318,7 +10325,8 @@ function drawDesignForm(design, view, main) {
     })])
   })
   $('design-worker').value = form === null || view.form === 'locked' ? '' : idea?.sent?.worker ?? form.worker
-  $('design-fields').disabled = !isOpen
+  // While a step is being asked for the fields wait too: what is typed then would be emptied with the form.
+  $('design-fields').disabled = !isOpen || isDesignSending
   // Once the step was asked for, what was asked stands in its place.
   $('design-fields').hidden = view.form === 'sent'
   $('design-title').maxLength = limitsOf(design).title
@@ -10331,7 +10339,8 @@ function drawDesignForm(design, view, main) {
     : view.form === 'open' && cannotSend ? design.whyNot ?? 'This board cannot ask the main chat for the step.'
       : view.form === 'open' && view.isLost ? 'Your asking did not arrive. Send it again.'
         // B368: the step of its own that was just asked for; the form is empty again for the next.
-        : idea === null && designBareSent !== null ? sentWords({ ...designBareSent, state: 'waiting', step: null }, main)[0]
+        // Its way to the main chat is not followed here: the note says only that it was sent, and where it goes.
+        : idea === null && designBareSent !== null ? bareSentWords(designBareSent, main)
           : idea === null ? 'A picture is optional: fill this in for a step without one, or make a picture first.' : ''
   $('design-form-note').hidden = $('design-form-note').textContent === ''
   const sent = $('design-sent')
