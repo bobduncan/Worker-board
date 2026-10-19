@@ -5654,7 +5654,7 @@ function drawGoalSteps(state) {
     parts.push(filters, el('h3', 'goal-steps-title', 'Associated steps'), el('p', 'muted', 'Steps that contribute to this goal.'))
     const list = el('ol', 'goal-steps-list')
     for (const row of view.rows) {
-      const item = el('li', `goal-step is-${row.tone}`)
+      const item = el('li', `goal-step tone-${row.tone}`)
       const open = el('button', 'goal-step-open')
       open.type = 'button'
       open.dataset.goalStepOpen = row.key
@@ -5664,7 +5664,7 @@ function drawGoalSteps(state) {
       words.append(el('b', '', row.title), ...(row.line === '' ? [] : [el('small', '', row.line)]))
       open.append(words)
       const side = el('span', 'goal-step-side')
-      side.append(el('span', `goal-step-badge is-${row.tone}`, row.badge), ...(row.chat === '' ? [] : [el('small', '', row.chat)]))
+      side.append(el('span', `goal-step-badge tone-${row.tone}`, row.badge), ...(row.chat === '' ? [] : [el('small', '', row.chat)]))
       const more = el('button', 'goal-step-more', '⋮')
       more.type = 'button'
       more.dataset.goalStepMenu = row.key
@@ -5707,7 +5707,9 @@ function goalMissingBox(view) {
       button.disabled = !view.canWrite || goalStepsUi.busy
       button.title = view.canWrite ? (button === add ? `A new step under ${view.goal.id}; your partner refines it` : 'This line goes from the goal') : view.whyNot
     }
-    row.append(el('span', 'goal-missing-sign', '!'), words, add, dismiss)
+    const acts = el('span', 'goal-missing-acts')
+    acts.append(add, dismiss)
+    row.append(el('span', 'goal-missing-sign', '!'), words, acts)
     part.append(row)
   }
   if (view.addAll !== null) {
