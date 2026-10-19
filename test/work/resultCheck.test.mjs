@@ -287,3 +287,24 @@ test('the second review: a fix done while a point still waits for the person ask
     await rm(store.dir, { recursive: true, force: true })
   }
 })
+
+test('B381: a failed point\'s full text, over a thousand characters, stands in the fix step\'s What we build and Context', async () => {
+  const store = await fresh()
+  try {
+    const { id } = await reported(store)
+    const long = `warm yellow light, never white: ${'the lamp by the gate and the two by the pond still glow white at dusk, and the docs say nothing of the colour; '.repeat(10)}end of the point`
+    assert.ok(long.length > 1000)
+    const checked = await store.partner({ action: 'checked', id, evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', `fail: ${long}`] })
+    assert.equal(checked.ok, true, checked.why)
+    const fix = await item(store.dir, checked.result.fix)
+    assert.deepEqual(fix.sections.get('What we build'), [`- ${long}`])
+    assert.ok(fix.sections.get('Context').some(one => one.trim() === `- ${long}`), 'the Context holds the point whole')
+    assert.ok(fix.sections.get('Refined').some(one => one.trim() === `- ${long}`), 'the refine block holds it whole')
+    // Its title stays short.
+    assert.ok(valueOf(fix, 'Title').length <= 110)
+    // The step it fixes keeps the point whole in its check too.
+    assert.ok((await item(store.dir, id)).sections.get('Checked').includes(`- fail: ${long}`))
+  } finally {
+    await rm(store.dir, { recursive: true, force: true })
+  }
+})

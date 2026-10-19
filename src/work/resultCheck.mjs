@@ -31,7 +31,8 @@ export function parsePoints(value) {
     const found = one.trim().replace(/^[-*]\s+/, '').match(/^(\w+)\s*[:–-]\s*(.+)$/)
     const verdict = found?.[1].toLowerCase()
     if (found === null || !VERDICTS.includes(verdict)) return { ok: false, why: `"${one.trim().slice(0, 60)}" is no point: write "pass: <point>", "fail: <point>" or "ask: <point>".` }
-    points.push({ verdict, text: found[2].replace(/\s+/g, ' ').trim().slice(0, 300) })
+    // B381: a point is kept whole (a long one up to 4000 characters), so its fix step carries all of it.
+    points.push({ verdict, text: found[2].replace(/\s+/g, ' ').trim().slice(0, 4000) })
   }
   return { ok: true, points }
 }
