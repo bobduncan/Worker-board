@@ -7,12 +7,13 @@
 // project has no game until one is added by hand.
 
 import { spawn } from 'node:child_process'
-import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { DEFAULTS } from './config.mjs'
 import { gitRunner } from './folders.mjs'
 import { boardsFile, launchEntry, registerHome, resolvePort, unregisterHome, withEntry } from './ports.mjs'
+import { writeAtomic } from './write.mjs'
 
 /** The folder of the board's own copy inside a new project: its launch entry is named after it. */
 export const BOARD_FOLDER = 'worker-board'
@@ -225,7 +226,7 @@ export async function makeProject({ name, folder, prefix, here, boards = boardsF
       mainBriefing: await read('examples/main-briefing.md'), workerBriefing: await read('examples/worker-briefing.md'),
     }
     const first = projectFiles({ name: checked.name, prefix: checked.prefix, project, board, examples })
-    await writeFile(join(board, 'config.json'), first.config)
+    await writeAtomic(join(board, 'config.json'), first.config)
     lines.push(`Its own copy of the board: ${board}.`)
 
     // The port of its own (B319): kept for it in the PC's list from now on, and named in its launch entry.
@@ -236,10 +237,10 @@ export async function makeProject({ name, folder, prefix, here, boards = boardsF
     const made = projectFiles({ name: checked.name, prefix: checked.prefix, project, board, port: chosen.port, examples })
     for (const [path, text] of Object.entries(made.files)) {
       await mkdir(dirname(join(project, path)), { recursive: true })
-      await writeFile(join(project, path), text)
+      await writeAtomic(join(project, path), text)
     }
     const entry = launchEntry({ folder: board, port: chosen.port, node })
-    await writeFile(join(project, '.claude', 'launch.json'), withEntry('', entry))
+    await writeAtomic(join(project, '.claude', 'launch.json'), withEntry('', entry))
     lines.push(`Its board's port: ${chosen.port}${chosen.why === 'moved' ? ` (${config.port} is another project's board's)` : ''}; the chats' prefix: "${checked.prefix}".`)
 
     const icon = { name: `${checked.name} board`, target: node, args: `"${join(board, 'start-board.mjs')}" --open`, cwd: board, icon: join(board, 'public', 'board.ico') }

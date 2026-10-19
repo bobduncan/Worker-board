@@ -5,9 +5,11 @@
 // OpenAI command line the person is signed in to; the board holds no key and calls no service itself.
 
 import { spawn } from 'node:child_process'
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+
+import { writeAtomic } from './write.mjs'
 
 /** The name Codex is asked to save its picture under, in its own folder. */
 const PICTURE = 'picture.png'
@@ -99,9 +101,10 @@ export async function makePicture({ command, prompt, images, to, seconds, now = 
       return { ok: false, why: `Codex made no picture${ended.code === 0 || ended.code === null ? '' : ` (it ended with code ${ended.code})`}.${said === '' ? '' : ` It said: ${said.slice(0, 200)}`}`, seconds: took() }
     }
     await mkdir(dirname(to), { recursive: true })
-    await copyFile(made, to)
+    // B406: whole or not there, never half a picture.
+    await writeAtomic(to, await readFile(made))
     // The words it was made with stay beside the picture, as with the pictures made by hand.
-    await writeFile(to.replace(/\.png$/i, '.prompt.txt'), prompt).catch(() => {})
+    await writeAtomic(to.replace(/\.png$/i, '.prompt.txt'), prompt).catch(() => {})
     return { ok: true, seconds: took() }
   } catch {
     return { ok: false, why: 'The picture could not be made or kept.', seconds: took() }
