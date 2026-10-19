@@ -17,7 +17,9 @@ const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
  * The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar;
  * B354: ask the partner for a goal's Done when; B358: tick a goal on the Goals part (its re-check first).
  */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done', 'plan-confirm', 'plan-change', 'plan-ask']
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done',
+  // Vision (2026-10-19): the Vision tab's moves on the product plan (planWord, below).
+  'plan-confirm', 'plan-change', 'plan-ask', 'plan-deeper', 'plan-marks', 'plan-feature-add', 'plan-goals-confirm', 'plan-goals-change', 'plan-goals-agree']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -84,17 +86,27 @@ export function focusMove(body, ctx) {
   return run
 }
 
+/** Vision (2026-10-19): the Vision tab's moves, each a word to the partner. */
+const PLAN_MOVES = FOCUS_MOVES.filter(command => command.startsWith('plan-'))
+const PLAN_IDS = { 'plan-confirm': /^P\d+$/, 'plan-ask': /^P\d+$/, 'plan-deeper': /^P\d+$/, 'plan-change': /^[PFS]\d+$/ }
+const MARKS_LINE = /^F\d+ (must|later|no|unsure)(; F\d+ (must|later|no|unsure))*$/
+const GOALS_LINE = /^S\d+(, S\d+)*$/
+
 /**
- * Plan (2026-10-19): the Plan part's two moves on an answer of the product plan: Confirm (the answer is the person's
- * word now) and Change (their words for a new answer). The partner is the page's only writer, so nothing is written
- * here: the word goes to the partner (roles/partner.md, "The plan interview").
+ * Vision (2026-10-19): a move of the Vision tab on the product plan: Confirm an answer, Change an answer, feature or
+ * goal (with the person's words), ask for options or deeper questions, send the feature marks or goal confirms in one
+ * word, add a feature, change the whole goal preset, or put the goals in the goal map. The partner is the page's only
+ * writer, so nothing is written here: the word goes to the partner (roles/partner.md, "The plan interview").
  */
 function planWord(command, body, ctx) {
   const id = String(body.id ?? '').trim()
-  if (!/^P\d+$/.test(id)) return refuse(400, 'Name the answer by its id (P5).')
+  const pattern = PLAN_IDS[command]
+  if (pattern !== undefined && !pattern.test(id)) return refuse(400, command === 'plan-change' ? 'Name what to change by its id (P5, F3 or S2).' : 'Name the answer by its id (P5).')
   const words = oneLine(body.text, 1000)
-  if (command === 'plan-change' && words === '') return refuse(400, 'Say what the answer should be, in your words.')
-  return { ok: true, result: { id }, words: planWords(command, { to: ctx.partner.name, id, words, job: ctx.job }) }
+  if (['plan-change', 'plan-feature-add', 'plan-goals-change'].includes(command) && words === '') return refuse(400, 'Say it in your words first.')
+  if (command === 'plan-marks' && !MARKS_LINE.test(words)) return refuse(400, 'Give the marks as "F3 later; F5 must".')
+  if (command === 'plan-goals-confirm' && !GOALS_LINE.test(words)) return refuse(400, 'Give the goals as "S1, S2".')
+  return { ok: true, result: { id: id === '' ? null : id }, words: planWords(command, { to: ctx.partner.name, id, words, job: ctx.job }) }
 }
 
 async function move(body, ctx) {
@@ -104,7 +116,7 @@ async function move(body, ctx) {
   if (ctx.canWrite !== true) return refuse(403, 'This board only shows: work on the focus on the board that delivers.')
   const isMove = FOCUS_MOVES.includes(command)
   if (isMove && (ctx.partner ?? null) === null) return refuse(409, 'No partner chat is on the board: the setting advisor names none.')
-  if (command === 'plan-confirm' || command === 'plan-change' || command === 'plan-ask') return planWord(command, body, ctx)
+  if (PLAN_MOVES.includes(command)) return planWord(command, body, ctx)
   const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
   const text = await readMap(ctx.fs, ctx.goalsFile)
   if (text === null) return refuse(404, 'There is no goal map to write into.')

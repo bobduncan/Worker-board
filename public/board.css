@@ -287,7 +287,6 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 .vision-title h1 { font-size: 22px; font-weight: 700; margin: 0; }
 .vision-title small { font-size: 14px; }
-.vision-modes { display: flex; gap: 6px; }
 .vision-button { padding: 7px 14px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
 .vision-button:hover:not(:disabled), .vision-button:focus-visible { filter: brightness(1.12); outline: 2px solid #8fb4ff; outline-offset: 2px; }
 .vision-button.is-primary { border-color: transparent; background: var(--free); color: #fff; font-weight: 600; }
@@ -341,10 +340,55 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-why.muted { font-size: 13.5px; }
 .vision-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .vision-buttons .grow { flex: 1; }
+/* Vision, the steps (2026-10-19): Vision → Features → Goals, and the interview over all of them. */
+.vision-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.vision-arrow { color: var(--muted); }
+.vision-mode.is-done { color: var(--working); }
+.vision-interview { margin-left: 10px; }
+.vision-kicker { margin: 0 0 8px; font-size: 12.5px; color: var(--muted); text-transform: none; }
+.vision-check { margin: 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 14px; line-height: 1.5; }
+.vision-pending { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--free); border-radius: 10px; background: #16294a; font-size: 14px; }
+.vision-pending .grow { flex: 1; }
+.vision-grid.is-features { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+.vision-feature { gap: 8px; padding: 10px 12px; }
+.vision-feature h3 { flex-direction: column; align-items: flex-start; gap: 4px; font-size: 15px; }
+.vision-feature.is-pending { border-color: var(--free); }
+.vision-feature.is-no { opacity: 0.6; }
+.vision-feature .vision-pictures { grid-template-columns: 1fr; }
+.vision-nopicture { aspect-ratio: 16 / 10; border: 1px dashed var(--line); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+.vision-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.vision-tag { font-size: 11.5px; font-weight: 500; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.vision-tag.is-complex { border-color: var(--warn); color: var(--warn); cursor: help; }
+.vision-tag.is-built-yes { border-color: var(--working); color: var(--working); }
+.vision-why-complex { margin: 0; font-size: 13px; color: var(--warn); }
+.vision-marks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.vision-mark { padding: 5px 0; font-size: 13px; }
+.vision-mark[aria-pressed="true"].is-must { border-color: var(--working); background: #12301f; color: var(--working); font-weight: 600; }
+.vision-mark[aria-pressed="true"].is-later { border-color: var(--free); background: #16294a; color: #8fb4ff; font-weight: 600; }
+.vision-mark[aria-pressed="true"].is-no { border-color: var(--muted); background: var(--bg); color: var(--muted); font-weight: 600; }
+.vision-mark[aria-pressed="true"].is-unsure { border-color: var(--waiting); background: #3a2a10; color: var(--waiting); font-weight: 600; }
+.vision-extra { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px dashed var(--line); border-radius: 12px; }
+.vision-extra h3 { margin: 0; font-size: 15px; }
+.vision-box { width: 100%; padding: 8px 10px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 14px; resize: none; }
+.vision-milestone { display: flex; flex-direction: column; gap: 8px; }
+.vision-milestone h2 { margin: 6px 0 2px; font-size: 18px; }
+.vision-goal { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.vision-goal.is-confirmed { border-color: #1d5c3a; }
+.vision-goal.is-confirming { border-color: var(--free); }
+.vision-goal-picture .picture { display: block; width: 100%; }
+.vision-goal-picture .picture img { aspect-ratio: 16 / 10; width: 100%; object-fit: contain; border-radius: 8px; background: var(--bg); }
+.vision-goal-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vision-goal-body h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; font-size: 16px; }
+.vision-done-when { margin: 0; font-size: 14px; line-height: 1.45; }
+.vision-goal-buttons { display: flex; flex-direction: column; gap: 6px; }
+.vision-goal-buttons .vision-button { padding: 5px 12px; font-size: 13px; }
 @media (max-width: 700px) {
   .vision { padding: 12px 12px 24px; }
   .vision-pitch { font-size: 20px; }
   .vision-slide { padding: 12px; }
+  .vision-goal { grid-template-columns: 1fr; }
+  .vision-goal-buttons { flex-direction: row; flex-wrap: wrap; }
+  .vision-interview { margin-left: 0; }
 }
 .focus-there { border-color: var(--working); }
 .focus-there h3 { color: var(--working); }
