@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="960" height="540">
+<rect width="960" height="540" fill="#0a0f18"/>
+<rect x="0" y="0" width="960" height="48" fill="#0c121d"/><rect x="0" y="48" width="960" height="1" fill="#202d40"/>
+<rect x="22" y="10" width="97.2" height="36" rx="6" fill="#101826" stroke="none" stroke-width="1"/><rect x="22" y="43" width="97.2" height="3" fill="#3b82f6"/><text x="70.6" y="33" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#e8eef7" text-anchor="middle">Overview</text><text x="161.2" y="33" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="15" font-weight="400" fill="#8d9aae" text-anchor="middle">Focus</text><text x="247.6" y="33" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="15" font-weight="400" fill="#8d9aae" text-anchor="middle">Backlog</text><text x="338.2" y="33" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="15" font-weight="400" fill="#8d9aae" text-anchor="middle">Design</text>
+<circle cx="930" cy="26" r="13" fill="none" stroke="#2a3850"/><text x="930" y="31" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" fill="#e8eef7" text-anchor="middle">?</text>
+<text x="24" y="92" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="26" font-weight="700" fill="#e8eef7" text-anchor="start">My project</text>
+<text x="24" y="120" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="14" font-weight="400" fill="#8d9aae" text-anchor="start">A new project: no main chat yet</text>
+<rect x="24" y="146" width="520" height="170" rx="12" fill="#101826" stroke="#202d40" stroke-width="1"/>
+<text x="48" y="184" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#e8eef7" text-anchor="start">Start the project</text>
+<rect x="48" y="204" width="380" height="8" rx="4" fill="#8d9aae" opacity="0.55"/>
+<rect x="48" y="222" width="300" height="8" rx="4" fill="#8d9aae" opacity="0.55"/>
+<rect x="48" y="248" width="170" height="46" rx="8" fill="#3b82f6" stroke="none" stroke-width="1"/>
+<text x="133" y="278" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="17" font-weight="700" fill="#e8eef7" text-anchor="middle">Initialise</text>
+<rect x="42" y="242" width="182" height="58" rx="14" fill="none" stroke="#f6b93b" stroke-width="10" opacity="0.18"/>
+<rect x="42" y="242" width="182" height="58" rx="14" fill="none" stroke="#f6b93b" stroke-width="3"/>
+<circle cx="42" cy="242" r="19" fill="#f6b93b" stroke="#0a0f18" stroke-width="3"/>
+<text x="42" y="249" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="21" font-weight="800" fill="#1a1204" text-anchor="middle">2</text>
+<rect x="48" y="308" width="151.6" height="32" rx="8" fill="#2a2110" stroke="#f6b93b" stroke-width="1"/>
+<text x="63" y="329" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#ffe2a6" text-anchor="start">Press Initialise</text>
+<line x1="236" y1="271" x2="600" y2="271" stroke="#3b82f6" stroke-width="3" stroke-linecap="round"/><polygon points="600.0,271.0 589.2,276.2 589.2,265.8" fill="#3b82f6"/>
+<rect x="612" y="146" width="320" height="250" rx="12" fill="#101826" stroke="#202d40" stroke-width="1"/>
+<text x="632" y="178" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#e8eef7" text-anchor="start">Main chat</text>
+<text x="718" y="178" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="12.5" font-weight="400" fill="#8d9aae" text-anchor="start">starts in the Claude app</text>
+<rect x="632" y="198" width="250" height="66" rx="10" fill="#152032" stroke="#202d40" stroke-width="1"/><rect x="646" y="211" width="199.8" height="7" rx="3.5" fill="#8d9aae" opacity="0.55"/><rect x="646" y="227" width="199.8" height="7" rx="3.5" fill="#8d9aae" opacity="0.55"/><rect x="646" y="243" width="133.2" height="7" rx="3.5" fill="#8d9aae" opacity="0.55"/>
+<text x="632" y="296" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="13" font-weight="400" fill="#8d9aae" text-anchor="start">It sets up the rest:</text>
+<circle cx="640" cy="322" r="4" fill="#3fd27f"/><text x="652" y="327" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="13" font-weight="400" fill="#e8eef7" text-anchor="start">the workers</text>
+<circle cx="640" cy="344" r="4" fill="#3fd27f"/><text x="652" y="349" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="13" font-weight="400" fill="#e8eef7" text-anchor="start">your partner</text>
+<circle cx="640" cy="366" r="4" fill="#3fd27f"/><text x="652" y="371" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="13" font-weight="400" fill="#e8eef7" text-anchor="start">the backlog</text>
+
+</svg>
