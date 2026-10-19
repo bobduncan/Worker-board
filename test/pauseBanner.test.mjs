@@ -110,17 +110,41 @@ test('resuming: done once every holder has started a turn since the resume; the 
 const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
 const html = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'index.html'), 'utf8')
 const page = { clock: ms => { const at = new Date(ms); return `${two(at.getHours())}:${two(at.getMinutes())}` } }
-vm.runInNewContext(`${script.slice(script.indexOf('// pause:start'), script.indexOf('// pause:end'))}\nObject.assign(this, { pauseLines })`, page)
+vm.runInNewContext(`${script.slice(script.indexOf('// pause:start'), script.indexOf('// pause:end'))}\nObject.assign(this, { pauseLines, pauseRing })`, page)
 /** The page's lines, as plain objects of this realm. */
 const pauseLinesOf = pause => JSON.parse(JSON.stringify(page.pauseLines(pause)))
 
-test('the page: "Pausing since HH:MM: still working: ...", then "Safe to restart"; a step with no checkpoint is said beside it', () => {
+/** The page's ring of a pause, as a plain object of this realm. */
+const pauseRingOf = pause => JSON.parse(JSON.stringify(page.pauseRing(pause)))
+
+test('B364, the user\'s pick B: while pausing the panel is one ring, a slice per chat, the count of still chats in its middle, the names beside by state', () => {
   const since = new Date(2026, 9, 18, 21, 1).getTime()
-  const pausing = { state: 'pausing', since, working: ['Board'], asking: [], typing: [], unsaved: [{ chat: 'Support', id: 'B280' }], offBoard: [], isSafe: false, main: MAIN, typedAt: null }
-  const info = { tone: 'muted', text: 'B280 (Support) has no checkpoint; it resumes from its branch and History.' }
-  assert.deepEqual(pauseLinesOf(pausing), [{ tone: '', text: 'Pausing since 21:01: still working: Board.' }, info])
-  assert.deepEqual(pauseLinesOf({ ...pausing, working: [], isSafe: true }), [{ tone: 'ready', text: 'Safe to restart: paused since 21:01, no chat is working. You can quit Claude now.' }, info])
-  assert.deepEqual(pauseLinesOf({ ...pausing, working: [], unsaved: [], isSafe: true }), [{ tone: 'ready', text: 'Safe to restart: paused since 21:01, no chat is working. You can quit Claude now.' }])
+  const chats = [
+    { name: 'Main', state: 'still' }, { name: 'Worker 1', state: 'working' }, { name: 'Worker 2', state: 'still' },
+    { name: 'Worker 3', state: 'still' }, { name: 'Worker 5', state: 'off' }, { name: 'Advisor', state: 'typing' },
+  ]
+  const pausing = { state: 'pausing', since, working: ['Worker 1'], asking: [], typing: ['Advisor'], unsaved: [{ chat: 'Worker 1', id: 'B09' }], offBoard: [], isSafe: false, chats, main: MAIN, typedAt: null }
+  const ring = pauseRingOf(pausing)
+  assert.deepEqual([ring.head, ring.tone, ring.still, ring.of], ['Pausing…', '', 3, 5])
+  assert.deepEqual(ring.slices, ['still', 'working', 'still', 'still', 'off', 'typing'])
+  assert.deepEqual(ring.groups, [
+    { state: 'working', text: 'Worker 1' }, { state: 'typing', text: 'Advisor (a line is being typed)' },
+    { state: 'still', text: 'Main, Worker 2, Worker 3' }, { state: 'off', text: 'Worker 5 (not running)' },
+  ])
+  // The details, one click away: since when, and each step with no checkpoint.
+  assert.deepEqual(ring.notes, ['Paused since 21:01.', 'B09 (Worker 1) has no checkpoint; it resumes from its branch and History.'])
+  // Nobody works any more: all still, safe to restart.
+  const still = chats.map(chat => ({ ...chat, state: chat.state === 'off' ? 'off' : 'still' }))
+  const safe = pauseRingOf({ ...pausing, working: [], typing: [], unsaved: [], isSafe: true, chats: still })
+  assert.deepEqual([safe.head, safe.tone, safe.still, safe.of, safe.isDone], ['All still: safe to restart', 'ready', 5, 5, true])
+  assert.deepEqual(safe.groups, [{ state: 'still', text: 'Main, Worker 1, Worker 2, Worker 3, Advisor' }, { state: 'off', text: 'Worker 5 (not running)' }])
+  assert.deepEqual(safe.notes, ['Paused since 21:01.'])
+  // A chat in the app's question form waits for the person.
+  assert.deepEqual(pauseRingOf({ ...pausing, chats: [{ name: 'Advisor', state: 'asking' }] }).groups, [{ state: 'asking', text: 'Advisor (waiting for you)' }])
+  // No ring outside a pause; the pause's lines are only those of a resume now.
+  assert.equal(page.pauseRing({ state: 'resuming', since, waiting: [] }), null)
+  assert.equal(page.pauseRing(null), null)
+  assert.deepEqual(pauseLinesOf(pausing), [])
   assert.deepEqual(pauseLinesOf({ state: 'running', since }), [])
   assert.deepEqual(pauseLinesOf(null), [])
 })
@@ -150,11 +174,10 @@ test('the page after Resume all: who has not started yet; "Open <main>" by its s
 
 test('review 2: the page names a held step whose chat is not on the board, by its title (beside Safe, the review of Pause 2)', () => {
   const since = new Date(2026, 9, 18, 21, 1).getTime()
-  const pausing = { state: 'pausing', since, working: [], asking: [], typing: [], unsaved: [], offBoard: [{ chat: 'Ghost', id: 'B2', title: 'Game - Ghost' }], isSafe: true, main: MAIN, typedAt: null }
-  assert.deepEqual(pauseLinesOf(pausing), [
-    { tone: 'ready', text: 'Safe to restart: paused since 21:01, no chat is working. You can quit Claude now.' },
-    { tone: 'muted', text: 'B2 (Game - Ghost, not on the board) has no checkpoint; it resumes from its branch and History.' },
-  ])
+  const pausing = { state: 'pausing', since, working: [], asking: [], typing: [], unsaved: [], offBoard: [{ chat: 'Ghost', id: 'B2', title: 'Game - Ghost' }], isSafe: true, chats: [], main: MAIN, typedAt: null }
+  const ring = pauseRingOf(pausing)
+  assert.equal(ring.head, 'All still: safe to restart')
+  assert.deepEqual(ring.notes, ['Paused since 21:01.', 'B2 (Game - Ghost, not on the board) has no checkpoint; it resumes from its branch and History.'])
 })
 
 test('review 2 and 3: the state names an off-board holder, and background work as working', () => {

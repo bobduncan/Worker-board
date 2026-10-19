@@ -39,6 +39,8 @@ const drafts = new Map()
 const chosen = new Map()
 const problems = new Map()
 const sending = new Set()
+/** B364: the pause panel's Details stay open across redraws once opened. */
+let isPauseDetailsOpen = false
 const openForms = new Set()
 /** The requests whose game is being started. */
 const starting = new Set()
@@ -767,30 +769,40 @@ function drawLimits(state) {
 // A restart of the app
 
 // pause:start
+/** B364: the ring's states, in the order the names beside it are listed, with what is said after a group's names. */
+const PAUSE_STATES = [['working', ''], ['asking', ' (waiting for you)'], ['typing', ' (a line is being typed)'], ['still', ''], ['off', ' (not running)']]
+
 /**
- * Pause and resume (spec 2026-10-18): what the banner says of the pause (`state.pause`), from the board's facts alone:
- * while pausing who still runs a turn (working, in the app's question form, a line being typed into it), then "Safe to
- * restart" (the review of Pause 2: an app restart loses only a turn in flight); a step with no checkpoint since the pause
- * is said beside it and blocks nothing, as it resumes from its branch and History. After Resume all who has not started
- * a turn yet, and the link that opens the main chat when it does not run (`link`). Nothing once all are back (running).
+ * B364 (the user's pick B of 2026-10-19): while pausing, the panel is one ring with a slice per chat (`pause.chats`,
+ * coloured by its state), the count of still chats of those that run in its middle, and beside it one line for the
+ * whole ("Pausing…", then "All still: safe to restart") and the names by state. The rest (since when, steps with no
+ * checkpoint) are `notes`, one click away. Null outside a pause.
  */
-function pauseLines(pause) {
-  if (pause === null || pause === undefined || pause.state === 'running') return []
-  if (pause.state === 'pausing') {
-    const parts = [
-      (pause.working ?? []).length === 0 ? null : `still working: ${pause.working.join(', ')}`,
-      (pause.asking ?? []).length === 0 ? null : `waiting for you (question form): ${pause.asking.join(', ')}`,
-      (pause.typing ?? []).length === 0 ? null : `a line is being typed into: ${pause.typing.join(', ')}`,
-    ].filter(part => part !== null)
-    const head = pause.isSafe
-      ? { tone: 'ready', text: `Safe to restart: paused since ${clock(pause.since)}, no chat is working. You can quit Claude now.` }
-      : { tone: '', text: `Pausing since ${clock(pause.since)}: ${parts.join('; ')}.` }
-    const info = [
+function pauseRing(pause) {
+  if (pause === null || pause === undefined || pause.state !== 'pausing') return null
+  const chats = pause.chats ?? []
+  const running = chats.filter(chat => chat.state !== 'off')
+  const still = running.filter(chat => chat.state === 'still').length
+  const groups = PAUSE_STATES
+    .map(([state, after]) => ({ state, names: chats.filter(chat => chat.state === state).map(chat => chat.name), after }))
+    .filter(group => group.names.length > 0)
+    .map(({ state, names, after }) => ({ state, text: `${names.join(', ')}${after}` }))
+  const notes = [
+    `Paused since ${clock(pause.since)}.`,
+    ...[
       ...(pause.unsaved ?? []).map(one => `${one.id} (${one.chat})`),
       ...(pause.offBoard ?? []).map(one => `${one.id} (${one.title}, not on the board)`),
-    ].map(what => ({ tone: 'muted', text: `${what} has no checkpoint; it resumes from its branch and History.` }))
-    return [head, ...info]
+    ].map(what => `${what} has no checkpoint; it resumes from its branch and History.`),
+  ]
+  return {
+    head: pause.isSafe ? 'All still: safe to restart' : 'Pausing…', tone: pause.isSafe ? 'ready' : '', isDone: pause.isSafe === true,
+    still, of: running.length, slices: chats.map(chat => chat.state), groups, notes,
   }
+}
+
+/** The pause's lines in words: those of a resume (a pause shows as its ring, pauseRing). */
+function pauseLines(pause) {
+  if (pause === null || pause === undefined || pause.state === 'running' || pause.state === 'pausing') return []
   const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.id})`).join(', ')}.` }]
   const main = pause.main ?? null
   if (main === null || pause.waiting.length === 0) return lines
@@ -837,7 +849,8 @@ function drawRestart(state) {
   const down = restart.notRunning ?? []
   const isAtHand = restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running')
   if (isAtHand && down.includes(restart.main)) parts.push(line('alert', `${restart.main} is not running: open its chat first, the buttons here type into it.`))
-  if (isAtHand && down.some(name => name !== restart.main)) {
+  // B364: while pausing the ring names who does not run; this line is for a restart and a resume.
+  if (isAtHand && pause?.state !== 'pausing' && down.some(name => name !== restart.main)) {
     parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
   }
   // B315: a word to the main chat that was only copied, because no chat ran to take it: said plainly, with the way to
@@ -866,9 +879,15 @@ function drawRestart(state) {
     row.append(line(one.tone, one.text), open)
     parts.push(row)
   }
-  if (pause?.state === 'pausing') {
+  const ring = pauseRing(pause)
+  if (ring !== null) {
+    parts.push(drawPauseRing(ring))
     const row = el('div', 'restart-ask')
-    row.append(button('Resume all', pause.isSafe ? 'is-quiet' : '', 'resume'), el('small', 'muted', 'Every chat goes on from its checkpoint.'))
+    const details = el('details', 'pause-details')
+    details.open = isPauseDetailsOpen
+    details.addEventListener('toggle', () => { isPauseDetailsOpen = details.open })
+    details.append(el('summary', '', `Details (${ring.notes.length} ${ring.notes.length === 1 ? 'note' : 'notes'})`), ...ring.notes.map(note => el('p', 'muted', note)))
+    row.append(button('Resume all', pause.isSafe ? 'is-quiet' : '', 'resume'), details)
     parts.push(row)
   }
   // The review of part 1: a chat that will never start (gone, or not to be resumed) ends the resume by the person's word.
@@ -887,6 +906,43 @@ function drawRestart(state) {
   if (problems.has('restart')) parts.push(line('problem', problems.get('restart')))
   box.hidden = parts.length === 0
   fill(box, parts)
+}
+
+/**
+ * B364: the pause's ring (pauseRing): a slice per chat in its state's colour, the count of still chats in the middle (a
+ * tick once all are still), and beside it the line for the whole and the names by state.
+ */
+function drawPauseRing(ring) {
+  const SVG = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(SVG, 'svg')
+  svg.setAttribute('viewBox', '0 0 36 36')
+  svg.setAttribute('class', 'pause-ring-svg')
+  const n = Math.max(ring.slices.length, 1)
+  const gap = n > 1 ? 1.6 : 0
+  const circle = (state, length, offset) => {
+    const node = document.createElementNS(SVG, 'circle')
+    for (const [key, value] of Object.entries({ cx: '18', cy: '18', r: '15.9155', fill: 'none', 'stroke-width': '4', 'stroke-dasharray': `${length} ${100 - length}`, 'stroke-dashoffset': String(offset) })) node.setAttribute(key, value)
+    node.setAttribute('class', `pause-slice is-${state}`)
+    return node
+  }
+  svg.append(circle('track', 100, 0))
+  ring.slices.forEach((state, i) => svg.append(circle(state, 100 / n - gap, 25 - (i * 100) / n - gap / 2)))
+  const middle = el('div', 'pause-ring-mid')
+  if (ring.isDone) middle.append(el('span', 'pause-ring-tick', '✓'))
+  else middle.append(el('span', 'pause-ring-count', `${ring.still}/${ring.of}`), el('small', 'muted', 'still'))
+  const dial = el('div', 'pause-ring')
+  dial.append(svg, middle)
+  const legend = el('div', 'pause-legend')
+  for (const group of ring.groups) {
+    const item = el('span', '')
+    item.append(el('b', `pause-key is-${group.state}`), document.createTextNode(group.text))
+    legend.append(item)
+  }
+  const side = el('div', 'pause-side')
+  side.append(el('p', `pause-head ${ring.tone}`, ring.head), legend)
+  const box = el('div', `pause-panel${ring.isDone ? ' is-done' : ''}`)
+  box.append(dial, side)
+  return box
 }
 
 // copied:start
