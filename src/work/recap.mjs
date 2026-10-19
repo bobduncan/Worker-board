@@ -2,7 +2,7 @@
 // its re-check (B358) gives the person a recap: a note to them marked `Recap`, About the step or goal, with one line of
 // what they get and its evidence picture (`Evidence`). It shows in Needs your attention as information, never as a
 // question, and blocks nothing: the step or goal is done already. The person may overturn it (their words go to the
-// partner, who makes a fix step from them; a goal is reopened) or give feedback (their words go to the partner); left
+// partner, who makes a fix step from them; a goal is reopened) or mark it seen (B390: approved at once, no words); left
 // alone, the board approves it RECAP_WINDOW_MS after it showed (the person, Q129, 2026-10-18: "24 hours after it
 // shows, whether you looked or not"), and it moves to the closed items.
 
@@ -10,15 +10,18 @@ import { sinceMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
 
 export const RECAP_WINDOW_MS = 24 * 60 * 60 * 1000
-/** What became of a recap: open (it waits out its window), approved (by itself), overturned, or feedback given. */
-export const RECAP_STATES = ['open', 'approved', 'overturned', 'feedback']
+/**
+ * What became of a recap: open (it waits out its window), approved (by itself), seen (approved by the person, B390),
+ * overturned, or feedback given (the person's second answer before B390, still read on older recaps).
+ */
+export const RECAP_STATES = ['open', 'approved', 'seen', 'overturned', 'feedback']
 /** How long a closed recap stays among the closed items. */
 const CLOSED_SHOWN_MS = 24 * 60 * 60 * 1000
 
 export const isRecap = item => valueOf(item, 'Kind') === 'note' && valueOf(item, 'Recap') !== null
 
-/** The person's two answers to a recap, and the state each leaves it in. */
-export const RECAP_ANSWERS = { overturn: 'overturned', feedback: 'feedback' }
+/** The person's two answers to a recap, and the state each leaves it in (B390: Overturn with words, OK, seen without). */
+export const RECAP_ANSWERS = { overturn: 'overturned', seen: 'seen' }
 
 const textOf = item => (item.sections.get('Text') ?? []).filter(one => one.trim() !== '')
 

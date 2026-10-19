@@ -46,7 +46,6 @@ const openForms = new Set()
 const starting = new Set()
 const pictures = new Map()
 const drawn = {}
-let isLegacyOpen = false
 let board = null
 let timer = null
 /** When the board stopped answering; null while it answers. */
@@ -2766,29 +2765,83 @@ function storeAskLines(need, state) {
   return out
 }
 
+// calmpanel:start
+/** Calm panel: a count with its word, in the singular for one. */
+const countOf = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`
+
+/**
+ * Calm panel (2026-10-19): what the log holds that is new: the notes and reports not read yet, and the instructions not
+ * closed (missed ones among them). Never part of the count of Needs your attention.
+ */
+function logCounts(information, instructions) {
+  return {
+    reports: (information ?? []).filter(one => one.isRead !== true).length,
+    instructions: (instructions ?? []).filter(one => (one.closedAs ?? null) === null).length,
+  }
+}
+
+/** The log's one quiet line: "Log: 44 reports · 3 instructions", a part with none left out; "nothing new" for none. */
+function logLineText({ reports, instructions }) {
+  const parts = [reports > 0 ? countOf(reports, 'report') : null, instructions > 0 ? countOf(instructions, 'instruction') : null].filter(part => part !== null)
+  return `Log: ${parts.length === 0 ? 'nothing new' : parts.join(' · ')}`
+}
+
+/**
+ * An instruction a chat missed (it ended a turn with the person's words open: red in the log) is something for the
+ * person: one line each under Needs your attention, "Main missed your words of 14:02: open the log". `clockOf` says a
+ * time as the page does.
+ */
+function missedLines(instructions, clockOf) {
+  return (instructions ?? []).filter(one => one.isMissed === true && (one.closedAs ?? null) === null)
+    .map(one => ({ id: one.id, text: `${one.chat} missed your words${typeof one.since === 'number' ? ` of ${clockOf(one.since)}` : ''}: open the log` }))
+}
+
+/**
+ * The cards of Needs your attention: the asks of the chats and of the store, then the asks the backlog held (migrated
+ * with their B ids), open ones as cards like every other and ticked ones closed, shown with "Show closed".
+ */
+const panelNeeds = state => [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])]
+// calmpanel:end
+
 /** B307: the notes opened to their whole words, by id. */
 const openInfos = new Set()
+
+/** Calm panel: whether the log is open: folded unless the person opened it in this browser. */
+let isLogOpen = false
+try {
+  isLogOpen = localStorage.getItem('log-open') === 'yes'
+} catch {
+  // Without storage the log is folded after each reload.
+}
 
 /**
  * B299: the part "Information" under Needs your attention: what the chats told the person; "Read" puts it away. B307:
  * in a box of its own under a handle that sets its height, each note one line (the step it is about, who sent it, its
  * words cut at the edge); a click opens the whole note with its Read button. "Mark all read" reads every new one.
+ * Calm panel (2026-10-19): that box is the log, folded behind one quiet line at the bottom of the panel ("Log: 44
+ * reports · 3 instructions"); open, it holds Open instructions and Information as they were.
  */
 function drawInformation(state) {
   const box = $('information')
+  const line = $('log-line')
+  line.textContent = logLineText(logCounts(state.information, state.instructions))
+  line.setAttribute('aria-expanded', String(isLogOpen))
+  line.title = isLogOpen ? 'Fold the log' : 'Open the log: your instructions to the chats with what came of them, and their notes and reports'
   // A note that is no longer there is no longer open.
   for (const id of openInfos) if (!(state.information ?? []).some(one => one.id === id)) openInfos.delete(id)
+  box.hidden = !isLogOpen
+  $('info-resizer').hidden = !isLogOpen
+  if (!isLogOpen) return fill(box, [])
   const rows = informationRows(state.information).filter(row => !row.isRead || showsClosed())
-  const isEmpty = rows.length === 0 && (state.information ?? []).length === 0
-  box.hidden = isEmpty
-  $('info-resizer').hidden = isEmpty
-  if (isEmpty) return fill(box, [])
   const top = box.scrollTop
   const focused = document.activeElement?.closest?.('#information [data-info-open]')?.dataset.infoOpen ?? null
   const unread = informationRows(state.information).filter(row => !row.isRead)
   // All read, however: what held "Mark all read" back is said no more.
   if (unread.length === 0) problems.delete('read:all')
-  const part = el('section', 'information')
+  const hasInstructions = instructionGroups(state.instructions ?? []).length > 0
+  // Information as it was, when there is any note at all.
+  const information = (state.information ?? []).length === 0 ? null : el('section', 'information')
+  const part = information ?? el('section', 'information')
   const head = el('h3', '', 'Information')
   head.append(el('small', 'muted', unread.length === 0 ? 'all read' : `${unread.length} new`))
   if (unread.length > 0) {
@@ -2835,9 +2888,13 @@ function drawInformation(state) {
   }
   // All read and hidden: one line, no height to drag.
   if (rows.length === 0) part.append(el('p', 'empty', 'All read: "Show closed" shows them.'))
-  box.classList.toggle('is-all-read', rows.length === 0)
-  $('info-resizer').hidden = rows.length === 0
-  fill(box, [part])
+  // Nothing in the log at all: one line says so.
+  const empty = information === null && !hasInstructions ? el('p', 'empty', 'Nothing in the log yet.') : null
+  // A short log (no note shown, no instruction) has no height to drag.
+  const isShort = rows.length === 0 && !hasInstructions
+  box.classList.toggle('is-all-read', isShort)
+  $('info-resizer').hidden = isShort
+  fill(box, [drawInstructions(state), information, empty])
   box.scrollTop = top
   if (focused !== null) [...box.querySelectorAll('[data-info-open]')].find(node => node.dataset.infoOpen === focused)?.focus()
 }
@@ -2866,6 +2923,9 @@ async function readAllInformation(ids) {
 
 $('information').addEventListener('click', event => {
   if (board === null) return
+  // B298: the main chat's name over its instructions opens the talk with it (in the log since the calm panel).
+  const side = event.target.closest('.instructions [data-show-side]')
+  if (side !== null) return showSide(side.dataset.showSide)
   const read = event.target.closest('[data-read]')
   if (read !== null) return sendWork({ action: 'read', id: read.dataset.read }, `read:${read.dataset.read}`)
   if (event.target.closest('[data-read-all]') !== null && !sending.has('read:all')) {
@@ -2876,6 +2936,29 @@ $('information').addEventListener('click', event => {
   if (!openInfos.delete(toggle.dataset.infoOpen)) openInfos.add(toggle.dataset.infoOpen)
   drawInformation(board)
 })
+
+/** Calm panel: the log opened or folded by the person, and kept so in this browser. */
+function setLogOpen(open) {
+  isLogOpen = open
+  try {
+    localStorage.setItem('log-open', isLogOpen ? 'yes' : 'no')
+  } catch {
+    // Not kept; it still holds until the page is closed.
+  }
+  if (board !== null) drawInformation(board)
+}
+$('log-line').addEventListener('click', () => setLogOpen(!isLogOpen))
+
+/**
+ * Calm panel: a missed instruction's line opens the log at that instruction; in Simple, which leaves the log out, it
+ * goes to Details first, as the person's own click there would.
+ */
+function openLog(instruction = null) {
+  if ($('view-overview').dataset.mode === 'simple') document.querySelector('#overview-mode [data-overview-mode="details"]')?.click()
+  setLogOpen(true)
+  const row = instruction === null ? undefined : [...$('information').querySelectorAll('[data-instruction]')].find(node => node.dataset.instruction === instruction)
+  ;(row ?? $('log-line')).scrollIntoView({ block: 'nearest' })
+}
 
 /**
  * B258: the part "Answers to your asks" under Needs your attention: each ask on the goal map the Advisor answered and
@@ -3034,22 +3117,28 @@ const quoted = words => `"${String(words).trim().replace(/[.!?]+$/, '')}"`
 /** B360: what a recap says under its picture: when it approves itself, or what became of it. */
 function recapStatus(recap, now) {
   if (recap.state === 'approved') return 'Approved by itself: its 24 hours passed.'
+  if (recap.state === 'seen') return 'Seen by you: approved.'
   if (recap.state === 'overturned') return `Overturned: ${quoted(recap.words)}. ${recap.isGoal ? 'The goal is open again; your partner makes its next steps.' : 'Your partner makes the fix.'}`
   if (recap.state === 'feedback') return `Your feedback went to your partner: ${quoted(recap.words)}.`
   const left = recap.approvesAt === null ? 0 : recap.approvesAt - now
-  return `${left <= 0 ? 'Approves itself now' : `Approves itself in ${timeLeft(left)}`}, unless you overturn it or give feedback.`
+  return `${left <= 0 ? 'Approves itself now' : `Approves itself in ${timeLeft(left)}`}, unless you overturn it or mark it seen.`
 }
-/** B360: what the person's click on a recap's button sends: Overturn and Feedback both need their words. */
+/** B360, B390: what the person's click on a recap's button sends: Overturn needs their words, OK, seen sends none. */
 function recapSend(recap, verdict, text) {
-  if (verdict !== 'overturn' && verdict !== 'feedback') return { ok: false, why: 'Overturn or Feedback.' }
-  if (text === '') return { ok: false, why: verdict === 'overturn' ? 'Say what is wrong: your partner makes the fix from your words.' : 'Write your feedback first.' }
+  if (verdict === 'seen') return { ok: true, body: { action: 'seen', id: recap.workId } }
+  if (verdict !== 'overturn') return { ok: false, why: 'Overturn or OK, seen.' }
+  if (text === '') return { ok: false, why: 'Say what is wrong: your partner makes the fix from your words.' }
   return { ok: true, body: { action: verdict, id: recap.workId, text } }
 }
 // recaps:end
 
+// B390: kept between these two marks so a test can run it without the page.
+// recapCard:start
 /**
  * B360: a recap of finished work: marked Information (it asks nothing and blocks nothing), the step or goal, what the
- * person gets, the evidence picture, when it approves itself, and Overturn and Feedback with a box for their words.
+ * person gets, the evidence picture and when it approves itself. B390 (the person, I28: "red is overturn with text
+ * feedback, blue is ok, mark as seen no text needed"): at rest two buttons, Overturn (red) and OK, seen (blue); Overturn
+ * opens a box for their words, sent with "Overturn with these words" or closed again with Cancel.
  */
 function drawRecap(recap, state) {
   const card = el('article', `need is-recap${recap.isClosed ? ' is-closed' : ''}`)
@@ -3065,29 +3154,42 @@ function drawRecap(recap, state) {
   }
   card.append(el('p', 'muted recap-status', recapStatus(recap, state.readAt)))
   if (recap.isClosed) return card
-  const text = el('textarea')
-  text.rows = 2
-  text.maxLength = state.maxMessageChars
-  text.placeholder = recap.isGoal ? 'What is missing (Overturn opens the goal again), or what you think (Feedback)…' : 'What is wrong (Overturn: a fix step), or what you think (Feedback)…'
-  text.value = drafts.get(recap.id) ?? ''
-  text.setAttribute('aria-label', `Your words on ${recap.about ?? 'this recap'}`)
-  const buttons = el('div', 'buttons is-split')
-  const button = (label, className, verdict, title) => {
+  const button = (label, className, title) => {
     const node = el('button', `button ${className}`, label)
     node.type = 'button'
-    node.dataset.send = verdict
     node.disabled = sending.has(recap.id)
     node.title = title
     return node
   }
-  buttons.append(
-    button('↺  Overturn', 'is-reject', 'overturn', recap.isGoal ? 'Opens the goal again; your partner makes its next steps from your words.' : 'Your partner makes a fix step from your words.'),
-    button('✎  Feedback', '', 'feedback', 'Your words go to your partner; the work stays done.'),
-  )
-  card.append(text, buttons)
+  const overturns = recap.isGoal ? 'Opens the goal again; your partner makes its next steps from your words.' : 'Your partner makes a fix step from your words.'
+  if (!openForms.has(recap.id)) {
+    // At rest: Overturn opens the box (the answer forms' data-open); OK, seen approves it now, with no words.
+    const overturn = button('↺  Overturn', 'is-reject', overturns)
+    overturn.dataset.open = recap.id
+    const seen = button('✓  OK, seen', 'is-seen', 'Approves it now: the work stays done, and nothing goes to your partner.')
+    seen.dataset.send = 'seen'
+    const buttons = el('div', 'buttons is-split')
+    buttons.append(overturn, seen)
+    card.append(buttons)
+  } else {
+    const text = el('textarea')
+    text.rows = 2
+    text.maxLength = state.maxMessageChars
+    text.placeholder = recap.isGoal ? 'What is missing: the goal opens again, and your partner makes its next steps from your words…' : 'What is wrong: your partner makes a fix step from your words…'
+    text.value = drafts.get(recap.id) ?? ''
+    text.setAttribute('aria-label', `Your words on ${recap.about ?? 'this recap'}`)
+    const send = button('↺  Overturn with these words', 'is-reject', overturns)
+    send.dataset.send = 'overturn'
+    const cancel = button('Cancel', 'is-quiet', 'Closes the box; the recap stays as it is.')
+    cancel.dataset.cancel = recap.id
+    const buttons = el('div', 'buttons recap-words')
+    buttons.append(send, cancel)
+    card.append(text, buttons)
+  }
   if (problems.has(recap.id)) card.append(el('p', 'problem', problems.get(recap.id)))
   return card
 }
+// recapCard:end
 
 // B85 (the order of the cards): kept between these two marks so a test can run it without the page.
 // order:start
@@ -3110,26 +3212,6 @@ function ordered(needs) {
   return list.sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true))
 }
 // order:end
-
-function drawLegacy(state) {
-  const open = state.backlogForYou.filter(step => !isClosed(step))
-  const closed = [...state.backlogForYou.filter(isClosed), ...state.backlogClosed]
-  if (open.length === 0 && closed.length === 0) return null
-  const box = el('details', 'legacy')
-  box.open = isLegacyOpen
-  // What still waits for the person: an answered step is among the closed ones (B307), and is not counted.
-  const waiting = open.filter(step => !isAnswered(step))
-  const counts = Object.keys(ASKS).map(asks => [ASKS[asks], waiting.filter(step => step.asks === asks).length]).filter(([, count]) => count > 0)
-  const summary = el('summary', '', `From the backlog (${waiting.length})`)
-  const notes = counts.map(([name, count]) => `${count} ${name.toLowerCase()}`)
-  if (closed.length > 0) notes.push(`${closed.length} closed ${showsClosed() ? 'shown' : 'hidden'}`)
-  summary.append(el('small', '', notes.join(' · ')))
-  box.append(summary)
-  for (const step of ordered(open)) box.append(drawNeed(step, state))
-  if (showsClosed()) for (const step of ordered(closed)) box.append(drawNeed(step, state))
-  box.addEventListener('toggle', () => { isLegacyOpen = box.open })
-  return box
-}
 
 /** Puts the cursor back into the answer it was in, after a redraw of `box`. The words are kept in `drafts`. */
 function refocus(box, id) {
@@ -3164,7 +3246,10 @@ function instructionGroups(list) {
 }
 // instructions:end
 
-/** B298: the part "Open instructions": the person's words per chat; a click on the main chat's opens the talk with it. */
+/**
+ * B298: the part "Open instructions": the person's words per chat; a click on the main chat's opens the talk with it.
+ * Calm panel: in the log, above Information; each line names its instruction, so a missed line opens the log at it.
+ */
 function drawInstructions(state) {
   const groups = instructionGroups(state.instructions ?? [])
   if (groups.length === 0) return null
@@ -3184,10 +3269,25 @@ function drawInstructions(state) {
     box.append(name)
     for (const row of group.rows) {
       const line = el('p', `instruction is-${row.tone}`)
+      line.dataset.instruction = row.id
       line.append(el('span', 'instruction-id', row.id), el('span', 'instruction-text', row.text), el('small', 'instruction-note', row.at === null || row.tone === 'closed' ? row.note : `${row.note} · ${ago(row.at, state.readAt)}`))
       box.append(line)
     }
     part.append(box)
+  }
+  return part
+}
+
+/** Calm panel: the instructions a chat missed, one red line each under Needs your attention; a click opens the log. */
+function drawMissed(missed) {
+  if (missed.length === 0) return null
+  const part = el('div', 'log-missed')
+  for (const line of missed) {
+    const button = el('button', 'log-missed-line', line.text)
+    button.type = 'button'
+    button.dataset.openLog = line.id
+    button.title = `Opens the log at ${line.id}, your words the chat has not taken up yet`
+    part.append(button)
   }
   return part
 }
@@ -3204,10 +3304,10 @@ function takeBackClick(event) {
 $('needs').addEventListener('click', takeBackClick)
 $('details').addEventListener('click', takeBackClick)
 
-// B298: the main chat's name over its instructions opens the talk with it. B299: "Read" puts a note away.
+// B299: "Read" puts a note away. Calm panel: a missed instruction's line opens the log at it.
 $('needs').addEventListener('click', event => {
-  const side = event.target.closest('.instructions [data-show-side]')
-  if (side !== null) showSide(side.dataset.showSide)
+  const missed = event.target.closest('[data-open-log]')
+  if (missed !== null) openLog(missed.dataset.openLog)
   // B301: a warning's way to its chat.
   const talk = event.target.closest('[data-open-talk]')
   if (talk !== null) {
@@ -3281,26 +3381,32 @@ function drawNeeds(state) {
   // B361: with "Bother me" once a day the asks that hold up no chat gather under the daily note instead.
   const gathered = new Set(gatheredAsks(state).map(need => need.id))
   const forYou = state.forYou.filter(need => !gathered.has(need.id))
-  const open = forYou.filter(need => !isClosed(need))
+  // Calm panel: the open asks the backlog held are cards as every other ask (`panelNeeds`), its ticked ones closed.
+  const needs = panelNeeds({ ...state, forYou })
+  const open = needs.filter(need => !isClosed(need))
   // B287: a refine question has no card: its step's line says it, and only while it is open.
   const lines = refineLines(open)
   const cardsOpen = open.filter(need => !isRefineQuestion(need))
+  // What was answered on this board lately; the backlog's old ticked asks show with "Show closed", uncounted.
   const answered = forYou.filter(need => isClosed(need) && !isRefineQuestion(need)).length
+  // Calm panel: an instruction a chat missed is the person's: one line here, while the log holds the rest.
+  const missed = missedLines(state.instructions, clock)
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
-  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length
+  // Calm panel: the missed lines count too; the log's notes and open instructions never do.
+  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   // Focus 4: the partner's questions first, under "From your partner"; the rest as before.
-  const shown = ordered(shownNeeds(forYou, showsClosed()).filter(need => !isRefineQuestion(need)))
+  const shown = ordered(shownNeeds(needs, showsClosed()).filter(need => !isRefineQuestion(need)))
   const { partner, rest } = partnerFirst(shown, (state.focus?.needs ?? []).map(need => need.id))
   const partnerCards = partner.map(need => drawNeed(need, state))
   // B300: a blocking ask that waited too long stands first, above the refine lines too.
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   const cards = rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
-  const none = cardsOpen.length > 0 || lines.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawWithPartner(state), drawDecidedForYou(state), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, ...recaps, drawLegacy(state), drawInstructions(state)])
+  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawWithPartner(state), drawDecidedForYou(state), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, ...recaps])
   box.scrollTop = top
   refocus(box, focused)
   // B307: Information in its own box under the asks, as high as the person dragged it.
@@ -3346,6 +3452,15 @@ function takeAnswers(box) {
       refocus(box, id)
       return
     }
+    // B390: Cancel closes a recap's box for the words again, and drops them.
+    if (event.target.closest('[data-cancel]') !== null) {
+      openForms.delete(id)
+      drafts.delete(id)
+      problems.delete(id)
+      redrawNeeds()
+      redrawFocus()
+      return
+    }
     const choice = event.target.closest('[data-choose]')
     if (choice !== null) {
       // Choosing an option writes it into the answer, where it can be added to before it is sent.
@@ -3362,7 +3477,7 @@ function takeAnswers(box) {
     if (button === null || need === undefined) return
     const verdict = button.dataset.send === '' ? null : button.dataset.send
     const text = (drafts.get(id) ?? '').trim()
-    // B360: a recap takes the person's words with Overturn or Feedback.
+    // B360, B390: a recap takes the person's words with Overturn, or none with OK, seen.
     if (id.startsWith('recap:')) {
       const sent = recapSend(need, verdict, text)
       return sent.ok ? sendWork(sent.body, id) : fail(id, sent.why)
@@ -8272,8 +8387,8 @@ function focusData(state) {
   return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking, focusUi.asked.join(','),
     // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
     effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null,
-    // B360: the recaps gathered under the daily note, with their sending and problems.
-    gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null]),
+    // B360: the recaps gathered under the daily note, with their sending and problems; B390: and their box open or not.
+    gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null, openForms.has(recap.id)]),
     // the minute, for "Approves itself in ..."
     gatheredRecaps(state).length > 0 ? Math.floor(state.readAt / MIN) : null,
     // B361: the asks gathered under the daily note are drawn as Needs your attention draws them, from what it reads.
@@ -8596,12 +8711,12 @@ function focusNoteCard(view) {
 
 /**
  * B360: the recaps of finished work gathered under the daily note (the setting botherMe "daily"), each with its
- * picture, Overturn and Feedback, as in Needs your attention.
+ * picture, Overturn and OK, seen (B390), as in Needs your attention.
  */
 function focusRecapCard(state) {
   const card = el('section', 'focus-card focus-recaps')
   const recaps = gatheredRecaps(state)
-  card.append(el('h3', '', `Finished: ${recaps.length}`), el('p', 'muted', 'Gathered here under your partner\'s note, not one by one in Needs your attention. Each approves itself 24 hours after it came, unless you overturn it or give feedback.'))
+  card.append(el('h3', '', `Finished: ${recaps.length}`), el('p', 'muted', 'Gathered here under your partner\'s note, not one by one in Needs your attention. Each approves itself 24 hours after it came, unless you overturn it or mark it seen.'))
   card.append(...recaps.map(recap => drawRecap(recap, state)))
   return card
 }

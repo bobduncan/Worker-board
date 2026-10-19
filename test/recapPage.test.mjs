@@ -1,6 +1,6 @@
 // B360: the recaps on the page. The state carries them (and where they show, the setting botherMe); Needs your
-// attention draws each as an Information card with its picture, Overturn and Feedback, or, with "once a day", the daily
-// note on the Focus page gathers them. Made-up samples only.
+// attention draws each as an Information card with its picture, Overturn and OK, seen (B390), or, with "once a day", the
+// daily note on the Focus page gathers them. Made-up samples only.
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -78,27 +78,79 @@ test('Needs your attention shows the open recaps, the closed ones with Show clos
 })
 
 test('a recap says when it approves itself, or what became of it', () => {
-  assert.equal(page.recapStatus(OPEN, NOW + HOUR), 'Approves itself in 23 h, unless you overturn it or give feedback.')
-  assert.equal(page.recapStatus(OPEN, NOW + 24 * HOUR - 10 * MIN), 'Approves itself in 10 min, unless you overturn it or give feedback.')
-  assert.equal(page.recapStatus(OPEN, NOW + 25 * HOUR), 'Approves itself now, unless you overturn it or give feedback.')
+  assert.equal(page.recapStatus(OPEN, NOW + HOUR), 'Approves itself in 23 h, unless you overturn it or mark it seen.')
+  assert.equal(page.recapStatus(OPEN, NOW + 24 * HOUR - 10 * MIN), 'Approves itself in 10 min, unless you overturn it or mark it seen.')
+  assert.equal(page.recapStatus(OPEN, NOW + 25 * HOUR), 'Approves itself now, unless you overturn it or mark it seen.')
   assert.equal(page.recapStatus(CLOSED, NOW), 'Approved by itself: its 24 hours passed.')
+  // B390: OK, seen.
+  assert.equal(page.recapStatus({ ...CLOSED, state: 'seen' }, NOW), 'Seen by you: approved.')
   assert.equal(page.recapStatus({ ...CLOSED, state: 'overturned', words: 'Too dim.' }, NOW), 'Overturned: "Too dim". Your partner makes the fix.')
   assert.equal(page.recapStatus({ ...CLOSED, state: 'overturned', words: 'Dark north.', isGoal: true }, NOW), 'Overturned: "Dark north". The goal is open again; your partner makes its next steps.')
+  // A recap answered with Feedback before B390 still says so.
   assert.equal(page.recapStatus({ ...CLOSED, state: 'feedback', words: 'Lovely.' }, NOW), 'Your feedback went to your partner: "Lovely".')
 })
 
-test('Overturn and Feedback send the person\'s words to the store, and need them', () => {
+test('B390: Overturn sends the person\'s words and needs them; OK, seen sends none; Feedback is gone', () => {
   assert.deepEqual(plain(page.recapSend(OPEN, 'overturn', 'The pond lamp is white.')), { ok: true, body: { action: 'overturn', id: 'N4', text: 'The pond lamp is white.' } })
-  assert.deepEqual(plain(page.recapSend(OPEN, 'feedback', 'Nice.')), { ok: true, body: { action: 'feedback', id: 'N4', text: 'Nice.' } })
-  assert.equal(page.recapSend(OPEN, 'overturn', '').ok, false)
-  assert.equal(page.recapSend(OPEN, 'feedback', '').ok, false)
+  assert.deepEqual(plain(page.recapSend(OPEN, 'overturn', '')), { ok: false, why: 'Say what is wrong: your partner makes the fix from your words.' })
+  assert.deepEqual(plain(page.recapSend(OPEN, 'seen', '')), { ok: true, body: { action: 'seen', id: 'N4' } })
+  assert.deepEqual(plain(page.recapSend(OPEN, 'seen', 'words typed before')), { ok: true, body: { action: 'seen', id: 'N4' } })
+  assert.equal(page.recapSend(OPEN, 'feedback', 'Nice.').ok, false)
   assert.equal(page.recapSend(OPEN, 'approve', 'x').ok, false)
+})
+
+/** A stand-in for the page's elements: enough of a node for drawRecap to build its card. */
+function node(tag, className = '', text = null) {
+  return {
+    tag, className, textContent: text, dataset: {}, children: [], attributes: {},
+    append(...more) { this.children.push(...more) },
+    setAttribute(name, value) { this.attributes[name] = value },
+  }
+}
+const nodesOf = card => [card, ...card.children.flatMap(nodesOf)]
+const card = vm.createContext({ HOUR, MIN, drafts: new Map(), sending: new Set(), problems: new Map(), openForms: new Set(), el: node, since: () => node('time'), picture: () => node('figure') })
+vm.runInContext(`${script.slice(script.indexOf('// recaps:start'), script.indexOf('// recaps:end'))}
+${script.slice(script.indexOf('// recapCard:start'), script.indexOf('// recapCard:end'))}
+this.drawRecap = drawRecap`, card)
+/** What a recap card offers: its box (the placeholder) and its buttons, each with what its click does. */
+function offers(recap) {
+  const nodes = nodesOf(card.drawRecap(recap, { readAt: NOW + HOUR, maxMessageChars: 4000 }))
+  const box = nodes.find(one => one.tag === 'textarea') ?? null
+  const buttons = nodes.filter(one => one.tag === 'button').map(one => [one.textContent, one.className, { ...one.dataset }])
+  return plain({ box: box === null ? null : box.placeholder, buttons })
+}
+
+test('B390: at rest a recap card has two buttons and no box: Overturn (red) opens the box, OK, seen (blue) sends', () => {
+  card.openForms.clear()
+  assert.deepEqual(offers(OPEN), {
+    box: null,
+    buttons: [['↺  Overturn', 'button is-reject', { open: 'recap:N4' }], ['✓  OK, seen', 'button is-seen', { send: 'seen' }]],
+  })
+})
+
+test('B390: after Overturn the box opens for the words, with Overturn with these words and Cancel', () => {
+  card.openForms.clear()
+  card.openForms.add('recap:N4')
+  assert.deepEqual(offers(OPEN), {
+    box: 'What is wrong: your partner makes a fix step from your words…',
+    buttons: [['↺  Overturn with these words', 'button is-reject', { send: 'overturn' }], ['Cancel', 'button is-quiet', { cancel: 'recap:N4' }]],
+  })
+  // A goal's recap: its words open the goal again.
+  assert.equal(offers({ ...OPEN, about: 'G3', isGoal: true }).box, 'What is missing: the goal opens again, and your partner makes its next steps from your words…')
+  // A closed recap has no buttons, open or not.
+  assert.deepEqual(offers({ ...CLOSED, id: 'recap:N4' }), { box: null, buttons: [] })
+  card.openForms.clear()
 })
 
 test('the wiring: the cards after the questions, the clicks through the answer forms, the daily note\'s card, the look', () => {
   assert.match(script, /const recaps = shownRecaps\(state, showsClosed\(\)\)\.map\(recap => drawRecap\(recap, state\)\)/)
-  assert.match(script, /\.\.\.cards, \.\.\.recaps, drawLegacy\(state\)/)
+  assert.match(script, /\.\.\.cards, \.\.\.recaps\]\)/)
   assert.match(script, /if \(id\.startsWith\('recap:'\)\) \{\s+const sent = recapSend\(need, verdict, text\)\s+return sent\.ok \? sendWork\(sent\.body, id\) : fail\(id, sent\.why\)/)
+  // B390: Overturn opens the box through the answer forms' [data-open]; Cancel closes it and drops the words.
+  assert.match(script, /if \(event\.target\.closest\('\[data-cancel\]'\) !== null\) \{\s+openForms\.delete\(id\)\s+drafts\.delete\(id\)\s+problems\.delete\(id\)\s+redrawNeeds\(\)\s+redrawFocus\(\)\s+return\s+\}/)
+  // B390: on the Focus page too, the box opens and closes at once.
+  assert.match(script, /gatheredRecaps\(state\)\.map\(recap => \[sending\.has\(recap\.id\), problems\.get\(recap\.id\) \?\? null, openForms\.has\(recap\.id\)\]\)/)
+  assert.match(css, /\.button\.is-seen \{ background: var\(--free\); \}/)
   assert.match(script, /takeAnswers\(\$\('advisor-focus'\)\)/)
   // B361: the recaps and the asks that can wait, gathered under the note.
   assert.match(script, /const gatheredCards = state => \[gatheredRecaps\(state\)\.length > 0 \? focusRecapCard\(state\) : null, gatheredAsks\(state\)\.length > 0 \? focusAsksCard\(state\) : null\]/)
@@ -112,10 +164,11 @@ test('the wiring: the cards after the questions, the clicks through the answer f
   assert.match(css, /\.need\.is-recap \{ border-left-color: var\(--working\); \}/)
 })
 
-test('the partner\'s job says what an Overturn and a Feedback on a recap ask of it', () => {
+test('the partner\'s job says what an Overturn on a recap asks of it, and that OK, seen asks nothing (B390)', () => {
   const job = readFileSync(new URL('../roles/partner.md', import.meta.url), 'utf8')
   const part = job.slice(job.indexOf('## Recaps'), job.indexOf('## Refine a step'))
   assert.match(part, /`Overturn: <words>` about a step: [^\n]*`work new`/)
   assert.match(part, /`Overturn: <words>` about a goal: the board opened the goal again/)
-  assert.match(part, /`Feedback: <words>`: their word on that work, no fix asked/)
+  assert.match(part, /\*\*OK, seen\*\*[^.]*approves the recap at once[^.]*nothing into your chat/)
+  assert.doesNotMatch(part, /Feedback/)
 })

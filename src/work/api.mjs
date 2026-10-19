@@ -33,16 +33,16 @@ import { writeView } from './view.mjs'
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list', 'pause-state'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'feedback', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
  */
 const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'feedback', 'approve-recaps', 'partner-answers'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers'])
 /** What only the person does, on the board's page; and what only the server does. */
-const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'feedback', 'partner-answers'])
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers'])
 const SERVER = new Set(['check', 'advance', 'resumed', 'approve-recaps'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
@@ -971,9 +971,9 @@ function fixEvidence(id, items, depth = 0) {
 }
 
 /**
- * B360: the person's answer to an open recap, with their words: `overturn` (the partner makes a fix step from them; an
- * overturned goal the board opened again in the goal map before, server.mjs) or `feedback` (the words go to the
- * partner). The recap closes; the partner is woken with the words, marked as the person's.
+ * B360: the person's answer to an open recap: `overturn` with their words (the partner makes a fix step from them; an
+ * overturned goal the board opened again in the goal map before, server.mjs), the partner woken with the words, marked
+ * as the person's; or B390 `seen` (OK, seen), with no words: approved at once, nobody woken. The recap closes.
  */
 async function recapAnswer(body, w) {
   const found = await load(body.id, w, { kind: ['note'] })
@@ -982,26 +982,30 @@ async function recapAnswer(body, w) {
   const state = valueOf(found.item, 'Recap')
   if (state === null) return refuse(409, `${id} is no recap.`)
   if (state !== 'open') return refuse(409, `${id} is ${state} already.`)
-  const isOverturn = body.action === 'overturn'
+  // B390: OK, seen: no words, so no partner is needed to take them.
+  if (body.action === 'seen') {
+    const item = said(put(put(put(copy(found.item), 'Recap', RECAP_ANSWERS.seen), 'State', 'read'), 'Since', stamp(w.now)), w, 'seen by you: approved at once')
+    const done = await save(item, found.text, w)
+    return done.ok ? changed(item) : done
+  }
   const words = lines(body.text)
-  if (words.length === 0) return refuse(400, isOverturn ? 'Say what is wrong: your partner makes the fix from your words.' : 'Give your feedback in your words.')
+  if (words.length === 0) return refuse(400, 'Say what is wrong: your partner makes the fix from your words.')
   // The review: the words go to the partner; without a partner chat on the board nobody would get them.
   const partner = (w.chats ?? []).find(chat => w.roleOf?.(chat) === 'advisor') ?? null
   if (partner === null) return refuse(409, 'No partner chat is on the board to take your words: start it, then answer the recap.')
   const about = (found.item.sections.get('About') ?? [])[0] ?? null
   const short = line(words.join(' '), 200)
-  let item = put(put(put(copy(found.item), 'Recap', RECAP_ANSWERS[body.action]), 'State', 'read'), 'Since', stamp(w.now))
+  let item = put(put(put(copy(found.item), 'Recap', RECAP_ANSWERS.overturn), 'State', 'read'), 'Since', stamp(w.now))
   item.sections.set('Answer', words)
-  item = said(item, w, `${RECAP_ANSWERS[body.action]}: ${short}`)
+  item = said(item, w, `${RECAP_ANSWERS.overturn}: ${short}`)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
   const isGoal = about !== null && GOAL_ID.test(about)
   // The review: the board opened an overturned goal before this (server.mjs), so the words say what is true.
-  const job = !isOverturn ? 'take it as their word on that work (roles/partner.md, "Recaps")'
-    : isGoal ? `${about} is open again: make its follow-up steps from their words (roles/partner.md, "Recaps")`
-      : `make a fix step of ${about} from their words (roles/partner.md, "Recaps")`
+  const job = isGoal ? `${about} is open again: make its follow-up steps from their words (roles/partner.md, "Recaps")`
+    : `make a fix step of ${about} from their words (roles/partner.md, "Recaps")`
   const title = (found.item.sections.get('Text') ?? [])[0] ?? ''
-  const wake = { to: partner, id, title, text: [`${isOverturn ? 'Overturn' : 'Feedback'}: ${words.join(' ')}`, `About: ${about ?? '-'}`, `Your job: ${job}`].join('\n') }
+  const wake = { to: partner, id, title, text: [`Overturn: ${words.join(' ')}`, `About: ${about ?? '-'}`, `Your job: ${job}`].join('\n') }
   return changed(item, undefined, { wake })
 }
 
@@ -1012,7 +1016,7 @@ async function approveRecaps(body, w) {
   for (const one of due) {
     const found = await load(valueOf(one, 'Id'), w, { kind: ['note'] })
     if (!found.ok || valueOf(found.item, 'Recap') !== 'open') continue
-    const item = said(put(put(put(copy(found.item), 'Recap', 'approved'), 'State', 'read'), 'Since', stamp(w.now)), w, 'approved by itself: its 24 hours passed without an overturn or feedback')
+    const item = said(put(put(put(copy(found.item), 'Recap', 'approved'), 'State', 'read'), 'Since', stamp(w.now)), w, 'approved by itself: its 24 hours passed without an overturn')
     const done = await save(item, found.text, w)
     if (done.ok) approved.push(valueOf(item, 'Id'))
   }
@@ -1231,7 +1235,7 @@ async function goalCheck(body, w) {
   if (!done.ok) return done
   const { ticked, title, attempts } = done.result
   if (ticked) {
-    // The recap: what is done, as the person reads it on the board (B360: with its picture, Overturn and Feedback).
+    // The recap: what is done, as the person reads it on the board (B360: with its picture, Overturn and OK, seen).
     await makeRecap(w, id, title, `a helper re-checked it against its Done when and its vibe, ${summary}.`, evidence)
   }
   const words = ticked ? `${id} passed its re-check and is ticked; the person gets the recap.`
@@ -1997,8 +2001,8 @@ function withRefineAnswer(step, ask, words, w) {
 async function read(body, w) {
   const found = await load(body.id, w, { kind: ['note'] })
   if (!found.ok) return found
-  // B360, the review: a recap is not read away: it is overturned, answered with feedback, or approves itself.
-  if (isRecap(found.item)) return refuse(409, `${valueOf(found.item, 'Id')} is a recap: overturn it, give feedback, or let it approve itself.`)
+  // B360, the review: a recap is not read away: it is overturned, marked seen (B390), or approves itself.
+  if (isRecap(found.item)) return refuse(409, `${valueOf(found.item, 'Id')} is a recap: overturn it, mark it seen, or let it approve itself.`)
   if (stateOf(found.item) === 'read') return { ok: true, result: { id: valueOf(found.item, 'Id'), text: 'Read already.', changed: false } }
   const item = said(put(put(copy(found.item), 'State', 'read'), 'Since', stamp(w.now)), w, 'read')
   const done = await save(item, found.text, w)
@@ -2176,7 +2180,7 @@ const CHANGE = {
   resumed: pauseWrite,
   'end-resume': pauseWrite,
   overturn: recapAnswer,
-  feedback: recapAnswer,
+  seen: recapAnswer,
   'approve-recaps': approveRecaps,
   'partner-answer': partnerAnswer,
   escalate,

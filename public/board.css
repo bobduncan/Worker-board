@@ -1048,6 +1048,9 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .button { padding: 8px 22px; border: 0; border-radius: 7px; background: var(--free); color: #fff; font-weight: 700; cursor: pointer; }
 .button.is-approve { background: #2fb568; color: var(--ink); }
 .button.is-reject { background: #e5484d; }
+/* B390: a recap's OK, seen is blue; its box's Overturn takes the room, Cancel what it needs. */
+.button.is-seen { background: var(--free); }
+.recap-words > .is-reject { flex: 1; }
 .button:disabled { opacity: 0.5; cursor: default; }
 .sent { border: 1px solid var(--line); border-radius: 7px; padding: 8px 11px; font-size: 13.5px; color: var(--muted); }
 .sent b { color: var(--text); font-weight: 600; }
@@ -1056,10 +1059,6 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .need.is-do { border-left-color: var(--working); }
 .is-do .kind { background: #12381f; color: var(--working); }
 
-/* The steps of the backlog: the same cards, kept short until one is opened to answer it. */
-.legacy { border: 1px dashed var(--line); border-radius: 9px; padding: 10px 12px; }
-.legacy summary { cursor: pointer; font-weight: 600; }
-.legacy summary small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
 /* B299: a step's item in its window: the goal chip, Requirements and Touches folded. */
 .chip.is-goal { display: inline-block; margin: 0 0 8px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; }
 .item-fold { margin: 6px 0; }
@@ -1859,6 +1858,20 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .info-whole p { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .info-whole small { grid-column: 1; }
 .info-whole button { grid-column: 2; grid-row: 1 / span 2; }
+/* Calm panel (2026-10-19): the log, one quiet line at the bottom of Needs your attention; open, Open instructions and
+   Information under it. An instruction a chat missed is a red line among the asks, opening the log at it. */
+.log-line { flex: none; display: flex; align-items: center; gap: 6px; width: 100%; min-height: 40px; padding: 8px 16px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--muted); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.log-line::before { content: "▸"; font-size: 11px; transition: transform .15s; }
+.log-line[aria-expanded="true"]::before { transform: rotate(90deg); }
+.log-line:hover { color: var(--text); background: var(--inset); }
+.log-line:focus-visible { outline: 2px solid var(--free); outline-offset: -2px; }
+.info-box > .instructions:first-child { margin-top: 0; padding-top: 6px; border-top: 0; }
+.info-box .instructions + .information { margin-top: 12px; border-top: 1px solid var(--line); }
+.log-missed { display: flex; flex-direction: column; gap: 4px; }
+.log-missed-line { display: block; width: 100%; padding: 6px 10px; border: 0; border-left: 3px solid var(--warn); border-radius: 6px; background: #2a1712; color: var(--warn); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.log-missed-line:hover { background: #3a1d14; }
+.log-missed-line:focus-visible { outline: 2px solid var(--free); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .log-line::before { transition: none; } }
 @media (max-width: 1250px) {
   .info-box { height: auto; overflow: visible; }
   .info-resizer { display: none; }
@@ -1943,8 +1956,6 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .simple-left { white-space: nowrap; }
 /* Needs your attention as today, without the backlog, the instructions, what is closed, and the order and closed switches. */
 #view-overview[data-mode="simple"] .inbox-top,
-#view-overview[data-mode="simple"] #needs .legacy,
-#view-overview[data-mode="simple"] #needs .instructions,
 #view-overview[data-mode="simple"] #needs .need.is-closed,
 #view-overview[data-mode="simple"] #needs .need.is-answered { display: none !important; }
 #view-overview[data-mode="simple"] .needs { overflow: visible; padding: 0; }
@@ -1966,6 +1977,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 #view-overview[data-mode="simple"] #folders,
 #view-overview[data-mode="simple"] #inbox-resizer,
 #view-overview[data-mode="simple"] #info-resizer,
+#view-overview[data-mode="simple"] #log-line,
 #view-overview[data-mode="simple"] #information,
 #view-overview[data-mode="simple"] .side-tab[data-side="main"],
 #view-overview[data-mode="simple"] #side-main { display: none !important; }
