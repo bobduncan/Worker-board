@@ -31,7 +31,7 @@ import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { refineStop } from './refineGate.mjs'
-import { flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
+import { contextOfStep, flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
 import { checkedOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -235,10 +235,50 @@ function withoutLead(line) {
 function aboutLine(notes = []) {
   for (const note of notes) {
     const line = String(note).trim().replace(/^[-*]\s+/, '')
-    if (line === '' || STEP_STATUS.test(line.replace(/^\(/, '')) || NOTE_HEAD.test(line) || /^[A-Z][A-Za-z /]{1,28}:$/.test(line)) continue
+    // B425: never the store's own line under a step ("[store] Priority: fix · Goal: G15").
+    if (line === '' || line.startsWith('[store]') || STEP_STATUS.test(line.replace(/^\(/, '')) || NOTE_HEAD.test(line) || /^[A-Z][A-Za-z /]{1,28}:$/.test(line)) continue
     return withoutLead(line)
   }
   return null
+}
+
+/** B425: a line of a step's context with a part named in it ("... Requirements: ..."): that part and all after it. */
+const NAMED_PART = /\s(?:Requirements|Touches|Context|Was):\s.*$/
+
+/**
+ * B425: what a step is, from its context: its first lines, up to the first that names a part ("Requirements: ...");
+ * within a line, up to a part it names. A line that says what happened to it ("Handed to ...", "Asked Q12 ...") is not
+ * what it is.
+ */
+function aboutLines(context) {
+  const lines = []
+  for (const line of context) {
+    if (NOTE_HEAD.test(line) || /^[A-Z][A-Za-z /]{1,28}:$/.test(line)) break
+    if (line.startsWith('[store]') || STEP_STATUS.test(line.replace(/^\(/, '')) || /^(?:asked|reported|checked|q\d+)\b/i.test(line)) continue
+    const words = line.replace(NAMED_PART, '').trim()
+    if (words !== '') lines.push(words)
+  }
+  return lines
+}
+
+/**
+ * B425: what the window of the worker on a step shows of it (the person, 2026-10-19, I40: "if backlog items were refined
+ * I expect to see a picture and the refined story here"): its refined summary, picture and what we build; what it is
+ * from its context (`about`), for a step without a refine block; its goal by name ("G29 Interesting level design");
+ * and for the details its context, what it touches and its history. Null without the store's item.
+ */
+function stepBrief(work, id, goalMap) {
+  const item = itemOfStep(work, id)
+  if (item === null) return null
+  const goalId = String(item.goal ?? '').match(/\bG\d+\b/)?.[0] ?? null
+  const node = goalId === null ? null : goalMap?.byId.get(goalId) ?? null
+  const title = String(node?.title ?? '').trim()
+  const context = contextOfStep(work, id)
+  return {
+    goal: goalId === null ? null : title === '' || title === goalId ? goalId : title.startsWith(`${goalId} `) ? title : `${goalId} ${title}`,
+    summary: item.summary, picture: item.picture, what: item.what,
+    about: aboutLines(context), context, touches: item.touches, history: item.history,
+  }
 }
 
 /**
@@ -492,8 +532,9 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // B262: since when its turn has ended, and whether the app or its transcript says so.
     idle,
     // B151: the task as it was given: the person's words (`by: 'you'`), or (B301) the step the store holds for it (`by: 'step'`).
-    givenTask: isOnStep ? { by: 'step', at: null, text: '', step: { id: givenStep.id, title: givenStep.title, about: givenStep.about ?? null } }
-      : given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title, about: givenStep.about ?? null } },
+    // B425: with the step's brief for its window (`stepBrief`).
+    givenTask: isOnStep ? { by: 'step', at: null, text: '', step: { id: givenStep.id, title: givenStep.title, about: givenStep.about ?? null, brief: givenStep.brief ?? null } }
+      : given === null ? null : { ...given, step: givenStep === null ? null : { id: givenStep.id, title: givenStep.title, about: givenStep.about ?? null, brief: givenStep.brief ?? null } },
     feedback,
     suspended: paused,
     // What this chat itself looked up of the limits: in its tail, and further back (`tail.usage`).
@@ -1073,7 +1114,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const openSteps = backlog.activities.flatMap(activity => activity.steps).filter(one => !one.isDone && !one.isYou && one.id !== null)
   const stepById = (id, whose = null) => {
     const one = openSteps.find(found => found.id === id && (whose === null || found.worker === null || found.worker === whose))
-    return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch, about: aboutLine(one.notes) }
+    return one === undefined ? null : { id: one.id, title: one.title, minutes: one.minutes, branch: one.ownBranch, about: aboutLine(one.notes), brief: stepBrief(raw.work, one.id, goalMap) }
   }
   // B300: the step a chat is on is the one the store holds taken, in progress or waiting on the person for it, with or
   // without a branch.
@@ -1089,7 +1130,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const id = item.head.get('Id')
     const branch = item.head.get('Branch')
     // B363: a step taken with branch none has its work outside git: no branch to show or play.
-    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null }
+    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null, brief: stepBrief(raw.work, id, goalMap) }
   }
   const workerChats = found.filter(chat => !isAdvisor(chat))
   const firstRead = workerChats.map(chat => card(chat, raw, { ...context, stepOf: stepOfChat, stepById }))

@@ -69,10 +69,13 @@ const onFeedback = (words = FEEDBACK) => [
 test('B301: the step the store holds is the task, not the hand-over; the person\'s words that started the turn are the feedback', () => {
   const units = lane(onFeedback())
   assert.equal(units.state, 'working')
-  assert.deepEqual(units.givenTask, {
+  // B425: the step's brief for the window is tested in taskPopup.test.mjs.
+  const { brief, ...stepPart } = units.givenTask.step
+  assert.deepEqual({ ...units.givenTask, step: stepPart }, {
     by: 'step', at: null, text: '',
     step: { id: 'B12', title: 'The zebracorn\'s walk', about: 'The zebracorn walks in four directions on the big map, with its old idle kept.' },
   })
+  assert.deepEqual(brief.about, ['The zebracorn walks in four directions on the big map, with its old idle kept.'])
   assert.deepEqual(units.feedback, { at: NOW - 20 * MIN, text: '1. no: almost but his red square is actually 2 squares · 2. yes' })
 })
 
@@ -175,7 +178,8 @@ const plain = value => JSON.parse(JSON.stringify(value))
 
 test('the window names the step and what it is, and apart from it the feedback the worker is on, with its time', () => {
   const view = plain(page.laneWindowOf(lane(onFeedback()), NOW, 'Game - Main'))
-  assert.equal(view.taskHead, 'B12 · The zebracorn\'s walk')
+  // B425: the step's id and title stand in the head only, not again above what it is.
+  assert.deepEqual([view.code, view.title, view.taskHead], ['B12', 'The zebracorn\'s walk', undefined])
   // The step's own first line says what it is.
   assert.equal(view.task, 'The zebracorn walks in four directions on the big map, with its old idle kept.')
   assert.deepEqual(view.feedback, { title: `Now on your feedback (${page.clock(NOW - 20 * MIN)})`, text: '1. no: almost but his red square is actually 2 squares · 2. yes' })
@@ -194,7 +198,7 @@ test('B301: a hand-over\'s "In short:" line says nothing: what the step is comes
 test('a task without a step keeps today\'s words, with the same feedback part; a window without feedback has none', () => {
   const lines = [typed(NOW - 40 * MIN, 'Make the quokkaberry glow.'), step(NOW - 39 * MIN, 'Read'), answer(NOW - 21 * MIN, 'Like this?'), typed(NOW - 20 * MIN, 'Brighter, please.'), step(NOW - 2 * MIN, 'Glow'), toolResult(NOW - MIN)]
   const view = plain(page.laneWindowOf(lane(lines, { plan: card(NOW - 39 * MIN, 'Quokkaberry glow'), backlogText: '' }), NOW, 'Game - Main'))
-  assert.deepEqual([view.taskHead, view.task], [null, 'Make the quokkaberry glow.'])
+  assert.deepEqual([view.refined, view.details, view.task], [null, null, 'Make the quokkaberry glow.'])
   assert.equal(view.feedback.text, 'Brighter, please.')
   const handed = lane([fromChat(NOW - 50 * MIN, 'Game - Main', HAND_OVER), step(NOW - 2 * MIN, 'Draw the sheet'), toolResult(NOW - MIN)], { plan: card(NOW - 49 * MIN, 'Zebracorn walk') })
   assert.equal(page.laneWindowOf(handed, NOW, 'Game - Main').feedback, null)

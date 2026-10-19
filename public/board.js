@@ -4247,6 +4247,29 @@ function shortTask(given, stepTitle = null, topic = null) {
   return twoLines(words ?? stepTitle ?? topic ?? '')
 }
 
+/** B425: a title longer than this is cut to its first clause; what is still longer, at a word. */
+const SHORT_TITLE_CHARS = 60
+const MOST_TITLE_CHARS = 72
+
+/**
+ * B425: a step's title for the head of its window (the person, I40: "It's title is too long"): a short one whole; a
+ * long one up to its first clause (a ": ", "; ", " - ", ", " or " (" after its first 20 characters, so "Build the
+ * Causeway," is not all it says); what is still too long cut at a word, with "…".
+ */
+function shortTitle(title) {
+  const words = String(title).trim()
+  if (words.length <= SHORT_TITLE_CHARS) return words
+  const clause = /:\s|;\s|\s[—–-]\s|,\s|\s\(/g
+  let found = clause.exec(words)
+  while (found !== null && found.index < 20) found = clause.exec(words)
+  const first = found === null ? words : words.slice(0, found.index).trim()
+  if (first.length <= MOST_TITLE_CHARS) return first
+  // One more character, so a word that ends right at the limit stays.
+  const cut = first.slice(0, MOST_TITLE_CHARS + 1)
+  const at = cut.lastIndexOf(' ')
+  return `${cut.slice(0, at > 20 ? at : MOST_TITLE_CHARS).replace(/[\s,;:]+$/, '')}…`
+}
+
 /** A task's words for the window's two lines: with a capital, cut at SHORT_TASK_CHARS. */
 function twoLines(words) {
   const chosen = String(words).trim()
@@ -4318,21 +4341,38 @@ function laneWindowOf(lane, now, mainTitle) {
   if (chip === undefined) return null
   const task = lane.task ?? null
   const given = lane.givenTask ?? null
+  const step = given?.step ?? null
+  // B425: what the store holds of the step: its refined parts, what it is, its goal by name, the rest for the details.
+  const brief = step?.brief ?? null
+  const refined = brief === null || (brief.summary.length === 0 && brief.what.length === 0) ? null
+    : { summary: brief.summary.join(' '), picture: brief.picture, what: brief.what }
   const line = stepLine(lane, now)
   const time = timeOf(lane, now)
+  const fullTitle = laneTaskOf(lane).text
   return {
     code: laneTaskOf(lane).code,
-    title: laneTaskOf(lane).text ?? 'Task not recorded yet',
-    chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }],
+    // B425: the title cut to its first clause (the person, I40: "It's title is too long"); the whole one on hover.
+    title: fullTitle === null ? 'Task not recorded yet' : shortTitle(fullTitle),
+    fullTitle,
+    chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }, ...((brief?.goal ?? null) === null ? [] : [{ text: brief.goal, tone: 'goal' }])],
     // B301: only the person's words give a task; the main chat's messages give none.
     given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
-    step: given?.step ?? null,
-    // B157: the top part: the task in one short sentence, and its plan in plain words. B281: for a backlog step, the
-    // step's id and title above it, and what the step is; the person's feedback the worker is on as a part apart.
-    taskHead: (given?.step ?? null) === null ? null : `${given.step.id} · ${given.step.title}`,
-    task: (given?.step ?? null) === null
+    step,
+    // B157: the top part: the task in one short sentence, and its plan in plain words; the person's feedback the
+    // worker is on as a part apart (B281). B425: for a step with a refine block, its summary, picture and what we
+    // build; without one, the first lines of its context. The step's id and title stand in the head only.
+    refined,
+    task: step === null
       ? shortTask(given?.text ?? null, null, task === null || task.text === '' ? null : task.text)
-      : given.by === 'step' ? stepTask('', given.step) : stepTask(given.text, given.step, task === null || task.text === '' ? null : task.text),
+      : refined !== null ? twoLines(refined.summary)
+        : (brief?.about ?? []).length > 0 ? twoLines(brief.about.join(' '))
+          : given.by === 'step' ? stepTask('', step) : stepTask(given.text, step, task === null || task.text === '' ? null : task.text),
+    details: step === null ? null : {
+      step: `${step.id} · ${step.title}`,
+      context: brief?.context ?? [],
+      touches: brief?.touches ?? [],
+      history: brief?.history ?? [],
+    },
     feedback: (lane.feedback ?? null) === null ? null : { title: `Now on your feedback (${clock(lane.feedback.at)})`, text: lane.feedback.text },
     plan: planOf(lane, now),
     standing: [
@@ -4354,13 +4394,17 @@ const LANE_PARTS = {
     // B157: on top, set apart: the task in at most two lines, and its plan in plain words. B281: the step it is on,
     // and the person's feedback it is on now in a part of its own.
     view => briefPart([['The task', taskNodes(view)], [view.feedback?.title ?? '', feedbackNodes(view.feedback)], ['Its plan', planNodes(view.plan)]]),
-    // B157: below, folded: the task as it was given, its backlog step, where it stands.
+    // B157: below, folded: the task as it was given, its backlog step, where it stands. B425: the step with its whole
+    // title, its context, what it touches and its history.
     view => foldedDetails([
       section('Its task as it was given', view.given === null
         ? [el('p', 'muted', 'The message that gave it this task is not in the part of its chat the board reads.')]
         : [el('small', 'muted', view.given.from), rich(el('div', 'said-words'), view.given.text)]),
-      view.step === null ? null : section('Backlog step', [el('p', '', `${view.step.id} · ${view.step.title}`)]),
+      view.details === null ? null : section('Backlog step', [el('p', '', view.details.step)]),
+      view.details === null || view.details.context.length === 0 ? null : section('Context', [listOf(view.details.context)]),
+      view.details === null || view.details.touches.length === 0 ? null : section('Touches', [listOf(view.details.touches)]),
       section('Where it stands', view.standing.map(line => el('p', '', line))),
+      view.details === null || view.details.history.length === 0 ? null : section('History', [listOf(view.details.history)]),
     ]),
   ],
   side: [],
@@ -4381,8 +4425,19 @@ function briefPart(rows) {
 /** B157: the task in its two lines; a window without one says so. */
 const briefTask = task => el('p', `brief-task${task === '' ? ' muted' : ''}`, task === '' ? 'The board does not know the task yet.' : task)
 
-/** B281: a working worker's task: the backlog step it is on ("B231 · title"), then what it is in two lines. */
-const taskNodes = view => [...(view.taskHead === null ? [] : [el('p', 'brief-head', view.taskHead)]), briefTask(view.task)]
+/**
+ * B281: a working worker's task: what it is in two lines. B425: a step with a refine block shows its summary, its
+ * picture (a thumbnail that opens in the picture popup) and what we build, "Not in it" greyed.
+ */
+function taskNodes(view) {
+  if (view.refined === null) return [briefTask(view.task)]
+  const picture = view.refined.picture === null ? null : pictureOfLine(view.refined.picture)
+  return [
+    el('p', 'brief-summary', view.refined.summary),
+    ...(picture === null || picture.path === null ? [] : [pictureRow(picture.path, picture.caption)]),
+    ...(view.refined.what.length === 0 ? [] : [el('h3', '', 'What we build'), buildList(view.refined.what)]),
+  ]
+}
 
 /** B281: the person's feedback the worker is on, in at most two lines; nothing when it is on none. */
 const feedbackNodes = feedback => (feedback === null ? [] : [el('p', 'brief-feedback', feedback.text)])
@@ -4427,6 +4482,8 @@ function detailsHead(view, sign, now) {
   const heading = el('h2')
   if (view.code !== null) heading.append(el('span', 'details-code', view.code))
   heading.append(view.title)
+  // B425: a title cut short shows the whole one on hover.
+  if (typeof view.fullTitle === 'string' && view.fullTitle !== view.title) heading.title = view.fullTitle
   const chips = el('p', 'details-chips')
   for (const chip of view.chips) chips.append(el('span', `chip is-${chip.tone}`, chip.text))
   if ((view.at ?? null) !== null) chips.append(el('span', 'chip is-time', `Asked ${ago(view.at, now)}`))
