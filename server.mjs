@@ -62,12 +62,13 @@ import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
-import { overlapsIn, workApi } from './src/work/api.mjs'
+import { isReadAction, workApi } from './src/work/api.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor } from './src/work/deliver.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { storeKeeper } from './src/work/read.mjs'
+import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
@@ -584,7 +585,6 @@ async function main(args) {
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
     // B424: the partner's helper refines and checks as the partner does; no step is queued for it.
     if (state.advisorHelper) roles.set(state.advisorHelper.name, 'helper')
-    const items = (await readStore(workDir).catch(() => ({ items: new Map() }))).items
     return {
       // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
@@ -601,7 +601,7 @@ async function main(args) {
       lanes: [...lanes, ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])],
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
-      freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
+      freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
@@ -948,6 +948,26 @@ async function main(args) {
     settingsQueue = turn.catch(() => {})
     return turn
   }
+  // B412: the answers of the chats' work calls, kept by their request id (see `requestKeeper`).
+  const requests = requestKeeper({ file: isDemo ? null : join(HERE, 'data', 'work-requests.json'), clock })
+  /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
+  const bridgeWorkOnce = async (body, checked) => {
+    const done = await workAction({ ...body, chat: checked.chat })
+    // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
+    if (body?.action === 'partner-answer') await sendWakes(done)
+    // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
+    // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
+    // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
+    const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
+    if (pulled === null || (pulled.wake ?? null) === null) return done
+    readState.reset()
+    const answered = await pullFor({
+      dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
+      newId: () => randomBytes(8).toString('hex'), keep,
+    })
+    if (answered.text !== '') readState.reset()
+    return { ok: true, result: body?.action === 'pull' ? answered : { ...done.result, pull: answered } }
+  }
   const server = createBoard({
     token: randomBytes(32).toString('hex'),
     // B319: the demo is no project's.
@@ -1231,21 +1251,10 @@ async function main(args) {
       const state = await readState()
       const checked = checkTake(body, state)
       if (!checked.ok) return checked
-      const done = await workAction({ ...body, chat: checked.chat })
-      // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
-      if (body?.action === 'partner-answer') await sendWakes(done)
-      // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
-      // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
-      // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
-      const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
-      if (pulled === null || (pulled.wake ?? null) === null) return done
-      readState.reset()
-      const answered = await pullFor({
-        dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
-        newId: () => randomBytes(8).toString('hex'), keep,
-      })
-      if (answered.text !== '') readState.reset()
-      return { ok: true, result: body?.action === 'pull' ? answered : { ...done.result, pull: answered } }
+      // B412: a call the mod repeats with its request id (its answer was slow or cut off) gets the first answer.
+      const { request, ...asked } = body
+      if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
+      return requests.answer(checked.chat, request, () => bridgeWorkOnce(asked, checked))
     },
     take: async body => {
       const checked = checkTake(body, await readState())
