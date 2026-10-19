@@ -65,7 +65,9 @@ export function parseList(fileText) {
   }
   const named = value => (typeof value === 'string' && value.trim() !== '' ? value : null)
   const [prefix, main] = [named(raw?.prefix), named(raw?.main)]
-  return { prefix, main, problem: prefix === null || main === null ? 'incomplete' : null }
+  // B424: the partner's helper ("helper": its name), shown under the Advisor and never given a queue.
+  const helper = named(raw?.helper)?.trim() ?? null
+  return { prefix, main, problem: prefix === null || main === null ? 'incomplete' : null, ...(helper === null ? {} : { helper }) }
 }
 
 /**

@@ -249,7 +249,9 @@ check and a card that names another step, and a file of the store the board cann
 
 `<project>\.claude\chats\list.json`: `prefix` and `main` (the main chat's title is the two together), `boards` (the
 launch entries the mod keeps running) and `compactAbove` (a worker larger than this many tokens is compacted after
-it reports; 250000 unless set, 0 for never). An empty `boards` list switches the automatic start off.
+it reports; 250000 unless set, 0 for never). An empty `boards` list switches the automatic start off. `helper` names
+the partner's helper (B424): a chat shown under the Advisor and never given a queue, whose refines and result checks
+the work tool takes as the partner's.
 
 The backlog's form, as the board writes its view and as `--make-store` reads it: an activity is a `## ` heading (`#focus` after it marks your main
 focus); a step is `- [ ] B<number> ...`, ticked `- [x]`; `@you` at its end is a step for you, starting with

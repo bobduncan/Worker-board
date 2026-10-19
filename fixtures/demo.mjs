@@ -39,6 +39,8 @@ const CHATS = [
   { name: 'Cleanup', id: 'demo-cleanup' },
   { name: 'Levels / Environment', id: 'demo-levels' },
   { name: 'Advisor', id: 'demo-advisor', summary: ['completed', 'advice written', ''] },
+  // B424: the partner's helper: on its own card under the Advisor's, never a worker.
+  { name: 'Advisor 2', id: 'demo-helper' },
   // B262: its turn ended in a tool's answer, without a closing message, and the app has no summary of it.
   { name: 'Audio', id: 'demo-audio' },
 ]
@@ -239,6 +241,12 @@ function transcripts(now) {
       toolResult(ago(38)),
       step(ago(2), 'Create terrain meshes'),
     ], 2),
+    'demo-helper': tail([
+      fromChat(ago(6), 'Game - Advisor', 'Refine B31 for Advisor, round 1: follow roles/partner.md, "Refine a step".'),
+      step(ago(5), 'Read the step'),
+      toolResult(ago(4.5)),
+      step(ago(1), 'Draft the summary'),
+    ], 1),
     'demo-advisor': tail([
       typed(ago(46), 'What should happen next?'),
       step(ago(45), 'Read the backlog'),
@@ -490,7 +498,7 @@ export async function demoSources(now) {
   const answers = gitAnswers(now)
   return {
     project: PROJECT,
-    listText: '{ "prefix": "Game - ", "main": "Main" }',
+    listText: '{ "prefix": "Game - ", "main": "Main", "helper": "Advisor 2" }',
     appChatTexts: [
       ...CHATS.map((chat, index) => appChat(chat, index, now)),
       appChat({ name: 'Old experiments', id: 'demo-old' }, 9, now).replace('"isArchived":false', '"isArchived":true'),
@@ -502,6 +510,7 @@ export async function demoSources(now) {
       // B299: its card says it asks with the app's question form; the mod renews it while it waits.
       'demo-units': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Choose enemy approach', step: 2, steps: 4, left: 30 * MIN, isReported: false }, 103)), compactNote: { at: now - 110 * MIN, why: 'a-mod: $.session.compact: not available in a headless session yet' }, state: 'asking', at: now - 0.2 * MIN }),
       'demo-features': plan(now, { text: 'Add save / load system', step: 3, steps: 5, left: 114 * MIN, isReported: false }, 9),
+      'demo-helper': plan(now, { text: 'Refine B31 for the Advisor', step: 2, steps: 3, left: 12 * MIN, isReported: false }, 3),
       // B235: the Workers mod compacted Cleanup after its report; B247: the size after is not known yet (0).
       'demo-cleanup': JSON.stringify({ ...JSON.parse(plan(now, { text: 'Tidy the docs', step: 2, steps: 2, left: 0, isReported: false }, 105)), compacted: { at: now - 100 * MIN, before: 612000, after: 0 } }),
       // ... and why it did not compact Levels / Environment: nothing wrong.

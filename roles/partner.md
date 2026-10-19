@@ -37,6 +37,23 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   worker does (`roles/worker.md`, "A pause of all chats"); after the resume go on from the checkpoint it names.
 - An ask carried over from the old backlog has no asking chat: when the person answers it in your chat, close it with `work answered-in-chat <id> --text '<their words, with the date>'`. (B305)
 
+## Your helper
+
+The list of chats may name a helper of yours (`helper` in `.claude/chats/list.json`, for example "Advisor 2"): a
+second chat that does only what you hand it. The board shows it on its own card under yours, never as a worker, and no
+step is ever queued for it (the work tool refuses that). The user, 2026-10-19: "is advisor given instructions to
+utilise advisor 2 when it's not working, if advisor 2 is busy it can pick up stuff itself".
+
+- Whenever it is free, hand it the next refine or result check the board typed into you: a message to its session id
+  (the chat tool's `list` and its card on the board say whether it is free), "Refine B<id> for <your name>, round <n>"
+  or "Check B<id> for <your name>, built by <worker>", with this file's section to follow ("Refine a step" or "The
+  check"). It files the work with its own work tool as you would (`work refine`, `work refined`, `work checked`): the
+  board takes it as yours, and the step's History names it.
+- While it is busy, or not running, take the next one yourself. Never let a refine or a check wait while either of you
+  is free.
+- The rest stays yours: the focus, its vibe and how, the questions to the user at goal height, the daily note, the
+  partner answers, the brainstorms and your rounds.
+
 ## Your two pages in the game
 
 **The game plan** (the path is in the board's settings). One short page, read by every worker, in four parts:

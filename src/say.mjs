@@ -276,6 +276,8 @@ export function checkSay(body, state, maxChars) {
 
   const names = (state.chats ?? []).filter(chat => !chat.isLeftover).map(chat => chat.name)
   if (state.advisor?.name) names.push(state.advisor.name)
+  // B424: and the partner's helper, which an answer to its ask goes to.
+  if (state.advisorHelper?.name) names.push(state.advisorHelper.name)
   if (typeof body.to !== 'string' || !names.includes(body.to)) return refuse(400, 'No such chat on the board.')
   // B167: a picture pasted into Talk to Main, which the board kept beforehand: one of its own names, to the main chat,
   // with a plain message. B282: the same into the Advisor's chat.
@@ -361,7 +363,7 @@ export function checkSay(body, state, maxChars) {
     if (body.command === 'start') {
       // A chat that is not running takes nothing from the board. The main chat can start any chat through the
       // app, by the id the app knows it by; a chat that runs, or that the board cannot tell about, is left alone.
-      const target = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].find(chat => chat.name === body.chat)
+      const target = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].find(chat => chat.name === body.chat)
       if (target === undefined || target.name === body.to || target.isRunning !== false) return refuse(409, 'That chat runs, or is not on the board.')
       const id = typeof target.appSession === 'string' && /^[\w-]{1,80}$/.test(target.appSession) ? ` Its session id: ${target.appSession}.` : ''
       const words = `start "${plain([target.name])[0].replace(/["\u201c\u201d]/g, '')}"\nIts chat is not running, and what the user answered or typed on the worker board waits for it. Start it by its session id, with one line that says the board holds something for it.${id}`

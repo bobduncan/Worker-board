@@ -2502,6 +2502,27 @@ can i find Q202, i need a link in the future".
 4. The partner's role says: an ask handed on with escalate stands under Needs your attention itself; the partner
    files no second ask that points to it.
 
+## The partner's helper (B424)
+
+The person, 2026-10-19 (I38, I39): "make advisor 2 visible on the board, and is advisor given instructions to utilise
+advisor 2 when it's not working, if advisor 2 is busy it can pick up stuff itself", and "make advisor show under the
+advisor tab and not an worker".
+
+1. The list of chats names one helper of the partner, `"helper": "<name>"` in `list.json` (`parseList`). A chat of
+   that name (not the main chat, not the partner) is no lane: it is not counted as a worker, gets no queue and stands
+   in no worker list. The board's state carries it as `advisorHelper` (its card's state, task, time, step, idle).
+2. The Overview draws it on its own card right under the Advisor's, in the Advisor's part (`drawHelperCard`): its
+   standing as the Advisor's (`advisorStanding`), its task, step and time while it works, else "helps <partner>:
+   refines and result checks". Nothing to open and no worker buttons.
+3. The work tool gives it the role `helper`: its `refine`, `refined` and `checked` count as the partner's (`HELPS`),
+   its own name on the History lines; in all else it is a worker. `queue` and `requeue` for it are refused.
+4. The board's words reach it as the partner's do: the bridge serves it, an answer on the page may go to it, a rename
+   follows it, and the pause counts it.
+5. `roles/partner.md` ("Your helper"): hand it the next refine or check whenever it is free, take the next one while
+   it is busy, never let one wait while either is free. `roles/main.md`: never queue for it.
+6. Not in it: more than one helper, a helper for the main chat, and the Workers mod's own role for it (the mod's chat
+   tool still lists it as a worker; its change needs the person's word).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

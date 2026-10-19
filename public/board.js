@@ -587,7 +587,8 @@ function simpleTrack(percent, isSmall = false) {
  */
 function drawSimpleColumns(state) {
   const steps = simpleSteps(state.focus ?? null, state.chats ?? [], state.readAt)
-  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt)
+  // B424: the partner and its helper under the workers, apart from them.
+  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper])
   once('simple-columns', [steps, workers], () => fillSimpleColumns(steps, workers))
 }
 
@@ -609,7 +610,7 @@ function fillSimpleColumns(steps, workers) {
   fill($('simple-focus'), [focusHead, ...focusRows])
   const workersHead = el('h2', 'simple-col-head', 'Workers')
   workersHead.append(el('small', 'muted', workers.busy))
-  const workerRows = workers.rows.map(row => {
+  const rowOf = row => {
     const line = el('div', `simple-row simple-worker is-${row.tone}`)
     const middle = el('div', 'simple-task')
     if (row.task === null) middle.append(el('span', 'muted', row.left))
@@ -623,8 +624,11 @@ function fillSimpleColumns(steps, workers) {
     }
     line.append(el('b', 'simple-name', row.name), middle, el('b', 'simple-left', row.task === null ? '' : row.left))
     return line
-  })
-  fill($('simple-workers'), [workersHead, ...(workerRows.length > 0 ? workerRows : [el('p', 'simple-none', 'No chats on the board yet.')])])
+  }
+  const workerRows = workers.rows.map(rowOf)
+  // B424: the partner and its helper, under their own small head: they take no queue.
+  const partnerRows = (workers.partner ?? []).length === 0 ? [] : [el('h3', 'simple-sub-head', 'Advisor'), ...workers.partner.map(rowOf)]
+  fill($('simple-workers'), [workersHead, ...(workerRows.length > 0 ? workerRows : [el('p', 'simple-none', 'No chats on the board yet.')]), ...partnerRows])
 }
 
 /**
@@ -1241,10 +1245,12 @@ function simpleIdle(lane) {
 /**
  * B343: the simple view's second column, the workers: each chat of the list (no leftover) with the step it is on, a bar
  * of its steps and its time left; one without work says so in a few words. `busy`: "4 of 5 busy", by the head's counts.
+ * B424: `partner` the same rows for the partner and its helper (state.advisor, state.advisorHelper; a missing one is
+ * left out), shown apart under the workers and not counted among them.
  */
-function simpleWorkers(chats = [], counts = {}, now = Date.now()) {
+function simpleWorkers(chats = [], counts = {}, now = Date.now(), partners = []) {
   const all = chatsCounted(counts)
-  const rows = (chats ?? []).filter(lane => lane.isLeftover !== true).map(lane => {
+  const rowOf = lane => {
     const task = lane.task ?? null
     const { code, text } = task === null ? { code: null, text: null } : laneTaskOf(lane)
     const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
@@ -1258,8 +1264,10 @@ function simpleWorkers(chats = [], counts = {}, now = Date.now()) {
       left: waitsForPartner ? simpleIdle(lane) : simpleLeft(lane, now) ?? simpleIdle(lane),
       tone: waitsForPartner ? 'partner' : lane.state,
     }
-  })
-  return { busy: `${counts?.working ?? 0} of ${all} busy`, rows }
+  }
+  const rows = (chats ?? []).filter(lane => lane.isLeftover !== true).map(rowOf)
+  const partner = (partners ?? []).filter(lane => lane !== null && lane !== undefined).map(rowOf)
+  return { busy: `${counts?.working ?? 0} of ${all} busy`, rows, partner }
 }
 
 /** The Overview's view: the person's choice kept in this browser, Simple unless they chose Details. */
@@ -1886,13 +1894,19 @@ function advisorQueued(queued) {
  */
 function drawAdvisorLane(state) {
   const advisor = state.advisor ?? null
-  if (advisor === null) return null
-  const standing = advisorStanding(advisor)
-  // The lane's own parts read it as they read a worker.
-  const lane = { name: advisor.name, state: advisor.state, task: advisor.task ?? null, eta: advisor.eta ?? null, doingNow: advisor.doingNow, between: advisor.between ?? null, givenTask: null, isLeftover: false, isWithoutTime: false, cutOffAt: null }
+  // B424: the partner's helper, on its own card right under the Advisor's.
+  const helper = drawHelperCard(state)
+  if (advisor === null && helper === null) return null
   const part = el('div', 'advisor-part')
   const label = el('p', 'advisor-label')
   label.append(el('b', '', 'Advisor'), el('span', '', 'advises on what to do next; takes no tasks'))
+  if (advisor === null) {
+    part.append(label, helper)
+    return part
+  }
+  const standing = advisorStanding(advisor)
+  // The lane's own parts read it as they read a worker.
+  const lane = { name: advisor.name, state: advisor.state, task: advisor.task ?? null, eta: advisor.eta ?? null, doingNow: advisor.doingNow, between: advisor.between ?? null, givenTask: null, isLeftover: false, isWithoutTime: false, cutOffAt: null }
   const card = el('article', 'lane is-advisor')
   card.dataset.standing = standing.key
   card.dataset.openAdvisor = ''
@@ -1956,18 +1970,7 @@ function drawAdvisorLane(state) {
     if (first !== null) first.title = [first.title, ...tip].filter(Boolean).join('\n')
   }
 
-  const progress = el('div', 'progress-cell')
-  const task = lane.task
-  const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
-  if (hasSteps) {
-    const bar = el('div', 'bar')
-    const done = el('div', 'fill')
-    done.style.width = `${Math.max(0, Math.min(100, (task.step / task.steps) * 100))}%`
-    bar.append(done)
-    progress.append(bar)
-    // Its step as a count: the step's name and time are in its chat, the time left beside it.
-    progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
-  }
+  const progress = advisorProgress(lane.task)
 
   // B307: its time left once while it works; else nothing, as its pill says how it stands.
   const time = advisor.state === 'working' ? drawEta(lane, state.readAt) : el('div', 'eta is-muted')
@@ -1985,8 +1988,66 @@ function drawAdvisorLane(state) {
   open.append(el('span', 'advisor-open', '›'))
   row.append(who, what, progress, time, waits, open)
   card.append(row)
-  part.append(label, card)
+  part.append(label, card, ...(helper === null ? [] : [helper]))
   return part
+}
+
+/** The step a card's task is on, as a bar and a count ("2 of 5"); empty without steps. */
+function advisorProgress(task) {
+  const progress = el('div', 'progress-cell')
+  const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
+  if (hasSteps) {
+    const bar = el('div', 'bar')
+    const done = el('div', 'fill')
+    done.style.width = `${Math.max(0, Math.min(100, (task.step / task.steps) * 100))}%`
+    bar.append(done)
+    progress.append(bar)
+    // Its step as a count: the step's name and time are in its chat, the time left beside it.
+    progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
+  }
+  return progress
+}
+
+/**
+ * B424: the partner's helper (the list of chats' "helper", such as Advisor 2) on its own card under the Advisor's:
+ * how it stands, its task as its card names it, its step and its time while it works. No queue and no worker buttons:
+ * the partner hands it the next refine or result check. Null without a helper.
+ */
+function drawHelperCard(state) {
+  const helper = state.advisorHelper ?? null
+  if (helper === null) return null
+  const standing = advisorStanding(helper)
+  const lane = { name: helper.name, state: helper.state, task: helper.task ?? null, eta: helper.eta ?? null, doingNow: helper.doingNow, between: helper.between ?? null, givenTask: null, isLeftover: false, isWithoutTime: false, cutOffAt: null }
+  const card = el('article', 'lane is-advisor is-helper')
+  card.dataset.standing = standing.key
+  card.dataset.helper = helper.name
+  card.setAttribute('aria-label', `${helper.name}, ${standing.label}: helps ${state.advisor?.name ?? 'the Advisor'} with refines and result checks`)
+  const row = el('div', 'lane-row')
+
+  const who = el('div', 'who')
+  const sign = el('span', `worker-icon is-${standing.key}`)
+  sign.setAttribute('aria-hidden', 'true')
+  sign.append(icon('advisor'))
+  const names = el('div', 'who-names')
+  names.append(el('h3', '', helper.name), el('span', `pill is-${standing.key}`, standing.label))
+  who.append(sign, names)
+
+  // One line: its task, else what it is for; since when it is idle in the tooltip.
+  const what = el('div', 'what')
+  if (lane.task !== null && (lane.task.text ?? '') !== '') {
+    const title = taskTitle(lane)
+    if (helper.state === 'working' && helper.doingNow !== null) title.title = [title.title, `Now: ${helper.doingNow}`].filter(Boolean).join('\n')
+    what.append(title)
+  } else if (helper.state === 'working') what.append(el('p', 'task is-none', 'Task not recorded yet'))
+  else if (standing.key === 'off') what.append(el('p', 'note', 'Its chat is not running: the partner does the next refine itself.'))
+  else what.append(el('p', 'note', `helps ${state.advisor?.name ?? 'the Advisor'}: refines and result checks`))
+  if (standing.key === 'free' && Number.isFinite(helper.idle?.since)) card.title = `Idle since ${clock(helper.idle.since)}`
+
+  const time = helper.state === 'working' ? drawEta(lane, state.readAt) : el('div', 'eta is-muted')
+  // The columns of the Advisor's card, so the two line up; nothing waits for it and nothing opens.
+  row.append(who, what, advisorProgress(lane.task), time, el('div', 'queue advisor-waits'), el('div', 'lane-menu-cell'))
+  card.append(row)
+  return card
 }
 
 $('lanes').addEventListener('click', event => {

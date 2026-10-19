@@ -1755,6 +1755,10 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .advisor-waits small { color: var(--muted); }
 .advisor-open { color: var(--muted); font-size: 22px; font-weight: 700; line-height: 1; padding-right: 8px; }
 .lane.is-advisor[data-standing="working"] .fill { background: var(--working); }
+/* B424: the partner's helper on its own card under the Advisor's: a thinner accent, set in a little, nothing to open. */
+.workers-panel .lane.is-advisor.is-helper { box-shadow: inset 2px 0 0 #1f8f84; background: #0c181c; cursor: default; }
+.workers-panel .lane.is-advisor.is-helper:hover { background: #0c181c; }
+.lane.is-helper .who { padding-left: 14px; }
 
 /* B269: the calm window where a chat needs the person's answer: narrower, with room around everything; the step in
    one line, one question as its title, large cards for the answers, the rest folded, a note, one Send. */
@@ -1971,6 +1975,8 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .simple-state.is-partner { background: #3a1a2b; color: var(--partner); }
 .simple-worker.is-partner .simple-left, .simple-worker.is-partner .simple-task .muted { color: var(--partner); }
 .simple-worker { grid-template-columns: 76px minmax(0, 1fr) auto; }
+/* B424: the partner and its helper under the workers, under their own small head. */
+.simple-sub-head { margin: 14px 0 2px; color: var(--advisor); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
 .simple-task { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .simple-track.is-small { height: 5px; }
 .simple-left { white-space: nowrap; }

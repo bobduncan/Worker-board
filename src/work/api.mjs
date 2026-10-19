@@ -62,6 +62,12 @@ const ROLES = {
   'partner-answer': ['advisor'],
   escalate: ['advisor', 'server'],
 }
+/**
+ * B424: what the partner's helper (the role 'helper' of the list) does as the partner's own: the refines and the result
+ * checks the partner hands it. Its History lines name the helper. In everything else it is a worker, that no step is
+ * queued for.
+ */
+const HELPS = new Set(['refine', 'refined', 'checked'])
 /** The order of a chat's own steps in `next`: what it works on first. */
 const MINE = ['in progress', 'waiting on you', 'taken', 'review', 'queued']
 const STEP_ID = /^B\d+$/
@@ -127,7 +133,8 @@ function serial(dir, run) {
 /**
  * One action on the store. `body = { action, chat, ...fields }`; `ctx = { dir, fs, now, as, roleOf, freeChats,
  * overlaps, prefix, viewFile, boardUrl, hasGoal }` (Focus 3: `hasGoal(id)`, whether the goal map holds that goal): `as` is 'person' (the page) or 'server' (the board itself), else the chat
- * of `body.chat` asks, in the role `roleOf(chat)` gives ('main', 'worker', 'advisor', or null: no chat of the list).
+ * of `body.chat` asks, in the role `roleOf(chat)` gives ('main', 'worker', 'advisor', 'helper' (B424, HELPS), or null: no
+ * chat of the list).
  * `freeChats` the chats free now, `overlaps(item)` the id of a taken step whose Touches overlap, `viewFile` the
  * backlog file the view is written to after a change (none: not written).
  * Answers `{ ok: true, result: { text, id, changed, ... } }` or `{ ok: false, status, why }`.
@@ -155,6 +162,7 @@ async function act(body, ctx) {
     }
     role = ctx.roleOf?.(who) ?? null
     if (role === null) return refuse(403, `${who} is no chat of the list.`)
+    if (role === 'helper') role = HELPS.has(action) ? 'advisor' : 'worker'
   }
   if (PERSON.has(action) && role !== 'person') return refuse(403, 'Only the person does that, on the board.')
   if (SERVER.has(action) && role !== 'server') return refuse(403, 'Only the board does that.')
@@ -1467,6 +1475,7 @@ async function queueStep(body, w) {
   const named = chatName(line(body.for, 80), w)
   if (!named.ok) return named
   const owner = named.name
+  if (w.roleOf?.(owner) === 'helper') return refuse(409, helperNoQueue(owner))
   const after = line(body.after, 200).replace(/^after\s+/i, '')
   if (after.includes(';')) return refuse(400, '"after" holds no ";".')
   const about = line(body.about, 40).replace(/^about\s+/i, '')
@@ -1562,6 +1571,9 @@ function queueAsked(item, w) {
  * B301, the review: Main or the person gives a queued step to another chat (the page's "Move to"): its Owner changes,
  * it stays queued, and its Since is now, so the board delivers it anew to the new chat. Only a queued step.
  */
+/** B424: why no step is queued for the partner's helper. */
+const helperNoQueue = name => `${name} is the partner's helper: no step is queued for it. The partner hands it the next refine or result check; queue the step for a worker.`
+
 async function requeue(body, w) {
   return warned(await requeueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning)
 }
@@ -1574,6 +1586,7 @@ async function requeueStep(body, w) {
   const named = chatName(line(body.for, 80), w)
   if (!named.ok) return named
   const owner = named.name
+  if (w.roleOf?.(owner) === 'helper') return refuse(409, helperNoQueue(owner))
   const state = stateOf(found.item)
   if (state !== 'queued') return refuse(409, `${id} is ${state}, not queued: only a queued step moves to another chat.`)
   const was = valueOf(found.item, 'Owner')

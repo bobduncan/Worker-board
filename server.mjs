@@ -563,7 +563,7 @@ async function main(args) {
     let paste = null
     for (const wake of isShowOnly ? [] : wakes) {
       const state = await readState()
-      const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].some(chat => chat.name === wake.to)
+      const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].some(chat => chat.name === wake.to)
       if (!shown) continue
       const isCopied = state.bridge?.isMissing === true
       const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: 'taken-back' } : answerWords(wake)
@@ -582,6 +582,8 @@ async function main(args) {
     const lanes = (state.chats ?? []).filter(lane => !lane.isLeftover)
     const roles = new Map(lanes.map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
+    // B424: the partner's helper refines and checks as the partner does; no step is queued for it.
+    if (state.advisorHelper) roles.set(state.advisorHelper.name, 'helper')
     const items = (await readStore(workDir).catch(() => ({ items: new Map() }))).items
     return {
       // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
@@ -596,7 +598,7 @@ async function main(args) {
       },
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
       // Pause and resume (spec 2026-10-18): the lanes' facts, for pause-state's list of whom the main chat wakes.
-      lanes: [...lanes, ...(state.advisor ? [state.advisor] : [])],
+      lanes: [...lanes, ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])],
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
@@ -1433,7 +1435,7 @@ async function main(args) {
         const state = await readState()
         // B313: a chat renamed (its session under another name) takes its open items along, once.
         const renamed = await followRenames({
-          dir: workDir, chats: [...(state.chats ?? []), ...(state.advisor ? [state.advisor] : [])].map(chat => ({ session: chat.session, name: chat.name })),
+          dir: workDir, chats: [...(state.chats ?? []), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].map(chat => ({ session: chat.session, name: chat.name })),
           apply: body => workAction(body, 'server'), now: clock(), prefix: state.chatPrefix ?? '',
         })
         if (renamed.moved.length > 0) {

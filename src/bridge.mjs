@@ -18,7 +18,8 @@ export function checkTake(body, state) {
   const chat = typeof body.chat === 'string' ? body.chat.trim() : ''
   const session = typeof body.session === 'string' ? body.session.trim() : ''
   if (chat === '' || chat.length > 80 || session === '' || session.length > 120) return refuse(400, 'Name the chat and its session.')
-  const shown = [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : [])].find(one => one.name === chat)
+  // B424: the partner's helper takes its words as the Advisor does.
+  const shown = [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].find(one => one.name === chat)
   if (shown === undefined || (shown.session ?? null) !== session) return refuse(409, 'Not the chat the board shows under that name.')
   return { ok: true, chat }
 }

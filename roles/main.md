@@ -99,6 +99,9 @@ You decide this, not the user. For every task:
   already for that worker: the same call with its `for` only marks it). It stays with its worker and jumps that worker's
   queue: the board delivers it first, `work next` lists it first, the lanes and the Backlog tab show it first with a
   "fix" chip. Do not hold it back for the focus, and ask the partner nothing about it.
+- The partner's helper (the chat the list of chats names with `helper`, shown under the Advisor on the board) is no
+  worker: never queue or requeue a step for it (the work tool refuses it). The partner hands it refines and result
+  checks itself.
 - A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
