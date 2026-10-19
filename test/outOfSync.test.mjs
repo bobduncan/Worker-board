@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { checkSay } from '../src/say.mjs'
-import { SYNC_OPEN_MS, SYNC_SHOWN_MS, lastSyncAnswer, syncChecks, syncHead } from '../src/sync.mjs'
+import { SYNC_OPEN_MS, SYNC_SHOWN_MS, lastSyncAnswer as lastAnswerOf, syncChecks as checksOf, syncHead } from '../src/sync.mjs'
 import { messageText } from '../src/bridge.mjs'
 
 const MIN = 60_000
@@ -41,6 +41,9 @@ const board = (sync = {}) => ({
   limits: { fiveHour: { used: 42, level: 'ok' }, week: { used: 61.4, level: 'ok' } },
 })
 const say = (body, state = board()) => checkSay({ to: 'Lead', ...body }, state, 2000)
+// The main chat of these samples is Lead (B439: only its notes to the person answer a check).
+const syncChecks = (sent, notes, abouts, now) => checksOf(sent, notes, abouts, now, 'Lead')
+const lastSyncAnswer = (notes, about) => lastAnswerOf(notes, about, 'Lead')
 const lines = message => message.text.split('\n')
 
 test('a worker: the typed word is "check sync <name>" with what the board shows for that chat', () => {
@@ -163,6 +166,26 @@ test('the review: an answer older than the ask never answers it, even in the sam
   // The word was only copied (no Workers mod took it): open while the person pastes it, as one that arrived.
   const copied = syncChecks([ask('Worker 1', 'copied', at(22, 0))], [], ['Worker 1'], at(22, 5))['Worker 1']
   assert.deepEqual([copied.state, copied.isOpen], ['copied', true])
+})
+
+test('B439: only the main chat\'s note to the person answers; the same head from a worker, or to the main chat, does not', () => {
+  const sent = [ask('Worker 1', 'delivered', at(22, 40), { deliveredAt: at(22, 41) })]
+  // The result check's probe: a worker's note to the main chat that starts with the head.
+  const workerToMain = note('Sync check of Worker 1: a worker\'s own report', at(22, 44), { from: 'Worker 1', to: 'main' })
+  const workerToYou = note('Sync check of Worker 1: a worker\'s note to the person', at(22, 45), { from: 'Worker 2' })
+  const mainToMain = note('Sync check of Worker 1: the main chat to itself', at(22, 46), { to: 'main' })
+  const others = [workerToMain, workerToYou, mainToMain]
+  const open = syncChecks(sent, others, ['Worker 1'], NOW)['Worker 1']
+  assert.deepEqual([open.isOpen, open.answer], [true, null])
+  assert.equal(lastSyncAnswer(others, 'Worker 1'), 0)
+  const answer = note('Sync check of Worker 1: all in sync.', at(22, 47))
+  assert.equal(syncChecks(sent, [...others, answer], ['Worker 1'], NOW)['Worker 1'].answer.text, 'all in sync.')
+  assert.equal(lastSyncAnswer([...others, answer], 'Worker 1'), Number(answer.id.slice(1)))
+  // No main chat known: nothing answers.
+  assert.equal(checksOf(sent, [answer], ['Worker 1'], NOW, null)['Worker 1'].answer, null)
+  // The typed word keeps the newest of the main chat's answers only.
+  assert.equal(say({ command: 'sync', chat: 'Worker 1' }, { ...board(), information: [...others, answer] }).message.seen, Number(answer.id.slice(1)))
+  assert.equal(say({ command: 'sync', chat: 'Worker 1' }, { ...board(), information: others }).message.seen, 0)
 })
 
 test('the review: a lane carries the steps the store holds for it, whatever its card says', async () => {

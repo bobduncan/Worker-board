@@ -147,7 +147,7 @@ const syncWords = (to, lane, state) => {
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sync', about,
     // B438, the review: the newest answer there was when it was asked; only a newer one answers this check.
-    seen: lastSyncAnswer(state.information, about),
+    seen: lastSyncAnswer(state.information, about, state.restart?.main ?? null),
     text: [...lines, `Limits: ${limitsWords(state.limits)}`, 'Why: the person pressed "Out of sync?" on the worker board'].join('\n'),
   }
 }
