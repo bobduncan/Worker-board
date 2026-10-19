@@ -210,6 +210,10 @@ test('B364: the facts of a pause name every chat of the board by its state, for 
     { name: 'Main', state: 'still' }, { name: 'Board', state: 'working' }, { name: 'Support', state: 'still' },
     { name: 'Advisor', state: 'asking' }, { name: 'Worker 5', state: 'off' }, { name: 'Helper', state: 'typing' },
   ])
+  // The review: a line handed to a chat that does not run yet, or to one that is no lane, is typing too, as isSafe waits for it.
+  const handed = pauseFacts({ pause, items: new Map(), lanes, prefix: 'Team - ', pending: [{ to: 'Team - Worker 5' }, { to: 'Team - Ghost' }] })
+  assert.deepEqual(handed.chats.filter(chat => chat.state === 'typing'), [{ name: 'Worker 5', state: 'typing' }, { name: 'Ghost', state: 'typing' }])
+  assert.equal(handed.isSafe, false)
 })
 
 test('the facts of a resume: who has not started a turn since, and when every holder has (then the board sets running)', () => {

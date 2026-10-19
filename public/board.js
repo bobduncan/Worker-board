@@ -780,7 +780,12 @@ const PAUSE_STATES = [['working', ''], ['asking', ' (waiting for you)'], ['typin
  */
 function pauseRing(pause) {
   if (pause === null || pause === undefined || pause.state !== 'pausing') return null
-  const chats = pause.chats ?? []
+  // A server from before B364 names no chats: the ring is drawn from who still works, asks or has a line typed into it.
+  const chats = pause.chats ?? [
+    ...(pause.working ?? []).map(name => ({ name, state: 'working' })),
+    ...(pause.asking ?? []).map(name => ({ name, state: 'asking' })),
+    ...(pause.typing ?? []).map(name => ({ name, state: 'typing' })),
+  ]
   const running = chats.filter(chat => chat.state !== 'off')
   const still = running.filter(chat => chat.state === 'still').length
   const groups = PAUSE_STATES
@@ -880,6 +885,7 @@ function drawRestart(state) {
     parts.push(row)
   }
   const ring = pauseRing(pause)
+  if (ring === null) isPauseDetailsOpen = false
   if (ring !== null) {
     parts.push(drawPauseRing(ring))
     const row = el('div', 'restart-ask')
@@ -926,7 +932,7 @@ function drawPauseRing(ring) {
     return node
   }
   svg.append(circle('track', 100, 0))
-  ring.slices.forEach((state, i) => svg.append(circle(state, 100 / n - gap, 25 - (i * 100) / n - gap / 2)))
+  ring.slices.forEach((state, i) => svg.append(circle(state, Math.max(100 / n - gap, 0.4), 25 - (i * 100) / n - gap / 2)))
   const middle = el('div', 'pause-ring-mid')
   if (ring.isDone) middle.append(el('span', 'pause-ring-tick', '✓'))
   else middle.append(el('span', 'pause-ring-count', `${ring.still}/${ring.of}`), el('small', 'muted', 'still'))

@@ -36,7 +36,7 @@ const PAUSING = { state: 'pausing', since: NOW - 5 * MIN, by: 'person' }
 
 test('1: Safe needs no turn in flight and no line handed out; a step with no checkpoint is said and blocks nothing', () => {
   const items = new Map([['B313', held('B313', 'Board', 'Branch: b313-strip\n')]])
-  const facts = pauseFacts({ pause: PAUSING, items, lanes: LANES })
+  const { chats: _chats, ...facts } = pauseFacts({ pause: PAUSING, items, lanes: LANES })
   assert.deepEqual(facts, { state: 'pausing', since: PAUSING.since, working: [], asking: [], typing: [], unsaved: [{ chat: 'Board', id: 'B313' }], offBoard: [], isSafe: true })
   // A chat of the list that is gone holds one too: named, not waited for.
   items.set('B9', held('B9', 'Ghost'))
@@ -172,21 +172,24 @@ test('2: what waits in the outbox while the person pauses is shown as held until
 const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'board.js'), 'utf8')
 const two = n => String(n).padStart(2, '0')
 const page = { clock: ms => { const at = new Date(ms); return `${two(at.getHours())}:${two(at.getMinutes())}` } }
-vm.runInNewContext(`${script.slice(script.indexOf('// pause:start'), script.indexOf('// pause:end'))}\nObject.assign(this, { pauseLines })`, page)
+vm.runInNewContext(`${script.slice(script.indexOf('// pause:start'), script.indexOf('// pause:end'))}\nObject.assign(this, { pauseLines, pauseRing })`, page)
 const linesOf = pause => JSON.parse(JSON.stringify(page.pauseLines(pause)))
+const ringOf = pause => JSON.parse(JSON.stringify(page.pauseRing(pause)))
 
 test('the page: Safe from turns in flight alone; a step with no checkpoint is information; the question form and a line being typed', () => {
   const since = new Date(2026, 9, 18, 21, 1).getTime()
-  const base = { state: 'pausing', since, working: [], asking: [], typing: [], unsaved: [], offBoard: [], isSafe: true, main: null, typedAt: null }
-  assert.deepEqual(linesOf(base), [{ tone: 'ready', text: 'Safe to restart: paused since 21:01, no chat is working. You can quit Claude now.' }])
-  assert.deepEqual(linesOf({ ...base, unsaved: [{ chat: 'Board', id: 'B313' }], offBoard: [{ chat: 'Ghost', id: 'B9', title: 'Team - Ghost' }] }), [
-    { tone: 'ready', text: 'Safe to restart: paused since 21:01, no chat is working. You can quit Claude now.' },
-    { tone: 'muted', text: 'B313 (Board) has no checkpoint; it resumes from its branch and History.' },
-    { tone: 'muted', text: 'B9 (Team - Ghost, not on the board) has no checkpoint; it resumes from its branch and History.' },
+  const base = { state: 'pausing', since, working: [], asking: [], typing: [], unsaved: [], offBoard: [], isSafe: true, chats: [{ name: 'Board', state: 'still' }], main: null, typedAt: null }
+  // B364: a pause shows as its ring; the words of a pause are no lines any more.
+  assert.deepEqual(linesOf(base), [])
+  assert.deepEqual([ringOf(base).head, ringOf(base).notes], ['All still: safe to restart', ['Paused since 21:01.']])
+  assert.deepEqual(ringOf({ ...base, unsaved: [{ chat: 'Board', id: 'B313' }], offBoard: [{ chat: 'Ghost', id: 'B9', title: 'Team - Ghost' }] }).notes, [
+    'Paused since 21:01.',
+    'B313 (Board) has no checkpoint; it resumes from its branch and History.',
+    'B9 (Team - Ghost, not on the board) has no checkpoint; it resumes from its branch and History.',
   ])
-  assert.deepEqual(linesOf({ ...base, working: ['Board'], asking: ['Support'], typing: ['Digger'], isSafe: false }), [
-    { tone: '', text: 'Pausing since 21:01: still working: Board; waiting for you (question form): Support; a line is being typed into: Digger.' },
-  ])
+  const busy = ringOf({ ...base, working: ['Board'], asking: ['Support'], typing: ['Digger'], isSafe: false, chats: [{ name: 'Board', state: 'working' }, { name: 'Support', state: 'asking' }, { name: 'Digger', state: 'typing' }] })
+  assert.deepEqual([busy.head, busy.still, busy.of], ['Pausing…', 0, 3])
+  assert.deepEqual(busy.groups.map(group => group.text), ['Board', 'Support (waiting for you)', 'Digger (a line is being typed)'])
 })
 
 test('the page: a line held by the pause says "held until resume"', () => {

@@ -141,6 +141,10 @@ test('B364, the user\'s pick B: while pausing the panel is one ring, a slice per
   assert.deepEqual(safe.notes, ['Paused since 21:01.'])
   // A chat in the app's question form waits for the person.
   assert.deepEqual(pauseRingOf({ ...pausing, chats: [{ name: 'Advisor', state: 'asking' }] }).groups, [{ state: 'asking', text: 'Advisor (waiting for you)' }])
+  // The review: a server from before B364 names no chats; the ring is drawn from who still works, asks or is typed into.
+  const { chats: _none, ...older } = pausing
+  const old = pauseRingOf(older)
+  assert.deepEqual([old.still, old.of, old.slices], [0, 2, ['working', 'typing']])
   // No ring outside a pause; the pause's lines are only those of a resume now.
   assert.equal(page.pauseRing({ state: 'resuming', since, waiting: [] }), null)
   assert.equal(page.pauseRing(null), null)
