@@ -561,6 +561,8 @@ async function draft(body, node, ctx, goalsAt, focus) {
  * `undo: <line>` to the partner and answers `{ ok, result }`. The store is asked first whether the line may be undone
  * (`check`); the word is typed; only then the line is marked "undo asked". A word that cannot be typed leaves the line
  * unmarked, so the person can try again; one Undo runs at a time, so a line is typed once (Review Focus 4).
+ * Partner answers (2026-10-19): `note` may be an ask the partner answered (its card's Undo), and a line that lists such
+ * an answer is taken back in the store instead; `tell(wake)` tells the asking chat to wait for the person.
  */
 let undoTurn = Promise.resolve()
 export function undoLine(body, ports) {
@@ -569,10 +571,19 @@ export function undoLine(body, ports) {
   return run
 }
 
-async function undoOnce({ note, line }, { work, type }) {
+async function undoOnce({ note, line }, { work, type, tell = async () => null }) {
   const checked = await work({ action: 'undo', id: note, line, check: true })
   if (!checked.ok) return checked
   if (checked.result.asked === true) return { ok: true, result: { id: checked.result.id, unchanged: true } }
+  // Partner answers (2026-10-19): a partner's answer of an ask is taken back in the store (the ask opens again for the
+  // person); nothing is typed to the partner, and the asking chat is told once to wait (`tell`).
+  if (typeof checked.result.undo?.ask === 'string') {
+    const taken = await work({ action: 'undo', id: note, line })
+    if (!taken.ok) return taken
+    if (taken.result.changed === false) return { ok: true, result: { id: checked.result.id, unchanged: true } }
+    if (taken.result.wake) await Promise.resolve().then(() => tell(taken.result.wake)).catch(() => null)
+    return { ok: true, result: { id: taken.result.id, ask: checked.result.undo.ask } }
+  }
   let typed = null
   try {
     typed = await type(checked.result.undo)

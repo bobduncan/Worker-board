@@ -24,7 +24,8 @@ import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
-import { readNamesFile, readPauseFile, writeNames, writePause } from './store.mjs'
+import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
+import { askOfLine, isPartnerAnswered, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer } from './pause.mjs'
 import { writeView } from './view.mjs'
 
@@ -32,16 +33,16 @@ import { writeView } from './view.mjs'
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list', 'pause-state'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'feedback', 'approve-recaps'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'feedback', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
  */
 const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'feedback', 'approve-recaps'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'feedback', 'approve-recaps', 'partner-answers'])
 /** What only the person does, on the board's page; and what only the server does. */
-const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'feedback'])
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'feedback', 'partner-answers'])
 const SERVER = new Set(['check', 'advance', 'resumed', 'approve-recaps'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
@@ -56,6 +57,10 @@ const ROLES = {
   requeue: ['main', 'person'],
   unqueue: ['main', 'person'],
   rename: ['main', 'person', 'server'],
+  // Partner answers (2026-10-19): the partner answers an ask routed to it, or hands it to the person; so does the board
+  // when the partner did not answer in time.
+  'partner-answer': ['advisor'],
+  escalate: ['advisor', 'server'],
 }
 /** The order of a chat's own steps in `next`: what it works on first. */
 const MINE = ['in progress', 'waiting on you', 'taken', 'review', 'queued']
@@ -75,6 +80,11 @@ const lines = (value, max = TEXT_CHARS) => {
   return all.map(one => one.replace(/\s+$/, '').slice(0, max)).filter(one => one.trim() !== '')
 }
 const idsIn = value => (value ?? '').match(/\bB\d+\b/g) ?? []
+/** A chat's name as written, without the list's prefix (its case kept). */
+const bare = (name, prefix = '') => {
+  const words = String(name ?? '').trim()
+  return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim()
+}
 /** A chat's name as the list writes it, without the title's prefix, for comparing. */
 const plain = (name, prefix = '') => {
   let words = String(name ?? '').trim()
@@ -221,9 +231,31 @@ async function next(body, w) {
   if (chat === '') return refuse(400, 'Name the chat.')
   // Focus 4: the main chat's unread notes come first, and are read once shown (the board woke it for them).
   const notes = w.role === 'main' && w.onlyShows !== true ? await readNotes(chat, w) : { text: '', ids: [] }
+  // Partner answers (2026-10-19): the asks the partner answers for the person stand first in its next.
+  const routed = w.role === 'advisor' ? routedAsks(w) : { text: '', ids: [] }
   const found = steady(body, w, chat)
-  if (!found.ok || notes.ids.length === 0) return found
-  return { ok: true, result: { ...found.result, text: `${notes.text}\n\n${found.result.text}`, notes: notes.ids, changed: true } }
+  if (!found.ok || (notes.ids.length === 0 && routed.ids.length === 0)) return found
+  const text = [routed.text, notes.text, found.result.text].filter(Boolean).join('\n\n')
+  return { ok: true, result: { ...found.result, text, ...(routed.ids.length === 0 ? {} : { routed: routed.ids }), ...(notes.ids.length === 0 ? {} : { notes: notes.ids, changed: true }) } }
+}
+
+/** Partner answers (2026-10-19): the open asks routed to the partner, each in one line, and how to answer them; `{ text, ids }`. */
+function routedAsks(w) {
+  const routed = [...w.store.items.values()].filter(isRoutedToPartner).sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  if (routed.length === 0) return { text: '', ids: [] }
+  const shown = routed.map(item => {
+    const options = valueOf(item, 'Options')
+    const advice = valueOf(item, 'Advice')
+    const of = valueOf(item, 'Of')
+    const owner = valueOf(item, 'Owner')
+    return `- ${valueOf(item, 'Id')} ${valueOf(item, 'Asks') ?? 'decide'} from ${owner === null ? 'nobody' : bare(owner, w.prefix)}${of === null ? '' : ` on ${of}`}${valueOf(item, 'Blocking') === 'yes' ? ', blocking' : ''}: ${valueOf(item, 'Title') ?? ''}${options === null ? '' : ` · ${options}`}${advice === null ? '' : ` · advised: ${advice}`}`
+  })
+  const first = valueOf(routed[0], 'Id')
+  return {
+    text: ['Asks you answer for the person (roles/partner.md, "Detail questions"):', ...shown,
+      `Answer each: work partner-answer ${first} with "text" (your answer, normally the advice) and "why" (one line); or hand it to the person: work escalate ${first} with "why".`].join('\n'),
+    ids: routed.map(item => valueOf(item, 'Id')),
+  }
 }
 
 /**
@@ -512,12 +544,17 @@ async function ask(body, w) {
   const play = line(body.play, 300)
   const advice = line(body.advice, 120)
   const via = ['form', 'chat'].includes(body.via) && w.role !== 'person' ? body.via : null
-  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal })
+  // Partner answers (2026-10-19): a detail question goes to the partner first; the person sees it only once handed on.
+  const route = routesToPartner({ setting: w.store.partnerAnswers, role: w.role, kind, options, advice, via }) ? 'partner' : null
+  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route })
   if (!made.ok) return made
   const { question, id, title } = made
   const stepId = isAlone ? null : valueOf(of.item, 'Id')
-  const block = forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play }, w.boardUrl ?? '')
-  if (isAlone) return changed(question, block)
+  const block = route === 'partner'
+    ? `${id} goes to your partner first: it answers it for the person (normally with your advice) or hands it to them. Nothing is for the person now, so do not ask it in your answer: the answer comes to this chat as the person's would.`
+    : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play }, w.boardUrl ?? '')
+  const routed = route === null ? {} : { route }
+  if (isAlone) return changed(question, block, routed)
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
   let moved = ''
   if (blocking && isHolder && stateOf(item) === 'in progress') {
@@ -527,21 +564,21 @@ async function ask(body, w) {
   }
   const done = await save(item, of.text, w)
   if (!done.ok) return done
-  return changed(question, `${block}${moved}`)
+  return changed(question, `${block}${moved}`, routed)
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
-async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null }) {
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null }) {
   const id = await nextId(w.dir, 'Q', w.fs)
   const title = line(text[0], 200)
   let question = ordered({
     head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', w.role === 'person' ? '-' : w.who], ['Activity', of === null ? '-' : valueOf(of, 'Activity') ?? '-'],
       ['Since', stamp(w.now)], ['Filed', String(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? goal ?? '-' : valueOf(of, 'Id')],
-      ['Options', options.length === 0 ? '-' : options.join(' | ')], ['Advice', advice === '' ? '-' : advice], ['Via', via ?? '-']].filter(([, value]) => value !== '-')),
+      ['Options', options.length === 0 ? '-' : options.join(' | ')], ['Advice', advice === '' ? '-' : advice], ['Via', via ?? '-'], ['Route', route ?? '-']].filter(([, value]) => value !== '-')),
     sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]])]),
     problem: null,
   })
-  question = said(question, w, `asked (${kind}${blocking ? ', blocking' : ''}${via === 'form' ? ', with the app\'s question form' : via === 'refine' ? ', refining' : via === 'chat' ? ', from its "For you" block' : ''})`)
+  question = said(question, w, `asked (${kind}${blocking ? ', blocking' : ''}${via === 'form' ? ', with the app\'s question form' : via === 'refine' ? ', refining' : via === 'chat' ? ', from its "For you" block' : ''})${route === 'partner' ? ': to the partner first' : ''}`)
   const wrote = await save(question, null, w)
   return wrote.ok ? { ok: true, question, id, title } : wrote
 }
@@ -633,14 +670,24 @@ async function dailyNoteMade(body, w) {
  * same line changes nothing and types nothing (Review Focus 4).
  */
 async function undo(body, w) {
-  const found = await load(body.id, w, { kind: ['note'] })
+  const found = await load(body.id, w, { kind: ['note', 'ask'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
-  if (!isDailyNote(found.item)) return refuse(409, `${id} is no daily note of a goal: nothing in it can be undone.`)
+  // Partner answers (2026-10-19): the Undo on an answered ask's card takes the partner's answer back.
+  if (kindOf(found.item) === 'ask') return takeBack(found, body, w)
+  const isAnswers = found.item.sections.has(DECIDED) && valueOf(found.item, 'To') === 'you'
+  if (!isDailyNote(found.item) && !isAnswers) return refuse(409, `${id} is no daily note of a goal: nothing in it can be undone.`)
   const wanted = line(body.line)
   if (!decidedOf(found.item).includes(wanted)) return refuse(409, `${id} decided no such thing: "${wanted.slice(0, 80)}".`)
   const undo = { of: valueOf(found.item, 'Of'), from: valueOf(found.item, 'From'), line: wanted }
   if (undoneOf(found.item).includes(wanted)) return { ok: true, result: { id, text: 'Undo was asked already.', changed: false, asked: true } }
+  // Partner answers: a line that lists the partner's answer of an ask is taken back in the store, not typed to the partner.
+  const askId = askOfLine(wanted)
+  if (askId !== null) {
+    const ask = await load(askId, w, { kind: ['ask'] })
+    if (ask.ok && valueOf(ask.item, 'Daily note') === id) return takeBack(ask, body, w)
+  }
+  if (!isDailyNote(found.item)) return refuse(409, `${id} is no daily note of a goal: only its answers of asks can be taken back.`)
   // The review: `check` only says whether it may be asked; the board types the word first, then marks it.
   if (body.check === true) return { ok: true, result: { id, text: 'Undo may be asked.', changed: false, asked: false, undo } }
   const item = copy(found.item)
@@ -648,6 +695,171 @@ async function undo(body, w) {
   const next = said(item, w, `undo asked: ${line(wanted, 200)}`)
   const done = await save(next, found.text, w)
   return done.ok ? changed(next, undefined, { undo }) : done
+}
+
+/**
+ * Partner answers (2026-10-19): the partner answers an ask routed to it (`text`, normally the advice; `why` in one line).
+ * The ask is answered by the partner, the asking chat is woken as with the person's answer (and the owner of the step it
+ * frees), and the answer stands as a line in the partner's daily note of the day (the newest note of the focus written
+ * today, else a new one; without a focus a note of the day), with an Undo.
+ */
+async function partnerAnswer(body, w) {
+  const found = await load(body.id, w, { kind: ['ask'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (stateOf(found.item) !== 'open') return refuse(409, `${id} is ${stateOf(found.item)} already.`)
+  if (valueOf(found.item, 'Route') !== 'partner') return refuse(409, `${id} is not yours to answer: only an ask routed to you (Route: partner) is; the person answers this one.`)
+  const why = line(body.why, 200)
+  if (why === '') return refuse(400, 'Say why in one line in "why": it stands in your daily note beside the answer.')
+  const given = lines(body.text)
+  const advice = valueOf(found.item, 'Advice')
+  const text = given.length > 0 ? given : advice === null ? [] : [advice]
+  if (text.length === 0) return refuse(400, 'Give your answer in "text" (normally the advice).')
+  const short = line(text.join(' '), 200)
+  const asker = valueOf(found.item, 'Owner')
+  const of = valueOf(found.item, 'Of')
+  const title = valueOf(found.item, 'Title') ?? (found.item.sections.get('Text') ?? [])[0] ?? ''
+  const entry = line(`${id} (${[asker === null ? null : bare(asker, w.prefix), of].filter(Boolean).join(', ')}): ${line(title, 120)} → ${short} (${why})`)
+  const note = noteOfToday(w)
+  const noteId = note === null ? await nextId(w.dir, 'N', w.fs) : valueOf(note, 'Id')
+  let item = put(put(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), 'Answered by', 'partner'), 'Daily note', noteId)
+  item.sections.set('Answer', text)
+  item.sections.set('Why', [why])
+  item = ordered(appendHistory(item, w.who, `answered by the partner: ${short} (why: ${why})`, w.now))
+  let freed = null
+  const done = await answerStep(w, item, found.text, of, step => {
+    let mine = appendHistory(underStep(step, [`${id} answered by the partner on ${at(w.now)}: ${short}`]), w.who, `${id} answered by the partner`, w.now)
+    if (stateOf(mine) === 'waiting on you') {
+      const goesOn = move(mine, 'in progress', 'server', w, flowCtx(w, [item, mine]), ` (${id} answered by the partner)`)
+      if (goesOn.ok) {
+        mine = goesOn.item
+        freed = valueOf(mine, 'Owner')
+      }
+    }
+    return mine
+  })
+  if (!done.ok) return done
+  const listed = await listAnswer(w, note, noteId, entry, id)
+  const told = { id, title: valueOf(found.item, 'Title') ?? '', text: `Your partner answered this for the person: ${line(text.join(' '), 1000)} (why: ${why}). The person may still take it back.` }
+  const wake = asker === null ? null : { to: asker, ...told }
+  const wakeOwner = freed !== null && (asker === null || plain(freed, w.prefix) !== plain(asker, w.prefix)) ? { to: freed, ...told } : null
+  const where = listed.ok ? `It stands in your daily note ${noteId} with an Undo` : `Your daily note could not take its line (${listed.why})`
+  return { ok: true, result: { ...done.result, text: `${id} answered for the person: ${short}. ${where}; ${asker === null ? 'nobody asked it' : `${bare(asker, w.prefix)} is woken`}.`, wake, wakeOwner, note: noteId } }
+}
+
+/** The partner's note the answers of today go into: its newest note to the person of the focus (none: of no goal) made today, or null. */
+function noteOfToday(w) {
+  const focus = w.focusGoal ?? null
+  const today = stamp(w.now).slice(0, 10)
+  const madeOn = item => ((item.sections.get('History') ?? [])[0]?.match(/^- (\d{4}-\d\d-\d\d) /)?.[1] ?? valueOf(item, 'Since') ?? '').slice(0, 10)
+  return [...w.store.items.values()]
+    .filter(item => kindOf(item) === 'note' && valueOf(item, 'To') === 'you' && item.sections.has(DECIDED) && valueOf(item, 'Recap') === null
+      && plain(valueOf(item, 'From'), w.prefix) === plain(w.who, w.prefix) && valueOf(item, 'Of') === focus && madeOn(item) === today)
+    .sort((a, b) => byId(valueOf(b, 'Id'), valueOf(a, 'Id')))[0] ?? null
+}
+
+/** The partner's answer as a decided line: added to its note of today (`note`), or a new note `noteId`. */
+async function listAnswer(w, note, noteId, entry, askId) {
+  const focus = w.focusGoal ?? null
+  const count = (decided, needs) => (focus === null ? `Your partner's answers of ${stamp(w.now).slice(0, 10)}: ${decided} decided for you` : `Today's note on ${focus}: ${decided} decided for you, ${needs} need${needs === 1 ? 's' : ''} you`)
+  if (note === null) {
+    const item = appendHistory({
+      head: new Map([['Id', noteId], ['Kind', 'note'], ['From', w.who], ['To', 'you'], ...(focus === null ? [] : [['Of', focus]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', count(1, 0)]]),
+      sections: new Map([[DECIDED, [`- ${entry}`]], ...(focus === null ? [] : [[NEEDS, []]])]),
+      problem: null,
+    }, w.who, `noted (the partner's answer of ${askId})`, w.now)
+    return save(item, null, w)
+  }
+  const found = await load(noteId, w, { kind: ['note'] })
+  if (!found.ok) return found
+  const item = copy(found.item)
+  item.sections.set(DECIDED, [...(found.item.sections.get(DECIDED) ?? []), `- ${entry}`])
+  // A note whose line only counted its lines counts them anew.
+  if (/^(?:Today's note on G\d+: \d+ decided for you, \d+ needs? you|Your partner's answers of \S+: \d+ decided for you)$/.test(valueOf(item, 'Text') ?? '')) put(item, 'Text', count(decidedOf(item).length, (item.sections.get(NEEDS) ?? []).filter(one => one.trim() !== '').length))
+  return save(appendHistory(item, w.who, `the partner's answer of ${askId} added`, w.now), found.text, w)
+}
+
+/**
+ * Partner answers (2026-10-19): an ask routed to the partner goes to the person (`Route: person`), with a line on its card
+ * that says why: the partner's own (`escalate`), or the board's when the partner did not answer in time, is not on the
+ * board, or the setting is off.
+ */
+async function escalate(body, w) {
+  const found = await load(body.id, w, { kind: ['ask'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (stateOf(found.item) !== 'open' || valueOf(found.item, 'Route') !== 'partner') return refuse(409, `${id} is not routed to the partner${stateOf(found.item) === 'open' ? '' : ` (it is ${stateOf(found.item)})`}: nothing to hand on.`)
+  const why = line(body.why, 300)
+  if (why === '') return refuse(400, 'Say in one line in "why" why the person answers it: it stands on its card.')
+  const card = w.role === 'server'
+    ? /^the partner /i.test(why) ? `Your partner ${why.replace(/^the partner /i, '')}: it is yours` : `${why[0].toUpperCase()}${why.slice(1)}: it is yours`
+    : `Your partner hands this to you: ${why}`
+  const item = put(put(copy(found.item), 'Route', 'person'), 'Since', stamp(w.now))
+  item.sections.set('Route', [card])
+  const next = appendHistory(item, w.role === 'server' ? 'server' : w.who, `to the person: ${why}`, w.now)
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next, `${id} goes to the person: ${why}.`) : done
+}
+
+/**
+ * Partner answers (2026-10-19): the person takes a partner's answer back (`ask` as load answers it), from the daily note's
+ * line or the ask's card: the ask opens again for them (Route: person, a line that says what the partner had answered),
+ * the note's line is marked, a step its holder blocked on it waits on the person again, and the asking chat is told
+ * once to wait. Once only; `check` only says whether it may be done.
+ */
+async function takeBack(ask, body, w) {
+  const id = valueOf(ask.item, 'Id')
+  const noteId = valueOf(ask.item, 'Daily note')
+  const routeLines = ask.item.sections.get('Route') ?? []
+  if (!isPartnerAnswered(ask.item)) {
+    if (stateOf(ask.item) === 'open' && routeLines.some(one => / you took it back$/.test(one))) return { ok: true, result: { id, text: 'Taken back already.', changed: false, asked: true } }
+    return refuse(409, `${id} is no answer of your partner's: there is nothing to take back.`)
+  }
+  if (body.check === true) return { ok: true, result: { id, text: 'It may be taken back.', changed: false, asked: false, undo: { ask: id, note: noteId } } }
+  const answered = line((ask.item.sections.get('Answer') ?? []).join(' '), 200)
+  const asker = valueOf(ask.item, 'Owner')
+  let item = put(put(put(copy(ask.item), 'State', 'open'), 'Route', 'person'), 'Since', stamp(w.now))
+  item.head.delete('Answered by')
+  item.sections.delete('Answer')
+  item.sections.delete('Why')
+  item.sections.set('Route', [`Your partner had answered: ${answered}; you took it back`])
+  item = ordered(said(item, w, `took back the partner's answer: ${answered}; open for the person`))
+  const of = valueOf(ask.item, 'Of')
+  const done = await answerStep(w, item, ask.text, of, step => {
+    let mine = said(underStep(step, [`${id}: the person took back the partner's answer on ${at(w.now)}; it waits for their answer`]), w, `${id} taken back`)
+    // A step its holder blocked on this ask waits on the person again, as when it asked.
+    const owner = valueOf(mine, 'Owner')
+    if (valueOf(ask.item, 'Blocking') === 'yes' && stateOf(mine) === 'in progress' && owner !== null && asker !== null && plain(owner, w.prefix) === plain(asker, w.prefix)) {
+      const waits = move(mine, 'waiting on you', w.roleOf?.(bare(owner, w.prefix)) ?? 'worker', w, flowCtx(w, [item, mine]), ` (${id} taken back)`)
+      if (waits.ok) mine = waits.item
+    }
+    return mine
+  })
+  if (!done.ok) return done
+  // The note's line is marked, as an Undo asked.
+  const note = noteId === null ? null : await load(noteId, w, { kind: ['note'] })
+  if (note?.ok === true) {
+    const listed = decidedOf(note.item).find(one => askOfLine(one) === id)
+    if (listed !== undefined && !undoneOf(note.item).includes(listed)) {
+      const marked = copy(note.item)
+      marked.sections.set(UNDONE, [...(note.item.sections.get(UNDONE) ?? []), `- ${listed} (${stamp(w.now)})`])
+      await save(said(marked, w, `taken back: ${line(listed, 200)}`), note.text, w)
+    }
+  }
+  const wake = asker === null ? null : { to: asker, id, line: takenBackWords(id) }
+  return { ok: true, result: { ...done.result, text: `${id} is open again for you${asker === null ? '' : `; ${bare(asker, w.prefix)} waits for your answer`}.`, wake, undo: { ask: id, note: noteId } } }
+}
+
+/** Partner answers (2026-10-19): the person switches the partner's answers on or off on the Focus page (partner-answers.json). */
+async function partnerSetting(body, w) {
+  if (typeof body.on !== 'boolean') return refuse(400, 'Say "on": true or false.')
+  const now = await readPartnerAnswersFile(w.dir, w.fs)
+  const words = body.on ? 'Partner answers are on: your partner answers detail questions first; the rest still comes to you.' : 'Partner answers are off: every question comes to you.'
+  if (now.text !== null && now.record.on === body.on) return { ok: true, result: { text: words, partnerAnswers: now.record, changed: false } }
+  const record = { on: body.on, since: w.now }
+  const done = await writePartnerAnswers(w.dir, record, w.fs, { expected: now.text })
+  if (!done.ok) return refuse(/could not be written/.test(done.why) ? 500 : 409, `${done.why}; try again.`)
+  return { ok: true, result: { text: words, partnerAnswers: record, changed: true } }
 }
 
 async function makeNote(w, to, text, of, via = null) {
@@ -1910,4 +2122,7 @@ const CHANGE = {
   overturn: recapAnswer,
   feedback: recapAnswer,
   'approve-recaps': approveRecaps,
+  'partner-answer': partnerAnswer,
+  escalate,
+  'partner-answers': partnerSetting,
 }

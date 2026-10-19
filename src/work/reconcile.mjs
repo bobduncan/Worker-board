@@ -5,7 +5,9 @@
 
 import { mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
-import { fixFirst, sinceMs, valueOf } from './item.mjs'
+import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
+import { PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
+import { isHolding } from './pause.mjs'
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
@@ -46,9 +48,13 @@ const span = ms => {
  * }]`; `deliveries`: `[{ id, chat, why }]`, one per chat; `notes` (Focus 4): `[{ id, chat, from, since }]`, the unread
  * notes to the main chat, which it is woken for (not while it is suspended); `flags`: `[{ kind, id, chat, text, button }]`, a lane's when
  * `chat` is set, else a line on top; a flag with `say` tells its chat that once (`key`); an `idle hold` flag (B308) also
- * names all its chat's steps (`ids`) and is a hint under Needs your attention, not on the lane.
+ * names all its chat's steps (`ids`) and is a hint under Needs your attention, not on the lane. Partner answers
+ * (2026-10-19): `partner` is the partner's card (`name`, `state`, `isRunning`, `idle`; null: no partner chat on the
+ * board); `partnerAsks`: `[{ id, chat, since }]`, the asks routed to it that it is woken for while it is free (never
+ * while the person pauses); `escalations`: `[{ id, why }]`, those the board hands to the person: the partner was free
+ * `times.partnerMs` (30 min) and did not answer, no partner chat is on the board, or the setting is off.
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -199,5 +205,28 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       break
     }
   }
-  return { moves, deliveries, flags, notes }
+  // Partner answers (2026-10-19): the asks routed to the partner. It is woken for each while it is free (its card free,
+  // or its chat not running: the main chat is asked to start it), never while the person pauses; one it leaves
+  // unanswered for 30 minutes while free goes to the person, and so does every one when no partner chat is on the
+  // board or the person switched the partner's answers off.
+  const partnerAsks = []
+  const escalations = []
+  const isOn = store.partnerAnswers?.on !== false
+  const isHeld = isHolding(store.pause)
+  const isFree = partner !== null && (partner.state === 'free' || partner.state === 'off' || partner.isRunning === false)
+  // Once the person resumed, the time paused does not count.
+  const resumedAt = store.pause?.state === 'running' && Number.isFinite(store.pause.since) ? store.pause.since : -Infinity
+  const routed = [...items.values()].filter(item => isRoutedToPartner(item) && !broken.has(valueOf(item, 'Id'))).sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  for (const item of routed) {
+    const id = valueOf(item, 'Id')
+    if (!isOn) escalations.push({ id, why: 'your partner\'s answers are switched off' })
+    else if (partner === null) escalations.push({ id, why: 'no partner chat is on the board' })
+    else if (!isHeld && isFree) {
+      partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since') })
+      const filed = askFiledMs(item)
+      const freeSince = Math.max(Number.isFinite(filed) ? filed : -Infinity, Number.isFinite(partner.idle?.since) ? partner.idle.since : -Infinity, resumedAt)
+      if (Number.isFinite(freeSince) && now - freeSince >= (times?.partnerMs ?? PARTNER_ANSWER_MS)) escalations.push({ id, why: `the partner did not answer in ${Math.round((times?.partnerMs ?? PARTNER_ANSWER_MS) / MIN)} min` })
+    }
+  }
+  return { moves, deliveries, flags, notes, partnerAsks, escalations }
 }

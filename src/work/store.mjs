@@ -15,6 +15,7 @@ import { isLegacyId } from './line.mjs'
 import { heldLine } from './names.mjs'
 import { stamp } from './migrate.mjs'
 import { PAUSE_FILE, parsePause } from './pause.mjs'
+import { PARTNER_FILE, parsePartnerAnswers } from './partnerAnswers.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, readdir }
 const ITEM_FILE = /^([A-Z]\d+|L-[0-9a-f]{8})\.md$/
@@ -109,7 +110,9 @@ export async function readStore(dir, fs = files) {
   }
   // Pause and resume (spec 2026-10-18): the person's pause.json, null while there is none (or it cannot be read).
   const pause = parsePause(await readOr(fs, join(dir, PAUSE_FILE), null))
-  return { exists: true, items, ...listed, lastIds, flow: read.flow, problems, viewKept, pause }
+  // Partner answers (2026-10-19): whether the partner answers detail questions first; on unless switched off.
+  const partnerAnswers = parsePartnerAnswers(await readOr(fs, join(dir, PARTNER_FILE), null))
+  return { exists: true, items, ...listed, lastIds, flow: read.flow, problems, viewKept, pause, partnerAnswers }
 }
 
 /** Writes one item to `<dir>/<Id>.md`; with `expected` (the file's text the change was made from) only while it holds that. */
@@ -353,5 +356,18 @@ export async function readPauseFile(dir, fs = files) {
 export async function writePause(dir, record, fs = files, { expected } = {}) {
   await fs.mkdir(dir, { recursive: true })
   return putInPlace(join(dir, PAUSE_FILE), `${JSON.stringify(record)}
+`, fs, expected)
+}
+
+/** Partner answers (2026-10-19): `<dir>/partner-answers.json` as it is now (`record`, `{ on }` when there is none) with its text. */
+export async function readPartnerAnswersFile(dir, fs = files) {
+  const text = await readOr(fs, join(dir, PARTNER_FILE), null)
+  return { record: parsePartnerAnswers(text), text }
+}
+
+/** Writes partner-answers.json (`{ on, since }`), only while the file still holds `expected` (the text it was read from). */
+export async function writePartnerAnswers(dir, record, fs = files, { expected } = {}) {
+  await fs.mkdir(dir, { recursive: true })
+  return putInPlace(join(dir, PARTNER_FILE), `${JSON.stringify(record)}
 `, fs, expected)
 }

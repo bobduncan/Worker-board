@@ -13,6 +13,9 @@ import { stamp } from './migrate.mjs'
 import { sinceMs } from './item.mjs'
 import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 import { isHolding } from './pause.mjs'
+import { partnerAskWords } from './partnerAnswers.mjs'
+
+export { partnerAskWords }
 
 /** The key under which a step's line to its chat is sent once: the step, the chat, and when it was queued for it. */
 export const deliveryKey = (id, chat, since = '') => [id, chat, since].filter(Boolean).join(' ')
@@ -21,6 +24,9 @@ export const deliveryKey = (id, chat, since = '') => [id, chat, since].filter(Bo
 export const noteKey = (ids, chat) => `notes ${ids.join(',')} ${chat}`
 /** Focus 4: the main chat's one line for its notes. */
 export const noteWords = ids => `work: ${ids.length === 1 ? 'note' : 'notes'} ${ids.join(', ')} for you; run work next`
+
+/** Partner answers (2026-10-19): the key under which the partner is woken for an ask routed to it, once. */
+export const partnerAskKey = (id, chat) => `partner-ask ${id} ${chat}`
 
 /** One send at a time per store folder, in this process (the board is the store's only writer). */
 const turns = new Map()
@@ -110,6 +116,9 @@ async function withdrawStale({ dir, outbox, prefix, fs }) {
     // Focus 4: a notes line holds while one of its notes is not read by the main chat.
     if (message.kind === 'note') {
       if ((message.notes ?? [message.about]).some(id => items.get(id) !== undefined && value(items.get(id), 'Main read') === null)) continue
+    } else if (message.kind === 'partner-ask') {
+      // Partner answers (2026-10-19): the partner's line holds while its ask still waits for its answer.
+      if (state === 'open' && value(item, 'Route') === 'partner') continue
     } else {
       const isOwners = item !== undefined && value(item, 'Owner') !== null && plain(value(item, 'Owner'), prefix) === plain(message.to, prefix)
       const holds = message.kind === 'check' ? state === 'review' : !['done', 'dropped'].includes(state)
@@ -158,6 +167,12 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const moved = await apply({ action: 'advance', id: move.id, to: move.to }).catch(() => null)
     if (moved?.ok === true) done.moved.push(move.id)
   }
+  // Partner answers (2026-10-19): what the partner did not answer in time (or cannot) goes to the person, also while
+  // the person pauses: it only shows them the ask.
+  for (const one of plan.escalations ?? []) {
+    const handed = await apply({ action: 'escalate', id: one.id, why: one.why }).catch(() => null)
+    if (handed?.ok === true) done.moved.push(one.id)
+  }
   done.withdrawn = await withdrawStale({ dir, outbox, prefix: state.chatPrefix ?? '', fs })
   // The review of Pause 2: while the person pauses (until running) no line goes out that starts a turn: no step
   // delivered, no check's word, no note-wake to the main chat. They go once the board runs again.
@@ -166,6 +181,8 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     ...(plan.deliveries ?? []).map(one => ({ key: deliveryKey(one.id, one.chat, one.since), words: workWords(one.chat, one.id) })),
     ...(plan.says ?? []).map(one => ({ key: one.key, words: { ...workWords(one.chat, one.id, one.say), kind: 'check' } })),
     ...(await noteLine({ dir, plan, outbox, now, fs })),
+    // Partner answers: the partner is woken once per ask routed to it, while it is free (the reconciler).
+    ...(plan.partnerAsks ?? []).map(one => ({ key: partnerAskKey(one.id, one.chat), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id)), kind: 'partner-ask' } })),
   ]
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })

@@ -6,6 +6,7 @@ import { sinceMs } from './api.mjs'
 import { askKey, askWordsOf } from './askWords.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
+import { isPartnerAnswered, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isRecap } from './recap.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -99,7 +100,9 @@ const isAdvised = (option, advice) => advice !== null && (option === advice || o
  * answered within ten minutes (their card says the answer is on its way, then closes). `kind` is the card's form (a
  * look is approved or rejected, a do is done, a decide or provide takes words); `asks` the ask's own kind; `blocks`
  * the step it holds up and who waits on it. `names` are the chats on the board, `answerOf(id)` what the outbox knows of
- * the answer sent for it.
+ * the answer sent for it. Partner answers (2026-10-19): an ask routed to the partner is not the person's (not listed);
+ * one the partner answered stays among the closed cards for a day, its answer `by: 'partner'` with its `why`, and may
+ * be taken back (`canTakeBack`); `route` and `routeNote` say whether it came to the person by the partner and why.
  */
 export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () => ({ answer: null, earlier: null }) }) {
   const items = new Map(itemsOf(work).map(item => [valueOf(item, 'Id'), item]))
@@ -107,7 +110,9 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
   return asksOfStore(work).flatMap(item => {
     const state = valueOf(item, 'State')
     const since = sinceMs(valueOf(item, 'Since'))
-    if (state !== 'open' && !(state === 'answered' && Number.isFinite(since) && now - since < KEEP_ANSWERED_MS)) return []
+    const byPartner = isPartnerAnswered(item)
+    if (isRoutedToPartner(item)) return []
+    if (state !== 'open' && !(state === 'answered' && Number.isFinite(since) && now - since < (byPartner ? DAY : KEEP_ANSWERED_MS))) return []
     const id = valueOf(item, 'Id')
     const asks = valueOf(item, 'Asks') ?? 'decide'
     const owner = valueOf(item, 'Owner')
@@ -119,7 +124,12 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const [title = valueOf(item, 'Title') ?? '', ...rest] = textOf(item)
     const known = answerOf(`work:${id}`)
     // Answered with nobody to wake (or before the board kept it): the answer as the store holds it.
-    const answer = known.answer ?? (state === 'open' ? null : { at: since, verdict: null, text: (item.sections.get('Answer') ?? []).join(' '), state: 'delivered', takenAt: null, deliveredAt: since })
+    const stored = { at: since, verdict: null, text: (item.sections.get('Answer') ?? []).join(' '), state: 'delivered', takenAt: null, deliveredAt: since }
+    const why = byPartner ? (item.sections.get('Why') ?? []).join(' ').trim() || null : null
+    // Partner answers: the partner's answer as the store holds it, with where its word to the chat is.
+    const answer = byPartner ? { ...stored, ...(known.answer === null ? {} : { state: known.answer.state, takenAt: known.answer.takenAt ?? null, deliveredAt: known.answer.deliveredAt ?? since }), by: 'partner', why }
+      : known.answer ?? (state === 'open' ? null : stored)
+    const routeNote = (item.sections.get('Route') ?? []).join(' ').trim()
     return [{
       id: `work:${id}`, workId: id, from: owner === null ? null : nameOf(owner), kind: asks === 'look' ? 'verify' : asks === 'do' ? 'do' : 'input', asks,
       title: valueOf(item, 'Title') ?? title, text: rest.join('\n'), at: Number.isFinite(since) ? since : null,
@@ -133,6 +143,7 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
       via, isForm: via === 'form', isRefine: via === 'refine',
       // The board answers it through the store (POST /api/work, answer); a question of the app's form only in its chat.
       canAnswer: state === 'open' && via !== 'form', isClosed: false, answer, earlier: known.earlier ?? null,
+      route: valueOf(item, 'Route'), routeNote: routeNote === '' ? null : routeNote, canTakeBack: byPartner,
     }]
   })
 }

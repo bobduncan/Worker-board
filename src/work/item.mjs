@@ -13,8 +13,10 @@ export const HEAD_KEYS = {
   step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Fix of', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
   // B299: `Advice` is the option the asking chat advises; `Via` says how it was asked: form (the app's question form,
   // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of). Warnings
-  // (2026-10-19): `Filed` when it was filed, to the millisecond, as an instruction's (`askFiledMs`).
-  ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Filed', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Advice', 'Via', 'Queue note', 'Line'],
+  // (2026-10-19): `Filed` when it was filed, to the millisecond, as an instruction's (`askFiledMs`). Partner answers
+  // (2026-10-19): `Route` partner (the partner answers it first) or person (handed on, or its answer taken back);
+  // `Answered by: partner` when the partner answered it, `Daily note` the note whose line lists that answer.
+  ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Filed', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Advice', 'Via', 'Route', 'Answered by', 'Daily note', 'Queue note', 'Line'],
   // B298: `Via` says where the words were typed (chat: in the chat's own box; board: on the worker board), `Missed` how
   // many of the chat's turns ended while it stood open, `Filed` when it was filed to the millisecond (review: the
   // turn's start is compared with it).
