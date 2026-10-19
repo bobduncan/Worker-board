@@ -53,18 +53,18 @@ test('the arguments name the pictures, the points, the score and where it goes',
 
 test('the points come as JSON or a file of it, each passed or failed', async () => {
   assert.deepEqual(await readPoints('[{"text":"Bats fly","result":"pass"},{"text":"The card says so","pass":false}]'), [
-    { text: 'Bats fly', pass: true },
-    { text: 'The card says so', pass: false },
+    { text: 'Bats fly', verdict: 'pass' },
+    { text: 'The card says so', verdict: 'fail' },
   ])
   const dir = await mkdtemp(join(tmpdir(), 'evidence-points-'))
   try {
     const file = join(dir, 'points.json')
     await writeFile(file, JSON.stringify([{ text: 'One hit is enough', result: 'fail' }]))
-    assert.deepEqual(await readPoints(file), [{ text: 'One hit is enough', pass: false }])
+    assert.deepEqual(await readPoints(file), [{ text: 'One hit is enough', verdict: 'fail' }])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
-  await assert.rejects(readPoints('[{"text":"no verdict"}]'), /pass or fail/)
+  await assert.rejects(readPoints('[{"text":"no verdict"}]'), /pass, fail or ask/)
   await assert.rejects(readPoints('[{"result":"pass"}]'), /text/)
 })
 
@@ -78,7 +78,7 @@ test('without --out the picture lands in the project\'s picture folder under the
 test('the page holds the title, both pictures, the ticks in their colours and the score beside its target', () => {
   const html = evidenceHtml({
     step: 'B314', title: 'Fight <Bats>', reference: 'data:image/png;base64,AA', result: 'data:image/png;base64,BB', height: 720,
-    points: [{ text: 'Bats fly', pass: true }, { text: 'The card says so', pass: false }], score: 63, target: 75,
+    points: [{ text: 'Bats fly', verdict: 'pass' }, { text: 'The card says so', verdict: 'fail' }], score: 63, target: 75,
   })
   assert.match(html, /B314/)
   assert.match(html, /Fight &lt;Bats&gt;/)
@@ -89,7 +89,7 @@ test('the page holds the title, both pictures, the ticks in their colours and th
   assert.match(html, /63[\s\S]*75/)
   assert.match(html, /class="score below"/)
   assert.doesNotMatch(evidenceHtml({ step: 'B1', title: 't', result: 'data:,', points: [], score: 80, target: 75, height: 720 }), /class="score below"/)
-  const list = evidenceHtml({ step: 'B2', title: 'A rule', points: [{ text: 'It holds', pass: true }], height: 720 })
+  const list = evidenceHtml({ step: 'B2', title: 'A rule', points: [{ text: 'It holds', verdict: 'pass' }], height: 720 })
   assert.doesNotMatch(list, /<img/)
   assert.doesNotMatch(list, /class="score/)
 })
@@ -102,7 +102,7 @@ test('it renders: reference left, result right at the same height, never above t
     await writeFile(join(dir, 'ref.png'), png(400, 300, [200, 30, 30]))
     await writeFile(join(dir, 'big.png'), png(1280, 720, [30, 30, 200]))
     await writeFile(join(dir, 'small.png'), png(200, 100, [30, 200, 30]))
-    const points = [{ text: 'First point', pass: true }, { text: 'Second point', pass: false }]
+    const points = [{ text: 'First point', verdict: 'pass' }, { text: 'Second point', verdict: 'fail' }, { text: 'Third point', verdict: 'ask' }]
 
     const one = await renderEvidence({ browser, step: 'B9', title: 'A unit', reference: join(dir, 'ref.png'), result: join(dir, 'big.png'), points, score: 70, target: 75, height: 720, out: join(dir, 'one.png') })
     assert.equal(one.layout.reference.height, 720)
@@ -111,7 +111,8 @@ test('it renders: reference left, result right at the same height, never above t
     assert.equal(one.layout.reference.width, 960)
     assert.ok(one.layout.reference.x + one.layout.reference.width <= one.layout.result.x, 'the reference stands left of the result')
     assert.ok(one.layout.points.y >= one.layout.result.y + one.layout.result.height, 'the ticks stand below the pictures')
-    assert.equal(one.layout.ticks, 2)
+    assert.equal(one.layout.ticks, 3)
+    assert.equal(one.layout.asks, 1)
     const size = pngSize(await readFile(join(dir, 'one.png')))
     assert.deepEqual(size, { width: one.layout.width, height: one.layout.height })
 
@@ -122,8 +123,27 @@ test('it renders: reference left, result right at the same height, never above t
     const three = await renderEvidence({ browser, step: 'B9', title: 'A rule', points, height: 720, out: join(dir, 'three.png') })
     assert.equal(three.layout.reference, null)
     assert.equal(three.layout.result, null)
-    assert.equal(three.layout.ticks, 2)
+    assert.equal(three.layout.ticks, 3)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('B369: a point only the person can judge is marked ask: its own colour, "for you", and counted apart', async () => {
+  assert.deepEqual(await readPoints('[{"text":"Feels fast","result":"ask"},{"text":"Reads at 48 px","verdict":"pass"}]'), [
+    { text: 'Feels fast', verdict: 'ask' },
+    { text: 'Reads at 48 px', verdict: 'pass' },
+  ])
+  // The lines a result check keeps ("pass: ...") are read as they are.
+  assert.deepEqual(await readPoints('["pass: One", "fail: Two", "ask: Three"]'), [
+    { text: 'One', verdict: 'pass' }, { text: 'Two', verdict: 'fail' }, { text: 'Three', verdict: 'ask' },
+  ])
+  await assert.rejects(readPoints('["maybe: Four"]'), /pass, fail or ask/)
+  const html = evidenceHtml({ step: 'B3', title: 'A look', points: [{ text: 'Bats fly', verdict: 'pass' }, { text: 'No card', verdict: 'fail' }, { text: 'Feels fast', verdict: 'ask' }], height: 720 })
+  assert.match(html, /class="point ask"[^>]*>[\s\S]*?Feels fast[\s\S]*?for you/)
+  assert.match(html, /1 pass · 1 fail · 1 for you, of 3 agreed points/)
+  const colourOf = kind => html.match(new RegExp(`\\.${kind} \\.mark \\{ color: (#[0-9a-f]{6})`))[1]
+  assert.notEqual(colourOf('ask'), colourOf('pass'), 'not green')
+  assert.notEqual(colourOf('ask'), colourOf('fail'), 'not red')
+  assert.match(evidenceHtml({ step: 'B4', title: 't', points: [{ text: 'x', verdict: 'pass' }], height: 720 }), /1 of 1 agreed points pass/)
 })

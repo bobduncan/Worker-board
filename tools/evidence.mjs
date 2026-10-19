@@ -1,10 +1,11 @@
 // B357: the evidence picture every check shows the person: the reference left, the result right at the same height,
-// the step's id and title on top, the agreed points ticked green (pass) or red (fail) and the score beside its target
+// the step's id and title on top, the agreed points ticked green (pass), red (fail) or blue "for you" (ask, B369: a
+// point only the person can judge) and the score beside its target
 // below. Without a reference (work with nothing to see) it is the ticked list alone. It knows nothing of the project's
 // work: the pictures, the points and the numbers come from the helper that checked it.
 //
 //   node tools/evidence.mjs --step B314 --title "Fight Bats" [--reference ref.png] [--result shot.png]
-//                           --points points.json|'[{"text":"...","result":"pass"}]' [--score 63 --target 75]
+//                           --points points.json|'[{"text":"...","result":"pass|fail|ask"}]' [--score 63 --target 75]
 //                           [--height 720] [--out picture.png]
 //
 // Both pictures are shown at one height: the result's own height, at most --height (play size, 720 unless given), so a
@@ -44,16 +45,27 @@ export function parseArgs(argv) {
   return { title: '', ...args }
 }
 
-/** The points from JSON text or a file of it: a list of { text, result: 'pass'|'fail' } or { text, pass: true|false }. */
+const VERDICTS = ['pass', 'fail', 'ask']
+
+/**
+ * The points from JSON text or a file of it, each { text, verdict: 'pass'|'fail'|'ask' }. A point is given as
+ * { text, result } or { text, verdict } (pass, fail or ask: B369, a point only the person can judge), { text, pass:
+ * true|false }, or as a result check keeps it, the line "pass: <text>".
+ */
 export async function readPoints(value) {
   const text = value.trimStart().startsWith('[') ? value : await readFile(value, 'utf8')
   const list = JSON.parse(text)
   if (!Array.isArray(list)) throw new Error('The points are a list.')
   return list.map((point, i) => {
+    if (typeof point === 'string') {
+      const line = point.match(/^\s*(\w+):\s*(.+)$/)
+      if (line === null || !VERDICTS.includes(line[1].toLowerCase())) throw new Error(`Point ${i + 1} is not marked pass, fail or ask.`)
+      return { text: line[2].trim(), verdict: line[1].toLowerCase() }
+    }
     if (typeof point?.text !== 'string' || point.text.trim() === '') throw new Error(`Point ${i + 1} has no text.`)
-    const pass = typeof point.pass === 'boolean' ? point.pass : point.result === 'pass' ? true : point.result === 'fail' ? false : null
-    if (pass === null) throw new Error(`Point ${i + 1} is neither pass or fail.`)
-    return { text: point.text, pass }
+    const verdict = typeof point.pass === 'boolean' ? (point.pass ? 'pass' : 'fail') : String(point.verdict ?? point.result ?? '').toLowerCase()
+    if (!VERDICTS.includes(verdict)) throw new Error(`Point ${i + 1} is not marked pass, fail or ask.`)
+    return { text: point.text, verdict }
   })
 }
 
@@ -77,8 +89,12 @@ export function evidenceHtml({ step, title, reference, result, points, score, ta
   const hasScore = score !== undefined
   const below = hasScore && target !== undefined && score < target
   const scoreLine = !hasScore ? '' : `<p class="score${below ? ' below' : ''}">Score ${escape(score)}${target === undefined ? '' : ` of target ${escape(target)}`}</p>`
-  const passed = points.filter(point => point.pass).length
-  const ticks = points.map(point => `<li class="point ${point.pass ? 'pass' : 'fail'}"><span class="mark">${point.pass ? '✓' : '✗'}</span><span>${escape(point.text)}</span></li>`).join('')
+  const count = verdict => points.filter(point => point.verdict === verdict).length
+  // B369: with points for the person the line counts the three apart.
+  const counted = count('ask') === 0 ? `${count('pass')} of ${points.length} agreed points pass`
+    : `${count('pass')} pass · ${count('fail')} fail · ${count('ask')} for you, of ${points.length} agreed points`
+  const MARKS = { pass: '✓', fail: '✗', ask: '?' }
+  const ticks = points.map(point => `<li class="point ${point.verdict}"><span class="mark">${MARKS[point.verdict]}</span><span>${escape(point.text)}${point.verdict === 'ask' ? ' <span class="for-you">for you</span>' : ''}</span></li>`).join('')
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>${escape(step)} evidence</title><style>
   html, body { margin: 0; background: #12141a; color: #e8e8ee; font: 18px/1.45 "Segoe UI", system-ui, sans-serif; }
@@ -91,10 +107,11 @@ export function evidenceHtml({ step, title, reference, result, points, score, ta
   .count { color: #a0a5b0; margin: 0 0 6px; }
   ul { list-style: none; margin: 0; padding: 0; } .point { display: flex; gap: 10px; margin: 4px 0; max-width: 1400px; }
   .mark { font-weight: 700; width: 18px; flex: none; } .pass .mark { color: #4caf73; } .fail .mark { color: #e05a4f; } .fail { color: #ffb3ab; }
+  .ask .mark { color: #6fa8ff; } .ask { color: #c9dcff; } .for-you { color: #6fa8ff; font-size: 14px; font-weight: 700; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
 </style></head><body><div id="sheet" data-height="${Number(height)}">
 <h1><span class="id">${escape(step)}</span>${escape(title)}</h1>
 ${reference === undefined && result === undefined ? '' : `<div id="pictures">${figure('reference', 'Reference', reference)}${figure('result', 'Result', result)}</div>`}
-<div id="points">${scoreLine}<p class="count">${passed} of ${points.length} agreed points pass</p><ul>${ticks}</ul></div>
+<div id="points">${scoreLine}<p class="count">${counted}</p><ul>${ticks}</ul></div>
 </div></body></html>`
 }
 
@@ -114,7 +131,7 @@ const LAYOUT = `(async () => {
   await document.fonts.ready
   const box = el => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) } }
   const all = sheet.getBoundingClientRect()
-  return { width: Math.ceil(all.width), height: Math.ceil(all.height), reference: box(reference), result: box(result), points: box(document.getElementById('points')), ticks: document.querySelectorAll('.point').length }
+  return { width: Math.ceil(all.width), height: Math.ceil(all.height), reference: box(reference), result: box(result), points: box(document.getElementById('points')), ticks: document.querySelectorAll('.point').length, asks: document.querySelectorAll('.point.ask').length }
 })()`
 
 /** A headless Edge or Chrome on this PC, or null; EVIDENCE_BROWSER names another. */
