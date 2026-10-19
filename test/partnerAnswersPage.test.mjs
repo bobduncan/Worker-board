@@ -71,7 +71,8 @@ test('the review\'s findings: "With your partner" (count, a click lists them), "
   const draw = script.slice(script.indexOf('function drawNeeds(state)'), script.indexOf('/** Who runs and who was asked'))
   assert.match(draw, /drawWithPartner\(state\)/)
   assert.match(draw, /drawDecidedForYou\(state\)/)
-  assert.match(script, /el\('span', `pill is-\$\{lane\.state\}`, lane\.isLeftover \? 'Leftover' : laneStateText\(lane\)\)/)
+  // B392: in a colour of its own.
+  assert.match(script, /el\('span', `pill is-\$\{\(lane\.waitsForPartner \?\? \[\]\)\.length > 0 && !lane\.isLeftover \? 'partner' : lane\.state\}`, lane\.isLeftover \? 'Leftover' : laneStateText\(lane\)\)/)
   assert.match(script, /if \(\(lane\.waitsForPartner \?\? \[\]\)\.length > 0\) return `waits for your partner/)
 })
 

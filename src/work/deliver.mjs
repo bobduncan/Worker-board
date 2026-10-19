@@ -26,7 +26,7 @@ export const noteKey = (ids, chat) => `notes ${ids.join(',')} ${chat}`
 export const noteWords = ids => `work: ${ids.length === 1 ? 'note' : 'notes'} ${ids.join(', ')} for you; run work next`
 
 /** Partner answers (2026-10-19): the key under which the partner is woken for an ask routed to it, once. */
-export const partnerAskKey = (id, chat) => `partner-ask ${id} ${chat}`
+export const partnerAskKey = (id, chat, again = false) => `partner-ask ${id} ${chat}${again ? ' again' : ''}`
 
 /** One send at a time per store folder, in this process (the board is the store's only writer). */
 const turns = new Map()
@@ -182,8 +182,11 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     ...(plan.deliveries ?? []).map(one => ({ key: deliveryKey(one.id, one.chat, one.since), words: workWords(one.chat, one.id) })),
     ...(plan.says ?? []).map(one => ({ key: one.key, words: { ...workWords(one.chat, one.id, one.say), kind: 'check' } })),
     ...(await noteLine({ dir, plan, outbox, now, fs })),
-    // Partner answers: the partner is woken once per ask routed to it, while it is free (the reconciler).
-    ...(plan.partnerAsks ?? []).map(one => ({ key: partnerAskKey(one.id, one.chat), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id)), kind: 'partner-ask' } })),
+    // Partner answers: the partner is woken once per ask routed to it, while it is free (the reconciler). B392: once
+    // more when it is still open ten minutes on, but never beside a line about it that still waits to be taken.
+    ...(plan.partnerAsks ?? [])
+      .filter(one => one.again !== true || !outbox.outbox().some(message => message.kind === 'partner-ask' && message.about === one.id && message.state === 'waiting'))
+      .map(one => ({ key: partnerAskKey(one.id, one.chat, one.again === true), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id)), kind: 'partner-ask' } })),
   ]
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })

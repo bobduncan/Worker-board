@@ -15,6 +15,8 @@
   --warn: #ff7a59;
   --ink: #08110c;
   --ask: #b48cff;
+  /* B392: waiting for the partner's answer, not for the person. */
+  --partner: #c4a5ff;
   color-scheme: dark;
 }
 
@@ -762,6 +764,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .pill { display: inline-block; padding: 2px 12px; border-radius: 999px; background: var(--unknown); color: #fff; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .pill.is-working { background: var(--working); color: var(--ink); }
 .pill.is-waiting { background: var(--waiting); color: #1c1403; }
+.pill.is-partner { background: var(--partner); color: #170d2b; }
 .pill.is-free { background: var(--free); }
 
 .what { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
@@ -847,6 +850,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .workers-panel .pill { padding: 2px 9px; border-radius: 6px; font-size: 12.5px; font-weight: 600; background: rgba(91, 103, 121, 0.22); color: #aab4c3; box-shadow: inset 0 0 0 1px rgba(91, 103, 121, 0.5); }
 .workers-panel .pill.is-working { background: rgba(63, 210, 127, 0.12); color: var(--working); box-shadow: inset 0 0 0 1px rgba(63, 210, 127, 0.45); }
 .workers-panel .pill.is-waiting { background: rgba(246, 185, 59, 0.12); color: var(--waiting); box-shadow: inset 0 0 0 1px rgba(246, 185, 59, 0.45); }
+.workers-panel .pill.is-partner { background: rgba(196, 165, 255, 0.12); color: var(--partner); box-shadow: inset 0 0 0 1px rgba(196, 165, 255, 0.45); }
 .workers-panel .pill.is-free { background: rgba(59, 130, 246, 0.14); color: #7fb0ff; box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.5); }
 .workers-panel .pill.is-suspended { background: rgba(167, 139, 250, 0.14); color: var(--suspended); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.5); }
 .workers-panel .pill.is-interrupted { background: rgba(255, 122, 89, 0.14); color: var(--warn); box-shadow: inset 0 0 0 1px rgba(255, 122, 89, 0.5); }
@@ -1343,6 +1347,7 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .details-part .flow-state { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--muted); }
 .details-part .flow-state.is-past { color: var(--text); background: var(--inset); }
 .details-part .flow-state.is-now { border-color: var(--free); background: var(--free); color: #fff; font-weight: 600; }
+.details-part .flow-state.is-partner { border-color: var(--partner); background: var(--partner); color: #170d2b; font-weight: 600; }
 .flow-next { margin-top: 6px; font-size: 12px; }
 .coordinate-filters { display: flex; flex-wrap: wrap; gap: 6px; }
 .coordinate-filters .choice small { margin-left: 4px; color: var(--muted); }
@@ -1950,6 +1955,8 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .simple-state { min-width: 68px; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; text-align: center; background: #1b2433; color: var(--muted); }
 .simple-state.is-done { background: #12301f; color: #6fdc8c; }
 .simple-state.is-now { background: #172743; color: #8fb8ff; }
+.simple-state.is-partner { background: #241a3d; color: var(--partner); }
+.simple-worker.is-partner .simple-left, .simple-worker.is-partner .simple-task .muted { color: var(--partner); }
 .simple-worker { grid-template-columns: 76px minmax(0, 1fr) auto; }
 .simple-task { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .simple-track.is-small { height: 5px; }
@@ -2097,6 +2104,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .goal-step-badge.tone-done { border-color: var(--working); background: var(--working); color: var(--ink); }
 .goal-step-badge.tone-working, .goal-step-badge.tone-review { border-color: var(--free); background: rgba(59, 130, 246, 0.18); color: #cfe0ff; }
 .goal-step-badge.tone-you { border-color: var(--waiting); background: var(--waiting); color: var(--ink); }
+.goal-step-badge.tone-partner { border-color: var(--partner); background: rgba(196, 165, 255, 0.16); color: var(--partner); }
 .goal-step-more { padding: 2px 8px; border: 0; background: none; color: var(--muted); font-size: 18px; cursor: pointer; }
 .goal-step-menu { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
 .goal-steps-fold { padding: 4px 0; border: 0; background: none; color: var(--free); font: inherit; cursor: pointer; }

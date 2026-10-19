@@ -2468,6 +2468,23 @@ button approve/mark as seen. so red is overturn with text feedback, blue is ok, 
    History "seen by you: approved at once"; no words, so no partner chat is needed and nobody is woken. The store's
    `feedback` action is gone; a recap answered with it before still says so.
 
+## A step waits for the partner, not for you (B392)
+
+The person, 2026-10-19 14:46: "it says worker 6 is waiting for me but i dont see it. fix it and prevent this future
+problem". A worker's blocking ask went to the partner first (Route: partner) and was not shown to the person, while its
+step moved to "waiting on you" as the flow says (the project's flow.json is the person's and stays as it is).
+
+1. `partnerWaitOf(stepId, items)` (src/work/partnerAnswers.mjs) is the one test: the ids of the step's open blocking
+   asks when every one of them is routed to the partner, else null. It is derived from the asks each time, never kept as
+   a second state: the moment the partner hands an ask on (Route: person) the step is the person's.
+2. `flowOfStep` and the focus goal's steps (`focusState`) carry it as `waitsForPartner`. The page shows "waits for your
+   partner (Q<n>)" in violet (`--partner`) in the step window's flow strip, the Goals page's steps panel, the Overview's
+   focus steps and workers (no time left in its place), and the worker card's pill. The chat's lane already said so
+   (`waitsForPartner` of the lanes, Partner answers); Needs your attention never listed such an ask.
+3. A routed ask open ten minutes (`PARTNER_AGAIN_MS`) wakes the partner once more while it is free (the reconciler's
+   `again`, its own delivery key), never beside a line about it that still waits to be taken; at 30 minutes it goes to
+   the person as before.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

@@ -1218,6 +1218,8 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
       && one.state === 'working' && [null, step.id].includes(laneTaskOf(one).code)) ?? null
     const left = lane === null ? null : simpleLeft(lane, now)
     const who = step.owner === null ? null : left === null ? step.owner : `${step.owner} · ${left}`
+    // B392: a step at work whose open blocking asks all wait for the partner says so.
+    if ((step.waitsForPartner ?? []).length > 0) return { id: step.id, title: step.title, chip: 'Waits for your partner', tone: 'partner', who: step.owner }
     return { id: step.id, title: step.title, chip: chips[step.state] ?? 'Next', tone: chips[step.state] === undefined ? 'next' : step.state, who }
   })
   const before = focus.stage !== 'run' && focus.stage !== 'done'
@@ -1246,13 +1248,15 @@ function simpleWorkers(chats = [], counts = {}, now = Date.now()) {
     const task = lane.task ?? null
     const { code, text } = task === null ? { code: null, text: null } : laneTaskOf(lane)
     const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
+    // B392: a chat that waits for the partner's answer says so, in its own colour, not its time left.
+    const waitsForPartner = (lane.waitsForPartner ?? []).length > 0
     return {
       name: lane.name,
       code,
       task: text,
       percent: hasSteps ? Math.round(Math.max(0, Math.min(1, task.step / task.steps)) * 100) : null,
-      left: simpleLeft(lane, now) ?? simpleIdle(lane),
-      tone: lane.state,
+      left: waitsForPartner ? simpleIdle(lane) : simpleLeft(lane, now) ?? simpleIdle(lane),
+      tone: waitsForPartner ? 'partner' : lane.state,
     }
   })
   return { busy: `${counts?.working ?? 0} of ${all} busy`, rows }
@@ -1483,7 +1487,8 @@ function drawLane(lane, state) {
 
   const who = el('div', 'who')
   const names = el('div', 'who-names')
-  names.append(el('h3', '', lane.name), el('span', `pill is-${lane.state}`, lane.isLeftover ? 'Leftover' : laneStateText(lane)))
+  // B392: waiting for the partner's answer has a colour of its own.
+  names.append(el('h3', '', lane.name), el('span', `pill is-${(lane.waitsForPartner ?? []).length > 0 && !lane.isLeftover ? 'partner' : lane.state}`, lane.isLeftover ? 'Leftover' : laneStateText(lane)))
   // B315: a lane that is "Not running" says so in its pill already.
   if (lane.isRunning === false && lane.state !== 'off') {
     // After a restart of the app a chat does not run until it is opened, or messaged through the app.
@@ -3638,8 +3643,10 @@ function refinedChips(refined, isDone = false) {
 function flowStripOf(flow) {
   if (flow === null || flow === undefined) return null
   const at = flow.states.indexOf(flow.state)
+  // B392: a step whose open blocking asks all wait for the partner says so in its own colour, not "waiting on you".
+  const partner = (flow.waitsForPartner ?? []).length > 0 ? `waits for your partner (${flow.waitsForPartner.join(', ')})` : null
   return {
-    states: flow.states.map((name, index) => ({ name, tone: index === at ? 'now' : at >= 0 && index < at ? 'past' : 'later' })),
+    states: flow.states.map((name, index) => (index === at && partner !== null ? { name: partner, tone: 'partner' } : { name, tone: index === at ? 'now' : at >= 0 && index < at ? 'past' : 'later' })),
     state: flow.state,
     isKnown: at >= 0,
     next: flow.next.map(move => `${move.to}, by ${move.by.join(' or ')}${move.when === null ? '' : ` when ${move.when}`}`),
@@ -5717,6 +5724,8 @@ function goalTreeDrop(goals, layout, fromId, x, y) {
 function goalStepBadge(step) {
   const state = step.flow?.state ?? null
   if (state === 'done' || step.status === 'done') return ['Done', 'done']
+  // B392: a step whose open blocking asks all wait for the partner is not the person's yet.
+  if ((step.flow?.waitsForPartner ?? []).length > 0) return ['Waits for your partner', 'partner']
   if (state === 'waiting on you' || step.status === 'you') return ['Needs you', 'you']
   if (state === 'in progress' || state === 'taken' || (state === null && step.status === 'progress')) return ['Working', 'working']
   if (state === 'review') return ['In review', 'review']

@@ -15,6 +15,8 @@ import { valueOf } from './item.mjs'
 export const PARTNER_FILE = 'partner-answers.json'
 /** How long the partner may be free with a routed ask before the board hands it to the person by itself. */
 export const PARTNER_ANSWER_MS = 30 * 60_000
+/** B392: a routed ask open this long wakes the partner once more, so none sits unseen. */
+export const PARTNER_AGAIN_MS = 10 * 60_000
 
 /** `partner-answers.json` read: `{ on, since? }`; missing or unreadable is on (the person's choice of 2026-10-19). */
 export function parsePartnerAnswers(text) {
@@ -37,6 +39,16 @@ export function routesToPartner({ setting, role, kind, options = [], advice = ''
 
 /** Whether the ask waits for the partner's answer now. */
 export const isRoutedToPartner = item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'open' && valueOf(item, 'Route') === 'partner'
+/**
+ * B392 (the person, 2026-10-19: "it says worker 6 is waiting for me but i dont see it"): the ids of the step's open
+ * blocking asks when every one of them waits for the partner's answer, else null. Such a step waits for the partner,
+ * not for the person; it is the person's once the partner hands an ask on (Route: person). `items` any iterable.
+ */
+export function partnerWaitOf(stepId, items) {
+  const open = [...(items ?? [])].filter(item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'open' && valueOf(item, 'Of') === stepId && valueOf(item, 'Blocking') === 'yes')
+  return open.length > 0 && open.every(isRoutedToPartner) ? open.map(item => valueOf(item, 'Id')) : null
+}
+
 /** Whether the partner answered the ask (and the person has not taken it back). */
 export const isPartnerAnswered = item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'answered' && valueOf(item, 'Answered by') === 'partner'
 

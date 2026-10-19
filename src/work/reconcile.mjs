@@ -6,7 +6,7 @@
 import { mayMove, statesOf } from './flow.mjs'
 import { blockersOpen, overlapsIn, waitWords } from './guards.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
-import { PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
+import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
 
 /** The states in which a step is its Owner's work now. */
@@ -225,7 +225,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
       const filed = askFiledMs(item)
       const limit = times?.partnerMs ?? PARTNER_ANSWER_MS
       if (Number.isFinite(filed) && now - filed >= limit) escalations.push({ id, why: `the partner did not answer in ${Math.round(limit / MIN)} min` })
-      else if (!isHeld && isFree) partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since') })
+      // B392: open ten minutes, it wakes the partner once more (`again`), so none sits unseen.
+      else if (!isHeld && isFree) partnerAsks.push({ id, chat: partner.name, since: valueOf(item, 'Since'), ...(Number.isFinite(filed) && now - filed >= (times?.partnerAgainMs ?? PARTNER_AGAIN_MS) ? { again: true } : {}) })
     }
   }
   return { moves, deliveries, flags, notes, partnerAsks, escalations }
