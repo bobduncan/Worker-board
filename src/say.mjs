@@ -147,7 +147,7 @@ const syncWords = (to, lane, state) => {
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sync', about,
     // B438, the review: the newest answer there was when it was asked; only a newer one answers this check.
-    seen: lastSyncAnswer(state.information, about),
+    seen: lastSyncAnswer(state.information, about, state.restart?.main ?? null),
     text: [...lines, `Limits: ${limitsWords(state.limits)}`, 'Why: the person pressed "Out of sync?" on the worker board'].join('\n'),
   }
 }
@@ -186,12 +186,22 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
  * The partner writes the page (roles/partner.md, "The plan interview"); the board writes nothing.
  */
 export function planWords(command, { to, id, words = null, job }) {
-  const lines = command === 'plan-confirm'
-    ? [`plan: ${id} confirmed`, `Your job: ${job}, "The plan interview"`]
+  const said = String(words ?? '').replace(/\s+/g, ' ').trim()
+  const head = {
+    'plan-confirm': [`plan: ${id} confirmed`],
     // Vision: an open answer the partner has not asked yet: the person wants its options, as a question to pick from.
-    : command === 'plan-ask' ? [`plan: ${id} ask`, `Your job: ${job}, "The plan interview"`]
-    : [`plan: ${id} change`, `Words: ${String(words ?? '').replace(/\s+/g, ' ').trim()}`, `Your job: ${job}, "The plan interview"`]
-  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id, text: lines.join('\n') }
+    'plan-ask': [`plan: ${id} ask`],
+    'plan-change': [`plan: ${id} change`, `Words: ${said}`],
+    // Vision (2026-10-19): Go deeper on a vision card; the feature marks and the goal confirms, each sent in one word;
+    // a feature the person misses; their words on the whole goal preset; the goals into the goal map.
+    'plan-deeper': [`plan: ${id} deeper`],
+    'plan-marks': ['plan: features marked', `Marks: ${said}`],
+    'plan-feature-add': ['plan: feature add', `Words: ${said}`],
+    'plan-goals-confirm': ['plan: goals confirmed', `Goals: ${said}`],
+    'plan-goals-change': ['plan: goals change', `Words: ${said}`],
+    'plan-goals-agree': ['plan: goals agreed'],
+  }[command]
+  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, text: [...head, `Your job: ${job}, "The plan interview"`].join('\n') }
 }
 
 /**

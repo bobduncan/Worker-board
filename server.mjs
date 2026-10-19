@@ -28,13 +28,12 @@ import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { availableParallelism } from 'node:os'
 
 import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
-import { cpuLimiter, sessionsOfCards } from './src/cpu.mjs'
+import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -933,8 +932,11 @@ async function main(args) {
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
     file: join(HERE, 'data', 'cpu.json'),
     fallback: isShowOnly ? 'off' : config.cpuLimit,
-    cores: availableParallelism(),
+    // 2026-10-19: the PC's cores, never the board's own, which a chat that started the board may have narrowed; and the
+    // board and its keeper are spared, and given Normal and all cores back at the first pass.
+    cores: logicalCores(),
     sessions: chatSessions,
+    spare: [process.pid, process.ppid],
   })
   if (cpu !== null && cpu.available) {
     const applyCpu = () => cpu.apply().catch(() => {})
