@@ -5,7 +5,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { ideasFolder, shortName } from './design.mjs'
-import { writeAtomic } from './write.mjs'
+import { moveInPlace, writeAtomic } from './write.mjs'
 
 // B198: an idea's folder and an uploaded reference lie in the ideas folder of a plain picture folder of the project:
 // the one the settings name now, or the one an earlier idea was kept in, so every idea saved so far stays readable.
@@ -134,7 +134,7 @@ export async function placeReferences(project, paths, folder) {
     const target = join(project, ...to.split('/'))
     try {
       await mkdir(dirname(target), { recursive: true })
-      await rename(join(project, ...path.split('/')), target)
+      await moveInPlace(join(project, ...path.split('/')), target)
       placed.push(to)
     } catch {
       placed.push(path)

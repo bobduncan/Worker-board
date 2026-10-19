@@ -274,7 +274,13 @@ test('the review\'s findings: a take-back whose note cannot be marked fails loud
   try {
     await digger(DECIDE)
     await sage({ action: 'partner-answer', id: 'Q1', text: 'A number', why: 'your advice' })
-    const locked = { ...files, writeFile: (file, ...rest) => (String(file).includes('N1.md') ? Promise.reject(Object.assign(new Error('locked'), { code: 'EBUSY' })) : files.writeFile(file, ...rest)) }
+    // B406: a write goes through open (flushed beside), so the lock refuses that too.
+    const refused = () => Promise.reject(Object.assign(new Error('locked'), { code: 'EBUSY' }))
+    const locked = {
+      ...files,
+      writeFile: (file, ...rest) => (String(file).includes('N1.md') ? refused() : files.writeFile(file, ...rest)),
+      open: (file, ...rest) => (String(file).includes('N1.md') ? refused() : files.open(file, ...rest)),
+    }
     const failed = await workApi({ action: 'undo', id: 'Q1' }, { ...ctx(), fs: locked, as: 'person' })
     assert.deepEqual([failed.ok, failed.status], [false, 500])
     assert.match(failed.why, /nothing changed; try Undo again/)
