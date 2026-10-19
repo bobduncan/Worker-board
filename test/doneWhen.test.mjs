@@ -142,9 +142,11 @@ test('"Is the vibe there?" Yes ticks the goal only with a Done when: an older fo
   assert.equal(mapOf(fs).focus, 'G4')
   const written = utf8(fs.files[MAP]).replace('  Vibe: warm light\n', '  Done when: every path is lit after dark\n  Vibe: warm light\n')
   fs.files[MAP] = latin(written)
-  const ticked = await focusMove({ command: 'vibe-there-yes', id: 'G4' }, ctx(fs, { allDone: true }))
-  assert.equal(ticked.ok, true)
-  assert.equal(mapOf(fs).byId.get('G4').state, 'done')
+  // B358: with its Done when, Yes asks the partner for the goal's re-check; the tick comes once it passed.
+  const asked = await focusMove({ command: 'vibe-there-yes', id: 'G4' }, ctx(fs, { allDone: true }))
+  assert.equal(asked.ok, true)
+  assert.equal(asked.words.command, 'goal-recheck')
+  assert.equal(mapOf(fs).byId.get('G4').recheckAsked, '2026-10-18 22:05')
 })
 
 test('something new that waits for its Done when changes no focus, so the partner\'s high effort mode stays as it is', async () => {

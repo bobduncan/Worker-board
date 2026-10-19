@@ -259,7 +259,7 @@ test('the moves it knows hold the vibe-there answers (Focus 4: the talk bar afte
   assert.deepEqual(FOCUS_MOVES.slice(5, 8), ['vibe-there-yes', 'vibe-there-no', 'talk'])
 })
 
-test('Yes ticks the goal, clears the focus and types vibe there: yes, once', async () => {
+test('Yes asks the partner for the goal\'s re-check, once; B358: the tick comes once the re-check passed', async () => {
   const fs = fakeFs({ [MAP]: latin(GOALS) })
   const notYet = await focusMove({ command: 'vibe-there-yes', id: 'G6' }, ctx(fs, { allDone: false }))
   assert.deepEqual([notYet.status, notYet.why], [409, 'Not every part is done yet.'])
@@ -267,10 +267,10 @@ test('Yes ticks the goal, clears the focus and types vibe there: yes, once', asy
   assert.ok(both.every(one => one.ok), JSON.stringify(both))
   const words = both.map(one => one.words).filter(one => one !== null)
   assert.equal(words.length, 1)
-  assert.deepEqual([words[0].command, words[0].text], ['vibe-there-yes', 'vibe there: yes\nGoal: G6 The polish you need to judge fun\nThread: none'])
+  assert.equal(words[0].command, 'goal-recheck')
+  assert.match(words[0].text, /^goal re-check: G6 The polish you need to judge fun\nDone when: you judge a fight fun in one playthrough\nVibe: every fight reads at a glance · hits feel heavy\nYour job: .+, "The goal re-check"$/)
   const map = mapOf(fs)
-  assert.deepEqual([map.focus, map.byId.get('G6').state], [null, 'done'])
-  assert.match(utf8(fs.files[MAP]), /^- \[x\] G6 /m)
+  assert.deepEqual([map.focus, map.byId.get('G6').state, map.byId.get('G6').recheckAsked], ['G6', 'now', '2026-10-18 09:00'])
 })
 
 test('No with the person\'s words takes "How agreed" away and types vibe there: no with the words', async () => {

@@ -7,16 +7,16 @@ import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
-import { addGoal, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
+import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
 
 /**
  * The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar;
- * B354: ask the partner for a goal's Done when.
+ * B354: ask the partner for a goal's Done when; B358: tick a goal on the Goals part (its re-check first).
  */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when']
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -96,6 +96,8 @@ async function move(body, ctx) {
   if (command === 'focus') return pick(body, text, ctx, goalsAt)
   if (!isId(body.id)) return refuse(400, 'Name the goal by its id (G12).')
   if (command === 'done-when') return askDoneWhen(parseGoals(text).byId.get(body.id), ctx)
+  // B358: the person's tick on the Goals part, routed here by the board while a partner is on it.
+  if (command === 'goal-done') return goalDone(parseGoals(text).byId.get(body.id), ctx, goalsAt)
   const node = parseGoals(text).byId.get(body.id)
   if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt, parseGoals(text).focus)
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
@@ -284,6 +286,8 @@ async function vibeThere(command, node, words, ctx, goalsAt, say) {
   // B354: a goal is ticked against its Done when; a focus picked before that rule may have none.
   if (command === 'vibe-there-yes' && !hasDoneWhen(node)) return refuse(409, `${node.id} gets its tick only with a Done when that says how you check it: ask your partner to write it, or write it on the Goals part.`)
   if (command === 'vibe-there-no' && words === '') return refuse(400, 'Say what is missing, in your words.')
+  // B358: Yes asks the partner for the goal's re-check first; the goal gets its tick once that passed.
+  if (command === 'vibe-there-yes') return askRecheck(node, ctx, goalsAt)
   let wrote = false
   const done = await changeGoalsFile(text => {
     const map = parseGoals(text)
@@ -298,6 +302,90 @@ async function vibeThere(command, node, words, ctx, goalsAt, say) {
   if (!wrote) return { ok: true, result: { unchanged: true }, words: null }
   if (!done.ok) return failed(done.why)
   return { ok: true, result: {}, words: await say(command, command === 'vibe-there-no' ? words : null) }
+}
+
+/** B358: whether a goal's re-check was asked and has no outcome yet. */
+const isRecheckOpen = node => node.recheckAsked !== null && node.recheckAsked !== undefined
+
+/**
+ * B358: the person's tick of a goal on the Goals part (the board routes it here when a partner is on it). A goal with
+ * a Done when gets its re-check first (askRecheck); after a failed re-check the person's tick stands, written under the
+ * goal as an overturn. Refused without a Done when (B354).
+ */
+async function goalDone(node, ctx, goalsAt) {
+  if (node === undefined) return refuse(409, 'That goal is not in the map.')
+  if (node.state === 'done') return { ok: true, result: { unchanged: true }, words: null }
+  if (!hasDoneWhen(node)) return refuse(409, `${node.id} gets its tick only with a Done when that says how you check it: write it with "Done when…", or ask your partner to.`)
+  if (isRecheckOpen(node)) return { ok: true, result: { id: node.id, recheck: 'asked', unchanged: true }, words: null }
+  if (node.rechecks.at(-1)?.verdict !== 'failed') return askRecheck(node, ctx, goalsAt)
+  let late = false
+  const done = await changeGoalsFile(text => {
+    const map = parseGoals(text)
+    const now = map.byId.get(node.id)
+    if (now === undefined) return { ok: false, why: 'gone' }
+    late = now.state === 'done' || isRecheckOpen(now)
+    if (late) return { ok: false, why: 'late' }
+    const ticked = setGoalState(text, node.id, 'done')
+    if (!ticked.ok) return ticked
+    const noted = addGoalLine(ticked.text, node.id, `Overturned (${minuteOf(ctx.now)}): ticked by you after the re-check failed`)
+    return noted.ok && map.focus === node.id ? setFocus(noted.text, null) : noted
+  }, goalsAt)
+  if (late) return { ok: true, result: { unchanged: true }, words: null }
+  return done.ok ? { ok: true, result: { id: node.id, overturned: true }, words: null } : failed(done.why)
+}
+
+/**
+ * B358: the partner is asked to re-check the goal against its Done when and its vibe before its tick: `Recheck
+ * asked: <date time>` under it (once), and the word `goal re-check:` to the partner.
+ */
+async function askRecheck(node, ctx, goalsAt) {
+  let wrote = false
+  const done = await changeGoalsFile(text => {
+    const now = parseGoals(text).byId.get(node.id)
+    if (now === undefined) return { ok: false, why: 'gone' }
+    wrote = now.state !== 'done' && !isRecheckOpen(now)
+    return wrote ? setGoalLine(text, node.id, 'Recheck asked', minuteOf(ctx.now)) : { ok: false, why: 'late' }
+  }, goalsAt)
+  if (!wrote) return { ok: true, result: { id: node.id, recheck: 'asked', unchanged: true }, words: null }
+  if (!done.ok) return failed(done.why)
+  return { ok: true, result: { id: node.id, recheck: 'asked' }, words: focusWords('goal-recheck', { to: ctx.partner.name, goal: node, job: ctx.job }) }
+}
+
+/**
+ * B358: the outcome of the partner's re-check of a goal (`checked` of a goal in the work tool): `{ id, verdict
+ * ('passed', 'failed' or 'waits for you'), line (the outcome's words), by }`. Writes "Rechecked (<date time>, <by>):
+ * <line>" under the goal and takes "Recheck asked" away; passed, the goal is ticked and, the focus, the focus is
+ * cleared. Answers `{ ok, result: { id, title, ticked, attempts } }` (attempts: its failed re-checks).
+ */
+export function goalChecked(body, ctx) {
+  const run = turn.then(() => recheckDone(body, { fs: files, ...ctx }))
+  turn = run.catch(() => {})
+  return run
+}
+
+async function recheckDone(body, ctx) {
+  if (ctx.canWrite !== true) return refuse(403, 'This board only shows: re-check the goal on the board that delivers.')
+  if (!isId(body?.id)) return refuse(400, 'Name the goal by its id (G12).')
+  const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
+  let title = ''
+  let attempts = 0
+  const done = await changeGoalsFile(text => {
+    const map = parseGoals(text)
+    const now = map.byId.get(body.id)
+    if (now === undefined) return { ok: false, why: 'gone' }
+    if (now.state === 'done') return { ok: false, why: 'ticked' }
+    title = now.title
+    attempts = now.rechecks.filter(one => one.verdict === 'failed').length + (body.verdict === 'failed' ? 1 : 0)
+    const lined = addGoalLine(text, body.id, `Rechecked (${minuteOf(ctx.now)}, ${oneLine(body.by, 60)}): ${oneLine(body.line, 500)}`)
+    if (!lined.ok) return lined
+    const cleared = setGoalLine(lined.text, body.id, 'Recheck asked', '')
+    if (!cleared.ok || body.verdict !== 'passed') return cleared
+    const ticked = setGoalState(cleared.text, body.id, 'done')
+    return ticked.ok && map.focus === body.id ? setFocus(ticked.text, null) : ticked
+  }, goalsAt)
+  if (!done.ok && done.why === 'ticked') return refuse(409, `${body.id} is ticked already.`)
+  if (!done.ok) return failed(done.why)
+  return { ok: true, result: { id: body.id, title, ticked: body.verdict === 'passed', attempts } }
 }
 
 /** "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */

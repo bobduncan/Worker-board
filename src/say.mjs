@@ -67,7 +67,7 @@ const stopWords = (to, name, task) => ({
   text: `stop task\nName: ${name}\nTask: ${task}\nWhy: stopped with the button`,
 })
 /** Focus 2: the first line of each word of the Focus page to the partner (spec 2026-10-18, section 6). */
-const FOCUS_HEADS = { 'vibe-agreed': 'vibe: agreed', 'vibe-not-yet': 'vibe: not yet', 'how-go': 'how: go', 'how-not-yet': 'how: not yet', 'vibe-there-yes': 'vibe there: yes', 'vibe-there-no': 'vibe there: no', undo: 'undo:', talk: 'talk:', 'done-when': 'done when:' }
+const FOCUS_HEADS = { 'vibe-agreed': 'vibe: agreed', 'vibe-not-yet': 'vibe: not yet', 'how-go': 'how: go', 'how-not-yet': 'how: not yet', 'vibe-there-yes': 'vibe there: yes', 'vibe-there-no': 'vibe there: no', undo: 'undo:', talk: 'talk:', 'done-when': 'done when:', 'goal-recheck': 'goal re-check:' }
 export const FOCUS_COMMANDS = ['focus', ...Object.keys(FOCUS_HEADS)]
 
 /**
@@ -89,6 +89,8 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
     // Focus 4: the person's words from the run's talk bar while the partner has the turn.
     : command === 'talk' ? [`talk: ${String(words).replace(/\s+/g, ' ').trim()}`, `Goal: ${about}`, `Thread: ${thread}`]
     : command === 'done-when' ? [`done when: ${about}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`]), `Your job: ${job}, "Done when"`]
+    // B358: the goal's re-check before its tick, against its Done when and its vibe.
+    : command === 'goal-recheck' ? [`goal re-check: ${about}`, `Done when: ${String(goal.doneWhen ?? '').replace(/\s+/g, ' ').trim()}`, ...((goal.vibe ?? []).length === 0 ? [] : [`Vibe: ${goal.vibe.map(one => String(one).replace(/\s+/g, ' ').trim()).join(' · ')}`]), `Your job: ${job}, "The goal re-check"`]
     : [FOCUS_HEADS[command], `Goal: ${about}`, `Thread: ${thread}`, ...(words === null ? [] : [`Words: ${String(words).replace(/\s+/g, ' ').trim()}`])]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: goal.id, text: lines.join('\n') }
 }

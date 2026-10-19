@@ -794,6 +794,8 @@ async function check(body, w) {
  * only the person can judge (ask) makes none: the partner asks them, and the step waits in review.
  */
 async function checked(body, w) {
+  // B358: the re-check of a goal before its tick.
+  if (typeof body.id === 'string' && /^G\d+$/.test(body.id.trim())) return goalCheck(body, w)
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
@@ -836,6 +838,39 @@ async function checked(body, w) {
   }
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
   return changed(item, undefined, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : { resultCheck: recheck }) })
+}
+
+/**
+ * B358: the partner's re-check of a goal (`checked` with `id` G<n>): every point of its Done when and its vibe, each
+ * pass, fail or ask, against the steps' evidence, and the evidence picture. The board writes the outcome under the goal
+ * in the goal map (`w.goalChecked`, src/focus.mjs `goalChecked`): passed, the goal is ticked and the person gets a
+ * recap note; failed, it stays open, its gap named, and the partner makes the follow-up steps; ask, the person judges.
+ */
+async function goalCheck(body, w) {
+  if (typeof w.goalChecked !== 'function') return refuse(409, 'This board keeps no goal map: nothing was checked.')
+  const id = body.id.trim()
+  const evidence = line(body.evidence, 300)
+  if (evidence === '') return refuse(400, 'Name the evidence picture in "evidence", by its path, or "none (<why>)".')
+  const read = parsePoints(body.points)
+  if (!read.ok) return refuse(400, read.why)
+  const score = line(body.score, 60)
+  const { points } = read
+  const failed = points.filter(one => one.verdict === 'fail').map(one => one.text)
+  const judged = points.filter(one => one.verdict === 'ask').map(one => one.text)
+  const summary = `${points.filter(one => one.verdict === 'pass').length} of ${points.length} points pass${score === '' ? '' : `, score ${score}`}`
+  const verdict = failed.length > 0 ? 'failed' : judged.length > 0 ? 'waits for you' : 'passed'
+  const tail = failed.length > 0 ? ` · gap: ${failed.join('; ')}` : judged.length > 0 ? ` · for you: ${judged.join('; ')}` : ''
+  const done = await w.goalChecked({ id, verdict, line: `${verdict} · ${summary}${tail} · evidence ${evidence}`, by: w.who })
+  if (!done.ok) return done
+  const { ticked, title, attempts } = done.result
+  if (ticked) {
+    // The recap: what is done, as the person reads it on the board.
+    await makeNote(w, 'you', [`${id} ${title} is done: a helper re-checked it against its Done when and its vibe, ${summary}.`, ...(/^none\b/i.test(evidence) ? [] : [`The evidence: ${evidence}`])], id)
+  }
+  const words = ticked ? `${id} passed its re-check and is ticked; the person gets the recap.`
+    : verdict === 'failed' ? `${id} stays open (attempt ${attempts}): make its follow-up steps from the gap, into its how.`
+      : `${id} waits for the person: ask them under it, then check it again.`
+  return { ok: true, result: { id, text: words, changed: ticked, ticked, attempts } }
 }
 
 /** B356, the review: a fix step taken back: its file and its place in its activity. */

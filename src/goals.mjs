@@ -23,7 +23,7 @@ const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
 
 function node(id, title, state, depth, line) {
-  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, why: null, enables: [], alsoPartOf: [], steps: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null }
+  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, why: null, enables: [], alsoPartOf: [], steps: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [] }
 }
 
 /** Focus 1: "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
@@ -32,6 +32,19 @@ function partOf(value) {
   const steps = rest.find(part => /^steps\b/i.test(part))
   const size = rest.find(part => !/^steps\b/i.test(part) && part !== '') ?? null
   return { title, size, steps: steps === undefined ? [] : stepIds(steps.replace(/^steps\s*/i, '')) }
+}
+
+/**
+ * B358: a re-check's line, "Rechecked (<date time>, <who>): passed · 3 of 3 points pass · evidence <path>" (or
+ * "failed · ... · gap: <points>", "waits for you · ... · for you: <points>"): `{ at, by, verdict, summary, gap, evidence }`.
+ */
+function recheckOf(text) {
+  const [, inside = '', value = ''] = text.match(/^Rechecked\s*\(([^)]*)\):\s*(.*)$/) ?? []
+  const [at = '', by = ''] = inside.split(',').map(one => one.trim())
+  const parts = value.split(' · ').map(one => one.trim())
+  const named = start => parts.find(one => one.startsWith(start))?.slice(start.length).trim() ?? null
+  const verdict = ['passed', 'failed', 'waits for you'].includes(parts[0]) ? parts[0] : 'failed'
+  return { at, by, verdict, summary: parts.find(one => /\bpoints? pass\b/.test(one)) ?? '', gap: named('gap:') ?? named('for you:'), evidence: named('evidence') }
 }
 
 /** One named line under a node, put on it. A line in a form the map does not know goes to `notes`, so nothing is lost. */
@@ -55,6 +68,11 @@ function takeLine(target, text) {
     case 'Partner decides': target.partnerDecides.push(value); return
     case 'You decide': target.youDecide.push(value); return
     case 'How agreed': target.howAgreed = value; return
+    // B358: the goal re-check before its tick: asked (the board's), its outcomes (the partner's), and the person's tick
+    // after a failed one.
+    case 'Recheck asked': target.recheckAsked = value; return
+    case 'Rechecked': target.rechecks.push(recheckOf(text)); return
+    case 'Overturned': target.overturned.push(value); return
     case 'Brainstorm': {
       const found = value.match(/^(\S+)(?:\s+\((running|wrapping up|done|discarded)\))?$/)
       target.brainstorm = found === null ? { path: value, state: 'running' } : { path: found[1], state: found[2] ?? 'running' }

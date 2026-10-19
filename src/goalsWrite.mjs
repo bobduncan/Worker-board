@@ -164,6 +164,12 @@ function appendOwnLine(text, id, line) {
   return { ok: true, text: join(file) }
 }
 
+/** B358: one more line of the goal's own (a re-check's outcome, an overturn), after its own lines. */
+export function addGoalLine(text, id, line) {
+  const words = oneLine(line, 600)
+  return words === '' ? refuse('form') : appendOwnLine(text, id, words)
+}
+
 export function addGoalNote(text, id, note) {
   const words = oneLine(note, 300)
   return words === '' ? refuse('form') : appendOwnLine(text, id, `Note: ${words}`)

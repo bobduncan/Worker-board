@@ -55,7 +55,7 @@ import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, goalChecked, undoLine } from './src/focus.mjs'
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
@@ -520,6 +520,14 @@ async function main(args) {
     return {
       // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
+      // B358: the partner's re-check of a goal (the work tool's checked of a G<n>), written into the goal map.
+      goalChecked: async body => {
+        const done = await goalChecked(body, {
+          canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
+        })
+        readState.reset()
+        return done
+      },
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
       // Pause and resume (spec 2026-10-18): the lanes' facts, for pause-state's list of whom the main chat wakes.
       lanes: [...lanes, ...(state.advisor ? [state.advisor] : [])],
@@ -1005,6 +1013,8 @@ async function main(args) {
     goals: async body => {
       if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
       if (body?.command === 'note-undo') return undoNow(body)
+      // B358: a goal ticked on the Goals part gets its re-check by the partner first, while a partner is on the board.
+      if (body?.command === 'state' && body?.state === 'done' && ((await readState()).advisor ?? null) !== null) return focusNow({ command: 'goal-done', id: body.id })
       const done = await editGoals(body, {
         canWrite: writesMap,
         file: projectFile(config, 'goals'),
