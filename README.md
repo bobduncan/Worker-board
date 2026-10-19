@@ -139,7 +139,8 @@ and the briefings for the main chat and the workers.
    store a line on top names the folder and the command of step 4.
 9. **The way back.** In Talk to Main, tell the main chat what the project is (a few lines, then send). → the line
     says "typed into its chat", and the main chat has your words with "(typed on the worker board, HH:MM)" and their
-    id, `[I1]`; under Needs your attention, "Open instructions" lists I1 until the main chat closes it.
+    id, `[I1]`; the line at the bottom of Needs your attention says "Log: 1 instruction", and in the log it opens,
+    "Open instructions" lists I1 until the main chat closes it.
 10. **Workers.** With a main chat and no worker, the board asks the main chat for three workers by itself, once,
     while the main chat's chat is open (it types "spawn workers" into it); "Ask for three workers" does the same.
     The main chat starts them, or puts a chip "<prefix>Worker N" into its chat for each: click each chip, one chip

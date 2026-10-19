@@ -121,12 +121,15 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   the words, pictures to look at, choices with the recommended one marked, how to play the change, and the answer:
   a text field and **Send**, or **Approve** / **Reject** with a reason, or **Done**. An answered card leaves the list at once
   (B307); **Show closed** shows it again, dashed, with where its answer is (waiting for its chat, handed over, typed
-  in, copied to paste), beside the closed ones; the steps
-  from the backlog fold under "From the backlog". Focus 4: your partner's questions (its asks of the focus goal and its
+  in, copied to paste), beside the closed ones; an ask the backlog held (migrated with its B id) is a card like every
+  other, and a ticked one shows only with **Show closed**. Focus 4: your partner's questions (its asks of the focus goal and its
   steps first, then its others) stand first, under **From your partner**. The work store's asks are the cards (B298, B299: Decide, Look,
-  Provide or Do, "blocks B1 · Board waits", a **Play it** link), answered into the store; under them **Information**
-  (notes and reports, each with **Read**) and **Open instructions** (the person's words per chat: missed ones red,
-  closed ones grey with what came of them). B360: after the questions, a **recap** of every step that passed its
+  Provide or Do, "blocks B1 · Board waits", a **Play it** link), answered into the store. At the very bottom one quiet
+  line, **Log: 44 reports · 3 instructions** (the unread notes and the open instructions; "nothing new" for none; never
+  in the count on the tab): a click unfolds the log, **Open instructions** (the person's words per chat: missed ones
+  red, closed ones grey with what came of them) and **Information** (notes and reports, each with **Read**, and **Mark
+  all read**); folded or open is kept in the browser. An instruction a chat missed also stands among the asks as one
+  red line, "Main missed your words of 14:02: open the log", which opens the log at it (and counts). B360: after the questions, a **recap** of every step that passed its
   result check and every goal that passed its re-check: a card marked Information (a green edge; it asks nothing and
   blocks nothing) with the step or goal, what the person gets, its evidence picture and when it approves itself, and
   **Overturn** (the partner makes a fix step from the person's words; a goal opens again) and **Feedback** (the words go
