@@ -3938,6 +3938,24 @@ function standingOf(need) {
   const line = need.of === null || need.of === undefined ? '' : `${need.of}${need.ofTitle === null || need.ofTitle === undefined ? '' : ` ${need.ofTitle}`}`
   return { line, more: `${need.from ?? 'The board'} ${need.blocking === true ? 'waits for your answer' : 'goes on meanwhile'}` }
 }
+
+/**
+ * B402: the Send button of a calm window: "Sending…" with a spinner, and not to be clicked, only while one of its
+ * asks goes; after any reply it is free again.
+ */
+function calmSendView(group, sending, words = sendLabel(group.length, group.length)) {
+  const isBusy = group.some(one => sending.has(one.id))
+  return { text: isBusy ? 'Sending…' : words, isBusy, isDisabled: isBusy }
+}
+
+/** B402: the toast once the answers went: "Answer sent to Digger", "2 answers sent to Digger". */
+const sentToast = sent => `${sent.length === 1 ? 'Answer' : `${sent.length} answers`} sent to ${sent[0]?.from ?? 'the board'}`
+
+/**
+ * B402: whether the calm window that shows the ask `calmAt` closes on this refresh: the ask was answered elsewhere
+ * (another tab, its chat, the partner) or is gone. A window opened on an answered ask (no `calmAt`) stays.
+ */
+const isAnsweredElsewhere = (calmAt, need) => calmAt !== undefined && (need === undefined || need === null || (need.id === calmAt && !isCalm(need)))
 // calm:end
 
 /**
@@ -4606,9 +4624,12 @@ function drawCalm(box, need, state) {
     next.dataset.calmGo = group[at + 1].id
     buttons.append(next)
   } else {
-    const send = button(calmSendText(group), 'is-send')
+    // B402: a spinner while it goes; free again after any reply.
+    const shown = calmSendView(group, sending, calmSendText(group))
+    const send = button(shown.text, 'is-send')
+    if (shown.isBusy) send.prepend(el('span', 'calm-spinner'))
     send.dataset.calmSend = ''
-    send.disabled = group.some(one => sending.has(one.id))
+    send.disabled = shown.isDisabled
     send.title = `Goes to ${need.from ?? 'the board'}`
     buttons.append(send)
   }
@@ -4643,6 +4664,9 @@ let calmFocus = null
  * words, or words on a look without a pick, is not sent: the window shows that question and says why. Questions left
  * without an answer stay open on the board. Sent without a problem, the window closes.
  */
+/** B402: whether a calm window's answers are going: no refresh closes it meanwhile (see `isAnsweredElsewhere`). */
+let calmBusy = false
+
 async function sendCalm(id) {
   const need = findNeed(id)
   if (board === null || need === undefined) return
@@ -4667,21 +4691,43 @@ async function sendCalm(id) {
     show(plan.none, 'pick')
     return fail(`calm:${plan.none}`, 'Pick an answer first.')
   }
-  for (const { need, answer } of plan.send) {
-    await sendWork({ action: 'answer', id: need.workId, ...answer }, need.id)
+  // B402: the button turns to a spinner at once, while the answers go.
+  for (const { need } of plan.send) sending.add(need.id)
+  detailsShown = null
+  drawDetails(board)
+  calmBusy = true
+  try {
+    return await sendEach(plan.send, show, isShowing)
+  } finally {
+    calmBusy = false
+  }
+}
+
+/** B402: the answers of one Send, one after the other; see `sendCalm`. */
+async function sendEach(toSend, show, isShowing) {
+  const sent = []
+  for (const { need, answer } of toSend) {
+    // B402: not the whole board read again before the window closes: that held the greyed button for long.
+    await sendWork({ action: 'answer', id: need.workId, ...answer }, need.id, { reread: false })
     // Answered or withdrawn meanwhile (in its chat, or on its card): nothing to send any more; the rest go on.
     if (isGoneAlready(problems.get(need.id))) problems.delete(need.id)
     else if (problems.has(need.id)) {
       // It did not go: the window shows it, with why, while it still shows these asks; the rest wait for another Send.
+      for (const one of toSend) sending.delete(one.need.id)
       show(need.id, 'question')
       detailsShown = null
-      return drawDetails(board)
+      if (isShowing()) drawDetails(board)
+      return read()
     }
+    else sent.push(need)
     calmPicks.delete(need.id)
     calmWords.delete(need.id)
   }
-  // The cards on the right say where the answers are.
+  // B402: saved: the window closes, a toast says where the answers went (none when all were answered elsewhere
+  // meanwhile), and the board is read again.
   if (isShowing()) closeDetails()
+  if (sent.length > 0) showToast(sentToast(sent))
+  return read()
 }
 // calmsend:end
 
@@ -4786,6 +4832,11 @@ function flowPart(strip) {
 function drawDetails(state) {
   const box = $('details')
   const subject = subjectOf(state)
+  // B402: a calm window whose ask was answered elsewhere closes, instead of staying as if unsent.
+  if (subject !== null && box.open && !calmBusy && isAnsweredElsewhere(box.dataset.calmAt, subject.need)) {
+    closeDetails()
+    return
+  }
   if (subject === null) {
     // What it was about is gone: answered, closed, or handed out.
     if (box.open) box.close()
@@ -5028,8 +5079,22 @@ function openDetails(what) {
 function closeDetails() {
   detailsOf = null
   detailsShown = null
+  // B402: what the calm window showed is no longer shown (see `isAnsweredElsewhere`).
+  delete $('details').dataset.calmAt
   if ($('details').open) $('details').close()
   if (location.hash.startsWith('#details=') || location.hash.startsWith('#task=')) history.replaceState(null, '', location.pathname)
+}
+
+/** B402: a short line at the foot of the page that goes by itself: "Answer sent to Digger". */
+let toastTimer = null
+function showToast(words) {
+  const toast = $('toast')
+  toast.textContent = words
+  toast.hidden = false
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toast.hidden = true
+  }, 4000)
 }
 
 $('details').addEventListener('click', event => {
@@ -11824,7 +11889,7 @@ async function send(message, id) {
  * B299: one action of the person on the work store (POST /api/work: the token, the origin, JSON): an answer to an
  * ask, a note read. Its problem shows where `key` says, as for `send`.
  */
-async function sendWork(body, key) {
+async function sendWork(body, key, { reread = true } = {}) {
   sending.add(key)
   problems.delete(key)
   redrawNeeds()
@@ -11847,7 +11912,9 @@ async function sendWork(body, key) {
     chosen.delete(key)
   } else problems.set(key, `Not sent: ${problem}`)
   redrawFocus()
-  await read()
+  // B402: the calm window reads the board itself, once it has closed or said why not.
+  if (reread) await read()
+  return problem
 }
 
 // paste:start
