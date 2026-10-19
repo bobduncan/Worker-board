@@ -5256,8 +5256,8 @@ function goalTreeDrop(goals, layout, fromId, x, y) {
 // goals:end
 
 // goalsteps:start
-// B383: the right side of the Goals page, "Steps for this goal" (the person's design picture
-// art-inbox/ideas/i-want-to-use/v1.png): the selected goal's steps and what it still misses.
+// B383: the right side of the Goals page, "Steps for this goal" (as the person's design picture of the page has it):
+// the selected goal's steps and what it still misses.
 
 /** A step's badge in the panel, from where it stands in the flow: its words and its tone. */
 function goalStepBadge(step) {
@@ -5612,7 +5612,172 @@ function drawGoals(state) {
 
 function redrawGoals() {
   if (board !== null && board !== undefined) once('goals', goalsData(board), () => drawGoals(board))
+  redrawGoalSteps()
 }
+
+// B383: the right panel "Steps for this goal": what the person chose in it, and its drawing.
+const goalStepsUi = { tab: 'steps', filter: 'all', showDone: false, menu: null, busy: false }
+function goalStepsData(state) {
+  return [state.goals ?? null, goalsFocus, state.backlog ?? null, canEditGoals(state), state.goalsEdit?.whyNot ?? null, goalStepsUi.tab, goalStepsUi.filter, goalStepsUi.showDone, goalStepsUi.menu, goalStepsUi.busy, goalsUi.busy]
+}
+function redrawGoalSteps() {
+  if (board !== null && board !== undefined) once('goalsteps', goalStepsData(board), () => drawGoalSteps(board))
+}
+
+/** B383: draws the panel from goalStepsView, as the person's design picture has it. */
+function drawGoalSteps(state) {
+  const box = $('goals-steps')
+  if (box === null) return
+  const view = goalStepsView(state.goals ?? null, goalsFocus, state.backlog ?? [], { ...goalStepsUi, canWrite: canEditGoals(state), whyNot: state.goalsEdit?.whyNot ?? null })
+  const head = [el('h2', '', 'Steps for this goal')]
+  if (view.goal === null) return fill(box, [...head, el('p', 'muted', view.empty)])
+  head.push(el('p', 'goal-steps-of', `${view.goal.id} · ${view.goal.title}`))
+  const tabs = el('div', 'goal-steps-tabs')
+  for (const one of view.tabs) {
+    const tab = el('button', `goal-steps-tab${one.isOn ? ' is-on' : ''}${one.key === 'missing' && one.count > 0 ? ' is-missing' : ''}`, one.label)
+    tab.type = 'button'
+    tab.dataset.goalStepsTab = one.key
+    tab.setAttribute('aria-pressed', String(one.isOn))
+    tab.append(el('span', 'goal-steps-count', String(one.count)))
+    tabs.append(tab)
+  }
+  const parts = [...head, tabs]
+  if (view.tab === 'steps') {
+    const filters = el('div', 'goal-steps-filters')
+    for (const one of view.filters) {
+      const button = el('button', one.isOn ? 'is-on' : '', one.label)
+      button.type = 'button'
+      button.dataset.goalStepsFilter = one.key
+      button.setAttribute('aria-pressed', String(one.isOn))
+      filters.append(button)
+    }
+    parts.push(filters, el('h3', 'goal-steps-title', 'Associated steps'), el('p', 'muted', 'Steps that contribute to this goal.'))
+    const list = el('ol', 'goal-steps-list')
+    for (const row of view.rows) {
+      const item = el('li', `goal-step is-${row.tone}`)
+      const open = el('button', 'goal-step-open')
+      open.type = 'button'
+      open.dataset.goalStepOpen = row.key
+      open.title = `Open ${row.id}`
+      open.append(el('span', 'goal-step-n', String(row.n)))
+      const words = el('span', 'goal-step-words')
+      words.append(el('b', '', row.title), ...(row.line === '' ? [] : [el('small', '', row.line)]))
+      open.append(words)
+      const side = el('span', 'goal-step-side')
+      side.append(el('span', `goal-step-badge is-${row.tone}`, row.badge), ...(row.chat === '' ? [] : [el('small', '', row.chat)]))
+      const more = el('button', 'goal-step-more', '⋮')
+      more.type = 'button'
+      more.dataset.goalStepMenu = row.key
+      more.setAttribute('aria-label', `More for ${row.id}`)
+      more.setAttribute('aria-expanded', String(goalStepsUi.menu === row.key))
+      item.append(open, side, more)
+      if (goalStepsUi.menu === row.key) {
+        const menu = el('div', 'goal-step-menu')
+        const step = goalButton('goals-tool', `Open ${row.id}`, { goalStepOpen: row.key })
+        menu.append(step)
+        if (row.chat !== '') menu.append(goalButton('goals-tool', `Open ${row.chat}'s window`, { goalStepChat: row.chat }))
+        item.append(menu)
+      }
+      list.append(item)
+    }
+    if (view.rows.length === 0) list.append(el('li', 'muted', view.filter === 'done' ? 'No step of this goal is done yet.' : 'No open step under this goal.'))
+    parts.push(list)
+    if (view.foldedDone !== null) parts.push(goalButton('goal-steps-fold', `› ${view.foldedDone}`, { goalStepsShowDone: '' }))
+  }
+  if (view.missing.length > 0 || view.tab === 'missing') parts.push(goalMissingBox(view))
+  fill(box, parts)
+}
+
+/** B383: the box of the goal's Missing lines, each with Add step and Dismiss, and "Add all". */
+function goalMissingBox(view) {
+  const part = el('section', 'goal-missing')
+  part.append(el('h3', '', '⚠ Missing steps'))
+  if (view.missing.length === 0) {
+    part.append(el('p', 'muted', 'Nothing is missing: every outcome of this goal has a step.'))
+    return part
+  }
+  part.append(el('p', 'muted', 'These outcomes have no step yet. Add steps to make this goal complete.'))
+  for (const one of view.missing) {
+    const row = el('div', 'goal-missing-row')
+    const words = el('span', 'goal-missing-words')
+    words.append(el('b', '', one.title), ...(one.sub === null ? [] : [el('small', '', one.sub)]))
+    const add = goalButton('goal-missing-add', '+ Add step', { missingAdd: String(one.index) })
+    const dismiss = goalButton('goal-missing-dismiss', 'Dismiss', { missingDismiss: String(one.index) })
+    for (const button of [add, dismiss]) {
+      button.disabled = !view.canWrite || goalStepsUi.busy
+      button.title = view.canWrite ? (button === add ? `A new step under ${view.goal.id}; your partner refines it` : 'This line goes from the goal') : view.whyNot
+    }
+    row.append(el('span', 'goal-missing-sign', '!'), words, add, dismiss)
+    part.append(row)
+  }
+  if (view.addAll !== null) {
+    const all = goalButton('goal-missing-all', view.addAll.label, { missingAll: '' })
+    all.disabled = !view.addAll.isEnabled || goalStepsUi.busy
+    all.title = view.addAll.title
+    part.append(all)
+  }
+  return part
+}
+
+/** B383: a Missing line (`index`, or all) made into steps under the selected goal, or dismissed. */
+async function goalMissingAct(kind, index) {
+  const node = board?.goals ? goalById(board.goals, goalsFocus) : null
+  if (node === null || goalStepsUi.busy) return
+  goalStepsUi.busy = true
+  redrawGoalSteps()
+  try {
+    if (kind === 'dismiss') {
+      const line = node.missing[index]
+      if (line !== undefined && await sendGoals({ command: 'missing-dismiss', id: node.id, line }) !== null) goalsSay('The line is taken out of the goal.', 'ok')
+    } else {
+      const done = await sendGoals(kind === 'all' ? { command: 'missing-add', id: node.id, all: true } : { command: 'missing-add', id: node.id, index })
+      const made = done?.made ?? []
+      if (made.length > 0) goalsSay(`${made.join(', ')} ${made.length === 1 ? 'is' : 'are'} on the backlog under ${node.id}: your partner refines ${made.length === 1 ? 'it' : 'them'}.${done.why ? ` ${done.why}` : ''}`, 'ok')
+    }
+  } finally {
+    goalStepsUi.busy = false
+    redrawGoalSteps()
+  }
+}
+
+$('goals-steps').addEventListener('click', event => {
+  const tab = event.target.closest('[data-goal-steps-tab]')
+  if (tab !== null) {
+    goalStepsUi.tab = tab.dataset.goalStepsTab
+    goalStepsUi.menu = null
+    return redrawGoalSteps()
+  }
+  const filter = event.target.closest('[data-goal-steps-filter]')
+  if (filter !== null) {
+    goalStepsUi.filter = filter.dataset.goalStepsFilter
+    return redrawGoalSteps()
+  }
+  if (event.target.closest('[data-goal-steps-show-done]') !== null) {
+    goalStepsUi.showDone = true
+    return redrawGoalSteps()
+  }
+  const menu = event.target.closest('[data-goal-step-menu]')
+  if (menu !== null) {
+    goalStepsUi.menu = goalStepsUi.menu === menu.dataset.goalStepMenu ? null : menu.dataset.goalStepMenu
+    return redrawGoalSteps()
+  }
+  const open = event.target.closest('[data-goal-step-open]')
+  if (open !== null) {
+    goalStepsUi.menu = null
+    return openDetails({ step: open.dataset.goalStepOpen })
+  }
+  const chat = event.target.closest('[data-goal-step-chat]')
+  if (chat !== null) {
+    goalStepsUi.menu = null
+    return openDetails({ lane: chat.dataset.goalStepChat, task: true })
+  }
+  const add = event.target.closest('[data-missing-add]')
+  if (add !== null && !add.disabled) return goalMissingAct('add', Number(add.dataset.missingAdd))
+  const dismiss = event.target.closest('[data-missing-dismiss]')
+  if (dismiss !== null && !dismiss.disabled) return goalMissingAct('dismiss', Number(dismiss.dataset.missingDismiss))
+  const all = event.target.closest('[data-missing-all]')
+  if (all !== null && !all.disabled) return goalMissingAct('all', null)
+})
 
 // B257: the goal tree, drawn as svg from goalTreeLayout. The person, 2026-10-15: "like a diagram of nodes what is a
 // part of what", in zoom style 1 ("I like style 1"): the clicked box glides into the frame.
@@ -6254,7 +6419,7 @@ async function sendGoals(body) {
   // B354: a word to the partner (done-when) changes nothing in the map: nothing to count for undo.
   // B358, the reviews: a re-check asked, its take-back or an overturn is no change the page's undo takes back; after
   // one the map no longer reads as the changes before left it, so those cannot be undone either.
-  const isOutside = result?.recheck !== undefined || result?.overturned === true || (body.command === 'line' && body.name === 'Recheck asked')
+  const isOutside = result?.recheck !== undefined || result?.overturned === true || (body.command === 'line' && body.name === 'Recheck asked') || body.command === 'missing-add'
   if (result !== null && result.unchanged !== true && body.command !== 'done-when') goalsUi.undoable = body.command === 'ask' || body.command === 'read' || isOutside ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   // Changed or refused, the map is read anew (a refusal is often a change made elsewhere in between), and the next
   // key works on the map as it now is.
@@ -10840,6 +11005,8 @@ function draw(state) {
   once('refine-list', refining, () => drawRefineList(refining))
   // B255: the goal map's outline, when the map or the zoom changes.
   once('goals', goalsData(state), () => drawGoals(state))
+  // B383: the right panel of the Goals page.
+  once('goalsteps', goalStepsData(state), () => drawGoalSteps(state))
   // B259: the brainstorms, when one changes or what the person does on the part.
   once('brainstorm', brainstormData(state), () => drawBrainstorm(state))
   // Focus 1: the Focus page, when the focus, the map or the brainstorms change; the tab's bar, when its setting does.

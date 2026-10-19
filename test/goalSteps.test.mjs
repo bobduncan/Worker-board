@@ -112,3 +112,12 @@ test('Dismiss takes the Missing line out of the goal; Add step makes the step, l
   assert.equal((await missingToSteps({ id: 'G1', index: 0 }, ports)).status, 409)
   assert.equal((await missingToSteps({ id: 'G9', index: 0 }, ports)).status, 404)
 })
+
+test('the board routes Add step to the work store as the person and the goal map, and Dismiss through the map\'s own change', async () => {
+  const server = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'server.mjs'), 'utf8')
+  assert.match(server, /if \(body\?\.command === 'missing-add'\) \{/)
+  assert.match(server, /makeStep: step => workAction\(step, 'person'\)/)
+  const writer = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'goalsWrite.mjs'), 'utf8')
+  assert.match(writer, /case 'missing-dismiss': return text => removeGoalMissing\(text, id, body\.line\)/)
+  assert.match(script, /once\('goalsteps', goalStepsData\(state\), \(\) => drawGoalSteps\(state\)\)/)
+})
