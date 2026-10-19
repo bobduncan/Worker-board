@@ -328,10 +328,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-option.is-picked { border: 2px solid var(--free); padding: 9px; background: #16294a; }
 .vision-option b { font-size: 15px; }
 .vision-option ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); line-height: 1.45; list-style: disc; }
-.vision-option.is-own { cursor: text; }
+.vision-option.is-own { grid-column: 1 / -1; cursor: text; }
 .vision-option.is-own b { color: var(--muted); }
 .vision-option.is-own.is-picked b { color: var(--text); }
-.vision-own { flex: 1; min-height: 72px; width: 100%; padding: 8px 10px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 13.5px; resize: vertical; }
+.vision-own { flex: 1; min-height: 72px; width: 100%; padding: 8px 10px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 13.5px; resize: none; }
 .vision-open { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .vision-open p { margin: 0; }
 .vision-advised { align-self: flex-start; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #16294a; color: #8fb4ff; }

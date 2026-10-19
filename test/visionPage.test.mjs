@@ -122,6 +122,9 @@ test('the Vision tab sits beside Overview, with its view, its address and its st
   assert.match(script, /\$\('view-vision'\)\.hidden = tab !== 'vision'/)
   assert.match(css, /\.vision-slide \{/)
   assert.match(css, /\.vision-option\.is-picked \{/)
+  // Your own words: a card as wide as all the options together, its box without a resize handle (the user, 2026-10-19).
+  assert.match(css, /\.vision-option\.is-own \{ grid-column: 1 \/ -1;/)
+  assert.match(css, /\.vision-own \{[^}]*resize: none;/)
   // The Focus page no longer carries the plan.
   assert.doesNotMatch(script, /planCard\(/)
 })
