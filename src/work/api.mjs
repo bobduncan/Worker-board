@@ -919,7 +919,7 @@ async function fixStep(origin, failed, w) {
       ...(activity === null ? [] : [['Activity', activity]]), ...(goal === null ? [] : [['Goal', goal]]), ['Since', stamp(w.now)], ['Fix of', originId], ['Refined', 'ready']]),
     sections: new Map([
       // B381: the failed points whole, in the Context too.
-      ['Context', [`  Fix of ${originId}: the result check by ${w.who} failed on ${failed.length === 1 ? 'one point' : `${failed.length} points`}:`, ...what.map(one => `  ${one}`), REFINED_MARK]],
+      ['Context', [`  Fix of ${originId}: the result check by ${w.who} failed on ${failed.length === 1 ? 'one point' : `${failed.length} points`}.`, ...what.map(one => `  ${one}`), REFINED_MARK]],
       ['Summary', [summary]],
       ...(standard === null ? [] : [['Standard', [standard]]]),
       ['What we build', what],

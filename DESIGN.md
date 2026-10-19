@@ -2234,7 +2234,7 @@ worker for another try, until the attempts stall; only then the person's call, w
    "A fix of B<id>"; the Focus page shows under each part "Checked by a helper: n of m points pass (B<id>)" with the
    evidence to open.
 8. The Workers mod's work tool takes `checked` and its fields `evidence`, `points` and `score` (0.13.11). B381: a
-   point is kept whole (up to 4000 characters, it was cut at 300), and the fix step carries its failed points whole in
+   point is kept whole (up to 4000 characters, within the board's 16 KB per call; it was cut at 300), and the fix step carries its failed points whole in
    its What we build, its Context and its refine block; only its title is short.
 9. Not in it: the picture tool (B357), the goal re-check (B358), the stall rule's own setting (B361).
 10. The review's findings: the result check counts from the step's last report (a report anew asks anew); a History
