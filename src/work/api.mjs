@@ -26,7 +26,7 @@ import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readS
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
 import { NOTE_LINE, isPartnerAnswered, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { HELD, checkpointLine, isHolding, pauseAnswer } from './pause.mjs'
+import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { writeView } from './view.mjs'
 
 // B300: kept here for those who import them from the API.
@@ -469,7 +469,10 @@ function pauseStateOf(w) {
   return { text: `The board's pause state: ${answer.state}${when}.`, ...answer }
 }
 
-/** The person's Pause all and Resume all, and the board's own "running" once every holder is back: pause.json. */
+/**
+ * The person's Pause all and Resume all, and the board's own "running" once every holder is back or 20 minutes after
+ * the resume (2026-10-19, pause.mjs `resumeEnds`): pause.json.
+ */
 async function pauseWrite(body, w) {
   const now = await readPauseFile(w.dir, w.fs)
   // The review of part 1: the person's End resume sets running too, for a chat that will never start.
@@ -481,7 +484,16 @@ async function pauseWrite(body, w) {
   // A resume keeps when the pause began, and so does the running after it (the review of Pause 2: the outbox's
   // lines are not late for the time the pause held them).
   const pausedSince = to === 'resuming' && now.record?.state === 'pausing' ? now.record.since : to === 'running' ? now.record?.pausedSince : null
-  const record = { state: to, since: w.now, by: w.role, ...(Number.isFinite(pausedSince) ? { pausedSince } : {}) }
+  // 2026-10-19: running keeps when the resume began, where the hold of the outbox's lines ended (only pausing holds);
+  // the board's own running keeps who had not started then (a resume that ended by the time), for the banner's hour.
+  const resumedSince = to === 'running' ? now.record?.since : null
+  const notStarted = w.action !== 'resumed' ? [] : pauseFacts({ pause: now.record, items: w.store.items, lanes: w.lanes ?? [], prefix: w.prefix ?? '' }).waiting
+  const record = {
+    state: to, since: w.now, by: w.role,
+    ...(Number.isFinite(pausedSince) ? { pausedSince } : {}),
+    ...(Number.isFinite(resumedSince) ? { resumedSince } : {}),
+    ...(notStarted.length > 0 ? { notStarted } : {}),
+  }
   const done = await writePause(w.dir, record, w.fs, { expected: now.text })
   if (!done.ok) return refuse(/could not be written/.test(done.why) ? 500 : 409, `${done.why}; try again.`)
   return { ok: true, result: { text: `The pause state is ${to} since ${stamp(w.now).slice(11)}.`, pause: record, changed: true } }
@@ -2077,7 +2089,8 @@ async function refineText(body, w) {
  * changes nothing: the server sends the line once (src/work/deliver.mjs), and the chat's own take moves the step.
  */
 function pull(body, w) {
-  // The review of Pause 2: while the person pauses (until running) no step is handed out.
+  // The review of Pause 2: while the person pauses no step is handed out (2026-10-19: pausing only; while resuming
+  // as when running).
   if (isHolding(w.store.pause)) return { ok: true, result: { text: '', id: null, since: null, wake: null, changed: false } }
   const steps = [...w.store.items.values()].filter(item => kindOf(item) === 'step' && isOwner(item, w.who, w.prefix))
   const held = steps.find(item => ['taken', 'in progress', 'waiting on you'].includes(stateOf(item)))

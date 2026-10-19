@@ -863,10 +863,16 @@ function pauseRing(pause) {
   }
 }
 
-/** The pause's lines in words: those of a resume (a pause shows as its ring, pauseRing). */
+/**
+ * The pause's lines in words: those of a resume (a pause shows as its ring, pauseRing). 2026-10-19: a chat is named
+ * once with the steps it holds, with when the board goes on by itself; after a resume that ended by the time, who did
+ * not start, for an hour, as information.
+ */
 function pauseLines(pause) {
-  if (pause === null || pause === undefined || pause.state === 'running' || pause.state === 'pausing') return []
-  const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.id})`).join(', ')}.` }]
+  if (pause === null || pause === undefined || pause.state === 'pausing') return []
+  if (pause.state === 'running') return (pause.notStarted ?? []).map(one => ({ tone: 'muted', text: `${one.chat} did not start after the resume: ${one.ids.join(', ')}.` }))
+  const until = Number.isFinite(pause.until) ? ` The board goes on without waiting at ${clock(pause.until)}.` : ''
+  const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.ids.join(', ')})`).join(', ')}.${until}` }]
   const main = pause.main ?? null
   if (main === null || pause.waiting.length === 0) return lines
   if (main.isRunning === true) {

@@ -1018,8 +1018,8 @@ function focusRun(node, items, prefix, partner) {
 }
 
 export function buildState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, finishedSeen = {}, taskTimes = [], now, config }) {
-  // The review of Pause 2: while the person pauses (until running) what waits in the outbox is held until the resume,
-  // but the board's own "resume" to the main chat; the page says so (`isHeld`).
+  // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
+  // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
   const sent = (Array.isArray(outbox) ? outbox : [])
     .map(message => (isPaused && message.state === 'waiting' && message.command !== 'resume' ? { ...message, isHeld: true } : message))
@@ -1401,7 +1401,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const pause = pauseRecord === null ? null : {
     // The review of Pause 2: a line handed to a chat and not typed yet starts a turn: no Safe while one is on its way.
     ...pauseFacts({
-      pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...(advisorCard === null ? [] : [advisorCard])], prefix,
+      pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...(advisorCard === null ? [] : [advisorCard])], prefix, now,
       pending: sent.filter(message => message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS),
     }),
     // `hasActed`: the main chat ran a turn since the pause's last change, or runs one now (the review of Pause 2: once its

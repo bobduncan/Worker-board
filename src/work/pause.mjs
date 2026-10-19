@@ -1,8 +1,8 @@
 // Pause and resume from the store, not from messages (spec 2026-10-18-pause-resume-design.md). A step a chat holds
 // carries a checkpoint in its record (`Checkpoint: <commit or none> · <next action> · <date time>`, written with work
 // step's `commit` and `next`). The person's "Pause all" and "Resume all" write `<work>/pause.json`
-// (`{ state: pausing | resuming | running, since, by, pausedSince }`); the board says from facts alone whether it is safe to restart,
-// and whom a resume still waits for. Nothing here reads a chat's words.
+// (`{ state: pausing | resuming | running, since, by, pausedSince, resumedSince, notStarted }`); the board says from
+// facts alone whether it is safe to restart, and whom a resume still waits for. Nothing here reads a chat's words.
 
 import { sinceMs, valueOf } from './item.mjs'
 
@@ -14,10 +14,18 @@ export const PAUSE_STATES = ['pausing', 'resuming', 'running']
  * uncommitted work too.
  */
 export const HELD = ['taken', 'in progress', 'waiting on you', 'review']
-/** The review of Pause 2: the states in which the board hands out nothing that starts a turn (until running). */
-export const HOLDS = ['pausing', 'resuming']
+/**
+ * The review of Pause 2: the states in which the board hands out nothing that starts a turn. Since 2026-10-19 pausing
+ * only: while resuming everything goes as when running. Resuming is there to get chats started; holding the person's
+ * answer to a chat that had not started kept the resume from ending (seen live that day).
+ */
+export const HOLDS = ['pausing']
 /** Whether a pause record (pause.json, or the state's `pause`) holds what would start a turn. */
 export const isHolding = pause => HOLDS.includes(pause?.state)
+/** 2026-10-19: a resume ends by itself this long after Resume all, also when a chat holding a step has not started. */
+export const RESUME_WAIT_MS = 20 * 60_000
+/** 2026-10-19: after a resume that ended by the time, the banner names who did not start for this long. */
+export const NOT_STARTED_SHOWN_MS = 60 * 60_000
 /** The review of Pause 2: how many of a held step's last History lines a resume without a checkpoint goes by. */
 const HISTORY_LINES = 3
 const SEP = ' · '
@@ -29,15 +37,25 @@ export const stampSecond = now => {
   return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())}:${two(at.getSeconds())}`
 }
 
+/** A list of `{ chat, ids }` as pause.json keeps it (`notStarted`); what is not one is left out. */
+export const chatsWithSteps = list => (Array.isArray(list) ? list : [])
+  .filter(one => typeof one?.chat === 'string' && one.chat !== '' && Array.isArray(one.ids) && one.ids.every(id => typeof id === 'string'))
+  .map(one => ({ chat: one.chat, ids: [...one.ids] }))
+
 /** pause.json's record, or null: no file, or one the board cannot read (no pause then). */
 export function parsePause(text) {
   if (typeof text !== 'string') return null
   try {
     const raw = JSON.parse(text)
     if (!PAUSE_STATES.includes(raw?.state)) return null
-    const record = { state: raw.state, since: Number.isFinite(raw.since) ? raw.since : null, by: typeof raw.by === 'string' ? raw.by : null }
-    // A resume after a pause keeps when the pause began (`pausedSince`).
-    return Number.isFinite(raw.pausedSince) ? { ...record, pausedSince: raw.pausedSince } : record
+    return {
+      state: raw.state, since: Number.isFinite(raw.since) ? raw.since : null, by: typeof raw.by === 'string' ? raw.by : null,
+      // A resume after a pause keeps when the pause began (`pausedSince`). 2026-10-19: running keeps when the resume
+      // began (`resumedSince`) and, after a resume that ended by the time, who had not started (`notStarted`).
+      ...(Number.isFinite(raw.pausedSince) ? { pausedSince: raw.pausedSince } : {}),
+      ...(Number.isFinite(raw.resumedSince) ? { resumedSince: raw.resumedSince } : {}),
+      ...(raw.notStarted === undefined ? {} : { notStarted: chatsWithSteps(raw.notStarted) }),
+    }
   } catch {
     return null
   }
@@ -115,11 +133,14 @@ const hasStarted = (lane, since) => lane !== undefined && (runsTurn(lane) || (Nu
  * review of Pause 2). `unsaved` (`{ chat, id }`: a step held with no checkpoint since the pause) and `offBoard` (`{ chat,
  * id, title }`: one held so by a chat the board does not show, named by its title) are said, and block nothing: such a
  * step resumes from its branch and History. `chats` (B364): every lane as `{ name, state }`, state one of working,
- * asking, typing, still or off (its process does not run). Resuming: `waiting` (`{ chat, id }`: a holder on the board that has not
- * started a turn since the resume), `isResumed` when none is left; a chat not on the board cannot be woken by its
- * session, so it is not waited for (the person's End resume ends it).
+ * asking, typing, still or off (its process does not run). Resuming: `waiting` (`{ chat, ids }`: a chat on the board
+ * holding steps that has not started a turn since the resume, counted once with each step it holds, 2026-10-19),
+ * `isResumed` when none is left, `until` when the resume ends by itself (`RESUME_WAIT_MS` after it); a chat not on the
+ * board cannot be woken by its session, so it is not waited for. Running after a resume that ended by the time:
+ * `notStarted` (`{ chat, ids }`, kept in pause.json) for an hour (`NOT_STARTED_SHOWN_MS` from `now`), as information;
+ * a chat that has started a turn since the resume is no longer named.
  */
-export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = [] }) {
+export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = [], now = null }) {
   if (pause === null || pause === undefined) return null
   const laneOf = chat => lanes.find(lane => plain(lane.name, prefix) === plain(chat, prefix))
   const holders = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) !== undefined)
@@ -144,10 +165,33 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
     return { state: 'pausing', since: pause.since, working, asking, typing, unsaved, offBoard, isSafe: working.length === 0 && asking.length === 0 && typing.length === 0, chats }
   }
   if (pause.state === 'resuming') {
-    const waiting = holders.filter(holder => !hasStarted(laneOf(holder.chat), pause.since)).map(({ chat, id }) => ({ chat, id }))
-    return { state: 'resuming', since: pause.since, waiting, isResumed: waiting.length === 0 }
+    const waiting = byChat(holders.filter(holder => !hasStarted(laneOf(holder.chat), pause.since)), prefix)
+    return { state: 'resuming', since: pause.since, waiting, isResumed: waiting.length === 0, until: Number.isFinite(pause.since) ? pause.since + RESUME_WAIT_MS : null }
   }
-  return { state: 'running', since: pause.since }
+  const isShown = Number.isFinite(now) && Number.isFinite(pause.since) && now - pause.since < NOT_STARTED_SHOWN_MS
+  const notStarted = !isShown ? [] : (pause.notStarted ?? []).filter(one => !hasStarted(laneOf(one.chat), pause.resumedSince ?? pause.since))
+  return notStarted.length === 0 ? { state: 'running', since: pause.since } : { state: 'running', since: pause.since, notStarted }
+}
+
+/** Holders as one entry per chat (2026-10-19: a chat counts once), `{ chat, ids }`, in the order of their first step. */
+function byChat(holders, prefix = '') {
+  const chats = new Map()
+  for (const { chat, id } of holders) {
+    const key = plain(chat, prefix)
+    if (!chats.has(key)) chats.set(key, { chat, ids: [] })
+    chats.get(key).ids.push(id)
+  }
+  return [...chats.values()]
+}
+
+/**
+ * 2026-10-19: whether the board sets running now (`pause` the state's facts): while resuming, once every chat holding a
+ * step has started a turn since the resume, or `RESUME_WAIT_MS` after the resume, whichever is first.
+ */
+export function resumeEnds(pause, now) {
+  if (pause?.state !== 'resuming') return false
+  if (pause.isResumed === true) return true
+  return Number.isFinite(pause.since) && Number.isFinite(now) && now - pause.since >= RESUME_WAIT_MS
 }
 
 /**
@@ -203,12 +247,13 @@ export function resumeRetypeTo(state) {
 /**
  * The review of Pause 2: how long a line in the outbox was held by a pause (`pause` the pause.json record) between
  * when it was sent and `now`: it does not grow late while the board holds it. From the pause's start (pausing: its
- * since; resuming and running: `pausedSince`) to its end (running: its since; else now).
+ * since; resuming and running: `pausedSince`) to its end. Since 2026-10-19 only pausing holds, so the hold ends at the
+ * resume: pausing, now; resuming, its since; running, its `resumedSince` (a record from before then: its since).
  */
 export function heldMs(message, now, pause) {
   if (pause === null || pause === undefined || !Number.isFinite(message?.at)) return 0
   const start = pause.state === 'pausing' ? pause.since : pause.pausedSince ?? null
-  const end = pause.state === 'running' ? pause.since : now
+  const end = pause.state === 'pausing' ? now : pause.state === 'resuming' ? pause.since : pause.resumedSince ?? pause.since
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
   return Math.max(0, Math.min(end, now) - Math.max(start, message.at))
 }

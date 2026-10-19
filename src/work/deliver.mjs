@@ -72,7 +72,8 @@ export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId,
 
 /** Whether a line may go to `chat` now: a chat on the board (not a leftover) that is free, not busy nor held by the limit. */
 export function mayWake(state, chat) {
-  // The review of Pause 2: while the person pauses (until running) nothing starts a turn.
+  // The review of Pause 2: while the person pauses nothing starts a turn (2026-10-19: pausing only; while resuming
+  // as when running).
   if (isHolding(state?.pause)) return false
   const lane = (state?.chats ?? []).find(one => one.name === chat && !one.isLeftover)
   return lane !== undefined && lane.state === 'free'
@@ -174,8 +175,8 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     if (handed?.ok === true) done.moved.push(one.id)
   }
   done.withdrawn = await withdrawStale({ dir, outbox, prefix: state.chatPrefix ?? '', fs })
-  // The review of Pause 2: while the person pauses (until running) no line goes out that starts a turn: no step
-  // delivered, no check's word, no note-wake to the main chat. They go once the board runs again.
+  // The review of Pause 2: while the person pauses (2026-10-19: pausing only) no line goes out that starts a turn: no
+  // step delivered, no check's word, no note-wake to the main chat. They go at Resume all, as when running.
   if (isHolding(state?.pause)) return done
   const lines = [
     ...(plan.deliveries ?? []).map(one => ({ key: deliveryKey(one.id, one.chat, one.since), words: workWords(one.chat, one.id) })),
