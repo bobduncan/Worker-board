@@ -157,7 +157,8 @@ profile.
 - `spawn workers` with "Count: N": start that many new workers (below).
 - `partner effort` with "Chat:", "Mode:", "Model:", "Effort:" (and "Session:" when the board knows the chat's id) and
   "Why:": the user switched the partner's high effort mode on the Focus page, or Go on the how or a new focus switched
-  it back (B352). Set that chat's model and effort with the app's session tools, `set_session_model` and
+  it back (B352); or the goal guard (B359) switched it on for a fundamental evaluation ("Why: the goal guard: ..."),
+  and back when the evaluation ended. Set that chat's model and effort with the app's session tools, `set_session_model` and
   `set_session_effort` (load them with ToolSearch when they are deferred), to the Model and Effort lines; find the
   chat by its session id, else by its title. Nothing else: no message to the partner. The board shows it set once the
   partner's next answer runs on it. When a tool refuses, tell the user in one line.

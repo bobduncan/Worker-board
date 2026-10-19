@@ -7384,6 +7384,19 @@ function focusRecheckView(focus) {
   return { tone: 'failed', title: `The re-check found a gap (attempt ${focus.attempts ?? 1})`, text: `${last.summary}; the gap: ${last.gap ?? 'named under the goal'}. Your partner makes the steps that close it.` }
 }
 
+/**
+ * B359: the goal guard for the run's card: failed checks since Go so far, the partner's fundamental evaluation, or a
+ * rebuild that waits for the person. Null before the first failed check, and without a guard.
+ */
+function focusGuardView(focus) {
+  const guard = focus?.guard ?? null
+  if (guard === null) return null
+  if (guard.state === 'rebuild') return { tone: 'rebuild', title: 'A rebuild waits for you', text: `Your partner's evaluation proposes a new how for ${focus.id}${guard.ask === null ? '' : ` (${guard.ask})`}: answer it under Needs your attention. Nothing is rebuilt before your yes.` }
+  if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed since Go: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
+  if (guard.attempts === 0) return null
+  return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks since Go your partner, on high effort, evaluates whether the approach is right.` }
+}
+
 /** B354: whether a goal (or the focus) has a Done when line with words in it. */
 function hasDoneWhenLine(node) { return typeof node?.doneWhen === 'string' && node.doneWhen.trim() !== '' }
 
@@ -7499,6 +7512,8 @@ function focusView(focus, goals, can = null, ui = {}) {
     // B358: the re-check before the tick: while it runs it stands in place of the question; a gap it found is named.
     view.recheck = focusRecheckView(focus)
     if (view.recheck?.tone === 'asked') view.vibeThere = null
+    // B359: the goal guard: attempts so far, the evaluation, a rebuild for the person.
+    view.guard = focusGuardView(focus)
   }
   if (stage === 'done') view.pick = pickOf(`${focus.id} is done. What do you want to work on next?`)
   else if (ui.picking === true && allowed) {
@@ -7989,6 +8004,13 @@ function focusRecheckCard(recheck) {
   return card
 }
 
+/** B359: the run's card of the goal guard. */
+function focusGuardCard(guard) {
+  const card = el('section', `focus-card focus-guard is-${guard.tone}`)
+  card.append(el('h3', '', guard.title), el('p', '', guard.text))
+  return card
+}
+
 /** Focus 1 (spec 2026-10-18, section 4): the Focus page, read-only from goals.md: the head, the strip, each stage's cards. */
 function drawFocus(state) {
   const can = focusCan(state)
@@ -8030,6 +8052,7 @@ function drawFocus(state) {
       const left = el('div', 'focus-column')
       left.append(focusRunCard(view), focusSay(view.talkBar.placeholder, 'focus-say is-slim', { box: 'focus-bar-words', act: view.talkBar.act, isEnabled: view.talkBar.isEnabled, title: view.talkBar.title }))
       const right = el('div', 'focus-column')
+      if (view.guard !== null && view.guard !== undefined) right.append(focusGuardCard(view.guard))
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
       if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can))
       right.append(focusNoteCard(view))

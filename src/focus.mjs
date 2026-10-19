@@ -7,6 +7,7 @@ import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
+import { evaluateWords, goalAttempts, needsEvaluation } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 
@@ -134,7 +135,9 @@ async function agree(node, ctx, goalsAt, field, write, say) {
     const now = parseGoals(text).byId.get(node.id)
     if (now === undefined) return { ok: false, why: 'gone' }
     wrote = now[field] === null
-    return write(text, node.id, minuteOf(ctx.now))
+    const written = write(text, node.id, minuteOf(ctx.now))
+    // B359: Go starts the count of failed checks anew; an evaluation left from before the how was reopened ends with it.
+    return written.ok && field === 'howAgreed' && wrote ? setGoalLine(written.text, node.id, 'Evaluation asked', '') : written
   }, goalsAt)
   if (!done.ok) return failed(done.why)
   return wrote ? { ok: true, result: {}, words: await say() } : { ok: true, result: { unchanged: true }, words: null }
@@ -376,6 +379,33 @@ export function goalChecked(body, ctx) {
   return run
 }
 
+/**
+ * B359: the goal guard fires for goal `id` when its failed checks since Go reached the third (src/goalGuard.mjs),
+ * once: "Evaluation asked: <date time>" under the goal, and the word `evaluate G<n>` to the partner (`ctx.partner`),
+ * with what failed and whether a rebuild needs the person's yes (`ctx.approveRebuilds`). `ctx.items` are the store's.
+ * Answers `{ ok, result: { id, fired }, words }`; words is null when the guard did not fire.
+ */
+export function guardGoal(id, ctx) {
+  const run = turn.then(() => fireGuard(id, { fs: files, ...ctx }))
+  turn = run.catch(() => {})
+  return run
+}
+
+async function fireGuard(id, ctx) {
+  if (ctx.canWrite !== true || (ctx.partner ?? null) === null || !isId(id)) return { ok: true, result: { id, fired: false }, words: null }
+  const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
+  let node = null
+  const done = await changeGoalsFile(text => {
+    const now = parseGoals(text).byId.get(id)
+    if (now === undefined || !needsEvaluation(now, ctx.items)) return { ok: false, why: 'calm' }
+    node = now
+    return setGoalLine(text, id, 'Evaluation asked', minuteOf(ctx.now))
+  }, goalsAt)
+  if (!done.ok) return done.why === 'calm' ? { ok: true, result: { id, fired: false }, words: null } : failed(done.why)
+  const words = evaluateWords({ to: ctx.partner.name, goal: node, attempts: goalAttempts(node, ctx.items), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job })
+  return { ok: true, result: { id, fired: true }, words }
+}
+
 async function recheckDone(body, ctx) {
   if (ctx.canWrite !== true) return refuse(403, 'This board only shows: re-check the goal on the board that delivers.')
   if (!isId(body?.id)) return refuse(400, 'Name the goal by its id (G12).')
@@ -451,16 +481,27 @@ async function draft(body, node, ctx, goalsAt, focus) {
   if (node.id !== focus) return notFocus()
   if (node.vibeAgreed === null) return refuse(409, 'The vibe is not agreed yet: draft the how once the person agreed it.')
   let changed = false
+  let evaluated = false
   const done = await changeGoalsFile(text => {
     const now = parseGoals(text).byId.get(node.id)
     if (now === undefined) return { ok: false, why: 'gone' }
     const next = setHow(text, node.id, how)
     if (!next.ok || now.howAgreed === null) return next
+    // B359: while the goal guard's evaluation runs, the draft is its outcome: the how it names (corrected, rebuilt, or
+    // the same one: keep going) is agreed at once, so the count of failed checks starts anew, and the evaluation ends.
+    if ((now.evaluationAsked ?? null) !== null) {
+      evaluated = true
+      const isSame = agreedOf(parseGoals(next.text).byId.get(node.id)) === agreedOf(now)
+      const at = minuteOf(ctx.now)
+      const agreed = setGoalLine(next.text, node.id, 'How agreed', at)
+      const cleared = agreed.ok ? setGoalLine(agreed.text, node.id, 'Evaluation asked', '') : agreed
+      return cleared.ok ? addGoalLine(cleared.text, node.id, `Evaluated (${at}): ${isSame ? 'the how stays' : `a new how (${how.parts.length} ${how.parts.length === 1 ? 'part' : 'parts'})`}`) : cleared
+    }
     changed = agreedOf(parseGoals(next.text).byId.get(node.id)) !== agreedOf(now)
     return changed ? { ok: false, why: 'agreed' } : next
   }, goalsAt)
   if (changed) return refuse(409, 'The how is agreed: add the steps to its parts, change nothing else.')
-  return done.ok ? { ok: true, result: {}, words: null } : failed(done.why)
+  return done.ok ? { ok: true, result: evaluated ? { evaluated: true } : {}, words: null } : failed(done.why)
 }
 
 /**

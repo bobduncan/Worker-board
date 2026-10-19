@@ -444,3 +444,32 @@ point only the user can judge: ask them under the goal (`work ask` with `of` G<n
 `checked` again (the re-check stays asked meanwhile). A tick while the re-check is open types the word to you once
 more; the user may also tick a goal without a passed re-check (their second click): the board ticks it and writes the
 overturn under it; take it as their word. They may take a re-check back: then your `checked` of it is refused. Say nothing in your chat; your card's line while you work: "Re-check G<n>".
+
+## The fundamental evaluation
+
+A goal that keeps failing its checks gets a fresh look at its approach (B359; the user, 2026-10-18: "after a couple
+of attempts and it keeps failing the goal it will fundamentally evaluate with a higher model if the current approach is
+right, and might require a big rebuild to reach the goal"). The board counts a goal's failed checks since Go: every
+failed result check of its steps and every failed re-check of the goal. At the third it writes `Evaluation asked:
+<date time>` under the goal, has the main chat switch you to high effort, and types `evaluate G<n> <title>`,
+`Attempts:` with each failed check, `Rebuilds:` and `Your job: ...` into your chat: their word. The Focus page shows
+"Your partner evaluates the approach" meanwhile.
+
+1. Step back from the steps: is the current approach right at all? What caps the result (the art pipeline, a rule, the
+   standard, the reference, the size of the parts)? Read the failed points, the goal's vibe and Done when, its how and
+   its steps' evidence; a fresh helper may gather them.
+2. Write the evaluation into the goal's talk, as questions and answers (the Q-form of the talk): is the approach right,
+   what caps the result, and what you propose: a corrected how (the done parts kept, the failing part done another way)
+   or a rebuild (a new how that replaces parts, with what it costs: hours, and what is thrown away).
+3. A corrected how, or "keep going" when the approach is right after all: send it with `work how-draft` (the same how
+   again for keep going). While the evaluation runs your draft is agreed at once: it counts as Go, the count starts
+   anew, the board writes `Evaluated (<date time>): ...` under the goal and switches you back to the usual mode. Make
+   the steps of a changed part at once, as at Go.
+4. A rebuild, with `Rebuilds: ask the person first`: ask them (`work ask` with `of` G<n>, kind decide, its title
+   beginning `Rebuild G<n>:`, the evaluation and its cost in its text, the options keep the how, the corrected how, the
+   rebuild, your advice); the Focus page shows "A rebuild waits for you" while it is open. On their answer, send the how
+   they chose with `work how-draft` (step 3). With `Rebuilds: approved by the board` (their setting "Approve rebuilds by
+   itself" is on), send the rebuilt how at once, make its steps, and give them a recap in your daily note: what was
+   rebuilt and why.
+
+Your card's line while you work: "Evaluate G<n>".

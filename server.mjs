@@ -55,8 +55,9 @@ import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, goalChecked, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, goalChecked, guardGoal, undoLine } from './src/focus.mjs'
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
+import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
@@ -465,6 +466,8 @@ async function main(args) {
       allDone: state.focus?.id === body?.id && state.focus.progress.total > 0 && state.focus.progress.done === state.focus.progress.total,
     })
     readState.reset()
+    // B359: the partner's how-draft ended the goal guard's evaluation: back to the usual partner.
+    if (done.ok && done.result?.evaluated === true) await partnerMode(state, 'usual', 'the evaluation ended with the how: back to the usual partner')
     if (!done.ok || done.words === null) return done.ok ? { ok: true, result: done.result } : done
     // B352: Go on the how, and another goal as the focus, switch the partner back to the usual mode (the talk about the
     // same goal started again keeps it).
@@ -479,6 +482,34 @@ async function main(args) {
       await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
     }
     return toPartner(done.words, done.result, state)
+  }
+  /**
+   * B352, B359: a word to the main chat to set the partner's mode, unless it runs on that mode already: copied without the
+   * Workers mod, as every board word.
+   */
+  const partnerMode = async (state, mode, why) => {
+    const main = state.restart?.main ?? null
+    if (main === null || (state.advisor ?? null) === null || (state.advisor.effort?.mode ?? 'usual') === mode) return
+    const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode, why })
+    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
+    await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
+  }
+  /**
+   * B359: the goal guard, after a failed check of goal `id` (a step's result check or the goal's re-check): at the third
+   * failed check since Go the partner is switched to high effort and asked for the fundamental evaluation, once.
+   */
+  const guardNow = async id => {
+    if (!writesMap || workDir === null || id === null) return
+    const state = await readState()
+    if ((state.advisor ?? null) === null) return
+    const items = [...(await readStore(workDir).catch(() => ({ items: new Map() }))).items.values()]
+    const done = await guardGoal(id, {
+      canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
+      partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true,
+    })
+    if (!done.ok || done.words === null) return
+    await partnerMode(state, 'high', `the goal guard: ${id} failed its checks ${GUARD_ATTEMPTS} times since Go: a fundamental evaluation`)
+    await toPartner(done.words, {}, state)
   }
   /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
   const toPartner = async (words, result, state) => {
@@ -557,6 +588,13 @@ async function main(args) {
     if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...wake, state: 'waiting' })
     readState.reset()
   }
+  /** B359: the goal a checked item counts for: the goal itself (G<n>), or the step's Goal in the store. */
+  const goalOfChecked = async id => {
+    const plain = String(id ?? '').trim()
+    if (/^Gd+$/.test(plain)) return plain
+    const item = (await readStore(workDir).catch(() => ({ items: new Map() }))).items.get(plain)
+    return item?.head.get('Goal') ?? null
+  }
   const workReads = new Set(['next', 'list', 'pause-state'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
@@ -566,6 +604,8 @@ async function main(args) {
     const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
     // B356, the second review: a fix's check that leaves the step it fixes in review asks the partner for that step again.
     if (done.ok && done.result.resultCheck !== undefined) await askResultCheck(done.result.resultCheck).catch(() => {})
+    // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
+    if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) await guardNow(await goalOfChecked(body.id)).catch(() => {})
     if (done.ok && done.result.changed !== false) {
       work.reset?.()
       readState.reset()

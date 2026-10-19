@@ -23,7 +23,7 @@ const ids = value => value.match(IDS) ?? []
 const stepIds = value => value.split(/[,\s]+/).filter(part => /^B\d+$/.test(part))
 
 function node(id, title, state, depth, line) {
-  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, why: null, enables: [], alsoPartOf: [], steps: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [] }
+  return { id, title: title.trim(), state, depth, parent: null, children: [], line, doneWhen: null, why: null, enables: [], alsoPartOf: [], steps: [], missing: [], notes: [], asks: [], brainstorm: null, fromPlan: null, recommendation: null, vibe: [], vibePicture: null, vibeAgreed: null, parts: [], partnerDecides: [], youDecide: [], howAgreed: null, recheckAsked: null, rechecks: [], overturned: [], evaluationAsked: null, evaluations: [] }
 }
 
 /** Focus 1: "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */
@@ -73,6 +73,9 @@ function takeLine(target, text) {
     case 'Recheck asked': target.recheckAsked = value; return
     case 'Rechecked': target.rechecks.push(recheckOf(text)); return
     case 'Overturned': target.overturned.push(value); return
+    // B359: the goal guard: the fundamental evaluation asked (the board's), and how each ended ("Evaluated (<date time>): ...").
+    case 'Evaluation asked': target.evaluationAsked = value; return
+    case 'Evaluated': target.evaluations.push(value); return
     case 'Brainstorm': {
       const found = value.match(/^(\S+)(?:\s+\((running|wrapping up|done|discarded)\))?$/)
       target.brainstorm = found === null ? { path: value, state: 'running' } : { path: found[1], state: found[2] ?? 'running' }

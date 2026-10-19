@@ -192,6 +192,10 @@ project's goal map, which the Advisor tab's Goals part draws and, on the board t
 unless set) are the folders for the map's brainstorms (one thread file each, which the Advisor tab's Brainstorm part
 shows and answers), the Advisor's long answers to the asks on it (its "More:" lines point there) and its daily copy.
 These four may also be a whole path of their own, as `work`: a copy tried beside your board reads its own goal map.
+`approveRebuilds` (false unless set, B359): whether a rebuild the goal guard's evaluation calls for goes ahead
+without your yes. The guard: at a goal's third failed check since Go (its steps' result checks and its re-checks), the
+board switches the partner to high effort and asks it for a fundamental evaluation of the approach; the Focus page shows
+the count, the evaluation, and a rebuild that waits for you.
 `advisorParts` (`["focus", "goals", "brainstorm"]` unless set): the parts the Focus tab's bar shows, by name; add
 `"way"` (Next milestone), `"plan"` (Game plan), `"suggestions"`, `"refine"` or `"chat"` to bring one back.
 `work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own

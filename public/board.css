@@ -2005,3 +2005,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-recheck.is-asked h3 { color: var(--waiting); }
 .focus-recheck.is-failed h3 { color: var(--warn); }
 .focus-recheck.is-waits h3 { color: var(--waiting); }
+/* B359: the goal guard's card: failed checks counted, the evaluation, a rebuild for the person. */
+.focus-guard.is-counting h3 { color: var(--warn); }
+.focus-guard.is-evaluating h3 { color: var(--waiting); }
+.focus-guard.is-rebuild h3 { color: var(--waiting); }

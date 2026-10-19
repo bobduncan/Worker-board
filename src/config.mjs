@@ -47,6 +47,11 @@ export const DEFAULTS = {
    * folder, where the board keeps the pictures it is given (those pasted into Talk to Main).
    */
   pictureRoots: ['pictures'],
+  /**
+   * B359: whether a rebuild the goal guard's evaluation calls for goes ahead without the person's yes. Off at first
+   * (the person, Q130: "the first rebuilds come to you, you flip it on once you trust them").
+   */
+  approveRebuilds: false,
   /** A game the board starts for a branch takes this port, plus the place of its folder in git's list. */
   gamePort: 5300,
   /** Such a game ends this long after its last tab was closed, or when nobody opened it in time. */
@@ -262,6 +267,7 @@ export function parseConfig(text, env) {
   if (typeof raw.advisorSuggestions === 'string' && raw.advisorSuggestions.trim() !== '') config.advisorSuggestions = raw.advisorSuggestions.trim()
   if (typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim())) config.morningRound = raw.morningRound.trim()
   if (typeof raw.weeklyRound === 'boolean') config.weeklyRound = raw.weeklyRound
+  if (typeof raw.approveRebuilds === 'boolean') config.approveRebuilds = raw.approveRebuilds
   if (Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== '')) config.runGame = [...raw.runGame]
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]

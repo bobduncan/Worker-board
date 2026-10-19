@@ -31,6 +31,7 @@ import { reconcile } from './work/reconcile.mjs'
 import { refineStop } from './refineGate.mjs'
 import { flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
 import { checkedOf } from './work/resultCheck.mjs'
+import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
@@ -950,6 +951,8 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     recheckAsked: node.recheckAsked ?? null,
     lastRecheck: node.rechecks?.at(-1) ?? null,
     attempts: (node.rechecks ?? []).filter(one => one.verdict === 'failed').length,
+    // B359: the goal guard: its failed checks since Go, and whether the partner evaluates or a rebuild waits for the person.
+    guard: guardOf(node, items, items),
     vibe: node.vibe,
     vibePicture: node.vibePicture,
     vibeAgreed: node.vibeAgreed,
