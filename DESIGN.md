@@ -377,6 +377,20 @@ asked while it is on its way and for a while after (`changeAsks` in the state); 
 own state and refuses a stop that was not confirmed. A click on "⋯" no longer
 also opens the worker's window. The picture: `art-inbox/worker-board/b83/2026-10-14-b83-stop-move.png`.
 
+**Out of sync? (B438).** The person, 2026-10-19 (I43): "I want an help/alert button, where i believe the board and the
+worker is out of sync, i press the new button and somebody goes to investigate it and fix it." That day's cases: a
+worker shown free with a step held by a finished one, a worker paused for the limit and never woken, a step shown
+"waiting for you" whose ask went to the partner. A worker's "⋯" menu has "Out of sync?", and the Workers panel's head
+has one for the whole board beside "+ Add worker" (none for the main chat itself: the board's covers it). It types
+`check sync <name>` (or `check sync board`) into the main chat with what the board shows, read by the server from its
+own state (`src/say.mjs` `syncWords`): the worker's state, whether its chat runs, its step in the store, its card, its
+queue with why each step waits, its open asks, a pause and the limits; for the board a line per worker, the steps not
+handed out and the board's flags. The main chat compares it with the store, the chat and the limits, fixes what it can
+at once (unblock, wake, requeue, withdraw), makes a board fix step of the rest, and answers with a note to the person
+that starts `Sync check of <name>:` (roles/main.md, "Check sync"). The row (or the panel's head) says the check is on
+its way or with the main chat, then shows that answer for an hour (`src/sync.mjs`, `changeAsks.sync`); one open check
+at a time each, open until the answer or for half an hour after it arrived. The answer is in the log as any note.
+
 **The Workers panel (B159).** After the picture the person agreed on the Design tab
 (`art-inbox/ideas/any-improvement-to-this/v2.png`; their words: "Any improvement to this to make it nicer. dont change
 the style too much", "the color of the icon is corresponding with the status in the column after that", and of the

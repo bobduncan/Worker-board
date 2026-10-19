@@ -1529,6 +1529,9 @@ function drawLane(lane, state) {
   // B83: a worker's task can be stopped from the board, after one question.
   const stop = stopPart(lane, state)
   if (stop !== null) tools.push(stop)
+  // B438: "Out of sync?": the main chat checks this worker against the store, its chat and the limits, and fixes it.
+  const sync = syncPart(lane, state)
+  if (sync !== null) tools.push(sync)
   // B159: the worker's icon takes the colour of its state.
   const sign = el('span', `worker-icon is-${lane.isLeftover ? 'leftover' : lane.state}`)
   sign.setAttribute('aria-hidden', 'true')
@@ -1609,6 +1612,10 @@ function drawLane(lane, state) {
   }
   if (removal.line !== null) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
   if (problems.has(`remove:${lane.name}`)) what.append(el('p', 'remove-line is-problem', problems.get(`remove:${lane.name}`)))
+  // B438: what became of its last sync check, on the row itself: asked, or the main chat's answer in one line.
+  const syncLine = syncLineOf(state.changeAsks?.sync?.[lane.name] ?? null, main)
+  if (syncLine !== null) what.append(el('p', `sync-line is-${syncLine.tone}`, syncLine.text))
+  if (problems.has(`sync:${lane.name}`)) what.append(el('p', 'sync-line is-problem', problems.get(`sync:${lane.name}`)))
 
   // B307: the column "Next in queue": the next step's id and title, and why it waits; empty when nothing is queued.
   const queue = el('div', 'queue')
@@ -1636,8 +1643,8 @@ function drawLane(lane, state) {
   const unfold = el('button', 'lane-menu', '⋯')
   unfold.type = 'button'
   unfold.dataset.lane = lane.name
-  unfold.title = 'The whole queue, the details, and Remove'
-  unfold.setAttribute('aria-label', `${lane.name}: the whole queue, the details, and Remove`)
+  unfold.title = 'The whole queue, the details, Out of sync? and Remove'
+  unfold.setAttribute('aria-label', `${lane.name}: the whole queue, the details, Out of sync? and Remove`)
   unfold.setAttribute('aria-expanded', String(isOpen))
   menu.append(unfold)
 
@@ -1855,7 +1862,11 @@ function drawWorkers(state) {
     // B159: in the panel's head, as in the agreed design. What it does is its title; only what became of an ask is said.
     button.title = shown.lines.find(line => line.tone === '')?.text ?? button.title
     for (const line of [...lines.children]) if (line.className === 'workers-line') line.remove()
-    fill($('workers-add'), [lines, button])
+    // B438: "Out of sync?" for the whole board beside it; what became of it stands in the head's lines.
+    const check = syncLineOf(state.changeAsks?.sync?.board ?? null, state.workers.mainTitle ?? 'the main chat')
+    if (check !== null) lines.append(el('p', `workers-line sync-line is-${check.tone}`, check.text))
+    if (problems.has('sync:board')) lines.append(el('p', 'workers-line sync-line is-problem', problems.get('sync:board')))
+    fill($('workers-add'), [lines, boardSyncButton(state), button])
     return null
   }
   box.append(lines, button)
@@ -2215,6 +2226,57 @@ $('lanes').addEventListener('click', event => {
   stopping.delete(stopSure)
   button.disabled = true
   send({ to: main, command: 'stop', chat: stopSure, sure: true }, `stop:${stopSure}`)
+})
+
+/**
+ * B438: "Out of sync?" in a worker's menu. The person, 2026-10-19 (I43): "I want an help/alert button, where i believe
+ * the board and the worker is out of sync, i press the new button and somebody goes to investigate it and fix it." The
+ * board types "check sync <name>" with what it shows into the main chat (say.mjs `syncWords`); one check at a time.
+ * Nothing for the main chat (the board's own button covers it) or a leftover.
+ */
+function syncPart(lane, state) {
+  if (lane.isMain || lane.isLeftover || (state.workers?.main ?? null) === null) return null
+  return syncButton(lane.name, state, `Asks ${state.workers.mainTitle ?? state.workers.main} to check this worker against the work store, its chat and the limits, and to fix what it can`)
+}
+
+/** B438: the same for the whole board, in the Workers panel's head beside "+ Add worker". */
+function boardSyncButton(state) {
+  if ((state.workers?.main ?? null) === null) return null
+  return syncButton('board', state, `Asks ${state.workers.mainTitle ?? state.workers.main} to check the whole board against the work store, the chats and the limits, and to fix what it can`)
+}
+
+function syncButton(about, state, title) {
+  const button = el('button', 'quiet-button sync-button', 'Out of sync?')
+  button.type = 'button'
+  button.dataset.sync = about
+  button.disabled = state.changeAsks?.sync?.[about]?.isOpen === true || sending.has(`sync:${about}`)
+  button.title = state.changeAsks?.sync?.[about]?.isOpen === true ? 'Asked: the main chat answers here' : title
+  return button
+}
+
+// syncline:start
+/**
+ * B438: what became of the newest "Out of sync?" check (state.mjs `changeAsks.sync`), in one line, or null: on its
+ * way, with the main chat, the main chat's answer (its note "Sync check of <name>: ..."), or that none came.
+ */
+function syncLineOf(check, main) {
+  if (check === null || check === undefined) return null
+  if (check.answer !== null && check.answer !== undefined) return { tone: 'answer', text: `Sync check, ${clock(check.answer.at)}: ${check.answer.text}` }
+  if (check.state === 'expired' || check.state === 'failed') return { tone: 'problem', text: `The sync check of ${clock(check.at)} did not reach ${main}: open its chat, then ask again.` }
+  if (check.isOpen && (check.state === 'waiting' || check.state === 'taken')) return { tone: 'asked', text: `Out of sync? asked at ${clock(check.at)}: on its way to ${main}.` }
+  if (check.isOpen) return { tone: 'asked', text: `Out of sync? asked at ${clock(check.at)}: ${main} checks it and answers here.` }
+  return { tone: 'problem', text: `Out of sync? asked at ${clock(check.at)}: no answer from ${main} yet; you can ask again.` }
+}
+// syncline:end
+
+// B438: "Out of sync?" (a worker's menu, or the panel's head) asks the main chat to check and fix.
+$('workers-panel').addEventListener('click', event => {
+  const button = event.target.closest('[data-sync]')
+  if (button === null || board === null || (board.workers?.main ?? null) === null) return
+  const main = board.workers.main
+  const chat = button.dataset.sync
+  button.disabled = true
+  send({ to: main, command: 'sync', chat }, `sync:${chat}`)
 })
 
 /**

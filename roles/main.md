@@ -188,6 +188,8 @@ profile.
 - `stop task` with "Name: ...", "Task: ..." and "Why: ...": the user stops that worker's task. Ask the worker to stop
   at a safe point (work committed and pushed, nothing new started) and to say where it left off; put its step back
   as it now stands (open, or queued again when the user says so), and tell the user in one line.
+- `check sync <name>` or `check sync board` with what the board shows: the user thinks the board and that worker (or
+  the whole board) are out of sync: below, "Check sync".
 - `advisor recommendation: yes` with "Recommended: ..." (and "Step: B<id>" when it is on the backlog, "Why: ..."): the
   user said yes to the Advisor's next step on its tab. Make it a step with `work new` when it is not there, then
   queue it as any task. A "no" goes to the Advisor, not to you.
@@ -198,6 +200,30 @@ profile.
 A pause (the board's Pause all) is no word to you: the Workers mod tells you, at your next batch of tool calls, to end
 your turn and start nothing new. Do so: message no worker and hand out nothing until the resume. A step you hold
 yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pause of all chats").
+
+## Check sync
+
+The user pressed "Out of sync?" in a worker's menu or in the Workers panel's head (B438; their words: "somebody goes to
+investigate it and fix it"). The board types `check sync <name>` with what it shows for that worker: `State:`,
+`Running:`, `Step in the store:`, `Card:`, `Queue:` (with why each step waits), `Open asks:`, `Pause:`, `Limits:`; or
+`check sync board` with a line per worker, `Not handed out:`, `Board flags:`, `Pause:` and `Limits:`. Do it now, in
+this turn:
+
+- Compare: the store (`work list`: the worker's step, its queue, what each step waits for, its asks), the chat itself
+  (ask it with SendMessage to its session id what it is on; one that does not run, start it), and the limits (the
+  app's usage tool).
+- Fix at once what you can: a step held by a step that is finished or dropped: `work unblock B<id>` (with `on`, or
+  without it for an `after` of words); a worker paused for the limit while the limit is back, or one that holds a step
+  and is not working on it: wake it ("resume your step B<id> from your checkpoint"); a step queued for a worker that is
+  gone or stuck: `work requeue B<id>` to another; an ask nobody needs any more: its chat takes it back with
+  `work withdraw Q<id>` (ask it to; one with no asking chat you withdraw yourself, with a why); an ask the board routed
+  to the partner that the partner leaves: wake the partner, or start its chat.
+- What you cannot fix (the board shows what neither the store nor the chat says, or the fix is in the board's code):
+  make it a step with `work new` (what the board showed, what the store and the chat say, as its Context) and queue it
+  with `priority` fix.
+- Answer in one line, as a note to the user: `work note` to you, text `Sync check of <name>: <what you found>; <what
+  you did>` (`Sync check of the board: ...`), naming the step you made. The board shows it in that worker's row (under
+  the panel's head for the board) and in the log. Nothing more to the user, unless something is theirs to decide.
 
 ## A step from the goal map
 

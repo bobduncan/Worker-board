@@ -807,6 +807,12 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .remove-line.is-asked { color: var(--working); font-weight: 600; }
 .remove-line.is-note { color: var(--muted); }
 .remove-line.is-problem { color: var(--warn); }
+/* B438: what became of "Out of sync?": asked, the main chat's answer, or a problem. */
+.sync-line { font-size: 13px; margin-top: 6px; }
+.sync-line.is-asked { color: var(--working); font-weight: 600; }
+.sync-line.is-answer { color: var(--text); }
+.sync-line.is-problem { color: var(--warn); }
+.workers-add .sync-button { margin-right: 0; }
 
 .lane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .lane.is-waiting { border-color: #6a531d; }

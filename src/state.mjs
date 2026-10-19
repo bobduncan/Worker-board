@@ -26,6 +26,7 @@ import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { planState } from './plan.mjs'
 import { askIdsIn, askKey, sameAsk } from './work/askWords.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
+import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { informationOf, instructionsOf, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { NOTE_LINE, isPartnerAnswered, stepWaitsForPartner } from './work/partnerAnswers.mjs'
 import { recapsOf } from './work/recap.mjs'
@@ -59,7 +60,7 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|backlog step from the goal map)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|backlog step from the goal map|check sync)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'waits']
 /** How long a window of the 5-hour limit lasts. */
@@ -1438,6 +1439,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     && !toMain.some(message => message.at > lastCopied.at && message.state !== 'copied' && (message.command ?? null) === (lastCopied.command ?? null))
   // Pause and resume (spec 2026-10-18): the pause banner says how a pause stands, from pause.json.
   const pauseRecord = workOk ? raw.work.pause ?? null : null
+  // B299: notes and reports for the person; B438: the main chat's answer to a sync check is one of them.
+  const information = informationOf(raw.work, now)
   const restart = {
     main: main === undefined ? null : main.name,
     interrupted: live.filter(lane => lane.state === 'interrupted').map(lane => lane.name),
@@ -1523,6 +1526,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // page asks once. (B301: a queued step is moved or taken out through the work API at once.)
     changeAsks: {
       stop: Object.fromEntries(lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => [lane.name, removalAsk(sent.findLast(message => message.command === 'stop' && message.about === lane.name), now)]).filter(([, ask]) => ask !== null)),
+      // B438: the newest "Out of sync?" check of each worker and of the board, with the main chat's answer (a note).
+      sync: syncChecks(sent, information, [...lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => lane.name), SYNC_BOARD], now),
     },
     // Focus 4: the partner's cards marked, for the group "From your partner".
     forYou: markPartner([
@@ -1535,7 +1540,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       ...handoutNeeds(focus, main === undefined ? null : main.name, now),
     ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null], prefix),
     // B299: notes and reports for the person.
-    information: informationOf(raw.work, now),
+    information,
     // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the
     // Focus page's note does not show, each with its Undo.
     withPartner: !workOk ? [] : withPartnerOf(raw.work, { names: [...names, ...[advisorChat, helperChat].filter(one => one !== undefined).map(one => one.name)], prefix }),

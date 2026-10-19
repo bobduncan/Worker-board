@@ -6,6 +6,7 @@ import { isRefined, refinedKey } from './backlog.mjs'
 import { leftOutKey } from './brainstorm.mjs'
 import { PARTNER_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
+import { SYNC_BOARD } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
@@ -66,6 +67,74 @@ const stopWords = (to, name, task) => ({
   to, ask: null, step: null, title: null, version: null, verdict: null, command: 'stop', about: name,
   text: `stop task\nName: ${name}\nTask: ${task}\nWhy: stopped with the button`,
 })
+/** B438: why a queued step waits, as the board shows it (state.mjs `whyNot`), in a few words for the main chat. */
+const WAITS = {
+  limit: why => `the ${why.limit === 'week' ? 'weekly' : '5-hour'} limit is full`,
+  suspended: () => 'its worker is suspended',
+  after: why => `after ${(why.steps ?? []).length > 0 ? why.steps.join(', ') : plainLine(why.words)}`,
+  nobody: () => 'no worker',
+  busy: () => 'its worker is busy',
+  you: () => 'its worker waits for you',
+  cut: () => 'its worker was cut off',
+  off: () => 'its worker does not run',
+  handout: () => 'not handed out, its worker is free',
+}
+const stepsWords = steps => ((steps ?? []).length === 0 ? 'none' : steps.map(step => {
+  const wait = step.why === null || step.why === undefined ? null : WAITS[step.why.reason]?.(step.why) ?? plainLine(step.why.reason)
+  return `${step.id ?? `"${plainLine(step.title)}"`}${wait === null ? '' : ` (${wait})`}`
+}).join(', '))
+/** B438: a chat's open asks as the board shows them: for the person, and with the partner. */
+const asksWords = (name, state) => [
+  ...(state.forYou ?? []).filter(need => need.from === name && need.canAnswer === true).map(need => `${need.workId ?? need.id} for you`),
+  ...[...new Set([...(state.withPartner ?? []).filter(one => one.from === name).map(one => one.id)])].map(id => `${id} with the partner`),
+].join(', ') || 'none'
+const cardWords = lane => {
+  const task = lane.task ?? null
+  if (task === null) return 'empty'
+  const parts = [`"${plainLine(task.text)}"`]
+  if (Number.isInteger(task.step) && Number.isInteger(task.steps)) parts.push(`step ${task.step} of ${task.steps}`)
+  if (lane.eta?.isOver === true) parts.push('over its time')
+  else if (Number.isFinite(lane.eta?.leftMs)) parts.push(`about ${Math.round(lane.eta.leftMs / 60_000)} min left`)
+  return parts.join(', ')
+}
+const PAUSES = { pausing: 'the board pauses all chats', resuming: 'the board resumes all chats' }
+const pauseWords = (lane, state) => [
+  lane?.state === 'suspended' ? `suspended for the limit${Number.isFinite(lane.suspended?.until) ? ` until ${timeOfDay(lane.suspended.until)}` : ''}${lane.suspended?.isBack === true ? ', the limit is back' : ''}` : null,
+  Object.hasOwn(PAUSES, state.pause?.state ?? '') ? `${PAUSES[state.pause.state]}${Number.isFinite(state.pause.since) ? ` (since ${timeOfDay(state.pause.since)})` : ''}` : null,
+].filter(Boolean).join('; ') || 'none'
+const limitsWords = limits => [['fiveHour', '5-hour'], ['week', 'week']]
+  .map(([key, name]) => (Number.isFinite(limits?.[key]?.used) ? `${name} ${Math.round(limits[key].used)}%${limits[key].level === 'full' ? ' (full)' : ''}` : `${name} unknown`)).join(', ')
+const RUNNING = new Map([[true, 'yes'], [false, 'no']])
+
+/**
+ * B438: the word that asks the main chat to check whether the board and a worker (`lane`), or the whole board (`lane`
+ * null), are in sync, with what the board shows: the worker's state, whether its process runs, the step the store
+ * holds for it, its card, its queue with why each step waits, its open asks, a pause, and the limits. The main chat
+ * compares it, fixes what it can and answers with a note `Sync check of <name>: ...` (roles/main.md, "Check sync").
+ */
+const syncWords = (to, lane, state) => {
+  const lines = lane !== null ? [
+    `check sync ${plainLine(lane.name)}`,
+    `State: ${workerState({ ...lane, queue: [] }).words}`,
+    `Running: ${RUNNING.get(lane.isRunning) ?? 'unknown'}`,
+    `Step in the store: ${lane.givenTask?.step?.id ? `${lane.givenTask.step.id} ${plainLine(lane.givenTask.step.title)}` : 'none'}`,
+    `Card: ${cardWords(lane)}`,
+    `Queue: ${stepsWords(lane.queue)}`,
+    `Open asks: ${asksWords(lane.name, state)}`,
+    `Pause: ${pauseWords(lane, state)}`,
+  ] : [
+    `check sync ${SYNC_BOARD}`,
+    ...(state.chats ?? []).filter(one => !one.isMain && !one.isLeftover)
+      .map(one => `${plainLine(one.name)}: ${workerState({ ...one, queue: [] }).words}; queue ${stepsWords(one.queue)}; asks ${asksWords(one.name, state)}`),
+    `Not handed out: ${stepsWords(state.unassigned)}`,
+    `Board flags: ${(state.workFlags ?? []).map(flag => String(flag).replace(/\s+/g, ' ').trim()).join(' · ') || 'none'}`,
+    `Pause: ${pauseWords(null, state)}`,
+  ]
+  return {
+    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sync', about: lane === null ? SYNC_BOARD : lane.name,
+    text: [...lines, `Limits: ${limitsWords(state.limits)}`, 'Why: the person pressed "Out of sync?" on the worker board'].join('\n'),
+  }
+}
 /** Focus 2: the first line of each word of the Focus page to the partner (spec 2026-10-18, section 6). */
 const FOCUS_HEADS = { 'vibe-agreed': 'vibe: agreed', 'vibe-not-yet': 'vibe: not yet', 'how-go': 'how: go', 'how-not-yet': 'how: not yet', 'vibe-there-yes': 'vibe there: yes', 'vibe-there-no': 'vibe there: no', undo: 'undo:', talk: 'talk:', 'done-when': 'done when:', 'goal-recheck': 'goal re-check:' }
 export const FOCUS_COMMANDS = ['focus', ...Object.keys(FOCUS_HEADS)]
@@ -305,7 +374,7 @@ export function checkSay(body, state, maxChars) {
   if (body.command !== undefined && body.command !== null) {
     // The board's words, never the page's. Pause 2: a pause is pause.json, no word; "resume" is typed after Resume all
     // into a main chat that runs, and its Workers mod gives it whom to wake.
-    if (!['resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step', 'partner-effort'].includes(body.command)) return refuse(400, 'No such command.')
+    if (!['resume', 'start', 'spawn', 'remove', 'queue', 'recommend', 'stop', 'refine', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'goal-step', 'partner-effort', 'sync'].includes(body.command)) return refuse(400, 'No such command.')
     // B195: the one answer that may go to the Advisor as well as to the main chat.
     if (body.command === 'recommend') return recommendWords(body, state)
     // B233, B258: the commands that go to the Advisor only.
@@ -342,6 +411,15 @@ export function checkSay(body, state, maxChars) {
       // refines it, and goes to the main chat by itself once it is (refineGate.mjs). Without an Advisor, as before.
       const holds = (state.advisor ?? null) !== null && !isRefined(step.refined)
       return { ok: true, message: { ...queueWords(body.to, step), ...(holds ? { held: true } : {}) } }
+    }
+    // B438: the person thinks the board and a worker, or the whole board (`board`), are out of sync: the main chat
+    // checks and fixes. What the board shows is read here, from its own state: the page names the worker only. Not the
+    // main chat itself (the board's check covers it), not a leftover; one open check at a time for each.
+    if (body.command === 'sync') {
+      const lane = body.chat === SYNC_BOARD ? null : (state.chats ?? []).find(chat => chat.name === body.chat && !chat.isLeftover && !chat.isMain)
+      if (lane === undefined) return refuse(409, 'That is no worker on the board.')
+      if (state.changeAsks?.sync?.[body.chat]?.isOpen === true) return refuse(409, 'An earlier check of it is still open: the main chat answers on the board.')
+      return { ok: true, message: syncWords(body.to, lane, state) }
     }
     // B83: the person stops a worker's task (after confirming once, `sure`). What the worker does is read here, from the
     // board's own state: the page names the worker only. One ask at a time. (B301: moving a queued step and taking it out
