@@ -925,8 +925,9 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   chat that was cut off); when the main chat runs the board types `resume` into it, as before; when it does not, the
   banner says so with a link **Open <its title>**, `claude://claude.ai/epitaxy/<the app's id for it>` (title from the
   list of chats, the id from its app card), and its Workers mod reads the resume from the flag. The banner names each
-  holder that has not started a turn since the resume (its last turn began after it, or it runs one now); once none
-  is left the board sets `running` (`resumed`, the server's only) and the banner goes; **End resume** (the person's
+  chat holding a step that has not started a turn since the resume (its last turn began after it, or it runs one now),
+  once, with the steps it holds; once none is left, or 20 minutes after Resume all (*Resuming holds nothing*, below),
+  the board sets `running` (`resumed`, the server's only) and the banner goes; **End resume** (the person's
   `end-resume`) does the same for a chat that will never start. `running` counts as no pause: the old "Resume all (N cut
   off)" shows again. The link is built only for an app id (`local_` and a uuid); while no mod has asked the board, the
   banner says whether the main chat runs is not known yet. *The mod reads it* through
@@ -962,7 +963,8 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   History."), and `pause-state` gives each hold its `branch` and last three History lines (`history`; the resume list
   its `branch`), which the mod's resume line uses instead: "You hold B313: no checkpoint since the pause; go on from its
   branch <branch> and its History: <lines>." A checkpoint from before the pause counts as none while resuming. *While
-  pausing, until running*, the board hands out nothing that starts a turn: no delivery and no check's word or note-wake
+  pausing* (then until running; since 2026-10-19 until Resume all, *Resuming holds nothing* below), the board hands
+  out nothing that starts a turn: no delivery and no check's word or note-wake
   (`deliverWork`), no pull (`pull`, also turn-ended's), no chat may be woken (`mayWake`), and a take hands out only the
   board's own `resume` to the main chat (`store.take`'s `only`); the person's own lines and answers wait in the outbox,
   shown "held until resume" (`isHeld` in the state), and do not grow late for the time the pause held them
@@ -975,6 +977,23 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   pause.json's since, kept in the mod's own store, `pause-resume-given:<session>`, so a new process of the main chat
   does not say it again) and names only app session ids (`local_...`): a chat without one says "session not known
   (start it from the board)".
+- *Resuming holds nothing (2026-10-19).* Seen live: after Resume all at 12:24 pause.json stayed `resuming` for two
+  hours. The board held every line while resuming too, and set running only once every chat holding a step had started
+  a turn: the person answered Worker 1's blocking ask Q188 at 12:41, the answer waited "held until resume", Worker 1
+  never started a turn, so the resume never ended (a deadlock, until the person's End resume at 14:37). The banner also
+  named a chat holding two steps twice, a stale hold (a step a chat holds but is not on) as one more. Now: *only pausing
+  holds* (`HOLDS` in `work/pause.mjs`): while resuming every line is handed out as when running (answers, the board's
+  wakes, deliveries, pulls, note-wakes, the resume words), since resuming is there to get chats started. *Running comes
+  by itself* once every chat holding a step has started a turn since Resume all, or 20 minutes after it, whichever is
+  first (`resumeEnds`, `RESUME_WAIT_MS`); the banner says when ("The board goes on without waiting at 12:44"). A chat
+  counts once, whatever steps it holds (`waiting: [{ chat, ids }]`), so any turn of it counts for all of them. The
+  board's `running` keeps in pause.json who had not started (`notStarted`), and for an hour (`NOT_STARTED_SHOWN_MS`)
+  the banner says it as information, one muted line per chat: "Worker 6 did not start after the resume: B364."; a chat
+  that starts a turn later is no longer named. Running also keeps when the resume began (`resumedSince`, also after
+  End resume): *lines held while pausing* go out at Resume all and are not late for the time they were held, which now
+  ends at the resume (`heldMs`: pausing until now, resuming until its since, running until `resumedSince`; a record
+  from before it until its since). The Workers mod still sends no pull of its own while resuming (`isPaused`); the
+  board's own delivery hands a free chat its queued step all the same.
 
 **The Design tab** (the person, 2026-10-12: "i want to be able to prompt an initial idea. let it build a visual in
 codex about what i want, present it to me, if i agree can add information to it what i want and put it either on
