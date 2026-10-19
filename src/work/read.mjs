@@ -7,7 +7,7 @@ import { storeAsBacklog, storeProblems } from './adapter.mjs'
 import { DEFAULT_FLOW, nextMoves, statesOf } from './flow.mjs'
 import { isFix, valueOf } from './item.mjs'
 import { migrateBacklog } from './migrate.mjs'
-import { partnerWaitOf } from './partnerAnswers.mjs'
+import { stepWaitsForPartner } from './partnerAnswers.mjs'
 import { checkedOf } from './resultCheck.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
 import { readStore } from './store.mjs'
@@ -150,6 +150,6 @@ export function flowOfStep(work, key) {
   const { id, item } = found
   const kind = valueOf(item, 'Kind') ?? 'step'
   // B392: a step whose open blocking asks all wait for the partner says so (`waitsForPartner`, their ids).
-  const waitsForPartner = kind === 'step' ? partnerWaitOf(id, work.items.values()) : null
+  const waitsForPartner = kind === 'step' ? stepWaitsForPartner(item, work.items.values()) : null
   return { id, states: statesOf(work.flow, kind), state: valueOf(item, 'State'), next: nextMoves(work.flow, item), waitsForPartner }
 }

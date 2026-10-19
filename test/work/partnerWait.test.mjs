@@ -18,7 +18,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { storeNeeds, storeWaits } from '../../src/work/lists.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { PARTNER_AGAIN_MS, partnerWaitOf } from '../../src/work/partnerAnswers.mjs'
+import { PARTNER_AGAIN_MS, partnerWaitOf, stepWaitsForPartner } from '../../src/work/partnerAnswers.mjs'
 import { flowOfStep } from '../../src/work/read.mjs'
 import { reconcile } from '../../src/work/reconcile.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
@@ -80,6 +80,20 @@ test('a step that also waits on an ask of the person\'s own waits for the person
   }
 })
 
+test('the review: only a step still at work waits for the partner, not one queued, in review or done', async () => {
+  const { dir, digger } = await garden()
+  try {
+    await digger(DECIDE)
+    const work = { ok: true, ...(await readStore(dir)) }
+    const step = work.items.get('B1')
+    assert.deepEqual(stepWaitsForPartner(step, work.items.values()), ['Q1'])
+    for (const state of ['taken', 'in progress']) assert.deepEqual(stepWaitsForPartner({ ...step, head: new Map([...step.head, ['State', state]]) }, work.items.values()), ['Q1'], state)
+    for (const state of ['queued', 'review', 'done']) assert.equal(stepWaitsForPartner({ ...step, head: new Map([...step.head, ['State', state]]) }, work.items.values()), null, state)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('the focus goal\'s steps say so too', async () => {
   const { dir, digger } = await garden()
   try {
@@ -120,6 +134,31 @@ test('a routed ask open ten minutes wakes the partner once more, never while its
     await deliver(await plan(dir, free, NOW + 12 * MIN), NOW + 12 * MIN)
     await deliver(await plan(dir, free, NOW + 13 * MIN), NOW + 13 * MIN)
     assert.deepEqual(outbox.outbox().map(one => [one.to, one.kind, one.about]), [['Sage', 'partner-ask', 'Q1'], ['Sage', 'partner-ask', 'Q1']])
+    // Taken too: never a third.
+    await outbox.update(outbox.outbox()[1].id, { state: 'taken', takenAt: NOW + 14 * MIN })
+    await deliver(await plan(dir, free, NOW + 25 * MIN), NOW + 25 * MIN)
+    assert.equal(outbox.outbox().length, 2)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('the review: a partner woken just before ten minutes is not woken again at once', async () => {
+  const { dir, digger, server } = await garden()
+  try {
+    await digger(DECIDE, NOW)
+    const free = partnerLane('free', NOW - 60 * MIN)
+    const outbox = memoryStore()
+    let n = 0
+    const deliver = async (reconciled, now) => deliverWork({ state: { reconciled, chats: [] }, dir, outbox, apply: body => server(body, now), now, maxChars: 2000, newId: () => `m${(n += 1)}` })
+    // Busy until 9 minutes 50: its first line goes then and is taken at once.
+    await deliver(await plan(dir, free, NOW + 9 * MIN + 50_000), NOW + 9 * MIN + 50_000)
+    await outbox.update(outbox.outbox()[0].id, { state: 'taken', takenAt: NOW + 9 * MIN + 55_000 })
+    await deliver(await plan(dir, free, NOW + 10 * MIN + 10_000), NOW + 10 * MIN + 10_000)
+    assert.equal(outbox.outbox().length, 1)
+    // Ten minutes after that line, once more.
+    await deliver(await plan(dir, free, NOW + 20 * MIN), NOW + 20 * MIN)
+    assert.equal(outbox.outbox().length, 2)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -26,7 +26,7 @@ import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { askIdsIn, askKey, sameAsk } from './work/askWords.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { informationOf, instructionsOf, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
-import { NOTE_LINE, isPartnerAnswered, partnerWaitOf } from './work/partnerAnswers.mjs'
+import { NOTE_LINE, isPartnerAnswered, stepWaitsForPartner } from './work/partnerAnswers.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
@@ -947,7 +947,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
       const state = FINISHED.includes(one.head.get('State')) ? 'done' : UNDER_WAY.includes(one.head.get('State')) ? 'now' : 'next'
       const owner = String(one.head.get('Owner') ?? '').replace(prefix, '').trim() || null
       // B392: a step at work whose open blocking asks all wait for the partner says so.
-      const waitsForPartner = state === 'now' ? partnerWaitOf(one.head.get('Id'), items ?? []) : null
+      const waitsForPartner = stepWaitsForPartner(one, items ?? [])
       return { id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state, owner, ...(waitsForPartner === null ? {} : { waitsForPartner }) }
     })
   const own = (threads ?? []).filter(one => one.goal?.id === node.id)

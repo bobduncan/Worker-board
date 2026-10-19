@@ -230,7 +230,7 @@ day and its answers share one note. While a question is with your partner, Needs
 partner: <n> questions** (a click lists them) and the asking worker's lane says "Waiting for your partner (Q<n>)". A
 question your partner hands on, or has not answered 30 minutes after it was asked, comes to you with a line on its card
 that says why ("Your partner hands this to you: ...", "Your partner did not answer in 30 min: it is yours"). Questions only you can answer (provide, do, without options or advice) come to you as before.
-B392: a step whose open blocking questions are all with your partner says **Waits for your partner** in violet, never
+B392: a step whose open blocking questions are all with your partner says **Waits for your partner** in pink, never
 "Needs you": in its window's flow strip ("waits for your partner (Q<n>)"), in the goal's steps on the Goals page, in your
 focus's steps and the workers on the Overview, and on the worker's card. It is yours only once your partner hands the
 question on. A question still with your partner ten minutes after it was asked wakes your partner once more.

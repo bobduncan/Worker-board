@@ -13,7 +13,7 @@ import { stamp } from './migrate.mjs'
 import { sinceMs } from './item.mjs'
 import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 import { isHolding } from './pause.mjs'
-import { partnerAskWords } from './partnerAnswers.mjs'
+import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
 
 export { partnerAskWords }
 
@@ -183,9 +183,11 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     ...(plan.says ?? []).map(one => ({ key: one.key, words: { ...workWords(one.chat, one.id, one.say), kind: 'check' } })),
     ...(await noteLine({ dir, plan, outbox, now, fs })),
     // Partner answers: the partner is woken once per ask routed to it, while it is free (the reconciler). B392: once
-    // more when it is still open ten minutes on, but never beside a line about it that still waits to be taken.
+    // more when it is still open ten minutes on, but never beside a line about it that still waits to be taken, nor
+    // within ten minutes of the last one (a partner busy until then was just woken).
     ...(plan.partnerAsks ?? [])
-      .filter(one => one.again !== true || !outbox.outbox().some(message => message.kind === 'partner-ask' && message.about === one.id && message.state === 'waiting'))
+      .filter(one => one.again !== true || !outbox.outbox().some(message => message.kind === 'partner-ask' && message.about === one.id
+        && (message.state === 'waiting' || now - (message.at ?? 0) < PARTNER_AGAIN_MS)))
       .map(one => ({ key: partnerAskKey(one.id, one.chat, one.again === true), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id)), kind: 'partner-ask' } })),
   ]
   for (const one of lines) {

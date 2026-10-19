@@ -49,6 +49,11 @@ export function partnerWaitOf(stepId, items) {
   return open.length > 0 && open.every(isRoutedToPartner) ? open.map(item => valueOf(item, 'Id')) : null
 }
 
+/** B392, the review: the states of a step still at work, the only ones that wait for anybody. */
+const AT_WORK = ['taken', 'in progress', 'waiting on you']
+/** `partnerWaitOf` for a step item, while it is at work; null in any other state (queued, in review, done). */
+export const stepWaitsForPartner = (step, items) => (AT_WORK.includes(valueOf(step, 'State')) ? partnerWaitOf(valueOf(step, 'Id'), items) : null)
+
 /** Whether the partner answered the ask (and the person has not taken it back). */
 export const isPartnerAnswered = item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'answered' && valueOf(item, 'Answered by') === 'partner'
 

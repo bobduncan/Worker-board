@@ -2478,12 +2478,13 @@ step moved to "waiting on you" as the flow says (the project's flow.json is the 
    asks when every one of them is routed to the partner, else null. It is derived from the asks each time, never kept as
    a second state: the moment the partner hands an ask on (Route: person) the step is the person's.
 2. `flowOfStep` and the focus goal's steps (`focusState`) carry it as `waitsForPartner`. The page shows "waits for your
-   partner (Q<n>)" in violet (`--partner`) in the step window's flow strip, the Goals page's steps panel, the Overview's
+   partner (Q<n>)" in pink (`--partner`, apart from the violet of Suspended) in the step window's flow strip, the Goals page's steps panel, the Overview's
    focus steps and workers (no time left in its place), and the worker card's pill. The chat's lane already said so
    (`waitsForPartner` of the lanes, Partner answers); Needs your attention never listed such an ask.
 3. A routed ask open ten minutes (`PARTNER_AGAIN_MS`) wakes the partner once more while it is free (the reconciler's
-   `again`, its own delivery key), never beside a line about it that still waits to be taken; at 30 minutes it goes to
-   the person as before.
+   `again`, its own delivery key), never beside a line about it that still waits to be taken nor within ten minutes of
+   the last; at 30 minutes it goes to the person as before. Only a step still at work (taken, in progress, waiting on
+   you) waits for anybody (`stepWaitsForPartner`).
 
 ## What it does not do
 
