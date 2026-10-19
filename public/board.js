@@ -3088,7 +3088,13 @@ function drawNeed(need, state) {
   else top.append(el('span', 'kind', kind.sign), el('b', '', need.from ?? 'the board'), el('span', 'tag', storeAskParts(need)?.tag ?? kind.tag), since(need.at, state.readAt))
   head.append(top, el('h4', '', need.title))
   card.append(head, ...storeAskLines(need, state))
-  if (need.text !== '') card.append(el('p', '', need.text))
+  // B397: its ids and the pages it names are links, and an ask it points to stands inline.
+  if (need.text !== '') {
+    const words = el('p')
+    words.append(...linkedWords(need.text, state))
+    card.append(words)
+  }
+  if (!isStep(need)) card.append(...pointedAskBox(need, state))
   card.append(...optionParts(need))
 
   card.append(...gameParts(need))
@@ -3795,6 +3801,59 @@ function splitAsk(words) {
   return { question: text.slice(0, at + 1), rest: text.slice(at + 1).trim() }
 }
 
+// B397: an ask's words carry what the person needs to decide. The person, 2026-10-19, on an ask that named another:
+// "where can i find Q202, i need a link in the future". Kept between these two marks so a test can run it.
+// asklinks:start
+/** A page of the project: a path with /, a text or picture ending, standing on its own (not inside an address). */
+const ASK_PAGE = /(?<=^|[\s(["'`])((?:[\w@+-][\w@+.-]*\/)+[\w@+-][\w@+.-]*\.(?:md|txt|json|csv|png|jpe?g|webp|gif))(?![\w/]|\.\w)/gi
+/** A Q or B id standing on its own: not part of a word, a path, a file name or an address. */
+const ASK_ID = /(?<![\w/.:#=-])([QB]\d+)(?![\w/-]|\.\w)/g
+
+/**
+ * An ask's words in pieces: words, `{ ask }` (a Q id `known.isAsk` knows), `{ step }` (a B id `known.isStep` knows)
+ * and `{ path, isPicture }` (a page of the project); an id the board does not know stays words.
+ */
+function askLinkPieces(text, known) {
+  const pieces = []
+  const say = words => {
+    if (words === '') return
+    if (typeof pieces.at(-1) === 'string') pieces[pieces.length - 1] += words
+    else pieces.push(words)
+  }
+  // The ids in words that are no page.
+  const ids = words => {
+    let from = 0
+    for (const found of words.matchAll(ASK_ID)) {
+      const id = found[1]
+      const piece = id[0] === 'Q' ? (known.isAsk(id) ? { ask: id } : null) : known.isStep(id) ? { step: id } : null
+      if (piece === null) continue
+      say(words.slice(from, found.index))
+      pieces.push(piece)
+      from = found.index + id.length
+    }
+    say(words.slice(from))
+  }
+  const all = String(text ?? '')
+  let from = 0
+  for (const found of all.matchAll(ASK_PAGE)) {
+    ids(all.slice(from, found.index))
+    pieces.push({ path: found[1], isPicture: /\.(?:png|jpe?g|webp|gif)$/i.test(found[1]) })
+    from = found.index + found[1].length
+  }
+  ids(all.slice(from))
+  return pieces
+}
+
+/** The one other open ask (of `needs`, one the person can still answer) an ask's words name by its Q id; null when none or several. */
+function pointedAsk(need, needs) {
+  const words = [need.question, need.title, need.text].filter(one => typeof one === 'string').join('\n')
+  const named = new Set(askLinkPieces(words, { isAsk: () => true, isStep: () => false }).filter(piece => piece.ask !== undefined).map(piece => piece.ask))
+  named.delete(need.workId)
+  const open = needs.filter(one => one !== need && one.canAnswer === true && one.isClosed !== true && named.has(one.workId))
+  return open.length === 1 && named.size === 1 ? open[0] : null
+}
+// asklinks:end
+
 /** B269: a picture's file name in words, for its link: without its folder, date and ending ("b12 the gate"). */
 const pictureWords = path => String(path).split('/').pop().replace(/\.[a-z0-9]+$/i, '').replace(/^\d{4}-\d{2}-\d{2}[-_ ]*/, '').replace(/[-_]+/g, ' ').trim()
 
@@ -4460,11 +4519,18 @@ function drawCalm(box, need, state) {
   const ask = el('div', 'calm-ask')
   if (group.length > 1) ask.append(el('p', 'calm-count', `Question ${at + 1} of ${group.length}`))
   const { question, rest } = splitAsk(need.question ?? need.title)
-  const title = el('h3', 'calm-question', capitalized(question))
+  // B397: its ids and the pages it names are links, and an ask it points to stands inline.
+  const title = el('h3', 'calm-question')
+  title.append(...linkedWords(capitalized(question), state))
   title.tabIndex = -1
   ask.append(title)
   const why = [rest, need.text].filter(one => one !== '').join('\n')
-  if (why !== '') ask.append(el('p', 'calm-why', why))
+  if (why !== '') {
+    const words = el('p', 'calm-why')
+    words.append(...linkedWords(why, state))
+    ask.append(words)
+  }
+  ask.append(...pointedAskBox(need, state))
   const links = askLinks(need)
   if (links.length > 0) {
     const row = el('div', 'calm-links')
@@ -4733,7 +4799,9 @@ function drawDetails(state) {
   // Drawn again only when what it shows has changed, so reading and typing in it are left alone.
   // B269: a calm window also follows the other asks it goes through.
   const calmIds = isCalm(need) ? calmGroup(need, everyNeed(state)).map(one => one.id) : null
-  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null, calmIds])
+  // B397: and the ask it points to, shown inline.
+  const pointed = need !== null && !isStep(need) ? pointedAsk(need, everyNeed(state)) : null
+  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null, calmIds, pointed])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
@@ -4758,7 +4826,15 @@ function drawDetails(state) {
   const notes = noteParts((itemNow?.touches.length ?? 0) > 0 ? view.notes.filter(note => note.title !== 'Touches') : view.notes)
   // A request a chat filed has its own text. A step of the backlog is one line, which is the title above; what
   // describes it further are the lines written under it.
-  const words = need !== null && !isStep(need) && need.text !== '' ? [el('p', '', need.text)] : []
+  // B397: an ask's ids and the pages it names are links, and an ask it points to stands inline.
+  const asked = need !== null && !isStep(need)
+  const words = []
+  if (asked && need.text !== '') {
+    const text = el('p')
+    text.append(...linkedWords(need.text, state))
+    words.push(text)
+  }
+  if (asked) words.push(...pointedAskBox(need, state))
   // The step's own line in full: the title above is the short of it.
   const full = need !== null && isStep(need) && typeof need.words === 'string' && need.words !== need.title ? [el('p', '', need.words)] : []
   const described = [...words, ...full, ...notes.lead]
@@ -9481,6 +9557,68 @@ document.addEventListener('click', event => {
   if (link !== null) return openGameFile(link.dataset.gameFile, link.dataset.projectFile ?? null)
   if (event.target === $('file-view') || event.target.closest('[data-close-file]') !== null) $('file-view').close()
 })
+
+/** B397: an ask's words as nodes, its ids and the pages it names working as links. */
+function linkedWords(text, state) {
+  const needs = state === null ? [] : everyNeed(state)
+  const steps = new Set((state?.backlog ?? []).flatMap(activity => activity.steps).map(step => step.key))
+  const known = { isAsk: id => needs.some(one => one.workId === id), isStep: id => steps.has(id) }
+  return askLinkPieces(text, known).map(piece => {
+    if (typeof piece === 'string') return piece
+    const link = el('button', 'ask-link', piece.ask ?? piece.step ?? piece.path)
+    link.type = 'button'
+    if (piece.isPicture === true) {
+      // A picture in the picture popup, as a worker's #picture= link shows it.
+      link.dataset.zoom = piece.path
+      link.dataset.caption = piece.path
+      link.title = `Show ${piece.path}`
+    } else if (piece.path !== undefined) {
+      // A page of the game's folder, else of the project's: read-only in a window.
+      link.dataset.gameFile = piece.path
+      link.dataset.projectFile = piece.path
+      link.title = `Open ${piece.path}`
+    } else {
+      link.dataset.askLink = piece.ask ?? piece.step
+      link.title = piece.ask !== undefined ? `Open the ask ${piece.ask}` : `Open the step ${piece.step}`
+    }
+    return link
+  })
+}
+
+/** B397: the ask an ask points to, inline: its question, its words and its options, so one window holds it all. */
+function pointedAskBox(need, state) {
+  const other = state === null ? null : pointedAsk(need, everyNeed(state))
+  if (other === null) return []
+  const box = el('div', 'pointed-ask')
+  const head = el('p', 'pointed-ask-head')
+  const open = el('button', 'ask-link', other.workId)
+  open.type = 'button'
+  open.dataset.askLink = other.workId
+  open.title = `Open the ask ${other.workId}`
+  head.append(open, ` ${other.from === null || other.from === undefined ? '' : `from ${other.from}, `}which this one points to:`)
+  box.append(head, el('p', 'pointed-ask-question', other.question ?? other.title))
+  if (other.text !== '' && other.text !== undefined) {
+    const words = el('p', 'pointed-ask-text')
+    words.append(...linkedWords(other.text, state))
+    box.append(words)
+  }
+  const options = other.options ?? []
+  if (options.length > 0) {
+    const list = el('ul', 'pointed-ask-options')
+    for (const option of options) list.append(el('li', '', `${option.label}${option.isRecommended ? ' (recommended)' : ''}`))
+    box.append(list)
+  }
+  return [box]
+}
+
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-ask-link]')
+  if (link === null || board === null) return
+  event.stopPropagation()
+  const id = link.dataset.askLink
+  const need = everyNeed(board).find(one => one.workId === id)
+  openDetails(need !== undefined ? { need: need.id } : { step: id })
+}, true)
 
 // The chat with the advisor
 

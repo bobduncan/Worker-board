@@ -1174,6 +1174,14 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .plan-line { padding-left: 1.4em; color: var(--muted); font-size: 13.5px; }
 .plan-link { padding: 0; border: 0; background: none; color: #8fb4ff; font: inherit; text-decoration: underline; cursor: pointer; }
 .plan-link:hover, .plan-link:focus-visible { color: #c3d6ff; }
+/* B397: an ask's ids and the pages it names, as links; the ask it points to, inline. */
+.ask-link { padding: 0; border: 0; background: none; color: #8fb4ff; font: inherit; text-decoration: underline; cursor: pointer; overflow-wrap: anywhere; }
+.ask-link:hover, .ask-link:focus-visible { color: #c3d6ff; }
+.pointed-ask { margin: 10px 0; padding: 10px 14px; border-left: 3px solid #8fb4ff; border-radius: 6px; background: var(--inset); }
+.pointed-ask p { margin: 0 0 6px; }
+.pointed-ask-head { color: #b4c0d2; font-size: 13px; }
+.pointed-ask-question { font-weight: 600; }
+.pointed-ask-options { margin: 4px 0 0; padding-left: 20px; }
 .file-view { width: min(900px, 94vw); max-height: 90vh; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); }
 .file-view::backdrop { background: rgba(4, 7, 12, 0.8); }
 .file-view-head { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
