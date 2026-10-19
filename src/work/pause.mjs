@@ -65,6 +65,12 @@ const plain = (name, prefix = '') => {
   return words.trim().toLowerCase()
 }
 
+/** A chat's name without the list's prefix, as it is written (B364: the ring's name of a chat that is no lane). */
+const withoutPrefix = (name, prefix = '') => {
+  const words = String(name ?? '').trim()
+  return prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length).trim() : words
+}
+
 /** Whether a checkpoint was written at or after `since`, to the millisecond (one in the pause's own second counts not). */
 const isSince = (checkpoint, since) => checkpoint !== null && Number.isFinite(checkpoint?.at) && Number.isFinite(since) && checkpoint.at >= since
 
@@ -108,7 +114,8 @@ const hasStarted = (lane, since) => lane !== undefined && (runsTurn(lane) || (Nu
  * turn), and `isSafe` when all three are empty: an app restart loses only a turn in flight, files on disk survive (the
  * review of Pause 2). `unsaved` (`{ chat, id }`: a step held with no checkpoint since the pause) and `offBoard` (`{ chat,
  * id, title }`: one held so by a chat the board does not show, named by its title) are said, and block nothing: such a
- * step resumes from its branch and History. Resuming: `waiting` (`{ chat, id }`: a holder on the board that has not
+ * step resumes from its branch and History. `chats` (B364): every lane as `{ name, state }`, state one of working,
+ * asking, typing, still or off (its process does not run). Resuming: `waiting` (`{ chat, id }`: a holder on the board that has not
  * started a turn since the resume), `isResumed` when none is left; a chat not on the board cannot be woken by its
  * session, so it is not waited for (the person's End resume ends it).
  */
@@ -123,7 +130,18 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
     const unsaved = holders.filter(holder => !isSince(holder.checkpoint, pause.since)).map(({ chat, id }) => ({ chat, id }))
     const offBoard = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) === undefined && !isSince(holder.checkpoint, pause.since))
       .map(({ chat, id }) => ({ chat, id, title: `${prefix}${chat}` }))
-    return { state: 'pausing', since: pause.since, working, asking, typing, unsaved, offBoard, isSafe: working.length === 0 && asking.length === 0 && typing.length === 0 }
+    // B364: every chat of the board by its state, in the board's order, for the panel's loader.
+    const isTyped = lane => typing.some(to => plain(to, prefix) === plain(lane.name, prefix))
+    // A line handed to a chat starts a turn, also in one that does not run yet or is no lane: said as typing, as isSafe
+    // waits for it (the review of B364).
+    const chats = [
+      ...lanes.map(lane => ({
+        name: lane.name,
+        state: asking.includes(lane.name) ? 'asking' : working.includes(lane.name) ? 'working' : isTyped(lane) ? 'typing' : lane.state === 'off' ? 'off' : 'still',
+      })),
+      ...typing.filter(to => !lanes.some(lane => plain(lane.name, prefix) === plain(to, prefix))).map(to => ({ name: withoutPrefix(to, prefix), state: 'typing' })),
+    ]
+    return { state: 'pausing', since: pause.since, working, asking, typing, unsaved, offBoard, isSafe: working.length === 0 && asking.length === 0 && typing.length === 0, chats }
   }
   if (pause.state === 'resuming') {
     const waiting = holders.filter(holder => !hasStarted(laneOf(holder.chat), pause.since)).map(({ chat, id }) => ({ chat, id }))

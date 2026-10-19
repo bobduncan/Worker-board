@@ -27,9 +27,10 @@ test('the page\'s script as a whole has no syntax error (the tests here run part
 })
 
 test('six cards, in the order of the brainstorm, each with its painting and one or two plain lines', async () => {
-  assert.deepEqual(cards.map(card => card.title), ['Set up a project', 'Pick a goal as your focus', 'Agree its vibe and how with your partner',
-    'The work divides itself', 'Answer what needs you', 'Check the result'])
-  assert.deepEqual(cards.map(card => card.picture), ['1-set-up', '2-pick-focus', '3-vibe-and-how', '4-work-divides', '5-answer', '6-check-result'].map(name => `/help/${name}.webp`))
+  // B375: the steps as the person named them: install, Initialise, talk with your partner, Go, the workers build, you check.
+  assert.deepEqual(cards.map(card => card.title), ['Install the board', 'Press Initialise', 'Talk it through with your partner',
+    'Press Go', 'The workers build', 'You check'])
+  assert.deepEqual(cards.map(card => card.picture), ['1-install', '2-initialise', '3-talk', '4-go', '5-workers', '6-check'].map(name => `/help/${name}.svg`))
   for (const card of cards) {
     assert.ok((await stat(join(PUBLIC, card.picture))).size > 1000, card.picture)
     assert.ok(card.lines.length >= 1 && card.lines.length <= 2, card.title)
@@ -54,13 +55,13 @@ test('helpMove: Next and Back step one card and stop at the ends; a dot goes to 
 
 test('helpView: the card\'s number and title, Back only after the first card, Done on the last, a dot per card', () => {
   const first = page.helpView(0, cards)
-  assert.equal(first.heading, '1 · Set up a project')
-  assert.equal(first.picture, '/help/1-set-up.webp')
+  assert.equal(first.heading, '1 · Install the board')
+  assert.equal(first.picture, '/help/1-install.svg')
   assert.equal(first.hasBack, false)
   assert.equal(first.next, 'Next')
   assert.deepEqual([...first.dots], [true, false, false, false, false, false])
   const fourth = page.helpView(3, cards)
-  assert.equal(fourth.heading, '4 · The work divides itself')
+  assert.equal(fourth.heading, '4 · Press Go')
   assert.equal(fourth.hasBack, true)
   assert.deepEqual([...fourth.dots].map(Number), [0, 0, 0, 1, 0, 0])
   const last = page.helpView(5, cards)
@@ -117,14 +118,14 @@ async function served(t, path) {
   })
 }
 
-test('the six paintings are served from the board itself, as WebP; nothing else from their folder', async t => {
+test('the six pictures are served from the board itself, as SVG; nothing else from their folder', async t => {
   for (const card of cards) {
     const answer = await served(t, card.picture)
     assert.equal(answer.status, 200, card.picture)
-    assert.equal(answer.type, 'image/webp')
+    assert.equal(answer.type, 'image/svg+xml')
     assert.ok(answer.size > 1000)
   }
-  for (const path of ['/help/7-more.webp', '/help/', '/help/1-set-up.png', '/help/..%2Fboard.js', '/public/help/1-set-up.webp']) {
+  for (const path of ['/help/7-more.svg', '/help/', '/help/1-set-up.webp', '/help/1-install.png', '/help/..%2Fboard.js', '/public/help/1-install.svg']) {
     assert.equal((await served(t, path)).status, 404, path)
   }
 })

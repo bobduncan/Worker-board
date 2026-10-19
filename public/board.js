@@ -39,6 +39,8 @@ const drafts = new Map()
 const chosen = new Map()
 const problems = new Map()
 const sending = new Set()
+/** B364: the pause panel's Details stay open across redraws once opened. */
+let isPauseDetailsOpen = false
 const openForms = new Set()
 /** The requests whose game is being started. */
 const starting = new Set()
@@ -767,30 +769,47 @@ function drawLimits(state) {
 // A restart of the app
 
 // pause:start
+/** B364: the ring's states, in the order the names beside it are listed, with what is said after a group's names. */
+const PAUSE_STATES = [['working', ''], ['asking', ' (waiting for you)'], ['typing', ''], ['still', ''], ['off', ' (not running)']]
+
 /**
- * Pause and resume (spec 2026-10-18): what the banner says of the pause (`state.pause`), from the board's facts alone:
- * while pausing who still runs a turn (working, in the app's question form, a line being typed into it), then "Safe to
- * restart" (the review of Pause 2: an app restart loses only a turn in flight); a step with no checkpoint since the pause
- * is said beside it and blocks nothing, as it resumes from its branch and History. After Resume all who has not started
- * a turn yet, and the link that opens the main chat when it does not run (`link`). Nothing once all are back (running).
+ * B364 (the user's pick B of 2026-10-19): while pausing, the panel is one ring with a slice per chat (`pause.chats`,
+ * coloured by its state), the count of still chats of those that run in its middle, and beside it one line for the
+ * whole ("Pausing…", then "All still: safe to restart") and the names by state. The rest (since when, steps with no
+ * checkpoint) are `notes`, one click away. Null outside a pause.
  */
-function pauseLines(pause) {
-  if (pause === null || pause === undefined || pause.state === 'running') return []
-  if (pause.state === 'pausing') {
-    const parts = [
-      (pause.working ?? []).length === 0 ? null : `still working: ${pause.working.join(', ')}`,
-      (pause.asking ?? []).length === 0 ? null : `waiting for you (question form): ${pause.asking.join(', ')}`,
-      (pause.typing ?? []).length === 0 ? null : `a line is being typed into: ${pause.typing.join(', ')}`,
-    ].filter(part => part !== null)
-    const head = pause.isSafe
-      ? { tone: 'ready', text: `Safe to restart: paused since ${clock(pause.since)}, no chat is working. You can quit Claude now.` }
-      : { tone: '', text: `Pausing since ${clock(pause.since)}: ${parts.join('; ')}.` }
-    const info = [
+function pauseRing(pause) {
+  if (pause === null || pause === undefined || pause.state !== 'pausing') return null
+  // A server from before B364 names no chats: the ring is drawn from who still works, asks or has a line typed into it.
+  const chats = pause.chats ?? [
+    ...(pause.working ?? []).map(name => ({ name, state: 'working' })),
+    ...(pause.asking ?? []).map(name => ({ name, state: 'asking' })),
+    ...(pause.typing ?? []).map(name => ({ name, state: 'typing' })),
+  ]
+  const running = chats.filter(chat => chat.state !== 'off')
+  const still = running.filter(chat => chat.state === 'still').length
+  const groups = PAUSE_STATES
+    .map(([state, after]) => ({ state, names: chats.filter(chat => chat.state === state).map(chat => chat.name), after }))
+    .filter(group => group.names.length > 0)
+    .map(({ state, names, after }) => ({ state, text: `${names.join(', ')}${after}` }))
+  const notes = [
+    `Paused since ${clock(pause.since)}.`,
+    // B386: which chat a line is being typed into is a detail, not said on the panel.
+    ...chats.filter(chat => chat.state === 'typing').map(chat => `A line is being typed into ${chat.name}.`),
+    ...[
       ...(pause.unsaved ?? []).map(one => `${one.id} (${one.chat})`),
       ...(pause.offBoard ?? []).map(one => `${one.id} (${one.title}, not on the board)`),
-    ].map(what => ({ tone: 'muted', text: `${what} has no checkpoint; it resumes from its branch and History.` }))
-    return [head, ...info]
+    ].map(what => `${what} has no checkpoint; it resumes from its branch and History.`),
+  ]
+  return {
+    head: pause.isSafe ? 'All still: safe to restart' : 'Pausing…', tone: pause.isSafe ? 'ready' : '', isDone: pause.isSafe === true,
+    still, of: running.length, slices: chats.map(chat => chat.state), groups, notes,
   }
+}
+
+/** The pause's lines in words: those of a resume (a pause shows as its ring, pauseRing). */
+function pauseLines(pause) {
+  if (pause === null || pause === undefined || pause.state === 'running' || pause.state === 'pausing') return []
   const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.id})`).join(', ')}.` }]
   const main = pause.main ?? null
   if (main === null || pause.waiting.length === 0) return lines
@@ -837,7 +856,8 @@ function drawRestart(state) {
   const down = restart.notRunning ?? []
   const isAtHand = restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running')
   if (isAtHand && down.includes(restart.main)) parts.push(line('alert', `${restart.main} is not running: open its chat first, the buttons here type into it.`))
-  if (isAtHand && down.some(name => name !== restart.main)) {
+  // B364: while pausing the ring names who does not run; this line is for a restart and a resume.
+  if (isAtHand && pause?.state !== 'pausing' && down.some(name => name !== restart.main)) {
     parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
   }
   // B315: a word to the main chat that was only copied, because no chat ran to take it: said plainly, with the way to
@@ -866,9 +886,16 @@ function drawRestart(state) {
     row.append(line(one.tone, one.text), open)
     parts.push(row)
   }
-  if (pause?.state === 'pausing') {
+  const ring = pauseRing(pause)
+  if (ring === null) isPauseDetailsOpen = false
+  if (ring !== null) {
+    parts.push(drawPauseRing(ring))
     const row = el('div', 'restart-ask')
-    row.append(button('Resume all', pause.isSafe ? 'is-quiet' : '', 'resume'), el('small', 'muted', 'Every chat goes on from its checkpoint.'))
+    const details = el('details', 'pause-details')
+    details.open = isPauseDetailsOpen
+    details.addEventListener('toggle', () => { isPauseDetailsOpen = details.open })
+    details.append(el('summary', '', `Details (${ring.notes.length} ${ring.notes.length === 1 ? 'note' : 'notes'})`), ...ring.notes.map(note => el('p', 'muted', note)))
+    row.append(button('Resume all', pause.isSafe ? 'is-quiet' : '', 'resume'), details)
     parts.push(row)
   }
   // The review of part 1: a chat that will never start (gone, or not to be resumed) ends the resume by the person's word.
@@ -887,6 +914,43 @@ function drawRestart(state) {
   if (problems.has('restart')) parts.push(line('problem', problems.get('restart')))
   box.hidden = parts.length === 0
   fill(box, parts)
+}
+
+/**
+ * B364: the pause's ring (pauseRing): a slice per chat in its state's colour, the count of still chats in the middle (a
+ * tick once all are still), and beside it the line for the whole and the names by state.
+ */
+function drawPauseRing(ring) {
+  const SVG = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(SVG, 'svg')
+  svg.setAttribute('viewBox', '0 0 36 36')
+  svg.setAttribute('class', 'pause-ring-svg')
+  const n = Math.max(ring.slices.length, 1)
+  const gap = n > 1 ? 1.6 : 0
+  const circle = (state, length, offset) => {
+    const node = document.createElementNS(SVG, 'circle')
+    for (const [key, value] of Object.entries({ cx: '18', cy: '18', r: '15.9155', fill: 'none', 'stroke-width': '4', 'stroke-dasharray': `${length} ${100 - length}`, 'stroke-dashoffset': String(offset) })) node.setAttribute(key, value)
+    node.setAttribute('class', `pause-slice is-${state}`)
+    return node
+  }
+  svg.append(circle('track', 100, 0))
+  ring.slices.forEach((state, i) => svg.append(circle(state, Math.max(100 / n - gap, 0.4), 25 - (i * 100) / n - gap / 2)))
+  const middle = el('div', 'pause-ring-mid')
+  if (ring.isDone) middle.append(el('span', 'pause-ring-tick', '✓'))
+  else middle.append(el('span', 'pause-ring-count', `${ring.still}/${ring.of}`), el('small', 'muted', 'still'))
+  const dial = el('div', 'pause-ring')
+  dial.append(svg, middle)
+  const legend = el('div', 'pause-legend')
+  for (const group of ring.groups) {
+    const item = el('span', '')
+    item.append(el('b', `pause-key is-${group.state}`), document.createTextNode(group.text))
+    legend.append(item)
+  }
+  const side = el('div', 'pause-side')
+  side.append(el('p', `pause-head ${ring.tone}`, ring.head), legend)
+  const box = el('div', `pause-panel${ring.isDone ? ' is-done' : ''}`)
+  box.append(dial, side)
+  return box
 }
 
 // copied:start
@@ -5337,6 +5401,70 @@ function goalTreeDrop(goals, layout, fromId, x, y) {
 }
 // goals:end
 
+// goalsteps:start
+// B383: the right side of the Goals page, "Steps for this goal" (as the person's design picture of the page has it):
+// the selected goal's steps and what it still misses.
+
+/** A step's badge in the panel, from where it stands in the flow: its words and its tone. */
+function goalStepBadge(step) {
+  const state = step.flow?.state ?? null
+  if (state === 'done' || step.status === 'done') return ['Done', 'done']
+  if (state === 'waiting on you' || step.status === 'you') return ['Needs you', 'you']
+  if (state === 'in progress' || state === 'taken' || (state === null && step.status === 'progress')) return ['Working', 'working']
+  if (state === 'review') return ['In review', 'review']
+  if (state === 'queued' || (state === null && step.status === 'queued')) return ['Queued', 'queued']
+  if (state === 'refined') return ['Ready', 'ready']
+  return ['New', 'new']
+}
+
+/**
+ * The panel for the goal `goalId` of the map (`goals`), from the state's backlog: its steps (those its Steps and Part
+ * lines name, then the store's steps with its Goal, a dropped one left out), each numbered with its title, one line of
+ * what it does, its badge and its chat; the filter All / Open / Done, done steps folded under "Show N completed steps"
+ * while All shows; its Missing lines, each split at a dash into words and a line under them; "Add all" for two or more.
+ * `ui`: `tab` (steps or missing), `filter`, `showDone`, `canWrite` and `whyNot`.
+ */
+function goalStepsView(goals, goalId, backlog, ui = {}) {
+  const node = goalId === null || goalId === undefined ? null : (goals?.nodes ?? []).find(one => one.id === goalId) ?? null
+  if (node === null) return { goal: null, empty: 'Pick a goal on the map: its steps and what it still misses show here.' }
+  const steps = (backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string')
+  const byId = new Map(steps.map(step => [step.id, step]))
+  const named = [...new Set([...(node.steps ?? []), ...(node.parts ?? []).flatMap(part => part.steps ?? [])])]
+  const number = id => Number(String(id).slice(1))
+  const others = steps.filter(step => step.item?.goal === node.id && !named.includes(step.id)).map(step => step.id).sort((a, b) => number(a) - number(b))
+  // The review: a step keeps its number whatever the filter shows.
+  const all = [...named, ...others].map(id => byId.get(id)).filter(step => step !== undefined && step.flow?.state !== 'dropped').map((step, index) => {
+    const [badge, tone] = goalStepBadge(step)
+    const line = String(step.item?.summary?.[0] ?? step.item?.what?.[0] ?? '').replace(/\s+/g, ' ').trim()
+    return { n: index + 1, id: step.id, key: step.key ?? step.id, title: step.title, line: line.length > 140 ? `${line.slice(0, 139)}…` : line, badge, tone, chat: step.worker ?? '' }
+  })
+  const done = all.filter(row => row.tone === 'done')
+  const open = all.filter(row => row.tone !== 'done')
+  const filter = ['all', 'open', 'done'].includes(ui.filter) ? ui.filter : 'all'
+  const shown = filter === 'open' ? open : filter === 'done' ? done : ui.showDone === true ? all : open
+  const missing = (node.missing ?? []).map((text, index) => {
+    const [title, ...rest] = text.split(/\s+[—–]\s+/)
+    return { index, text, title: title.trim(), sub: rest.length === 0 ? null : rest.join(' — ').trim() }
+  })
+  const tab = ui.tab === 'missing' ? 'missing' : 'steps'
+  const allowed = ui.canWrite === true
+  return {
+    goal: { id: node.id, title: node.title },
+    tab,
+    tabs: [{ key: 'steps', label: 'Associated steps', count: all.length, isOn: tab === 'steps' }, { key: 'missing', label: 'Missing steps', count: missing.length, isOn: tab === 'missing' }],
+    filter,
+    filters: [['all', 'All'], ['open', 'Open'], ['done', 'Done']].map(([key, label]) => ({ key, label, isOn: filter === key })),
+    rows: shown,
+    // The review: shown, they fold again.
+    foldedDone: filter !== 'all' || done.length === 0 ? null : ui.showDone === true ? `Hide the ${done.length === 1 ? 'completed step' : `${done.length} completed steps`}` : `Show ${done.length} completed step${done.length === 1 ? '' : 's'}`,
+    missing,
+    addAll: missing.length < 2 ? null : { label: `Add all ${missing.length} to this goal`, isEnabled: allowed, title: allowed ? `Each becomes a new step under ${node.id}; your partner refines it` : ui.whyNot ?? 'This board only shows.' },
+    canWrite: allowed,
+    whyNot: allowed ? null : ui.whyNot ?? 'This board only shows.',
+  }
+}
+// goalsteps:end
+
 const GOAL_STATES = { open: 'open', now: 'in progress', done: 'done' }
 /** B256: what each editor asks for, and the words of its box. */
 const GOAL_EDITORS = {
@@ -5632,7 +5760,182 @@ function drawGoals(state) {
 
 function redrawGoals() {
   if (board !== null && board !== undefined) once('goals', goalsData(board), () => drawGoals(board))
+  redrawGoalSteps()
 }
+
+// B383: the right panel "Steps for this goal": what the person chose in it, and its drawing.
+const goalStepsUi = { tab: 'steps', filter: 'all', showDone: false, menu: null, busy: false, goal: null }
+function goalStepsData(state) {
+  return [state.goals ?? null, goalsFocus, state.backlog ?? null, canEditGoals(state), state.goalsEdit?.whyNot ?? null, goalStepsUi.tab, goalStepsUi.filter, goalStepsUi.showDone, goalStepsUi.menu, goalStepsUi.busy, goalsUi.busy]
+}
+function redrawGoalSteps() {
+  if (board !== null && board !== undefined) once('goalsteps', goalStepsData(board), () => drawGoalSteps(board))
+}
+
+/** B383: draws the panel from goalStepsView, as the person's design picture has it. */
+function drawGoalSteps(state) {
+  const box = $('goals-steps')
+  if (box === null) return
+  // The review: another goal opens with its completed steps folded and no menu open.
+  if (goalStepsUi.goal !== goalsFocus) Object.assign(goalStepsUi, { goal: goalsFocus, showDone: false, menu: null })
+  // The review: the key that had the focus keeps it after the redraw.
+  const focused = box.contains(document.activeElement) ? ['goalStepsTab', 'goalStepsFilter', 'goalStepMenu', 'goalStepOpen', 'missingAdd', 'missingDismiss', 'missingAll', 'goalStepsShowDone'].find(key => key in document.activeElement.dataset) : undefined
+  const focusedAt = focused === undefined ? null : [focused, document.activeElement.dataset[focused]]
+  const view = goalStepsView(state.goals ?? null, goalsFocus, state.backlog ?? [], { ...goalStepsUi, canWrite: canEditGoals(state), whyNot: state.goalsEdit?.whyNot ?? null })
+  const head = [el('h2', '', 'Steps for this goal')]
+  if (view.goal === null) return fill(box, [...head, el('p', 'muted', view.empty)])
+  head.push(el('p', 'goal-steps-of', `${view.goal.id} · ${view.goal.title}`))
+  const tabs = el('div', 'goal-steps-tabs')
+  for (const one of view.tabs) {
+    const tab = el('button', `goal-steps-tab${one.isOn ? ' is-on' : ''}${one.key === 'missing' && one.count > 0 ? ' is-missing' : ''}`, one.label)
+    tab.type = 'button'
+    tab.dataset.goalStepsTab = one.key
+    tab.setAttribute('aria-pressed', String(one.isOn))
+    tab.append(el('span', 'goal-steps-count', String(one.count)))
+    tabs.append(tab)
+  }
+  const parts = [...head, tabs]
+  if (view.tab === 'steps') {
+    const filters = el('div', 'goal-steps-filters')
+    for (const one of view.filters) {
+      const button = el('button', one.isOn ? 'is-on' : '', one.label)
+      button.type = 'button'
+      button.dataset.goalStepsFilter = one.key
+      button.setAttribute('aria-pressed', String(one.isOn))
+      filters.append(button)
+    }
+    parts.push(filters, el('h3', 'goal-steps-title', 'Associated steps'), el('p', 'muted', 'Steps that contribute to this goal.'))
+    const list = el('ol', 'goal-steps-list')
+    for (const row of view.rows) {
+      const item = el('li', `goal-step tone-${row.tone}`)
+      const open = el('button', 'goal-step-open')
+      open.type = 'button'
+      open.dataset.goalStepOpen = row.key
+      open.title = `Open ${row.id}`
+      open.append(el('span', 'goal-step-n', String(row.n)))
+      const words = el('span', 'goal-step-words')
+      words.append(el('b', '', row.title), ...(row.line === '' ? [] : [el('small', '', row.line)]))
+      open.append(words)
+      const side = el('span', 'goal-step-side')
+      side.append(el('span', `goal-step-badge tone-${row.tone}`, row.badge), ...(row.chat === '' ? [] : [el('small', '', row.chat)]))
+      const more = el('button', 'goal-step-more', '⋮')
+      more.type = 'button'
+      more.dataset.goalStepMenu = row.key
+      more.setAttribute('aria-label', `More for ${row.id}`)
+      more.setAttribute('aria-expanded', String(goalStepsUi.menu === row.key))
+      item.append(open, side, more)
+      if (goalStepsUi.menu === row.key) {
+        const menu = el('div', 'goal-step-menu')
+        const step = goalButton('goals-tool', `Open ${row.id}`, { goalStepOpen: row.key })
+        menu.append(step)
+        if (row.chat !== '') menu.append(goalButton('goals-tool', `Open ${row.chat}'s window`, { goalStepChat: row.chat }))
+        item.append(menu)
+      }
+      list.append(item)
+    }
+    if (view.rows.length === 0) list.append(el('li', 'muted', view.filter === 'done' ? 'No step of this goal is done yet.' : 'No open step under this goal.'))
+    parts.push(list)
+    if (view.foldedDone !== null) parts.push(goalButton('goal-steps-fold', `› ${view.foldedDone}`, { goalStepsShowDone: '' }))
+  }
+  if (view.missing.length > 0 || view.tab === 'missing') parts.push(goalMissingBox(view))
+  fill(box, parts)
+  if (focusedAt !== null) [...box.querySelectorAll('button')].find(button => button.dataset[focusedAt[0]] === focusedAt[1])?.focus()
+}
+
+/** B383: the box of the goal's Missing lines, each with Add step and Dismiss, and "Add all". */
+function goalMissingBox(view) {
+  const part = el('section', 'goal-missing')
+  part.append(el('h3', '', '⚠ Missing steps'))
+  if (view.missing.length === 0) {
+    part.append(el('p', 'muted', 'Nothing is missing: every outcome of this goal has a step.'))
+    return part
+  }
+  part.append(el('p', 'muted', 'These outcomes have no step yet. Add steps to make this goal complete.'))
+  for (const one of view.missing) {
+    const row = el('div', 'goal-missing-row')
+    const words = el('span', 'goal-missing-words')
+    words.append(el('b', '', one.title), ...(one.sub === null ? [] : [el('small', '', one.sub)]))
+    const add = goalButton('goal-missing-add', '+ Add step', { missingAdd: String(one.index) })
+    const dismiss = goalButton('goal-missing-dismiss', 'Dismiss', { missingDismiss: String(one.index) })
+    for (const button of [add, dismiss]) {
+      button.disabled = !view.canWrite || goalStepsUi.busy
+      button.title = view.canWrite ? (button === add ? `A new step under ${view.goal.id}; your partner refines it` : 'This line goes from the goal') : view.whyNot
+    }
+    const acts = el('span', 'goal-missing-acts')
+    acts.append(add, dismiss)
+    row.append(el('span', 'goal-missing-sign', '!'), words, acts)
+    part.append(row)
+  }
+  if (view.addAll !== null) {
+    const all = goalButton('goal-missing-all', view.addAll.label, { missingAll: '' })
+    all.disabled = !view.addAll.isEnabled || goalStepsUi.busy
+    all.title = view.addAll.title
+    part.append(all)
+  }
+  return part
+}
+
+/** B383: a Missing line (`index`, or all) made into steps under the selected goal, or dismissed. */
+async function goalMissingAct(kind, index) {
+  const node = board?.goals ? goalById(board.goals, goalsFocus) : null
+  if (node === null || goalStepsUi.busy) return
+  goalStepsUi.busy = true
+  redrawGoalSteps()
+  try {
+    if (kind === 'dismiss') {
+      const line = node.missing[index]
+      if (line !== undefined && await sendGoals({ command: 'missing-dismiss', id: node.id, line }) !== null) goalsSay('The line is taken out of the goal.', 'ok')
+    } else {
+      // The review: the line goes by its words, so a map changed meanwhile never makes a step of another line.
+      const done = await sendGoals(kind === 'all' ? { command: 'missing-add', id: node.id, all: true } : { command: 'missing-add', id: node.id, index, line: node.missing[index] })
+      const made = done?.made ?? []
+      const failed = (done?.failed ?? []).map(one => `"${one.line}": ${one.why}`).join(' ')
+      if (made.length > 0) goalsSay(`${made.join(', ')} ${made.length === 1 ? 'is' : 'are'} on the backlog under ${node.id}: your partner refines ${made.length === 1 ? 'it' : 'them'}.${failed === '' ? '' : ` Not made: ${failed}`}`, failed === '' ? 'ok' : 'problem')
+    }
+  } finally {
+    goalStepsUi.busy = false
+    redrawGoalSteps()
+  }
+}
+
+$('goals-steps').addEventListener('click', event => {
+  const tab = event.target.closest('[data-goal-steps-tab]')
+  if (tab !== null) {
+    goalStepsUi.tab = tab.dataset.goalStepsTab
+    goalStepsUi.menu = null
+    return redrawGoalSteps()
+  }
+  const filter = event.target.closest('[data-goal-steps-filter]')
+  if (filter !== null) {
+    goalStepsUi.filter = filter.dataset.goalStepsFilter
+    return redrawGoalSteps()
+  }
+  if (event.target.closest('[data-goal-steps-show-done]') !== null) {
+    goalStepsUi.showDone = !goalStepsUi.showDone
+    return redrawGoalSteps()
+  }
+  const menu = event.target.closest('[data-goal-step-menu]')
+  if (menu !== null) {
+    goalStepsUi.menu = goalStepsUi.menu === menu.dataset.goalStepMenu ? null : menu.dataset.goalStepMenu
+    return redrawGoalSteps()
+  }
+  const open = event.target.closest('[data-goal-step-open]')
+  if (open !== null) {
+    goalStepsUi.menu = null
+    return openDetails({ step: open.dataset.goalStepOpen })
+  }
+  const chat = event.target.closest('[data-goal-step-chat]')
+  if (chat !== null) {
+    goalStepsUi.menu = null
+    return openDetails({ lane: chat.dataset.goalStepChat, task: true })
+  }
+  const add = event.target.closest('[data-missing-add]')
+  if (add !== null && !add.disabled) return goalMissingAct('add', Number(add.dataset.missingAdd))
+  const dismiss = event.target.closest('[data-missing-dismiss]')
+  if (dismiss !== null && !dismiss.disabled) return goalMissingAct('dismiss', Number(dismiss.dataset.missingDismiss))
+  const all = event.target.closest('[data-missing-all]')
+  if (all !== null && !all.disabled) return goalMissingAct('all', null)
+})
 
 // B257: the goal tree, drawn as svg from goalTreeLayout. The person, 2026-10-15: "like a diagram of nodes what is a
 // part of what", in zoom style 1 ("I like style 1"): the clicked box glides into the frame.
@@ -6274,7 +6577,7 @@ async function sendGoals(body) {
   // B354: a word to the partner (done-when) changes nothing in the map: nothing to count for undo.
   // B358, the reviews: a re-check asked, its take-back or an overturn is no change the page's undo takes back; after
   // one the map no longer reads as the changes before left it, so those cannot be undone either.
-  const isOutside = result?.recheck !== undefined || result?.overturned === true || (body.command === 'line' && body.name === 'Recheck asked')
+  const isOutside = result?.recheck !== undefined || result?.overturned === true || (body.command === 'line' && body.name === 'Recheck asked') || body.command === 'missing-add'
   if (result !== null && result.unchanged !== true && body.command !== 'done-when') goalsUi.undoable = body.command === 'ask' || body.command === 'read' || isOutside ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   // Changed or refused, the map is read anew (a refusal is often a change made elsewhere in between), and the next
   // key works on the map as it now is.
@@ -10887,6 +11190,8 @@ function draw(state) {
   once('refine-list', refining, () => drawRefineList(refining))
   // B255: the goal map's outline, when the map or the zoom changes.
   once('goals', goalsData(state), () => drawGoals(state))
+  // B383: the right panel of the Goals page.
+  once('goalsteps', goalStepsData(state), () => drawGoalSteps(state))
   // B259: the brainstorms, when one changes or what the person does on the part.
   once('brainstorm', brainstormData(state), () => drawBrainstorm(state))
   // Focus 1: the Focus page, when the focus, the map or the brainstorms change; the tab's bar, when its setting does.
@@ -11164,45 +11469,46 @@ $('say-text').addEventListener('keydown', event => {
 
 // help:start
 /**
- * B348: the help tour's six cards (G26, the person's brainstorm of 2026-10-18): each with its painting (B347, no words
- * in it), its title, one or two plain lines, and what the painting shows for whoever cannot see it.
+ * B348: the help tour's six cards (G26, the person's brainstorm of 2026-10-18): each with its picture, its title, one or
+ * two plain lines, and what the picture shows for whoever cannot see it. B375: the pictures are drawings of the board
+ * itself (tools/help-pictures.mjs), the part each card is about ringed and numbered (the person's pick, Q173).
  */
 const HELP_CARDS = [
   {
-    picture: '/help/1-set-up.webp',
-    title: 'Set up a project',
-    lines: ['One command installs the board and makes your project.', 'Then press Initialise: the main chat starts and sets up the rest.'],
-    alt: 'A command window, then a hand pressing a big button, and a robot waving in front of three desks that light up',
+    picture: '/help/1-install.svg',
+    title: 'Install the board',
+    lines: ['One command installs the board and makes your project.', 'Your board opens in the browser.'],
+    alt: 'A terminal running the install command, ringed as step 1, and the new board opening beside it',
   },
   {
-    picture: '/help/2-pick-focus.webp',
-    title: 'Pick a goal as your focus',
-    lines: ['Of everything you want, choose the one goal to work on now.', 'The Focus tab keeps it in front of you and your chats.'],
-    alt: 'A hand lifting one glowing goal card out of several',
+    picture: '/help/2-initialise.svg',
+    title: 'Press Initialise',
+    lines: ['Initialise starts the main chat in the Claude app.', 'It sets up the rest: the workers, your partner, the backlog.'],
+    alt: 'The Overview of a new project with its Initialise button ringed as step 2, and the main chat starting',
   },
   {
-    picture: '/help/3-vibe-and-how.webp',
-    title: 'Agree its vibe and how with your partner',
-    lines: ['Your partner, the Advisor, works it out with you: how it should feel, and how to build it.'],
-    alt: 'You and a robot partner at a table, agreeing on a goal and its three steps',
+    picture: '/help/3-talk.svg',
+    title: 'Talk it through with your partner',
+    lines: ['Pick a goal on the Focus tab.', 'Your partner, the Advisor, works out with you how it should feel and how to build it.'],
+    alt: 'The Focus tab at the vibe of a goal, with the talk with your partner on the right ringed as step 3',
   },
   {
-    picture: '/help/4-work-divides.webp',
-    title: 'The work divides itself',
-    lines: ['Press Go: your partner makes the steps, and the main chat hands them to the workers.'],
-    alt: 'A goal card splitting into three steps, each going to a robot worker at its desk',
+    picture: '/help/4-go.svg',
+    title: 'Press Go',
+    lines: ['Agreed on the how? Press Go: your partner makes the steps.'],
+    alt: 'The how of a goal with three parts and its Go button ringed as step 4, and the steps it makes beside it',
   },
   {
-    picture: '/help/5-answer.webp',
-    title: 'Answer what needs you',
-    lines: ['What only you can decide or look at waits under Needs your attention.', 'Answer there; the chat that asked goes on.'],
-    alt: 'You tapping one of two choices on a card a robot sent, and a green arrow going back to it',
+    picture: '/help/5-workers.svg',
+    title: 'The workers build',
+    lines: ['The main chat hands the steps to the workers.', 'The Overview shows who builds what and how far it is.'],
+    alt: 'The Overview with the Workers column ringed as step 5, each worker with its step and a progress bar',
   },
   {
-    picture: '/help/6-check-result.webp',
-    title: 'Check the result',
-    lines: ['A finished step comes with a picture to look at or a link to try it.', 'Keep it, or say what to change.'],
-    alt: 'You checking the finished picture with a magnifying glass, a green tick beside it, robots cheering',
+    picture: '/help/6-check.svg',
+    title: 'You check',
+    lines: ['What needs you waits under Needs your attention.', 'Look at the result: Approve it, or Reject it and say what to change.'],
+    alt: 'Needs your attention ringed as step 6: the result picture a worker sent, with its Approve and Reject buttons',
   },
 ]
 

@@ -170,6 +170,18 @@ export function addGoalLine(text, id, line) {
   return words === '' ? refuse('form') : appendOwnLine(text, id, words)
 }
 
+/** B383: a goal's Missing line taken out, by its words (the first of its own lines that reads so); `gone` without it. */
+export function removeGoalMissing(text, id, line) {
+  const file = split(text)
+  const found = blockOf(file.lines, id)
+  if (!found.ok) return found
+  const words = String(line ?? '').replace(/\s+/g, ' ').trim()
+  const at = ownLines(file.lines, found).find(index => file.lines[index].trim().replace(/\s+/g, ' ') === `Missing: ${words}`)
+  if (at === undefined || words === '') return refuse('missing')
+  file.lines.splice(at, 1)
+  return { ok: true, text: join(file) }
+}
+
 export function addGoalNote(text, id, note) {
   const words = oneLine(note, 300)
   return words === '' ? refuse('form') : appendOwnLine(text, id, `Note: ${words}`)
@@ -493,6 +505,8 @@ const WHY = {
   question: [400, 'Say what you want to know.'],
   none: [409, 'That ask is not under this goal, or has no answer to read yet.'],
   plan: [409, "That is the game plan's own line: change it through the plan."],
+  // B383: a Missing line dismissed or made into a step meanwhile.
+  missing: [409, 'That line is not missing any more: the map changed meanwhile.'],
   // B354: a goal is ticked against its Done when.
   doneWhen: [409, 'A goal gets its tick only with a Done when that says how you check it: write it with "Done when…", or ask your partner to.'],
   encoding: [409, 'The map is not UTF-8 text: change it by hand first.'],
@@ -555,6 +569,8 @@ function changeFor(body, made, now) {
     case 'line': return text => (['Done when', 'Why'].includes(body.name) ? setGoalLine(text, id, body.name, oneLine(body.value, 300))
       : body.name === 'Recheck asked' && body.value === '' ? setGoalLine(text, id, body.name, '') : refuse('form'))
     case 'note': return text => addGoalNote(text, id, body.value)
+    // B383: the Goals page's right panel: a Missing line dismissed.
+    case 'missing-dismiss': return text => removeGoalMissing(text, id, body.line)
     case 'link': return text => addGoalLink(text, id, body.name, body.target)
     case 'unlink': return text => removeGoalLink(text, id, body.name, body.target)
     case 'steps': return text => (Array.isArray(body.ids) ? setGoalSteps(text, id, body.ids) : refuse('form'))
