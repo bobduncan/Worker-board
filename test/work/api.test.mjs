@@ -335,6 +335,62 @@ test('overlapsIn names a taken step whose Touches overlap, a folder covering its
   assert.equal(overlaps(store.items.get('B4')), null)
 })
 
+test('B378: Touches are paths, not words: B377 (tests only) queues beside B374, B376 (the render goldens) waits', async () => {
+  const { overlapsIn, touchesOf } = await import('../../src/work/guards.mjs')
+  const { mayMove, DEFAULT_FLOW } = await import('../../src/work/flow.mjs')
+  const store = migrateBacklog([
+    '## A',
+    '- [ ] B374 Paint the start screen (branch b374)',
+    '  Touches: lava-tactics src/menu/mainMenu.ts, src/run (the end screens), public art for the two screens, docs/game-design.md (Screens), tests/render goldens.',
+    '- [ ] B376 Ballista at play size',
+    '  Touches: lava-tactics public art of the Ballista, src/render (frame tables if the sizes change), tests/render goldens, docs/visual/unit-definition-of-done.md evidence folder.',
+    '- [ ] B377 Enemy card',
+    '  Touches: lava-tactics src/hud (the enemy card), src/hud/previewCard.ts, src/core/preview.ts (the words), tests; the backlog step B42 (the main chat trims it).',
+    '- [ ] B378 Board fix',
+    '  Touches: worker-board src (the flow guard), test/',
+    '',
+  ].join('\n'), { now: NOW })
+  const paths = id => touchesOf(store.items.get(id)).map(one => `${one.repo} ${one.path}`)
+  assert.deepEqual(paths('B374'), ['lava-tactics src/menu/mainMenu.ts', 'lava-tactics src/run', 'lava-tactics docs/game-design.md', 'lava-tactics tests/render'])
+  assert.deepEqual(paths('B377'), ['lava-tactics src/hud', 'lava-tactics src/hud/previewCard.ts', 'lava-tactics src/core/preview.ts'])
+  assert.deepEqual(paths('B378'), ['worker-board src'])
+  const overlaps = overlapsIn(store.items)
+  assert.equal(overlaps(store.items.get('B377')), null)
+  assert.equal(overlaps(store.items.get('B376')), 'B374')
+  assert.equal(overlaps.why(store.items.get('B376')), 'B374 is in progress and works in lava-tactics tests/render, which overlaps lava-tactics tests/render of this step')
+  // The same folder in another repository is no overlap: "worker-board src" against "lava-tactics src/run".
+  assert.equal(overlaps(store.items.get('B378')), null)
+  // The refusal names the two paths.
+  const six = store.items.get('B376')
+  six.head.set('State', 'refined')
+  const refused = mayMove(DEFAULT_FLOW, six, 'queued', 'main', { store: { items: store.items }, overlaps })
+  assert.equal(refused.why, 'B376: "Touches overlaps no taken step" does not hold (flow.json): B374 is in progress and works in lava-tactics tests/render, which overlaps lava-tactics tests/render of this step')
+})
+
+test('B378: a line without a repository matches any; a folder holds its files; a lone word is a path only alone', async () => {
+  const { overlapsIn, touchesOf } = await import('../../src/work/guards.mjs')
+  const store = migrateBacklog('## A\n- [ ] B1 One (branch b1)\n  Touches: src/hud\n- [ ] B2 Two\n  Touches: game-repo src/hud/card.ts\n- [ ] B3 Three\n  Touches: README.md and the docs\n- [ ] B4 Four\n  Touches: tests, test/\n', { now: NOW })
+  const overlaps = overlapsIn(store.items)
+  assert.equal(overlaps(store.items.get('B2')), 'B1')
+  assert.deepEqual(touchesOf(store.items.get('B3')).map(one => one.path), ['README.md'])
+  assert.deepEqual(touchesOf(store.items.get('B4')), [])
+})
+
+test('B378 review: a repository named in a later part, backslashes, words before a path, a file with a hyphen', async () => {
+  const { touchesOf } = await import('../../src/work/guards.mjs')
+  const store = migrateBacklog([
+    '## A',
+    '- [ ] B1 One',
+    '  Touches: my-game src/hud and the-board src (a (nested) note), the card in src/core/card.ts:42',
+    '- [ ] B2 Two',
+    '  Touches: my-game: src\\hud\\card.ts, ./docs/x.md., state-machine.mjs',
+    '',
+  ].join('\n'), { now: NOW })
+  const paths = id => touchesOf(store.items.get(id)).map(one => `${one.repo} ${one.path}`)
+  assert.deepEqual(paths('B1'), ['my-game src/hud', 'the-board src', 'the-board src/core/card.ts'])
+  assert.deepEqual(paths('B2'), ['my-game src/hud/card.ts', 'my-game docs/x.md', 'my-game state-machine.mjs'])
+})
+
 // ---- the review's findings ----
 
 test('review 1: the chat that asked withdraws a blocking ask; the step goes on, and a report waits for that', async () => {

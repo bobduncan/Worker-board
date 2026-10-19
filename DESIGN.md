@@ -2155,6 +2155,20 @@ the worker board"): help you can follow in a minute, its pictures the paintings 
 5. The server serves the six paintings by name (`/help/<name>.webp`), nothing else from their folder.
 6. Not in it: help texts inside the board's own parts.
 
+## The help tour drawn as the board (B375)
+
+The person, 2026-10-19 (I23): "I want new pictures for the introduction of the board that are more drawn like the
+actual board. simplified, but like it's clear roughly how to board looks like and what steps it needs to do". They
+picked the drawings over the paintings of B347 (Q173, A, with the new titles and lines).
+
+1. Six SVG pictures in `public/help/`, made by `node tools/help-pictures.mjs`: the board in its own colours and shapes
+   (the tabs, the Overview's columns, the Focus page with its stages and the talk, the how with Go, Needs your
+   attention), the part each card is about ringed in amber with its number and a few words.
+2. The cards follow the person's steps: 1 install, 2 Initialise, 3 talk it through with your partner (the Focus tab),
+   4 Go, 5 the workers build, 6 you check (Needs your attention). Picking the focus is part of 3, answering part of 6.
+3. A change of the board is a redraw: change the drawing in the tool and run it again. The paintings are gone; the
+   server serves `/help/<name>.svg` by name, nothing else from the folder.
+
 ## High effort mode for the partner (B352)
 
 The person, 2026-10-18 (I16): "while refining a goal, i want a button to change the claude chat working on it, to
@@ -2233,7 +2247,9 @@ worker for another try, until the attempts stall; only then the person's call, w
 7. The step's window shows "Checked by a helper" (the ticks green, red or amber, the score, the evidence picture) and
    "A fix of B<id>"; the Focus page shows under each part "Checked by a helper: n of m points pass (B<id>)" with the
    evidence to open.
-8. The Workers mod's work tool takes `checked` and its fields `evidence`, `points` and `score` (0.13.11).
+8. The Workers mod's work tool takes `checked` and its fields `evidence`, `points` and `score` (0.13.11). B381: a
+   point is kept whole (up to 4000 characters, within the board's 16 KB per call; it was cut at 300), and the fix step carries its failed points whole in
+   its What we build, its Context and its refine block; only its title is short.
 9. Not in it: the picture tool (B357), the goal re-check (B358), the stall rule's own setting (B361).
 10. The review's findings: the result check counts from the step's last report (a report anew asks anew); a History
     line is read by its words, whoever wrote it; "Not in it" lines and a Standard of none ask for no check. A failed

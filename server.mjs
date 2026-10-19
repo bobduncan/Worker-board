@@ -87,9 +87,9 @@ const FILES = {
   '/board.css': ['board.css', 'text/css; charset=utf-8'],
   '/board.js': ['board.js', 'text/javascript; charset=utf-8'],
 }
-// B348: the help tour's six paintings (B347), by name only.
-for (const name of ['1-set-up', '2-pick-focus', '3-vibe-and-how', '4-work-divides', '5-answer', '6-check-result']) {
-  FILES[`/help/${name}.webp`] = [join('help', `${name}.webp`), 'image/webp']
+// B348: the help tour's six pictures, by name only. B375: drawings of the board (tools/help-pictures.mjs), as SVG.
+for (const name of ['1-install', '2-initialise', '3-talk', '4-go', '5-workers', '6-check']) {
+  FILES[`/help/${name}.svg`] = [join('help', `${name}.svg`), 'image/svg+xml']
 }
 
 // The page may load its own script and style sheet, talk to its own server, and show pictures it fetched from

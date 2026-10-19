@@ -11109,45 +11109,46 @@ $('say-text').addEventListener('keydown', event => {
 
 // help:start
 /**
- * B348: the help tour's six cards (G26, the person's brainstorm of 2026-10-18): each with its painting (B347, no words
- * in it), its title, one or two plain lines, and what the painting shows for whoever cannot see it.
+ * B348: the help tour's six cards (G26, the person's brainstorm of 2026-10-18): each with its picture, its title, one or
+ * two plain lines, and what the picture shows for whoever cannot see it. B375: the pictures are drawings of the board
+ * itself (tools/help-pictures.mjs), the part each card is about ringed and numbered (the person's pick, Q173).
  */
 const HELP_CARDS = [
   {
-    picture: '/help/1-set-up.webp',
-    title: 'Set up a project',
-    lines: ['One command installs the board and makes your project.', 'Then press Initialise: the main chat starts and sets up the rest.'],
-    alt: 'A command window, then a hand pressing a big button, and a robot waving in front of three desks that light up',
+    picture: '/help/1-install.svg',
+    title: 'Install the board',
+    lines: ['One command installs the board and makes your project.', 'Your board opens in the browser.'],
+    alt: 'A terminal running the install command, ringed as step 1, and the new board opening beside it',
   },
   {
-    picture: '/help/2-pick-focus.webp',
-    title: 'Pick a goal as your focus',
-    lines: ['Of everything you want, choose the one goal to work on now.', 'The Focus tab keeps it in front of you and your chats.'],
-    alt: 'A hand lifting one glowing goal card out of several',
+    picture: '/help/2-initialise.svg',
+    title: 'Press Initialise',
+    lines: ['Initialise starts the main chat in the Claude app.', 'It sets up the rest: the workers, your partner, the backlog.'],
+    alt: 'The Overview of a new project with its Initialise button ringed as step 2, and the main chat starting',
   },
   {
-    picture: '/help/3-vibe-and-how.webp',
-    title: 'Agree its vibe and how with your partner',
-    lines: ['Your partner, the Advisor, works it out with you: how it should feel, and how to build it.'],
-    alt: 'You and a robot partner at a table, agreeing on a goal and its three steps',
+    picture: '/help/3-talk.svg',
+    title: 'Talk it through with your partner',
+    lines: ['Pick a goal on the Focus tab.', 'Your partner, the Advisor, works out with you how it should feel and how to build it.'],
+    alt: 'The Focus tab at the vibe of a goal, with the talk with your partner on the right ringed as step 3',
   },
   {
-    picture: '/help/4-work-divides.webp',
-    title: 'The work divides itself',
-    lines: ['Press Go: your partner makes the steps, and the main chat hands them to the workers.'],
-    alt: 'A goal card splitting into three steps, each going to a robot worker at its desk',
+    picture: '/help/4-go.svg',
+    title: 'Press Go',
+    lines: ['Agreed on the how? Press Go: your partner makes the steps.'],
+    alt: 'The how of a goal with three parts and its Go button ringed as step 4, and the steps it makes beside it',
   },
   {
-    picture: '/help/5-answer.webp',
-    title: 'Answer what needs you',
-    lines: ['What only you can decide or look at waits under Needs your attention.', 'Answer there; the chat that asked goes on.'],
-    alt: 'You tapping one of two choices on a card a robot sent, and a green arrow going back to it',
+    picture: '/help/5-workers.svg',
+    title: 'The workers build',
+    lines: ['The main chat hands the steps to the workers.', 'The Overview shows who builds what and how far it is.'],
+    alt: 'The Overview with the Workers column ringed as step 5, each worker with its step and a progress bar',
   },
   {
-    picture: '/help/6-check-result.webp',
-    title: 'Check the result',
-    lines: ['A finished step comes with a picture to look at or a link to try it.', 'Keep it, or say what to change.'],
-    alt: 'You checking the finished picture with a magnifying glass, a green tick beside it, robots cheering',
+    picture: '/help/6-check.svg',
+    title: 'You check',
+    lines: ['What needs you waits under Needs your attention.', 'Look at the result, keep it or say what to change.'],
+    alt: 'Needs your attention ringed as step 6: the result picture a worker sent, with Keep it and Change buttons',
   },
 ]
 
