@@ -128,7 +128,8 @@ test('the page: the two columns beside Needs your attention, full width; the bac
   assert.match(css, /#view-overview\[data-mode="simple"\]:not\(\[hidden\]\) \{[^}]*display: grid/)
   // what leaves Needs in Simple is hidden there, and only there
   const hidden = css.match(/((?:#view-overview\[data-mode="simple"\][^,{]+,\s*)+#view-overview\[data-mode="simple"\][^,{]+)\{ display: none !important; \}/g) ?? []
-  for (const left of ['#needs .legacy', '#needs .instructions', '#needs .need.is-closed', '#needs .need.is-answered', '.inbox-top']) {
+  // Calm panel (2026-10-19): "From the backlog" is gone, and the instructions wait in the log, whose line Simple leaves out.
+  for (const left of ['#log-line', '#needs .need.is-closed', '#needs .need.is-answered', '.inbox-top']) {
     assert.ok(hidden.some(rule => rule.includes(`#view-overview[data-mode="simple"] ${left}`)), left)
   }
   assert.match(css, /#view-overview\[data-mode="details"\] \.simple-col \{ display: none; \}/)

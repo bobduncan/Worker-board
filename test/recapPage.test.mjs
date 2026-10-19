@@ -97,7 +97,7 @@ test('Overturn and Feedback send the person\'s words to the store, and need them
 
 test('the wiring: the cards after the questions, the clicks through the answer forms, the daily note\'s card, the look', () => {
   assert.match(script, /const recaps = shownRecaps\(state, showsClosed\(\)\)\.map\(recap => drawRecap\(recap, state\)\)/)
-  assert.match(script, /\.\.\.cards, \.\.\.recaps, drawLegacy\(state\)/)
+  assert.match(script, /\.\.\.cards, \.\.\.recaps\]\)/)
   assert.match(script, /if \(id\.startsWith\('recap:'\)\) \{\s+const sent = recapSend\(need, verdict, text\)\s+return sent\.ok \? sendWork\(sent\.body, id\) : fail\(id, sent\.why\)/)
   assert.match(script, /takeAnswers\(\$\('advisor-focus'\)\)/)
   // B361: the recaps and the asks that can wait, gathered under the note.
