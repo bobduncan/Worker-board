@@ -2,7 +2,7 @@
 // who makes each move (`by`: a role from the list of chats, `person` or `server`) and what must hold first (`when`, a
 // guard of guards.mjs). Changing the file changes the order; no code.
 
-import { ACTIONS, GUARDS } from './guards.mjs'
+import { ACTIONS, GUARD_WHY, GUARDS } from './guards.mjs'
 import { valueOf } from './item.mjs'
 
 /** Today's agreement, the default when the store has no flow.json; examples/work/flow.json is its text. */
@@ -90,7 +90,9 @@ export function mayMove(flow, item, to, by, ctx = {}) {
   }
   const held = mine.find(move => move.when === undefined || GUARDS[move.when]?.(item, ctx) === true)
   if (held !== undefined) return { ok: true, why: null }
-  return { ok: false, why: `${id}: "${mine[0].when}" does not hold (flow.json)` }
+  // B378: a guard that can say more names it (the two overlapping paths).
+  const more = GUARD_WHY[mine[0].when]?.(item, ctx) ?? null
+  return { ok: false, why: `${id}: "${mine[0].when}" does not hold (flow.json)${more === null ? '' : `: ${more}`}` }
 }
 
 /** The moves out of the item's state: where to, who makes it, and what must hold. */

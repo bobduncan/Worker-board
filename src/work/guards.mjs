@@ -53,26 +53,77 @@ export const GUARDS = {
 /** The actions a move's `then` may name; the server carries them out (increment 2 and later). */
 export const ACTIONS = ['wake Owner', 'notify Main', 'check: base equals remote, branch gone, result named']
 
-/** The paths a step's "Touches:" lines name (under Context or a Touches section), each as written. */
-function touchesOf(item) {
+/** B378: a bare test folder never overlaps on its own: every step has tests. */
+const TEST_FOLDERS = new Set(['test', 'tests'])
+/** B378: a word that names a repository before its paths ("worker-board src"): a folder name with a hyphen, no dot. */
+const isRepoWord = word => /^[a-z0-9][\w]*(?:-[\w]+)+$/i.test(word)
+/** B378: a word that is a path: one with a slash, or a file with its extension; a lone word only when it is all there is. */
+const isPathWord = (word, isAlone) => word.includes('/') || /\.[a-z0-9]{1,8}$/i.test(word) || (isAlone && /^[\w.-]+$/.test(word))
+/** B378: a path as one writes it, made comparable: forward slashes, no "./", no line number, no closing stop or slash. */
+const pathOf = word => word.replace(/\\/g, '/').replace(/^\.\//, '').replace(/[.,:;]+$/, '').replace(/:\d+(?::\d+)?$/, '').replace(/\/+$/, '')
+
+/**
+ * B378: the paths a step's "Touches:" lines name (under Context or a Touches section), read as paths: `{ repo, path }`.
+ * The words around a path are not one ("src/run (the end screens)", "public art for the two screens"): a part's first
+ * path is its path. A part's first word names a repository when a path follows it ("my-game src/menu/mainMenu.ts"),
+ * for that part and the rest of the line until another is named; a line without one has repo null, which matches any.
+ * A bare test folder is left out.
+ */
+export function touchesOf(item) {
   const lines = [...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)]
-  return lines.flatMap(one => one.trim().match(/^Touches:\s*(.*)$/)?.[1].split(/[,;]\s*|\s+and\s+/) ?? [])
-    .map(one => one.replace(/^[-*]\s+/, '').replace(/[`.]+$/g, '').replace(/^`/, '').trim()).filter(Boolean)
+  return lines.flatMap(one => {
+    const said = one.trim().match(/^Touches:\s*(.*)$/)?.[1]
+    if (said === undefined) return []
+    let repo = null
+    // Parentheses hold words, nested ones too.
+    let plain = said
+    while (/\([^()]*\)/.test(plain)) plain = plain.replace(/\([^()]*\)/g, ' ')
+    return plain.split(/[,;]\s*|\s+and\s+/).flatMap(part => {
+      const words = part.replace(/^\s*(?:[-*]\s+|and\s+)/, '').replace(/`/g, '').trim().split(/\s+/).filter(Boolean)
+      if (words.length >= 2 && isRepoWord(words[0].replace(/:$/, ''))) repo = words.shift().replace(/:$/, '')
+      const path = words.map(pathOf).find(word => word !== '' && isPathWord(word, words.length === 1))
+      if (path === undefined || TEST_FOLDERS.has(path)) return []
+      return [{ repo, path }]
+    })
+  })
+}
+
+/** B378: two paths overlap when they are one, or one is a folder that holds the other, in the same repository. */
+const covers = (a, b) => (a.repo === null || b.repo === null || a.repo === b.repo)
+  && (a.path === b.path || b.path.startsWith(`${a.path}/`) || a.path.startsWith(`${b.path}/`))
+const named = touch => (touch.repo === null ? touch.path : `${touch.repo} ${touch.path}`)
+
+/**
+ * The first taken or in-progress step whose Touches overlap the item's: `{ id, mine, theirs }` (the two paths, as
+ * "repo path"), or null.
+ */
+export function overlapIn(items, item) {
+  const mine = touchesOf(item)
+  if (mine.length === 0) return null
+  for (const other of items.values()) {
+    if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || !['taken', 'in progress', 'waiting on you'].includes(valueOf(other, 'State'))) continue
+    for (const theirs of touchesOf(other)) {
+      const own = mine.find(one => covers(one, theirs))
+      if (own !== undefined) return { id: valueOf(other, 'Id'), state: valueOf(other, 'State'), mine: named(own), theirs: named(theirs) }
+    }
+  }
+  return null
 }
 
 /**
  * The flow's `overlaps` for the server: the id of a taken or in-progress step whose Touches name a path the item's
- * Touches name too (a folder covers what is in it), or null.
+ * Touches name too (a folder covers what is in it), or null. B378: `.why(item)` says which two paths.
  */
 export function overlapsIn(items) {
-  return item => {
-    const mine = touchesOf(item)
-    if (mine.length === 0) return null
-    const covers = (a, b) => a === b || b.startsWith(`${a.replace(/\/$/, '')}/`) || a.startsWith(`${b.replace(/\/$/, '')}/`)
-    for (const other of items.values()) {
-      if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || !['taken', 'in progress', 'waiting on you'].includes(valueOf(other, 'State'))) continue
-      if (touchesOf(other).some(path => mine.some(own => covers(own, path)))) return valueOf(other, 'Id')
-    }
-    return null
+  const overlaps = item => overlapIn(items, item)?.id ?? null
+  overlaps.why = item => {
+    const found = overlapIn(items, item)
+    return found === null ? null : `${found.id} is ${found.state} and works in ${found.theirs}, which overlaps ${found.mine} of this step`
   }
+  return overlaps
+}
+
+/** B378: what a guard that does not hold adds to the refusal, when it can say more than its name. */
+export const GUARD_WHY = {
+  'Touches overlaps no taken step': (item, ctx) => ctx.overlaps?.why?.(item) ?? null,
 }
