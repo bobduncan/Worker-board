@@ -96,6 +96,18 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
 }
 
 /**
+ * Plan (2026-10-19): the Plan part's word to the partner about an answer of the product plan: `plan: P5 confirmed`
+ * (the answer is the person's decision now) or `plan: P5 change` with their words (the partner rewrites the answer).
+ * The partner writes the page (roles/partner.md, "The plan interview"); the board writes nothing.
+ */
+export function planWords(command, { to, id, words = null, job }) {
+  const lines = command === 'plan-confirm'
+    ? [`plan: ${id} confirmed`, `Your job: ${job}, "The plan interview"`]
+    : [`plan: ${id} change`, `Words: ${String(words ?? '').replace(/\s+/g, ' ').trim()}`, `Your job: ${job}, "The plan interview"`]
+  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id, text: lines.join('\n') }
+}
+
+/**
  * B181: the word that asks the main chat to hand out a step of the backlog that nobody has. The main chat picks the
  * worker or what the step waits for, and writes the step's "(for ...)" note; the board writes nothing into the
  * backlog. The title comes from the backlog: one plain line.

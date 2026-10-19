@@ -8337,6 +8337,27 @@ function goalStepIds(goals, id) {
   walk(id)
   return [...found].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
 }
+
+/**
+ * Plan (2026-10-19): the Plan part on top of the Focus page: the product plan's answers P1 to P8 as rows, each with
+ * its state (decided, assumed, open), its text, where it came from and when to ask again, and on an open one the
+ * partner's ask with its options. `ui.change` is the answer whose Change box is open. Null without a page.
+ */
+function planView(plan, ui = { change: null }) {
+  if (plan === null || plan === undefined) return null
+  const when = answer => (answer.at === null ? '' : `, ${answer.at}`)
+  const rows = plan.answers.map(answer => ({
+    id: answer.id, title: answer.title, state: answer.state,
+    text: answer.state === 'open' ? (answer.ask?.text || answer.known || '') : answer.answer,
+    source: answer.from !== null ? `from ${answer.from}${when(answer)}` : answer.by !== null ? `${answer.by}${when(answer)}` : null,
+    revisit: answer.revisit, overturned: answer.overturned,
+    ask: answer.ask === null ? null : { id: answer.ask.id, advice: answer.ask.advice, options: answer.ask.options, pictures: answer.ask.pictures },
+    isChanging: ui.change === answer.id,
+  }))
+  const { decided, assumed, open } = plan.counts
+  const log = `${plan.log.hits} hits, ${plan.log.gaps} gaps${plan.log.overturned > 0 ? `, ${plan.log.overturned} overturned` : ''}`
+  return { path: plan.path, rows, summary: `${decided} decided · ${assumed} assumed · ${open} open · the log: ${log}` }
+}
 // focus:end
 function showAdvisorPane(name) {
   const pane = ADVISOR_PANES.includes(name) ? name : advisorFirstPart(board?.advisorParts)
@@ -8388,12 +8409,14 @@ function drawAdvisorParts(state) {
  * box of "Not yet" open (`vibe` or `how`) and the words typed in each box, the option picked for the open question.
  */
 // B354: `asked`, the goals whose Done when the person asked the partner for on this page.
-const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], words: { talk: '', notYet: '', new: '', bar: '' } }
-const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar' }
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], plan: { change: null }, words: { talk: '', notYet: '', new: '', bar: '', planChange: '' } }
+const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'plan-change-words': 'planChange' }
 
 function focusData(state) {
   const effort = state.advisor?.effort ?? null
   return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking, focusUi.asked.join(','),
+    // Plan (2026-10-19): the product plan's answers and which one's Change box is open.
+    state.plan ?? null, focusUi.plan.change,
     // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
     effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null,
     // B360: the recaps gathered under the daily note, with their sending and problems; B390: and their box open or not.
@@ -8719,6 +8742,74 @@ function focusNoteCard(view) {
 }
 
 /**
+ * Plan (2026-10-19): the Plan part's card, on top of the Focus page: one row per answer of the product plan. A decided
+ * or assumed answer has Confirm (your word now) and Change (your words to the partner, who rewrites it); an open one
+ * shows the partner's options as buttons and "Don't know" (the advised default stands as assumed). The partner
+ * writes the page; the board types your word to it. Without a page the card says how to start one.
+ */
+function planCard(state) {
+  const view = planView(state.plan ?? null, focusUi.plan)
+  const card = el('section', 'focus-card plan-card')
+  const canWrite = board?.goalsEdit?.canWrite === true && (state.advisor ?? null) !== null
+  if (view === null) {
+    card.append(el('h3', '', 'Plan'), el('p', 'muted', 'No product plan yet. Type "plan interview" to your partner: the eight answers every goal falls back to appear here, each decided by you, assumed for now, or open.'))
+    return card
+  }
+  const head = el('div', 'plan-head')
+  const file = el('button', 'plan-path', view.path)
+  file.type = 'button'
+  file.dataset.gameFile = view.path
+  file.title = 'Open the whole page'
+  head.append(el('h3', '', 'Plan'), el('span', 'muted plan-summary', view.summary), file)
+  card.append(head)
+  for (const row of view.rows) {
+    const line = el('div', `plan-row is-${row.state}`)
+    const top = el('div', 'plan-top')
+    top.append(el('span', 'plan-id', row.id), el('b', 'plan-title', row.title), el('span', `plan-state is-${row.state}`, row.state))
+    line.append(top)
+    if (row.text !== '') line.append(el('p', 'plan-answer', row.text))
+    const meta = [row.source, row.revisit === null ? null : `revisit after ${row.revisit}`].filter(one => one !== null).join(' · ')
+    if (meta !== '') line.append(el('p', 'muted plan-meta', meta))
+    for (const over of row.overturned) line.append(el('p', 'plan-overturned', `Overturned ${over}`))
+    if (row.state === 'open') {
+      if (row.ask === null) line.append(el('p', 'muted', 'Your partner has not asked it yet: type "plan interview" to your partner, and its options appear here.'))
+      else {
+        const options = el('div', 'focus-ask-options')
+        for (const option of [...row.ask.options, { label: "Don't know", isAdvised: false, isDunno: true }]) {
+          const button = el('button', `focus-answer${option.isAdvised ? ' is-advised' : ''}${option.isDunno ? ' plan-dunno' : ''}`, option.isAdvised ? `${option.label} (advised)` : option.label)
+          button.type = 'button'
+          button.disabled = focusUi.busy || !canWrite
+          button.dataset.focusAnswer = row.ask.id
+          button.dataset.focusLabel = option.label
+          options.append(button)
+        }
+        line.append(options)
+        if (row.ask.advice !== null) line.append(el('p', 'muted plan-advice', `Your partner advises ${row.ask.advice}. "Don't know" takes the advised default, marked assumed.`))
+        if (row.ask.pictures.length > 0) {
+          const pictures = el('div', 'focus-ask-pictures')
+          for (const path of row.ask.pictures) pictures.append(picture(path, row.title))
+          line.append(pictures)
+        }
+      }
+    } else {
+      const buttons = el('div', 'plan-buttons')
+      for (const [act, label] of [['plan-confirm', row.state === 'assumed' ? 'Confirm: decided' : 'Confirm'], ['plan-change-open', row.isChanging ? 'Keep it' : 'Change']]) {
+        const button = el('button', 'focus-answer', label)
+        button.type = 'button'
+        button.disabled = focusUi.busy || !canWrite
+        button.dataset.focusAct = act
+        button.dataset.focusGoal = row.id
+        buttons.append(button)
+      }
+      line.append(buttons)
+      if (row.isChanging) line.append(focusSay('What should the answer be? Your words go to your partner, who rewrites it.', 'focus-say is-slim', { box: 'plan-change-words', act: 'plan-change', isEnabled: canWrite, title: 'Your partner chat is not on the board.' }))
+    }
+    card.append(line)
+  }
+  return card
+}
+
+/**
  * B360: the recaps of finished work gathered under the daily note (the setting botherMe "daily"), each with its
  * picture, Overturn and OK, seen (B390), as in Needs your attention.
  */
@@ -8786,6 +8877,8 @@ function drawFocus(state) {
   // Partner answers (2026-10-19): the switch, beside today's note in the run, else under everything else.
   const toggle = partnerSwitch(state)
   let switchDrawn = false
+  // Plan (2026-10-19): the product plan first: what every goal below it falls back to.
+  parts.push(planCard(state))
   if (view.head !== null) {
     const head = el('header', 'focus-head')
     const title = el('div', 'focus-title')
@@ -8915,6 +9008,13 @@ async function focusAct(act, goal = null, extra = null) {
     focusUi.note = null
     return redrawFocus()
   }
+  // Plan (2026-10-19): the Change box of an answer opens and closes without a word to anyone.
+  if (act === 'plan-change-open') {
+    focusUi.plan.change = focusUi.plan.change === goal ? null : goal
+    focusUi.note = null
+    redrawFocus()
+    return $('plan-change-words')?.focus()
+  }
   if (act === 'vibe-not-yet' || act === 'how-not-yet' || act === 'vibe-there-no') {
     const stage = act === 'vibe-not-yet' ? 'vibe' : act === 'how-not-yet' ? 'how' : 'there'
     focusUi.notYet = focusUi.notYet === stage ? null : stage
@@ -8969,6 +9069,15 @@ async function focusAct(act, goal = null, extra = null) {
     // Partner answers, the review's findings: a partner's answer is taken back, and the line says so (by the line's field).
     else if (act === 'undo' && focus !== null && extra !== null) await sendFocus({ command: 'note-undo', id: focus.id, note: extra.note, line: extra.line }, extra.ask ? 'Taken back: the question comes to you under Needs your attention, and its chat waits for your answer.' : 'Your partner is asked to undo it.')
     else if (act === 'answer' && extra !== null) await focusAnswerAsk(extra.id, extra.label)
+    // Plan (2026-10-19): an answer of the product plan confirmed as yours, or your words for a new one, to the partner.
+    else if (act === 'plan-confirm' && goal !== null) await sendFocus({ command: 'plan-confirm', id: goal }, `${goal} is your decision now: your partner writes it so.`)
+    else if (act === 'plan-change' && focusUi.plan.change !== null) {
+      if (words('planChange') === '') focusUi.note = { isProblem: true, text: 'Say what the answer should be, in your words.' }
+      else if (await sendFocus({ command: 'plan-change', id: focusUi.plan.change, text: words('planChange') }, 'Sent to your partner: it rewrites the answer.') !== null) {
+        focusUi.words.planChange = ''
+        focusUi.plan.change = null
+      }
+    }
   } finally {
     focusUi.busy = false
     redrawFocus()

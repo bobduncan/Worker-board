@@ -108,7 +108,7 @@ test('readSources never follows a transcript name out of the transcripts folder'
 test('readSources gives empty sources for folders that do not exist, and survives a folders reader that fails', async () => {
   const config = { ...parseConfig('{}', {}), project: join(DATA, 'no-such-project'), appSessions: join(DATA, 'no-such-app'), transcripts: join(DATA, 'none') }
   const raw = await readSources(config, async () => { throw new Error('git is not installed') }, NOW)
-  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, planLineAt: {}, tails: {}, adviceText: null, folders: null, askTexts: [], goalsText: null, threadTexts: [], pictureLists: {}, work: undefined, usageText: null, appStartedAt: null, branches: null, adviceAt: null })
+  assert.deepEqual(raw, { listText: null, appChatTexts: [], planLineTexts: {}, planLineAt: {}, tails: {}, adviceText: null, folders: null, askTexts: [], goalsText: null, threadTexts: [], productPlanText: null, pictureLists: {}, work: undefined, usageText: null, appStartedAt: null, branches: null, adviceAt: null })
 })
 
 test('a picture is found only inside a folder the board may show, also when a path tries to leave it', async t => {

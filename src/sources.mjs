@@ -104,7 +104,9 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const claude = join(config.project, '.claude')
   // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository.
   const plan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.gamePlan.split('/'))
-  const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work, threadTexts] = await Promise.all([
+  // Plan (2026-10-19): the product plan beside it, for the Plan part of the Focus page.
+  const productPlan = config.gameRepo === '' ? null : join(config.gameRepo, ...config.productPlan.split('/'))
+  const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work, threadTexts, productPlanText] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     readAppChats(config.appSessions),
     plan === null ? null : readText(plan),
@@ -115,6 +117,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     readWork(),
     // B259: the brainstorms' threads.
     readThreads(config.project, config.brainstorms),
+    productPlan === null ? null : readText(productPlan),
   ])
 
   const chats = boardChats(
@@ -150,7 +153,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   }))
 
   return {
-    listText, appChatTexts, planLineTexts, planLineAt, tails, adviceText, folders, askTexts, goalsText, threadTexts,
+    listText, appChatTexts, planLineTexts, planLineAt, tails, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
     pictureLists: await pictureLists(config, work, now),
     // B296, B301: the work store as it was read: the one source of the work.
     work,

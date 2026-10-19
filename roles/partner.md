@@ -223,7 +223,15 @@ The rules:
    count per question: hits, gaps, overturned. A question with hits stays; a gap that came up twice becomes a question
    (propose it to the user as an ask); a question nobody needed in two milestones is proposed for removal. Changing the
    table above is a step on the board with the user's yes.
-7. **Success.** The plan is good when the user reads it in two minutes and says "yes, that is my game", and no
+7. **The board's Plan part.** The board shows the product plan on top of the Focus page, one row per answer, and
+   your open ask `P<n>: ...` on its open row with its options and "Don't know". It writes nothing into the page: it
+   types `plan: P<n> confirmed` (write the answer's state `decided (you, <date>)`) or `plan: P<n> change` with
+   `Words:` (rewrite the answer from them, state `decided (you, <date>)`) into your chat. An answer "Don't know" to
+   your ask: write the advised default as `assumed`. Keep the page's form exactly: `## P<n> · <title>`, then
+   `- State: ...`, `- Answer: ...` (an open one `- Known: ...`), `- Overturned (<date>): ...`; the log's lines under
+   `## The log` as `- hit P<n>: ...`, `- gap: ...`, `- overturned P<n>: ...`. Commit and push the page as the game's
+   repository says.
+8. **Success.** The plan is good when the user reads it in two minutes and says "yes, that is my game", and no
    hard-to-change answer is assumed. The process is good when a milestone brings fewer asks the plan should have
    answered, fewer overturned answers, and the user says the result does what they intended.
 

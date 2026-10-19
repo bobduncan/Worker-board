@@ -281,6 +281,28 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-ask-pictures { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .focus-ask-pictures .picture { display: block; width: 100%; }
 .focus-ask-pictures .picture img { aspect-ratio: auto; max-height: 190px; object-fit: contain; }
+/* Plan (2026-10-19): the Plan part on top of the Focus page: one row per answer of the product plan, its state at the right. */
+.plan-card { margin-bottom: 14px; padding: 14px 18px 10px; }
+.plan-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 8px; }
+.plan-head h3 { margin: 0; }
+.plan-summary { font-size: 14px; }
+.plan-path { margin-left: auto; padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.plan-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); margin-bottom: 6px; }
+.plan-row.is-open { border-color: var(--waiting); }
+.plan-top { display: flex; align-items: baseline; gap: 10px; }
+.plan-id { color: var(--muted); font-weight: 600; min-width: 2.2em; }
+.plan-title { flex: 1; overflow-wrap: anywhere; }
+.plan-state { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.plan-state.is-decided { border-color: var(--working); color: var(--working); }
+.plan-state.is-assumed { border-color: var(--free); color: var(--free); }
+.plan-state.is-open { border-color: var(--waiting); color: var(--waiting); }
+.plan-answer { margin: 6px 0 0 2.9em; font-size: 14px; overflow-wrap: anywhere; }
+.plan-meta, .plan-advice { margin: 4px 0 0 2.9em; font-size: 13px; }
+.plan-overturned { margin: 4px 0 0 2.9em; font-size: 13px; color: var(--warn); }
+.plan-buttons, .plan-row .focus-ask-options { margin: 8px 0 2px 2.9em; display: flex; flex-wrap: wrap; gap: 8px; }
+.plan-buttons .focus-answer { min-width: 0; padding: 6px 14px; font-weight: 500; }
+.plan-dunno { border-style: dashed; }
+.plan-row .focus-say { margin: 8px 0 4px 2.9em; }
 .focus-there { border-color: var(--working); }
 .focus-there h3 { color: var(--working); }
 /* B255: the goal map's outline (spec 2026-10-15): one level at a time, the rest folded and dimmed. */
