@@ -29,7 +29,7 @@ export function checkSetting(body) {
 export function settingChanged(text, key, value) {
   const checked = checkSetting({ key, value })
   if (!checked.ok) return checked
-  const body = String(text ?? '').replace(/^﻿/, '')
+  const body = String(text ?? '').replace(/^\uFEFF/, '')
   let raw
   try {
     raw = JSON.parse(body)

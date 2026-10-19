@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
-import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -973,8 +973,19 @@ async function main(args) {
         const changed = settingChanged(text, checked.key, checked.value)
         if (!changed.ok) return changed
         const spare = `${file}.${process.pid}.tmp`
-        await writeFile(spare, changed.text)
-        await rename(spare, file)
+        try {
+          await writeFile(spare, changed.text)
+          // Windows may hold the file for a moment (a virus scanner): once more after a short wait.
+          await rename(spare, file).catch(async error => {
+            if (error?.code !== 'EPERM' && error?.code !== 'EBUSY') throw error
+            await new Promise(done => setTimeout(done, 200))
+            await rename(spare, file)
+          })
+        } catch (error) {
+          return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
+        } finally {
+          await rm(spare, { force: true })
+        }
       }
       config[checked.key] = checked.value
       readState.reset()

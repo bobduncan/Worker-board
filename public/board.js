@@ -387,6 +387,7 @@ $('settings').addEventListener('click', async event => {
     board.boardSettings = await answer.json()
     // The recaps and the asks that can wait move between Needs your attention and the daily note at once.
     board.recapsShow = board.boardSettings.botherMe
+    await read()
   } catch (error) {
     problems.set('setting', `Setting not changed: ${error instanceof Error ? error.message : 'the board did not answer'}`)
   } finally {
@@ -3222,6 +3223,8 @@ function takeAnswers(box) {
     if (event.target.closest('[data-open]') !== null) {
       openForms.add(id)
       redrawNeeds()
+      // B361: an ask gathered under the daily note is answered on the Focus page.
+      redrawFocus()
       refocus(box, id)
       return
     }
@@ -3234,6 +3237,7 @@ function takeAnswers(box) {
       chosen.set(id, choice.dataset.choose)
       drawn.needs = null
       redrawNeeds()
+      redrawFocus()
       return
     }
     const button = event.target.closest('[data-send]')
@@ -8414,9 +8418,12 @@ function focusNoteCard(view) {
     }
     card.append(list)
   }
-  if (view.note.needs.length > 0) {
+  // B361: while asks gather under the note ("Bother me: once a day"), their whole card stands below: not twice.
+  const gathered = new Set(gatheredAsks(board ?? {}).map(need => need.workId))
+  const needs = view.note.needs.filter(ask => !gathered.has(ask.id))
+  if (needs.length > 0) {
     card.append(el('h4', '', 'Needs you'))
-    for (const ask of view.note.needs) {
+    for (const ask of needs) {
       const box = el('div', 'focus-ask')
       box.append(el('b', '', ask.title))
       if (ask.options.length > 0) {
@@ -8462,7 +8469,7 @@ function focusRecapCard(state) {
 function focusAsksCard(state) {
   const card = el('section', 'focus-card focus-asks')
   const asks = gatheredAsks(state)
-  card.append(el('h3', '', `Questions that can wait: ${asks.length}`), el('p', 'muted', `Gathered here under your partner's note, not one by one in Needs your attention ("Bother me: once a day" in ⚙). A question that holds up a chat still reaches you there at once.`))
+  card.append(el('h3', '', `Questions that can wait: ${asks.filter(need => !isAnswered(need)).length}`), el('p', 'muted', `Gathered here under your partner's note, not one by one in Needs your attention ("Bother me: once a day" in ⚙). A question that holds up a chat still reaches you there at once.`))
   card.append(...asks.map(need => drawNeed(need, state)))
   return card
 }

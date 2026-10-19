@@ -92,4 +92,8 @@ test('once a day, the daily note gathers the asks that hold up no chat; a blocki
   ]
   assert.deepEqual([...page.gatheredAsks({ forYou, recapsShow: 'now' }).map(one => one.id)], [])
   assert.deepEqual([...page.gatheredAsks({ forYou, recapsShow: 'daily' }).map(one => one.id)], ['work:Q7'])
+  // The review: an option chosen on a gathered ask lights up on the Focus page at once, and the note's "Needs you"
+  // leaves out an ask whose whole card stands under it.
+  assert.match(script, /chosen\.set\(id, choice\.dataset\.choose\)\s+drawn\.needs = null\s+redrawNeeds\(\)\s+redrawFocus\(\)/)
+  assert.match(script, /const needs = view\.note\.needs\.filter\(ask => !gathered\.has\(ask\.id\)\)/)
 })
