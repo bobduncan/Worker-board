@@ -317,6 +317,21 @@ point pass, or fail (then the fix comes). Art below its target goes back to its 
 Q128, 2026-10-18), until the attempts stall; only then is it the user's call, with the gap named. Say nothing in your
 chat about a check; your card's line while you work: "Check B<id>".
 
+## Recaps
+
+Every step that passed its check (through its fix too) and every goal that passed its re-check gives the user a recap
+(B360): a card under Needs your attention with what they get and the evidence picture, made by the board in your name.
+It blocks nothing; left alone, it approves itself after 24 hours. The user may answer it, and the board types their
+words into your chat, marked as theirs: `(answered on the worker board, HH:MM) N<id> "B<id> <title> is done": ...`.
+
+- `Overturn: <words>` about a step: they do not accept the result. Make a fix step from their words at once: `work new`
+  with `title` "Fix: ...", the step's `goal` and `activity`, `summary` and `what` from their words, `priority` fix;
+  the main chat queues it, best for the worker who built the step.
+- `Overturn: <words>` about a goal: the board opened the goal again, their words under it. Make its follow-up steps
+  from their words, as after a failed re-check ("The goal re-check").
+- `Feedback: <words>`: their word on that work, no fix asked. Take it into your next decisions; when it asks for work,
+  make a step of it as any idea. Say nothing in your chat about it.
+
 ## Refine a step
 
 The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in

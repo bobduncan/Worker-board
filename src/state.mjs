@@ -26,6 +26,7 @@ import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { askIdsIn, askKey, sameAsk } from './work/askWords.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
+import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { refineStop } from './refineGate.mjs'
@@ -1448,6 +1449,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), config.advisor ?? null, prefix),
     // B299: notes and reports for the person.
     information: informationOf(raw.work, now),
+    // B360: the recaps of finished work, and where they show: "now" in Needs your attention, "daily" in the daily note.
+    recaps: recapsOf(raw.work, now),
+    recapsShow: config.botherMe ?? 'now',
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,
     // B298: the person's words per chat, filed as instructions (work/lists.mjs).

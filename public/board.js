@@ -2784,6 +2784,75 @@ function drawNeed(need, state) {
   return card
 }
 
+// B360: kept between these two marks so a test can run it without the page.
+// recaps:start
+/**
+ * B360: the recaps Needs your attention shows, each as a card of its own: none while they gather in the daily note
+ * (`recapsShow` "daily"); else the open ones, and with "Show closed" those closed within the last day too.
+ */
+const shownRecaps = (state, withClosed) => (state.recapsShow === 'daily' ? [] : (state.recaps ?? []).filter(recap => withClosed || !recap.isClosed))
+/** B360: the open recaps the daily note gathers, while they gather there. */
+const gatheredRecaps = state => (state.recapsShow === 'daily' ? (state.recaps ?? []).filter(recap => !recap.isClosed) : [])
+/** B360: a time left, as a card says it: hours from an hour on, else minutes. */
+const timeLeft = ms => (ms >= HOUR ? `${Math.round(ms / HOUR)} h` : `${Math.max(1, Math.round(ms / MIN))} min`)
+/** B360: what a recap says under its picture: when it approves itself, or what became of it. */
+function recapStatus(recap, now) {
+  if (recap.state === 'approved') return 'Approved by itself: its 24 hours passed.'
+  if (recap.state === 'overturned') return `Overturned: "${recap.words}". ${recap.isGoal ? 'The goal is open again; your partner makes its next steps.' : 'Your partner makes the fix.'}`
+  if (recap.state === 'feedback') return `Your feedback went to your partner: "${recap.words}".`
+  const left = recap.approvesAt === null ? 0 : recap.approvesAt - now
+  return `${left <= 0 ? 'Approves itself now' : `Approves itself in ${timeLeft(left)}`}, unless you overturn it or give feedback.`
+}
+/** B360: what the person's click on a recap's button sends: Overturn and Feedback both need their words. */
+function recapSend(recap, verdict, text) {
+  if (verdict !== 'overturn' && verdict !== 'feedback') return { ok: false, why: 'Overturn or Feedback.' }
+  if (text === '') return { ok: false, why: verdict === 'overturn' ? 'Say what is wrong: your partner makes the fix from your words.' : 'Write your feedback first.' }
+  return { ok: true, body: { action: verdict, id: recap.workId, text } }
+}
+// recaps:end
+
+/**
+ * B360: a recap of finished work: marked Information (it asks nothing and blocks nothing), the step or goal, what the
+ * person gets, the evidence picture, when it approves itself, and Overturn and Feedback with a box for their words.
+ */
+function drawRecap(recap, state) {
+  const card = el('article', `need is-recap${recap.isClosed ? ' is-closed' : ''}`)
+  card.dataset.id = recap.id
+  const top = el('header', 'need-top')
+  top.append(el('span', 'kind', 'ℹ'), el('b', '', recap.about ?? ''), el('span', 'tag', 'Information'), since(recap.at, state.readAt))
+  card.append(top, el('h4', '', recap.title))
+  if (recap.line !== '') card.append(el('p', '', recap.line))
+  if (!/^none\b/i.test(recap.evidence)) {
+    const pictures = el('div', 'pictures')
+    pictures.append(picture(recap.evidence, recap.title))
+    card.append(pictures)
+  }
+  card.append(el('p', 'muted recap-status', recapStatus(recap, state.readAt)))
+  if (recap.isClosed) return card
+  const text = el('textarea')
+  text.rows = 2
+  text.maxLength = state.maxMessageChars
+  text.placeholder = recap.isGoal ? 'What is missing (Overturn opens the goal again), or what you think (Feedback)…' : 'What is wrong (Overturn: a fix step), or what you think (Feedback)…'
+  text.value = drafts.get(recap.id) ?? ''
+  text.setAttribute('aria-label', `Your words on ${recap.about ?? 'this recap'}`)
+  const buttons = el('div', 'buttons is-split')
+  const button = (label, className, verdict, title) => {
+    const node = el('button', `button ${className}`, label)
+    node.type = 'button'
+    node.dataset.send = verdict
+    node.disabled = sending.has(recap.id)
+    node.title = title
+    return node
+  }
+  buttons.append(
+    button('↺  Overturn', 'is-reject', 'overturn', recap.isGoal ? 'Opens the goal again; your partner makes its next steps from your words.' : 'Your partner makes a fix step from your words.'),
+    button('✎  Feedback', '', 'feedback', 'Your words go to your partner; the work stays done.'),
+  )
+  card.append(text, buttons)
+  if (problems.has(recap.id)) card.append(el('p', 'problem', problems.get(recap.id)))
+  return card
+}
+
 // B85 (the order of the cards): kept between these two marks so a test can run it without the page.
 // order:start
 /**
@@ -2978,7 +3047,9 @@ function drawNeeds(state) {
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   const cards = rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
   const none = cardsOpen.length > 0 || lines.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
-  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawLegacy(state), drawInstructions(state)])
+  // B360: the recaps of finished work, as information after what asks for an answer.
+  const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
+  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, ...recaps, drawLegacy(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
   // B307: Information in its own box under the asks, as high as the person dragged it.
@@ -2988,7 +3059,7 @@ function drawNeeds(state) {
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
 // A card says how long ago it was filed: the minute is part of what is drawn.
-const needsData = state => [state.forYou, (state.focus?.needs ?? []).map(need => need.id), state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], state.goalAskNeeds ?? [], state.brainstormNeeds ?? [], state.goalsEdit?.canWrite ?? null, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
+const needsData = state => [state.forYou, state.recaps ?? [], state.recapsShow ?? null, (state.focus?.needs ?? []).map(need => need.id), state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], state.goalAskNeeds ?? [], state.brainstormNeeds ?? [], state.goalsEdit?.canWrite ?? null, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
@@ -2999,7 +3070,7 @@ function redrawNeeds() {
   drawDetails(board)
 }
 
-const everyNeed = state => [...state.forYou, ...state.backlogForYou, ...state.backlogClosed]
+const everyNeed = state => [...state.forYou, ...state.backlogForYou, ...state.backlogClosed, ...(state.recaps ?? [])]
 const findNeed = id => (board === null ? undefined : everyNeed(board).find(one => one.id === id))
 
 /** The answer forms work the same in the inbox and in the details: both hold `.need` elements named by their id. */
@@ -3037,6 +3108,11 @@ function takeAnswers(box) {
     if (button === null || need === undefined) return
     const verdict = button.dataset.send === '' ? null : button.dataset.send
     const text = (drafts.get(id) ?? '').trim()
+    // B360: a recap takes the person's words with Overturn or Feedback.
+    if (id.startsWith('recap:')) {
+      const sent = recapSend(need, verdict, text)
+      return sent.ok ? sendWork(sent.body, id) : fail(id, sent.why)
+    }
     if (verdict === 'reject' && text === '') return fail(id, 'Say why you reject it: the worker needs to know what to change.')
     if (verdict === null && text === '') return fail(id, 'This needs your words.')
     openForms.delete(id)
@@ -3053,6 +3129,8 @@ function fail(id, why) {
 
 takeAnswers($('needs'))
 takeAnswers($('details'))
+// B360: the recaps gathered in the daily note, on the Focus page.
+takeAnswers($('advisor-focus'))
 $('pause-all').addEventListener('click', () => {
   isAskingPause = true
   redrawNeeds()
@@ -7668,7 +7746,9 @@ function focusData(state) {
   const effort = state.advisor?.effort ?? null
   return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking, focusUi.asked.join(','),
     // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
-    effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null]
+    effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null,
+    // B360: the recaps gathered under the daily note, with their sending and problems.
+    gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null])]
 }
 function redrawFocus() {
   if (board !== null && board !== undefined) once('focus', focusData(board), () => drawFocus(board))
@@ -7981,6 +8061,18 @@ function focusNoteCard(view) {
   return card
 }
 
+/**
+ * B360: the recaps of finished work gathered once a day (the setting Bother me: once a day), each with its picture,
+ * Overturn and Feedback, as in Needs your attention.
+ */
+function focusRecapCard(state) {
+  const card = el('section', 'focus-card focus-recaps')
+  const recaps = gatheredRecaps(state)
+  card.append(el('h3', '', `Finished: ${recaps.length}`), el('p', 'muted', 'Gathered here once a day. Each approves itself 24 hours after it came, unless you overturn it or give feedback.'))
+  card.append(...recaps.map(recap => drawRecap(recap, state)))
+  return card
+}
+
 /** Focus 3: every part done: "Is the vibe there?" with the agreed vibe, Yes, and No with a box for what is missing. */
 function focusVibeThereCard(view, can) {
   const card = el('section', 'focus-card focus-there')
@@ -8056,6 +8148,8 @@ function drawFocus(state) {
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
       if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can))
       right.append(focusNoteCard(view))
+      // B360: with "Bother me: once a day" the recaps of finished work gather under the daily note.
+      if (gatheredRecaps(state).length > 0) right.append(focusRecapCard(state))
       body.append(left, right)
     } else {
       const right = view.stage === 'vibe' ? focusVibeCard(view) : focusHowCard(view)
@@ -8067,6 +8161,8 @@ function drawFocus(state) {
     }
     parts.push(body)
   }
+  // B360: without a run on the page, the gathered recaps stand under it.
+  if (view.stage !== 'run' && gatheredRecaps(state).length > 0) parts.push(focusRecapCard(state))
   if (focusUi.note !== null) parts.splice(view.head === null ? 0 : 1, 0, el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text))
   // The box typed in keeps its words, and the cursor where it was.
   const active = document.activeElement

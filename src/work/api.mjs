@@ -19,7 +19,8 @@ import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
+import { checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
+import { RECAP_ANSWERS, dueRecaps } from './recap.mjs'
 import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
@@ -31,17 +32,17 @@ import { writeView } from './view.mjs'
 export { overlapsIn, sinceMs }
 
 const READS = new Set(['next', 'list', 'pause-state'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'feedback', 'approve-recaps'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
  */
 const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'feedback', 'approve-recaps'])
 /** What only the person does, on the board's page; and what only the server does. */
-const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume'])
-const SERVER = new Set(['check', 'advance', 'resumed'])
+const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'feedback'])
+const SERVER = new Set(['check', 'advance', 'resumed', 'approve-recaps'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -660,6 +661,68 @@ async function makeNote(w, to, text, of, via = null) {
   return done.ok ? { ok: true, item } : done
 }
 
+/**
+ * B360: a recap for the person (recap.mjs): a note About `of` (a step or a goal), "<of> <title> is done" and one line of
+ * what they get, with the evidence picture of its check. It waits out its window, open; it blocks nothing.
+ */
+async function makeRecap(w, of, title, what, evidence) {
+  const id = await nextId(w.dir, 'N', w.fs)
+  const text = [`${of} ${line(title, 200)} is done`, ...(line(what, 1000) === '' ? [] : [line(what, 1000)])]
+  const item = said({
+    head: new Map([['Id', id], ['Kind', 'note'], ['From', w.who], ['To', 'you'], ['State', 'unread'], ['Since', stamp(w.now)], ['Recap', 'open'], ['Evidence', line(evidence, 300) || 'none'], ['Text', line(text.join(': '), LINE_CHARS)]]),
+    sections: new Map([['Text', text], ['About', [of]]]),
+    problem: null,
+  }, w, 'recap made')
+  const done = await save(item, null, w)
+  return done.ok ? { ok: true, item } : done
+}
+
+/**
+ * B360: the person's answer to an open recap, with their words: `overturn` (the partner makes a fix step from them; a
+ * goal is reopened, `reopen` in the result, which the board writes into the goal map) or `feedback` (the words go to
+ * the partner). The recap closes; the partner is woken with the words, marked as the person's.
+ */
+async function recapAnswer(body, w) {
+  const found = await load(body.id, w, { kind: ['note'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  const state = valueOf(found.item, 'Recap')
+  if (state === null) return refuse(409, `${id} is no recap.`)
+  if (state !== 'open') return refuse(409, `${id} is ${state} already.`)
+  const isOverturn = body.action === 'overturn'
+  const words = lines(body.text)
+  if (words.length === 0) return refuse(400, isOverturn ? 'Say what is wrong: your partner makes the fix from your words.' : 'Give your feedback in your words.')
+  const about = (found.item.sections.get('About') ?? [])[0] ?? null
+  const short = line(words.join(' '), 200)
+  let item = put(put(put(copy(found.item), 'Recap', RECAP_ANSWERS[body.action]), 'State', 'read'), 'Since', stamp(w.now))
+  item.sections.set('Answer', words)
+  item = said(item, w, `${RECAP_ANSWERS[body.action]}: ${short}`)
+  const done = await save(item, found.text, w)
+  if (!done.ok) return done
+  const isGoal = about !== null && GOAL_ID.test(about)
+  const job = !isOverturn ? 'take it as their word on that work (roles/partner.md, "Recaps")'
+    : isGoal ? `the board reopened ${about}: make its follow-up steps from their words (roles/partner.md, "Recaps")`
+      : `make a fix step of ${about} from their words (roles/partner.md, "Recaps")`
+  const partner = (w.chats ?? []).find(chat => w.roleOf?.(chat) === 'advisor') ?? null
+  const title = (found.item.sections.get('Text') ?? [])[0] ?? ''
+  const wake = partner === null ? null : { to: partner, id, title, text: [`${isOverturn ? 'Overturn' : 'Feedback'}: ${words.join(' ')}`, `About: ${about ?? '-'}`, `Your job: ${job}`].join('\n') }
+  return changed(item, undefined, { wake, ...(isOverturn && isGoal ? { reopen: { id: about, words: short } } : {}) })
+}
+
+/** B360: the board approves every open recap whose window passed (recap.mjs): approved, read, the History says so. */
+async function approveRecaps(body, w) {
+  const due = dueRecaps(w.store.items.values(), w.now)
+  const approved = []
+  for (const one of due) {
+    const found = await load(valueOf(one, 'Id'), w, { kind: ['note'] })
+    if (!found.ok || valueOf(found.item, 'Recap') !== 'open') continue
+    const item = said(put(put(put(copy(found.item), 'Recap', 'approved'), 'State', 'read'), 'Since', stamp(w.now)), w, 'approved by itself: its 24 hours passed without an overturn or feedback')
+    const done = await save(item, found.text, w)
+    if (done.ok) approved.push(valueOf(item, 'Id'))
+  }
+  return { ok: true, result: { text: approved.length === 0 ? 'No recap is due.' : `Approved by itself: ${approved.join(', ')}.`, approved, changed: approved.length > 0 } }
+}
+
 /** The chat reports its step: in progress → review; the board's check is pending; the main chat gets a note. */
 async function report(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
@@ -837,6 +900,8 @@ async function checked(body, w) {
     if (fix !== null) await undoFix(fix, w)
     return done
   }
+  // B360: a step through its check gives the person its recap; a fix's recap is the step it fixes, once that closes.
+  if (stateOf(item) === 'done' && valueOf(item, 'Fix of') === null) await makeRecap(w, id, valueOf(item, 'Title') ?? '', lastReport(item).result, evidence)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
   return changed(item, undefined, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : { resultCheck: recheck }) })
 }
@@ -869,8 +934,8 @@ async function goalCheck(body, w) {
   if (!done.ok) return done
   const { ticked, title, attempts } = done.result
   if (ticked) {
-    // The recap: what is done, as the person reads it on the board.
-    await makeNote(w, 'you', [`${id} ${title} is done: a helper re-checked it against its Done when and its vibe, ${summary}.`, ...(/^none\b/i.test(evidence) ? [] : [`The evidence: ${evidence}`])], id)
+    // The recap: what is done, as the person reads it on the board (B360: with its picture, Overturn and Feedback).
+    await makeRecap(w, id, title, `a helper re-checked it against its Done when and its vibe, ${summary}.`, evidence)
   }
   const words = ticked ? `${id} passed its re-check and is ticked; the person gets the recap.`
     : verdict === 'failed' ? `${id} stays open (attempt ${attempts}): make its follow-up steps from the gap, into its how.`
@@ -948,6 +1013,8 @@ async function fixStep(origin, failed, w) {
  */
 async function closeFixed(item, w) {
   let fixed = item
+  // B360: the recap of the step the chain closes shows the evidence of the check that closed it.
+  const evidence = checkedOf(item)?.evidence ?? 'none'
   for (let depth = 0; depth < 10; depth += 1) {
     const originId = valueOf(fixed, 'Fix of')
     if (originId === null) return null
@@ -967,6 +1034,7 @@ async function closeFixed(item, w) {
     if (closed.ok) origin = closed.item
     const done = await save(origin, found.text, w)
     if (!done.ok || stateOf(origin) !== 'done') return null
+    if (valueOf(origin, 'Fix of') === null) await makeRecap(w, originId, valueOf(origin, 'Title') ?? '', lastReport(origin).result, evidence)
     fixed = origin
   }
   return null
@@ -1807,4 +1875,7 @@ const CHANGE = {
   'resume-all': pauseWrite,
   resumed: pauseWrite,
   'end-resume': pauseWrite,
+  overturn: recapAnswer,
+  feedback: recapAnswer,
+  'approve-recaps': approveRecaps,
 }

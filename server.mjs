@@ -55,7 +55,7 @@ import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsRunning, focusMove, goalChecked, guardGoal, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsRunning, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
@@ -1102,6 +1102,11 @@ async function main(args) {
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       const done = await workAction(body, 'person')
+      // B360: an overturned recap of a goal reopens the goal in the goal map; the partner is woken with the words below.
+      if (done.ok && done.result.reopen !== undefined && !isShowOnly) {
+        await goalReopened(done.result.reopen, { canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() }).catch(() => {})
+        readState.reset()
+      }
       // Pause and resume (spec 2026-10-18): after Resume all the board types "resume" into the main chat when it runs;
       // when it does not, the banner opens it, and its Workers mod reads the resume from pause.json.
       if (done.ok && body?.action === 'resume-all' && !isShowOnly) {
@@ -1355,6 +1360,8 @@ async function main(args) {
           const typed = await sayNow({ to: retype, command: 'resume' })
           if (typed?.ok === true) readState.reset()
         }
+        // B360: a recap left alone for its 24 hours approves itself and moves to the closed items.
+        if (!isShowOnly) await workAction({ action: 'approve-recaps' }, 'server')
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,

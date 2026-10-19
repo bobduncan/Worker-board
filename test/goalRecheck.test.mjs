@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { goalChecked, focusMove } from '../src/focus.mjs'
+import { goalChecked, goalReopened, focusMove } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
 import { FOCUS_COMMANDS, wakeFor } from '../src/say.mjs'
 import { workApi } from '../src/work/api.mjs'
@@ -169,7 +169,9 @@ test('the partner files the re-check with checked of a goal; a pass gives the pe
     assert.equal(passed.result.ticked, true)
     const note = [...(await readStore(dir)).items.values()].find(one => valueOf(one, 'Kind') === 'note')
     assert.deepEqual([valueOf(note, 'To'), valueOf(note, 'From')], ['you', 'Partner'])
-    assert.deepEqual(note.sections.get('Text'), ['G3 Lanterns is done: a helper re-checked it against its Done when and its vibe, 2 of 2 points pass, score 80 of 75.', 'The evidence: pictures/g3/evidence.png'])
+    // B360: the recap carries its evidence picture in its own field, for its card's picture.
+    assert.deepEqual(note.sections.get('Text'), ['G3 Lanterns is done', 'a helper re-checked it against its Done when and its vibe, 2 of 2 points pass, score 80 of 75.'])
+    assert.deepEqual([valueOf(note, 'Recap'), valueOf(note, 'Evidence')], ['open', 'pictures/g3/evidence.png'])
     // Only the partner files it, and only on a board that keeps a goal map.
     assert.equal((await as('Lamplighter')({ action: 'checked', id: 'G3', evidence: 'x.png', points: ['pass: lit'] })).status, 403)
     assert.equal((await as('Partner', { goalChecked: undefined })({ action: 'checked', id: 'G3', evidence: 'x.png', points: ['pass: lit'] })).status, 409)
@@ -244,4 +246,17 @@ test('the second review: the page keeps the overturn\'s confirm for its second c
   await editGoals({ command: 'line', id: 'G1', name: 'Recheck asked', value: '', page: 'b358page' }, at)
   assert.equal((await editGoals({ command: 'undo', page: 'b358page' }, at)).status, 409)
   assert.equal(mapOf(fs).byId.get('G1').recheckAsked, null)
+})
+
+test("B360: an overturned recap of a ticked goal opens it again, the person's words under it; an open goal stays as it is", async () => {
+  const fs = fakeFs({ [MAP]: latin(GOALS.replace('- [ ] G3 Lanterns', '- [x] G3 Lanterns')) })
+  const done = await goalReopened({ id: 'G3', words: 'The north path is still dark.' }, ctx(fs))
+  assert.deepEqual(done, { ok: true, result: { id: 'G3', reopened: true } })
+  const g3 = mapOf(fs).byId.get('G3')
+  assert.equal(g3.state, 'open')
+  assert.equal(g3.overturned.length, 1)
+  assert.equal(g3.overturned[0], 'reopened by you from its recap: The north path is still dark.')
+  const again = await goalReopened({ id: 'G3', words: 'twice' }, ctx(fs))
+  assert.deepEqual(again, { ok: true, result: { id: 'G3', reopened: false } })
+  assert.equal((await goalReopened({ id: 'G3', words: 'x' }, ctx(fs, { canWrite: false }))).status, 403)
 })

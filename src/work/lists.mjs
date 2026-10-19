@@ -6,6 +6,7 @@ import { sinceMs } from './api.mjs'
 import { askKey, askWordsOf } from './askWords.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
+import { isRecap } from './recap.mjs'
 
 const DAY = 24 * 60 * 60_000
 const byId = (a, b) => a.id.localeCompare(b.id, 'en', { numeric: true })
@@ -138,10 +139,10 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
 
 /**
  * B299: the Information list: notes and reports, one line each, newest first; the read ones of the last day after the
- * unread. Nothing here waits for the person.
+ * unread. Nothing here waits for the person. B360: a recap has its own card in Needs your attention (recap.mjs), not a line.
  */
 export function informationOf(work, now) {
-  return itemsOf(work).filter(item => valueOf(item, 'Kind') === 'note').map(item => {
+  return itemsOf(work).filter(item => valueOf(item, 'Kind') === 'note' && !isRecap(item)).map(item => {
     const since = sinceMs(valueOf(item, 'Since'))
     const words = textOf(item)
     return {

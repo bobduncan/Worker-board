@@ -380,6 +380,34 @@ export function goalChecked(body, ctx) {
 }
 
 /**
+ * B360: the person overturned the recap of a ticked goal (`{ id, words }`): the goal is open again, with "Overturned
+ * (<date time>): reopened by you from its recap: <words>" under it. A goal that is not done (any more) stays as it is.
+ * Answers `{ ok, result: { id, reopened } }`.
+ */
+export function goalReopened(body, ctx) {
+  const run = turn.then(() => reopenGoal(body, { fs: files, ...ctx }))
+  turn = run.catch(() => {})
+  return run
+}
+
+async function reopenGoal({ id, words }, ctx) {
+  if (ctx.canWrite !== true) return refuse(403, 'This board only shows: work on the goals on the board that delivers.')
+  if (!isId(id)) return refuse(400, 'Name the goal by its id (G12).')
+  const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
+  let late = false
+  const done = await changeGoalsFile(text => {
+    const now = parseGoals(text).byId.get(id)
+    if (now === undefined) return { ok: false, why: 'gone' }
+    late = now.state !== 'done'
+    if (late) return { ok: false, why: 'late' }
+    const opened = setGoalState(text, id, 'open')
+    return opened.ok ? addGoalLine(opened.text, id, `Overturned (${minuteOf(ctx.now)}): reopened by you from its recap: ${oneLine(words, 300)}`) : opened
+  }, goalsAt)
+  if (late) return { ok: true, result: { id, reopened: false } }
+  return done.ok ? { ok: true, result: { id, reopened: true } } : failed(done.why)
+}
+
+/**
  * B359: the goal guard fires for goal `id` when its failed checks since Go reached the third (src/goalGuard.mjs),
  * once: "Evaluation asked: <date time>" under the goal, and the word `evaluate G<n>` to the partner (`ctx.partner`),
  * with what failed and whether a rebuild needs the person's yes (`ctx.approveRebuilds`). `ctx.items` are the store's.

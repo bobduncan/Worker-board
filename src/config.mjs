@@ -52,6 +52,11 @@ export const DEFAULTS = {
    * (the person, Q130: "the first rebuilds come to you, you flip it on once you trust them").
    */
   approveRebuilds: false,
+  /**
+   * B360: when the recaps of finished work reach the person: "now" (each in Needs your attention as it comes) or "daily"
+   * (gathered into the partner's daily note on the Focus page). The board's settings panel sets it (B361).
+   */
+  botherMe: 'now',
   /** A game the board starts for a branch takes this port, plus the place of its folder in git's list. */
   gamePort: 5300,
   /** Such a game ends this long after its last tab was closed, or when nobody opened it in time. */
@@ -124,6 +129,8 @@ const isAdvisorParts = value => Array.isArray(value) && value.every(one => ADVIS
 
 /** B311: the levels of "CPU for the chats". */
 const CPU_LEVELS = ['off', 'gentle', 'strong']
+/** B360: the settings of botherMe. */
+const BOTHER = ['now', 'daily']
 
 /** A branch's name as git allows it, plainly: letters, digits, "_", ".", "/" and "-", and no "..". */
 const BRANCH = /^(?!.*\.\.)[\w][\w./-]{0,120}$/
@@ -268,6 +275,7 @@ export function parseConfig(text, env) {
   if (typeof raw.morningRound === 'string' && /^(?:(?:[01]\d|2[0-3]):[0-5]\d)?$/.test(raw.morningRound.trim())) config.morningRound = raw.morningRound.trim()
   if (typeof raw.weeklyRound === 'boolean') config.weeklyRound = raw.weeklyRound
   if (typeof raw.approveRebuilds === 'boolean') config.approveRebuilds = raw.approveRebuilds
+  if (typeof raw.botherMe === 'string' && BOTHER.includes(raw.botherMe.trim())) config.botherMe = raw.botherMe.trim()
   if (Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== '')) config.runGame = [...raw.runGame]
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]

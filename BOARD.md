@@ -123,7 +123,12 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   steps first, then its others) stand first, under **From your partner**. The work store's asks are the cards (B298, B299: Decide, Look,
   Provide or Do, "blocks B1 · Board waits", a **Play it** link), answered into the store; under them **Information**
   (notes and reports, each with **Read**) and **Open instructions** (the person's words per chat: missed ones red,
-  closed ones grey with what came of them). B301: no card comes from a chat's words; a chat that wrote questions in
+  closed ones grey with what came of them). B360: after the questions, a **recap** of every step that passed its
+  result check and every goal that passed its re-check: a card marked Information (a green edge; it asks nothing and
+  blocks nothing) with the step or goal, what the person gets, its evidence picture and when it approves itself, and
+  **Overturn** (the partner makes a fix step from the person's words; a goal opens again) and **Feedback** (the words go
+  to the partner); left alone it approves itself 24 hours after it came and moves to the closed items (setting
+  `botherMe` "daily": gathered under the daily note on the Focus page instead). B301: no card comes from a chat's words; a chat that wrote questions in
   its chat without filing an ask is a warning card, "<chat> wrote questions in its chat but filed no ask", with a
   button to its chat (Talk to Main, the Advisor's chat, or a worker's answer in the card's window). B308: a worker
   that holds a step, has ended its turn with nothing running and filed no ask, for more than 5 minutes, is a hint
