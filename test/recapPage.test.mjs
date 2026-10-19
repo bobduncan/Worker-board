@@ -100,9 +100,11 @@ test('the wiring: the cards after the questions, the clicks through the answer f
   assert.match(script, /\.\.\.cards, \.\.\.recaps, drawLegacy\(state\)/)
   assert.match(script, /if \(id\.startsWith\('recap:'\)\) \{\s+const sent = recapSend\(need, verdict, text\)\s+return sent\.ok \? sendWork\(sent\.body, id\) : fail\(id, sent\.why\)/)
   assert.match(script, /takeAnswers\(\$\('advisor-focus'\)\)/)
-  assert.match(script, /if \(gatheredRecaps\(state\)\.length > 0\) \{\s+right\.append\(focusRecapCard\(state\)\)\s+recapsDrawn = true/)
+  // B361: the recaps and the asks that can wait, gathered under the note.
+  assert.match(script, /const gatheredCards = state => \[gatheredRecaps\(state\)\.length > 0 \? focusRecapCard\(state\) : null, gatheredAsks\(state\)\.length > 0 \? focusAsksCard\(state\) : null\]/)
+  assert.match(script, /const gathered = gatheredCards\(state\)\s+right\.append\(\.\.\.gathered\)\s+recapsDrawn = gathered\.length > 0/)
   // The review: drawn under the page too while the focus is being changed (no run drawn).
-  assert.match(script, /if \(!recapsDrawn && gatheredRecaps\(state\)\.length > 0\) parts\.push\(focusRecapCard\(state\)\)/)
+  assert.match(script, /if \(!recapsDrawn\) parts\.push\(\.\.\.gatheredCards\(state\)\)/)
   // The review: a recap's problem, its sending and its box's caret show on the Focus page at once.
   assert.match(script, /function fail\(id, why\) \{\s+problems\.set\(id, why\)\s+redrawNeeds\(\)\s+\/\/[^\n]*\n\s+redrawFocus\(\)/)
   assert.match(script, /const recapTyping = focusedNeed\(box\)\s+fill\(box, parts\)\s+refocus\(box, recapTyping\)/)

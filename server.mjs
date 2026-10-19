@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,6 +33,7 @@ import { availableParallelism } from 'node:os'
 import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
+import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
 import { cpuLimiter, sessionsOfCards } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
@@ -187,6 +188,7 @@ export function createBoard({
   work = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   project = '',
 }) {
@@ -242,7 +244,7 @@ export function createBoard({
       return kept.ok ? json(res, kept.result) : refuse(res, kept.status, kept.why)
     }
 
-    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/brainstorm' || pathname === '/api/work' || pathname === '/api/cpu' || pathname === '/api/new-project') {
+    if (pathname === '/api/say' || pathname === '/api/game' || pathname === '/api/design' || pathname === '/api/restart' || pathname === '/api/backlog' || pathname === '/api/goals' || pathname === '/api/brainstorm' || pathname === '/api/work' || pathname === '/api/cpu' || pathname === '/api/settings' || pathname === '/api/new-project') {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -273,6 +275,10 @@ export function createBoard({
       }
       if (pathname === '/api/cpu') {
         const done = await cpu(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/settings') {
+        const done = await settings(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/new-project') {
@@ -931,6 +937,15 @@ async function main(args) {
 
   /** The person's words to a chat (POST /api/say), also for the board's own "resume" after Resume all. */
   let sayNow = null
+  // B361: the settings panel's "Bother me" and "Approve rebuilds by itself", one change at a time.
+  const SETTINGS_WHY_NOT = 'This board shows the history of another board: change its settings on that board.'
+  const boardSettingsNow = () => panelSettings(config, { canSet: historyFrom === undefined, whyNot: SETTINGS_WHY_NOT })
+  let settingsQueue = Promise.resolve()
+  const settingsTurn = run => {
+    const turn = settingsQueue.then(run, run)
+    settingsQueue = turn.catch(() => {})
+    return turn
+  }
   const server = createBoard({
     token: randomBytes(32).toString('hex'),
     // B319: the demo is no project's.
@@ -952,7 +967,7 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
@@ -973,6 +988,37 @@ async function main(args) {
         makingProject = false
       }
     },
+    // B361: "Bother me" and "Approve rebuilds by itself" from the settings panel: into config.json, and at once into
+    // the settings the board runs on. The demo changes them in memory only.
+    settings: body => settingsTurn(async () => {
+      const checked = checkSetting(body)
+      if (!checked.ok) return checked
+      if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
+      if (!isDemo) {
+        const file = join(HERE, 'config.json')
+        const text = await readFile(file, 'utf8').catch(() => null)
+        if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
+        const changed = settingChanged(text, checked.key, checked.value)
+        if (!changed.ok) return changed
+        const spare = `${file}.${process.pid}.tmp`
+        try {
+          await writeFile(spare, changed.text)
+          // Windows may hold the file for a moment (a virus scanner): once more after a short wait.
+          await rename(spare, file).catch(async error => {
+            if (error?.code !== 'EPERM' && error?.code !== 'EBUSY') throw error
+            await new Promise(done => setTimeout(done, 200))
+            await rename(spare, file)
+          })
+        } catch (error) {
+          return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
+        } finally {
+          await rm(spare, { force: true })
+        }
+      }
+      config[checked.key] = checked.value
+      readState.reset()
+      return { ok: true, result: boardSettingsNow() }
+    }),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
     design: body => designTurn(async () => {
       const state = await readState()

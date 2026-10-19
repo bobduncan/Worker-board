@@ -338,10 +338,66 @@ function drawSettings(state, cpu) {
   const settings = $('settings')
   // B320: the New project button, on the board that delivers.
   $('new-project-button').hidden = state.newProject?.canMake !== true
-  settings.hidden = cpu === null && version === '' && $('new-project-button').hidden
+  drawBoardSettings(state)
+  settings.hidden = cpu === null && version === '' && $('new-project-button').hidden && (state.boardSettings ?? null) === null
   const level = cpu === null || cpu.level === null ? null : `CPU for the chats: ${cpu.level[0].toUpperCase()}${cpu.level.slice(1)}${cpu.count === '' ? '' : ` (${cpu.count})`}`
-  $('settings-button').title = [level, version].filter(part => part !== null && part !== '').join('\n') || 'CPU for the chats and the board\'s version'
+  const shown = state.boardSettings ?? null
+  const bother = shown === null ? null : `Bother me: ${shown.botherMe === 'daily' ? 'once a day' : 'at once'}`
+  $('settings-button').title = [level, bother, version].filter(part => part !== null && part !== '').join('\n') || 'CPU for the chats and the board\'s version'
 }
+
+/** B361: the setting being sent ({ key, value }), lit at once. */
+let settingPending = null
+
+/** B361: "Bother me" and "Approve rebuilds by itself" in the settings panel, lit as the board runs them. */
+function drawBoardSettings(state) {
+  const shown = state.boardSettings ?? null
+  const problem = problems.get('setting') ?? null
+  $('settings-note').hidden = problem === null
+  if (problem !== null) $('settings-note').textContent = problem
+  for (const id of ['bother-me', 'approve-rebuilds']) {
+    const group = $(id)
+    group.hidden = shown === null
+    group.title = shown === null || shown.canSet ? '' : shown.whyNot ?? ''
+  }
+  if (shown === null) return
+  for (const button of $('settings').querySelectorAll('[data-setting]')) {
+    const key = button.dataset.setting
+    const value = settingPending !== null && settingPending.key === key ? settingPending.value : shown[key]
+    const isOn = button.dataset.value === String(value)
+    button.classList.toggle('is-on', isOn)
+    button.setAttribute('aria-pressed', String(isOn))
+    button.disabled = shown.canSet !== true || sending.has('setting')
+  }
+}
+
+$('settings').addEventListener('click', async event => {
+  const button = event.target.closest('[data-setting]')
+  if (button === null || board === null || sending.has('setting') || board.boardSettings?.canSet !== true) return
+  const key = button.dataset.setting
+  const value = key === 'approveRebuilds' ? button.dataset.value === 'true' : button.dataset.value
+  if (board.boardSettings[key] === value) return
+  settingPending = { key, value }
+  sending.add('setting')
+  problems.delete('setting')
+  drawBoardSettings(board)
+  try {
+    const answer = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ key, value }) })
+    if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
+    board.boardSettings = await answer.json()
+    // The recaps and the asks that can wait move between Needs your attention and the daily note at once.
+    board.recapsShow = board.boardSettings.botherMe
+    await read()
+  } catch (error) {
+    problems.set('setting', `Setting not changed: ${error instanceof Error ? error.message : 'the board did not answer'}`)
+  } finally {
+    sending.delete('setting')
+    settingPending = null
+    drawBoardSettings(board)
+    redrawNeeds()
+    redrawFocus()
+  }
+})
 
 // A click elsewhere, or Escape, folds it again.
 document.addEventListener('click', event => {
@@ -2957,6 +3013,14 @@ function drawNeed(need, state) {
 const shownRecaps = (state, withClosed) => (state.recapsShow === 'daily' ? [] : (state.recaps ?? []).filter(recap => withClosed || !recap.isClosed))
 /** B360: the open recaps the daily note gathers, while they gather there. */
 const gatheredRecaps = state => (state.recapsShow === 'daily' ? (state.recaps ?? []).filter(recap => !recap.isClosed) : [])
+/**
+ * B361: the asks the daily note gathers while "Bother me" is once a day: the store's asks that hold up no chat (a
+ * blocking one always reaches the person at once), not a refine question (its step's line says it), not one of the
+ * app's form, not closed. An answered one stays there until it leaves the list.
+ */
+const gatheredAsks = state => (state.recapsShow === 'daily'
+  ? (state.forYou ?? []).filter(need => typeof need.workId === 'string' && need.blocking !== true && need.isRefine !== true && need.isForm !== true && need.isClosed !== true)
+  : [])
 /** B360: a time left, as a card says it: hours from an hour on, else minutes. */
 const timeLeft = ms => (ms >= HOUR ? `${Math.round(ms / HOUR)} h` : `${Math.max(1, Math.round(ms / MIN))} min`)
 /** B360: the person's words in quotes, without a full stop of their own before the sentence goes on. */
@@ -3208,17 +3272,20 @@ function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
   const top = box.scrollTop
-  const open = state.forYou.filter(need => !isClosed(need))
+  // B361: with "Bother me" once a day the asks that hold up no chat gather under the daily note instead.
+  const gathered = new Set(gatheredAsks(state).map(need => need.id))
+  const forYou = state.forYou.filter(need => !gathered.has(need.id))
+  const open = forYou.filter(need => !isClosed(need))
   // B287: a refine question has no card: its step's line says it, and only while it is open.
   const lines = refineLines(open)
   const cardsOpen = open.filter(need => !isRefineQuestion(need))
-  const answered = state.forYou.filter(need => isClosed(need) && !isRefineQuestion(need)).length
+  const answered = forYou.filter(need => isClosed(need) && !isRefineQuestion(need)).length
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
   const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   // Focus 4: the partner's questions first, under "From your partner"; the rest as before.
-  const shown = ordered(shownNeeds(state.forYou, showsClosed()).filter(need => !isRefineQuestion(need)))
+  const shown = ordered(shownNeeds(forYou, showsClosed()).filter(need => !isRefineQuestion(need)))
   const { partner, rest } = partnerFirst(shown, (state.focus?.needs ?? []).map(need => need.id))
   const partnerCards = partner.map(need => drawNeed(need, state))
   // B300: a blocking ask that waited too long stands first, above the refine lines too.
@@ -3268,6 +3335,8 @@ function takeAnswers(box) {
     if (event.target.closest('[data-open]') !== null) {
       openForms.add(id)
       redrawNeeds()
+      // B361: an ask gathered under the daily note is answered on the Focus page.
+      redrawFocus()
       refocus(box, id)
       return
     }
@@ -3280,6 +3349,7 @@ function takeAnswers(box) {
       chosen.set(id, choice.dataset.choose)
       drawn.needs = null
       redrawNeeds()
+      redrawFocus()
       return
     }
     const button = event.target.closest('[data-send]')
@@ -4798,6 +4868,11 @@ $('details').addEventListener('close', () => {
 // The head of a card in the inbox, and a step in a lane's queue, open the details.
 $('needs').addEventListener('click', event => {
   const head = event.target.closest('[data-details]')
+  if (head !== null) openDetails({ need: head.dataset.details })
+})
+// B361: the head of an ask gathered under the daily note opens its window, as in Needs your attention.
+$('advisor-focus').addEventListener('click', event => {
+  const head = event.target.closest('.focus-asks [data-details]')
   if (head !== null) openDetails({ need: head.dataset.details })
 })
 $('lanes').addEventListener('click', event => {
@@ -8194,7 +8269,9 @@ function focusData(state) {
     // B360: the recaps gathered under the daily note, with their sending and problems.
     gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null]),
     // the minute, for "Approves itself in ..."
-    gatheredRecaps(state).length > 0 ? Math.floor(state.readAt / MIN) : null]
+    gatheredRecaps(state).length > 0 ? Math.floor(state.readAt / MIN) : null,
+    // B361: the asks gathered under the daily note are drawn as Needs your attention draws them, from what it reads.
+    gatheredAsks(state).length > 0 ? [gatheredAsks(state), needsData(state)] : null]
 }
 function redrawFocus() {
   if (board !== null && board !== undefined) once('focus', focusData(board), () => drawFocus(board))
@@ -8479,9 +8556,12 @@ function focusNoteCard(view) {
     }
     card.append(list)
   }
-  if (view.note.needs.length > 0) {
+  // B361: while asks gather under the note ("Bother me: once a day"), their whole card stands below: not twice.
+  const gathered = new Set(gatheredAsks(board ?? {}).map(need => need.workId))
+  const needs = view.note.needs.filter(ask => !gathered.has(ask.id))
+  if (needs.length > 0) {
     card.append(el('h4', '', 'Needs you'))
-    for (const ask of view.note.needs) {
+    for (const ask of needs) {
       const box = el('div', 'focus-ask')
       box.append(el('b', '', ask.title))
       if (ask.options.length > 0) {
@@ -8519,6 +8599,21 @@ function focusRecapCard(state) {
   card.append(...recaps.map(recap => drawRecap(recap, state)))
   return card
 }
+
+/**
+ * B361: the asks gathered under the daily note ("Bother me: once a day"), each as its card in Needs your attention:
+ * its pictures, its options and its answer, answered here.
+ */
+function focusAsksCard(state) {
+  const card = el('section', 'focus-card focus-asks')
+  const asks = gatheredAsks(state)
+  card.append(el('h3', '', `Questions that can wait: ${asks.filter(need => !isAnswered(need)).length}`), el('p', 'muted', `Gathered here under your partner's note, not one by one in Needs your attention ("Bother me: once a day" in ⚙). A question that holds up a chat still reaches you there at once.`))
+  card.append(...asks.map(need => drawNeed(need, state)))
+  return card
+}
+
+/** B360, B361: what the daily note gathers: the recaps of finished work and the asks that can wait. */
+const gatheredCards = state => [gatheredRecaps(state).length > 0 ? focusRecapCard(state) : null, gatheredAsks(state).length > 0 ? focusAsksCard(state) : null].filter(card => card !== null)
 
 /** Focus 3: every part done: "Is the vibe there?" with the agreed vibe, Yes, and No with a box for what is missing. */
 function focusVibeThereCard(view, can) {
@@ -8599,11 +8694,10 @@ function drawFocus(state) {
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
       if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can))
       right.append(focusNoteCard(view))
-      // B360: with botherMe "daily" the recaps of finished work gather under the daily note.
-      if (gatheredRecaps(state).length > 0) {
-        right.append(focusRecapCard(state))
-        recapsDrawn = true
-      }
+      // B360, B361: with botherMe "daily" the recaps of finished work and the asks that can wait gather under the note.
+      const gathered = gatheredCards(state)
+      right.append(...gathered)
+      recapsDrawn = gathered.length > 0
       if (toggle !== null) {
         right.append(toggle)
         switchDrawn = true
@@ -8620,7 +8714,7 @@ function drawFocus(state) {
     parts.push(body)
   }
   // B360: without a run on the page (or while the focus is being changed), the gathered recaps stand under it.
-  if (!recapsDrawn && gatheredRecaps(state).length > 0) parts.push(focusRecapCard(state))
+  if (!recapsDrawn) parts.push(...gatheredCards(state))
   if (toggle !== null && !switchDrawn) parts.push(toggle)
   if (focusUi.note !== null) parts.splice(view.head === null ? 0 : 1, 0, el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text))
   // The box typed in keeps its words, and the cursor where it was.

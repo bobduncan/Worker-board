@@ -33,6 +33,8 @@
   "morningRound": "09:00",
   "weeklyRound": true,
   "morningSkipPercent": 80,
+  "botherMe": "now",
+  "approveRebuilds": false,
   "kinds": [
     {
       "kind": "level",

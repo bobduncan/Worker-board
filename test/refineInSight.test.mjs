@@ -40,7 +40,7 @@ test('the open refine questions are one line per step, the oldest step first, wi
 
 test('Needs your attention draws them as one line each, not a card per question, and counts a line once', () => {
   // The cards leave the refine questions out; the lines stand above them.
-  assert.match(script, /const shown = ordered\(shownNeeds\(state\.forYou, showsClosed\(\)\)\.filter\(need => !isRefineQuestion\(need\)\)\)/)
+  assert.match(script, /const shown = ordered\(shownNeeds\(forYou, showsClosed\(\)\)\.filter\(need => !isRefineQuestion\(need\)\)\)/)
   assert.match(script, /drawRefineNeeds\(state\), \.\.\.cards/)
   assert.match(script, /const cardsOpen = open\.filter\(need => !isRefineQuestion\(need\)\)/)
   assert.match(script, /const unanswered = cardsOpen\.filter\(need => !isAnswered\(need\)\)\.length \+ lines\.length/)
@@ -89,7 +89,7 @@ test('the review: answers wait only on a step not taken up, the ask in hand come
   assert.equal(advisorPage.advisorRefine(backlog([step('B30', { refineAsk: { isOpen: true, round: 1, state: 'waiting' } }), step('B31', { refineAsk: { isOpen: true, round: 2, state: 'delivered' } })])).step, 'B31')
   // The list: "Nothing waits" counts only what is drawn; the old blocking cards stay first.
   assert.match(script, /const none = cardsOpen\.length > 0 \|\| lines\.length > 0 \|\|/)
-  assert.match(script, /const answered = state\.forYou\.filter\(need => isClosed\(need\) && !isRefineQuestion\(need\)\)\.length/)
+  assert.match(script, /const answered = forYou\.filter\(need => isClosed\(need\) && !isRefineQuestion\(need\)\)\.length/)
   assert.match(script, /\.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards,/)
   // A step not on the tab, or finished, opens its first question's own window.
   assert.match(script, /else openDetails\(\{ need: `work:\$\{button\.dataset\.refineFirst\}` \}\)/)
