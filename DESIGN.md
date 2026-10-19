@@ -2279,6 +2279,27 @@ automatically create follow up steps".
 7. The second review: the page keeps the overturn's confirm for its second click (the dot and the menu); No to the
    vibe takes an open re-check back too, so a later pass cannot tick it; a take-back is no change Undo takes back.
 
+## The goal's steps beside the map (B383)
+
+The person, 2026-10-19, from the Design tab (their agreed picture of the Goals page): "I want to use the right side of
+the screen to show the steps associated to the selected goal and to show the 'missing steps'."
+
+1. A right panel "Steps for this goal" (public/index.html `aside#goals-steps`, public/board.js region `goalsteps`) for
+   the goal zoomed into: on a screen of 1180 px and more beside the map (a grid on `#view-advice[data-pane="goals"] >
+   .advisor-goals`), narrower under it.
+2. Associated steps (`goalStepsView`): those its Steps and Part lines name, then the store's steps with its Goal, a
+   dropped one left out; each numbered by its place (the number stays whatever the filter shows), its title, one line
+   (its summary, else its first point), its badge from where it stands in the flow (Done, Working, In review, Needs you,
+   Queued, Ready, New) and its chat, and a menu (open the step, open its chat's window). All, Open or Done; done steps
+   fold under "Show N completed steps" and fold again.
+3. Missing steps: the goal's Missing lines, each split at a dash into words and a line under them, with Add step and
+   Dismiss, and "Add all N to this goal". Add step (`missing-add`, src/goalSteps.mjs `missingToSteps`, one at a time)
+   makes a step under the goal through the work store's `new` as the person (its title `stepTitleOf`: the words before
+   the dash, nothing the backlog's line reads as more; its activity the one most of the goal's steps are in), links it
+   into the goal's Steps line and takes the line out, found by its words; a line the store refuses is named and Add all
+   goes on. Dismiss (`missing-dismiss`, `removeGoalMissing`) takes the line out, undoable as any change of the map.
+4. Not in it: the left and middle of the page (a step of its own afterwards, as the person said).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

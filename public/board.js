@@ -5286,10 +5286,11 @@ function goalStepsView(goals, goalId, backlog, ui = {}) {
   const named = [...new Set([...(node.steps ?? []), ...(node.parts ?? []).flatMap(part => part.steps ?? [])])]
   const number = id => Number(String(id).slice(1))
   const others = steps.filter(step => step.item?.goal === node.id && !named.includes(step.id)).map(step => step.id).sort((a, b) => number(a) - number(b))
-  const all = [...named, ...others].map(id => byId.get(id)).filter(step => step !== undefined && step.flow?.state !== 'dropped').map(step => {
+  // The review: a step keeps its number whatever the filter shows.
+  const all = [...named, ...others].map(id => byId.get(id)).filter(step => step !== undefined && step.flow?.state !== 'dropped').map((step, index) => {
     const [badge, tone] = goalStepBadge(step)
     const line = String(step.item?.summary?.[0] ?? step.item?.what?.[0] ?? '').replace(/\s+/g, ' ').trim()
-    return { id: step.id, key: step.key ?? step.id, title: step.title, line: line.length > 140 ? `${line.slice(0, 139)}…` : line, badge, tone, chat: step.worker ?? '' }
+    return { n: index + 1, id: step.id, key: step.key ?? step.id, title: step.title, line: line.length > 140 ? `${line.slice(0, 139)}…` : line, badge, tone, chat: step.worker ?? '' }
   })
   const done = all.filter(row => row.tone === 'done')
   const open = all.filter(row => row.tone !== 'done')
@@ -5307,8 +5308,9 @@ function goalStepsView(goals, goalId, backlog, ui = {}) {
     tabs: [{ key: 'steps', label: 'Associated steps', count: all.length, isOn: tab === 'steps' }, { key: 'missing', label: 'Missing steps', count: missing.length, isOn: tab === 'missing' }],
     filter,
     filters: [['all', 'All'], ['open', 'Open'], ['done', 'Done']].map(([key, label]) => ({ key, label, isOn: filter === key })),
-    rows: shown.map((row, index) => ({ n: index + 1, ...row })),
-    foldedDone: filter === 'all' && ui.showDone !== true && done.length > 0 ? `Show ${done.length} completed step${done.length === 1 ? '' : 's'}` : null,
+    rows: shown,
+    // The review: shown, they fold again.
+    foldedDone: filter !== 'all' || done.length === 0 ? null : ui.showDone === true ? `Hide the ${done.length === 1 ? 'completed step' : `${done.length} completed steps`}` : `Show ${done.length} completed step${done.length === 1 ? '' : 's'}`,
     missing,
     addAll: missing.length < 2 ? null : { label: `Add all ${missing.length} to this goal`, isEnabled: allowed, title: allowed ? `Each becomes a new step under ${node.id}; your partner refines it` : ui.whyNot ?? 'This board only shows.' },
     canWrite: allowed,
@@ -5616,7 +5618,7 @@ function redrawGoals() {
 }
 
 // B383: the right panel "Steps for this goal": what the person chose in it, and its drawing.
-const goalStepsUi = { tab: 'steps', filter: 'all', showDone: false, menu: null, busy: false }
+const goalStepsUi = { tab: 'steps', filter: 'all', showDone: false, menu: null, busy: false, goal: null }
 function goalStepsData(state) {
   return [state.goals ?? null, goalsFocus, state.backlog ?? null, canEditGoals(state), state.goalsEdit?.whyNot ?? null, goalStepsUi.tab, goalStepsUi.filter, goalStepsUi.showDone, goalStepsUi.menu, goalStepsUi.busy, goalsUi.busy]
 }
@@ -5628,6 +5630,11 @@ function redrawGoalSteps() {
 function drawGoalSteps(state) {
   const box = $('goals-steps')
   if (box === null) return
+  // The review: another goal opens with its completed steps folded and no menu open.
+  if (goalStepsUi.goal !== goalsFocus) Object.assign(goalStepsUi, { goal: goalsFocus, showDone: false, menu: null })
+  // The review: the key that had the focus keeps it after the redraw.
+  const focused = box.contains(document.activeElement) ? ['goalStepsTab', 'goalStepsFilter', 'goalStepMenu', 'goalStepOpen', 'missingAdd', 'missingDismiss', 'missingAll', 'goalStepsShowDone'].find(key => key in document.activeElement.dataset) : undefined
+  const focusedAt = focused === undefined ? null : [focused, document.activeElement.dataset[focused]]
   const view = goalStepsView(state.goals ?? null, goalsFocus, state.backlog ?? [], { ...goalStepsUi, canWrite: canEditGoals(state), whyNot: state.goalsEdit?.whyNot ?? null })
   const head = [el('h2', '', 'Steps for this goal')]
   if (view.goal === null) return fill(box, [...head, el('p', 'muted', view.empty)])
@@ -5686,6 +5693,7 @@ function drawGoalSteps(state) {
   }
   if (view.missing.length > 0 || view.tab === 'missing') parts.push(goalMissingBox(view))
   fill(box, parts)
+  if (focusedAt !== null) [...box.querySelectorAll('button')].find(button => button.dataset[focusedAt[0]] === focusedAt[1])?.focus()
 }
 
 /** B383: the box of the goal's Missing lines, each with Add step and Dismiss, and "Add all". */
@@ -5732,9 +5740,11 @@ async function goalMissingAct(kind, index) {
       const line = node.missing[index]
       if (line !== undefined && await sendGoals({ command: 'missing-dismiss', id: node.id, line }) !== null) goalsSay('The line is taken out of the goal.', 'ok')
     } else {
-      const done = await sendGoals(kind === 'all' ? { command: 'missing-add', id: node.id, all: true } : { command: 'missing-add', id: node.id, index })
+      // The review: the line goes by its words, so a map changed meanwhile never makes a step of another line.
+      const done = await sendGoals(kind === 'all' ? { command: 'missing-add', id: node.id, all: true } : { command: 'missing-add', id: node.id, index, line: node.missing[index] })
       const made = done?.made ?? []
-      if (made.length > 0) goalsSay(`${made.join(', ')} ${made.length === 1 ? 'is' : 'are'} on the backlog under ${node.id}: your partner refines ${made.length === 1 ? 'it' : 'them'}.${done.why ? ` ${done.why}` : ''}`, 'ok')
+      const failed = (done?.failed ?? []).map(one => `"${one.line}": ${one.why}`).join(' ')
+      if (made.length > 0) goalsSay(`${made.join(', ')} ${made.length === 1 ? 'is' : 'are'} on the backlog under ${node.id}: your partner refines ${made.length === 1 ? 'it' : 'them'}.${failed === '' ? '' : ` Not made: ${failed}`}`, failed === '' ? 'ok' : 'problem')
     }
   } finally {
     goalStepsUi.busy = false
@@ -5755,7 +5765,7 @@ $('goals-steps').addEventListener('click', event => {
     return redrawGoalSteps()
   }
   if (event.target.closest('[data-goal-steps-show-done]') !== null) {
-    goalStepsUi.showDone = true
+    goalStepsUi.showDone = !goalStepsUi.showDone
     return redrawGoalSteps()
   }
   const menu = event.target.closest('[data-goal-step-menu]')

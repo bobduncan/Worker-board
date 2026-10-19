@@ -43,16 +43,17 @@ test('the panel follows the selected goal: its steps by the goal\'s lines and it
   assert.deepEqual(all.goal, { id: 'G1', title: 'Make fights feel great' })
   assert.deepEqual(all.tabs, [{ key: 'steps', label: 'Associated steps', count: 5, isOn: true }, { key: 'missing', label: 'Missing steps', count: 2, isOn: false }])
   assert.deepEqual(all.rows.map(row => [row.n, row.id, row.title, row.line, row.badge, row.tone, row.chat]), [
-    [1, 'B2', 'Add wind-up cues', 'What Add wind-up cues does.', 'Working', 'working', 'Worker 2'],
-    [2, 'B4', 'Review the hit effects', 'What Review the hit effects does.', 'Needs you', 'you', 'Worker 3'],
-    [3, 'B3', 'Test the dodge', 'What Test the dodge does.', 'Ready', 'ready', ''],
-    [4, 'B5', 'Balance the first fight', 'enemy stats and pacing', 'Queued', 'queued', 'Main'],
+    [2, 'B2', 'Add wind-up cues', 'What Add wind-up cues does.', 'Working', 'working', 'Worker 2'],
+    [3, 'B4', 'Review the hit effects', 'What Review the hit effects does.', 'Needs you', 'you', 'Worker 3'],
+    [4, 'B3', 'Test the dodge', 'What Test the dodge does.', 'Ready', 'ready', ''],
+    [5, 'B5', 'Balance the first fight', 'enemy stats and pacing', 'Queued', 'queued', 'Main'],
   ])
   assert.equal(all.foldedDone, 'Show 1 completed step')
   assert.deepEqual(all.filters.map(one => [one.key, one.isOn]), [['all', true], ['open', false], ['done', false]])
   const unfolded = view(MAP, 'G1', BACKLOG, { canWrite: true, showDone: true })
   assert.deepEqual(unfolded.rows.map(row => row.id), ['B1', 'B2', 'B4', 'B3', 'B5'])
-  assert.equal(unfolded.foldedDone, null)
+  // The review: shown, the completed steps fold again; a step keeps its number whatever shows.
+  assert.equal(unfolded.foldedDone, 'Hide the completed step')
   assert.deepEqual(view(MAP, 'G1', BACKLOG, { filter: 'done' }).rows.map(row => [row.n, row.id, row.badge]), [[1, 'B1', 'Done']])
   assert.deepEqual(view(MAP, 'G1', BACKLOG, { filter: 'open' }).rows.map(row => row.id), ['B2', 'B4', 'B3', 'B5'])
   // No goal selected: a line that says how to get one.
@@ -71,10 +72,18 @@ test('the Missing steps: each line with its words split at a dash, Add step and 
   assert.equal(view(MAP, 'G2', BACKLOG, { canWrite: true }).addAll, null)
 })
 
-test('a Missing line as a step title: its first words, a capital first, nothing the backlog line would read as more', () => {
+test('a Missing line as a step title: its first words, a capital first, nothing the backlog line would read as more', async () => {
   assert.equal(stepTitleOf('hit-stop timing — needed for weighty hits'), 'Hit-stop timing')
   assert.equal(stepTitleOf('Verify: the cues read (both sounds)'), 'The cues read')
   assert.equal(stepTitleOf(`a ${'very '.repeat(40)}long line`).length <= 120, true)
+  // The review: an id in front, several prefixes, an @ at the end, brackets alone; each reads back as it is written.
+  const { lineFields } = await import('../src/work/line.mjs')
+  for (const [line, title] of [['B12 polish the arena', 'Polish the arena'], ['Decide: Verify: tune the cue', 'Tune the cue'], ['tune it @you', 'Tune it'], ['(B12)', 'Missing outcome of G4']]) {
+    const made = stepTitleOf(line, 'G4')
+    assert.equal(made, title)
+    const read = lineFields(made)
+    assert.deepEqual([read.title, read.id, read.isYou, read.asks], [made, null, false, null], line)
+  }
 })
 
 test('the activity of a new step under a goal: the one most of the goal\'s steps are in, else the first', () => {
@@ -101,7 +110,7 @@ test('Dismiss takes the Missing line out of the goal; Add step makes the step, l
     activity: () => 'Fights',
   }
   const one = await missingToSteps({ id: 'G1', index: 1 }, ports)
-  assert.deepEqual(one, { ok: true, result: { id: 'G1', made: ['B11'] } })
+  assert.deepEqual(one, { ok: true, result: { id: 'G1', made: ['B11'], failed: [] } })
   assert.deepEqual(made[0], { action: 'new', title: 'Check the cues without sound', activity: 'Fights', goal: 'G1', text: 'From the goal map: G1 Make fights feel great still misses this: check the cues without sound' })
   let goal = parseGoals(map).byId.get('G1')
   assert.deepEqual([goal.missing, goal.steps], [['hit-stop timing — needed for weighty hits'], ['B1', 'B11']])
@@ -111,6 +120,27 @@ test('Dismiss takes the Missing line out of the goal; Add step makes the step, l
   assert.deepEqual([goal.missing, goal.steps], [[], ['B1', 'B11', 'B12']])
   assert.equal((await missingToSteps({ id: 'G1', index: 0 }, ports)).status, 409)
   assert.equal((await missingToSteps({ id: 'G9', index: 0 }, ports)).status, 404)
+})
+
+test('the review: a line goes by its words, not its place; a line the store refuses is named and Add all goes on', async () => {
+  let map = ['- [~] G1 Make fights feel great', '  Missing: the first line', '  Missing: the second line', '  Missing: the third line', ''].join('\n')
+  const refused = new Set(['The second line'])
+  let next = 20
+  const ports = {
+    readMap: async () => map,
+    makeStep: async body => (refused.has(body.title) ? { ok: false, status: 400, why: 'not this one' } : { ok: true, result: { id: `B${next++}` } }),
+    changeMap: async change => { const done = change(map); if (done.ok) map = done.text; return done },
+    activity: () => 'Fights',
+  }
+  // The page saw "the third line" at place 0, but the map changed: its words decide.
+  const one = await missingToSteps({ id: 'G1', index: 0, line: 'the third line' }, ports)
+  assert.deepEqual(one.result.made, ['B20'])
+  assert.deepEqual(parseGoals(map).byId.get('G1').missing, ['the first line', 'the second line'])
+  assert.equal((await missingToSteps({ id: 'G1', index: 0, line: 'gone meanwhile' }, ports)).status, 409)
+  const all = await missingToSteps({ id: 'G1', all: true }, ports)
+  assert.deepEqual([all.result.made, all.result.failed], [['B21'], [{ line: 'the second line', why: 'not this one' }]])
+  assert.deepEqual(parseGoals(map).byId.get('G1').missing, ['the second line'])
+  assert.equal((await missingToSteps({ id: 'G1', all: true }, ports)).status, 409)
 })
 
 test('the board routes Add step to the work store as the person and the goal map, and Dismiss through the map\'s own change', async () => {

@@ -219,6 +219,11 @@ it and leaves you a recap, a failed one names the gap and the attempt under the 
 that close it. While the re-check runs, a click on the dot asks your partner again, and a second click ticks it
 without the re-check: that overturn is written under the goal. **Take the re-check back** leaves the goal open.
 
+B383: beside the map (under it on a narrower screen), **Steps for this goal** shows the goal you zoomed into: its
+**Associated steps** (All, Open or Done; each numbered with its title, one line, its state and its chat, a menu to open
+it or its chat; done ones folded under "Show N completed steps") and its **Missing steps**, each with **+ Add step** (a
+new step under the goal, which your partner refines) and **Dismiss**, and **Add all**.
+
 The other parts: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
 milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the
 last box; "No milestone to go to yet" until there is one, "not mapped yet" while it has no sub-goals), **Goals** (the project's goal map, `goals.md`, one level at

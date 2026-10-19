@@ -1062,7 +1062,7 @@ async function main(args) {
         if (!writesMap || workWriters === null) return { ok: false, status: 403, why: 'This board only shows: add steps on the board that delivers.' }
         const goalsAt = { file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() }
         const store = await readStore(workDir).catch(() => null)
-        const done = await missingToSteps({ id: body.id, index: body.index, all: body.all === true }, {
+        const done = await missingToSteps({ id: body.id, index: body.index, line: typeof body.line === 'string' ? body.line : undefined, all: body.all === true }, {
           readMap: () => readFile(goalsAt.file, 'utf8').catch(() => ''),
           makeStep: step => workAction(step, 'person'),
           changeMap: change => changeGoalsFile(change, goalsAt),
