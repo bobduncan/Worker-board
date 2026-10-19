@@ -1207,8 +1207,10 @@ async function checked(body, w) {
   }
   const done = await save(item, found.text, w)
   if (!done.ok) {
-    // The review: the step changed meanwhile: its fix is taken back, so a try again makes one, not two.
-    if (fix !== null) await undoFix(fix, w)
+    // The review: the step changed meanwhile: its fix is taken back, so a try again makes one, not two. B406: one that
+    // could not be taken back is said, so it is dropped by hand instead of made twice.
+    const left = fix === null ? null : await undoFix(fix, w)
+    if (left !== null) return { ...done, why: `${done.why}; its fix ${fix} could not be taken back (${left}): drop it before you try again` }
     return done
   }
   await recapOnDone(item, w)
@@ -1243,27 +1245,37 @@ async function goalCheck(body, w) {
   const done = await w.goalChecked({ id, verdict, line: `${verdict} · ${summary}${tail} · evidence ${evidence}`, by: w.who })
   if (!done.ok) return done
   const { ticked, title, attempts } = done.result
-  if (ticked) {
-    // The recap: what is done, as the person reads it on the board (B360: with its picture, Overturn and OK, seen).
-    await makeRecap(w, id, title, `a helper re-checked it against its Done when and its vibe, ${summary}.`, evidence)
-  }
-  const words = ticked ? `${id} passed its re-check and is ticked; the person gets the recap.`
+  // The recap: what is done, as the person reads it on the board (B360: with its picture, Overturn and OK, seen).
+  // B406: one that could not be written is said, so the person hears of it in the chat instead.
+  const recap = ticked ? await makeRecap(w, id, title, `a helper re-checked it against its Done when and its vibe, ${summary}.`, evidence) : null
+  const words = ticked && recap?.ok === false ? `${id} passed its re-check and is ticked, but its recap could not be written (${recap.why}): tell the person in your answer.`
+    : ticked ? `${id} passed its re-check and is ticked; the person gets the recap.`
     : verdict === 'failed' ? `${id} stays open (attempt ${attempts}): make its follow-up steps from the gap, into its how.`
       : `${id} waits for the person: ask them under it, then check it again.`
   return { ok: true, result: { id, text: words, changed: ticked, ticked, attempts } }
 }
 
-/** B356, the review: a fix step taken back: its file and its place in its activity. */
+/**
+ * B356, the review: a fix step taken back: its file and its place in its activity. B406: null, or why it could not be
+ * (the list is read anew and written again, three times, when it changed in between).
+ */
 async function undoFix(id, w) {
   // The second review: only while nobody took it up yet.
   const made = await load(id, w, { kind: ['step'] })
-  if (!made.ok || stateOf(made.item) !== 'queued') return
-  await removeItem(w.dir, id, w.fs).catch(() => {})
-  const text = await readActivitiesText(w.dir, w.fs)
-  const store = await readStore(w.dir, w.fs).catch(() => null)
-  if (store === null) return
-  const activities = store.activities.map(one => ({ ...one, steps: (one.steps ?? []).filter(step => step !== id) }))
-  await writeActivities(w.dir, { preamble: store.preamble, activities }, w.fs, { expected: text }).catch(() => {})
+  if (!made.ok || stateOf(made.item) !== 'queued') return null
+  const removed = await removeItem(w.dir, id, w.fs)
+  if (!removed.ok) return removed.why
+  let why = 'activities.json could not be written'
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const text = await readActivitiesText(w.dir, w.fs)
+    const store = await readStore(w.dir, w.fs).catch(() => null)
+    if (store === null) return `${id}.md is gone, but the store could not be read to take it out of its activity`
+    const activities = store.activities.map(one => ({ ...one, steps: (one.steps ?? []).filter(step => step !== id) }))
+    const done = await writeActivities(w.dir, { preamble: store.preamble, activities }, w.fs, { expected: text }).catch(error => ({ ok: false, why: error.message }))
+    if (done.ok) return null
+    why = done.why
+  }
+  return `${id}.md is gone, but its activity still lists it: ${why}`
 }
 
 /**

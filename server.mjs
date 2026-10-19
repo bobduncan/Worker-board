@@ -23,9 +23,9 @@
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { availableParallelism } from 'node:os'
@@ -72,6 +72,7 @@ import { readStore } from './src/work/store.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { findGameFile } from './src/gameFile.mjs'
+import { readKept, writeAtomic } from './src/write.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -350,6 +351,15 @@ export function createBoard({
 }
 
 const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
+/** Whether `text` is valid JSON. */
+const parses = text => {
+  try {
+    JSON.parse(text)
+    return true
+  } catch {
+    return false
+  }
+}
 
 async function main(args) {
   const isDemo = args.includes('--demo')
@@ -389,7 +399,12 @@ async function main(args) {
     const file = join(config.project, '.claude', 'launch.json')
     const entry = launchEntry({ folder: HERE, port: config.port, node: process.execPath, main: chosen.main })
     await mkdir(join(config.project, '.claude'), { recursive: true })
-    await writeFile(file, withEntry(await readFile(file, 'utf8').catch(() => ''), entry))
+    // B406: a launch.json that is there but cannot be read or parsed is never written over: its other entries would be
+    // lost.
+    const before = await readFile(file, 'utf8').catch(error => error?.code === 'ENOENT' ? '' : null)
+    if (before === null) return console.error(`${file} could not be read: it is left as it is.`)
+    if (before.trim() !== '' && !parses(before)) return console.error(`${file} is not valid JSON: fix it by hand; it is left as it is.`)
+    await writeAtomic(file, withEntry(before, entry))
     return console.log(`Launch entry "${entry.name}" in ${file}: ${entry.url}/`)
   }
   const historyFrom = argAfter(args, '--history-from')
@@ -698,6 +713,8 @@ async function main(args) {
   // step then, above which a step is new and gets one refine, and the steps queued then unrefined. Null before.
   const REFINE_FILE = join(HERE, 'data', 'refine-gate.json')
   let refineKept = null
+  /** B406: the data files that did not parse at the start, each kept aside: `{ file, aside }`. */
+  const setAside = []
   // B185: how long the tasks really took, read from the workers' transcripts and kept in the data folder, with the
   // list the chats read when they give a time. A board that shows another's history starts from that one's file
   // and measures in memory only.
@@ -719,14 +736,20 @@ async function main(args) {
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
-      finishedSeen = await readFile(FINISHED_FILE, 'utf8').then(text => JSON.parse(text), () => null)
-      roundsKept = await readFile(ROUNDS_FILE, 'utf8').then(text => JSON.parse(text), () => null)
-      refineKept = await readFile(REFINE_FILE, 'utf8').then(text => JSON.parse(text), () => null)
-      taskTimes = await readFile(TASK_TIMES_FILE, 'utf8').then(text => JSON.parse(text), () => null) ?? taskTimes
+      // B406: a file torn by a restart or a power cut is set aside, and the board starts without it (the page says so).
+      const kept = async file => {
+        const read = await readKept(file, clock())
+        if (read.value === null && read.setAside !== null) setAside.push({ file: basename(file), aside: basename(read.setAside) })
+        return read.value
+      }
+      finishedSeen = await kept(FINISHED_FILE)
+      roundsKept = await kept(ROUNDS_FILE)
+      refineKept = await kept(REFINE_FILE)
+      taskTimes = await kept(TASK_TIMES_FILE) ?? taskTimes
     } else {
       // The history of the board that is running; this one records nothing and keeps what is sent in memory.
       store = memoryStore()
-      taskTimes = await readFile(join(resolve(historyFrom), 'task-times.json'), 'utf8').then(text => JSON.parse(text), () => null) ?? taskTimes
+      taskTimes = await readFile(join(resolve(historyFrom), 'task-times.json'), 'utf8').then(text => JSON.parse(text)).catch(() => null) ?? taskTimes
       const shared = cached(async () => parseHistory((await readHead(join(resolve(historyFrom), 'history.jsonl'), HISTORY_BYTES))?.text ?? ''), TICK_MS / 2)
       const lines = { now: [] }
       readLines = () => lines.now
@@ -873,7 +896,8 @@ async function main(args) {
     const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept, group: config.advisorSuggestions }
     // B132: whether the project has a game to run; the demo has its made-up one.
     // B273: where the board found the app's folder after the app moved it, for the note on top.
-    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null }
+    // B406: the data files set aside at the start, for the note on top.
+    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside }
   }, STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
@@ -902,8 +926,8 @@ async function main(args) {
       }
       if (added.length > 0) taskTimes.tasks = keptTasks(taskTimes.tasks, added)
       if (historyFrom === undefined) {
-        await writeFile(TASK_TIMES_FILE, JSON.stringify(taskTimes))
-        if (added.length > 0 || !hasList) await writeFile(TASK_LIST_FILE, listText(taskTimes.tasks, clock()))
+        await writeAtomic(TASK_TIMES_FILE, JSON.stringify(taskTimes))
+        if (added.length > 0 || !hasList) await writeAtomic(TASK_LIST_FILE, listText(taskTimes.tasks, clock()))
         hasList = true
       }
       if (added.length > 0) readState.reset()
@@ -1002,19 +1026,11 @@ async function main(args) {
         if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
         const changed = settingChanged(text, checked.key, checked.value)
         if (!changed.ok) return changed
-        const spare = `${file}.${process.pid}.tmp`
         try {
-          await writeFile(spare, changed.text)
-          // Windows may hold the file for a moment (a virus scanner): once more after a short wait.
-          await rename(spare, file).catch(async error => {
-            if (error?.code !== 'EPERM' && error?.code !== 'EBUSY') throw error
-            await new Promise(done => setTimeout(done, 200))
-            await rename(spare, file)
-          })
+          // B406: beside and in place, tried again while Windows holds the file (a virus scanner).
+          await writeAtomic(file, changed.text)
         } catch (error) {
           return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
-        } finally {
-          await rm(spare, { force: true })
         }
       }
       config[checked.key] = checked.value
@@ -1064,7 +1080,7 @@ async function main(args) {
       const path = `${referencesFolder(config.pictureRoots[0])}/${randomBytes(8).toString('hex')}.${kind}`
       const file = inProject(config.project, path)
       await mkdir(dirname(file), { recursive: true })
-      await writeFile(file, bytes)
+      await writeAtomic(file, bytes)
       return { ok: true, result: { path } }
     },
     // B167: a picture pasted into Talk to Main, kept in the project's picture folder (see keepTalkPicture).
@@ -1341,7 +1357,7 @@ async function main(args) {
         console.error('Another worker board already delivers to the chats (.claude/board.json): answers given on this one will not arrive.')
       } else {
         await mkdir(join(config.project, '.claude'), { recursive: true })
-          .then(() => writeFile(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
+          .then(() => writeAtomic(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
           .catch(() => console.error('The board could not write .claude/board.json: answers will not reach the chats.'))
       }
     }
@@ -1363,7 +1379,7 @@ async function main(args) {
       // the store's own time of each step's move to done.
       const next = seenFromState(finishedSeen, state, clock())
       if (next !== finishedSeen) {
-        await writeFile(FINISHED_FILE, JSON.stringify(next))
+        await writeAtomic(FINISHED_FILE, JSON.stringify(next))
         finishedSeen = next
       }
       // B173: the Advisor's rounds, typed into its chat on the board's clock. Only the board that delivers, and only
@@ -1384,7 +1400,7 @@ async function main(args) {
           readState.reset()
         }
         if (JSON.stringify(next.kept) !== JSON.stringify(roundsKept)) {
-          await writeFile(ROUNDS_FILE, JSON.stringify(next.kept))
+          await writeAtomic(ROUNDS_FILE, JSON.stringify(next.kept))
           roundsKept = next.kept
         }
       }
@@ -1396,7 +1412,7 @@ async function main(args) {
         const begun = firstLook(refineKept, state)
         const due = begun === null ? { release: [], drop: [], refine: null, notice: null, kept: null } : refineWhenDue(state, sentNow(), begun, now)
         if (due.kept !== null && JSON.stringify(due.kept) !== JSON.stringify(refineKept)) {
-          await writeFile(REFINE_FILE, JSON.stringify(due.kept))
+          await writeAtomic(REFINE_FILE, JSON.stringify(due.kept))
           refineKept = due.kept
         }
         for (const id of due.release) await store.update(id, { state: 'waiting', at: now, releasedAt: now })

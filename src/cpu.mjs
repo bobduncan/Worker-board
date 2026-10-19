@@ -8,9 +8,11 @@
 // process needs it. Windows hands a BelowNormal or Idle priority and the affinity on to new child processes, so most
 // of a chat's new processes need nothing. Elsewhere the control says "not available here" and nothing runs.
 
-import { readFile, mkdir, writeFile } from 'node:fs/promises'
+import { readFile, mkdir } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { dirname } from 'node:path'
+
+import { writeAtomic } from './write.mjs'
 
 export const LEVELS = ['off', 'gentle', 'strong']
 
@@ -39,7 +41,7 @@ export async function readLevel(file, fallback = 'off') {
 /** Keeps the level in data/cpu.json, so it survives a restart. */
 export async function saveLevel(file, level, now) {
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, `${JSON.stringify({ level, at: now })}\n`)
+  await writeAtomic(file, `${JSON.stringify({ level, at: now })}\n`)
 }
 
 /** How many cores Strong leaves the chats: half of them, at least one. */

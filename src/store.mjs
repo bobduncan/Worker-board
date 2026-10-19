@@ -2,11 +2,12 @@
 // box) and alive.json (when the board last ran, so the time it was off shows as unknown). The first two can hold
 // words from a chat; they stay in this folder and are never printed.
 
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { changes, lastByChat, parseHistory } from './history.mjs'
 import { heldMs } from './work/pause.mjs'
+import { appendLines, writeAtomic } from './write.mjs'
 
 /** The board watches once a minute. Longer than this without a look means it was off or the PC slept. */
 const GAP_MS = 3 * 60_000
@@ -178,9 +179,10 @@ export async function fileStore(dir, now) {
     // Never ran before, or the file is broken: the last line of the history stands in.
   }
   const store = storeOver(lines, foldOutbox(await read(files.outbox)), Number.isFinite(aliveAt) ? aliveAt : null, {
-    history: added => appendFile(files.history, jsonLines(added)),
-    alive: at => writeFile(files.alive, JSON.stringify({ at })),
-    outbox: changed => appendFile(files.outbox, jsonLines(changed)),
+    // B406: a record starts on a line of its own, also after a line torn by a power cut; alive.json is never torn.
+    history: added => appendLines(files.history, jsonLines(added)),
+    alive: at => writeAtomic(files.alive, JSON.stringify({ at })),
+    outbox: changed => appendLines(files.outbox, jsonLines(changed)),
   })
   const gap = startGap(lines, aliveAt, now)
   if (gap !== null) await store.record([gap])

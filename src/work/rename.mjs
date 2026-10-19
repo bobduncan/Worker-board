@@ -44,7 +44,13 @@ export async function followRenames({ dir, chats, apply, now = Date.now(), prefi
     moved.push({ from: one.from, to: one.to, ids: done.result.moved ?? [] })
     sessions[one.session] = one.to
   }
-  const next = { sessions, held: [...record.held, ...held.map(one => ({ ...one, prefix, at: stamp(now) }))] }
-  if (JSON.stringify(next) !== JSON.stringify(record) || text === null) await writeNames(dir, next, fs, { expected: text })
+  // B406: a record that could not be written finds the same renames at the next refresh: one carried out again moves
+  // nothing, and a held one is kept once.
+  const isKept = one => record.held.some(old => old.from === one.from && old.to === one.to && old.prefix === prefix)
+  const next = { sessions, held: [...record.held, ...held.filter(one => !isKept(one)).map(one => ({ ...one, prefix, at: stamp(now) }))] }
+  if (JSON.stringify(next) !== JSON.stringify(record) || text === null) {
+    const done = await writeNames(dir, next, fs, { expected: text })
+    if (!done.ok) return { moved, held, why: done.why }
+  }
   return { moved, held }
 }

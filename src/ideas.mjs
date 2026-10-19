@@ -1,10 +1,11 @@
 // The ideas of the Design tab and their versions, kept in `data/ideas.json`: there again after a restart of the
 // board. The file holds what the person typed for an idea and where its pictures are, nothing from a chat.
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { ideasFolder, shortName } from './design.mjs'
+import { writeAtomic } from './write.mjs'
 
 // B198: an idea's folder and an uploaded reference lie in the ideas folder of a plain picture folder of the project:
 // the one the settings name now, or the one an earlier idea was kept in, so every idea saved so far stays readable.
@@ -152,7 +153,7 @@ export async function ideasFile(file, { pictures = null } = {}) {
   }
   return ideasOver(parseIdeas(text), async next => {
     await mkdir(dirname(file), { recursive: true })
-    await writeFile(`${file}.new`, next)
-    await rename(`${file}.new`, file)
+    // B406: flushed beside and put in place, tried again while Windows holds the file.
+    await writeAtomic(file, next)
   }, { pictures })
 }

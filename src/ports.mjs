@@ -13,13 +13,14 @@
 // that runs on a port keeps it for its project from then on. A board whose configured port another project holds
 // takes the next free one from there, and games' ports in a range of their own (GAME_SPAN wide).
 
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 
 import { parseWorktrees } from './folders.mjs'
 import { pathKey } from './games.mjs'
+import { again, removeFile, writeAtomic } from './write.mjs'
 
 /** A copy's own port is taken from here up: above the ports that were given by hand (4311, 4312). */
 export const OWN_PORTS_FROM = 4320
@@ -66,7 +67,7 @@ export async function readOwnPort(folder) {
 
 export async function writeOwnPort(folder, port) {
   await mkdir(join(folder, 'data'), { recursive: true })
-  await writeFile(portFile(folder), `${JSON.stringify({ port })}\n`)
+  await writeAtomic(portFile(folder), `${JSON.stringify({ port })}\n`)
 }
 
 /**
@@ -220,21 +221,6 @@ export function chooseHome({ project, configured, gamePort, boards, busy = [], p
 
 const isThere = path => stat(path).then(() => true, () => false)
 
-/**
- * `work` tried up to five times while Windows says the file is in use (another board, or a virus scanner, holds it
- * that moment); a file that is not there is no reason to try again.
- */
-async function again(work) {
-  for (let tries = 1; ; tries += 1) {
-    try {
-      return await work()
-    } catch (error) {
-      if (tries >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)) throw error
-      await new Promise(done => setTimeout(done, 40 * tries))
-    }
-  }
-}
-
 /** The boards of the PC's list whose project folder is still there: a project that is gone holds no port. */
 export async function readBoards(file) {
   const boards = parseBoards(await again(() => readFile(file, 'utf8')).catch(() => ''))
@@ -260,7 +246,7 @@ async function withLock(file, work) {
       if (error?.code !== 'EEXIST') throw error
       // A lock left by a board that ended in the middle is taken away once it is old.
       const age = await stat(lock).then(found => Date.now() - found.mtimeMs, () => 0)
-      if (age > LOCK_OLD_MS) await rm(lock, { force: true })
+      if (age > LOCK_OLD_MS) await removeFile(lock, undefined, { force: true })
       else if (Date.now() > until) throw new Error(`The list of boards ${file} stays locked (${lock}).`)
       else await new Promise(done => setTimeout(done, 25 + Math.random() * 50))
     }
@@ -268,7 +254,7 @@ async function withLock(file, work) {
   try {
     return await work()
   } finally {
-    await rm(lock, { force: true })
+    await removeFile(lock, undefined, { force: true })
   }
 }
 
@@ -282,13 +268,7 @@ export async function registerHome(file, board) {
     const mine = { project: board.project, folder: board.folder, port: board.port, gamePort: board.gamePort, asked: board.asked }
     const at = listed.findIndex(one => pathKey(one.project) === pathKey(board.project))
     const boards = at < 0 ? [...listed, mine] : listed.map((one, index) => (index === at ? mine : one))
-    const draft = `${file}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`
-    await writeFile(draft, `${JSON.stringify({ boards }, null, 2)}\n`)
-    try {
-      await again(() => rename(draft, file))
-    } finally {
-      await rm(draft, { force: true })
-    }
+    await writeAtomic(file, `${JSON.stringify({ boards }, null, 2)}\n`)
     return boards
   })
 }
@@ -297,13 +277,7 @@ export async function registerHome(file, board) {
 export async function unregisterHome(file, project) {
   return withLock(file, async () => {
     const boards = (await readBoards(file)).filter(one => pathKey(one.project) !== pathKey(project))
-    const draft = `${file}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`
-    await writeFile(draft, `${JSON.stringify({ boards }, null, 2)}\n`)
-    try {
-      await again(() => rename(draft, file))
-    } finally {
-      await rm(draft, { force: true })
-    }
+    await writeAtomic(file, `${JSON.stringify({ boards }, null, 2)}\n`)
     return boards
   })
 }

@@ -2,12 +2,12 @@
 // folder the setting `brainstorms` names: the Advisor writes its questions and its proposal into it, the board writes
 // the person's answers, the state and what was created. Read here into a thread, and written line by line: every line
 // the change does not touch stays as it was. Only `editThread` (the page's POST /api/brainstorm) touches files.
-import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { nextGoalId, parseGoals } from './goals.mjs'
 import { addBrainstormNote, addGoal, changeGoalsFile, raiseLastLine, rewrite, setGoalLine } from './goalsWrite.mjs'
 
-const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
+const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
 const refuse = why => ({ ok: false, why })
 export const THREAD_STATES = ['running', 'wrapping up', 'done', 'discarded']
 const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)

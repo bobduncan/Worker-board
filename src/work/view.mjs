@@ -3,16 +3,17 @@
 // nobody edits it. What a step's line cannot say stands in one "[store]" line under it (adapter.mjs, `storeLine`),
 // so the view migrates back to the same items.
 
-import { createHash, randomBytes } from 'node:crypto'
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { copyFile, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
+import { writeAtomic } from '../write.mjs'
 import { backlogText } from './adapter.mjs'
 import { GENERATED, stamp } from './migrate.mjs'
 
 export { GENERATED }
 
-const files = { readFile, writeFile, rename, rm, copyFile, mkdir }
+const files = { readFile, writeFile, rename, rm, copyFile, mkdir, open }
 const hashOf = text => createHash('sha1').update(text).digest('hex')
 /** Where the store keeps the hash of the view it last wrote, and the last hand-edited view it kept. */
 export const VIEW_FILE = 'view.json'
@@ -44,13 +45,10 @@ export async function writeView(store, file, fs = files, { now = Date.now() } = 
       kept = join(dirname(file), `${basename(file).replace(/\.md$/i, '')}.edited-${stamp(now).replace(' ', '-').replace(':', '')}.md`)
       await fs.copyFile(file, kept)
     }
-    const beside = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
-    await fs.writeFile(beside, text, { flag: 'wx' }).then(() => fs.rename(beside, file), async error => {
-      await fs.rm(beside, { force: true }).catch(() => {})
-      throw error
-    })
+    // B406: both flushed beside and put in place, tried again while Windows holds the file.
+    await writeAtomic(file, text, fs)
     await fs.mkdir(store.dir, { recursive: true })
-    await fs.writeFile(record, `${JSON.stringify({ hash: hashOf(text), kept: kept === null ? last.kept ?? null : { file: kept, at: stamp(now) } })}\n`)
+    await writeAtomic(record, `${JSON.stringify({ hash: hashOf(text), kept: kept === null ? last.kept ?? null : { file: kept, at: stamp(now) } })}\n`, fs)
     return { ok: true, changed: true, kept }
   } catch (error) {
     return { ok: false, why: `The view could not be written (${error.code ?? error.message}).` }

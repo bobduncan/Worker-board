@@ -4,10 +4,10 @@
 // order, `flow.json`. B301: the store is the one source of the work; nothing falls back to the backlog file.
 // Every write is read anew right before, written beside and put in place, as goalsWrite.mjs does: never blind.
 
-import { randomBytes } from 'node:crypto'
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
+import { besideOf, moveInPlace, removeFile, writeNew } from '../write.mjs'
 import { storeProblems } from './adapter.mjs'
 import { DEFAULT_FLOW, parseFlow } from './flow.mjs'
 import { parseItem, serializeItem, validateHead, valueOf } from './item.mjs'
@@ -17,7 +17,7 @@ import { stamp } from './migrate.mjs'
 import { PAUSE_FILE, parsePause } from './pause.mjs'
 import { PARTNER_FILE, parsePartnerAnswers } from './partnerAnswers.mjs'
 
-const files = { readFile, writeFile, rename, rm, mkdir, readdir }
+const files = { readFile, writeFile, rename, rm, mkdir, readdir, open }
 const ITEM_FILE = /^([A-Z]\d+|L-[0-9a-f]{8})\.md$/
 const CLAIM_FILE = /^([A-Z]\d+)\.claim$/
 const NUMBERED = /^[A-Z]\d+$/
@@ -33,14 +33,15 @@ async function putInPlace(file, text, fs, expected) {
   const before = await readOr(fs, file, null)
   if (expected !== undefined && before !== expected) return { ok: false, why: `${file.split(/[\\/]/).at(-1)} changed in the meantime` }
   if (before === text) return { ok: true, changed: false }
-  const beside = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+  // B406: flushed beside, and put in place tried again while Windows holds the file.
+  const beside = besideOf(file)
   try {
-    await fs.writeFile(beside, text, { flag: 'wx' })
+    await writeNew(beside, text, fs)
     if (await readOr(fs, file, null) !== before) {
       await fs.rm(beside, { force: true })
       return { ok: false, why: `${file.split(/[\\/]/).at(-1)} changed in the meantime` }
     }
-    await fs.rename(beside, file)
+    await moveInPlace(beside, file, fs)
     return { ok: true, changed: true }
   } catch (error) {
     await fs.rm(beside, { force: true }).catch(() => {})
@@ -229,12 +230,14 @@ export async function writeStore(dir, { items, activities, preamble = [] }, fs =
     else if (done.changed) written.push(id)
   }
   const listed = await putInPlace(join(dir, 'activities.json'), `${JSON.stringify({ preamble, activities }, null, 1)}\n`, fs)
-  if (listed.changed) written.push('activities.json')
+  // B406: a list that could not be written is said, like an item's file.
+  if (!listed.ok) problems.push(`activities.json: ${listed.why}`)
+  else if (listed.changed) written.push('activities.json')
   // A step without an id whose line left the backlog: its file only ever held a copy of that line, so it goes. A file
   // with an id given by the backlog or the store is never removed.
   for (const name of await fs.readdir(dir)) {
     const id = name.match(ITEM_FILE)?.[1]
-    if (id !== undefined && isLegacyId(id) && !items.has(id)) await fs.rm(join(dir, name), { force: true })
+    if (id !== undefined && isLegacyId(id) && !items.has(id)) await removeFile(join(dir, name), fs, { force: true })
   }
   const onDisk = (await fs.readdir(dir)).map(name => name.match(ITEM_FILE)?.[1]).filter(Boolean)
   // last-ids.json only grows: the higher of what it holds (value by value) and the files.
@@ -303,7 +306,7 @@ export async function removeItem(dir, id, fs = files, { expected } = {}) {
   const file = join(dir, `${id}.md`)
   if (expected !== undefined && await readOr(fs, file, null) !== expected) return { ok: false, why: `${id}.md changed in the meantime` }
   try {
-    await fs.rm(file)
+    await removeFile(file, fs)
     return { ok: true, changed: true }
   } catch (error) {
     return { ok: false, why: `${id}.md could not be removed: ${error.code ?? error.message}` }

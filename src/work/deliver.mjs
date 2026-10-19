@@ -48,7 +48,7 @@ const isUntaken = (message, now, keep) => message !== undefined && ((message.sta
  */
 export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId, fs, keep }) {
   return oneAtATime(dir, async () => {
-    const { record, text } = await readDeliveredFile(dir, fs)
+    const { record } = await readDeliveredFile(dir, fs)
     const before = record.sent[key] ?? (record.keys.includes(key) ? { message: null, wake: null, again: 0 } : null)
     if (before !== null) {
       const sent = outbox.outbox().find(message => message.id === before.message)
@@ -63,11 +63,28 @@ export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId,
     } catch {
       return null
     }
-    const keys = record.keys.includes(key) ? record.keys : [...record.keys, key]
-    const sent = { ...record.sent, [key]: { message: message.id, wake: wake?.id ?? null, again: before === null ? 0 : (before.again ?? 0) + 1 } }
-    await writeDelivered(dir, { ...record, keys, sent }, fs, { expected: text })
+    // B406: the key must be written, or the next refresh sends the line again: read anew and written again when the
+    // file changed in between.
+    await changeDelivered(dir, fs, held => ({
+      ...held,
+      keys: held.keys.includes(key) ? held.keys : [...held.keys, key],
+      sent: { ...held.sent, [key]: { message: message.id, wake: wake?.id ?? null, again: before === null ? 0 : (before.again ?? 0) + 1 } },
+    }))
     return message
   })
+}
+
+/**
+ * B406: delivered.json's record as `change` makes it, read anew and written again (three tries in all) when the file
+ * changed in between. `{ ok }`, or `{ ok: false, why }` when it could not be written.
+ */
+async function changeDelivered(dir, fs, change) {
+  let done = { ok: false, why: 'delivered.json could not be written' }
+  for (let attempt = 0; attempt < 3 && !done.ok; attempt += 1) {
+    const { record, text } = await readDeliveredFile(dir, fs)
+    done = await writeDelivered(dir, change(record), fs, { expected: text }).catch(error => ({ ok: false, why: error.message }))
+  }
+  return done
 }
 
 /** Whether a line may go to `chat` now: a chat on the board (not a leftover) that is free, not busy nor held by the limit. */
@@ -142,9 +159,10 @@ async function withdrawStale({ dir, outbox, prefix, fs }) {
  * delivered.json, written at the first refresh), and once per set of notes.
  */
 async function noteLine({ dir, plan, outbox, now, fs }) {
-  const { record, text } = await readDeliveredFile(dir, fs)
+  const { record } = await readDeliveredFile(dir, fs)
   if (record.notesFrom === null) {
-    await writeDelivered(dir, { ...record, notesFrom: stamp(now) }, fs, { expected: text }).catch(() => null)
+    // B406: not written, it is written at the next refresh; no line goes before it is.
+    await changeDelivered(dir, fs, held => (held.notesFrom === null ? { ...held, notesFrom: stamp(now) } : held))
     return []
   }
   const from = sinceMs(record.notesFrom)

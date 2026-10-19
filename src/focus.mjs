@@ -3,7 +3,7 @@
 // (`FOCUS_DRAFTS`) from the page or with the board's key. Each writes goals.md by id (read anew right before, as every
 // change of the map) and answers the words the board then types to the partner, marked as the person's: null when the
 // move changed nothing (a second click), so a word goes once (Review Focus 3). The moves run one at a time.
-import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
@@ -11,7 +11,7 @@ import { evaluateWords, goalAttempts, needsEvaluation } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords, planWords } from './say.mjs'
 
-const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
+const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
 
 /**
  * The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar;

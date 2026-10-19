@@ -3,12 +3,12 @@
 // (`rewrite`), with a copy of the file before the first change of a day and an undo of the last twenty.
 // A goal's block is its line and every following line indented deeper; its own lines are the block's lines that are
 // not inside a child's block.
-import { randomBytes } from 'node:crypto'
-import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { FOCUS_LINE, GOAL_LINE, LAST_LINE, hasDoneWhen, nextAskId, nextGoalId, parseGoals } from './goals.mjs'
+import { besideOf, moveInPlace, writeAtomic, writeNew } from './write.mjs'
 
-const files = { readFile, writeFile, rename, rm, mkdir, access }
+const files = { readFile, writeFile, rename, rm, mkdir, access, open }
 
 /**
  * B221: a file with one change made to it (`change`: the text before, as latin1, to `{ ok, text }` or `{ ok: false,
@@ -26,14 +26,15 @@ export async function rewrite(file, change, fs) {
     }
     const ticked = change(before)
     if (!ticked.ok) return ticked
-    const beside = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+    // B406: flushed beside, and put in place tried again while Windows holds the file.
+    const beside = besideOf(file)
     try {
-      await fs.writeFile(beside, Buffer.from(ticked.text, 'latin1'), { flag: 'wx' })
+      await writeNew(beside, Buffer.from(ticked.text, 'latin1'), fs)
       if ((await fs.readFile(file)).toString('latin1') !== before) {
         await fs.rm(beside, { force: true })
         continue
       }
-      await fs.rename(beside, file)
+      await moveInPlace(beside, file, fs)
       return { ok: true }
     } catch {
       await fs.rm(beside, { force: true }).catch(() => {})
@@ -492,7 +493,9 @@ export async function historyCopy(file, dir, date, fs = files) {
   const bytes = await fs.readFile(file).catch(() => null)
   if (bytes === null) return
   await fs.mkdir(dir, { recursive: true }).catch(() => {})
-  await fs.writeFile(copy, bytes).catch(() => {})
+  // B406: whole or not there, so a copy cut off is never taken for the day's: one that could not be written is made
+  // at the next change, and the change goes ahead either way.
+  await writeAtomic(copy, bytes, fs).catch(() => {})
 }
 
 const WHY = {

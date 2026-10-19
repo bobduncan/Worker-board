@@ -295,6 +295,19 @@ function storeNote(store, workFlags = []) {
 }
 // store:end
 
+// setAside:start
+/**
+ * B406: the note on top when the board set data files aside at its start (`state.setAside`: `{ file, aside }`): each
+ * did not parse, torn perhaps by a restart or a power cut, and the board started without it. Null: none.
+ */
+function setAsideNote(setAside) {
+  if (!Array.isArray(setAside) || setAside.length === 0) return null
+  const listed = names => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`)
+  const [them, files] = setAside.length > 1 ? ['them', 'those files'] : ['it', 'that file']
+  return `At its start the board could not read ${listed(setAside.map(one => one.file))} in its data folder (torn, perhaps by a restart or a power cut). It kept ${them} aside as ${listed(setAside.map(one => one.aside))} and started without ${them}. Delete ${files} once you no longer need ${them}.`
+}
+// setAside:end
+
 function drawAppNote(state) {
   const shown = appNote(state.appMoved ?? null, clock)
   const note = $('app-note')
@@ -505,6 +518,14 @@ $('new-project-form').addEventListener('submit', async event => {
     sending.delete('new-project')
   }
 })
+
+/** B406: the note on top about the data files set aside at the start (see `setAsideNote`). */
+function drawSetAsideNote(state) {
+  const text = setAsideNote(state.setAside)
+  const note = $('set-aside-note')
+  note.hidden = text === null
+  if (text !== null) note.textContent = text
+}
 
 /** B296, B301: the note on top about the work store (see `storeNote`). */
 function drawStoreNote(state) {
@@ -12357,6 +12378,7 @@ function draw(state) {
   drawAppNote(state)
   drawModNote(state)
   drawStoreNote(state)
+  drawSetAsideNote(state)
   drawCpu(state)
   drawMainGame(state)
   drawLimits(state)
