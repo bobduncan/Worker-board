@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { focusMove } from '../src/focus.mjs'
-import { optionCard, parsePlan, planState } from '../src/plan.mjs'
+import { PLAN_LATE_MS, optionCard, parsePlan, planState, withPlanWork } from '../src/plan.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { itemsOf, storeFromText } from '../src/work/read.mjs'
 
@@ -277,3 +277,29 @@ test('planState: null without a page', () => {
   assert.equal(planState('   ', [], 'docs/product-plan.md'), null)
 })
 
+
+test('withPlanWork: what the partner is preparing from the board\'s words, until its answer is there', () => {
+  const page = '# P\n\n## P1 · What\n\n- State: decided (you, 2026-10-19)\n\n## P5 · Who\n\n- State: open\n'
+  const at = 1_000_000
+  const deeper = parseItem(`Id: Q8\nKind: ask\nTitle: P1.1: how big?\nState: open\nOwner: P - Partner\nAsks: decide\nFiled: ${at + 60_000}\n`)
+  const old = parseItem(`Id: Q7\nKind: ask\nTitle: P1.1: how big?\nState: open\nOwner: P - Partner\nAsks: decide\nFiled: ${at - 60_000}\n`)
+  const sent = [
+    { command: 'plan-deeper', about: 'P1', at: at - 600_000, state: 'delivered' },
+    { command: 'plan-deeper', about: 'P1', at, state: 'delivered' },
+    { command: 'plan-ask', about: 'P5', at, state: 'waiting' },
+    { command: 'plan-marks', about: 'plan', at, state: 'delivered' },
+    { command: 'plan-goals-agree', about: 'plan', at, state: 'failed' },
+    { command: 'focus', about: 'G1', at, state: 'delivered' },
+  ]
+  const work = (asks, pageAt, now = at + 120_000) => withPlanWork(planState(page, asks, 'p.md'), sent, pageAt, now).working.map(one => [one.command, one.about, one.state])
+  // No answer yet: the newest word per part, its state; a word not about the plan is not shown.
+  assert.deepEqual(work([old], null), [['plan-goals-agree', 'plan', 'failed'], ['plan-marks', 'plan', 'working'], ['plan-ask', 'P5', 'waiting'], ['plan-deeper', 'P1', 'working']])
+  // A deeper question filed after the word ends Go deeper's work.
+  assert.deepEqual(work([deeper], null).map(([command]) => command), ['plan-goals-agree', 'plan-marks', 'plan-ask'])
+  // The page written after the words ends them all.
+  assert.deepEqual(work([], at + 1), [])
+  // Half an hour without an answer: late.
+  assert.equal(work([], null, at + 31 * 60_000).find(([command]) => command === 'plan-marks')[2], 'late')
+  assert.equal(withPlanWork(null, sent, null, at), null)
+  assert.equal(PLAN_LATE_MS, 30 * 60_000)
+})

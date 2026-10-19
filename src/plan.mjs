@@ -11,7 +11,7 @@
 // "- Goal: G<n>" (the goal of the map it is). The heading "## The log" holds the chats' walk-up lines: "- hit P3: ...",
 // "- gap: ...", "- overturned P2: ...".
 
-import { valueOf } from './work/item.mjs'
+import { askFiledMs, valueOf } from './work/item.mjs'
 
 const HEAD = /^##\s+(P\d+)\s*[·:-]\s*(.*)$/
 const LINE = /^-\s+([A-Z][A-Za-z ]*?)(?:\s*\(([^)]*)\))?:\s*(.*)$/
@@ -227,6 +227,8 @@ function questionOf(ask) {
     about: id.split('.')[0],
     isDeeper: id.includes('.'),
     askId: valueOf(ask, 'Id'),
+    // When it was filed: a word to the partner asking for it is answered by a question filed after the word.
+    filedAt: askFiledMs(ask),
     // The question: the title after its id.
     question: capital(title.replace(QUESTION, '').trim()),
     // An ask's words stand in its Text section; its title is the head's.
@@ -277,4 +279,44 @@ export function planState(text, items, path) {
     preset: { total: goals.length, confirmed: goals.filter(goal => goal.state === 'confirmed').length },
     log: { hits: log.hits, gaps: log.gaps, overturned: log.overturned },
   }
+}
+
+/** What a word to the partner about the plan asks of it, for the Vision tab's line "Your partner is preparing ...". */
+const WORK_WORDS = {
+  'plan-deeper': 'deeper questions', 'plan-ask': 'the options', 'plan-marks': 'your marks', 'plan-feature-add': 'your new feature',
+  'plan-goals-confirm': 'your confirmed goals', 'plan-goals-change': 'a changed preset', 'plan-goals-agree': 'the goals into your goal map',
+  'plan-change': 'your change', 'plan-confirm': 'your confirm',
+}
+/** A word the partner has not answered after this long is late: the tab offers to send it again. */
+export const PLAN_LATE_MS = 30 * 60_000
+
+/**
+ * Vision (2026-10-19): the plan's state with `working`: what the partner is preparing from the person's words on the
+ * Vision tab (the board's own outbox, `sent`), newest first, one per word and part. A word is done once its answer is
+ * there: for Go deeper a deeper question about the card filed after the word, for Get options its question, for every
+ * word the plan's page written after it (`pageAt`). Not done: `waiting` (not with the partner yet), `working` (typed
+ * into its chat), `late` (no answer after PLAN_LATE_MS), or `failed` (the word never arrived).
+ */
+export function withPlanWork(plan, sent, pageAt, now) {
+  if (plan === null) return null
+  const seen = new Set()
+  const working = []
+  for (const message of [...(Array.isArray(sent) ? sent : [])].reverse()) {
+    const command = message?.command
+    if (typeof command !== 'string' || WORK_WORDS[command] === undefined) continue
+    const about = message.about ?? 'plan'
+    const key = `${command}:${about}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const at = Number(message.at)
+    const asked = command === 'plan-deeper'
+      ? plan.questions.some(question => question.about === about && question.isDeeper && question.filedAt >= at)
+      : command === 'plan-ask' ? plan.questions.some(question => question.id === about && question.filedAt >= at) : false
+    if (asked || (Number.isFinite(pageAt) && pageAt > at)) continue
+    const state = message.state === 'expired' || message.state === 'failed' ? 'failed'
+      : message.state === 'waiting' || message.state === 'held' ? 'waiting'
+        : now - at > PLAN_LATE_MS ? 'late' : 'working'
+    working.push({ command, about, at, state, what: WORK_WORDS[command] })
+  }
+  return { ...plan, working }
 }

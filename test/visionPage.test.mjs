@@ -188,6 +188,22 @@ test('the goals: the preset per milestone, Confirm not sent yet, and the state o
   assert.equal(confirming.steps[2].isDone, false)
 })
 
+test('while the partner prepares: Go deeper waits on its card, Get options shows as asked, the sends wait, the lines name the part', () => {
+  const busy = { ...plan, working: [
+    { command: 'plan-deeper', about: 'P2', at: 1, state: 'working', what: 'deeper questions' },
+    { command: 'plan-ask', about: 'P6', at: 1, state: 'waiting', what: 'the options' },
+    { command: 'plan-marks', about: 'plan', at: 1, state: 'working', what: 'your marks' },
+    { command: 'plan-goals-agree', about: 'plan', at: 1, state: 'late', what: 'the goals into your goal map' },
+  ] }
+  const view = visionView(busy, UI)
+  assert.deepEqual(view.cards.map(card => [card.id, card.deeperWork]), [['P1', null], ['P2', 'working'], ['P5', null], ['P6', null], ['P7', null]])
+  assert.equal(view.slides.find(slide => slide.id === 'P6').isAsked, true)
+  assert.deepEqual(view.busy, { marks: true, featureAdd: false, confirms: false, goalsChange: false, agree: false })
+  assert.deepEqual(view.working.map(one => [one.command, one.title, one.state]), [['plan-deeper', 'Look', 'working'], ['plan-ask', 'Where', 'waiting'], ['plan-marks', null, 'working'], ['plan-goals-agree', null, 'late']])
+  assert.match(script, /'Preparing questions…'/)
+  assert.match(css, /\.vision-spinner \{/)
+})
+
 test('no plan: no view; no question: no slides; no features or goals: empty steps', () => {
   assert.equal(made.visionView(null, UI), null)
   const none = visionView(planState('# Empty\n\n## P1 · What\n\n- State: decided (you, 2026-10-19)\n', [], 'p.md'), UI)
