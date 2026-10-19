@@ -121,7 +121,7 @@ Options: Yes | No
   assert.deepEqual(answers[2].ask.options.map(({ key, head, isAdvised, picture }) => [key, head, isAdvised, picture]), [
     ['A', 'a link for friends', true, null], ['B', 'public on itch.io', false, null], ['C', 'Steam, later', false, null],
   ])
-  assert.deepEqual([answers[2].ask.id, answers[2].ask.question, answers[2].ask.advice, answers[2].ask.text, answers[2].ask.pictures],
+  assert.deepEqual([answers[2].ask.askId, answers[2].ask.question, answers[2].ask.advice, answers[2].ask.text, answers[2].ask.pictures],
     ['Q7', 'How does the game reach people?', 'A, revisit after M2', 'Known: the browser on a desktop.', []])
   // As many pictures as options: one per option, in their order; another number: all above the options.
   const pictured = ask.replace('Advice:', 'Pictures: a.png, b.png, c.png\nAdvice:')
@@ -144,6 +144,132 @@ test('the Plan part\'s Confirm and Change: a word to the partner, nothing writte
   assert.equal((await focusMove({ command: 'plan-confirm', id: 'G5' }, ctx)).status, 400)
   assert.equal((await focusMove({ command: 'plan-confirm', id: 'P5' }, { ...ctx, canWrite: false })).status, 403)
   assert.equal((await focusMove({ command: 'plan-confirm', id: 'P5' }, { ...ctx, partner: null })).status, 409)
+})
+
+test('the Vision tab\'s other moves: deeper, marks, a feature added, goals confirmed, changed and agreed; a change of a feature or goal', async () => {
+  const ctx = { canWrite: true, partner: { name: 'Game - Advisor' }, job: 'J' }
+  const words = async body => (await focusMove(body, ctx)).words.text.split('\n')
+  assert.deepEqual(await words({ command: 'plan-deeper', id: 'P1' }), ['plan: P1 deeper', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-marks', text: 'F3 later; F5 must' }), ['plan: features marked', 'Marks: F3 later; F5 must', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-feature-add', text: 'A pet that follows you' }), ['plan: feature add', 'Words: A pet that follows you', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-goals-confirm', text: 'S1, S4' }), ['plan: goals confirmed', 'Goals: S1, S4', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-goals-change', text: 'Merge S2 and S3' }), ['plan: goals change', 'Words: Merge S2 and S3', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-goals-agree' }), ['plan: goals agreed', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-change', id: 'F3', text: 'only at night' }), ['plan: F3 change', 'Words: only at night', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-change', id: 'S2', text: 'later' }), ['plan: S2 change', 'Words: later', 'Your job: J, "The plan interview"'])
+  assert.equal((await focusMove({ command: 'plan-goals-agree' }, ctx)).words.about, 'plan')
+  // Refused: a list not in its form, empty words, Go deeper on a feature.
+  assert.equal((await focusMove({ command: 'plan-marks', text: 'F3 maybe' }, ctx)).status, 400)
+  assert.equal((await focusMove({ command: 'plan-goals-confirm', text: 'S1 and S2' }, ctx)).status, 400)
+  assert.equal((await focusMove({ command: 'plan-feature-add', text: ' ' }, ctx)).status, 400)
+  assert.equal((await focusMove({ command: 'plan-deeper', id: 'F1' }, ctx)).status, 400)
+})
+
+test('parsePlan: the features with their marks, complex and built; the goal preset per milestone', () => {
+  const { features, milestones } = parsePlan(`# P
+
+## P1 · What
+
+- State: decided (you, 2026-10-19)
+
+## Features
+
+### F1 · Benches
+
+- Mark: must (from vision.md, 2026-10-10)
+- Complex: no
+- Built: yes
+- Point: **Wood,** never metal
+
+### F2 · A pond
+
+- Mark: ? (partner, 2026-10-19)
+- Complex: yes · water changes every path
+- Built: partly
+
+### F3 · Lamps
+
+- Mark: not sure
+- Built: maybe
+
+### F4 · Swings
+
+- Mark: perhaps
+
+## Goals preset
+
+#### S9 · Before any milestone: not a goal
+
+### M1 · A first corner
+
+#### S1 · Two benches
+
+- State: confirmed (you, 2026-10-19)
+- Done when: two benches stand
+  by the path
+- Serves: P1, P2, G4
+- Sub: Draw the bench
+- Goal: G3
+
+### M3+ · Growth
+
+#### S2 · A pond
+
+- Done when: it holds water
+- Goal: later
+
+### F5 · Not a feature: under the goals
+`)
+  assert.deepEqual(features.map(one => [one.id, one.name, one.mark, one.by, one.from, one.at, one.isComplex, one.why, one.built, one.points]), [
+    ['F1', 'Benches', 'must', null, 'vision.md', '2026-10-10', false, '', 'yes', ['**Wood,** never metal']],
+    ['F2', 'A pond', 'unsure', 'partner', null, '2026-10-19', true, 'water changes every path', 'partly', []],
+    ['F3', 'Lamps', 'unsure', null, null, null, false, '', 'no', []],
+    ['F4', 'Swings', 'unsure', null, null, null, false, '', 'no', []],
+  ])
+  assert.deepEqual(milestones.map(one => [one.id, one.title, one.goals.map(goal => [goal.id, goal.title, goal.state, goal.by, goal.doneWhen, goal.serves, goal.subs, goal.goal])]), [
+    ['M1', 'A first corner', [['S1', 'Two benches', 'confirmed', 'you', 'two benches stand by the path', ['P1', 'P2'], ['Draw the bench'], 'G3']]],
+    ['M3+', 'Growth', [['S2', 'A pond', 'proposed', null, 'it holds water', [], [], null]]],
+  ])
+})
+
+test('planState: the questions on the plan in the page\'s order, the marks, the architecture check, the preset\'s counts', () => {
+  const page = `# P
+
+## P1 · What
+
+- State: decided (you, 2026-10-19)
+
+## Features
+
+### F1 · A pond
+
+- Mark: later
+- Complex: yes
+
+### F2 · Benches
+
+- Mark: must
+
+## Goals preset
+
+### M1 · First
+
+#### S1 · Benches
+
+- State: confirmed (you, 2026-10-19)
+
+#### S2 · Lamps
+`
+  const asks = ['S2: when do the lamps come?', 'F1: when should the pond come?', 'P1.2: how big?', 'P1: what is it?', 'P1.1: for whom?', 'G3: not about the plan'].map((title, at) => parseItem(`Id: Q${at + 1}\nKind: ask\nTitle: ${title}\nState: open\nOwner: P - Partner\nAsks: decide\n`))
+  const state = planState(page, asks, 'p.md')
+  assert.deepEqual(state.questions.map(one => [one.id, one.about, one.isDeeper, one.askId]), [
+    ['P1', 'P1', false, 'Q4'], ['P1.1', 'P1', true, 'Q5'], ['P1.2', 'P1', true, 'Q3'], ['F1', 'F1', false, 'Q2'], ['S2', 'S2', false, 'Q1'],
+  ])
+  assert.deepEqual([state.answers[0].ask.askId, state.answers[0].deeper], ['Q4', 2])
+  assert.deepEqual(state.marks, { must: 1, later: 1, no: 0, unsure: 0 })
+  assert.deepEqual(state.architecture, { everyMilestone: true, complex: ['F1'], open: ['F1'] })
+  assert.deepEqual(state.preset, { total: 2, confirmed: 1 })
+  assert.equal(planState('# P\n\n## P1 · What\n', [], 'p.md').architecture, null)
 })
 
 test('planState: null without a page', () => {
