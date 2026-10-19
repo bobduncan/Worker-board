@@ -70,3 +70,14 @@ test('an ask that names one other open ask shows that one inline', () => {
   // The id may stand in its text too.
   assert.equal(context.pointedAsk(ask('Q16', 'Decide the hedge.', 'It is Q12, waiting.'), [asked])?.workId, 'Q12')
 })
+
+test('B426: a card\'s title, the decided lines and the note\'s asks draw their ids and pages as links; a page opens in the file window', () => {
+  assert.match(script, /head\.append\(top, linkedEl\('h4', '', need\.title\)\)/)
+  assert.match(script, /item\.append\(linkedEl\('span', '', row\.text\), undo\)/)
+  assert.match(script, /row\.append\(linkedEl\('span', '', one\.text\), undo\)/)
+  assert.match(script, /box\.append\(linkedEl\('b', '', ask\.title\)\)/)
+  // a picture anywhere in the project opens as a page does: the file window shows it in the picture popup
+  const linked = script.slice(script.indexOf('function linkedWords('), script.indexOf('function linkedEl('))
+  assert.doesNotMatch(linked, /dataset\.zoom/)
+  assert.match(linked, /link\.dataset\.gameFile = piece\.path/)
+})

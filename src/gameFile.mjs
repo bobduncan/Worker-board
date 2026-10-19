@@ -12,6 +12,8 @@ const TYPES = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
 }
 const MOST_BYTES = 1_000_000
+/** B426: a picture may be as large as the picture popup allows (src/pictures.mjs): a page's picture links open it here. */
+const MOST_PICTURE_BYTES = 12 * 1024 * 1024
 
 /** A path inside a folder, written with /: no root, no drive, no "." or "..", no backslash, no empty part. */
 export const insidePath = path => typeof path === 'string' && path.length <= 300
@@ -45,7 +47,7 @@ export async function readGameFile(root, path) {
     const inside = relative(base, file)
     if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) return null
     const info = await stat(file)
-    if (!info.isFile() || info.size > MOST_BYTES) return null
+    if (!info.isFile() || info.size > (type.startsWith('image/') ? MOST_PICTURE_BYTES : MOST_BYTES)) return null
     return { type, body: await readFile(file) }
   } catch {
     return null
