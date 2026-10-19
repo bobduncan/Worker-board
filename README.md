@@ -167,8 +167,9 @@ and the briefings for the main chat and the workers.
   --reference ref.png --result shot.png --points points.json --score 63 --target 75`. The reference stands left, the
   result right at the same height (the result's own, at most `--height`, 720 unless given, so a result is never
   enlarged); the step's id and title on top; below, the score beside its target (red when under it) and the agreed
-  points ticked green (pass) or red (fail). `--points` is a JSON list, or a file of one, of `{ "text", "result": "pass" |
-  "fail" }`. Without `--reference` and `--result` it is the ticked list alone. Without `--out` it lands in the project's
+  points ticked green (pass), red (fail) or blue with "for you" (ask: a point only you can judge, B369). `--points` is
+  a JSON list, or a file of one, of `{ "text", "result": "pass" | "fail" | "ask" }` or of the lines a result check
+  keeps (`"pass: <text>"`). Without `--reference` and `--result` it is the ticked list alone. Without `--out` it lands in the project's
   picture folder under the step (`<first pictureRoot>\<step>\evidence.png`), where the board shows it. It is drawn by a
   headless Edge or Chrome (`EVIDENCE_BROWSER` names another), closed again in the same run.
 - When a merge changes the board, a yellow note on top of the page says a new version is available; click it and
