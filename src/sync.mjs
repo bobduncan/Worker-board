@@ -17,13 +17,25 @@ export const SYNC_SHOWN_MS = 60 * MIN
 /** The first words of the main chat's answer: a note to the person (`work note`, to you). */
 export const syncHead = about => `Sync check of ${about === SYNC_BOARD ? 'the board' : about}:`
 
+/** A note's number ("N12" is 12); 0 for none. */
+const numberOf = id => Number(String(id ?? '').match(/^N(\d+)$/)?.[1] ?? 0)
+
+/** The answers to the checks of `about` among the notes (work/lists.mjs `informationOf`: `{ id, text, since }`). */
+const answersOf = (notes, about) => (notes ?? []).filter(one => String(one.text ?? '').startsWith(syncHead(about)))
+
+/**
+ * B438, the review: the number of the newest answer to a check of `about` (0 for none). It is kept on the ask, so an
+ * answer written in the same minute as a new ask (the store keeps minutes) does not answer it.
+ */
+export const lastSyncAnswer = (notes, about) => Math.max(0, ...answersOf(notes, about).map(one => numberOf(one.id)))
+
 /**
  * The newest sync check of each name in `abouts` (the workers, and `board`), with the main chat's answer:
  * `{ [about]: { at, state, isOpen, answer: { at, text } | null } }`. `sent` is the board's messages, `notes` the
- * information list (work/lists.mjs `informationOf`: `{ text, since }`). The answer is the newest note that starts with
- * `syncHead(about)`, written since the minute of the ask (the store keeps minutes). A check is open while it is on its
- * way, and after it arrived until it is answered, half an hour at most; it is left out an hour after its answer, or
- * after it arrived (or was asked) when none came.
+ * information list. The answer is the newest note that starts with `syncHead(about)`, newer than the one there was when
+ * the check was asked (`seen`) and written since the minute of the ask. A check is open while it is on its way, and
+ * after it arrived (or was copied, for the person to paste) until it is answered, half an hour at most; it is left out
+ * an hour after its answer, or after it arrived (or was asked) when none came.
  */
 export function syncChecks(sent, notes, abouts, now) {
   const checks = {}
@@ -31,13 +43,16 @@ export function syncChecks(sent, notes, abouts, now) {
     const message = (sent ?? []).findLast(one => one.command === 'sync' && one.about === about)
     if (message === undefined) continue
     const from = Math.floor(message.at / MIN) * MIN
+    const seen = Number.isFinite(message.seen) ? message.seen : 0
+    const reply = answersOf(notes, about).filter(one => Number.isFinite(one.since) && one.since >= from && numberOf(one.id) > seen)
+      .reduce((newest, one) => (newest === null || one.since > newest.since || (one.since === newest.since && numberOf(one.id) > numberOf(newest.id)) ? one : newest), null)
     const head = syncHead(about)
-    const reply = (notes ?? []).filter(one => Number.isFinite(one.since) && one.since >= from && String(one.text ?? '').startsWith(head))
-      .reduce((newest, one) => (newest === null || one.since > newest.since ? one : newest), null)
     const answer = reply === null ? null : { at: reply.since, text: reply.text.slice(head.length).trim() }
     const isOnItsWay = message.state === 'waiting' || message.state === 'taken'
-    const isOpen = answer === null && (isOnItsWay || (message.state === 'delivered' && now - (message.deliveredAt ?? message.at) < SYNC_OPEN_MS))
-    const last = answer?.at ?? message.deliveredAt ?? message.at
+    const hasArrived = message.state === 'delivered' || message.state === 'copied'
+    const arrivedAt = message.deliveredAt ?? message.at
+    const isOpen = answer === null && (isOnItsWay || (hasArrived && now - arrivedAt < SYNC_OPEN_MS))
+    const last = answer?.at ?? arrivedAt
     if (!isOpen && now - last >= SYNC_SHOWN_MS) continue
     checks[about] = { at: message.at, state: message.state, isOpen, answer }
   }

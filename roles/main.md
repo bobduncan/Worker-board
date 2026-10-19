@@ -205,9 +205,9 @@ yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pa
 
 The user pressed "Out of sync?" in a worker's menu or in the Workers panel's head (B438; their words: "somebody goes to
 investigate it and fix it"). The board types `check sync <name>` with what it shows for that worker: `State:`,
-`Running:`, `Step in the store:`, `Card:`, `Queue:` (with why each step waits), `Open asks:`, `Pause:`, `Limits:`; or
-`check sync board` with a line per worker, `Not handed out:`, `Board flags:`, `Pause:` and `Limits:`. Do it now, in
-this turn:
+`Running:`, `Steps in the store:`, `Card:`, `Queue:` (with why each step waits), `Open asks:`, `Flags:` (the board's
+own warnings on its row), `Pause:`, `Limits:`; or `check sync board` with a line per worker, `Not handed out:`,
+`Board flags:`, `Pause:` and `Limits:`. Do it now, in this turn:
 
 - Compare: the store (`work list`: the worker's step, its queue, what each step waits for, its asks), the chat itself
   (ask it with SendMessage to its session id what it is on; one that does not run, start it), and the limits (the
@@ -220,7 +220,7 @@ this turn:
   to the partner that the partner leaves: wake the partner, or start its chat.
 - What you cannot fix (the board shows what neither the store nor the chat says, or the fix is in the board's code):
   make it a step with `work new` (what the board showed, what the store and the chat say, as its Context) and queue it
-  with `priority` fix.
+  with `work queue`, `priority` fix, for the worker you pick (as any task: "A task comes in: worker or queue").
 - Answer in one line, as a note to the user: `work note` to you, text `Sync check of <name>: <what you found>; <what
   you did>` (`Sync check of the board: ...`), naming the step you made. The board shows it in that worker's row (under
   the panel's head for the board) and in the log. Nothing more to the user, unless something is theirs to decide.

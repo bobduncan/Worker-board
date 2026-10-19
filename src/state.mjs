@@ -1145,6 +1145,13 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B363: a step taken with branch none has its work outside git: no branch to show or play.
     return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null }
   }
+  // B438, the review: every step the store holds for a chat and is not finished with, with its state, oldest first.
+  const storeStepsOf = name => itemsOf(raw.work)
+    .filter(one => one.head.get('Kind') === 'step' && ['taken', 'in progress', 'waiting on you', 'review'].includes(one.head.get('State'))
+      && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
+    .map(one => ({ id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state: one.head.get('State'), since: one.head.get('Since') ?? '' }))
+    .sort((a, b) => a.since.localeCompare(b.since))
+    .map(({ since, ...one }) => one)
   // B425: the brief of the step a worker is on, built for that step only.
   const briefOf = id => stepBrief(raw.work, id, goalMap)
   const workerChats = found.filter(chat => !isAdvisor(chat) && !isHelper(chat))
@@ -1282,6 +1289,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     const withQueue = { ...lane, queue: mine.map(step => ({ id: step.id, title: step.title, text: step.text, minutes: step.minutes, after: step.after, branch: step.branch, notes: step.notes, refined: step.refined ?? null, pictures: picturesOf(allWords(step)), why: whyNot(step, lane), ...(step.isFix === true ? { isFix: true } : {}) })) }
     return {
       ...withQueue,
+      // B438, the review: the steps the store holds for it (taken, in progress, waiting on you, review), whatever its
+      // card says, for the main chat's sync check.
+      storeSteps: lane.isLeftover ? [] : storeStepsOf(lane.name),
       folders: lane.isLeftover ? [] : (folders ?? []).filter(folder => owner(folder) === lane.name),
       ahead: lane.isLeftover ? [] : aheadOf(withQueue, now),
     }

@@ -2266,6 +2266,8 @@ function syncLineOf(check, main) {
   if (check.answer !== null && check.answer !== undefined) return { tone: 'answer', text: `Sync check, ${clock(check.answer.at)}: ${check.answer.text}` }
   if (check.state === 'expired' || check.state === 'failed') return { tone: 'problem', text: `The sync check of ${clock(check.at)} did not reach ${main}: open its chat, then ask again.` }
   if (check.isOpen && (check.state === 'waiting' || check.state === 'taken')) return { tone: 'asked', text: `Out of sync? asked at ${clock(check.at)}: on its way to ${main}.` }
+  // The review: no Workers mod took the word; it was put on the clipboard for the person to paste.
+  if (check.isOpen && check.state === 'copied') return { tone: 'asked', text: `Out of sync? asked at ${clock(check.at)}: paste it into ${main}'s chat; then it checks and answers here.` }
   if (check.isOpen) return { tone: 'asked', text: `Out of sync? asked at ${clock(check.at)}: ${main} checks it and answers here.` }
   return { tone: 'problem', text: `Out of sync? asked at ${clock(check.at)}: no answer from ${main} yet; you can ask again.` }
 }

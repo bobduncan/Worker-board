@@ -6,7 +6,7 @@ import { isRefined, refinedKey } from './backlog.mjs'
 import { leftOutKey } from './brainstorm.mjs'
 import { PARTNER_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
-import { SYNC_BOARD } from './sync.mjs'
+import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
@@ -83,15 +83,23 @@ const stepsWords = steps => ((steps ?? []).length === 0 ? 'none' : steps.map(ste
   const wait = step.why === null || step.why === undefined ? null : WAITS[step.why.reason]?.(step.why) ?? plainLine(step.why.reason)
   return `${step.id ?? `"${plainLine(step.title)}"`}${wait === null ? '' : ` (${wait})`}`
 }).join(', '))
-/** B438: a chat's open asks as the board shows them: for the person, and with the partner. */
+/**
+ * B438: a chat's open asks as the board shows them: for the person (one asked with the app's question form is answered
+ * in its chat only), and with the partner.
+ */
 const asksWords = (name, state) => [
-  ...(state.forYou ?? []).filter(need => need.from === name && need.canAnswer === true).map(need => `${need.workId ?? need.id} for you`),
+  ...(state.forYou ?? []).filter(need => need.from === name && (need.canAnswer === true || need.isForm === true))
+    .map(need => `${need.workId ?? need.id} ${need.isForm === true ? 'in its chat' : 'for you'}`),
   ...[...new Set([...(state.withPartner ?? []).filter(one => one.from === name).map(one => one.id)])].map(id => `${id} with the partner`),
 ].join(', ') || 'none'
+/** B438, the review: the steps the store holds for the chat (state.mjs `storeSteps`), whatever its card says. */
+const storeWords = steps => ((steps ?? []).length === 0 ? 'none' : steps.map(step => `${step.id} ${plainLine(step.title)} (${step.state})`).join('; '))
+/** B438, the review: the reconciler's flags on the lane (stuck, not taken, card, waits), the board's own sync signals. */
+const flagsWords = flags => (flags ?? []).map(flag => String(flag.text ?? flag.kind ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' · ') || 'none'
 const cardWords = lane => {
   const task = lane.task ?? null
   if (task === null) return 'empty'
-  const parts = [`"${plainLine(task.text)}"`]
+  const parts = [[task.stepId ?? null, `"${plainLine(task.text)}"`].filter(Boolean).join(' ')]
   if (Number.isInteger(task.step) && Number.isInteger(task.steps)) parts.push(`step ${task.step} of ${task.steps}`)
   if (lane.eta?.isOver === true) parts.push('over its time')
   else if (Number.isFinite(lane.eta?.leftMs)) parts.push(`about ${Math.round(lane.eta.leftMs / 60_000)} min left`)
@@ -108,30 +116,38 @@ const RUNNING = new Map([[true, 'yes'], [false, 'no']])
 
 /**
  * B438: the word that asks the main chat to check whether the board and a worker (`lane`), or the whole board (`lane`
- * null), are in sync, with what the board shows: the worker's state, whether its process runs, the step the store
- * holds for it, its card, its queue with why each step waits, its open asks, a pause, and the limits. The main chat
- * compares it, fixes what it can and answers with a note `Sync check of <name>: ...` (roles/main.md, "Check sync").
+ * null), are in sync, with what the board shows: the worker's state, whether its process runs, the steps the store
+ * holds for it, its card, its queue with why each step waits, its open asks, the board's flags on its row, a pause, and
+ * the limits. The main chat compares it, fixes what it can and answers with a note `Sync check of <name>: ...`
+ * (roles/main.md, "Check sync").
  */
 const syncWords = (to, lane, state) => {
   const lines = lane !== null ? [
     `check sync ${plainLine(lane.name)}`,
     `State: ${workerState({ ...lane, queue: [] }).words}`,
     `Running: ${RUNNING.get(lane.isRunning) ?? 'unknown'}`,
-    `Step in the store: ${lane.givenTask?.step?.id ? `${lane.givenTask.step.id} ${plainLine(lane.givenTask.step.title)}` : 'none'}`,
+    `Steps in the store: ${storeWords(lane.storeSteps)}`,
     `Card: ${cardWords(lane)}`,
     `Queue: ${stepsWords(lane.queue)}`,
     `Open asks: ${asksWords(lane.name, state)}`,
+    `Flags: ${flagsWords(lane.flags)}`,
     `Pause: ${pauseWords(lane, state)}`,
   ] : [
     `check sync ${SYNC_BOARD}`,
     ...(state.chats ?? []).filter(one => !one.isMain && !one.isLeftover)
-      .map(one => `${plainLine(one.name)}: ${workerState({ ...one, queue: [] }).words}; queue ${stepsWords(one.queue)}; asks ${asksWords(one.name, state)}`),
+      .map(one => [
+        `${plainLine(one.name)}: ${workerState({ ...one, queue: [] }).words}`, `store ${(one.storeSteps ?? []).map(step => `${step.id} (${step.state})`).join(', ') || 'none'}`,
+        `queue ${stepsWords(one.queue)}`, `asks ${asksWords(one.name, state)}`, ...((one.flags ?? []).length === 0 ? [] : [`flags ${flagsWords(one.flags)}`]),
+      ].join('; ')),
     `Not handed out: ${stepsWords(state.unassigned)}`,
     `Board flags: ${(state.workFlags ?? []).map(flag => String(flag).replace(/\s+/g, ' ').trim()).join(' · ') || 'none'}`,
     `Pause: ${pauseWords(null, state)}`,
   ]
+  const about = lane === null ? SYNC_BOARD : lane.name
   return {
-    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sync', about: lane === null ? SYNC_BOARD : lane.name,
+    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sync', about,
+    // B438, the review: the newest answer there was when it was asked; only a newer one answers this check.
+    seen: lastSyncAnswer(state.information, about),
     text: [...lines, `Limits: ${limitsWords(state.limits)}`, 'Why: the person pressed "Out of sync?" on the worker board'].join('\n'),
   }
 }

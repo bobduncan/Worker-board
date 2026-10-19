@@ -383,13 +383,16 @@ worker shown free with a step held by a finished one, a worker paused for the li
 "waiting for you" whose ask went to the partner. A worker's "⋯" menu has "Out of sync?", and the Workers panel's head
 has one for the whole board beside "+ Add worker" (none for the main chat itself: the board's covers it). It types
 `check sync <name>` (or `check sync board`) into the main chat with what the board shows, read by the server from its
-own state (`src/say.mjs` `syncWords`): the worker's state, whether its chat runs, its step in the store, its card, its
-queue with why each step waits, its open asks, a pause and the limits; for the board a line per worker, the steps not
+own state (`src/say.mjs` `syncWords`): the worker's state, whether its chat runs, the steps the store holds for it
+(`storeSteps`, whatever its card says), its card, its queue with why each step waits, its open asks (those of the app's
+question form too), the board's flags on its row, a pause and the limits; for the board a line per worker, the steps not
 handed out and the board's flags. The main chat compares it with the store, the chat and the limits, fixes what it can
 at once (unblock, wake, requeue, withdraw), makes a board fix step of the rest, and answers with a note to the person
 that starts `Sync check of <name>:` (roles/main.md, "Check sync"). The row (or the panel's head) says the check is on
 its way or with the main chat, then shows that answer for an hour (`src/sync.mjs`, `changeAsks.sync`); one open check
-at a time each, open until the answer or for half an hour after it arrived. The answer is in the log as any note.
+at a time each, open until the answer or for half an hour after it arrived (or was copied for the person to paste).
+Only an answer newer than the last one when the check was asked counts (`seen`), as the store keeps minutes. The
+answer is in the log as any note.
 
 **The Workers panel (B159).** After the picture the person agreed on the Design tab
 (`art-inbox/ideas/any-improvement-to-this/v2.png`; their words: "Any improvement to this to make it nicer. dont change

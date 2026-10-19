@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 import { checkSay } from '../src/say.mjs'
-import { SYNC_OPEN_MS, SYNC_SHOWN_MS, syncChecks, syncHead } from '../src/sync.mjs'
+import { SYNC_OPEN_MS, SYNC_SHOWN_MS, lastSyncAnswer, syncChecks, syncHead } from '../src/sync.mjs'
 import { messageText } from '../src/bridge.mjs'
 
 const MIN = 60_000
@@ -24,16 +24,16 @@ const NOW = at(22, 50)
 const lanes = [
   { name: 'Lead', isMain: true, isLeftover: false, state: 'working', task: null, queue: [] },
   // Shown free, with a step that waits on one that is finished.
-  { name: 'Worker 1', isMain: false, isLeftover: false, isRunning: true, state: 'free', task: null, givenTask: null, queue: [{ id: 'B12', title: 'The quokkaberry', why: { reason: 'after', words: 'B11 (done)' } }] },
+  { name: 'Worker 1', isMain: false, isLeftover: false, isRunning: true, state: 'free', task: null, storeSteps: [], flags: [], queue: [{ id: 'B12', title: 'The quokkaberry', why: { reason: 'after', words: 'B11 (done)' } }] },
   // Paused for the limit, and the limit is back.
-  { name: 'Worker 2', isMain: false, isLeftover: false, isRunning: false, state: 'suspended', suspended: { until: at(21, 40), isBack: true, by: 'note' }, task: { stepId: 'B20', text: 'The zebracorn "sings"', step: 2, steps: 5 }, givenTask: { by: 'step', step: { id: 'B20', title: 'The zebracorn sings' } }, eta: { leftMs: 40 * MIN, isOver: false }, queue: [] },
+  { name: 'Worker 2', isMain: false, isLeftover: false, isRunning: false, state: 'suspended', suspended: { until: at(21, 40), isBack: true, by: 'note' }, task: { stepId: 'B20', text: 'The zebracorn "sings"', step: 2, steps: 5 }, storeSteps: [{ id: 'B20', title: 'The zebracorn sings', state: 'in progress' }], eta: { leftMs: 40 * MIN, isOver: false }, queue: [] },
   // Waiting for the person, while its ask went to the partner.
-  { name: 'Worker 3', isMain: false, isLeftover: false, isRunning: true, state: 'waiting', task: { stepId: 'B30', text: 'The moonpie map' }, givenTask: { by: 'step', step: { id: 'B30', title: 'The moonpie map' } }, waitsForPartner: ['Q9'], queue: [{ id: 'B31', title: 'Next', why: { reason: 'you', worker: 'Worker 3' } }] },
+  { name: 'Worker 3', isMain: false, isLeftover: false, isRunning: true, state: 'waiting', task: { stepId: 'B30', text: 'The moonpie map' }, storeSteps: [{ id: 'B30', title: 'The moonpie map', state: 'waiting on you' }], flags: [{ kind: 'waits', text: 'Waits for you, but Q9 went to the partner' }], waitsForPartner: ['Q9'], queue: [{ id: 'B31', title: 'Next', why: { reason: 'you', worker: 'Worker 3' } }] },
   { name: 'Old', isMain: false, isLeftover: true, state: 'free', task: null, queue: [] },
 ]
 const board = (sync = {}) => ({
   restart: { main: 'Lead' }, chats: lanes, changeAsks: { stop: {}, sync },
-  forYou: [{ id: 'work:Q7', workId: 'Q7', from: 'Worker 3', canAnswer: true }, { id: 'work:Q8', workId: 'Q8', from: 'Worker 1', canAnswer: false }],
+  forYou: [{ id: 'work:Q7', workId: 'Q7', from: 'Worker 3', canAnswer: true }, { id: 'work:Q6', workId: 'Q6', from: 'Worker 3', canAnswer: false, isForm: true },{ id: 'work:Q8', workId: 'Q8', from: 'Worker 1', canAnswer: false }],
   withPartner: [{ id: 'Q9', from: 'Worker 3' }],
   unassigned: [{ id: 'B40', title: 'Nobody has it', why: { reason: 'nobody' } }],
   workFlags: ['B12 waits for B11, which is finished'],
@@ -51,10 +51,11 @@ test('a worker: the typed word is "check sync <name>" with what the board shows 
     'check sync Worker 1',
     'State: free',
     'Running: yes',
-    'Step in the store: none',
+    'Steps in the store: none',
     'Card: empty',
     'Queue: B12 (after B11 (done))',
     'Open asks: none',
+    'Flags: none',
     'Pause: none',
     'Limits: 5-hour 42%, week 61%',
     'Why: the person pressed "Out of sync?" on the worker board',
@@ -62,14 +63,16 @@ test('a worker: the typed word is "check sync <name>" with what the board shows 
 
   const two = lines(say({ command: 'sync', chat: 'Worker 2' }).message)
   assert.ok(two.includes('Running: no'))
-  assert.ok(two.includes('Step in the store: B20 The zebracorn sings'))
-  assert.ok(two.includes('Card: "The zebracorn sings", step 2 of 5, about 40 min left'), two.join('\n'))
+  assert.ok(two.includes('Steps in the store: B20 The zebracorn sings (in progress)'))
+  assert.ok(two.includes('Card: B20 "The zebracorn sings", step 2 of 5, about 40 min left'), two.join('\n'))
   assert.ok(two.some(line => /^Pause: suspended for the limit until 21:40, the limit is back$/.test(line)), two.join('\n'))
   assert.ok(two.some(line => line.startsWith('State: suspended for the limit until 21:40')))
 
   const three = lines(say({ command: 'sync', chat: 'Worker 3' }).message)
   assert.ok(three.some(line => line.startsWith('State: waiting for you')))
-  assert.ok(three.includes('Open asks: Q7 for you, Q9 with the partner'), three.join('\n'))
+  assert.ok(three.includes('Open asks: Q7 for you, Q6 in its chat, Q9 with the partner'), three.join('\n'))
+  assert.ok(three.includes('Steps in the store: B30 The moonpie map (waiting on you)'))
+  assert.ok(three.includes('Flags: Waits for you, but Q9 went to the partner'))
   assert.ok(three.includes('Queue: B31 (its worker waits for you)'))
 })
 
@@ -79,8 +82,9 @@ test('the whole board: "check sync board" with a line per worker, the steps nobo
   assert.equal(all.message.about, 'board')
   const text = lines(all.message)
   assert.equal(text[0], 'check sync board')
-  assert.ok(text.includes('Worker 1: free; queue B12 (after B11 (done)); asks none'), text.join('\n'))
-  assert.ok(text.some(line => line.startsWith('Worker 3: waiting for you') && line.endsWith('; asks Q7 for you, Q9 with the partner')), text.join('\n'))
+  assert.ok(text.includes('Worker 1: free; store none; queue B12 (after B11 (done)); asks none'), text.join('\n'))
+  assert.ok(text.some(line => line.startsWith('Worker 3: waiting for you') && line.includes('; store B30 (waiting on you); ')
+    && line.endsWith('; asks Q7 for you, Q6 in its chat, Q9 with the partner; flags Waits for you, but Q9 went to the partner')), text.join('\n'))
   assert.ok(!text.some(line => line.startsWith('Lead:') || line.startsWith('Old:')), 'neither the main chat nor a leftover')
   assert.ok(text.includes('Not handed out: B40 (no worker)'))
   assert.ok(text.includes('Board flags: B12 waits for B11, which is finished'))
@@ -109,7 +113,8 @@ test('typed as the person\'s word, marked as coming from the board', () => {
   assert.ok(typed.endsWith('\n(typed on the worker board, 22:50)'))
 })
 
-const note = (text, since, extra = {}) => ({ id: 'N1', from: 'Lead', to: 'you', text, since, isRead: false, ...extra })
+let notes = 0
+const note = (text, since, extra = {}) => ({ id: `N${++notes}`, from: 'Lead', to: 'you', text, since, isRead: false, ...extra })
 const ask = (about, state, sentAt, extra = {}) => ({ command: 'sync', about, state, at: sentAt, ...extra })
 
 test('the main chat\'s answer: a note to the person that starts "Sync check of <name>:", after the ask', () => {
@@ -143,6 +148,38 @@ test('open while on its way and after it arrived until the answer, at most half 
   // A word that did not reach the main chat stays shown as such, closed.
   const failed = syncChecks([ask('Worker 1', 'expired', sentAt)], [], ['Worker 1'], sentAt + 5 * MIN)['Worker 1']
   assert.deepEqual([failed.state, failed.isOpen], ['expired', false])
+})
+
+test('the review: an answer older than the ask never answers it, even in the same minute; a copied word is open too', () => {
+  const old = note('Sync check of Worker 1: an earlier check, all fine.', at(22, 10))
+  assert.equal(lastSyncAnswer([old, note('Sync check of Worker 2: other', at(22, 11))], 'Worker 1'), Number(old.id.slice(1)))
+  assert.equal(lastSyncAnswer([], 'board'), 0)
+  // Asked again at 22:10:40: the board kept the newest answer there was (`seen`), so the old one does not close it.
+  const again = ask('Worker 1', 'delivered', at(22, 10) + 40_000, { deliveredAt: at(22, 10) + 41_000, seen: lastSyncAnswer([old], 'Worker 1') })
+  const open = syncChecks([again], [old], ['Worker 1'], at(22, 12))['Worker 1']
+  assert.deepEqual([open.isOpen, open.answer], [true, null])
+  const fresh = note('Sync check of Worker 1: B12 unblocked.', at(22, 10))
+  assert.equal(syncChecks([again], [old, fresh], ['Worker 1'], at(22, 12))['Worker 1'].answer.text, 'B12 unblocked.')
+  // The word was only copied (no Workers mod took it): open while the person pastes it, as one that arrived.
+  const copied = syncChecks([ask('Worker 1', 'copied', at(22, 0))], [], ['Worker 1'], at(22, 5))['Worker 1']
+  assert.deepEqual([copied.state, copied.isOpen], ['copied', true])
+})
+
+test('the review: a lane carries the steps the store holds for it, whatever its card says', async () => {
+  const { buildState } = await import('./withStore.mjs')
+  const { parseConfig } = await import('../src/config.mjs')
+  const PROJECT = 'C:\\game'
+  const app = name => JSON.stringify({ title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false, createdAt: name.length, lastActivityAt: NOW - 5 * MIN })
+  const backlogText = ['## Meadows', '- [ ] B12 Fence the meadow (for Units; about 1 h) (branch feature/fence)', '  The herd walks off.', ''].join('\n')
+  const raw = { listText: '{"prefix":"Game - ","main":"Main"}', appChatTexts: [app('Main'), app('Units')], tails: {}, planLineTexts: {}, backlogText, goalsText: null, adviceText: null, folders: null, askTexts: [], pictureLists: {} }
+  const state = buildState(raw, { lines: [], outbox: [], runs: [], now: NOW, config: { ...parseConfig('{}', {}), project: PROJECT } })
+  const units = state.chats.find(chat => chat.name === 'Units')
+  assert.deepEqual(units.storeSteps.map(one => [one.id, one.title]), [['B12', 'Fence the meadow']])
+  assert.match(units.storeSteps[0].state, /^(?:taken|in progress|waiting on you|review)$/)
+  const words = checkSay({ to: 'Main', command: 'sync', chat: 'Units' }, state, 2000)
+  assert.equal(words.ok, true)
+  assert.ok(words.message.text.includes(`Steps in the store: B12 Fence the meadow (${units.storeSteps[0].state})`), words.message.text)
+  assert.deepEqual(state.changeAsks.sync, {})
 })
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
