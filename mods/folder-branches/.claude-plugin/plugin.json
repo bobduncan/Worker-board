@@ -1,6 +1,6 @@
 {
   "name": "folder-branches",
-  "version": "0.13.10",
+  "version": "0.13.11",
   "description": "Two side panes. Git: each folder directly inside the session's folder with the git branch checked out in it, or \"no git\"; /git opens it. Workers: the project's chats, who is working on what, which step, how long, and whose turn it is; /workers opens it. A chat in the list also takes what the person answered for it on the worker board and types it in as their own words. An answer that ends with a \"For you\" block the chat filed no ask for has its items filed on the board when the turn ends. A worker that has grown large (list.json \"compactAbove\", 250000 tokens unless set, 0 for never) is compacted when the turn in which it reported its task ends. When the person pauses all chats on the board, each chat is told at its next batch of tool calls to write its checkpoint and end its turn; after the resume the main chat is told whom to wake, and each chat holding a step its checkpoint.",
   "types": "./types/index.d.ts"
 }

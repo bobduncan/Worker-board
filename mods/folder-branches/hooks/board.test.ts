@@ -70,6 +70,13 @@ describe('Fix first: a step marked as a board fix with the work tool', () => {
   })
 })
 
+describe('B356: the partner files a result check with the work tool', () => {
+  test('checked is an action of the tool, with evidence, points and score', () => {
+    expect(WORK_ACTIONS.includes('checked')).toBe(true)
+    for (const field of ['evidence', 'points', 'score']) expect(WORK_FIELDS.includes(field)).toBe(true)
+  })
+})
+
 describe('B354: a step\'s standard with the work tool', () => {
   test('standard is a field of the tool, sent to the board', () => {
     expect(WORK_FIELDS.includes('standard')).toBe(true)

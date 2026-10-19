@@ -903,7 +903,7 @@ const WORK_TOOL = {
     + '"for", "after", "about", "priority"; "priority" fix: a fix for the worker board, first in its worker\'s queue), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
     + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "questions") and "refined" ("id", "what", "standard"): '
-    + 'the Advisor. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
+    + 'the Advisor. "checked" ("id", "evidence", "points", "score"): the partner files the result check of a step in review, by a helper that did not build it. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
     + 'the partner (the Advisor) keeps its draft of the focus goal\'s vibe and how on the board; each call takes the place '
     + 'of the draft the goal had. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old '
     + 'name of a chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one).',
@@ -942,6 +942,9 @@ const WORK_TOOL = {
       picture: { type: 'string', description: 'refine: the picture of what it makes; vibe-draft: the vibe\'s picture.' },
       size: { type: 'string', description: 'refine, and new from an agreed how: how long it takes, roughly.' },
       standard: { type: 'string', description: 'refine, refined and new: what the step\'s result is checked against, "<kind> · <reference picture> · target <score>" (a kind of the project\'s settings), or "none (<why>)".' },
+      evidence: { type: 'string', description: 'checked: the evidence picture\'s path in the project (the result beside its reference, the points ticked), or "none (<why>)".' },
+      points: { type: 'array', items: { type: 'string' }, description: 'checked: every agreed point of the step, each "pass: <point>", "fail: <point>" or "ask: <point>" (a point only the person can judge).' },
+      score: { type: 'string', description: 'checked: the score beside its target, "82 of 75", where the kind\'s definition of done has a rubric.' },
       questions: { type: 'array', items: { type: 'string' }, description: 'refine: the questions for the person.' },
       what: { type: 'array', items: { type: 'string' }, description: 'refined, and new from an agreed how (the partner: with goal and summary, the step is made refined): what we build, one part per line.' },
       lines: { type: 'array', items: { type: 'string' }, description: 'vibe-draft: three to five short lines of the vibe, one "Not in it: ..." among them.' },
