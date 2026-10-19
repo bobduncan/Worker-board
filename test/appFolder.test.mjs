@@ -36,7 +36,7 @@ test('a Mac and Linux: the app\'s folder under the home folder', async () => {
 
 test('the settings: the found folder fills what is not set; what is set wins', async t => {
   const root = await mkdtemp(join(tmpdir(), 'worker-board-app-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const roaming = join(root, 'Roaming')
   await mkdir(join(roaming, 'Claude', 'claude-code-sessions'), { recursive: true })
   const file = join(root, 'config.json')
@@ -123,7 +123,7 @@ test('a usage file of its own that still exists is kept; a list found nowhere is
 
 test('a setting that points at a folder that is gone falls back to the search when the board starts', async t => {
   const root = await mkdtemp(join(tmpdir(), 'worker-board-app-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const local = join(root, 'Local')
   const moved = join(local, 'Claude-Data', 'claude_pkg9')
   await mkdir(join(moved, 'claude-code-sessions'), { recursive: true })

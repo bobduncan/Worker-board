@@ -57,7 +57,7 @@ test('a step with agreed points or a Standard line needs the result check; one w
     assert.equal(plain.result.resultCheck, undefined)
     assert.equal(valueOf(await item(store.dir, 'B1'), 'State'), 'done')
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -72,7 +72,7 @@ test('every point passes: the partner\'s checked closes the step, with the evide
     assert.deepEqual(step.sections.get('Checked'), ['Evidence: pictures/b2/evidence.png', 'Score: 82 of 75', '- pass: a lamp at every bench', '- pass: warm yellow light, never white'])
     assert.ok(step.sections.get('History').some(one => one.endsWith('Partner: result check passed: 2 of 2 points pass, score 82 of 75')))
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -86,7 +86,7 @@ test('a result check that passed before the board\'s own check waits for it: the
     assert.equal(again.result.resultCheck, undefined)
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'done')
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -117,7 +117,7 @@ test('a failed point makes a fix step, refined from the failed points and queued
     assert.equal(valueOf(after, 'State'), 'done')
     assert.ok(after.sections.get('History').some(one => one.endsWith(`server: result check passed: its fix ${fixId} is done`)))
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -133,7 +133,7 @@ test('a point only the person can judge (ask) makes no fix step: the step waits 
     assert.ok(step.sections.get('History').some(one => one.endsWith('Partner: result check waits for you: 1 of 2 points pass; 1 for you to judge')))
     assert.equal([...(await readStore(store.dir)).items.values()].filter(one => valueOf(one, 'Fix of') === id).length, 0)
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -148,7 +148,7 @@ test('only the partner files a check, of a step in review, with every point as p
     assert.equal((await store.partner({ action: 'checked', id, points: point })).status, 400)
     assert.equal((await store.partner({ action: 'checked', id: 'B1', evidence: 'x.png', points: point })).status, 409)
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -179,7 +179,7 @@ test('a board without a partner chat makes no result check: its own check closes
     assert.equal(git.result.resultCheck, undefined)
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'done')
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -205,7 +205,7 @@ test('the review: a fix closed by any way (the person\'s tick, then the board\'s
     assert.equal(advanced.ok, true, advanced.why)
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'done')
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -219,7 +219,7 @@ test('the review: a fix that was only dropped does not pass the step; the partne
     assert.equal(again.ok, true, again.why)
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'done')
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -242,7 +242,7 @@ test('the review: a report anew asks for a result check anew; the History is rea
     const { needsResultCheck } = await import('../../src/work/resultCheck.mjs')
     assert.equal(needsResultCheck({ sections: new Map([['What we build', ['- Not in it: new paths']], ['Standard', ['none (a board fix)']]]) }), false)
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -262,7 +262,7 @@ test('the second review: a fix of an earlier round counts for nothing; the fix t
     assert.equal((await store.server({ action: 'advance', id, to: 'done' })).ok, false)
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'review')
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -284,7 +284,7 @@ test('the second review: a fix done while a point still waits for the person ask
     assert.equal(again.ok, true, again.why)
     assert.equal(valueOf(await item(store.dir, id), 'State'), 'done')
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -305,6 +305,6 @@ test('B381: a failed point\'s full text, over a thousand characters, stands in t
     // The step it fixes keeps the point whole in its check too.
     assert.ok((await item(store.dir, id)).sections.get('Checked').includes(`- fail: ${long}`))
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

@@ -43,7 +43,7 @@ test('two instructions filed within one minute both stand, each with its own id,
     assert.deepEqual(second.result.open, [{ id: 'I1', turns: 0, text: 'Make the strip blue' }, { id: 'I2', turns: 0, text: 'And queue the menu for Board' }])
     assert.deepEqual((await item(dir, 'I1')).sections.get('History'), ['- 2026-10-17 11:05 Main: filed'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -57,7 +57,7 @@ test('the board files a line typed to a chat as the person\'s, naming the chat; 
     assert.equal((await person({ action: 'instruction', chat: 'Stranger', text: 'x' })).status, 404)
     assert.equal((await person({ action: 'instruction', chat: 'Board', text: '  ' })).status, 400)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -89,7 +89,7 @@ test('turn-ended marks only the instructions filed before the turn started, and 
     assert.deepEqual([none.result.missed, none.result.changed], [[], false])
     assert.equal((await main({ action: 'turn-ended' })).status, 400)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -121,7 +121,7 @@ test('instructionsOf: per chat, open first and the missed ones on top, closed on
     // A closed one shows for a day after it was filed.
     assert.deepEqual(instructionsOf(work, NOW + 25 * 60 * 60_000).map(one => one.id), ['I1', 'I2'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -138,7 +138,7 @@ test('the state carries the instructions of the store, and none without one', as
     assert.deepEqual(buildState({ ...raw, work }, options).instructions.map(one => one.id), ['I1'])
     assert.deepEqual(buildState(raw, options).instructions, [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -151,6 +151,6 @@ test('review: the turn\'s start is compared to the millisecond: a line filed in 
     const ended = await main({ action: 'turn-ended', since: NOW + 500 }, NOW + 900)
     assert.deepEqual(ended.result.missed, ['I1'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

@@ -36,7 +36,7 @@ test('a link is read from the file it stands in: a path inside the game\'s folde
 
 test('the server shows a file inside the game\'s folder only, of a kind it knows, and small', async t => {
   const root = await mkdtemp(join(tmpdir(), 'game-file-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   await mkdir(join(root, 'docs'), { recursive: true })
   await writeFile(join(root, 'docs', 'plan.md'), '# Plan')
   await writeFile(join(root, 'docs', 'run.exe'), 'MZ')
@@ -47,7 +47,7 @@ test('the server shows a file inside the game\'s folder only, of a kind it knows
   assert.equal((await readGameFile(root, 'docs/big.png'))?.type, 'image/png')
   assert.equal(await readGameFile(root, 'docs/huge.png'), null)
   const outside = await mkdtemp(join(tmpdir(), 'game-out-'))
-  t.after(() => rm(outside, { recursive: true, force: true }))
+  t.after(() => rm(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   await writeFile(join(outside, 'secret.md'), 'no')
   const found = await readGameFile(root, 'docs/plan.md')
   assert.deepEqual([found.type, found.body.toString()], ['text/plain; charset=utf-8', '# Plan'])

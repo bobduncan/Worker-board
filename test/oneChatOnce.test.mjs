@@ -32,6 +32,6 @@ test('one chat shows once: only the chats of the account the app uses now are re
     await rm(join(dir, 'account-new'), { recursive: true })
     assert.deepEqual((await readAppChats(dir)).map(one => JSON.parse(one).cliSessionId).sort(), ['main', 'old'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

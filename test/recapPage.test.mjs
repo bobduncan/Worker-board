@@ -54,7 +54,7 @@ test('the state carries the recaps and where they show; a recap is no line of In
     assert.equal((await build('{"botherMe":"daily"}')).recapsShow, 'daily')
     assert.equal((await build('{"botherMe":"hourly"}')).recapsShow, 'now')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

@@ -159,7 +159,7 @@ test('idleWatch: a reload closes and opens again, and the game stays', () => {
  */
 async function madeUpGame(t) {
   const folder = await mkdtemp(join(tmpdir(), 'board-game-'))
-  t.after(() => rm(folder, { recursive: true, force: true }))
+  t.after(() => rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const vite = join(folder, 'node_modules', 'vite')
   await mkdir(vite, { recursive: true })
   await writeFile(join(vite, 'package.json'), JSON.stringify({ name: 'vite', type: 'module', exports: { '.': './index.js' } }))
@@ -217,7 +217,7 @@ test('the launcher serves the folder on this machine only; the game stays while 
 
 test('the launcher says so when a folder has no game to start', async t => {
   const folder = await mkdtemp(join(tmpdir(), 'board-game-'))
-  t.after(() => rm(folder, { recursive: true, force: true }))
+  t.after(() => rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   let hasExited = false
   const launch = gameLauncher({ command: COMMAND, board: BOARD, cacheDir: join(folder, 'cache'), idleSeconds: 1, graceSeconds: 1 })
   await assert.rejects(launch({ path: folder, port: 0, onExit: () => { hasExited = true } }).ready, /did not start/)

@@ -44,7 +44,7 @@ test('the keeper reads the store, keeps a read for the reread time, and reads an
     now += 30_000
     assert.equal((await keeper()).items.has('B18'), true, 'read anew after the reread time')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -62,7 +62,7 @@ test('no store folder: the keeper says so, the board shows no work, and its line
     assert.match(state.store.why, /^No work store in .*: the board shows no work\. In the board's folder, make it from the backlog with "node tools\/migrate-backlog\.mjs --backlog C:\\game\\\.claude\\backlog\.md /)
     assert.deepEqual([state.backlogForYou, state.unassigned, state.reconciled], [[], [], null])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -82,7 +82,7 @@ test('a store folder that cannot be read: one line naming it, and nothing drawn 
     await writeStore(file, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
     assert.equal((await keeper()).items.size, 19)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -102,7 +102,7 @@ test('a broken item file is named on top with its folder; the rest of the store 
     const bare = stateOf(await storeKeeper({ dir })())
     assert.ok(bare.workFlags.includes('activities.json is missing, so no step is listed'), bare.workFlags.join(' | '))
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

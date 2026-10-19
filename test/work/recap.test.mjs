@@ -74,7 +74,7 @@ test('a step through its result check gives the person one open recap: what they
     // A recap is no line of Information: it has its own card.
     assert.deepEqual(informationOf(await store(one.dir), NOW + HOUR).filter(info => info.id === valueOf(note, 'Id')), [])
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -94,7 +94,7 @@ test('a failed check gives no recap; the step it fixes gets one once its fix is 
     assert.deepEqual(notes[0].sections.get('About'), [id])
     assert.equal(valueOf(notes[0], 'Evidence'), 'pictures/fix/evidence.png')
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -125,7 +125,7 @@ test('Overturn: the recap closes with the person\'s words, and the partner is wo
     const [shown] = recapsOf(await store(one.dir), NOW + HOUR)
     assert.deepEqual([shown.state, shown.isClosed, shown.words, shown.approvesAt], ['overturned', true, 'The lamp by the pond is still white.', null])
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -151,7 +151,7 @@ test('B390: OK, seen approves the recap at once with no words: closed, its Histo
     assert.equal((await one.person({ action: 'overturn', id: recap, text: 'late' })).status, 409)
     assert.deepEqual((await one.server({ action: 'approve-recaps' }, NOW + 2 * RECAP_WINDOW_MS)).result.approved, [])
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -165,7 +165,7 @@ test('B390: OK, seen needs no partner chat on the board: no words go anywhere', 
     assert.equal(alone.ok, true, alone.why)
     assert.equal(valueOf((await readStore(one.dir)).items.get(valueOf(note, 'Id')), 'Recap'), 'seen')
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -178,7 +178,7 @@ test('B390: Feedback on a recap is gone: the action is refused and the recap sta
     assert.equal((await one.person({ action: 'feedback', id: valueOf(note, 'Id'), text: 'Lovely.' })).ok, false)
     assert.equal(valueOf((await readStore(one.dir)).items.get(valueOf(note, 'Id')), 'Recap'), 'open')
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -202,7 +202,7 @@ test('left alone, a recap approves itself 24 hours after it showed, and stays am
     // An approved recap takes no answer any more.
     assert.equal((await one.person({ action: 'overturn', id: valueOf(note, 'Id'), text: 'late' })).status, 409)
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -218,7 +218,7 @@ test('a goal through its re-check gives a recap too; its Overturn asks the board
     const done = await one.person({ action: 'overturn', id: valueOf(note, 'Id'), text: 'The north path is dark.' })
     assert.match(done.result.wake.text, /Your job: G3 is open again: make its follow-up steps from their words/)
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -238,7 +238,7 @@ test('the review: a step the reconciler moves to done once the person answered i
     assert.deepEqual(notes.map(note => note.sections.get('About')), [[id]])
     assert.equal(valueOf(notes[0], 'Evidence'), 'pictures/b2/evidence.png')
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -257,7 +257,7 @@ test('the review: when the board\'s own check passes after the result check, the
     assert.equal(valueOf((await readStore(one.dir)).items.get(id), 'State'), 'done')
     assert.equal((await recapNotes(one.dir)).length, 1)
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -271,6 +271,6 @@ test('the review: without a partner chat on the board an answer to a recap is re
     assert.equal(alone.status, 409)
     assert.equal(valueOf((await readStore(one.dir)).items.get(valueOf(note, 'Id')), 'Recap'), 'open')
   } finally {
-    await rm(one.dir, { recursive: true, force: true })
+    await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

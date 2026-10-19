@@ -30,7 +30,7 @@ const part = (call, env = {}) => run({ ...env, WORKER_BOARD_TEST: call }).out
 
 async function folder(t) {
   const dir = await mkdtemp(join(tmpdir(), 'board-install-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   return dir
 }
 

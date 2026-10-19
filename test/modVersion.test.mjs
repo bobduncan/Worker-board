@@ -59,7 +59,7 @@ test('pluginsFile: the app\'s list in the person\'s .claude folder, or where CLA
 
 test('modVersions: what this board\'s folder carries, what the PC runs, and from which folder it came', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'board-mod-version-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const file = join(dir, 'installed_plugins.json')
   const markets = join(dir, 'known_marketplaces.json')
   const modsDir = join(ROOT, 'mods')

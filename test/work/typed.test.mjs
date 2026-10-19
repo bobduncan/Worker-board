@@ -29,7 +29,7 @@ test('a plain line is filed for its chat and ends with its id; the typed words c
     assert.equal(picture.text, '[I2]')
     assert.equal(valueOf((await readStore(dir)).items.get('I2'), 'Text'), '(a picture: pictures/talk/a.png)')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

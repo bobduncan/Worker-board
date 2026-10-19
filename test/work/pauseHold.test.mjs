@@ -149,7 +149,7 @@ test('2: while the person pauses no step is delivered, no pull is answered, and 
     const again = await deliver(await build(), outbox)
     assert.equal(again.sent.length, 1)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -166,7 +166,7 @@ test('2: what waits in the outbox while the person pauses is shown as held until
     assert.deepEqual([state.pause.typing, state.pause.isSafe], [['Digger'], false])
     assert.equal(state.pause.main.hasActed, false)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

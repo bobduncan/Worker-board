@@ -11,7 +11,7 @@ const FAKE = [process.execPath, join(dirname(fileURLToPath(import.meta.url)), '.
 
 async function folder(t) {
   const dir = await mkdtemp(join(tmpdir(), 'board-codex-test-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   return dir
 }
 

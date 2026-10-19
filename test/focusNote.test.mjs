@@ -60,7 +60,7 @@ test('the partner asks of the focus goal itself: Of the goal; answered on the bo
     await partner({ action: 'ask', of: 'G6', kind: 'look', text: 'Is the map readable?' })
     assert.equal((await partner({ action: 'withdraw', id: 'Q2', why: 'settled' })).ok, true)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -72,7 +72,7 @@ test('the partner asks under a step of the focus that a worker holds, as the mai
     const q1 = await item(dir, 'Q1')
     assert.deepEqual(['Of', 'Owner'].map(key => valueOf(q1, key)), ['B1', 'Partner'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -94,7 +94,7 @@ test('the partner\'s daily note: a note to you Of the goal, with "Decided for yo
     // A note about a step stays as it was.
     assert.equal((await main({ action: 'note', to: 'you', of: 'B1', text: 'B1 is merged.' })).ok, true)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -113,7 +113,7 @@ test('Undo marks the decided line "undo asked" once: a second Undo changes nothi
     await partner({ action: 'note', to: 'main', text: 'Plain words.' })
     assert.equal((await person({ action: 'undo', id: 'N2', line: 'Plain words.' })).status, 409)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

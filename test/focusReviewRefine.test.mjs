@@ -20,7 +20,7 @@ test('4: two equal refine questions each match their own ask, by their place', a
     await person({ action: 'answer', id: 'Q1', text: 'yes' })
     assert.deepEqual((await questionsOf(dir, 'B7')).map(one => one.answer), ['yes', 'no'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -33,7 +33,7 @@ test('4: a refine question that holds " Answer: " still matches its ask, before 
     assert.equal(await state(dir, 'Q1'), 'answered')
     assert.deepEqual((await item(dir, 'Q1')).sections.get('Answer'), ['no'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

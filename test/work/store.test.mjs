@@ -34,7 +34,7 @@ test('readStore reads every item and names a broken head by file and line, the i
     ])
     assert.deepEqual(store.flow.step.states.at(-1), 'dropped')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -48,7 +48,7 @@ test('a store folder that is not there reads as not there; B301: one that cannot
     await writeFile(join(dir, 'work'), 'a file, no folder')
     await assert.rejects(readStore(join(dir, 'work')), error => ['ENOTDIR', 'EEXIST', 'EINVAL'].includes(error.code))
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -63,7 +63,7 @@ test('nextId never gives an id at or below last-ids.json, also when the file was
     assert.equal(await nextId(dir, 'Q'), 'Q1')
     assert.deepEqual(JSON.parse(await readFile(join(dir, 'last-ids.json'), 'utf8')), { B: 10, Q: 1 })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -83,7 +83,7 @@ test('writeItem writes beside and puts in place; a concurrent change of another 
     assert.deepEqual(await writeItem(dir, moved), { ok: true, changed: false })
     assert.deepEqual((await readdir(dir)).sort(), ['B4.md', 'B5.md'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -108,7 +108,7 @@ test('writeStore writes only the files whose text changed, keeps Since while the
     assert.deepEqual(store.activities[0].notes, ['  A note of the activity.'])
     assert.deepEqual(store.lastIds, { B: 2 })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

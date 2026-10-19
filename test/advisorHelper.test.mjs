@@ -139,7 +139,7 @@ test('the work tool takes the helper\'s refine and refined as the partner\'s own
     assert.equal((await store.second({ action: 'how-draft', goal: 'G1', parts: ['x · about 1 h'] })).status, 403)
     assert.equal((await store.second({ action: 'next' })).ok, true)
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -165,7 +165,7 @@ test('the helper files a result check as the partner would', async () => {
     assert.equal((await store.second({ action: 'ask', of: 'G3', kind: 'decide', text: 'x' })).status, 403)
     assert.equal((await store.second({ action: 'note', to: 'you', of: 'G3', decided: ['x'] })).status, 403)
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -179,7 +179,7 @@ test('no step is queued or requeued for the helper', async () => {
     assert.equal(moved.status, 409)
     assert.equal(valueOf(await item(store.dir, 'B1'), 'Owner'), 'Lamplighter')
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

@@ -91,7 +91,7 @@ test('B306: take refuses a step that waits for words, naming them and how the ma
     const pulled = await kites({ action: 'pull' })
     assert.equal(pulled.result.wake, null)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -106,7 +106,7 @@ test('B306: take refuses a step whose Waits for names an open ask, naming it; on
     assert.equal(again.ok, true, again.why)
     assert.equal(valueOf(await itemOf(dir, 'B76'), 'State'), 'in progress')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -124,7 +124,7 @@ test('B306: next shows a step that waits as waiting: the words with who clears t
     assert.ok(lines.includes('- B76 queued (waiting: B77 says keep it; B77 is open): Step B76'), lines.join('\n'))
     assert.ok(lines.includes('- B78 queued: Step B78'), lines.join('\n'))
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -151,7 +151,7 @@ test('B306: unblock without "on" clears Waits for: the main chat or the person, 
     assert.equal(none.ok, true)
     assert.equal(none.result.changed, false)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

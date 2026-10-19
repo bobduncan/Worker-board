@@ -145,7 +145,7 @@ test('an ask gets its filing time to the millisecond (Filed); an older one count
     assert.equal(valueOf(q1, 'Filed'), String(at(7, 2, 13) + 456))
     assert.equal(askFiledMs(q1), at(7, 2, 13) + 456)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
   assert.equal(askFiledMs(asked('Q154', 'Worker 4', 'B333', 'look', '00:28')), at(0, 29) - 1)
   assert.equal(askFiledMs(head(['Id: Q9', 'Kind: ask', 'Title: Old', 'State: open', 'Owner: Worker 4', 'Since: 2026-10-19 00:28'])), at(0, 29) - 1)

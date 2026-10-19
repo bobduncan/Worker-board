@@ -33,7 +33,7 @@ test('a pasted picture is kept under a plain name of the day and the minute, a s
 
 test('the board keeps the picture in the project\'s pictures/talk, and never writes over one kept in the same minute', async t => {
   const project = await mkdtemp(join(tmpdir(), 'worker-board-talk-'))
-  t.after(() => rm(project, { recursive: true, force: true }))
+  t.after(() => rm(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const at = new Date(2026, 9, 14, 11, 44).getTime()
   assert.equal(await keepTalkPicture(project, Buffer.from('first'), 'png', at, 'pictures'), PATH)
   assert.equal(await keepTalkPicture(project, Buffer.from('second'), 'png', at + 20_000, 'pictures'), 'pictures/talk/2026-10-14-1144-2.png')

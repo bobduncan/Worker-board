@@ -29,7 +29,7 @@ test('a game\'s folder keeps its letters on a Mac; on Windows it is compared in 
 
 test('Codex is found on the PATH on a Mac, and on Windows when it is not in its own folder', async t => {
   const root = await mkdtemp(join(tmpdir(), 'worker-board-codex-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const bin = join(root, 'bin')
   await mkdir(bin)
   await writeFile(join(bin, 'codex'), '')

@@ -49,7 +49,7 @@ test('a level comes from a click or a setting; anything else is none', () => {
 
 test('the level is kept in the data folder and read back; without it the setting stands, else Off', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const file = join(dir, 'data', 'cpu.json')
   assert.equal(await readLevel(file), 'off')
   assert.equal(await readLevel(file, 'gentle'), 'gentle')
@@ -157,7 +157,7 @@ function fakeWindows(list) {
 
 test('the limiter: Off does nothing; Gentle and Strong set the chats; back to Off gives Normal and all cores once', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const state = new Map(machine().map(one => [one.pid, one]))
   const windows = fakeWindows(() => [...state.values()])
   const limiter = cpuLimiter({ file: join(dir, 'cpu.json'), platform: 'win32', cores: 24, sessions: async () => [A, B], processes: windows.processes, now: () => 7 })
@@ -192,7 +192,7 @@ test('the limiter: Off does nothing; Gentle and Strong set the chats; back to Of
 
 test('a listing that fails is one line, and the next one clears it; a level is refused when it is none', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const windows = fakeWindows(() => machine())
   const limiter = cpuLimiter({ file: join(dir, 'cpu.json'), fallback: 'gentle', platform: 'win32', cores: 24, sessions: async () => [A], processes: windows.processes })
   windows.failNext()
@@ -207,7 +207,7 @@ test('a listing that fails is one line, and the next one clears it; a level is r
 
 test('on another platform the control says not available and nothing runs', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const windows = fakeWindows(() => machine())
   const limiter = cpuLimiter({ file: join(dir, 'cpu.json'), fallback: 'strong', platform: 'linux', cores: 8, sessions: async () => [A], processes: windows.processes })
   await limiter.apply()

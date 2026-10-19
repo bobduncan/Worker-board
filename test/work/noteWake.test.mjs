@@ -83,7 +83,7 @@ test('the review\'s findings: unread notes to the main chat wake it with one lin
     assert.deepEqual(outbox.outbox().map(one => messageText(one, () => '16:05')).at(-1), 'work: notes N1, N2, N3 for you; run work next')
     assert.ok((await readDelivered(dir)).keys.includes('notes N1,N2 Lead'))
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -105,7 +105,7 @@ test('the review\'s findings: the notes filed before this version\'s first start
     await deliver()
     assert.deepEqual(outbox.outbox().map(one => messageText(one, () => '16:06')), ['work: note N3 for you; run work next'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -134,7 +134,7 @@ test('the review\'s findings: the main chat\'s work next shows its notes and mar
     assert.doesNotMatch((await workApi({ chat: 'Digger', action: 'next' }, { dir, now: NOW, prefix: 'Garden · ', roleOf: () => 'worker' })).result.text, /Notes for you/)
     assert.equal(valueOf((await readStore(dir)).items.get('N2'), 'Main read'), null)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -152,7 +152,7 @@ test('the review\'s findings: no wake for the main chat\'s own notes, nor for th
     assert.deepEqual(notes.map(item => [valueOf(item, 'From'), valueOf(item, 'Via')]), [['Lead', null], ['Digger', 'report']])
     assert.deepEqual((await build()).reconciled.notes, [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -167,6 +167,6 @@ test('not while the main chat is suspended, nor for a note to the person, nor wi
     assert.deepEqual(reconcile({ store, lanes: lanes('suspended'), now: NOW, times: TIMES, prefix: 'Garden · ' }).notes, [])
     assert.deepEqual(reconcile({ store, lanes: lanes('free').slice(1), now: NOW, times: TIMES, prefix: 'Garden · ' }).notes, [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

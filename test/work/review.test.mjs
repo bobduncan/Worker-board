@@ -42,7 +42,7 @@ test('1. a step without an id keeps its own id when another is put above it; no 
     assert.ok(!(await readdir(dir)).includes(`${ids[0]}.md`))
     assert.deepEqual((await readStore(dir)).problems, [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -63,7 +63,7 @@ test('2. nextId hands out every id once, also when asked six times at once', asy
     assert.deepEqual(JSON.parse(await readFile(join(dir, 'last-ids.json'), 'utf8')), { Q: 6 })
     assert.deepEqual((await readdir(dir)).filter(name => name.endsWith('.claim')), [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -78,7 +78,7 @@ test('2. a broken last-ids.json gives no id back: its readable values and the fi
     const last = JSON.parse(await readFile(join(dir, 'last-ids.json'), 'utf8'))
     assert.equal(last.B, 50)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

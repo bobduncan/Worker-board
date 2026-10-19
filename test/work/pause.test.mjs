@@ -67,7 +67,7 @@ test('work step takes commit and next: the step record holds its checkpoint, and
     // The store reads it back without a problem.
     assert.deepEqual((await readStore(dir)).problems, [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -87,7 +87,7 @@ test('a checkpoint needs its next action and a commit that is a hash or none; a 
     // A plan step on a taken step is still refused: it is taken first.
     assert.equal((await support({ action: 'step', id: 'B2', step: 1 })).status, 409)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -120,7 +120,7 @@ test('pause-all and resume-all are the person\'s: they write pause.json in the s
     assert.equal((await person({ action: 'resume-all' })).ok, true)
     assert.equal(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')).state, 'resuming')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -153,7 +153,7 @@ test('pause-state: running without pause.json; while pausing every chat must sto
     // pause-state changes nothing.
     assert.equal((await board({ action: 'pause-state' })).result.changed, undefined)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -174,7 +174,7 @@ test('pause-state while resuming: the main chat gets the list of who to wake, by
     const ended = await main({ action: 'turn-ended', since: NOW + 31 * MIN })
     assert.deepEqual(ended.result.pause, { state: asked.result.state, since: asked.result.since, forChat: asked.result.forChat, resumeList: asked.result.resumeList })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -238,7 +238,7 @@ test('a broken pause.json is no pause', async () => {
     await writeFile(join(dir, 'pause.json'), '{ not json')
     assert.equal((await board({ action: 'pause-state' })).result.state, 'running')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -264,7 +264,7 @@ test('after a pause, the resume list of the main chat marks a checkpoint written
     const list = (await main({ action: 'pause-state' })).result.resumeList
     assert.deepEqual(list.map(one => [one.step, one.checkpoint.isSincePause, one.hasStarted]), [['B1', true, false]])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -291,7 +291,7 @@ test('review 1: a checkpoint stands on a step waiting on you or in review too', 
     assert.equal((await board({ action: 'step', id: 'B1', next: 'wait for the check' })).ok, true)
     void server
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -330,6 +330,6 @@ test('review 5: a checkpoint counts from the pause to the millisecond; End resum
     assert.equal((await person({ action: 'end-resume' })).ok, true)
     assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW, by: 'person', resumedSince: NOW })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

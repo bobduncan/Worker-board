@@ -120,7 +120,7 @@ test('B128: loading a broken settings file stops with that line; a missing one k
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const folder = await mkdtemp(join(tmpdir(), 'worker-board-config-'))
-  t.after(() => rm(folder, { recursive: true, force: true }))
+  t.after(() => rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const file = join(folder, 'config.json')
   await writeFile(file, '{"port": 4310,}')
   await assert.rejects(loadConfig(file, {}), error => error instanceof BrokenConfig
@@ -134,7 +134,7 @@ test('B127: a first start without a settings file makes it from the template, sa
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const folder = await mkdtemp(join(tmpdir(), 'worker-board-first-'))
-  t.after(() => rm(folder, { recursive: true, force: true }))
+  t.after(() => rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const [file, template] = [join(folder, 'config.json'), join(folder, 'template.json')]
   await writeFile(template, '{ "project": "C:/Work/my-project" }\n')
   const said = await firstStart(file, template)
@@ -273,6 +273,6 @@ test('Focus 2, the review\'s findings: a copy\'s own map is told by real paths (
     // Not all three its own: no.
     assert.equal(await ownMapNow(copyOf({ goals: join(scratch, 'goals.md') }), { main: live }), false)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

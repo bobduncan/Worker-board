@@ -30,7 +30,7 @@ const freePort = () => new Promise(done => {
 
 async function folder(t, name = 'board-two-') {
   const dir = await mkdtemp(join(tmpdir(), name))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   return dir
 }
 
@@ -219,6 +219,27 @@ async function boardFor(dir, name, port) {
   return { board, project }
 }
 
+/**
+ * B406: the ports of the two-board test: from a fixed band below the range the system hands out to other sockets, the
+ * first whose next three are free too, so neither board meets a port something else took in between.
+ */
+async function quietPort() {
+  for (let port = 43100; port < 44000; port += 10) {
+    const busy = await Promise.all([0, 1, 2, 3].map(at => portIsBusy(port + at)))
+    if (!busy.some(Boolean)) return port
+  }
+  throw new Error('No four free ports from 43100 on.')
+}
+
+/** B406: waits until nothing listens on `port` any more (a board just stopped), at most ten seconds. */
+async function released(port) {
+  for (const until = Date.now() + 10_000; Date.now() < until;) {
+    if (!(await portIsBusy(port))) return
+    await new Promise(done => setTimeout(done, 100))
+  }
+  throw new Error(`Port ${port} was not released.`)
+}
+
 /** Ends a board started here, and waits until it is gone. */
 async function stop(child) {
   if (child.exitCode !== null || child.signalCode !== null) return
@@ -261,7 +282,7 @@ test('two projects\' boards run at once on one PC, each on its own port, with it
     await rm(dir, { recursive: true, force: true, maxRetries: 5 })
   })
   const home = join(dir, 'pc')
-  const port = await freePort()
+  const port = await quietPort()
   const alpha = await boardFor(dir, 'alpha', port)
   const beta = await boardFor(dir, 'beta', port)
   const env = { WORKER_BOARD_HOME: home }
@@ -302,6 +323,7 @@ test('two projects\' boards run at once on one PC, each on its own port, with it
 
   // Started again, the first project's board still takes its own port: it is not another project's to take.
   await stop(first.child)
+  await released(port)
   const again = await run(started, alpha.board, env)
   assert.equal(again.port, port)
 })

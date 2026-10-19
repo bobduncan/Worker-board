@@ -67,7 +67,7 @@ test('an ask stands under Needs your attention after the chat\'s next answer wit
     // The chat's own answer is read for nothing: no card of its words beside the ask.
     assert.equal(state.forYou.some(one => one.id.startsWith('chat:Digger:')), false)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -80,7 +80,7 @@ test('B269: an ask carries its whole first line as its question, also when its t
     assert.equal(need.question, 'Does the "low" hedge read right? I advise yes.')
     assert.equal(need.text, 'It stands by the gate.')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -99,7 +99,7 @@ test('B301: a "For you" block without an ask makes the chat wait no more, and st
     // A plain answer asks nothing: no warning.
     assert.equal((await build(PLAIN)).forYou.length, 0)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -120,9 +120,9 @@ test('B301: an ask filed in the turn that wrote the block leaves no warning; one
     await within.person({ action: 'answer', id: 'Q1', text: 'yew' }, NOW - 22 * MIN)
     assert.equal((await within.build(ASKS)).forYou.filter(one => one.kind === 'unfiled').length, 0)
   } finally {
-    await rm(before.dir, { recursive: true, force: true })
-    await rm(within.dir, { recursive: true, force: true })
-    await rm(stale.dir, { recursive: true, force: true })
+    await rm(before.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    await rm(within.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    await rm(stale.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -138,7 +138,7 @@ test('review: the turn\'s start is found in the longer look back; when it cannot
     const [warning] = (await garden1.build(ASKS, [], unknown)).forYou.filter(one => one.kind === 'unfiled')
     assert.match(warning.text, /could not tell when this turn began/)
   } finally {
-    await rm(garden1.dir, { recursive: true, force: true })
+    await rm(garden1.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -153,7 +153,7 @@ test('a note lands under Information and never under Needs your attention; read,
     state = await build(PLAIN)
     assert.equal(state.information[0].isRead, true)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -171,7 +171,7 @@ test('an answered ask wakes its chat with its id and title, and the chat waits n
     const need = state.forYou.find(one => one.id === 'work:Q1')
     assert.deepEqual([need.canAnswer, need.answer.state, need.answer.text], [false, 'waiting', 'Yew'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -183,7 +183,7 @@ test('a question of the app\'s form stands as a card that is answered in its cha
     const cards = state.forYou.filter(one => one.from === 'Digger')
     assert.deepEqual(cards.map(one => [one.id, one.isForm, one.canAnswer]), [['work:Q1', true, false]])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -194,6 +194,6 @@ test('a lane on a step of the store carries the step\'s title as the store holds
     const lane = digger(await build(PLAIN))
     assert.deepEqual([lane.task?.stepId, lane.task?.title], ['B1', 'Plant the hedge'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

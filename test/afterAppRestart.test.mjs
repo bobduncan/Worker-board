@@ -159,7 +159,7 @@ test('the lane says "Not running", never "Working", and its time column says so 
 
 test('the app\'s last start is read from the lock it holds in its own folder, above its chat list', async t => {
   const root = await mkdtemp(join(tmpdir(), 'b315-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const sessions = join(root, 'claude-code-sessions')
   await mkdir(sessions)
   assert.equal(await appStartedAt(sessions), null)

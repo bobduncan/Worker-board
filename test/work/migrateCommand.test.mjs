@@ -23,7 +23,7 @@ test('without a mode the command prints the counts and what a store would hold, 
     assert.match(first.stdout, /^Nothing written: --make-store makes the store in .* \(19 item files\)\.$/m)
     assert.deepEqual(await readdir(dir), [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -38,7 +38,7 @@ test('--make-store and --init refuse a folder that is not empty and write nothin
     assert.equal(init.status, 1)
     assert.deepEqual(await readdir(dir), ['keep.txt'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

@@ -61,7 +61,7 @@ test('B301: no store, or a store folder that cannot be read: every action, the r
     assert.equal(broken.status, 503)
     assert.match(broken.why, /^The work store .* cannot be read \((ENOTDIR|EEXIST|EINVAL)\): the board shows no work until it can\./)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -73,7 +73,7 @@ test('a chat that is not in the list, and an unknown action, are refused', async
     assert.equal((await workApi({ action: 'answer', chat: 'Board', id: 'B6', text: 'yes' }, ctx)).status, 403)
     assert.equal((await workApi({ action: 'check', chat: 'Board', id: 'B1', passed: true }, ctx)).status, 403)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -89,7 +89,7 @@ test('take: the board moves a queued step to taken for its chat, the chat to in 
     // Its step waits for B1: the flow's guard says no.
     assert.deepEqual(await board({ action: 'take', id: 'B2' }), { ok: false, status: 409, why: 'B2: "Blocked by all done" does not hold (flow.json): B1 is in progress' })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -105,7 +105,7 @@ test('take twice refuses the second with the holder\'s name', async () => {
     assert.equal(await support({ action: 'take', id: 'B4' }).then(done => done.result.changed), false)
     assert.deepEqual(await board({ action: 'take', id: 'B4' }), { ok: false, status: 409, why: 'B4: Team - Support holds it (in progress).' })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -119,7 +119,7 @@ test('step writes one History line on the step the chat holds', async () => {
     assert.equal((await history(dir, 'B1')).at(-1), '- 2026-10-17 11:06 Board: step 2/3, Draw, about 40 min left')
     assert.equal((await support({ action: 'step', id: 'B1', step: 3 })).why, 'B1 is not in progress for Support: take it first.')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -153,7 +153,7 @@ test('ask with Blocking yes moves the step to waiting on you; answer moves it ba
     assert.equal(link.result.text, '> **For you**\n> 1. **Do:** Restart the app (Q2, do on B1)')
     assert.equal(await state(dir, 'B1'), 'in progress')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -181,7 +181,7 @@ test('report moves to review and records "check pending"; the board\'s check clo
       '- 2026-10-17 11:06 server: review → done',
     ])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -200,9 +200,9 @@ test('queue by a worker is refused by the flow; Main queues a refined step, and 
     const { ctx } = await fresh()
     const busy = await workApi({ action: 'queue', chat: 'Main', id: 'B5', for: 'Board' }, { ...ctx, overlaps: () => 'B4' })
     assert.equal(busy.why, 'B5: "Touches overlaps no taken step" does not hold (flow.json)')
-    await rm(ctx.dir, { recursive: true, force: true })
+    await rm(ctx.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -226,7 +226,7 @@ test('new makes a step at the end of its activity; block and unblock set Blocked
     assert.equal(valueOf(await item(dir, 'B8'), 'Blocked by'), 'B7')
     assert.equal((await main({ action: 'block', id: 'B8', on: 'B99' })).status, 404)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -256,7 +256,7 @@ test('refine writes today\'s block and Refined: open; refined makes it ready and
     const view = await readFile(join(dir, 'B7.md'), 'utf8')
     assert.match(view, /^Refined: ready$/m)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -286,7 +286,7 @@ test('drop, close, tick and delete', async () => {
     assert.ok(!(await readdir(dir)).includes('B7.md'))
     assert.ok(!(await readStore(dir)).activities[0].steps.includes('B7'))
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -298,7 +298,7 @@ test('a hand-edited file with a broken head is refused, not moved', async () => 
     assert.deepEqual(await board({ action: 'take', id: 'B1' }), { ok: false, status: 409, why: 'B1: its file is broken (line 5 is no head line: "Owner Board"); fix it by hand first.' })
     assert.equal((await readFile(join(dir, 'B1.md'), 'utf8')).includes('Owner Board'), true)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -324,7 +324,7 @@ test('after a change the view is written, and it reads back as the store', async
     assert.equal(parseBacklog(view).activities[0].steps.length, 8)
     await rm(file, { force: true })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -412,7 +412,7 @@ test('review 1: the chat that asked withdraws a blocking ask; the step goes on, 
     assert.equal((await board({ action: 'withdraw', id: 'Q1' })).why, 'Q1 is not open.')
     assert.equal((await board({ action: 'report', id: 'B1', result: 'done' })).ok, true)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -428,7 +428,7 @@ test('review 2: a step in progress without an owner is claimed by the chat that 
     assert.equal((await history(dir, 'B4')).at(-1), '- 2026-10-17 11:06 Board: claimed (in progress)')
     assert.equal((await support({ action: 'take', id: 'B4' })).why, 'B4: Board holds it (in progress).')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -441,7 +441,7 @@ test('review 5: the person closing a step in progress records it done, not dropp
     await person({ action: 'tick', id: 'B3', line: '' })
     assert.equal(await state(dir, 'B3'), 'done')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -457,7 +457,7 @@ test('review 6: an answer whose ask cannot be written leaves the step and the as
     assert.equal(done.status, 500)
     assert.deepEqual([await readFile(join(dir, 'B1.md'), 'utf8'), await readFile(join(dir, 'Q1.md'), 'utf8')], before)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -469,7 +469,7 @@ test('review 7: a chat asks only under its own step, or one nobody holds; Main a
     assert.equal((await main({ action: 'ask', of: 'B1', text: 'Go on?' })).ok, true)
     assert.equal((await support({ action: 'ask', of: 'B7', text: 'Which?' })).ok, true)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -498,7 +498,7 @@ test('review: requeue gives a queued step to another chat, unqueue takes it out 
     assert.equal(valueOf(await item(dir, 'B5'), 'State'), 'refined')
     assert.equal((await main({ action: 'unqueue', id: 'B4' })).status, 409)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -521,7 +521,7 @@ test('B305: a worker that still holds a step takes its next queued one; an older
       assert.equal(await state(dir, 'B5'), 'in progress')
       assert.equal((await history(dir, 'B5')).at(-2), isOld ? '- 2026-10-17 11:06 server: queued → taken (for Support)' : '- 2026-10-17 11:06 Support: queued → taken')
     } finally {
-      await rm(dir, { recursive: true, force: true })
+      await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   }
 })

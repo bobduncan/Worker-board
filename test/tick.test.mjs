@@ -166,7 +166,7 @@ test('approving a step whose work is merged ticks it in the store, its view foll
     assert.deepEqual([again.ok, again.status], [false, 409])
     assert.equal(await board.text(), after)
   } finally {
-    await rm(board.folder, { recursive: true, force: true })
+    await rm(board.folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -180,7 +180,7 @@ test('"Done" on a step only the person could do is ticked the same way, with its
     // Nobody waited for it: the main chat hears nothing.
     assert.deepEqual(board.said, [])
   } finally {
-    await rm(board.folder, { recursive: true, force: true })
+    await rm(board.folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -203,7 +203,7 @@ test('what is not the board\'s to settle goes to its worker as before, and neith
       // A copy does not even ask git: it returns before anything is read.
       if (setup.canWrite === false) assert.equal(board.asked.git, 0)
     } finally {
-      await rm(board.folder, { recursive: true, force: true })
+      await rm(board.folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   }
 })
@@ -224,6 +224,6 @@ test('a store that cannot be written sends the approval to the worker, so it is 
     assert.equal(await board.stateOf('B60'), 'open')
     assert.deepEqual(await readdir(board.folder), ['backlog.md', 'work'])
   } finally {
-    await rm(board.folder, { recursive: true, force: true })
+    await rm(board.folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

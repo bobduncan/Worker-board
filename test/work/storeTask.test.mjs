@@ -51,7 +51,7 @@ test('a working lane\'s task is the step the store holds for it, not the step a 
     // The step is the task as it was given, not the hand-over.
     assert.deepEqual([now.givenTask.by, now.givenTask.step.id], ['step', 'B1'])
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -61,6 +61,6 @@ test('between two turns a "Task from" line holds the chat no more; the step it h
     const now = await store.build(false)
     assert.deepEqual([now.state, now.between, now.task.stepId], ['working', 'Its turn has ended; its step B1 is in progress.', 'B1'])
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

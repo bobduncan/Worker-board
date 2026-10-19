@@ -44,7 +44,7 @@ async function folders(names) {
 
 test('resolvePort: main keeps its port; each copy takes its own, the same every time, side by side', async t => {
   const { root, paths: [main, one, two], run } = await folders(['board', 'board-one', 'board-two'])
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const start = (here, given) => resolvePort({ here, given, configured: 4310, run })
 
   assert.deepEqual(await start(main), { port: 4310, why: 'main', main, isMain: true })
@@ -57,7 +57,7 @@ test('resolvePort: main keeps its port; each copy takes its own, the same every 
   // Started again, in any order, also after another folder is gone: each has the port it had.
   assert.deepEqual([(await start(two)).port, (await start(two)).why], [4321, 'own'])
   assert.deepEqual([(await start(one)).port, (await start(one)).why], [4320, 'own'])
-  await rm(one, { recursive: true, force: true })
+  await rm(one, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   assert.equal((await start(two)).port, 4321)
 
   // A port on the command line wins and is not written down; the folder's own port stays what it was.
@@ -67,7 +67,7 @@ test('resolvePort: main keeps its port; each copy takes its own, the same every 
 
 test('resolvePort: a new copy does not take a port another copy holds', async t => {
   const { root, paths: [, one, two], run } = await folders(['board', 'board-one', 'board-two'])
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   await writeOwnPort(one, 4320)
   await writeOwnPort(two, 4320)   // two folders with the same file, as after a copied folder
   // The folder keeps what it wrote down; a third one would take the next.
@@ -79,7 +79,7 @@ test('resolvePort: a new copy does not take a port another copy holds', async t 
 
 test('resolvePort: without git a folder is its own main folder and keeps the configured port', async t => {
   const { root, paths: [, one] } = await folders(['board', 'board-one'])
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const noGit = async () => { throw new Error('git is not there') }
   assert.deepEqual(await resolvePort({ here: one, configured: 4310, run: noGit }), { port: 4310, why: 'main', main: one, isMain: true })
   assert.equal((await resolvePort({ here: one, configured: 4310, run: async () => null })).port, 4310)

@@ -92,7 +92,7 @@ test('the board writes them through the work store, only on the board that write
     assert.match(await block(), /; accepted 2026-10-14 19:02\):/)
     assert.equal((await editStep({ action: 'refine-accept', step: 'B13' }, { now, work })).status, 409)
   } finally {
-    await rm(folder, { recursive: true, force: true })
+    await rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

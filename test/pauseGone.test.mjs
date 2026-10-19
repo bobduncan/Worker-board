@@ -26,7 +26,7 @@ test('the safe-point line is no longer read: its readers are gone', () => {
 
 test('restart.md is not read, even when the project has one', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'pause2-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   await mkdir(join(dir, '.claude'), { recursive: true })
   await writeFile(join(dir, '.claude', 'restart.md'), '# who was on what\n')
   const config = { ...parseConfig('{}', {}), project: dir, appSessions: join(dir, 'none'), transcripts: join(dir, 'none') }

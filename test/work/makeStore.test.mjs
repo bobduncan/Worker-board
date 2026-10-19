@@ -61,7 +61,7 @@ test('the dry run of --make-store prints the table and every card beside its ste
     assert.match(dry.stdout, /^Dry run: would write 19 item files, activities\.json and last-ids\.json into .*; nothing written\.$/m)
     assert.deepEqual(await readdir(claude), ['backlog.md', 'chats'])
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -83,7 +83,7 @@ test('--make-store makes the store, keeps the old file and writes the view; a fo
     assert.equal(await run(['--backlog', backlog, '--work', work, '--make-store'], again.log), 1)
     assert.match(again.text(), /is not empty: the store is made only in an empty folder/)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -105,7 +105,7 @@ test('--init makes an empty store with one activity and the default flow, which 
     assert.match(twice.text(), /is not empty: an empty store is made only in an empty folder/)
     assert.equal(command('--init').status, 2)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -138,7 +138,7 @@ test('the board\'s writers change the item and the view, not the backlog file\'s
     assert.match(await readFile(backlog, 'utf8'), /^- \[x\] B13 Verify: Is the golem the boss you meant/m)
     assert.equal(said[0].text, 'B13 is approved and ticked on the worker board; no worker was woken for it. Open steps that waited for it: B12 (for Units).')
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -157,7 +157,7 @@ test('B301: without a store this board writes, the writers refuse and the backlo
     assert.match(none.why, /^No work store in /)
     assert.equal(await readFile(backlog, 'utf8'), before)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -174,6 +174,6 @@ test('B301: --make-store refuses a backlog that is the view of a store, whose Hi
     assert.equal(await run(['--backlog', backlog, '--work', work, '--make-store', '--from-view'], forced.log), 0, forced.text())
     assert.equal((await readStore(work)).items.size, 19)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

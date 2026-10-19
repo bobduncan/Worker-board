@@ -56,7 +56,7 @@ test('an answer in the refine window answers the ask made for that question, wit
     const folded = await advisor({ action: 'refined', id: 'B7', what: ['Bats come one at a time.'] })
     assert.equal(folded.ok, true, folded.why)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -68,6 +68,6 @@ test('an ask answered on its own writes its answer into the block\'s question, a
     assert.equal(answered.ok, true, answered.why)
     assert.deepEqual((await questionsOf(dir)).map(one => one.answer), [null, 'yes'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

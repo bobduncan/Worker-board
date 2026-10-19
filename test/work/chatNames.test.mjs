@@ -46,7 +46,7 @@ test('queue and requeue take the chat without the prefix, in any case, as the li
     assert.equal((await main({ action: 'requeue', id: 'B2', for: 'game - WORKER 3' })).ok, true)
     assert.equal(valueOf(await item(dir, 'B2'), 'Owner'), 'Worker 3')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -63,7 +63,7 @@ test('the review\'s findings: a chat the list does not know yet (a worker about 
     assert.equal(valueOf(await item(dir, 'B1'), 'Owner'), 'Worker 2')
     assert.match((await main({ action: 'requeue', id: 'B1', for: 'Nobody' })).result.warning, /^Nobody is no chat of the list yet/)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -83,7 +83,7 @@ test('the chat that asks, a note to the main chat and a rename take the list\'s 
     assert.equal(renamed.ok, true, renamed.why)
     assert.equal(valueOf(await item(dir, 'Q1'), 'Owner'), 'Worker 3')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -105,6 +105,6 @@ test('an Owner already written as prefix + a known name counts as that name: its
     assert.equal(valueOf(await item(dir, 'B1'), 'Owner'), 'Worker 2')
     assert.ok(parseItem(serializeItem(await item(dir, 'B1'))) !== null)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

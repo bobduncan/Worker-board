@@ -68,7 +68,7 @@ test('Main queues a step before its refine: the wish is kept, and the board queu
       '- 2026-10-17 11:06 server: queued for Kite; after B1; about 1.5 h (asked by Lead before its refine)',
     ])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -93,7 +93,7 @@ test('a wish the board could not carry out at the refine is carried out by the r
     assert.deepEqual(['State', 'Owner', 'Queue when refined'].map(key => valueOf(three, key)), ['queued', 'Kite', null])
     assert.equal((await history(dir, 'B3')).at(-1), '- 2026-10-17 11:06 server: queued for Kite (asked by Lead before its refine)')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -109,7 +109,7 @@ test('every other refusal of a queue stays one: a worker, a step done, a flow th
     assert.deepEqual(await lead({ action: 'queue', id: 'B3', for: 'Kite' }), { ok: false, status: 409, why: 'B3: no move from new to queued (flow.json)' })
     assert.equal(valueOf(await item(dir, 'B3'), 'Queue when refined'), null)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

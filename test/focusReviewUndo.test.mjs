@@ -33,7 +33,7 @@ test('3: an Undo is typed to the partner first and marked after; a failed word l
     const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
     assert.match(server, /body\?\.action === 'undo'\) return undoNow\(/)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

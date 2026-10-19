@@ -40,7 +40,7 @@ test('the pull and the refresh at the same moment send one line, and every key o
     assert.equal(outbox.outbox().length, 21)
     assert.equal((await readDelivered(dir)).keys.length, 21)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -54,7 +54,7 @@ test('a line that could not be put into the outbox spends no key: it goes at the
     outbox.failWrites(false)
     assert.notEqual(await send(dir, outbox), null)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -73,7 +73,7 @@ test('a line that expired untaken goes once more, and only once', async () => {
     await taken.take('Units', NOW, KEEP)
     assert.equal(await send(dir, taken, { key: 'B9 Units y', words: words('Units', 'B9'), now: NOW + 49 * 60 * MIN }), null)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -115,7 +115,7 @@ test('a pull is answered only for a chat on the board that is free: not held by 
     const answered = await pullFor({ dir, result, state: state({ state: 'free' }), outbox, now: NOW, maxChars: 2000, newId, keep: KEEP })
     assert.deepEqual([answered.text, outbox.outbox().length], ['work: B286 is yours; run work next', 1])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -129,7 +129,7 @@ test('the end of a turn carries the pull: one call answers the missed instructio
     const without = await workApi({ chat: 'Digger', action: 'turn-ended', since: NOW - MIN }, { dir, now: NOW, prefix: '', roleOf: () => 'worker', freeChats: new Set() })
     assert.equal(without.result.pull, undefined)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -146,7 +146,7 @@ test('a waiting line whose step went to another chat or was dropped is withdrawn
     await deliverWork({ state: { ...down, reconciled: { moves: [], deliveries: [], says: [] } }, dir, outbox, apply: async () => null, now: NOW, maxChars: 2000, newId, keep: KEEP })
     assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.state]), [['Units', 'work', 'dropped'], ['Main', 'start', 'dropped'], ['Digger', 'work', 'waiting']])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

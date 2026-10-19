@@ -75,7 +75,7 @@ test('routing: a worker\'s or the main chat\'s decide or look with advice or opt
       assert.match(one.result.text, /For you/)
     }
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -99,7 +99,7 @@ test('the setting: on unless switched off (partner-answers.json); off, every ask
     await writeFile(join(dir, 'partner-answers.json'), 'not json')
     assert.deepEqual((await readStore(dir)).partnerAnswers, { on: true })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -123,7 +123,7 @@ test('a routed ask does not stand under Needs your attention; one handed to the 
     // Only an ask routed to the partner is handed on; twice is refused.
     assert.equal((await sage({ action: 'escalate', id: 'Q2', why: 'again' })).status, 409)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -161,7 +161,7 @@ test('partner-answer: the ask is answered by the partner, the asking chat woken 
     // Answered once: a second answer is refused.
     assert.equal((await sage({ action: 'partner-answer', id: 'Q1', text: 'B bar', why: 'changed my mind' })).status, 409)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -193,7 +193,7 @@ test('the review\'s findings: one note per goal per day: answers and the partner
     assert.equal(valueOf(today, 'Text'), 'Today\'s note on G6: 4 decided for you, 2 need you')
     assert.equal((await readStore(dir)).items.has('N3'), false, 'one note per goal per day')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
   const bare = await garden({ focusGoal: null })
   try {
@@ -203,7 +203,7 @@ test('the review\'s findings: one note per goal per day: answers and the partner
     assert.deepEqual(['To', 'Of', 'From'].map(key => valueOf(note, key)), ['you', null, 'Sage'])
     assert.deepEqual(note.sections.get('Decided for you'), ['- Q1 (Digger, B1): A number or a bar for the damage? → A (your advice)'])
   } finally {
-    await rm(bare.dir, { recursive: true, force: true })
+    await rm(bare.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -239,7 +239,7 @@ test('Undo of a partner\'s answer: the ask opens again for the person, the askin
     // The person answers it now as any ask.
     assert.equal((await person({ action: 'answer', id: 'Q1', text: 'B bar' })).ok, true)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -265,7 +265,7 @@ test('Undo from the answered ask\'s card (by its id) does the same; an ask the p
     await person({ action: 'answer', id: 'Q1', text: 'B bar' })
     assert.equal((await person({ action: 'undo', id: 'Q1' })).status, 409)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -285,7 +285,7 @@ test('the review\'s findings: a take-back whose note cannot be marked fails loud
     // Once the note can be written, the Undo works.
     assert.equal((await workApi({ action: 'undo', id: 'Q1' }, { ...ctx(), as: 'person' })).ok, true)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -298,7 +298,7 @@ test('the review\'s findings: a decided line that only looks like an answer goes
     assert.equal(checked.result.undo.ask ?? null, null)
     assert.equal(checked.result.undo.line, 'Q9 (old notes): kept the icons')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -318,7 +318,7 @@ test('undoLine: a partner\'s answer is taken back in the store and its asking ch
     assert.deepEqual(told, [{ to: 'Digger', id: 'Q1', line: 'The person took back the partner\'s answer on Q1; wait for their answer.' }])
     assert.equal(valueOf(await item(dir, 'Q1'), 'State'), 'open')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -333,7 +333,7 @@ test('work next shows the partner the asks it answers for the person first', asy
     // Nobody else sees them.
     assert.doesNotMatch((await digger({ action: 'next' })).result.text, /answer for the person/)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -352,7 +352,7 @@ test('the reconciler: the partner is woken for a routed ask while it is free; no
     await person({ action: 'pause-all' })
     assert.deepEqual((await plan(dir, partnerLane('free', NOW - 20 * MIN))).partnerAsks, [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -378,7 +378,7 @@ test('the review\'s findings: to the person 30 minutes after its filing, whateve
     await person({ action: 'pause-all' })
     assert.deepEqual((await plan(dir, partnerLane('free', NOW - 60 * MIN), NOW + 31 * MIN)).escalations, [{ id: 'Q1', why: 'the partner did not answer in 30 min' }])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -406,7 +406,7 @@ test('the delivery: one line per routed ask, once; withdrawn once answered; the 
     assert.match(q2.sections.get('History').at(-1), /server: to the person: the partner did not answer in 30 min$/)
     assert.deepEqual(q2.sections.get('Route'), ['Your partner did not answer in 30 min: it is yours'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

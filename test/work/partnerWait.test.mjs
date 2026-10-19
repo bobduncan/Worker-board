@@ -60,7 +60,7 @@ test('a step whose only open blocking asks went to the partner waits for the par
     assert.deepEqual(storeNeeds(work, { now: NOW }).map(need => need.workId), ['Q1'])
     assert.equal(storeWaits(work, 'Garden · ').blocking.has('digger'), true)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -76,7 +76,7 @@ test('a step that also waits on an ask of the person\'s own waits for the person
     // A step with no open blocking ask waits for nobody.
     assert.equal(partnerWaitOf('B9', work.items.values()), null)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -90,7 +90,7 @@ test('the review: only a step still at work waits for the partner, not one queue
     for (const state of ['taken', 'in progress']) assert.deepEqual(stepWaitsForPartner({ ...step, head: new Map([...step.head, ['State', state]]) }, work.items.values()), ['Q1'], state)
     for (const state of ['queued', 'review', 'done']) assert.equal(stepWaitsForPartner({ ...step, head: new Map([...step.head, ['State', state]]) }, work.items.values()), null, state)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -103,7 +103,7 @@ test('the focus goal\'s steps say so too', async () => {
     const focus = focusState(map, [...work.items.values()], [], 'Garden · ')
     assert.deepEqual(focus?.steps?.map(step => [step.id, step.state, step.waitsForPartner]), [['B1', 'now', ['Q1']]])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -139,7 +139,7 @@ test('a routed ask open ten minutes wakes the partner once more, never while its
     await deliver(await plan(dir, free, NOW + 25 * MIN), NOW + 25 * MIN)
     assert.equal(outbox.outbox().length, 2)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -160,7 +160,7 @@ test('the review: a partner woken just before ten minutes is not woken again at 
     await deliver(await plan(dir, free, NOW + 20 * MIN), NOW + 20 * MIN)
     assert.equal(outbox.outbox().length, 2)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

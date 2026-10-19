@@ -176,7 +176,7 @@ test('the partner files the re-check with checked of a goal; a pass gives the pe
     assert.equal((await as('Lamplighter')({ action: 'checked', id: 'G3', evidence: 'x.png', points: ['pass: lit'] })).status, 403)
     assert.equal((await as('Partner', { goalChecked: undefined })({ action: 'checked', id: 'G3', evidence: 'x.png', points: ['pass: lit'] })).status, 409)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

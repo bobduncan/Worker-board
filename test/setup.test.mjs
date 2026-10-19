@@ -20,7 +20,7 @@ const BOARD_ID = `${MOD}@${MARKETPLACE}`
 
 async function folder(t) {
   const dir = await mkdtemp(join(tmpdir(), 'board-setup-test-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   return dir
 }
 

@@ -65,7 +65,7 @@ test('B313: rename moves every open item naming the old name, with one History l
     const again = await main({ action: 'rename', from: 'Units', to: 'Worker 4' })
     assert.deepEqual([again.result.changed, again.result.text], [false, 'Nothing open names Units.'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -79,7 +79,7 @@ test('B313: after the rename the chat takes and reports its step under its new n
     assert.equal(await field(dir, 'B1', 'State'), 'review')
     assert.equal((await units({ action: 'take', id: 'B2' })).status, 409)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -96,7 +96,7 @@ test('B313: only the main chat, the person and the board rename; both names are 
     assert.equal(byBoard.ok, true)
     assert.equal(await lastHistory(dir, 'B1'), '- 2026-10-18 15:00 server: Worker 4 renamed to Units (same chat)')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -120,7 +120,7 @@ test('B313: the board follows a session\'s new name once, also across a restart;
     assert.deepEqual(once.moved, [])
     assert.equal((await items(dir)).get('Q1').sections.get('History').filter(one => /renamed/.test(one)).length, 1)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -142,7 +142,7 @@ test('B313: a name two sessions had is not moved; a line on top says so until th
     assert.equal((await readStore(dir)).problems.some(one => one.file === NAMES), false)
     assert.deepEqual(JSON.parse(await readFile(join(dir, NAMES), 'utf8')).held, [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -155,6 +155,6 @@ test('B313: two sessions renamed from one name in the same refresh, or onto a na
     assert.deepEqual(onto.held, [{ from: 'Units', to: 'Board', why: 'two chats have the name Board now' }])
     assert.equal(await field(dir, 'B1', 'Owner'), 'Units')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

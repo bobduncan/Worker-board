@@ -170,7 +170,7 @@ test('asking for the step: an agreed picture, a title, and a worker of the board
 
 test('the ideas with what was done to them, kept and there again after a new start', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'board-ideas-test-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const file = join(dir, 'data', 'ideas.json')
   const ideas = await ideasFile(file, { pictures: 'art-inbox' })
   const made = await ideas.add({ id: 'i1', kind: 'screen', text: 'A shop screen', references: [], now: NOW })
@@ -329,7 +329,7 @@ test('the page is told before a click whether this board can ask the main chat, 
 
 test('B156: an idea\'s reference pictures move into its own folder under plain names; one that cannot move stays', async t => {
   const project = await mkdtemp(join(tmpdir(), 'board-references-test-'))
-  t.after(() => rm(project, { recursive: true, force: true }))
+  t.after(() => rm(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const picked = 'art-inbox/ideas/_references/0123456789abcdef.png'
   const pasted = 'art-inbox/ideas/_references/fedcba9876543210.webp'
   const gone = 'art-inbox/ideas/_references/00000000000000aa.jpg'

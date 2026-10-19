@@ -98,7 +98,7 @@ test('new and queue with priority fix mark the step a board fix: the main chat, 
     assert.equal(early.ok, true, early.why)
     assert.equal(valueOf(await item(dir, 'B7'), 'Priority'), 'fix')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -114,7 +114,7 @@ test('work next lists the fix first among the queued steps, marked; the pull wak
     const pulled = await board({ action: 'pull' })
     assert.equal(pulled.result.wake.id, 'B2')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

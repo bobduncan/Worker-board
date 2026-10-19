@@ -137,7 +137,7 @@ test('a transcript is read once from its start, then only what it gained; a line
     assert.deepEqual([task.step, task.workMs / MIN], ['B201', 9])
     assert.deepEqual(await readOn(join(folder, 'gone.jsonl'), freshScan('Worker 3'), stepOf), [])
   } finally {
-    await rm(folder, { recursive: true, force: true })
+    await rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

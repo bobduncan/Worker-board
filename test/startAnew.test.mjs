@@ -104,7 +104,7 @@ test('the board reads which version its folder holds, and whether its server is 
 test('before the board ends for a new version, that version is loaded once: one that does not load is refused', async t => {
   await mkdir(DATA, { recursive: true })
   const dir = await mkdtemp(join(DATA, 'test-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   await writeFile(join(dir, 'good.mjs'), 'export const fine = 1\n')
   await writeFile(join(dir, 'broken.mjs'), 'export const = \n')
   await writeFile(join(dir, 'missing.mjs'), "import { nothing } from './nowhere.mjs'\n")

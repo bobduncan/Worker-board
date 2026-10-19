@@ -121,6 +121,6 @@ test('review 4: a hand edit of the view is kept beside it before the view is wri
     await rm(done.kept)
     assert.equal((await readStore(dir)).viewKept, null)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

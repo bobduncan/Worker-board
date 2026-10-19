@@ -22,6 +22,6 @@ test('2: only the partner asks of a goal or writes its note, and only of a goal 
   const { dir } = await fresh()
   const blind = await workApi({ chat: 'Partner', action: 'ask', of: 'G6', text: 'Which?' }, { dir, now: NOW, prefix: '', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set() })
   assert.equal(blind.status, 409)
-  await rm(dir, { recursive: true, force: true })
+  await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 

@@ -90,7 +90,7 @@ test('the deadlock of 2026-10-19: while resuming, the person\'s answer to a hold
     assert.equal(isHolding(state.pause), false)
     assert.deepEqual((await takeAsServer(outbox, 'Digger', state, (await readStore(dir)).pause)).map(one => one.id), ['a1'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -118,7 +118,7 @@ test('1: only pausing holds; while resuming deliveries, pulls, note-wakes and ev
     const done = await deliver(resuming, outbox)
     assert.deepEqual(done.sent.map(one => [one.to, one.about]), [['Digger', 'B1'], ['Raker', 'B2']])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -200,7 +200,7 @@ test('2: the board\'s running after 20 minutes keeps who did not start, and when
     assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW + 2 * MIN, by: 'person', pausedSince: NOW, resumedSince: NOW + MIN })
     void server
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

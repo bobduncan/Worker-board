@@ -62,7 +62,7 @@ test('the points come as JSON or a file of it, each passed or failed', async () 
     await writeFile(file, JSON.stringify([{ text: 'One hit is enough', result: 'fail' }]))
     assert.deepEqual(await readPoints(file), [{ text: 'One hit is enough', verdict: 'fail' }])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
   await assert.rejects(readPoints('[{"text":"no verdict"}]'), /pass, fail or ask/)
   await assert.rejects(readPoints('[{"result":"pass"}]'), /text/)
@@ -125,7 +125,7 @@ test('it renders: reference left, result right at the same height, never above t
     assert.equal(three.layout.result, null)
     assert.equal(three.layout.ticks, 3)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

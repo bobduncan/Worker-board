@@ -56,7 +56,7 @@ test('close ticks the step in the store and writes who closed it, when, and why,
     assert.deepEqual(await board.run({ action: 'close', step: 'B11' }, now), { ok: false, status: 409, why: 'B11 is ticked already.' })
     assert.equal(await board.view(), after)
   } finally {
-    await rm(board.folder, { recursive: true, force: true })
+    await rm(board.folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -68,7 +68,7 @@ test('delete through the board takes the item out of the store and the view; a s
     assert.equal((await board.view()).includes('B13'), false)
     assert.equal((await board.run({ action: 'delete', step: 'B13' })).status, 404)
   } finally {
-    await rm(board.folder, { recursive: true, force: true })
+    await rm(board.folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -81,7 +81,7 @@ test('only the board that writes a store writes, and only a close or a delete of
     assert.equal(await board.view(), BACKLOG)
     assert.equal(await board.stateOf('B13'), 'new')
   } finally {
-    await rm(board.folder, { recursive: true, force: true })
+    await rm(board.folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

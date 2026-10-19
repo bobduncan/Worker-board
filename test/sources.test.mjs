@@ -22,7 +22,7 @@ const MIN = 60_000
 async function project(t) {
   await mkdir(DATA, { recursive: true })
   const root = await mkdtemp(join(DATA, 'test-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const put = async (path, text) => {
     await mkdir(dirname(join(root, path)), { recursive: true })
     await writeFile(join(root, path), text)
@@ -192,7 +192,7 @@ test('B156: a step that names an idea\'s folder shows the pictures made, not the
 test('B259: the brainstorms are read from their folder, newest first, the board\'s own names only', async t => {
   await mkdir(DATA, { recursive: true })
   const root = await mkdtemp(join(DATA, 'test-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const folder = join(root, '.claude', 'brainstorms')
   await mkdir(folder, { recursive: true })
   await writeFile(join(folder, '2026-10-14-older.md'), '# Brainstorm: Older\n')

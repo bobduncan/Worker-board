@@ -49,7 +49,7 @@ test('the items without an ask are filed as asks Via chat, under the one step th
     // Not blocking: the step goes on.
     assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'in progress')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -68,7 +68,7 @@ test('an item the chat filed this turn, one it still holds open, or one naming a
     assert.deepEqual(twice.result.asked, ['Q2'])
     assert.equal((await readStore(dir)).items.has('Q3'), false)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -102,7 +102,7 @@ test('B362: an item in the chat\'s own words that names an open ask of its own b
     const fresher = await board({ action: 'turn-ended', since: NOW + 30 * MIN, forYou: [worded('After Q1, which width for the strip, A narrow or B wide?')] }, NOW + 31 * MIN)
     assert.deepEqual(fresher.result.asked, ['Q7'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -122,7 +122,7 @@ test('with no step or two in progress the ask stands alone; a do is a do; nothin
     const odd = await main({ action: 'turn-ended', since: NOW + 50 * MIN, forYou: [{ kind: 'sing', text: ['x'] }, { kind: 'decide', text: [] }, 'x', { kind: 'decide', text: ['Pond next?'] }] }, NOW + 51 * MIN)
     assert.equal(odd.result.asked.length, 1)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -138,7 +138,7 @@ test('an auto-filed ask answered on the board wakes the chat; answered in the ch
     assert.equal(closed.ok, true, closed.why)
     assert.equal(valueOf(await item(dir, 'Q2'), 'State'), 'answered')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -164,6 +164,6 @@ test('the board\'s warning "filed no ask" goes once the turn\'s end filed the bl
     const card = after.forYou.find(one => one.workId === 'Q1')
     assert.deepEqual([card.canAnswer, card.advice], [true, 'yes'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

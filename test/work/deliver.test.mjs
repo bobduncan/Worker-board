@@ -73,7 +73,7 @@ test('a queued step reaches a free worker\'s outbox as one line, once; also not 
     // Delivered is not moved: the chat's own take moves it.
     assert.equal(valueOf((await readStore(dir)).items.get('B1'), 'State'), 'queued')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -84,7 +84,7 @@ test('a worker that is not running gets its line all the same, and the main chat
     await deliver(await build({ running: ['Lead'] }), outbox)
     assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.about]), [['Digger', 'work', 'B1'], ['Lead', 'start', 'Digger']])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -104,7 +104,7 @@ test('a step held by a chat that is not running is flagged within the grace time
     // While it runs, no flag.
     assert.deepEqual((await build({ now: NOW + 6 * MIN })).chats.find(one => one.name === 'Digger').flags, [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -125,7 +125,7 @@ test('the server\'s moves go through the API as the server: a passed check close
     assert.deepEqual(done.moved, ['B1'])
     assert.equal(valueOf((await readStore(dir)).items.get('B1'), 'State'), 'done')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -142,7 +142,7 @@ test('a free worker\'s pull answers its line while a step may be taken; nothing 
     await store.digger({ action: 'take', id: 'B1' })
     assert.deepEqual((await store.digger({ action: 'pull' })).result, { text: '', id: 'B1', since: null, wake: null, changed: false })
   } finally {
-    await rm(store.dir, { recursive: true, force: true })
+    await rm(store.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -160,6 +160,6 @@ test('B301: while the store cannot be read the board reconciles nothing and says
     assert.deepEqual(await deliver(state, outbox), { moved: [], sent: [], withdrawn: [] })
     assert.equal(outbox.outbox().length, 0)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

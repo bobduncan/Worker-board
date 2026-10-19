@@ -26,7 +26,7 @@ test('1: a blocking ask by the partner or the main chat under a worker\'s step l
     const reported = await features({ action: 'report', id: 'B1', result: 'The damage shows.' })
     assert.equal(reported.ok, true, reported.why)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -49,7 +49,7 @@ test('1: an answer that frees a step waiting on the person wakes the step\'s own
     assert.equal(other.result.wake.to, 'Partner')
     assert.deepEqual(other.result.wakeOwner, { to: 'Features', id: 'Q2', title: 'Big or small?', text: 'big' })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

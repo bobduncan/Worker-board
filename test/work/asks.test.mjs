@@ -72,7 +72,7 @@ test('ask answers with that block and keeps the advice; an answer carries the as
     assert.equal(approved.result.wake.text, 'Approved. nice')
     assert.equal(await state(dir, 'B1'), 'in progress')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -101,7 +101,7 @@ test('refine makes one decide ask per question under the step; refined with one 
     await person({ action: 'refine-accept', id: 'B7' })
     assert.equal(await state(dir, 'Q4'), 'answered')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -121,7 +121,7 @@ test('a question of the app\'s form stands alone, is answered in its chat only, 
     const store = await readStore(dir)
     assert.deepEqual(storeProblems(store.items, store.activities), [])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -134,7 +134,7 @@ test('a note is read by the person and by nobody else', async () => {
     assert.equal(await state(dir, 'N1'), 'read')
     assert.equal((await person({ action: 'read', id: 'B1' })).status, 409)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -153,7 +153,7 @@ test('review: the asking chat closes its own ask with the person\'s words from t
     assert.equal(await state(dir, 'B1'), 'in progress')
     assert.equal((await board({ action: 'answered-in-chat', id: 'Q1', text: 'again' })).result.changed, false)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -180,7 +180,7 @@ test('B293: a refine question answered under Needs your attention is answered in
     const again = refinedOf(parseBacklog(`## Board work\n${stepLine(after)}\n${stepNotes(after).join('\n')}\n`).activities[0].steps[0].notes)
     assert.deepEqual(again.questions.map(one => one.answer), ['no', 'yes'])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -214,7 +214,7 @@ test('B305: an ask with no asking chat is closed in the main chat or the Advisor
     assert.equal(byAdvisor.ok, true, byAdvisor.why)
     assert.equal((await item(dir, 'B9')).sections.get('History').at(-1), '- 2026-10-17 11:06 Advisor: answered in its chat by the person: green, said in the Advisor\'s chat')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -228,7 +228,7 @@ test('B305: an ask with an asking chat stays that chat\'s to close, also for the
     assert.equal((await main({ action: 'withdraw', id: 'Q1', why: 'gone' })).status, 409)
     assert.equal(await state(dir, 'Q1'), 'open')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -247,7 +247,7 @@ test('B305: the step an ask with no asking chat blocked goes on when the main ch
     assert.equal(await state(dir, 'B1'), 'in progress')
     assert.ok((await item(dir, 'B1')).sections.get('Context').some(one => /Q1 answered in Main's chat by the person on .*: thick, the person said on 2026-10-17$/.test(one.trim())))
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -262,7 +262,7 @@ test('B305: withdraw of an ask with no asking chat: the main chat only, with a w
     assert.equal(await state(dir, 'B9'), 'withdrawn')
     assert.equal((await item(dir, 'B9')).sections.get('History').at(-1), '- 2026-10-17 11:06 Main: withdrawn: the strip has no colour any more')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -274,6 +274,6 @@ test('B305: a step blocked by an ask no longer shows "after" it once the ask is 
     await main({ action: 'answered-in-chat', id: 'B9', text: 'blue (2026-10-17)' })
     assert.doesNotMatch((await board({ action: 'next' })).result.text, /after B9/)
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

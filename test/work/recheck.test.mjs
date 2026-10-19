@@ -50,7 +50,7 @@ test('the person\'s "Check again" runs the check anew with what the report said'
     // Only a step in review is checked again.
     assert.deepEqual(await person({ action: 'recheck', id: 'B2' }), { ok: false, status: 409, why: 'B2 is queued: only a step in review is checked again.' })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -66,7 +66,7 @@ test('the owner\'s report from review runs the check again (the flow\'s move rev
     assert.deepEqual((await history(dir, 'B1')).slice(-2), ['- 2026-10-17 11:06 Lamplighter: reported again', '- 2026-10-17 11:06 server: check pending'])
     assert.equal((await item(dir, 'B1')).sections.get('Context').at(-1), '  Reported again by Lamplighter on 2026-10-17 at 11:06: The lamps glow, all of them.')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -76,6 +76,6 @@ test('a flow without the move review → review refuses a report from review, in
   try {
     assert.deepEqual(await lamplighter({ action: 'report', id: 'B1', result: 'x' }), { ok: false, status: 409, why: 'B1: no move from review to review (flow.json)' })
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

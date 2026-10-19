@@ -50,7 +50,7 @@ test('refined is refused while an ask under the step is open, also one its worke
     assert.equal(refined.ok, true, refined.why)
     assert.equal(await state(dir, 'B3'), 'refined')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -67,7 +67,7 @@ test('a queue asked before the refine waits for the step\'s open asks, then is c
     const three = await item(dir, 'B3')
     assert.deepEqual(['State', 'Owner', 'Queue when refined'].map(key => valueOf(three, key)), ['queued', 'Kite', null])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -95,7 +95,7 @@ test('a refined step with an ask filed after its refine: Main\'s queue waits as 
     three = await item(dir, 'B3')
     assert.deepEqual(['State', 'Owner', 'Queue when refined'].map(key => valueOf(three, key)), ['queued', 'Kite', null])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -109,6 +109,6 @@ test('a refined step whose asks are all answered and folded in is queued at once
     assert.equal((await lead({ action: 'queue', id: 'B3', for: 'Kite' })).ok, true)
     assert.equal(await state(dir, 'B3'), 'queued')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

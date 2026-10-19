@@ -54,6 +54,6 @@ test('the advisor takes its own queued step, reports it, and it goes to review; 
     assert.equal((await as('Main')({ action: 'report', id: 'B2', result: 'The queue is tidy.' })).ok, true)
     assert.equal(await state('B2'), 'review')
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
