@@ -2324,7 +2324,7 @@ Picture: `art-inbox/worker-board/partner-answers/note.png`.
 1. **The setting** (`src/work/partnerAnswers.mjs`, `store.mjs` `readPartnerAnswersFile`, `writePartnerAnswers`):
    `<work>/partner-answers.json`, `{ "on": true|false, "since": <ms> }`; missing or unreadable is on (the person gave it
    priority). `readStore` gives it as `partnerAnswers`, the state as `partnerAnswers` (null without a store). The
-   person switches it on the Focus page (`partnerSwitchView`, `partnerSwitch`, under everything else): `POST /api/work`
+   person switches it on the Focus page (`partnerSwitchView`, `partnerSwitch`: under today's note in the run, else under everything else): `POST /api/work`
    `partner-answers` with `on`, person only. Off: everything as before.
 2. **Routing** (`api.mjs` `ask`, `routesToPartner`): while on, an ask filed with the work tool by a worker or the main
    chat (not the partner, not the person; not `Via` form or chat: the app's question form and a "For you" block the

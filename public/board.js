@@ -8488,6 +8488,9 @@ function drawFocus(state) {
   box.dataset.stage = view.stage
   const parts = []
   let recapsDrawn = false
+  // Partner answers (2026-10-19): the switch, beside today's note in the run, else under everything else.
+  const toggle = partnerSwitch(state)
+  let switchDrawn = false
   if (view.head !== null) {
     const head = el('header', 'focus-head')
     const title = el('div', 'focus-title')
@@ -8531,6 +8534,10 @@ function drawFocus(state) {
         right.append(focusRecapCard(state))
         recapsDrawn = true
       }
+      if (toggle !== null) {
+        right.append(toggle)
+        switchDrawn = true
+      }
       body.append(left, right)
     } else {
       const right = view.stage === 'vibe' ? focusVibeCard(view) : focusHowCard(view)
@@ -8544,9 +8551,7 @@ function drawFocus(state) {
   }
   // B360: without a run on the page (or while the focus is being changed), the gathered recaps stand under it.
   if (!recapsDrawn && gatheredRecaps(state).length > 0) parts.push(focusRecapCard(state))
-  // Partner answers (2026-10-19): the switch, under everything else.
-  const toggle = partnerSwitch(state)
-  if (toggle !== null) parts.push(toggle)
+  if (toggle !== null && !switchDrawn) parts.push(toggle)
   if (focusUi.note !== null) parts.splice(view.head === null ? 0 : 1, 0, el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text))
   // The box typed in keeps its words, and the cursor where it was.
   const active = document.activeElement

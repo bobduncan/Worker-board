@@ -203,7 +203,7 @@ and its pictures. Once every part is done, **Is the vibe there?** stands above t
 the goal and clears the focus (the page then asks for the next one); **No** opens a box for what is missing, and the
 goal goes back to the how.
 
-Partner answers (2026-10-19; picture `art-inbox/worker-board/partner-answers/note.png`): under the Focus page a switch
+Partner answers (2026-10-19; picture `art-inbox/worker-board/partner-answers/note.png`): under today's note (else at the foot of the page) a switch
 **Your partner answers detail questions** (on unless you switch it off; "on: detail questions go to your partner
 first", "off: every question comes to you"). While it is on, a worker's or the main chat's question with its options
 or advice goes to your partner first and does not stand under Needs your attention; your partner answers it (normally
