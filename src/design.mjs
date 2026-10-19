@@ -106,11 +106,11 @@ export function stepWord({ where, title, kind, description, requirements, folder
     `${where === 'queue' ? 'queue' : 'backlog'} step from the Design tab`,
     `Title: ${title}`,
     // What the idea is about, as the person chose it: the main chat files the step by it.
-    `About: ${kind}`,
+    kind === null ? null : `About: ${kind}`,
     description === '' ? null : `Description: ${description}`,
     requirements.length === 0 ? null : 'Requirements:',
     ...requirements.map(line => `- ${line}`),
-    `Pictures: ${folder}${file}`,
+    folder === null ? null : `Pictures: ${folder}${file}`,
     `Worker: ${worker === null ? 'you decide' : oneLine(worker, 80)}`,
     minutes === null ? null : `Time: about ${about(minutes)}`,
   ].filter(line => line !== null).join('\n')
@@ -159,7 +159,9 @@ export function checkDesign(body, design) {
     // The same picture twice is one reference.
     return mayMake() ?? { ok: true, action: 'make', kind: kind.id, text, references: [...new Set(references)] }
   }
-  if (idea === null) return refuse(409, 'That idea is not there any more.')
+  // B368: a step may be asked without an idea, and so without a picture.
+  const isBare = body.action === 'send' && (body.idea === undefined || body.idea === null)
+  if (idea === null && !isBare) return refuse(409, 'That idea is not there any more.')
 
   if (body.action === 'again') {
     if (isHanded(idea)) return refuse(409, 'This idea was handed to the main chat: start a new idea to change it.')
@@ -183,8 +185,7 @@ export function checkDesign(body, design) {
   }
   if (body.action === 'send') {
     if (design.canSend !== true || (design.main ?? null) === null) return refuse(409, design.whyNot ?? 'This board cannot ask the main chat.')
-    if (idea.agreed === null) return refuse(409, 'Agree to a picture first.')
-    if (isHanded(idea)) return refuse(409, 'This idea was handed to the main chat already.')
+    if (idea !== null && isHanded(idea)) return refuse(409, 'This idea was handed to the main chat already.')
     if (body.where !== 'backlog' && body.where !== 'queue') return refuse(400, 'On the backlog, or in a queue.')
     const title = oneLine(body.title, LIMITS.title + 1)
     if (title === '') return refuse(400, 'Give it a title.')
@@ -199,14 +200,15 @@ export function checkDesign(body, design) {
     if (worker !== null && !(design.workers ?? []).includes(worker)) return refuse(400, 'No such worker on the board.')
     const minutes = body.minutes === undefined || body.minutes === null || body.minutes === '' ? null : Number(body.minutes)
     if (minutes !== null && !(Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440)) return refuse(400, 'The time in whole minutes.')
-    const picture = idea.versions.find(version => version.n === idea.agreed)?.picture ?? null
+    // B368: only an agreed picture is named; without one the step carries no pictures line.
+    const agreed = idea === null || idea.agreed === null ? null : idea.versions.find(version => version.n === idea.agreed) ?? null
     const send = { where: body.where, title, description, requirements, worker, minutes }
-    const kind = (kinds.find(one => one.id === idea.kind)?.name ?? idea.kind).toLowerCase()
-    const text = stepWord({ ...send, kind, folder: idea.folder, picture })
+    const kind = idea === null ? null : (kinds.find(one => one.id === idea.kind)?.name ?? idea.kind).toLowerCase()
+    const text = stepWord({ ...send, kind, folder: agreed === null ? null : idea.folder, picture: agreed?.picture ?? null })
     // It is typed into a chat, and a chat is typed at most so much at once: nothing is cut off silently.
     const most = design.maxChars ?? 2500
     if (text.length > most) return refuse(413, `Together that is ${text.length} characters; a step is asked in at most ${most}. Shorten the description or the requirements.`)
-    return { ok: true, action: 'send', idea: idea.id, ...send, text }
+    return { ok: true, action: 'send', idea: idea?.id ?? null, ...send, text }
   }
   return refuse(400, 'No such action.')
 }

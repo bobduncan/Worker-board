@@ -162,8 +162,7 @@ test('asking for the step: an agreed picture, a title, and a worker of the board
   assert.equal(checkDesign({ ...send, title: 'x'.repeat(LIMITS.title + 1) }, agreed).status, 413)
   assert.equal(checkDesign({ ...send, minutes: 2.5 }, agreed).status, 400)
   assert.equal(checkDesign({ ...send, requirements: Array.from({ length: 13 }, () => 'x') }, agreed).status, 400)
-  // Not before the person agreed, not twice, and not on a board that cannot ask the main chat.
-  assert.equal(checkDesign(send, design([idea()])).status, 409)
+  // Not twice, and not on a board that cannot ask the main chat.
   assert.equal(checkDesign(send, design([idea({ agreed: 1, sent: { at: NOW, where: 'queue', message: 'm1', state: 'waiting' } })])).status, 409)
   assert.deepEqual(checkDesign(send, design([idea({ agreed: 1 })], { canSend: false, whyNot: 'This board only shows.' })), { ok: false, status: 409, why: 'This board only shows.' })
   assert.equal(checkDesign(send, design([idea({ agreed: 1 })], { main: null })).status, 409)
@@ -371,4 +370,23 @@ test('B198: new ideas go into the project\'s picture folder; ideas saved in anot
   assert.equal(isUploadedReference('shots/ideas/_references/0123456789abcdef.png', 'shots'), true)
   assert.equal(isUploadedReference('old-pictures/ideas/_references/0123456789abcdef.png', 'shots'), false)
   assert.equal(isUploadedReference('shots/ideas/_references/../x.png', 'shots'), false)
+})
+
+test('B368: a step without a picture: no idea at all, or an idea with no agreed picture, and no pictures line', () => {
+  const send = { action: 'send', where: 'backlog', title: 'Sort the backlog', description: 'Oldest first.', requirements: ['Newest on top'], worker: null, minutes: 30 }
+  const bare = checkDesign(send, design([]))
+  assert.deepEqual([bare.ok, bare.idea], [true, null])
+  assert.equal(bare.text, 'backlog step from the Design tab\nTitle: Sort the backlog\nDescription: Oldest first.\nRequirements:\n- Newest on top\nWorker: you decide\nTime: about 30 min')
+  assert.equal(checkDesign({ ...send, idea: null }, design([])).ok, true)
+  // An idea whose picture was never agreed: its kind is said, its folder is not.
+  const loose = checkDesign({ ...send, idea: 'i1' }, design([idea()]))
+  assert.deepEqual([loose.ok, loose.idea], [true, 'i1'])
+  assert.match(loose.text, /\nAbout: game screen\n/)
+  assert.doesNotMatch(loose.text, /Pictures:/)
+  // With an agreed picture it is as before.
+  assert.match(checkDesign({ ...send, idea: 'i1' }, design([idea({ agreed: 1 })])).text, /\nPictures: art-inbox\/ideas\/shop-screen \(agreed: v1\.png\)\n/)
+  // An idea named that is not there is still refused, and so is a step on a board that cannot ask.
+  assert.equal(checkDesign({ ...send, idea: 'gone' }, design([])).status, 409)
+  assert.equal(checkDesign(send, design([], { canSend: false, whyNot: 'This board only shows.' })).status, 409)
+  assert.equal(checkDesign({ ...send, title: ' ' }, design([])).status, 400)
 })
