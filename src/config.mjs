@@ -53,8 +53,8 @@ export const DEFAULTS = {
    */
   approveRebuilds: false,
   /**
-   * B360: when the recaps of finished work reach the person: "now" (each in Needs your attention as it comes) or "daily"
-   * (gathered into the partner's daily note on the Focus page). The board's settings panel sets it (B361).
+   * B360: where the recaps of finished work reach the person: "now" (each in Needs your attention as it comes) or
+   * "daily" (gathered under the partner's daily note on the Focus page). The board's settings panel sets it (B361).
    */
   botherMe: 'now',
   /** A game the board starts for a branch takes this port, plus the place of its folder in git's list. */

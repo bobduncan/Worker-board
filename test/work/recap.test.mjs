@@ -107,7 +107,9 @@ test('Overturn: the recap closes with the person\'s words, and the partner is wo
     const recap = valueOf(note, 'Id')
     // Words are needed; a chat cannot answer for the person.
     assert.equal((await one.person({ action: 'overturn', id: recap, text: ' ' })).status, 400)
-    assert.equal((await one.lamplighter({ action: 'overturn', id: recap, text: 'no' })).ok, false)
+    assert.equal((await one.lamplighter({ action: 'overturn', id: recap, text: 'no' })).status, 403)
+    // The review: a recap is not read away.
+    assert.equal((await one.person({ action: 'read', id: recap })).status, 409)
     const done = await one.person({ action: 'overturn', id: recap, text: 'The lamp by the pond is still white.' })
     assert.equal(done.ok, true, done.why)
     assert.deepEqual(done.result.wake, {
@@ -174,9 +176,62 @@ test('a goal through its re-check gives a recap too; its Overturn asks the board
     const [note] = await recapNotes(one.dir)
     assert.deepEqual(note.sections.get('Text'), ['G3 A warm garden is done', 'a helper re-checked it against its Done when and its vibe, 1 of 1 points pass.'])
     assert.equal(recapsOf(await store(one.dir), NOW + HOUR).at(0).isGoal, true)
+    // The board opened the goal before (server.mjs); the partner's words say so.
     const done = await one.person({ action: 'overturn', id: valueOf(note, 'Id'), text: 'The north path is dark.' })
-    assert.deepEqual(done.result.reopen, { id: 'G3', words: 'The north path is dark.' })
-    assert.match(done.result.wake.text, /Your job: the board reopened G3: make its follow-up steps from their words/)
+    assert.match(done.result.wake.text, /Your job: G3 is open again: make its follow-up steps from their words/)
+  } finally {
+    await rm(one.dir, { recursive: true, force: true })
+  }
+})
+
+test('the review: a step the reconciler moves to done once the person answered its look gets its recap, once', async () => {
+  const one = await fresh()
+  try {
+    const id = await reported(one)
+    const asked = await one.partner({ action: 'ask', of: id, kind: 'look', text: 'Do the lamps look warm to you?', options: ['A yes', 'B no'], advice: 'A' })
+    assert.equal(asked.ok, true, asked.why)
+    assert.equal((await one.partner({ ...PASSED, id })).ok, true)
+    assert.equal(valueOf((await readStore(one.dir)).items.get(id), 'State'), 'review')
+    assert.deepEqual(await recapNotes(one.dir), [])
+    assert.equal((await one.person({ action: 'answer', id: asked.result.id, verdict: 'approve', text: '' })).ok, true)
+    const moved = await one.server({ action: 'advance', id, to: 'done' })
+    assert.equal(moved.ok, true, moved.why)
+    const notes = await recapNotes(one.dir)
+    assert.deepEqual(notes.map(note => note.sections.get('About')), [[id]])
+    assert.equal(valueOf(notes[0], 'Evidence'), 'pictures/b2/evidence.png')
+  } finally {
+    await rm(one.dir, { recursive: true, force: true })
+  }
+})
+
+test('the review: when the board\'s own check passes after the result check, the step gets its recap then', async () => {
+  const one = await fresh()
+  try {
+    const made = await one.partner(LAMP)
+    const id = made.result.id
+    await one.keeper({ action: 'queue', id, for: 'Lamplighter', about: '1 h' })
+    await one.lamplighter({ action: 'take', id, branch: 'b2-lamps' })
+    await one.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })
+    await one.server({ action: 'check', id, passed: false, lines: ['the branch b2-lamps is still there'] })
+    assert.equal((await one.partner({ ...PASSED, id })).ok, true)
+    assert.deepEqual(await recapNotes(one.dir), [])
+    await one.server({ action: 'check', id, passed: true, lines: ['branch gone'] })
+    assert.equal(valueOf((await readStore(one.dir)).items.get(id), 'State'), 'done')
+    assert.equal((await recapNotes(one.dir)).length, 1)
+  } finally {
+    await rm(one.dir, { recursive: true, force: true })
+  }
+})
+
+test('the review: without a partner chat on the board an answer to a recap is refused, so the words are not lost', async () => {
+  const one = await fresh()
+  try {
+    const id = await reported(one)
+    await one.partner({ ...PASSED, id })
+    const [note] = await recapNotes(one.dir)
+    const alone = await workApi({ action: 'feedback', id: valueOf(note, 'Id'), text: 'Nice.' }, { dir: one.dir, now: NOW + HOUR, prefix: '', roleOf: () => null, chats: [], as: 'person' })
+    assert.equal(alone.status, 409)
+    assert.equal(valueOf((await readStore(one.dir)).items.get(valueOf(note, 'Id')), 'Recap'), 'open')
   } finally {
     await rm(one.dir, { recursive: true, force: true })
   }

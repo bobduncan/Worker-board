@@ -3127,6 +3127,8 @@ function takeAnswers(box) {
 function fail(id, why) {
   problems.set(id, why)
   redrawNeeds()
+  // B360: a recap gathered on the Focus page shows its problem there too.
+  redrawFocus()
 }
 
 takeAnswers($('needs'))
@@ -7750,7 +7752,9 @@ function focusData(state) {
     // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
     effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null,
     // B360: the recaps gathered under the daily note, with their sending and problems.
-    gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null])]
+    gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null]),
+    // the minute, for "Approves itself in ..."
+    gatheredRecaps(state).length > 0 ? Math.floor(state.readAt / MIN) : null]
 }
 function redrawFocus() {
   if (board !== null && board !== undefined) once('focus', focusData(board), () => drawFocus(board))
@@ -8064,13 +8068,13 @@ function focusNoteCard(view) {
 }
 
 /**
- * B360: the recaps of finished work gathered once a day (the setting Bother me: once a day), each with its picture,
- * Overturn and Feedback, as in Needs your attention.
+ * B360: the recaps of finished work gathered under the daily note (the setting botherMe "daily"), each with its
+ * picture, Overturn and Feedback, as in Needs your attention.
  */
 function focusRecapCard(state) {
   const card = el('section', 'focus-card focus-recaps')
   const recaps = gatheredRecaps(state)
-  card.append(el('h3', '', `Finished: ${recaps.length}`), el('p', 'muted', 'Gathered here once a day. Each approves itself 24 hours after it came, unless you overturn it or give feedback.'))
+  card.append(el('h3', '', `Finished: ${recaps.length}`), el('p', 'muted', 'Gathered here under your partner\'s note, not one by one in Needs your attention. Each approves itself 24 hours after it came, unless you overturn it or give feedback.'))
   card.append(...recaps.map(recap => drawRecap(recap, state)))
   return card
 }
@@ -8112,6 +8116,7 @@ function drawFocus(state) {
   const box = $('advisor-focus')
   box.dataset.stage = view.stage
   const parts = []
+  let recapsDrawn = false
   if (view.head !== null) {
     const head = el('header', 'focus-head')
     const title = el('div', 'focus-title')
@@ -8150,8 +8155,11 @@ function drawFocus(state) {
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
       if (view.vibeThere !== null) right.append(focusVibeThereCard(view, can))
       right.append(focusNoteCard(view))
-      // B360: with "Bother me: once a day" the recaps of finished work gather under the daily note.
-      if (gatheredRecaps(state).length > 0) right.append(focusRecapCard(state))
+      // B360: with botherMe "daily" the recaps of finished work gather under the daily note.
+      if (gatheredRecaps(state).length > 0) {
+        right.append(focusRecapCard(state))
+        recapsDrawn = true
+      }
       body.append(left, right)
     } else {
       const right = view.stage === 'vibe' ? focusVibeCard(view) : focusHowCard(view)
@@ -8163,13 +8171,16 @@ function drawFocus(state) {
     }
     parts.push(body)
   }
-  // B360: without a run on the page, the gathered recaps stand under it.
-  if (view.stage !== 'run' && gatheredRecaps(state).length > 0) parts.push(focusRecapCard(state))
+  // B360: without a run on the page (or while the focus is being changed), the gathered recaps stand under it.
+  if (!recapsDrawn && gatheredRecaps(state).length > 0) parts.push(focusRecapCard(state))
   if (focusUi.note !== null) parts.splice(view.head === null ? 0 : 1, 0, el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text))
   // The box typed in keeps its words, and the cursor where it was.
   const active = document.activeElement
   const typing = box.contains(active) && active.id in FOCUS_BOXES ? { id: active.id, at: active.selectionStart } : null
+  // B360: and a recap's box, as in Needs your attention.
+  const recapTyping = focusedNeed(box)
   fill(box, parts)
+  refocus(box, recapTyping)
   // The talk shows its newest lines: the partner's open question stands at its end.
   const bubbles = box.querySelector('.focus-bubbles')
   if (bubbles !== null) bubbles.scrollTop = bubbles.scrollHeight
@@ -10981,6 +10992,7 @@ async function sendWork(body, key) {
   sending.add(key)
   problems.delete(key)
   redrawNeeds()
+  redrawFocus()
   let problem = null
   try {
     const answer = await fetch('/api/work', {
@@ -10998,6 +11010,7 @@ async function sendWork(body, key) {
     drafts.delete(key)
     chosen.delete(key)
   } else problems.set(key, `Not sent: ${problem}`)
+  redrawFocus()
   await read()
 }
 

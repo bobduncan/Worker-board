@@ -597,6 +597,21 @@ async function main(args) {
     const item = (await readStore(workDir).catch(() => ({ items: new Map() }))).items.get(plain)
     return item?.head.get('Goal') ?? null
   }
+  /**
+   * B360: the person's Overturn of an open recap of a goal, with words: the goal opens again in the goal map first (the
+   * board that writes the map only). Null when it is no such Overturn; the outcome otherwise, a refusal kept for the page.
+   */
+  const openOverturnedGoal = async body => {
+    if (workDir === null) return null
+    const recap = (await readStore(workDir).catch(() => ({ items: new Map() }))).items.get(String(body.id ?? '').trim())
+    const about = recap?.sections.get('About')?.[0] ?? ''
+    if (recap?.head.get('Recap') !== 'open' || !/^G\d+$/.test(about) || String(body.text ?? '').trim() === '') return null
+    if (!writesMap) return { ok: false, status: 409, why: `This board does not write the goal map: overturn ${about} on the board that delivers.` }
+    const opened = await goalReopened({ id: about, words: String(body.text) }, { canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() })
+      .catch(() => ({ ok: false, status: 500, why: `${about} could not be opened again: try once more.` }))
+    readState.reset()
+    return opened
+  }
   const workReads = new Set(['next', 'list', 'pause-state'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
@@ -1101,12 +1116,12 @@ async function main(args) {
     work: async body => {
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
-      const done = await workAction(body, 'person')
-      // B360: an overturned recap of a goal reopens the goal in the goal map; the partner is woken with the words below.
-      if (done.ok && done.result.reopen !== undefined && !isShowOnly) {
-        await goalReopened(done.result.reopen, { canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() }).catch(() => {})
-        readState.reset()
+      // B360, the review: an Overturn of a goal's recap opens the goal first; the recap closes only once it is open.
+      if (body?.action === 'overturn') {
+        const opened = await openOverturnedGoal(body)
+        if (opened !== null && !opened.ok) return opened
       }
+      const done = await workAction(body, 'person')
       // Pause and resume (spec 2026-10-18): after Resume all the board types "resume" into the main chat when it runs;
       // when it does not, the banner opens it, and its Workers mod reads the resume from pause.json.
       if (done.ok && body?.action === 'resume-all' && !isShowOnly) {
@@ -1361,7 +1376,7 @@ async function main(args) {
           if (typed?.ok === true) readState.reset()
         }
         // B360: a recap left alone for its 24 hours approves itself and moves to the closed items.
-        if (!isShowOnly) await workAction({ action: 'approve-recaps' }, 'server')
+        await workAction({ action: 'approve-recaps' }, 'server')
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,

@@ -20,7 +20,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
-import { RECAP_ANSWERS, dueRecaps } from './recap.mjs'
+import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
@@ -678,9 +678,35 @@ async function makeRecap(w, of, title, what, evidence) {
 }
 
 /**
- * B360: the person's answer to an open recap, with their words: `overturn` (the partner makes a fix step from them; a
- * goal is reopened, `reopen` in the result, which the board writes into the goal map) or `feedback` (the words go to
- * the partner). The recap closes; the partner is woken with the words, marked as the person's.
+ * B360 (the review): a step that is done through its result check gives the person its recap, whichever move made it
+ * done (checked, the board's own check, the reconciler's advance, a fix that closed it), once per report. Its picture is
+ * the evidence of the check that closed it: a passed fix's, else its own.
+ */
+async function recapOnDone(step, w) {
+  if (stateOf(step) !== 'done' || valueOf(step, 'Fix of') !== null || !needsResultCheck(step)) return
+  const items = (await readStore(w.dir, w.fs)).items
+  if (resultCheckOf(step) !== 'passed' && !fixesThrough(step, items)) return
+  if (recapMadeSince(items, step)) return
+  const id = valueOf(step, 'Id')
+  await makeRecap(w, id, valueOf(step, 'Title') ?? '', lastReport(step).result, fixEvidence(id, items) ?? checkedOf(step)?.evidence ?? 'none')
+}
+
+/** The evidence of the newest passed check among the fixes of `id`, down their chain; null when none passed. */
+function fixEvidence(id, items, depth = 0) {
+  if (depth > 10) return null
+  for (const fix of fixesOf(id, items).filter(one => stateOf(one) === 'done').sort((a, b) => byId(valueOf(b, 'Id'), valueOf(a, 'Id')))) {
+    const check = checkedOf(fix)
+    if (check !== null && check.passed === check.total) return check.evidence
+    const deeper = fixEvidence(valueOf(fix, 'Id'), items, depth + 1)
+    if (deeper !== null) return deeper
+  }
+  return null
+}
+
+/**
+ * B360: the person's answer to an open recap, with their words: `overturn` (the partner makes a fix step from them; an
+ * overturned goal the board opened again in the goal map before, server.mjs) or `feedback` (the words go to the
+ * partner). The recap closes; the partner is woken with the words, marked as the person's.
  */
 async function recapAnswer(body, w) {
   const found = await load(body.id, w, { kind: ['note'] })
@@ -692,6 +718,9 @@ async function recapAnswer(body, w) {
   const isOverturn = body.action === 'overturn'
   const words = lines(body.text)
   if (words.length === 0) return refuse(400, isOverturn ? 'Say what is wrong: your partner makes the fix from your words.' : 'Give your feedback in your words.')
+  // The review: the words go to the partner; without a partner chat on the board nobody would get them.
+  const partner = (w.chats ?? []).find(chat => w.roleOf?.(chat) === 'advisor') ?? null
+  if (partner === null) return refuse(409, 'No partner chat is on the board to take your words: start it, then answer the recap.')
   const about = (found.item.sections.get('About') ?? [])[0] ?? null
   const short = line(words.join(' '), 200)
   let item = put(put(put(copy(found.item), 'Recap', RECAP_ANSWERS[body.action]), 'State', 'read'), 'Since', stamp(w.now))
@@ -700,13 +729,13 @@ async function recapAnswer(body, w) {
   const done = await save(item, found.text, w)
   if (!done.ok) return done
   const isGoal = about !== null && GOAL_ID.test(about)
+  // The review: the board opened an overturned goal before this (server.mjs), so the words say what is true.
   const job = !isOverturn ? 'take it as their word on that work (roles/partner.md, "Recaps")'
-    : isGoal ? `the board reopened ${about}: make its follow-up steps from their words (roles/partner.md, "Recaps")`
+    : isGoal ? `${about} is open again: make its follow-up steps from their words (roles/partner.md, "Recaps")`
       : `make a fix step of ${about} from their words (roles/partner.md, "Recaps")`
-  const partner = (w.chats ?? []).find(chat => w.roleOf?.(chat) === 'advisor') ?? null
   const title = (found.item.sections.get('Text') ?? [])[0] ?? ''
-  const wake = partner === null ? null : { to: partner, id, title, text: [`${isOverturn ? 'Overturn' : 'Feedback'}: ${words.join(' ')}`, `About: ${about ?? '-'}`, `Your job: ${job}`].join('\n') }
-  return changed(item, undefined, { wake, ...(isOverturn && isGoal ? { reopen: { id: about, words: short } } : {}) })
+  const wake = { to: partner, id, title, text: [`${isOverturn ? 'Overturn' : 'Feedback'}: ${words.join(' ')}`, `About: ${about ?? '-'}`, `Your job: ${job}`].join('\n') }
+  return changed(item, undefined, { wake })
 }
 
 /** B360: the board approves every open recap whose window passed (recap.mjs): approved, read, the History says so. */
@@ -843,6 +872,8 @@ async function check(body, w) {
   }
   const done = await save(item, found.text, w)
   if (!done.ok) return done
+  // B360, the review: the board's check may be the last of the two to pass.
+  await recapOnDone(item, w)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
   // B356: the board's check passed and the step waits for its result check, none asked yet: the server asks the partner.
   const isWaiting = passed && stateOf(item) === 'review' && needsResultCheck(item) && resultCheckOf(item) === null
@@ -900,8 +931,7 @@ async function checked(body, w) {
     if (fix !== null) await undoFix(fix, w)
     return done
   }
-  // B360: a step through its check gives the person its recap; a fix's recap is the step it fixes, once that closes.
-  if (stateOf(item) === 'done' && valueOf(item, 'Fix of') === null) await makeRecap(w, id, valueOf(item, 'Title') ?? '', lastReport(item).result, evidence)
+  await recapOnDone(item, w)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
   return changed(item, undefined, { ...(fix === null ? {} : { fix }), ...(recheck === null ? {} : { resultCheck: recheck }) })
 }
@@ -1013,8 +1043,6 @@ async function fixStep(origin, failed, w) {
  */
 async function closeFixed(item, w) {
   let fixed = item
-  // B360: the recap of the step the chain closes shows the evidence of the check that closed it.
-  const evidence = checkedOf(item)?.evidence ?? 'none'
   for (let depth = 0; depth < 10; depth += 1) {
     const originId = valueOf(fixed, 'Fix of')
     if (originId === null) return null
@@ -1034,7 +1062,7 @@ async function closeFixed(item, w) {
     if (closed.ok) origin = closed.item
     const done = await save(origin, found.text, w)
     if (!done.ok || stateOf(origin) !== 'done') return null
-    if (valueOf(origin, 'Fix of') === null) await makeRecap(w, originId, valueOf(origin, 'Title') ?? '', lastReport(origin).result, evidence)
+    await recapOnDone(origin, w)
     fixed = origin
   }
   return null
@@ -1702,6 +1730,8 @@ function withRefineAnswer(step, ask, words, w) {
 async function read(body, w) {
   const found = await load(body.id, w, { kind: ['note'] })
   if (!found.ok) return found
+  // B360, the review: a recap is not read away: it is overturned, answered with feedback, or approves itself.
+  if (isRecap(found.item)) return refuse(409, `${valueOf(found.item, 'Id')} is a recap: overturn it, give feedback, or let it approve itself.`)
   if (stateOf(found.item) === 'read') return { ok: true, result: { id: valueOf(found.item, 'Id'), text: 'Read already.', changed: false } }
   const item = said(put(put(copy(found.item), 'State', 'read'), 'Since', stamp(w.now)), w, 'read')
   const done = await save(item, found.text, w)
@@ -1821,6 +1851,8 @@ async function advance(body, w) {
   const moved = move(found.item, to, 'server', w)
   if (!moved.ok) return moved
   const done = await save(ordered(moved.item), found.text, w)
+  // B360, the review: a step the reconciler moves to done (say once the person answered its look) gets its recap too.
+  if (done.ok) await recapOnDone(ordered(moved.item), w)
   return done.ok ? changed(ordered(moved.item)) : done
 }
 

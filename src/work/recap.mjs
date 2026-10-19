@@ -43,6 +43,22 @@ export function recapsOf(work, now) {
     .sort((a, b) => Number(a.isClosed) - Number(b.isClosed) || (b.at ?? 0) - (a.at ?? 0) || b.workId.localeCompare(a.workId, 'en', { numeric: true }))
 }
 
+const STAMP = /^- (\d{4}-\d\d-\d\d \d\d:\d\d)/
+const stampMs = line => {
+  const found = STAMP.exec(line ?? '')
+  return found === null ? Number.NaN : sinceMs(found[1])
+}
+/** When the step was last reported (its last move to review, or "reported again"), NaN if never. */
+const reportedAt = step => stampMs((step.sections.get('History') ?? []).findLast(line => / → review\b|: reported again\b/.test(line)))
+
+/** The review: whether a recap of step `step` was made since its last report (it gets one recap per report). */
+export function recapMadeSince(items, step) {
+  const id = valueOf(step, 'Id')
+  const since = reportedAt(step)
+  return [...items.values()].some(item => isRecap(item) && (item.sections.get('About') ?? [])[0] === id
+    && !(stampMs((item.sections.get('History') ?? [])[0]) < since))
+}
+
 /** The open recaps among `items` whose window has passed at `now`: the board approves them. */
 export function dueRecaps(items, now) {
   return [...items].filter(item => isRecap(item) && valueOf(item, 'Recap') === 'open' && now - sinceMs(valueOf(item, 'Since')) >= RECAP_WINDOW_MS)
