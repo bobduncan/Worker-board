@@ -1991,7 +1991,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 }
 
 /* B356: the result check by a helper: the ticks in a step's window, and a line under a part on the Focus page. */
-.checked-points { margin: 6px 0 10px; padding-left: 0; list-style: none; }
+.checked-points, .details-part ul.checked-points { margin: 6px 0 10px; padding-left: 0; list-style: none; }
 .checked-points li { padding: 2px 0; }
 .checked-points li.is-pass { color: var(--working); }
 .checked-points li.is-fail { color: var(--warn); }
