@@ -125,9 +125,10 @@ export function planState(text, items, path) {
     const advice = valueOf(ask, 'Advice')
     const options = String(valueOf(ask, 'Options') ?? '').split(' | ').map(one => one.trim()).filter(Boolean)
     answer.ask = {
-      id: ask.id,
+      id: valueOf(ask, 'Id'),
       title: String(valueOf(ask, 'Title') ?? ''),
-      text: String(valueOf(ask, 'Text') ?? ''),
+      // An ask's question stands in its Text section; its title is the head's.
+      text: (ask.sections?.get('Text') ?? []).join(' ').replace(/\s+/g, ' ').trim(),
       advice: advice === null || advice === '' ? null : String(advice),
       options: options.map(label => ({ label, isAdvised: isAdvised(label, advice) })),
       pictures: String(valueOf(ask, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),

@@ -5,8 +5,8 @@ import test from 'node:test'
 
 import { focusMove } from '../src/focus.mjs'
 import { parsePlan, planState } from '../src/plan.mjs'
-import { storeFromText } from '../src/work/read.mjs'
-import { itemsOf } from '../src/work/read.mjs'
+import { parseItem } from '../src/work/item.mjs'
+import { itemsOf, storeFromText } from '../src/work/read.mjs'
 
 const PAGE = `# A game: the product plan
 
@@ -66,28 +66,31 @@ test('parsePlan: no page, or a page without answers, gives none', () => {
 
 test('planState: the counts, the path, and the partner\'s open ask on the open answer with its options', () => {
   const work = storeFromText(['## Plan', '- [ ] B1 Decide the plan (for Main)', ''].join('\n'), { now: Date.now() })
-  const ask = `Kind: ask
-Id: Q7
-Of: G1
-State: open
+  const ask = `Id: Q7
+Kind: ask
 Title: P5: how does the game reach people?
-Text: Known: the browser on a desktop.
+State: open
+Owner: Game - Advisor
+Asks: decide
+Of: G1
 Options: A a link for friends | B public on itch.io | C Steam, later
 Advice: A, revisit after M2
-Asked by: Game - Advisor
-Askkind: decide
+
+## Text
+Known: the browser
+on a desktop.
 `
-  const other = `Kind: ask
-Id: Q8
-Of: B1
-State: open
+  const other = `Id: Q8
+Kind: ask
 Title: Look at the menu
+State: open
+Owner: Game - Worker 1
+Asks: look
+Of: B1
 Options: Yes | No
-Asked by: Game - Worker 1
-Askkind: look
 `
   const items = itemsOf(work)
-  const { answers, counts, path, log } = planState(PAGE, [...items, fakeItem(ask), fakeItem(other)], 'docs/product-plan.md')
+  const { answers, counts, path, log } = planState(PAGE, [...items, parseItem(ask), parseItem(other)], 'docs/product-plan.md')
   assert.equal(path, 'docs/product-plan.md')
   assert.deepEqual(counts, { decided: 1, assumed: 1, open: 2 })
   assert.deepEqual(log, { hits: 2, gaps: 1, overturned: 1 })
@@ -95,7 +98,7 @@ Askkind: look
   assert.deepEqual(answers[2].ask.options, [
     { label: 'A a link for friends', isAdvised: true }, { label: 'B public on itch.io', isAdvised: false }, { label: 'C Steam, later', isAdvised: false },
   ])
-  assert.deepEqual([answers[2].ask.id, answers[2].ask.advice], ['Q7', 'A, revisit after M2'])
+  assert.deepEqual([answers[2].ask.id, answers[2].ask.advice, answers[2].ask.text], ['Q7', 'A, revisit after M2', 'Known: the browser on a desktop.'])
 })
 
 test('the Plan part\'s Confirm and Change: a word to the partner, nothing written; a bad id or empty words refused', async () => {
@@ -117,12 +120,3 @@ test('planState: null without a page', () => {
   assert.equal(planState('   ', [], 'docs/product-plan.md'), null)
 })
 
-/** An item as the store keeps it: its head fields in a Map (work/item.mjs). */
-function fakeItem(text) {
-  const head = new Map()
-  for (const line of text.split('\n')) {
-    const at = line.indexOf(':')
-    if (at > 0) head.set(line.slice(0, at).trim(), line.slice(at + 1).trim())
-  }
-  return { id: head.get('Id'), head, sections: new Map() }
-}

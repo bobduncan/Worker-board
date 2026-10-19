@@ -529,10 +529,10 @@ function demoWork(now) {
   work.items.set('N91', recap('N91', now - 40 * MIN, 'overturned', 'B07', ['B07 Fog in the forest is done', 'The forest has a low fog that moves with the wind.'], 'none (nothing to see)', 'The fog hides the paths: make it thinner near them.'))
   // Plan (2026-10-19): the partner's open ask on the product plan's open answer P5, shown on its row in the Plan part.
   work.items.set('Q95', {
-    head: new Map([['Id', 'Q95'], ['Kind', 'ask'], ['Of', 'G1'], ['State', 'open'], ['Since', stamp(now - 20 * MIN)], ['Askkind', 'decide'], ['Asked by', 'Advisor'],
-      ['Title', 'P5: how does the game reach people?'], ['Text', 'Known: it runs in the browser on a desktop. Not said: where it is put, who may play, free or paid.'],
+    head: new Map([['Id', 'Q95'], ['Kind', 'ask'], ['Title', 'P5: how does the game reach people?'], ['State', 'open'], ['Owner', 'Advisor'], ['Since', stamp(now - 20 * MIN)],
+      ['Filed', String(now - 20 * MIN)], ['Asks', 'decide'], ['Blocking', 'no'], ['Of', 'G1'],
       ['Options', 'A a link for friends, free, unlisted | B public and free on itch.io | C Steam, paid, later'], ['Advice', 'A, revisit after M2']]),
-    sections: new Map(),
+    sections: new Map([['Text', ['Known: it runs in the browser on a desktop. Not said: where it is put, who may play, free or paid.']]]),
     problem: null,
   })
   return work

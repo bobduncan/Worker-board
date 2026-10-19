@@ -620,8 +620,9 @@ test('the demo shows the second design: six lanes with their queues, three reque
   assert.deepEqual(state.unassigned.map(step => step.title), ['Decide the name of the game'])
 
   assert.deepEqual(state.forYou.map(need => [need.from, need.kind, need.title, need.canAnswer]), [
-    // B301: the Advisor wrote a question in its chat and filed no ask: a warning that leads to its chat; the newest.
-    ['Advisor', 'unfiled', 'Advisor wrote questions in its chat but filed no ask', false],
+    // Plan (2026-10-19): since the demo's partner filed its ask on the product plan's P5, its questions are no
+    // longer unfiled: the ask stands here as well as on the Plan part's row.
+    ['Advisor', 'input', 'P5: how does the game reach people?', true],
     ['Main', 'verify', 'Test player movement', true],
     ['Units', 'input', 'Choose pathfinding approach', true],
   ])
