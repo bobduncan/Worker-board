@@ -89,7 +89,8 @@ test('the ask\'s card: the partner\'s answer with its why and Undo; the line of 
 })
 
 test('the server: the work tool\'s answer wakes the asking chat as the page\'s does; an Undo of a partner\'s answer tells the asking chat', () => {
-  const bridge = server.slice(server.indexOf('bridgeWork: async body => {'), server.indexOf('take: async body => {'))
+  // B412: a chat's work call is made once, in bridgeWorkOnce.
+  const bridge = server.slice(server.indexOf('const bridgeWorkOnce = async'), server.indexOf('const server = createBoard({'))
   assert.match(bridge, /await sendWakes\(done/)
   const page = server.slice(server.indexOf('work: async body => {'), server.indexOf('bridgeWork: async body => {'))
   assert.match(page, /await sendWakes\(done/)

@@ -73,6 +73,14 @@ test('kept: answers and refusals; not kept: a store that could not be reached, a
   await keeper.answer('Digger', 'request-503-x', down)
   await keeper.answer('Digger', 'request-503-x', down)
   assert.equal(runs, 3, 'the store was not reached: a repeat tries again')
+  const later = async () => {
+    runs += 1
+    return { ok: false, status: 429, why: 'Come back later.' }
+  }
+  await keeper.answer('Digger', 'request-429-x', later)
+  await keeper.answer('Digger', 'request-429-x', later)
+  assert.equal(runs, 5, 'come back later: a repeat tries again')
+  runs = 3
   // An older mod sends no id: every call is made.
   await keeper.answer('Digger', undefined, refused)
   await keeper.answer('Digger', undefined, refused)
@@ -94,6 +102,22 @@ test('old answers go: after a day, or beyond the most kept', async () => {
   now = 25 * 60 * 60 * 1000
   await keeper.answer('Digger', 'request-four-x', run)
   assert.equal((await keeper.answer('Digger', 'request-three', run)).result.n, 6, 'a day old: gone')
+})
+
+test('known: the kept answer or the one still being made, without making it', async () => {
+  const keeper = requestKeeper()
+  assert.equal(await keeper.known('units', ID), undefined)
+  let finish
+  const first = keeper.answer('units', ID, () => new Promise(resolve => {
+    finish = () => resolve({ ok: true, result: { text: 'made' } })
+  }))
+  await new Promise(resolve => setImmediate(resolve))
+  const meanwhile = keeper.known('units', ID)
+  finish()
+  assert.deepEqual(await meanwhile, { ok: true, result: { text: 'made' } })
+  await first
+  assert.deepEqual(await keeper.known('units', ID), { ok: true, result: { text: 'made' } })
+  assert.equal(await keeper.known('units', 'no'), undefined)
 })
 
 test('a torn file keeps nothing and breaks nothing', async t => {
@@ -122,5 +146,7 @@ test('the store is read once per work call; the reads are not kept by request', 
   // The bridge keeps changes by their request id, and reads go straight through.
   const bridge = server.slice(server.indexOf('    bridgeWork: async body => {'), server.indexOf('    take: async body => {'))
   assert.ok(bridge.includes('if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)'))
-  assert.ok(bridge.includes('requests.answer(checked.chat, request, () => bridgeWorkOnce(asked, checked))'))
+  assert.ok(bridge.includes('requests.answer(session, request, () => bridgeWorkOnce(asked, checked))'))
+  // A repeat finds its kept answer before the chat is looked up: right after a restart the board may not show it yet.
+  assert.ok(bridge.indexOf('requests.known(session, request)') < bridge.indexOf('checkTake(body, state)'))
 })

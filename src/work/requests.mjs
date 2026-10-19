@@ -1,8 +1,8 @@
 // B412: a work call recorded once, also when its answer is slow or cut off. The Workers mod sends each call of the work
-// tool with a request id of its own; the board keeps the answer under the chat and that id, in memory and in a small
+// tool with a request id of its own; the board keeps the answer under the chat's session and that id, in memory and in a small
 // file, and gives the same answer to a repeat of the id, also after a restart. A repeat that comes while the first is
 // still being worked on waits for that one: the call is made once. An answer that says the store could not be reached
-// (a status of 500 or more) is not kept: a repeat tries again.
+// (a status of 500 or more) or asks to come back later (408, 423, 429) is not kept: a repeat tries again.
 
 import { readFile, rename, writeFile, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -15,6 +15,8 @@ export const KEEP_MS = 24 * 60 * 60 * 1000
 export const isRequestId = value => typeof value === 'string' && /^[\w.:-]{8,100}$/.test(value)
 
 const FILES = { readFile, writeFile, rename, mkdir }
+/** Refusals that ask to come back later: not the call's answer. */
+const LATER = new Set([408, 423, 429])
 
 /**
  * The keeper of the answers by request: `answer(chat, request, run)` gives the kept answer of that chat's request, or
@@ -38,6 +40,7 @@ export function requestKeeper({ file = null, clock = Date.now, fs = FILES, most 
       } catch {
         // no file yet, or a torn one: nothing is kept, and the calls are made as they come
       }
+      prune(clock())
     })()
     return loaded
   }
@@ -62,16 +65,25 @@ export function requestKeeper({ file = null, clock = Date.now, fs = FILES, most 
     return saving
   }
 
-  async function answer(chat, request, run) {
-    if (!isRequestId(request)) return run()
+  /** The kept answer of that request, or the one still being made; undefined when there is none. */
+  async function known(chat, request) {
+    if (!isRequestId(request)) return undefined
     await load()
     const key = `${chat}\n${request}`
-    const known = kept.get(key)
-    if (known !== undefined) return known.answer
+    return kept.get(key)?.answer ?? running.get(key)
+  }
+
+  async function answer(chat, request, run) {
+    if (!isRequestId(request)) return run()
+    const key = `${chat}\n${request}`
+    const before = await known(chat, request)
+    if (before !== undefined) return before
+    // Looked at again after the wait: a repeat that came at the same moment may have started it meanwhile.
     if (running.has(key)) return running.get(key)
+    if (kept.has(key)) return kept.get(key).answer
     const first = (async () => {
       const done = await run()
-      if (done?.ok === true || (Number.isFinite(done?.status) && done.status < 500)) {
+      if (done?.ok === true || (Number.isFinite(done?.status) && done.status < 500 && !LATER.has(done.status))) {
         kept.set(key, { at: clock(), answer: done })
         prune(clock())
         await save()
@@ -86,5 +98,5 @@ export function requestKeeper({ file = null, clock = Date.now, fs = FILES, most 
     }
   }
 
-  return { answer, saved: () => saving }
+  return { answer, known, saved: () => saving }
 }

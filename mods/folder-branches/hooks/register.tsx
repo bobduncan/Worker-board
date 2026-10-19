@@ -425,7 +425,9 @@ async function workTool($: EngineInterface, fields: Record<string, unknown>): Pr
     await $.clock.sleep(AGAIN_MS)
     answer = await workOnBoard($, fields, request)
   }
-  if (answer.isCut !== true) return answer
+  if (answer.ok) return answer
+  // A refusal of the repeat does not say the first was not recorded: the board may have taken it before it was cut.
+  if (answer.isCut !== true) return { ...answer, text: `${NOT_KNOWN} The board then said: ${answer.text} Run work next (or work list) to see whether it is there before you try again.` }
   return { ...answer, text: `${NOT_KNOWN} Run work next (or work list) to see whether it is there before you try again.` }
 }
 
@@ -1296,11 +1298,18 @@ export const register: Register = on => {
       if (isInTurn) await say($, 'working')
       // Review of B299: a form that returned is answered, also in the person's own words; one closed unanswered goes.
       for (const one of filed) {
-        // B412: an ask whose filing answered late is closed once its answer is there; held a moment at most.
-        const id = typeof one.id === 'string' ? one.id : await withinTime($, one.id)
-        if (id === null) continue
         const answer = formAnswer((result as { result?: unknown } | undefined)?.result, one.text)
-        await workQuietly($, isAnswered ? { action: 'answered-in-chat', id, text: answer === '' ? 'answered in the chat' : answer } : { action: 'withdraw', id, why: 'the question form was closed without an answer' })
+        const close = (id: string): Promise<unknown> => workQuietly($, isAnswered ? { action: 'answered-in-chat', id, text: answer === '' ? 'answered in the chat' : answer } : { action: 'withdraw', id, why: 'the question form was closed without an answer' })
+        if (typeof one.id === 'string') {
+          await close(one.id)
+          continue
+        }
+        // B412: an ask whose filing answered late is closed once its answer is there: at once when it is there within a
+        // moment, else when it comes, without holding the turn.
+        const late = one.id
+        const id = await withinTime($, late)
+        if (id !== null) await close(id)
+        else void late.then(lateId => (lateId === null ? null : close(lateId))).catch(() => null)
       }
     }
   })

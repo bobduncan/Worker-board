@@ -1253,13 +1253,17 @@ async function main(args) {
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
     bridgeWork: async body => {
+      // B412: a call the mod repeats with its request id (its answer was slow or cut off) gets the first answer, before
+      // anything else is looked at: right after a restart the board may not show the chat yet. The id is the session's.
+      const { request, ...asked } = body ?? {}
+      const session = String(body?.session ?? '')
+      const kept = await requests.known(session, request)
+      if (kept !== undefined) return kept
       const state = await readState()
       const checked = checkTake(body, state)
       if (!checked.ok) return checked
-      // B412: a call the mod repeats with its request id (its answer was slow or cut off) gets the first answer.
-      const { request, ...asked } = body
       if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
-      return requests.answer(checked.chat, request, () => bridgeWorkOnce(asked, checked))
+      return requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
     },
     take: async body => {
       const checked = checkTake(body, await readState())

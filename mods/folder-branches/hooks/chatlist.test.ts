@@ -1227,6 +1227,15 @@ describe('B297: the work tool asks the worker board', () => {
     expect(text).toContain('not known whether it was recorded')
     expect(text).toContain('work next')
     expect(w.worked.length).toBe(4)
+    // Cut, then refused: the refusal does not say the first was not recorded.
+    w.cuts = ['socket hang up']
+    w.workAnswers = [{ status: 403, text: 'Units is no chat of the list.' }]
+    const refused = $.tool.call({ tool: WORK, action: 'new', title: 'Paint the gate' })
+    await settle()
+    await clock.advance(2000)
+    const said = String((await refused).result)
+    expect(said).toContain('not known whether it was recorded')
+    expect(said).toContain('Units is no chat of the list.')
     // A board that took no connection at all has recorded nothing: it says so at once, and is not asked again.
     w.worked = []
     w.cuts = ['ECONNREFUSED']
