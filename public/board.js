@@ -1643,8 +1643,10 @@ function drawLane(lane, state) {
   const unfold = el('button', 'lane-menu', '⋯')
   unfold.type = 'button'
   unfold.dataset.lane = lane.name
-  unfold.title = 'The whole queue, the details, Out of sync? and Remove'
-  unfold.setAttribute('aria-label', `${lane.name}: the whole queue, the details, Out of sync? and Remove`)
+  // B438: the main chat and a leftover have neither "Out of sync?" nor Remove.
+  const menuWords = lane.isMain || lane.isLeftover ? 'the whole queue and the details' : 'the whole queue, the details, Out of sync? and Remove'
+  unfold.title = `${menuWords[0].toUpperCase()}${menuWords.slice(1)}`
+  unfold.setAttribute('aria-label', `${lane.name}: ${menuWords}`)
   unfold.setAttribute('aria-expanded', String(isOpen))
   menu.append(unfold)
 
