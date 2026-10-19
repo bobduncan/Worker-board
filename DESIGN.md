@@ -135,6 +135,17 @@ correct". Both windows of B151 and B149 open with a part set apart, a header in 
   worker named its card anew for them (the person, 2026-10-17, of B231's window, which showed their answer as the
   task: "I want the task to be clear, recap the original task briefly and state it's busy with feedback on this
   task"); those words are the feedback.
+- B425, the same window of a worker on a step (the person, 2026-10-19, I40: "It's title is too long and i dont see
+  what its building. if backlog items were refined I expect to see a picture and the refined story here?"): its head
+  holds the step's id and its title cut to its first clause (`shortTitle`: a title over 60 characters up to its first
+  ": ", "; ", " - ", ", " or " (" after its first 20 characters, a comma in a list not counting, and at a word with "…"
+  over 72), the whole title on hover, and a chip with the step's goal by its name ("G29 Interesting level design");
+  the title stands there only. Under *The task*, a step with a refine block shows its refined summary in plain words,
+  its picture (a thumbnail that opens in the picture popup; none for "Picture: none (...)") and *What we build*, "Not
+  in it" greyed (the state's `step.brief`, read from the work store for the step a worker is on only); a step
+  without one, and a block without a summary, shows the first lines of its context, up to the first part it names
+  ("Requirements: ..."), never the store's own line ("[store] Goal: ..."). *Details* holds the step with its whole
+  title, its context, what it touches, where it stands and the last 12 lines of its history.
 - B281, when the person's words opened the worker's turn after it was given its task (typed in its chat, or an
   answer or a line given on the board, without the board's mark), a part of its own under the task:
   *Now on your feedback (HH:MM)*, their words in one line (at most two on screen; the board's own lines, such as a

@@ -1637,8 +1637,12 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .task-brief { background: #14233a; border: 1px solid #2a4a7d; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
 .task-brief h3 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #9db8e8; font-weight: 700; margin-bottom: 4px; }
 .task-brief .brief-task { font-size: 16px; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-/* B281: the backlog step the task is, above what it is; the person's feedback the worker is on, set apart by a bar. */
-.task-brief .brief-head { font-size: 13.5px; font-weight: 700; color: #c9d7f0; margin-bottom: 2px; overflow-wrap: anywhere; }
+/* B425: a refined step's summary, its picture and what we build under the task's header. */
+.task-brief .brief-summary { font-size: 15.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.task-brief .refined-picture { margin-top: 10px; }
+.task-brief .brief-part > h3:not(:first-child) { margin-top: 10px; }
+.task-brief ul.refined-build { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14.5px; line-height: 1.4; }
+/* B281: the person's feedback the worker is on, set apart by a bar. */
 .task-brief .brief-part:has(.brief-feedback) { border-left: 3px solid var(--waiting, #e0a33a); padding-left: 10px; }
 .task-brief .brief-part:has(.brief-feedback) h3 { color: #f0c27a; }
 .task-brief .brief-feedback { font-size: 15px; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }

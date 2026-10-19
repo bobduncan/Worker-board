@@ -141,6 +141,16 @@ export function itemOfStep(work, key) {
 }
 
 /**
+ * B425: a step's Context lines as written, for the window of the worker on it: without the line that says where its
+ * refine block stands. Empty without the store or the step.
+ */
+export function contextOfStep(work, key) {
+  const found = itemAt(work, key)
+  if (found === null) return []
+  return (found.item.sections.get('Context') ?? []).map(one => one.trim()).filter(one => one !== '' && !/^\(the refine block stands\b/i.test(one))
+}
+
+/**
  * Where a step of the Backlog tab stands in the flow: `{ states, state, next }` for the strip in its window, or null.
  * `key` is the step's key on the tab: its id, or "<activity's place>:<step's place>" for a step without one.
  */
