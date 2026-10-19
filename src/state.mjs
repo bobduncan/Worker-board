@@ -25,7 +25,8 @@ import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { askIdsIn, askKey, sameAsk } from './work/askWords.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
-import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
+import { informationOf, instructionsOf, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
+import { NOTE_LINE, isPartnerAnswered } from './work/partnerAnswers.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
@@ -350,7 +351,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null }
+  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -383,7 +384,10 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // hold it either, as the main chat reports to nobody.
   const isMainIdle = chat.isMain && appState === 'waiting' && turn === 'ended'
   const background = entries === null ? 0 : backgroundRunning(entries)
-  const held = wasCutOff || ended !== 'free' ? null : heldBy({
+  // Partner answers, the review's findings: a chat whose blocking ask waits for the partner's answer waits for the
+  // partner, not for the person: held between two turns, its lane says so (`waitsForPartner`).
+  const forPartner = waits.partner?.get(chat.name.toLowerCase()) ?? []
+  const held = wasCutOff || ended !== 'free' ? null : forPartner.length > 0 ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` } : heldBy({
     plan: isMainIdle ? null : plan, step,
     isCompleted: summary?.category === 'completed',
     isDone,
@@ -453,6 +457,8 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     doingNow: state === 'working' && held === null ? doingNow(entries) : null,
     // Why it counts as working although its turn has ended, in words; null for a turn that runs.
     between: state === 'working' && held !== null ? held.text : null,
+    // Partner answers, the review's findings: the asks of its own it waits on the partner for.
+    waitsForPartner: state === 'working' && held?.why === 'partner' ? forPartner : null,
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
@@ -983,7 +989,14 @@ function focusRun(node, items, prefix, partner) {
   const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
   const newest = items.filter(item => isDailyNote(item) && valueOf(item, 'Of') === node.id && valueOf(item, 'To') === 'you' && isPartner(item))
     .sort((a, b) => (sinceMs(valueOf(b, 'Since')) || 0) - (sinceMs(valueOf(a, 'Since')) || 0) || byId(valueOf(b, 'Id'), valueOf(a, 'Id')))[0]
-  const note = newest === undefined ? null : dailyNote(newest)
+  // Partner answers, the review's findings: a line that lists the partner's answer of an ask names that ask by the ask's
+  // own fields (its Daily note and its Note line), and whether it was taken back.
+  const listedBy = new Map(items.filter(item => valueOf(item, 'Kind') === 'ask' && newest !== undefined && valueOf(item, 'Daily note') === valueOf(newest, 'Id'))
+    .map(item => [(item.sections.get(NOTE_LINE) ?? [])[0], item]))
+  const note = newest === undefined ? null : (read => ({ ...read, decided: read.decided.map(one => {
+    const ask = listedBy.get(one.text)
+    return ask === undefined ? one : { ...one, ask: valueOf(ask, 'Id'), takenBack: !isPartnerAnswered(ask) }
+  }) }))(dailyNote(newest))
   const ofs = new Set([node.id, ...node.steps, ...node.parts.flatMap(part => part.steps)])
   const named = note?.needs ?? []
   const rank = id => (named.includes(id) ? named.indexOf(id) : named.length)
@@ -1454,6 +1467,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), config.advisor ?? null, prefix),
     // B299: notes and reports for the person.
     information: informationOf(raw.work, now),
+    // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the
+    // Focus page's note does not show, each with its Undo.
+    withPartner: !workOk ? [] : withPartnerOf(raw.work, { names: [...names, ...(advisorChat === undefined ? [] : [advisorChat.name])], prefix }),
+    partnerDecided: !workOk ? [] : partnerDecidedOf(raw.work, { now, shownNote: focus?.note?.id ?? null, names, prefix }),
     // B360: the recaps of finished work, and where they show: "now" in Needs your attention, "daily" in the daily note.
     recaps: recapsOf(raw.work, now),
     recapsShow: config.botherMe ?? 'now',

@@ -1165,6 +1165,7 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
 
 /** B343: what a chat's row says in place of its time when it does not work: a few plain words. */
 function simpleIdle(lane) {
+  if ((lane.waitsForPartner ?? []).length > 0) return `waits for your partner (${lane.waitsForPartner.join(', ')})`
   if (lane.state === 'free') return 'free'
   if (lane.state === 'working') return 'working'
   if (lane.state === 'waiting') return 'waits for you'
@@ -1421,7 +1422,7 @@ function drawLane(lane, state) {
 
   const who = el('div', 'who')
   const names = el('div', 'who-names')
-  names.append(el('h3', '', lane.name), el('span', `pill is-${lane.state}`, lane.isLeftover ? 'Leftover' : STATES[lane.state]))
+  names.append(el('h3', '', lane.name), el('span', `pill is-${lane.state}`, lane.isLeftover ? 'Leftover' : laneStateText(lane)))
   // B315: a lane that is "Not running" says so in its pill already.
   if (lane.isRunning === false && lane.state !== 'off') {
     // After a restart of the app a chat does not run until it is opened, or messaged through the app.
@@ -2366,7 +2367,67 @@ function partnerAnswerView(need) {
   if (typeof need.routeNote === 'string' && need.routeNote !== '') return { text: need.routeNote, why: null, undo: null }
   return null
 }
+
+/**
+ * Partner answers, the review's findings: the small line under Needs your attention for the asks with the partner now
+ * (the state's `withPartner`): their count, and when opened one row each. Null when none is.
+ */
+function withPartnerView(list) {
+  if (!Array.isArray(list) || list.length === 0) return null
+  return { text: `With your partner: ${list.length} question${list.length === 1 ? '' : 's'}`, rows: list.map(one => `${one.id} · ${one.from ?? 'nobody'}: ${one.title}`) }
+}
+
+/** Partner answers, the review's findings: "Decided for you" (the state's `partnerDecided`): each answer with its Undo. */
+function decidedView(list) {
+  if (!Array.isArray(list) || list.length === 0) return null
+  return { title: 'Decided for you by your partner', rows: list.map(one => ({ ask: one.ask, text: one.line, undo: { id: one.ask, label: 'Undo', title: TAKE_BACK_TITLE } })) }
+}
+
+/** A lane's state in words; the review's findings: a chat that waits on the partner's answer says so, not "for you". */
+function laneStateText(lane, states = STATES) {
+  if ((lane.waitsForPartner ?? []).length > 0) return `Waiting for your partner (${lane.waitsForPartner.join(', ')})`
+  return states[lane.state]
+}
 // partner-answers:end
+
+/** Partner answers: whether the "With your partner" line is open (this page only). */
+let withPartnerOpen = false
+
+/** Partner answers, the review's findings: the "With your partner" line, a click lists the asks. */
+function drawWithPartner(state) {
+  const view = withPartnerView(state.withPartner ?? [])
+  if (view === null) return null
+  const part = el('section', 'information with-partner')
+  const toggle = el('button', 'choice with-partner-toggle', `${withPartnerOpen ? '▾' : '▸'} ${view.text}`)
+  toggle.type = 'button'
+  toggle.dataset.withPartner = 'toggle'
+  toggle.title = 'Questions your partner answers for you first; one it has not answered in 30 minutes comes to you'
+  part.append(toggle)
+  if (withPartnerOpen) part.append(fill(el('ul', 'with-partner-list'), view.rows.map(row => el('li', 'muted', row))))
+  return part
+}
+
+/** Partner answers, the review's findings: "Decided for you by your partner", each line with its Undo, for 7 days. */
+function drawDecidedForYou(state) {
+  const view = decidedView(state.partnerDecided ?? [])
+  if (view === null) return null
+  const part = el('section', 'information decided-for-you')
+  part.append(el('h3', '', view.title))
+  const list = el('ul', 'focus-decided')
+  for (const row of view.rows) {
+    const item = el('li', '')
+    const undo = el('button', 'focus-undo', row.undo.label)
+    undo.type = 'button'
+    undo.title = row.undo.title
+    undo.dataset.takeBack = row.undo.id
+    undo.disabled = sending.has(`work:${row.undo.id}`)
+    item.append(el('span', '', row.text), undo)
+    if (problems.has(`work:${row.undo.id}`)) item.append(el('p', 'problem', problems.get(`work:${row.undo.id}`)))
+    list.append(item)
+  }
+  part.append(list)
+  return part
+}
 
 /** Partner answers: the card's part of the partner, drawn (partnerAnswerView); none for an ask it had nothing to do with. */
 function partnerAnswerParts(need) {
@@ -3063,6 +3124,10 @@ function drawInstructions(state) {
 
 /** Partner answers (2026-10-19): the Undo of a partner's answer on an ask's card (the board's undo: the ask opens for the person). */
 function takeBackClick(event) {
+  if (event.target.closest('[data-with-partner]') !== null) {
+    withPartnerOpen = !withPartnerOpen
+    redrawNeeds()
+  }
   const takeBack = event.target.closest('[data-take-back]')
   if (takeBack !== null && !takeBack.disabled) sendWork({ action: 'undo', id: takeBack.dataset.takeBack }, `work:${takeBack.dataset.takeBack}`)
 }
@@ -3162,7 +3227,7 @@ function drawNeeds(state) {
   const none = cardsOpen.length > 0 || lines.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, ...recaps, drawLegacy(state), drawInstructions(state)])
+  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawWithPartner(state), drawDecidedForYou(state), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, ...recaps, drawLegacy(state), drawInstructions(state)])
   box.scrollTop = top
   refocus(box, focused)
   // B307: Information in its own box under the asks, as high as the person dragged it.
@@ -7986,13 +8051,17 @@ const FOCUS_NEEDS_SHOWN = 3
 function focusNoteView(focus, allowed, why) {
   const note = focus.note ?? null
   const needs = focus.needs ?? []
-  // Partner answers (2026-10-19): a line that lists the partner's answer of an ask is taken back, not undone by the partner.
-  const undo = one => (one.undoAsked
-    ? (typeof one.ask === 'string' ? { label: 'taken back', isEnabled: false, title: 'You took your partner\'s answer back: the question came to you' } : { label: 'undo asked', isEnabled: false, title: 'You asked your partner to undo this' })
-    : { label: 'Undo', isEnabled: allowed, title: allowed ? (typeof one.ask === 'string' ? TAKE_BACK_TITLE : 'Ask your partner to undo this') : why })
+  // Partner answers (2026-10-19): a line that lists the partner's answer of an ask (`ask`, a field the state reads from
+  // the ask) is taken back, not undone by the partner; `takenBack` says it was (the review's findings: by its field).
+  const isAnswer = one => typeof one.ask === 'string'
+  const undo = one => (one.takenBack === true
+    ? { label: 'taken back', isEnabled: false, title: 'You took your partner\'s answer back: the question came to you' }
+    : one.undoAsked && !isAnswer(one) ? { label: 'undo asked', isEnabled: false, title: 'You asked your partner to undo this' }
+      // An answer not taken back keeps its Undo, also when its line was marked before (the review's findings).
+      : { label: 'Undo', isEnabled: allowed, title: allowed ? (isAnswer(one) ? TAKE_BACK_TITLE : 'Ask your partner to undo this') : why })
   return {
     title: 'Today\'s note from your partner',
-    decided: note === null ? [] : note.decided.map(one => ({ text: one.text, note: note.id, undo: undo(one) })),
+    decided: note === null ? [] : note.decided.map(one => ({ text: one.text, note: note.id, ...(isAnswer(one) ? { ask: one.ask } : {}), undo: undo(one) })),
     needs: needs.slice(0, FOCUS_NEEDS_SHOWN),
     more: needs.length > FOCUS_NEEDS_SHOWN ? `and ${needs.length - FOCUS_NEEDS_SHOWN} more` : null,
     empty: note === null && needs.length === 0 ? 'No note yet: your partner writes one each morning, with what it decided for you and what needs you.' : null,
@@ -8404,6 +8473,7 @@ function focusNoteCard(view) {
       undo.title = one.undo.title
       undo.dataset.focusUndo = one.text
       undo.dataset.focusNote = one.note
+      if (typeof one.ask === 'string') undo.dataset.focusAsk = one.ask
       row.append(el('span', '', one.text), undo)
       list.append(row)
     }
@@ -8672,7 +8742,8 @@ async function focusAct(act, goal = null, extra = null) {
     }
     // Focus 3: the run's moves: the vibe is there; Undo of a decided line; an answer to the partner's question.
     else if (act === 'vibe-there-yes' && focus !== null) await sendFocus({ command: 'vibe-there-yes', id: focus.id }, 'Your partner re-checks it against its Done when and its vibe: it gets its tick once that passed.')
-    else if (act === 'undo' && focus !== null && extra !== null) await sendFocus({ command: 'note-undo', id: focus.id, note: extra.note, line: extra.line }, 'Your partner is asked to undo it.')
+    // Partner answers, the review's findings: a partner's answer is taken back, and the line says so (by the line's field).
+    else if (act === 'undo' && focus !== null && extra !== null) await sendFocus({ command: 'note-undo', id: focus.id, note: extra.note, line: extra.line }, extra.ask ? 'Taken back: the question comes to you under Needs your attention, and its chat waits for your answer.' : 'Your partner is asked to undo it.')
     else if (act === 'answer' && extra !== null) await focusAnswerAsk(extra.id, extra.label)
   } finally {
     focusUi.busy = false
@@ -8739,7 +8810,7 @@ $('advisor-focus').addEventListener('click', event => {
   if (act !== null && !act.disabled) focusAct(act.dataset.focusAct, act.dataset.focusGoal ?? null)
   // Focus 3: Undo of a line of the partner's note; an option of its question.
   const undo = event.target.closest('[data-focus-undo]')
-  if (undo !== null && !undo.disabled) focusAct('undo', null, { note: undo.dataset.focusNote, line: undo.dataset.focusUndo })
+  if (undo !== null && !undo.disabled) focusAct('undo', null, { note: undo.dataset.focusNote, line: undo.dataset.focusUndo, ask: undo.dataset.focusAsk ?? null })
   const answer = event.target.closest('[data-focus-answer]')
   if (answer !== null && !answer.disabled) focusAct('answer', null, { id: answer.dataset.focusAnswer, label: answer.dataset.focusLabel })
 })

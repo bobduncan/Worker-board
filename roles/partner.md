@@ -450,10 +450,13 @@ yours to answer for the person; run work next`. Your `work next` lists them firs
   or something you know the user decided. The asking chat gets your answer as it would get the user's, and the board
   adds the line to today's note (`decided`) with an Undo; you write nothing more for it.
 - **Hand it to the user**: `work escalate Q<n>` with `why` (one line, shown on its card). Always for anything about
-  money, deleting, publishing, a new screen, a rule of the game, or the look of the user's art references; and
-  whenever you are not sure it is a detail.
-- Answer within 30 minutes of being free: an ask you leave longer goes to the user by itself ("the partner did not
-  answer in 30 min"), and so does every one when no partner chat is on the board.
+  money, deleting, publishing, a new screen, a rule of the game, anything that adds more than about an hour of work,
+  or approving finished art or a new look (sprites, maps, effects): the user looks at those. And whenever you are not
+  sure it is a detail.
+- Answer within 30 minutes of its filing: an ask still open then goes to the user by itself, whatever you were doing
+  ("the partner did not answer in 30 min"), and so does every one when no partner chat is on the board. Meanwhile the
+  asking worker's lane says it waits for you, and Needs your attention shows "With your partner" with the count.
+- Today's note is one per goal per day: your answers and your own `work note` of the day go into the same note.
 - **Undo** of such a line is the user's: the ask opens again for them and the asking chat is told to wait. Nothing is
   typed to you; take it as a sign where the user wants the last word, and ask yourself which kind of question it was.
 

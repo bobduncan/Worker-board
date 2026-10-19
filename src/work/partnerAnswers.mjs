@@ -45,5 +45,10 @@ export const partnerAskWords = id => `work: ${id} is yours to answer for the per
 /** The one line the asking chat gets when the person takes the partner's answer back. */
 export const takenBackWords = id => `The person took back the partner's answer on ${id}; wait for their answer.`
 
-/** The ask a line of a daily note lists the partner's answer of ("Q12 (Worker, B3): ..."), or null. */
-export const askOfLine = text => String(text ?? '').match(/^(Q\d+) \(/)?.[1] ?? null
+/**
+ * The review's findings: the line an answer stands under in the partner's note is kept on the ask (`## Note line`), with
+ * the note's id (`Daily note`): the board finds the ask of a line by these fields, never by the line's words.
+ */
+export const NOTE_LINE = 'Note line'
+/** How long the person may take a partner's answer back: its card keeps the Undo for 7 days. */
+export const TAKE_BACK_MS = 7 * 24 * 60 * 60_000

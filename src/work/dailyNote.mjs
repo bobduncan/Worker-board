@@ -3,7 +3,6 @@
 // (the ids of its asks). The person's Undo of a decided line adds it under `## Undo asked`, with its time, once.
 
 import { valueOf } from './item.mjs'
-import { askOfLine } from './partnerAnswers.mjs'
 
 export const GOAL_ID = /^G\d+$/
 export const DECIDED = 'Decided for you'
@@ -26,19 +25,15 @@ export const undoneOf = item => pointsOf(item, UNDONE).map(one => one.replace(/\
 export const needsOf = item => pointsOf(item, NEEDS).flatMap(one => one.match(/\bQ\d+\b/g) ?? [])
 
 /**
- * A daily note as the Focus page reads it: `{ id, since, decided: [{ text, undoAsked, ask? }], needs }`. Partner
- * answers (2026-10-19): a line that lists the partner's answer of an ask names it (`ask`), so its Undo takes it back.
+ * A daily note as the Focus page reads it: `{ id, since, decided: [{ text, undoAsked }], needs }`. Partner answers: the
+ * state names the ask of a line by the ask's own fields (state.mjs `focusRun`).
  */
 export function dailyNote(item) {
   const undone = new Set(undoneOf(item))
-  const lineOf = text => {
-    const ask = askOfLine(text)
-    return { text, undoAsked: undone.has(text), ...(ask === null ? {} : { ask }) }
-  }
   return {
     id: valueOf(item, 'Id'),
     since: valueOf(item, 'Since'),
-    decided: decidedOf(item).map(lineOf),
+    decided: decidedOf(item).map(text => ({ text, undoAsked: undone.has(text) })),
     needs: needsOf(item),
   }
 }

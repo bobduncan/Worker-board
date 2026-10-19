@@ -17,7 +17,7 @@ import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
-import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, undoneOf } from './dailyNote.mjs'
+import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
@@ -25,7 +25,7 @@ import { kindsNamed, parseStandard, standardOf, standardWanted } from './standar
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
-import { askOfLine, isPartnerAnswered, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
+import { NOTE_LINE, isPartnerAnswered, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer } from './pause.mjs'
 import { writeView } from './view.mjs'
 
@@ -652,9 +652,12 @@ async function dailyNoteMade(body, w) {
   for (const id of needs) {
     if (!/^Q\d+$/.test(id) || kindOf(w.store.items.get(id) ?? { head: new Map([['Kind', 'none']]) }) !== 'ask') return refuse(409, `${id} is no ask in the store: name your asks under "needs" by their ids (Q12).`)
   }
+  // Partner answers, the review's findings: one note per goal per day: today's note of the goal takes this one too, so
+  // no later note hides the answers of the day.
+  const today = noteOfToday(w, body.of)
+  if (today !== null) return dailyNoteMerged(valueOf(today, 'Id'), body.of, { decided, needs, text }, w)
   const id = await nextId(w.dir, 'N', w.fs)
-  const head = text.length > 0 ? line(text.join(' '))
-    : `Today's note on ${body.of}: ${decided.length} decided for you, ${needs.length} need${needs.length === 1 ? 's' : ''} you`
+  const head = text.length > 0 ? line(text.join(' ')) : noteCount(body.of, decided.length, needs.length, w)
   const item = said({
     head: new Map([['Id', id], ['Kind', 'note'], ['From', w.who], ['To', 'you'], ['Of', body.of], ['State', 'unread'], ['Since', stamp(w.now)], ['Text', head]]),
     sections: new Map([...(text.length === 0 ? [] : [['Text', text]]), [DECIDED, decided.map(one => `- ${one}`)], [NEEDS, needs.map(one => `- ${one}`)]]),
@@ -662,6 +665,33 @@ async function dailyNoteMade(body, w) {
   }, w, 'noted (the daily note)')
   const done = await save(item, null, w)
   return done.ok ? changed(item, `${id}: today's note on ${body.of} for the person.`) : done
+}
+
+/** What a note of the partner's says when it only counts its lines (its Text). */
+const noteCount = (goal, decided, needs, w) => (goal === null ? `Your partner's answers of ${stamp(w.now).slice(0, 10)}: ${decided} decided for you` : `Today's note on ${goal}: ${decided} decided for you, ${needs} need${needs === 1 ? 's' : ''} you`)
+const COUNTED = /^(?:Today's note on G\d+: \d+ decided for you, \d+ needs? you|Your partner's answers of \S+: \d+ decided for you)$/
+
+/**
+ * Partner answers, the review's findings: the partner's daily note merged into today's note of the goal (`id`): its
+ * decided lines added (none twice), its needs first and the note's others after, its words in place of the note's.
+ */
+async function dailyNoteMerged(id, goal, { decided, needs, text }, w) {
+  const found = await load(id, w, { kind: ['note'] })
+  if (!found.ok) return found
+  const item = copy(found.item)
+  const had = decidedOf(found.item)
+  const added = [...new Set(decided)].filter(one => !had.includes(one))
+  item.sections.set(DECIDED, [...(found.item.sections.get(DECIDED) ?? []), ...added.map(one => `- ${one}`)])
+  const before = needsOf(found.item)
+  const all = [...needs, ...before.filter(one => !needs.includes(one))]
+  item.sections.set(NEEDS, all.map(one => `- ${one}`))
+  if (text.length > 0) {
+    item.sections.set('Text', text)
+    put(item, 'Text', line(text.join(' ')))
+  } else if (COUNTED.test(valueOf(item, 'Text') ?? '')) put(item, 'Text', noteCount(goal, decidedOf(item).length, all.length, w))
+  const next = said(item, w, `the daily note again: ${added.length} decided added, ${all.length} need${all.length === 1 ? 's' : ''} you`)
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next, `${id}: today's note on ${goal} for the person (added to the note of today).`) : done
 }
 
 /**
@@ -680,13 +710,15 @@ async function undo(body, w) {
   const wanted = line(body.line)
   if (!decidedOf(found.item).includes(wanted)) return refuse(409, `${id} decided no such thing: "${wanted.slice(0, 80)}".`)
   const undo = { of: valueOf(found.item, 'Of'), from: valueOf(found.item, 'From'), line: wanted }
-  if (undoneOf(found.item).includes(wanted)) return { ok: true, result: { id, text: 'Undo was asked already.', changed: false, asked: true } }
   // Partner answers: a line that lists the partner's answer of an ask is taken back in the store, not typed to the partner.
-  const askId = askOfLine(wanted)
-  if (askId !== null) {
-    const ask = await load(askId, w, { kind: ['ask'] })
-    if (ask.ok && valueOf(ask.item, 'Daily note') === id) return takeBack(ask, body, w)
+  // The review's findings: the ask is found by its fields (its Daily note and its Note line), never by the line's words.
+  const listed = [...w.store.items.values()].find(item => kindOf(item) === 'ask' && valueOf(item, 'Daily note') === id && (item.sections.get(NOTE_LINE) ?? [])[0] === wanted)
+  if (listed !== undefined) {
+    const ask = await load(valueOf(listed, 'Id'), w, { kind: ['ask'] })
+    if (!ask.ok) return ask
+    return takeBack(ask, body, w)
   }
+  if (undoneOf(found.item).includes(wanted)) return { ok: true, result: { id, text: 'Undo was asked already.', changed: false, asked: true } }
   if (!isDailyNote(found.item)) return refuse(409, `${id} is no daily note of a goal: only its answers of asks can be taken back.`)
   // The review: `check` only says whether it may be asked; the board types the word first, then marks it.
   if (body.check === true) return { ok: true, result: { id, text: 'Undo may be asked.', changed: false, asked: false, undo } }
@@ -720,11 +752,12 @@ async function partnerAnswer(body, w) {
   const of = valueOf(found.item, 'Of')
   const title = valueOf(found.item, 'Title') ?? (found.item.sections.get('Text') ?? [])[0] ?? ''
   const entry = line(`${id} (${[asker === null ? null : bare(asker, w.prefix), of].filter(Boolean).join(', ')}): ${line(title, 120)} → ${short} (${why})`)
-  const note = noteOfToday(w)
+  const note = noteOfToday(w, w.focusGoal ?? null)
   const noteId = note === null ? await nextId(w.dir, 'N', w.fs) : valueOf(note, 'Id')
   let item = put(put(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), 'Answered by', 'partner'), 'Daily note', noteId)
   item.sections.set('Answer', text)
   item.sections.set('Why', [why])
+  item.sections.set(NOTE_LINE, [entry])
   item = ordered(appendHistory(item, w.who, `answered by the partner: ${short} (why: ${why})`, w.now))
   let freed = null
   const done = await answerStep(w, item, found.text, of, step => {
@@ -747,9 +780,9 @@ async function partnerAnswer(body, w) {
   return { ok: true, result: { ...done.result, text: `${id} answered for the person: ${short}. ${where}; ${asker === null ? 'nobody asked it' : `${bare(asker, w.prefix)} is woken`}.`, wake, wakeOwner, note: noteId } }
 }
 
-/** The partner's note the answers of today go into: its newest note to the person of the focus (none: of no goal) made today, or null. */
-function noteOfToday(w) {
-  const focus = w.focusGoal ?? null
+/** The partner's note of today on `goal` (null: of no goal): its newest note to the person with decided lines made today, or null. */
+function noteOfToday(w, goal) {
+  const focus = goal
   const today = stamp(w.now).slice(0, 10)
   const madeOn = item => ((item.sections.get('History') ?? [])[0]?.match(/^- (\d{4}-\d\d-\d\d) /)?.[1] ?? valueOf(item, 'Since') ?? '').slice(0, 10)
   return [...w.store.items.values()]
@@ -761,7 +794,7 @@ function noteOfToday(w) {
 /** The partner's answer as a decided line: added to its note of today (`note`), or a new note `noteId`. */
 async function listAnswer(w, note, noteId, entry, askId) {
   const focus = w.focusGoal ?? null
-  const count = (decided, needs) => (focus === null ? `Your partner's answers of ${stamp(w.now).slice(0, 10)}: ${decided} decided for you` : `Today's note on ${focus}: ${decided} decided for you, ${needs} need${needs === 1 ? 's' : ''} you`)
+  const count = (decided, needs) => noteCount(focus, decided, needs, w)
   if (note === null) {
     const item = appendHistory({
       head: new Map([['Id', noteId], ['Kind', 'note'], ['From', w.who], ['To', 'you'], ...(focus === null ? [] : [['Of', focus]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', count(1, 0)]]),
@@ -775,7 +808,7 @@ async function listAnswer(w, note, noteId, entry, askId) {
   const item = copy(found.item)
   item.sections.set(DECIDED, [...(found.item.sections.get(DECIDED) ?? []), `- ${entry}`])
   // A note whose line only counted its lines counts them anew.
-  if (/^(?:Today's note on G\d+: \d+ decided for you, \d+ needs? you|Your partner's answers of \S+: \d+ decided for you)$/.test(valueOf(item, 'Text') ?? '')) put(item, 'Text', count(decidedOf(item).length, (item.sections.get(NEEDS) ?? []).filter(one => one.trim() !== '').length))
+  if (COUNTED.test(valueOf(item, 'Text') ?? '')) put(item, 'Text', count(decidedOf(item).length, (item.sections.get(NEEDS) ?? []).filter(one => one.trim() !== '').length))
   return save(appendHistory(item, w.who, `the partner's answer of ${askId} added`, w.now), found.text, w)
 }
 
@@ -816,6 +849,22 @@ async function takeBack(ask, body, w) {
     return refuse(409, `${id} is no answer of your partner's: there is nothing to take back.`)
   }
   if (body.check === true) return { ok: true, result: { id, text: 'It may be taken back.', changed: false, asked: false, undo: { ask: id, note: noteId } } }
+  // The review's findings: the note's line is marked first; a note that cannot be marked fails the take-back loudly,
+  // and nothing changes, so its Undo stays.
+  const listed = (ask.item.sections.get(NOTE_LINE) ?? [])[0] ?? null
+  let marked = null
+  if (noteId !== null && listed !== null) {
+    const note = await load(noteId, w, { kind: ['note'] })
+    if (!note.ok && note.status !== 404) return refuse(note.status, `${note.why} Nothing changed; try Undo again.`)
+    if (note.ok && decidedOf(note.item).includes(listed) && !undoneOf(note.item).includes(listed)) {
+      const next = copy(note.item)
+      next.sections.set(UNDONE, [...(note.item.sections.get(UNDONE) ?? []), `- ${listed} (${stamp(w.now)})`])
+      const written = said(next, w, `taken back: ${line(listed, 200)}`)
+      const done = await save(written, note.text, w)
+      if (!done.ok) return refuse(done.status, `${noteId} could not be marked (${done.why.replace(/; try again\.$/, '')}): nothing changed; try Undo again.`)
+      marked = { text: note.text, written: serializeItem(written) }
+    }
+  }
   const answered = line((ask.item.sections.get('Answer') ?? []).join(' '), 200)
   const asker = valueOf(ask.item, 'Owner')
   let item = put(put(put(copy(ask.item), 'State', 'open'), 'Route', 'person'), 'Since', stamp(w.now))
@@ -835,16 +884,10 @@ async function takeBack(ask, body, w) {
     }
     return mine
   })
-  if (!done.ok) return done
-  // The note's line is marked, as an Undo asked.
-  const note = noteId === null ? null : await load(noteId, w, { kind: ['note'] })
-  if (note?.ok === true) {
-    const listed = decidedOf(note.item).find(one => askOfLine(one) === id)
-    if (listed !== undefined && !undoneOf(note.item).includes(listed)) {
-      const marked = copy(note.item)
-      marked.sections.set(UNDONE, [...(note.item.sections.get(UNDONE) ?? []), `- ${listed} (${stamp(w.now)})`])
-      await save(said(marked, w, `taken back: ${line(listed, 200)}`), note.text, w)
-    }
+  if (!done.ok) {
+    // The ask and its step stay as they were: the note's mark goes back too.
+    if (marked !== null) await putBack(w.dir, noteId, marked.text, w.fs, { expected: marked.written })
+    return refuse(done.status ?? 500, `${done.why.replace(/; nothing changed\.$/, '')}: nothing changed; try Undo again.`)
   }
   const wake = asker === null ? null : { to: asker, id, line: takenBackWords(id) }
   return { ok: true, result: { ...done.result, text: `${id} is open again for you${asker === null ? '' : `; ${bare(asker, w.prefix)} waits for your answer`}.`, wake, undo: { ask: id, note: noteId } } }

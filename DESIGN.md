@@ -2346,19 +2346,18 @@ Picture: `art-inbox/worker-board/partner-answers/note.png`.
    person: <answer> (why: <why>). The person may still take it back.` The line `Q<n> (<asker>, B<n>): <title> →
    <answer> (<why>)` is added under "Decided for you" of the partner's newest note of the focus made today (its first
    History line's date; a note that only counted its lines counts them anew), else a new note of the day (`Today's
-   note on G<n>: ...`); without a focus, a note to the person of no goal ("Your partner's answers of <date>"). Known
-   limit: a daily note the partner writes later that day is the newest, so the Focus page shows that one; the earlier
-   answers keep their note (Information) and their Undo on the answered cards ("Show closed").
+   note on G<n>: ...`); without a focus, a note to the person of no goal ("Your partner's answers of <date>"). The
+   ask keeps the line it stands under (`## Note line`) beside `Daily note`: the board finds an answer's ask by these
+   fields, never by the line's words.
 5. **Handed on** (`escalate`, the partner with a why, or the board): `Route: person`, Since now, the card's line under
    `## Route` ("Your partner hands this to you: <why>"; the board's: "Your partner did not answer in 30 min: it is
    yours", "No partner chat is on the board: it is yours", "Your partner's answers are switched off: it is yours"),
-   History "to the person: <why>". The reconciler names (`escalations`) a routed ask the partner left unanswered for
-   `PARTNER_ANSWER_MS` (30 min) counted from the later of when it was filed, the partner's turn end (`idle.since`) and
-   a resume, while free; every routed ask at once when no partner chat is on the board or the setting is off; the
-   delivery carries them out as the server, also while paused.
+   History "to the person: <why>". The reconciler names (`escalations`) a routed ask still open `PARTNER_ANSWER_MS`
+   (30 min) after its filing, whatever the partner does (busy, cut off, paused); every routed ask at once when no
+   partner chat is on the board or the setting is off; the delivery carries them out as the server, also while paused.
 6. **Undo** (`api.mjs` `undo`, `takeBack`; `focus.mjs` `undoLine` with a `tell` port; `server.mjs` `undoNow`): the
-   note's Undo on a line that lists a partner's answer (`askOfLine`, and the ask's `Daily note` is that note), and the
-   Undo on the answered ask's card ("Show closed": a partner's answer stays among the closed cards for a day,
+   note's Undo on a line that lists a partner's answer (the ask whose `Daily note` is that note and whose `Note line`
+   is that line), and the Undo on the answered ask's card ("Show closed": a partner's answer stays among the closed cards for 7 days,
    `canTakeBack`; `partnerAnswerView`, `partnerAnswerParts`, `takeBackClick`), take it back: the ask is open again with
    `Route: person` and "Your partner had answered: <answer>; you took it back" under `## Route`, a step its holder blocked
    on it waits on the person again (the flow's move as its holder's role), the note's line is marked under "Undo
@@ -2367,11 +2366,29 @@ Picture: `art-inbox/worker-board/partner-answers/note.png`.
    a second Undo changes nothing; an ask the person answered after is no partner's answer any more (409).
 7. **The jobs**: `roles/partner.md` "Detail questions" (take the worker's advice unless it goes against the agreed
    vibe, a standard or something the person decided; escalate money, deleting, publishing, a new screen, a rule of the
-   game, the look of the person's art references; one line why), one line each in `roles/worker.md` and `roles/main.md`,
+   game, anything that adds more than about an hour of work, approving finished art or a new look (sprites, maps,
+   effects); one line why), one line each in `roles/worker.md` and `roles/main.md`,
    `roles/protocol.md`. The Workers mod 0.13.12: the work tool's actions `partner-answer` and `escalate` (`id`, `text`,
    `why`).
 8. Tests: `test/work/partnerAnswers.test.mjs`, `test/partnerAnswersPage.test.mjs`; four older ask tests switch it off
    (the person answers there, as before).
+9. **The review's findings** (the independent review of 2026-10-19):
+   - One note per goal per day (`noteOfToday`, `dailyNoteMerged`): the partner's own `work note` with `of` G<n> made
+     later the same day merges into today's note of the goal (its decided lines added, none twice; its needs first, the
+     note's others after; its words in place of the note's), so no later note hides the answers. The Focus page shows
+     that note, every decided line with its Undo; the state names a line's ask by the ask's fields (`focusRun`: `ask`,
+     `takenBack`), and the page's "taken back" goes by `takenBack`, the line after a take-back by the line's `ask`
+     ("Taken back: the question comes to you ..."). Answers the Focus page does not show (no focus, or an earlier
+     day's) stand under Needs your attention in **Decided for you by your partner** (`partnerDecidedOf`,
+     `drawDecidedForYou`), each with its Undo, for 7 days (`TAKE_BACK_MS`); the answered card keeps its Undo as long.
+   - No routed ask waits without end: 30 minutes from its filing, whatever the partner does. While routed, a chat whose
+     blocking ask waits on the partner is held between two turns, not waiting for the person: its lane says "Waiting for
+     your partner (Q<n>)" (`storeWaits.partner`, the lane's `waitsForPartner`, `laneStateText`), and Needs your attention
+     shows **With your partner: <n> questions** (`withPartnerOf`, `drawWithPartner`), a click lists them.
+   - A take-back marks the note first; a note that cannot be marked fails it (500, "nothing changed; try Undo again"),
+     so the Undo stays; when the ask cannot be written after, the note's mark is put back.
+   - `roles/partner.md`: the hand-on list names work of more than about an hour and approving finished art or a new look
+     (sprites, maps, effects).
 
 ## What it does not do
 

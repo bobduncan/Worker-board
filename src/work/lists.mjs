@@ -6,7 +6,7 @@ import { sinceMs } from './api.mjs'
 import { askKey, askWordsOf } from './askWords.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
-import { isPartnerAnswered, isRoutedToPartner } from './partnerAnswers.mjs'
+import { NOTE_LINE, TAKE_BACK_MS, isPartnerAnswered, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isRecap } from './recap.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -62,8 +62,16 @@ export function storeWaits(work, prefix = '') {
     const name = plainName(valueOf(item, 'Owner'), prefix)
     openOf.set(name, [...(openOf.get(name) ?? []), { id: valueOf(item, 'Id'), key: askKey(askWordsOf(item)) }])
   }
+  // Partner answers, the review's findings: a blocking ask routed to the partner holds its chat for the partner, not for
+  // the person (`partner`: per chat the ids of such asks).
+  const forPartner = new Map()
+  for (const item of open.filter(one => valueOf(one, 'Blocking') === 'yes' && isRoutedToPartner(one))) {
+    const name = plainName(valueOf(item, 'Owner'), prefix)
+    forPartner.set(name, [...(forPartner.get(name) ?? []), valueOf(item, 'Id')])
+  }
   return {
-    blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes').map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes' && !isRoutedToPartner(item)).map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    partner: forPartner,
     form: new Set(open.filter(item => valueOf(item, 'Via') === 'form').map(item => plainName(valueOf(item, 'Owner'), prefix))),
     // B280: the chats with an open ask of their own for the person, blocking or not; a refine question is the refine's.
     asking: new Set(open.filter(item => valueOf(item, 'Via') !== 'refine').map(item => plainName(valueOf(item, 'Owner'), prefix))),
@@ -112,7 +120,8 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const since = sinceMs(valueOf(item, 'Since'))
     const byPartner = isPartnerAnswered(item)
     if (isRoutedToPartner(item)) return []
-    if (state !== 'open' && !(state === 'answered' && Number.isFinite(since) && now - since < (byPartner ? DAY : KEEP_ANSWERED_MS))) return []
+    // The review's findings: a partner's answer keeps its card (and its Undo) for 7 days.
+    if (state !== 'open' && !(state === 'answered' && Number.isFinite(since) && now - since < (byPartner ? TAKE_BACK_MS : KEEP_ANSWERED_MS))) return []
     const id = valueOf(item, 'Id')
     const asks = valueOf(item, 'Asks') ?? 'decide'
     const owner = valueOf(item, 'Owner')
@@ -146,6 +155,34 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
       route: valueOf(item, 'Route'), routeNote: routeNote === '' ? null : routeNote, canTakeBack: byPartner,
     }]
   })
+}
+
+/**
+ * Partner answers, the review's findings: the asks with the partner now (routed to it, open), for the small "With your
+ * partner" line under Needs your attention: `[{ id, from, title, of, at }]`, oldest first.
+ */
+export function withPartnerOf(work, { names = [], prefix = '' } = {}) {
+  const nameOf = owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
+  return asksOfStore(work).filter(isRoutedToPartner).map(item => {
+    const at = askFiledMs(item)
+    return { id: valueOf(item, 'Id'), from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: valueOf(item, 'Title') ?? '', of: valueOf(item, 'Of'), at: Number.isFinite(at) ? at : null }
+  }).sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
+}
+
+/**
+ * Partner answers, the review's findings: the partner's answers of the last 7 days that the Focus page's note does not
+ * show (`shownNote`, its id; null: none shows), for "Decided for you" under Needs your attention, each with its Undo:
+ * `[{ ask, line, from, at }]`, newest first. So no Undo is lost while its answer is less than 7 days old.
+ */
+export function partnerDecidedOf(work, { now, shownNote = null, names = [], prefix = '' }) {
+  const nameOf = owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
+  return asksOfStore(work).filter(item => isPartnerAnswered(item) && (shownNote === null || valueOf(item, 'Daily note') !== shownNote)).flatMap(item => {
+    const at = sinceMs(valueOf(item, 'Since'))
+    if (!Number.isFinite(at) || now - at >= TAKE_BACK_MS) return []
+    const id = valueOf(item, 'Id')
+    const line = (item.sections.get(NOTE_LINE) ?? [])[0] ?? `${id}: ${valueOf(item, 'Title') ?? ''} → ${(item.sections.get('Answer') ?? []).join(' ')}`
+    return [{ ask: id, line, from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), at }]
+  }).sort((a, b) => b.at - a.at || b.ask.localeCompare(a.ask, 'en', { numeric: true }))
 }
 
 /**

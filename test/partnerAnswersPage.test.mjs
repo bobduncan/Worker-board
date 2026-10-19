@@ -125,11 +125,12 @@ function build(items, partnerAnswers, goalsText = undefined) {
 }
 
 test('the state: a routed ask is not under Needs your attention; the partner is woken for it; the switch as the store keeps it', () => {
-  const state = build([ask('Q1', 'partner', NOW - 40 * MIN), ask('Q2', 'person', NOW - 40 * MIN), ask('Q3', null, NOW - 40 * MIN)])
+  const state = build([ask('Q1', 'partner', NOW - 20 * MIN), ask('Q2', 'person', NOW - 40 * MIN), ask('Q3', null, NOW - 40 * MIN)])
   assert.deepEqual(state.forYou.filter(one => one.workId !== undefined).map(one => one.workId).sort(), ['Q2', 'Q3'])
   assert.deepEqual(state.reconciled.partnerAsks.map(one => [one.id, one.chat]), [['Q1', 'Advisor']])
-  // Free for 12 minutes only: not handed on yet.
+  // Filed 20 minutes ago: not handed on yet; 40 minutes ago: handed on (the review's findings: from its filing).
   assert.deepEqual(state.reconciled.escalations, [])
+  assert.deepEqual(build([ask('Q1', 'partner', NOW - 40 * MIN)]).reconciled.escalations, [{ id: 'Q1', why: 'the partner did not answer in 30 min' }])
   assert.deepEqual(state.partnerAnswers, { on: true })
   assert.deepEqual(build([], { on: false, since: NOW }).partnerAnswers, { on: false, since: NOW })
 })

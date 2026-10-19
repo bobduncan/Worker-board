@@ -211,9 +211,12 @@ with the worker's advice) and the answer stands in today's note under "Decided f
 <question> → <answer> (<why>)`, with **Undo**. Undo takes the answer back: the question comes to you under Needs your
 attention, with "Your partner had answered: ...; you took it back", its chat waits for your answer, and the line says
 "taken back". With **Show closed**, the answered question's card says "Your partner answered: ..." with its why and the
-same **Undo**, for a day. A question your partner hands on, or leaves unanswered for 30 minutes while free, comes to you
-with a line on its card that says why ("Your partner hands this to you: ...", "Your partner did not answer in 30 min:
-it is yours"). Questions only you can answer (provide, do, without options or advice) come to you as before.
+same **Undo**, for 7 days; an answer the Focus page's note does not show (no focus, or an earlier day's) stands under
+Needs your attention in **Decided for you by your partner**, with its Undo, for 7 days. Your partner's own note of the
+day and its answers share one note. While a question is with your partner, Needs your attention shows **With your
+partner: <n> questions** (a click lists them) and the asking worker's lane says "Waiting for your partner (Q<n>)". A
+question your partner hands on, or has not answered 30 minutes after it was asked, comes to you with a line on its card
+that says why ("Your partner hands this to you: ...", "Your partner did not answer in 30 min: it is yours"). Questions only you can answer (provide, do, without options or advice) come to you as before.
 
 B354: a goal becomes your focus, and gets its tick, only with a **Done when** that says how you check it. In the pick
 list a goal without one says "No Done when yet" with **Ask your partner to write it** in place of Pick (then "Your
