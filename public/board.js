@@ -2795,11 +2795,13 @@ const shownRecaps = (state, withClosed) => (state.recapsShow === 'daily' ? [] : 
 const gatheredRecaps = state => (state.recapsShow === 'daily' ? (state.recaps ?? []).filter(recap => !recap.isClosed) : [])
 /** B360: a time left, as a card says it: hours from an hour on, else minutes. */
 const timeLeft = ms => (ms >= HOUR ? `${Math.round(ms / HOUR)} h` : `${Math.max(1, Math.round(ms / MIN))} min`)
+/** B360: the person's words in quotes, without a full stop of their own before the sentence goes on. */
+const quoted = words => `"${String(words).trim().replace(/[.!?]+$/, '')}"`
 /** B360: what a recap says under its picture: when it approves itself, or what became of it. */
 function recapStatus(recap, now) {
   if (recap.state === 'approved') return 'Approved by itself: its 24 hours passed.'
-  if (recap.state === 'overturned') return `Overturned: "${recap.words}". ${recap.isGoal ? 'The goal is open again; your partner makes its next steps.' : 'Your partner makes the fix.'}`
-  if (recap.state === 'feedback') return `Your feedback went to your partner: "${recap.words}".`
+  if (recap.state === 'overturned') return `Overturned: ${quoted(recap.words)}. ${recap.isGoal ? 'The goal is open again; your partner makes its next steps.' : 'Your partner makes the fix.'}`
+  if (recap.state === 'feedback') return `Your feedback went to your partner: ${quoted(recap.words)}.`
   const left = recap.approvesAt === null ? 0 : recap.approvesAt - now
   return `${left <= 0 ? 'Approves itself now' : `Approves itself in ${timeLeft(left)}`}, unless you overturn it or give feedback.`
 }

@@ -62,7 +62,7 @@ const page = { HOUR, MIN }
 /** The page's values come from another realm: compared as plain data. */
 const plain = value => JSON.parse(JSON.stringify(value))
 vm.runInNewContext(`${script.slice(script.indexOf('// recaps:start'), script.indexOf('// recaps:end'))}
-this.shownRecaps = shownRecaps; this.gatheredRecaps = gatheredRecaps; this.recapStatus = recapStatus; this.recapSend = recapSend`, page)
+this.quoted = quoted; this.shownRecaps = shownRecaps; this.gatheredRecaps = gatheredRecaps; this.recapStatus = recapStatus; this.recapSend = recapSend`, page)
 
 const OPEN = { id: 'recap:N4', workId: 'N4', about: 'B2', isGoal: false, title: 'B2 Light the lamps is done', line: 'Every path has a lamp.', evidence: 'pictures/b2/evidence.png', state: 'open', at: NOW, approvesAt: NOW + 24 * HOUR, words: '', isClosed: false }
 const CLOSED = { ...OPEN, id: 'recap:N5', workId: 'N5', state: 'approved', approvesAt: null, isClosed: true }
@@ -82,9 +82,9 @@ test('a recap says when it approves itself, or what became of it', () => {
   assert.equal(page.recapStatus(OPEN, NOW + 24 * HOUR - 10 * MIN), 'Approves itself in 10 min, unless you overturn it or give feedback.')
   assert.equal(page.recapStatus(OPEN, NOW + 25 * HOUR), 'Approves itself now, unless you overturn it or give feedback.')
   assert.equal(page.recapStatus(CLOSED, NOW), 'Approved by itself: its 24 hours passed.')
-  assert.equal(page.recapStatus({ ...CLOSED, state: 'overturned', words: 'Too dim.' }, NOW), 'Overturned: "Too dim.". Your partner makes the fix.')
-  assert.equal(page.recapStatus({ ...CLOSED, state: 'overturned', words: 'Dark north.', isGoal: true }, NOW), 'Overturned: "Dark north.". The goal is open again; your partner makes its next steps.')
-  assert.equal(page.recapStatus({ ...CLOSED, state: 'feedback', words: 'Lovely.' }, NOW), 'Your feedback went to your partner: "Lovely.".')
+  assert.equal(page.recapStatus({ ...CLOSED, state: 'overturned', words: 'Too dim.' }, NOW), 'Overturned: "Too dim". Your partner makes the fix.')
+  assert.equal(page.recapStatus({ ...CLOSED, state: 'overturned', words: 'Dark north.', isGoal: true }, NOW), 'Overturned: "Dark north". The goal is open again; your partner makes its next steps.')
+  assert.equal(page.recapStatus({ ...CLOSED, state: 'feedback', words: 'Lovely.' }, NOW), 'Your feedback went to your partner: "Lovely".')
 })
 
 test('Overturn and Feedback send the person\'s words to the store, and need them', () => {

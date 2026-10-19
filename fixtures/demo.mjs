@@ -470,6 +470,14 @@ function demoWork(now) {
   const work = storeFromText(BACKLOG + FINISHED(now), { now })
   const stamp = at => `${dayOf(at)} ${clockOf2(at)}`
   work.items.get('B06')?.sections.set('History', [`- ${stamp(now - 101 * MIN)} Cleanup: in progress → review`, `- ${stamp(now - 100 * MIN)} server: review → done`])
+  // B360: two recaps of finished work, one open with its evidence picture, one the person overturned.
+  const recap = (id, at, state, about, text, evidence, answer = null) => ({
+    head: new Map([['Id', id], ['Kind', 'note'], ['From', 'Advisor'], ['To', 'you'], ['State', state === 'open' ? 'unread' : 'read'], ['Since', stamp(at)], ['Recap', state], ['Evidence', evidence], ['Text', text.join(': ')]]),
+    sections: new Map([['Text', text], ['About', [about]], ...(answer === null ? [] : [['Answer', [answer]]])]),
+    problem: null,
+  })
+  work.items.set('N90', recap('N90', now - 180 * MIN, 'open', 'B05', ['B05 Footstep sounds is done', 'Every surface has its own footstep: stone, wood and grass.'], 'art-inbox/jump/jump-arc.png'))
+  work.items.set('N91', recap('N91', now - 40 * MIN, 'overturned', 'B07', ['B07 Fog in the forest is done', 'The forest has a low fog that moves with the wind.'], 'none (nothing to see)', 'The fog hides the paths: make it thinner near them.'))
   return work
 }
 
