@@ -232,10 +232,10 @@ test('the partner keeps its drafts through the work tool (vibe-draft, how-draft)
     },
   }
   const vibe = await workApi({ action: 'vibe-draft', chat: 'Advisor', goal: 'G6', lines: ['warm wood'], picture: 'pictures/bench.png' }, ctx)
-  assert.deepEqual(vibe, { ok: true, result: { text: 'The board keeps the vibe of G6: the Focus page shows it.', changed: false } })
+  assert.deepEqual(vibe, { ok: true, result: { text: 'The board keeps the vibe of G6 in the goal map.', changed: false } })
   assert.deepEqual(drafted[0], { command: 'vibe-draft', id: 'G6', lines: ['warm wood'], picture: 'pictures/bench.png' })
   const how = await workApi({ action: 'how-draft', chat: 'Advisor', goal: 'G6', parts: ['Draw the bench · about 1 h · steps B20'], partnerDecides: ['the colour'], youDecide: ['how many'] }, ctx)
-  assert.equal(how.result.text, 'The board keeps the how of G6: the Focus page shows it.')
+  assert.equal(how.result.text, 'The board keeps the how of G6 in the goal map.')
   assert.deepEqual(drafted[1], { command: 'how-draft', id: 'G6', parts: ['Draw the bench · about 1 h · steps B20'], partnerDecides: ['the colour'], youDecide: ['how many'] })
   const late = await workApi({ action: 'vibe-draft', chat: 'Advisor', goal: 'G9', lines: ['x'] }, ctx)
   assert.deepEqual([late.status, late.why], [409, 'The vibe is agreed: talk about the how now.'])

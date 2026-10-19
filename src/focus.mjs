@@ -391,6 +391,16 @@ export function guardGoal(id, ctx) {
   return run
 }
 
+/**
+ * B382: the goals whose fundamental evaluation runs now ("Evaluation asked" under an open goal), the focus or not: while
+ * one runs, the partner stays on high effort.
+ */
+export async function evaluationsRunning(ctx) {
+  const text = await readMap(ctx.fs ?? files, ctx.goalsFile)
+  if (text === null) return []
+  return parseGoals(text).nodes.filter(node => node.state !== 'done' && (node.evaluationAsked ?? null) !== null).map(node => node.id)
+}
+
 async function fireGuard(id, ctx) {
   if (ctx.canWrite !== true || (ctx.partner ?? null) === null || !isId(id)) return { ok: true, result: { id, fired: false }, words: null }
   const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
@@ -398,8 +408,8 @@ async function fireGuard(id, ctx) {
   const done = await changeGoalsFile(text => {
     const map = parseGoals(text)
     const now = map.byId.get(id)
-    // Only the focus goal: its evaluation ends with a how-draft, and only the focus goal is drafted.
-    if (now === undefined || map.focus !== id || !needsEvaluation(now, ctx.items)) return { ok: false, why: 'calm' }
+    // B382: any goal with an agreed how, the focus or not: its evaluation ends with a marked how-draft of that goal.
+    if (now === undefined || !needsEvaluation(now, ctx.items)) return { ok: false, why: 'calm' }
     node = now
     return setGoalLine(text, id, 'Evaluation asked', minuteOf(ctx.now))
   }, goalsAt)
@@ -453,7 +463,8 @@ const agreedOf = node => JSON.stringify([node.parts.map(part => [part.title, par
  * The partner's drafts. `vibe-draft`: `lines` (three to five short lines) and `picture` (a path, or none), in place of
  * the goal's vibe, until the vibe is agreed. `how-draft`: `parts` ({ title, size, steps }), `partnerDecides`,
  * `youDecide`, in place of the goal's how, once its vibe is agreed; once the how is agreed only the parts' steps may
- * change. Only the focus goal is drafted.
+ * change. Only the focus goal is drafted; B382: a goal with an agreed how may be drafted when it is not the focus
+ * (its parts' steps, and the end of the goal guard's evaluation), since its steps run on after the focus moved.
  */
 async function draft(body, node, ctx, goalsAt, focus) {
   // The review of Focus 2: a draft is the focus goal's, and a how comes once its vibe is agreed.
@@ -484,13 +495,16 @@ async function draft(body, node, ctx, goalsAt, focus) {
     return refuse(400, 'A how is its parts ({ title, size, steps }) and the lines of who decides what.')
   }
   if (node === undefined) return failed('gone')
-  if (node.id !== focus) return notFocus()
+  if (node.id !== focus && node.howAgreed === null) return notFocus()
   if (node.vibeAgreed === null) return refuse(409, 'The vibe is not agreed yet: draft the how once the person agreed it.')
   let changed = false
   let evaluated = false
   const done = await changeGoalsFile(text => {
-    const now = parseGoals(text).byId.get(node.id)
+    const map = parseGoals(text)
+    const now = map.byId.get(node.id)
     if (now === undefined) return { ok: false, why: 'gone' }
+    // B382: read again under the turn: a goal that is not the focus is drafted only while its how is agreed.
+    if (map.focus !== node.id && now.howAgreed === null) return { ok: false, why: 'notFocus' }
     const next = setHow(text, node.id, how)
     if (!next.ok || now.howAgreed === null) return next
     // B359: while the goal guard's evaluation runs, the draft is its outcome: the how it names (corrected, rebuilt, or
@@ -509,6 +523,7 @@ async function draft(body, node, ctx, goalsAt, focus) {
     return changed ? { ok: false, why: 'agreed' } : next
   }, goalsAt)
   if (changed) return refuse(409, 'The how is agreed: add the steps to its parts, change nothing else.')
+  if (!done.ok && done.why === 'notFocus') return notFocus()
   return done.ok ? { ok: true, result: evaluated ? { evaluated: true } : {}, words: null } : failed(done.why)
 }
 

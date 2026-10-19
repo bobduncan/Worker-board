@@ -181,14 +181,14 @@ async function act(body, ctx) {
 async function goalDraft(body, ctx) {
   if (typeof ctx.goalDraft !== 'function') return refuse(409, 'This board keeps no goal map: nothing was kept.')
   const goal = line(body.goal, 20)
-  if (!/^G\d+$/.test(goal)) return refuse(400, 'Name the focus goal: goal G<n>.')
+  if (!/^G\d+$/.test(goal)) return refuse(400, 'Name the goal: goal G<n>.')
   const isVibe = body.action === 'vibe-draft'
   const draft = isVibe
     ? { command: 'vibe-draft', id: goal, lines: body.lines, ...(body.picture === undefined ? {} : { picture: body.picture }) }
     : { command: 'how-draft', id: goal, parts: body.parts, ...(body.partnerDecides === undefined ? {} : { partnerDecides: body.partnerDecides }), ...(body.youDecide === undefined ? {} : { youDecide: body.youDecide }) }
   const done = await ctx.goalDraft(draft)
   if (!done.ok) return done
-  return { ok: true, result: { text: `The board keeps the ${isVibe ? 'vibe' : 'how'} of ${goal}: the Focus page shows it.`, changed: false } }
+  return { ok: true, result: { text: `The board keeps the ${isVibe ? 'vibe' : 'how'} of ${goal} in the goal map.`, changed: false } }
 }
 
 // ---- reading ----

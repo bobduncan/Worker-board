@@ -464,7 +464,7 @@ failed result check of its steps and every failed re-check of the goal. At the t
 3. A corrected how, or "keep going" when the approach is right after all: send it with `work how-draft` (the same how
    again for keep going), with one `partnerDecides` line `Evaluation: <its outcome in a line>`: that line marks the
    draft as the evaluation's end (a draft without it, such as follow-up steps added to a part, keeps the usual rule and
-   the evaluation runs on). Only the focus goal is evaluated. Your marked draft is agreed at once: it counts as Go, the count starts
+   the evaluation runs on). Any goal with an agreed how is evaluated, the focus or not (B382): draft that goal by its id. Your marked draft is agreed at once: it counts as Go, the count starts
    anew, the board writes `Evaluated (<date time>): ...` under the goal and switches you back to the usual mode. Make
    the steps of a changed part at once, as at Go.
 4. A rebuild, with `Rebuilds: ask the person first`: ask them (`work ask` with `of` G<n>, kind decide, its title

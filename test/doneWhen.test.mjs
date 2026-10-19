@@ -153,7 +153,7 @@ test('something new that waits for its Done when changes no focus, so the partne
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /const isSameFocus = body\.command === 'focus' && \(body\.id === state\.focus\?\.id \|\| done\.result\?\.isFocus === false\)/)
-  assert.match(server, /const back = isSameFocus \? null : effortBack\(body\.command, state\.advisor\?\.effort\)/)
+  assert.match(server, /const back = isSameFocus \|\| running\.length > 0 \? null : effortBack\(body\.command, state\.advisor\?\.effort\)/)
 })
 
 test('the review: the focus picked again ("Start the talk") is never refused, also one picked before the rule without a Done when', async () => {

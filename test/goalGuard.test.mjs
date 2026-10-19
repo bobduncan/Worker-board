@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { focusMove, guardGoal } from '../src/focus.mjs'
+import { evaluationsRunning, focusMove, guardGoal } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
 import { GUARD_ATTEMPTS, evaluateWords, goalAttempts, guardOf, needsEvaluation } from '../src/goalGuard.mjs'
 import { parseConfig } from '../src/config.mjs'
@@ -188,10 +188,41 @@ test('review: a routine draft while the evaluation runs keeps the usual rule and
   assert.equal((await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h'], partnerDecides: [], youDecide: [] }, ctx(fs))).ok, false)
 })
 
-test('review: the guard fires only for the focus goal, and a failure in the minute of Go is not counted', async () => {
+test('B382: the guard fires for a goal with an agreed how after the focus moved on, and a failure in the minute of Go is not counted', async () => {
   const fs = fakeFs({ [FILE]: latin(MAP.replace('Focus: G2', 'Focus: G3')) })
   const fired = await guardGoal('G2', { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: ITEMS })
-  assert.equal(fired.result.fired, false)
+  assert.equal(fired.result.fired, true)
+  assert.match(fired.words.text, /^evaluate G2 /)
+  assert.equal(read(fs).evaluationAsked, '2026-10-19 10:00')
   const atGo = [step('B9', 'G2', ['2026-10-19 08:00 Partner: result check failed: 0 of 1 points pass; fix B10 for W1'])]
   assert.deepEqual(goalAttempts(goal(), atGo).failures.map(one => one.id), ['G2'], 'only the re-check after Go')
+})
+
+test('B382: a goal that is not the focus ends its evaluation with its own marked how-draft, and gets its steps', async () => {
+  const fs = fakeFs({ [FILE]: latin(evaluating.replace('Focus: G2', 'Focus: G3')) })
+  const done = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h'], partnerDecides: ['Evaluation: wood caps the comfort'], youDecide: [] }, ctx(fs))
+  assert.equal(done.ok, true, done.why)
+  assert.equal(done.result.evaluated, true)
+  assert.deepEqual([read(fs).evaluationAsked, read(fs).howAgreed], [null, '2026-10-19 10:00'])
+  // The changed part's steps, as at Go.
+  const steps = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h · steps B11'], partnerDecides: [], youDecide: [] }, ctx(fs))
+  assert.equal(steps.ok, true, steps.why)
+  assert.deepEqual(read(fs).parts[0].steps, ['B11'])
+  // Another how without the marker is refused, as for the focus goal.
+  assert.equal((await focusMove({ command: 'how-draft', id: 'G2', parts: ['Glass benches · 3 h'], partnerDecides: [], youDecide: [] }, ctx(fs))).ok, false)
+})
+
+test('B382: a goal that is not the focus and has no agreed how is not drafted', async () => {
+  const fs = fakeFs({ [FILE]: latin(MAP.replace('Focus: G2', 'Focus: G3').replace('  How agreed: 2026-10-19 08:00\n', '')) })
+  const how = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h'], partnerDecides: [], youDecide: [] }, ctx(fs))
+  assert.deepEqual([how.ok, how.why], [false, 'That goal is not the focus: draft only the focus goal.'])
+  const vibe = await focusMove({ command: 'vibe-draft', id: 'G2', lines: ['a', 'b', 'c'] }, ctx(fs))
+  assert.deepEqual([vibe.ok, vibe.why], [false, 'That goal is not the focus: draft only the focus goal.'])
+})
+
+test('B382: the evaluations that run, the focus or not, keep the partner on high effort', async () => {
+  const fs = fakeFs({ [FILE]: latin(evaluating.replace('Focus: G2', 'Focus: G3')) })
+  assert.deepEqual(await evaluationsRunning({ fs, goalsFile: FILE }), ['G2'])
+  assert.deepEqual(await evaluationsRunning({ fs: fakeFs({ [FILE]: latin(MAP) }), goalsFile: FILE }), [])
+  assert.deepEqual(await evaluationsRunning({ fs: fakeFs({}), goalsFile: FILE }), [])
 })

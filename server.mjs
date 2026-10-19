@@ -55,7 +55,7 @@ import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread } from './src/brainstorm.mjs'
 import { editGoals } from './src/goalsWrite.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, goalChecked, guardGoal, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsRunning, focusMove, goalChecked, guardGoal, undoLine } from './src/focus.mjs'
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
@@ -466,14 +466,16 @@ async function main(args) {
       allDone: state.focus?.id === body?.id && state.focus.progress.total > 0 && state.focus.progress.done === state.focus.progress.total,
     })
     readState.reset()
-    // B359: the partner's how-draft ended the goal guard's evaluation: back to the usual partner.
-    if (done.ok && done.result?.evaluated === true) await partnerMode(state, 'usual', 'the evaluation ended with the how: back to the usual partner')
+    // B382: a goal that is not the focus may be evaluated meanwhile: while an evaluation runs, the partner stays on high effort.
+    const running = done.ok ? await evaluationsRunning({ goalsFile: projectFile(config, 'goals') }).catch(() => []) : []
+    // B359: the partner's how-draft ended the goal guard's evaluation: back to the usual partner, unless another runs.
+    if (done.ok && done.result?.evaluated === true && running.length === 0) await partnerMode(state, 'usual', 'the evaluation ended with the how: back to the usual partner')
     if (!done.ok || done.words === null) return done.ok ? { ok: true, result: done.result } : done
     // B352: Go on the how, and another goal as the focus, switch the partner back to the usual mode (the talk about the
     // same goal started again keeps it).
     // B354: something new waits in the map for its Done when: the focus did not change, so neither does the partner.
     const isSameFocus = body.command === 'focus' && (body.id === state.focus?.id || done.result?.isFocus === false)
-    const back = isSameFocus ? null : effortBack(body.command, state.advisor?.effort)
+    const back = isSameFocus || running.length > 0 ? null : effortBack(body.command, state.advisor?.effort)
     const main = state.restart?.main ?? null
     if (back !== null && main !== null) {
       const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back })
