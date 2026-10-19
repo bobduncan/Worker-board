@@ -213,6 +213,11 @@ beside its reference, the points ticked). A step's window shows **Checked by a h
 ✓ (green), ✗ (red) or ? (amber, for you to judge), and the evidence picture; a fix step the board made from a failed
 point says which step it fixes.
 
+B358: a goal is ticked only after your partner re-checked it against its Done when and its vibe. Ticking it on the
+Goals part, or Yes to "Is the vibe there?", asks for that re-check ("Your partner re-checks it…"); a passed one ticks
+it and leaves you a recap, a failed one names the gap and the attempt under the goal while your partner adds the steps
+that close it. You may still tick it after a failed re-check: that overturn is written under the goal.
+
 The other parts: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
 milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the
 last box; "No milestone to go to yet" until there is one, "not mapped yet" while it has no sub-goals), **Goals** (the project's goal map, `goals.md`, one level at

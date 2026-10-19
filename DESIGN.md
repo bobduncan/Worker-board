@@ -2211,6 +2211,29 @@ worker for another try, until the attempts stall; only then the person's call, w
     a fix that is done while its step is not through (a point for the person, or reported since) has the partner
     asked for that step again (`closeFixed` answers it, the server's `askResultCheck` types it).
 
+## The goal re-check before its tick (B358)
+
+Part 4 of G11's how (agreed 2026-10-18 21:21). The person, 20:56: "before we can mark a goal as done a reevaluate of
+the goal needs to be done if its actually complete"; 21:18: "verifying its actually reached and otherwise
+automatically create follow up steps".
+
+1. A tick on the Goals part (the server routes `state` done there while a partner is on the board) and Yes to "Is the
+   vibe there?" ask the partner for the goal's re-check (src/focus.mjs `goalDone`, `askRecheck`): `Recheck asked:
+   <date time>` under the goal, once, and the word `goal re-check:` (the goal, its Done when and vibe, the job). A goal
+   without a Done when is refused (B354). Without a partner on the board the Goals part ticks as before.
+2. The partner's helper re-checks it and the partner files `work checked G<n>` (src/work/api.mjs `goalCheck`): every
+   Done when point and vibe line pass, fail or ask, the evidence picture, the score. The board writes `Rechecked
+   (<date time>, <who>): <passed|failed|waits for you> · <n> of <m> points pass · gap: ... · evidence <path>` under the
+   goal (`goalChecked`) and takes `Recheck asked` away. Passed: ticked, the focus cleared, a recap note to the person in
+   the partner's name. Failed: open, an attempt (its failed re-checks counted); the partner makes the follow-up steps
+   into the goal's how. Ask: the person judges, and the partner files again.
+3. After a failed re-check the person's tick stands: ticked, with `Overturned (<date time>): ticked by you after the
+   re-check failed` under it.
+4. The Goals part's folded line says where the re-check stands, and its lines show every re-check and overturn; the
+   Focus run shows "Your partner re-checks it" in place of "Is the vibe there?", or the gap it found with the attempt.
+5. Not in it: the two guards (the next step), the recap's own look; no change to the Workers mod (`checked` takes a
+   goal's id).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

@@ -414,8 +414,32 @@ screen, or anything that adds more than about an hour of work to the how. When i
 once per line: the user wants that decision back. Reverse it (a step, or a change to one), or say in one line of
 your next note why it stays, and ask with `work ask` when it is theirs to decide.
 
-**Is the vibe there?** When every part of the how is done, the board asks the user once. `vibe there: yes` (with
-`Goal:`): the board ticked the goal and cleared the focus; write the goal's line in your decisions page and, in your
-next round, the note that asks for the next focus. `vibe there: no` with `Words: ...`: the board took `How agreed`
-away; the goal is back in the how: propose the parts that close the gap (the how again, with the done parts kept), ask
-in the thread whether it fits, and the user says "Go" again.
+**Is the vibe there?** When every part of the how is done, the board asks the user once. Yes types `goal re-check:`
+(below, "The goal re-check", B358): the goal is ticked only once your re-check passed; then the board cleared the focus:
+write the goal's line in your decisions page and, in your next round, the note that asks for the next focus.
+`vibe there: no` with `Words: ...`: the board took `How agreed` away; the goal is back in the how: propose the parts
+that close the gap (the how again, with the done parts kept), ask in the thread whether it fits, and the user says
+"Go" again.
+
+## The goal re-check
+
+No goal is ticked on a feeling (B358). When the user ticks a goal on the Goals part, or answers Yes to "Is the vibe
+there?", the board writes `Recheck asked: <date time>` under it and types `goal re-check: G<n> <title>`, `Done when:
+...`, `Vibe: ...` (when it has one) and `Your job: ...` into your chat: their word.
+
+1. Hand the re-check to a fresh helper (never your own chat): every point of the goal's Done when, and every vibe line,
+   checked against its steps' evidence (their `## Checked` sections and pictures) and the game or board as it is now.
+2. For a goal you can see, one evidence picture with the board's tool: `node <board>/tools/evidence.mjs --step G<n>
+   --title "<title>" --result <the result's picture> --points '<the ticked points as JSON>'` (a reference where the
+   goal has one).
+3. File it: `work checked G<n>` with `evidence` (the picture's path, or `none (<why>)`) and `points` (every Done when
+   point and vibe line, each `pass: ...`, `fail: ...` or `ask: ...`), `score` where there is one.
+
+All pass: the board ticks the goal, writes the re-check under it, clears the focus when it was the focus, and gives the
+user a recap note in your name. A failed point: the goal stays open, its gap written under it as an attempt; make the
+follow-up steps at once, as at Go (`work new` with `goal`, `summary`, `what` from the failed points, refined at once),
+and add their ids to the goal's how (`work how-draft`, the part they belong to, " · steps B<id>") or, for a goal that
+is not the focus, to its `Steps:` line; the run goes on, and "Is the vibe there?" comes again once they are done. A
+point only the user can judge: ask them under the goal (`work ask` with `of` G<n>, kind look, the picture), then file
+`checked` again. The user may still tick a goal after a failed re-check: the board ticks it and writes the overturn
+under it; take it as their word. Say nothing in your chat; your card's line while you work: "Re-check G<n>".
