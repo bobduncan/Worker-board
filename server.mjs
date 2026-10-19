@@ -226,6 +226,11 @@ export function createBoard({
       } catch {
         return refuse(res, 400, 'Not JSON.')
       }
+      // B412: a work call's request id comes in its header (the Workers mod's X-Work-Request); a body's own is not taken.
+      if (pathname === '/api/bridge/work' && typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        const { request: _ignored, ...rest } = parsed
+        parsed = { ...rest, ...(typeof req.headers['x-work-request'] === 'string' ? { request: req.headers['x-work-request'] } : {}) }
+      }
       const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }

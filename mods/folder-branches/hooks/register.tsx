@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { ChatFile, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts } from './board'
 import type { Board, BoardStart, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -124,6 +124,8 @@ let isFirstPrompt = true
  */
 let turnNumber = 0
 let isReadForTurn = false
+/** B412: how many work calls this process made: the last part of each call's request id. */
+let requestCount = 0
 /** The review of Pause 2: where the mod's store keeps the resume a main chat was told of, so a new process says it no more. */
 const resumeGivenKey = (session: string): string => `pause-resume-given:${session}`
 
@@ -372,25 +374,63 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
  * B297: one call of the work tool, sent to the worker board as this chat: `{ ok, text }`, the board's answer or one
  * line saying why there is none. It never throws.
  */
-async function workOnBoard($: EngineInterface, fields: Record<string, unknown>): Promise<{ ok: boolean; text: string; status?: number }> {
+async function workOnBoard($: EngineInterface, fields: Record<string, unknown>, request: string | null = null): Promise<WorkAnswer> {
   if (myself === null || chatsDir === null) return { ok: false, text: 'This chat is not in the list of chats: the work tool is for the chats of the list.' }
   try {
     const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
     const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
     if (board === null) return { ok: false, text: 'The worker board is not running: nothing was recorded. Try again once it runs.' }
+    // B412: the call's request id: the board gives a repeat of it the first answer, so a call is recorded once.
     const answer = await $.http.fetch(`${board.url}${WORK_PATH}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key },
+      headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, ...(request === null ? {} : { [REQUEST_HEADER]: request }) },
       // Who asks is the mod's to say, never the chat's.
       body: JSON.stringify({ ...fields, chat: myself.name, session: await $.session.id() }),
     })
     if (!answer.ok) return { ok: false, text: answer.text.trim() || `The worker board refused it (${answer.status}).`, status: answer.status }
 
     return { ok: true, text: answer.text, status: answer.status }
-  } catch {
-    return { ok: false, text: 'The worker board did not answer: nothing was recorded. Try again in a moment.' }
+  } catch (error) {
+    // B412: a board that took no connection has recorded nothing; one whose answer was cut off may have.
+    const isRefused = /ECONNREFUSED/.test(String((error as { message?: unknown } | undefined)?.message ?? error))
+    return { ok: false, text: 'The worker board did not answer: nothing was recorded. Try again in a moment.', isCut: true, isRefused }
   }
 }
+
+/** B412: one answer of the board to a work call; `isCut` when none came (`isRefused`: it took no connection). */
+type WorkAnswer = { ok: boolean; text: string; status?: number; isCut?: boolean; isRefused?: boolean }
+
+/** B412: a new request id for one work call: this session, the time, and the count of this process. */
+async function newRequest($: EngineInterface): Promise<string> {
+  requestCount += 1
+  return `${await $.session.id()}-${String(await $.clock.now())}-${String(requestCount)}`.replace(/[^\w.:-]/g, '_').slice(-100)
+}
+
+/** B412: how often, and how far apart, the work tool asks again with the same request id when no answer came. */
+const AGAIN_TRIES = 3
+const AGAIN_MS = 2000
+
+/**
+ * B412: a call of the chat's own work tool: on an answer that was cut off (the board started anew, or took long) it is
+ * asked again with the same request id, which the board answers with the first answer, also while the board starts
+ * anew. Still without one, it says that it is not known whether the call was recorded, instead of "nothing was
+ * recorded", so the chat looks first.
+ */
+async function workTool($: EngineInterface, fields: Record<string, unknown>): Promise<WorkAnswer> {
+  const request = await newRequest($)
+  let answer = await workOnBoard($, fields, request)
+  // A board that took no connection has recorded nothing: that is said at once. Only a cut answer is asked again.
+  if (answer.isCut !== true || answer.isRefused === true) return answer
+  for (let tries = 0; answer.isCut === true && tries < AGAIN_TRIES; tries += 1) {
+    await $.clock.sleep(AGAIN_MS)
+    answer = await workOnBoard($, fields, request)
+  }
+  if (answer.isCut !== true) return answer
+  return { ...answer, text: `${NOT_KNOWN} Run work next (or work list) to see whether it is there before you try again.` }
+}
+
+/** B412: what the work tool says when the board's answer was cut off and asking again brought none. */
+const NOT_KNOWN = 'The worker board did not answer in time: not known whether it was recorded.'
 
 /**
  * B298: one call of the work tool made by the mod itself (an instruction filed, a turn ended): the board's answer as
@@ -398,11 +438,32 @@ async function workOnBoard($: EngineInterface, fields: Record<string, unknown>):
  * the board does not take it; the board says on its own page what is wrong.
  */
 async function workQuietly($: EngineInterface, fields: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  const call = await workLate($, fields)
+  return call.read
+}
+
+/**
+ * B412: a call of the mod's own as `workQuietly`, which also says whether the board refused it (`isRefused`) or took
+ * longer than it may hold anything (`late`: the call itself, still running, which gives its fields once the board
+ * answers). A call that was late is never filed a second time: the board may have recorded it.
+ */
+async function workLate($: EngineInterface, fields: Record<string, unknown>): Promise<{ read: Record<string, unknown> | null; isRefused: boolean; late: Promise<Record<string, unknown> | null> | null }> {
   try {
     if (myself === null) await withinTime($, changeMine($, () => null))
     // Review of B298: a board that hangs or starts anew holds the person's prompt a moment at most.
-    const answer = await withinTime($, workOnBoard($, fields))
-    if (answer === null || !answer.ok) return null
+    const running = workOnBoard($, fields, await newRequest($))
+    const answer = await withinTime($, running)
+    if (answer === null) return { read: null, isRefused: false, late: running.then(late => fieldsOf(late), () => null) }
+    return { read: fieldsOf(answer), isRefused: !answer.ok && answer.isCut !== true, late: null }
+  } catch {
+    return { read: null, isRefused: false, late: null }
+  }
+}
+
+/** B412: the fields of the board's answer to a mod's own call, or null; the open instructions it names are kept. */
+function fieldsOf(answer: WorkAnswer): Record<string, unknown> | null {
+  try {
+    if (!answer.ok) return null
     const read: unknown = JSON.parse(answer.text)
     if (typeof read !== 'object' || read === null || Array.isArray(read)) return null
     const open = openFrom(read)
@@ -484,8 +545,8 @@ async function holdsNothing($: EngineInterface): Promise<boolean> {
 }
 
 /** B299: files the questions of the app's question form on the board as asks: `[{ id, text }]` of those it took. */
-async function fileForm($: EngineInterface, input: unknown): Promise<{ id: string; text: string }[]> {
-  const filed: { id: string; text: string }[] = []
+async function fileForm($: EngineInterface, input: unknown): Promise<FiledForm[]> {
+  const filed: FiledForm[] = []
   try {
     const questions = formQuestions(input)
     if (questions.length === 0) return filed
@@ -493,15 +554,25 @@ async function fileForm($: EngineInterface, input: unknown): Promise<{ id: strin
     const of = dir === null ? null : cardStep(await readChat($, dir, await $.session.id()))
     for (const question of questions) {
       const ask = { action: 'ask', kind: 'decide', via: 'form', text: question.text, options: question.options }
-      // Under the card's step when the board takes it there, else on its own.
-      const made = (of === null ? null : await workQuietly($, { ...ask, of })) ?? await workQuietly($, ask)
-      if (typeof made?.id === 'string') filed.push({ id: made.id, text: question.text })
+      // Under the card's step when the board takes it there, else on its own. B412: only when the board refused it
+      // under the step: one that answered late may have filed it, and its ask is closed once the late answer comes.
+      let call = of === null ? null : await workLate($, { ...ask, of })
+      if (call === null || call.isRefused) call = await workLate($, ask)
+      const id = idOf(call.read)
+      if (id !== null) filed.push({ id, text: question.text })
+      else if (call.late !== null) filed.push({ id: call.late.then(idOf), text: question.text })
     }
   } catch {
     // the form is asked all the same
   }
   return filed
 }
+
+/** B412: an ask filed for a question of the form: its id, or the late answer that brings it. */
+type FiledForm = { id: string | Promise<string | null>; text: string }
+
+/** B412: the id of the ask a call filed, or null. */
+const idOf = (read: Record<string, unknown> | null): string | null => (typeof read?.id === 'string' ? read.id : null)
 
 /** Tells the board what became of the messages this chat took: typed here, or not. */
 async function reportTyped($: EngineInterface, board: Board, typed: string[], failed: string[]): Promise<void> {
@@ -1225,8 +1296,11 @@ export const register: Register = on => {
       if (isInTurn) await say($, 'working')
       // Review of B299: a form that returned is answered, also in the person's own words; one closed unanswered goes.
       for (const one of filed) {
+        // B412: an ask whose filing answered late is closed once its answer is there; held a moment at most.
+        const id = typeof one.id === 'string' ? one.id : await withinTime($, one.id)
+        if (id === null) continue
         const answer = formAnswer((result as { result?: unknown } | undefined)?.result, one.text)
-        await workQuietly($, isAnswered ? { action: 'answered-in-chat', id: one.id, text: answer === '' ? 'answered in the chat' : answer } : { action: 'withdraw', id: one.id, why: 'the question form was closed without an answer' })
+        await workQuietly($, isAnswered ? { action: 'answered-in-chat', id, text: answer === '' ? 'answered in the chat' : answer } : { action: 'withdraw', id, why: 'the question form was closed without an answer' })
       }
     }
   })
@@ -1309,7 +1383,7 @@ export const register: Register = on => {
       return { result: "Only the chat's main conversation changes the work: nothing was changed." }
     }
     const fields = Object.fromEntries(WORK_FIELDS.filter(key => input[key] !== undefined).map(key => [key, input[key]]))
-    const answer = await workOnBoard($, fields)
+    const answer = await workTool($, fields)
     if (!answer.ok) return { result: answer.text }
     let read: Record<string, unknown> = {}
     try {

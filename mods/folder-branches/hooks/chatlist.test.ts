@@ -71,6 +71,11 @@ type World = {
   pauseReads: number
   /** The description each tool was registered with, by its name. */
   descriptions: Record<string, string>
+  /** B412: each work call's request id (its X-Work-Request header); the next calls whose answer is cut off, by why; an
+   * answer the board holds until the test lets it go. */
+  requests: string[]
+  cuts: string[]
+  held: Promise<void> | null
   /** The review of Pause 2: the mod's own store ($.store), across its processes. */
   stored: Record<string, unknown>
 }
@@ -78,8 +83,13 @@ type World = {
 /** Pause 2: the board's pause-state answer while nobody paused. */
 const RUNNING = { text: "The board's pause state: running.", state: 'running', since: null, forChat: { holds: [], mustStop: false }, resumeList: [] }
 
+/** B412: lets the mod's waiting calls run to their end. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 200; i++) await Promise.resolve()
+}
+
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {} }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -207,10 +217,17 @@ function stand(on: On, w: World): void {
     if (e.url.endsWith('/api/bridge/work')) {
       w.worked.push(e.init?.body ?? '')
       w.workedAt.push(`${e.url} ${e.init?.headers?.['X-Board-Key'] ?? ''}`)
+      w.requests.push(e.init?.headers?.['X-Work-Request'] ?? '')
       if (w.hangs) return new Promise<never>(() => {})
+      const cut = w.cuts.shift()
+      if (cut !== undefined) return { deny: cut }
       const answer = w.workAnswers.shift() ?? w.workAnswer
+      const value = { status: answer.status, ok: answer.status === 200, headers: {}, text: answer.text }
+      if (w.held === null) return { value }
+      const held = w.held
+      w.held = null
 
-      return { value: { status: answer.status, ok: answer.status === 200, headers: {}, text: answer.text } }
+      return held.then(() => ({ value }))
     }
     if (e.url.endsWith('/api/bridge/typed')) {
       w.reported.push(e.init?.body ?? '')
@@ -1169,6 +1186,54 @@ describe('B297: the work tool asks the worker board', () => {
     expect(w.worked.length).toBe(3)
   })
 
+  test('B412: an answer cut off is asked again with the same request id; the board\u2019s answer is the tool\u2019s', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.worked = []
+    w.requests = []
+    w.cuts = ['socket hang up']
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B30', text: 'B30 is made.' }) }
+    const made = $.tool.call({ tool: WORK, action: 'new', title: 'Paint the gate' })
+    await settle()
+    await clock.advance(2000)
+    expect((await made).result).toBe('B30 is made.')
+    expect(w.worked.length).toBe(2)
+    expect(w.requests[0]).toMatch(/^units-\d+-\d+$/)
+    expect(w.requests[1]).toBe(w.requests[0])
+    // The next call is a call of its own.
+    await $.tool.call({ tool: WORK, action: 'next' })
+    expect(new Set(w.requests).size).toBe(2)
+  })
+
+  test('B412: still no answer after asking again: not known whether it was recorded, never "nothing was recorded"', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.worked = []
+    w.cuts = ['socket hang up', 'ECONNREFUSED', 'ECONNREFUSED', 'ECONNREFUSED']
+    const reported = $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'done', merged: 'abc1234' })
+    for (let i = 0; i < 3; i++) {
+      await settle()
+      await clock.advance(2000)
+    }
+    const text = String((await reported).result)
+    expect(text).toContain('not known whether it was recorded')
+    expect(text).toContain('work next')
+    expect(w.worked.length).toBe(4)
+    // A board that took no connection at all has recorded nothing: it says so at once, and is not asked again.
+    w.worked = []
+    w.cuts = ['ECONNREFUSED']
+    expect((await $.tool.call({ tool: WORK, action: 'note', to: 'main', text: 'hello' })).result).toBe('The worker board did not answer: nothing was recorded. Try again in a moment.')
+    expect(w.worked.length).toBe(1)
+  })
+
   test('Focus 2: the partner keeps its drafts with vibe-draft and how-draft, their fields sent to the board', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
@@ -1541,6 +1606,30 @@ describe('B299: a question asked with the app\u2019s form stands on the worker b
     w.formCloses = true
     await $.tool.call(FORM as never).catch(() => null)
     expect(sent(w).map(one => [one.action, one.id ?? null])).toEqual([['ask', null], ['withdraw', 'Q6']])
+  })
+
+  test('B412: a board slow to file it under the step is not asked again without the step; its late answer is closed', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(working), [BOARD]: board })
+    w.workAnswer = { status: 409, text: 'not yet' }
+    stand(on, w)
+    await begin($)
+    w.worked = []
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'Q8' }) }
+    let release = (): void => {}
+    w.held = new Promise<void>(resolve => {
+      release = resolve
+    })
+    w.formAnswers = { 'Which port?': '4320' }
+    const asked = $.tool.call(FORM as never)
+    await settle()
+    // The board takes longer than the mod may hold the form: the form is asked, and nothing is filed a second time.
+    await clock.advance(1500)
+    await settle()
+    release()
+    await settle()
+    await asked
+    expect(sent(w).map(one => [one.action, one.of ?? null, one.id ?? null])).toEqual([['ask', 'B12', null], ['answered-in-chat', null, 'Q8']])
   })
 
   test('B301: a board without a work store files nothing, and the form is asked as before', async ($, on) => {
