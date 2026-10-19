@@ -123,7 +123,7 @@ export async function readKept(file, now, fs = files) {
     return { value: null, setAside: null, unread: `not readable: ${error?.code ?? error?.message}` }
   }
   try {
-    return { value: JSON.parse(text.replace(/^FEFF/, '')), setAside: null, unread: null }
+    return { value: JSON.parse(text.replace(/^\uFEFF/, '')), setAside: null, unread: null }
   } catch {
     const aside = `${file}.broken-${stampOf(now)}`
     try {
