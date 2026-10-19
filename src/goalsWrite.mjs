@@ -166,7 +166,7 @@ function appendOwnLine(text, id, line) {
 
 /** B358: one more line of the goal's own (a re-check's outcome, an overturn), after its own lines. */
 export function addGoalLine(text, id, line) {
-  const words = oneLine(line, 600)
+  const words = oneLine(line, 1200)
   return words === '' ? refuse('form') : appendOwnLine(text, id, words)
 }
 
@@ -514,7 +514,7 @@ const readText = (fs, file) => fs.readFile(file).then(bytes => bytes.toString('l
 const isId = value => typeof value === 'string' && /^G\d+$/.test(value)
 const isAskId = value => typeof value === 'string' && /^A\d+$/.test(value)
 /** B258: an ask was typed into the Advisor's chat, and a read answer is read: no change the page's undo takes back. */
-const isMessage = body => body.command === 'ask' || body.command === 'read'
+const isMessage = body => body.command === 'ask' || body.command === 'read' || (body.command === 'line' && body.name === 'Recheck asked')
 const isParent = value => value === null || value === undefined || isId(value)
 /** The page a change came from: its own word, so each page undoes its own changes. */
 const pageOf = body => (typeof body.page === 'string' && /^[0-9a-z]{4,40}$/.test(body.page) ? body.page : '')

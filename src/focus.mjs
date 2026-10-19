@@ -295,7 +295,10 @@ async function vibeThere(command, node, words, ctx, goalsAt, say) {
     const now = map.byId.get(node.id)
     if (now === undefined) return { ok: false, why: 'gone' }
     wrote = map.focus === node.id && focusStage(now) === 'run'
-    return wrote ? reopenHow(text, node.id) : { ok: false, why: 'late' }
+    if (!wrote) return { ok: false, why: 'late' }
+    // The second review: No takes an open re-check back too, so a later pass cannot tick it against the person's word.
+    const reopened = reopenHow(text, node.id)
+    return reopened.ok ? setGoalLine(reopened.text, node.id, 'Recheck asked', '') : reopened
   }, goalsAt)
   if (!wrote) return { ok: true, result: { unchanged: true }, words: null }
   if (!done.ok) return failed(done.why)
@@ -388,7 +391,7 @@ async function recheckDone(body, ctx) {
     if (!isRecheckOpen(now)) return { ok: false, why: 'notAsked' }
     title = now.title
     attempts = now.rechecks.filter(one => one.verdict === 'failed').length + (body.verdict === 'failed' ? 1 : 0)
-    const lined = addGoalLine(text, body.id, `Rechecked (${minuteOf(ctx.now)}, ${oneLine(body.by, 60).replace(/[(),]/g, ' ').trim()}): ${oneLine(body.line, 900)}`)
+    const lined = addGoalLine(text, body.id, `Rechecked (${minuteOf(ctx.now)}, ${oneLine(body.by, 60).replace(/[(),]/g, ' ').trim()}): ${oneLine(body.line, 1100)}`)
     if (!lined.ok) return lined
     // Waiting for the person, the re-check stays asked: the partner files it again once they judged.
     if (body.verdict === 'waits for you') return lined

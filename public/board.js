@@ -6112,11 +6112,12 @@ $('goals-outline').addEventListener('click', event => {
     return goalsEdit('rename', id, node.title)
   }
   if (name === 'done') {
-    if (goalHasOpenInside(board.goals, id) && !isConfirmed('done', id)) {
+    // The second review: the click that confirms an overturn is not asked about the goals inside again.
+    if (!isConfirming('overturn', id) && goalHasOpenInside(board.goals, id) && !isConfirmed('done', id)) {
       if (!isConfirming('done', id)) goalsAsk('done', id)
       return redrawGoals()
     }
-    goalsUi.confirm = null
+    if (!isConfirming('overturn', id)) goalsUi.confirm = null
     close()
     return goalTick(id)
   }
@@ -6189,8 +6190,10 @@ async function sendGoals(body) {
   // A change that changed nothing is nothing to undo. B258: an ask and a read mark are no change undo takes back, and
   // after them the map no longer reads as the changes before left it, so those cannot be undone either.
   // B354: a word to the partner (done-when) changes nothing in the map: nothing to count for undo.
-  // B358, the review: a re-check asked or an overturn is no change the page's undo takes back.
-  if (result !== null && result.unchanged !== true && body.command !== 'done-when' && result.recheck === undefined && result.overturned !== true) goalsUi.undoable = body.command === 'ask' || body.command === 'read' ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
+  // B358, the reviews: a re-check asked, its take-back or an overturn is no change the page's undo takes back; after
+  // one the map no longer reads as the changes before left it, so those cannot be undone either.
+  const isOutside = result?.recheck !== undefined || result?.overturned === true || (body.command === 'line' && body.name === 'Recheck asked')
+  if (result !== null && result.unchanged !== true && body.command !== 'done-when') goalsUi.undoable = body.command === 'ask' || body.command === 'read' || isOutside ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   // Changed or refused, the map is read anew (a refusal is often a change made elsewhere in between), and the next
   // key works on the map as it now is.
   await read()
@@ -6253,7 +6256,7 @@ function goalTickSaid(result) {
   showPaste(result?.paste ?? null)
   const copied = result?.paste ? ' Copied: paste it into your partner’s chat.' : ''
   if (result?.recheck === 'asked') goalsSay(`Your partner re-checks it against its Done when first: it gets its tick once that passed.${copied}`, 'ok')
-  else if (result?.recheck === 'asked again') goalsSay(`Your partner is asked again for its re-check. Click again to tick it without the re-check.${copied}`, 'ok')
+  else if (result?.recheck === 'asked again') goalsSay(`${result.unchanged ? 'Your partner was asked a moment ago.' : 'Your partner is asked again for its re-check.'} Click again to tick it without the re-check.${copied}`, 'ok')
   else if (result?.overturned === true) goalsSay('Ticked by you without a passed re-check: the overturn is written under the goal.', 'ok')
   return result
 }
@@ -6269,6 +6272,8 @@ async function goalTick(id) {
     goalsUi.confirm = null
     return goalTickSaid(await sendGoals({ command: 'state', id, state: 'done', overturn: true }))
   }
+  // A double click is not the second click the overturn asks for.
+  if (isConfirming('overturn', id)) return null
   const result = await sendGoals({ command: 'state', id, state: 'done' })
   if (result?.recheck === 'asked again') goalsAsk('overturn', id)
   return goalTickSaid(result)
@@ -6279,12 +6284,13 @@ async function goalsCycle(id) {
   const node = board?.goals ? goalById(board.goals, id) : null
   if (node === null) return
   const next = goalNextState(node.state)
-  if (next === 'done' && goalHasOpenInside(board.goals, id) && !isConfirmed('done', id)) {
+  if (next === 'done' && !isConfirming('overturn', id) && goalHasOpenInside(board.goals, id) && !isConfirmed('done', id)) {
     // A double-click is not the second click it asks for.
     if (!isConfirming('done', id)) goalsAsk('done', id)
     return redrawGoals()
   }
-  goalsUi.confirm = null
+  // The second review: the confirm of an overturn is kept for goalTick, which reads it.
+  if (!(next === 'done' && isConfirming('overturn', id))) goalsUi.confirm = null
   if (next === 'done') return goalTick(id)
   await sendGoals({ command: 'state', id, state: next })
 }
@@ -7098,10 +7104,11 @@ $('goals-frame').addEventListener('click', event => {
   const tool = event.target.closest('[data-goal-tool]')?.dataset.goalTool
   if (tool === undefined || focus === null) return
   if (tool === 'ask') return openGoalAsk(focus)
+  // B358: the re-check taken back: the goal stays open.
+  if (tool === 'recheck-back') return sendGoals({ command: 'line', id: focus, name: 'Recheck asked', value: '' }).then(done => { if (done !== null) goalsSay(done.unchanged ? 'There was no re-check to take back.' : 'The re-check is taken back: the goal stays open.', 'ok') })
   if (tool === 'brainstorm') return openBrainstorm(focus)
   // B354: the partner is asked to write the goal's Done when; the map itself is not changed.
   // The review: without the Workers mod the word is put on the clipboard to paste, as every word to the partner.
-  if (tool === 'recheck-back') return sendGoals({ command: 'line', id: focus, name: 'Recheck asked', value: '' }).then(done => { if (done !== null) goalsSay('The re-check is taken back: the goal stays open.', 'ok') })
   if (tool === 'done-when') {
     return sendGoals({ command: 'done-when', id: focus }).then(done => {
       if (done === null) return

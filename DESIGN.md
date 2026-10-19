@@ -2239,6 +2239,8 @@ automatically create follow up steps".
    Goals part can take a re-check back (its line removed), and `goalChecked` then refuses a late outcome; one that waits
    for the person stays asked; without the Workers mod the word is put on the clipboard; Undo does not count a re-check
    asked or an overturn; a point's " · " and a long gap no longer break the line.
+7. The second review: the page keeps the overturn's confirm for its second click (the dot and the menu); No to the
+   vibe takes an open re-check back too, so a later pass cannot tick it; a take-back is no change Undo takes back.
 
 ## What it does not do
 

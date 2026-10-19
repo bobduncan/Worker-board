@@ -217,3 +217,31 @@ test('the pages: the Goals part names the re-check and every outcome under a goa
   assert.match(script, /if \(isOpen && isConfirmed\('overturn', id\)\) \{\n\s+goalsUi\.confirm = null\n\s+return goalTickSaid\(await sendGoals\(\{ command: 'state', id, state: 'done', overturn: true \}\)\)/)
   assert.match(script, /if \(tool === 'recheck-back'\) return sendGoals\(\{ command: 'line', id: focus, name: 'Recheck asked', value: '' \}\)/)
 })
+
+test('the second review: No to the vibe takes an open re-check back, so a later pass cannot tick it', async () => {
+  const run = GOALS.replace('    Vibe: you sit down without thinking\n', '    Vibe: you sit down without thinking\n    Vibe agreed: 2026-10-19 08:00\n    Part: Build them · about 1 h · steps B5\n    How agreed: 2026-10-19 08:30\n')
+  const fs = fakeFs({ [MAP]: latin(run) })
+  await focusMove({ command: 'vibe-there-yes', id: 'G2' }, ctx(fs, { allDone: true }))
+  await goalChecked({ id: 'G2', verdict: 'waits for you', line: 'waits for you · 0 of 1 points pass · for you: comfy?', by: 'Partner' }, ctx(fs))
+  assert.equal(mapOf(fs).byId.get('G2').recheckAsked, '2026-10-19 09:00')
+  const no = await focusMove({ command: 'vibe-there-no', id: 'G2', text: 'not comfy yet' }, ctx(fs, { allDone: true }))
+  assert.equal(no.ok, true, no.why)
+  assert.equal(mapOf(fs).byId.get('G2').recheckAsked, null)
+  assert.equal((await goalChecked({ id: 'G2', verdict: 'passed', line: 'passed · 1 of 1 points pass', by: 'Partner' }, ctx(fs))).status, 409)
+  assert.equal(mapOf(fs).byId.get('G2').state, 'now')
+})
+
+test('the second review: the page keeps the overturn\'s confirm for its second click; a take-back is no change undo takes back', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  assert.match(script, /if \(!\(next === 'done' && isConfirming\('overturn', id\)\)\) goalsUi\.confirm = null/)
+  assert.match(script, /if \(!isConfirming\('overturn', id\)\) goalsUi\.confirm = null\n\s+close\(\)\n\s+return goalTick\(id\)/)
+  assert.match(script, /if \(isConfirming\('overturn', id\)\) return null/)
+  const { editGoals } = await import('../src/goalsWrite.mjs')
+  const fs = fakeFs({ [MAP]: latin(GOALS) })
+  await focusMove({ command: 'goal-done', id: 'G1' }, ctx(fs))
+  const at = { canWrite: true, file: MAP, historyDir: 'D:/Work/p/history', now: NOW, fs, page: 'b358page' }
+  await editGoals({ command: 'line', id: 'G1', name: 'Recheck asked', value: '', page: 'b358page' }, at)
+  assert.equal((await editGoals({ command: 'undo', page: 'b358page' }, at)).status, 409)
+  assert.equal(mapOf(fs).byId.get('G1').recheckAsked, null)
+})

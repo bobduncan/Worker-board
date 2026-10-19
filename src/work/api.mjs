@@ -849,11 +849,13 @@ async function checked(body, w) {
 async function goalCheck(body, w) {
   if (typeof w.goalChecked !== 'function') return refuse(409, 'This board keeps no goal map: nothing was checked.')
   const id = body.id.trim()
-  const evidence = line(body.evidence, 300)
+  // The second review: no " · " in the words, which would split the goal map's line.
+  const plainWords = words => words.replace(/\s*·\s*/g, ' - ')
+  const evidence = plainWords(line(body.evidence, 300))
   if (evidence === '') return refuse(400, 'Name the evidence picture in "evidence", by its path, or "none (<why>)".')
   const read = parsePoints(body.points)
   if (!read.ok) return refuse(400, read.why)
-  const score = line(body.score, 60)
+  const score = plainWords(line(body.score, 60))
   // The review: a point's own " · " would split the goal map's line.
   const points = read.points.map(one => ({ ...one, text: one.text.replace(/\s*·\s*/g, ' - ') }))
   const failed = points.filter(one => one.verdict === 'fail').map(one => one.text)
