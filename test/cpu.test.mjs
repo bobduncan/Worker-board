@@ -3,9 +3,10 @@
 // of the cores), for the project's chats and everything below them only. Made-up processes; Windows is replaced.
 
 import assert from 'node:assert/strict'
+import { readFileSync as readFileSyncForTest } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
-import { tmpdir } from 'node:os'
+import { availableParallelism, cpus, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -14,7 +15,7 @@ import vm from 'node:vm'
 import { createBoard } from '../server.mjs'
 import { configProblem, parseConfig } from '../src/config.mjs'
 import {
-  affinityMask, changesFor, chosenProcesses, cpuLimiter, parseLevel, parseListing, readLevel, saveLevel, sessionOf, sessionsOfCards, strongCores,
+  affinityMask, boardChanges, changesFor, chosenProcesses, cpuLimiter, logicalCores, parseLevel, parseListing, readLevel, saveLevel, sessionOf, sessionsOfCards, strongCores,
 } from '../src/cpu.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -103,6 +104,28 @@ test('the chosen processes: the project\'s chats and their whole trees; not the 
   assert.deepEqual(chosenProcesses([{ pid: 9, parent: 1, name: 'Claude.exe', commandLine: `x --type=renderer --resume=${A}`, priority: 8, created: 1 }].map(one => ({ ...one, name: 'node.exe' })), [A]), [])
 })
 
+test('the board itself is never chosen: its process, its keeper and everything below them stay as they are', () => {
+  // The board started by a chat (2026-10-19): process 202 is its keeper, 203 the board's own game or helper.
+  const chosen = chosenProcesses(machine(), [A, B], { spare: [202] })
+  assert.deepEqual(chosen.map(one => one.pid).sort((x, y) => x - y), [200, 201, 300, 301])
+  // Without spares, as before.
+  assert.deepEqual(chosenProcesses(machine(), [A, B], { spare: [] }).map(one => one.pid).sort((x, y) => x - y), [200, 201, 202, 203, 300, 301])
+})
+
+test('the cores counted are the PC\'s, not the ones the board itself may use; the board gives itself Normal and all cores back', () => {
+  // The bug of 2026-10-19: the board counted its own cores (availableParallelism), which Strong had halved, and halved
+  // them again at every restart, down to one core for every chat and the board.
+  assert.equal(logicalCores(), cpus().length)
+  assert.ok(logicalCores() >= availableParallelism())
+  const server = String(readFileSyncForTest(join(HERE, '..', 'server.mjs')))
+  assert.doesNotMatch(server, /cores: availableParallelism\(\)/)
+  assert.deepEqual(boardChanges([42, 41], 24), [
+    { pid: 42, key: 'board 42', priority: 'Normal', affinity: String(0xFFFFFF) },
+    { pid: 41, key: 'board 41', priority: 'Normal', affinity: String(0xFFFFFF) },
+  ])
+  assert.deepEqual(boardChanges([42, 0, -1, 'x'], 8), [{ pid: 42, key: 'board 42', priority: 'Normal', affinity: String(0xFF) }])
+})
+
 test('what to set: only what is not at the level; a child that inherited from a done parent needs nothing', () => {
   const chosen = chosenProcesses(machine(), [A, B])
   const applied = new Map()
@@ -154,6 +177,29 @@ function fakeWindows(list) {
     },
   }
 }
+
+test('the limiter spares the board: its first pass gives the board and its keeper Normal and all cores, then leaves them out', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const state = new Map(machine().map(one => [one.pid, one]))
+  const windows = fakeWindows(() => [...state.values()])
+  // The board (203) and its keeper (202), started in chat A's tree, as on 2026-10-19.
+  const limiter = cpuLimiter({ file: join(dir, 'cpu.json'), fallback: 'strong', platform: 'win32', cores: 24, sessions: async () => [A, B], processes: windows.processes, spare: [203, 202] })
+  await limiter.apply()
+  assert.deepEqual(windows.calls.sets[0], [
+    { pid: 203, key: 'board 203', priority: 'Normal', affinity: String(0xFFFFFF) },
+    { pid: 202, key: 'board 202', priority: 'Normal', affinity: String(0xFFFFFF) },
+  ])
+  assert.deepEqual(windows.calls.sets[1].map(one => one.pid).sort((x, y) => x - y), [200, 201, 300, 301])
+  assert.ok(windows.calls.sets[1].every(one => one.priority === 'Idle' && one.affinity === String(0xFFF000)))
+  // Only once: the next pass does not set the board again.
+  await limiter.apply()
+  assert.ok(windows.calls.sets.slice(2).every(set => set.every(one => ![202, 203].includes(one.pid))))
+  // Off from the start frees the board too.
+  const off = fakeWindows(() => [...state.values()])
+  await cpuLimiter({ file: join(dir, 'other.json'), platform: 'win32', cores: 8, sessions: async () => [A], processes: off.processes, spare: [203] }).apply()
+  assert.deepEqual(off.calls.sets, [[{ pid: 203, key: 'board 203', priority: 'Normal', affinity: String(0xFF) }]])
+})
 
 test('the limiter: Off does nothing; Gentle and Strong set the chats; back to Off gives Normal and all cores once', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cpu-'))

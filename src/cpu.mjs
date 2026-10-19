@@ -10,6 +10,7 @@
 
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
+import { cpus } from 'node:os'
 import { dirname } from 'node:path'
 
 export const LEVELS = ['off', 'gentle', 'strong']
@@ -40,6 +41,24 @@ export async function readLevel(file, fallback = 'off') {
 export async function saveLevel(file, level, now) {
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, `${JSON.stringify({ level, at: now })}\n`)
+}
+
+/**
+ * The PC's logical cores, all of them (2026-10-19): never the ones this process may use (`availableParallelism`), which
+ * a level set on the chat that started the board narrows; counted that way, Strong halved them at every restart of the
+ * board, down to one core for every chat and the board itself.
+ */
+export function logicalCores() {
+  return Math.max(1, cpus().length)
+}
+
+/**
+ * The changes that give the board's own processes (`pids`: its own and its keeper's) Normal priority and all `cores`
+ * back: a chat may have started the board, and Windows hands the chat's Idle priority and cores on to it (2026-10-19).
+ */
+export function boardChanges(pids, cores) {
+  const affinity = affinityMask(cores, 'off')
+  return pids.filter(pid => Number.isInteger(pid) && pid > 0).map(pid => ({ pid, key: `board ${pid}`, priority: 'Normal', affinity }))
 }
 
 /** How many cores Strong leaves the chats: half of them, at least one. */
@@ -76,9 +95,12 @@ export function sessionOf(commandLine) {
  * The processes a level applies to, from one listing (`{ pid, parent, name, commandLine, priority, created }` each):
  * every `claude.exe` whose command line names one of `sessions`, and its whole tree below. A child counts only when it
  * started after its parent, so a process number Windows gave out again leads nowhere. Parents come before their
- * children in the answer. The desktop app's command line names no session, and it is no child of a chat.
+ * children in the answer. The desktop app's command line names no session, and it is no child of a chat. `spare`: the
+ * board's own processes (its own and its keeper's numbers): a chat may have started the board, and the board and what
+ * it starts (the game the person plays) are never slowed with the chats (2026-10-19).
  */
-export function chosenProcesses(list, sessions) {
+export function chosenProcesses(list, sessions, { spare = [] } = {}) {
+  const spared = new Set(spare.filter(Number.isInteger))
   const wanted = new Set(sessions)
   const children = new Map()
   for (const one of list) {
@@ -91,7 +113,7 @@ export function chosenProcesses(list, sessions) {
   const queue = roots.map(one => ({ one, parentKey: null }))
   while (queue.length > 0) {
     const { one, parentKey } = queue.shift()
-    if (seen.has(one.pid)) continue
+    if (seen.has(one.pid) || spared.has(one.pid)) continue
     seen.add(one.pid)
     const key = keyOf(one)
     chosen.push({ ...one, key, parentKey })
@@ -193,9 +215,11 @@ export const windowsProcesses = {
  * (`windowsProcesses` on Windows). `apply()` runs at start and every refresh: one listing, and a second call only when a
  * process is not at the level. Off does nothing, apart from one pass that gives the chats Normal and all cores back
  * after a limit was switched off. A process that cannot be set (gone, access denied) is passed over quietly; a listing
- * that fails is the one line `fault`.
+ * that fails is the one line `fault`. `spare`: the board's own processes (its own and its keeper's numbers), never
+ * chosen; the first pass gives them Normal and all cores, whatever the level, since a chat that started the board
+ * handed its own on (2026-10-19).
  */
-export function cpuLimiter({ file, fallback = 'off', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now }) {
+export function cpuLimiter({ file, fallback = 'off', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [] }) {
   const available = platform === 'win32'
   let level = null
   let restore = false
@@ -203,6 +227,7 @@ export function cpuLimiter({ file, fallback = 'off', platform = process.platform
   let count = 0
   let fault = null
   let running = null
+  let isFreed = false
 
   const load = async () => {
     if (level === null) level = await readLevel(file, fallback)
@@ -210,6 +235,11 @@ export function cpuLimiter({ file, fallback = 'off', platform = process.platform
   }
 
   async function once() {
+    if (available && !isFreed) {
+      isFreed = true
+      const own = boardChanges(spare, cores)
+      if (own.length > 0) await processes.set(own).catch(() => {})
+    }
     const current = await load()
     if (!available || (current === 'off' && !restore)) {
       count = 0
@@ -224,7 +254,7 @@ export function cpuLimiter({ file, fallback = 'off', platform = process.platform
       return
     }
     fault = null
-    const chosen = chosenProcesses(list, await sessions())
+    const chosen = chosenProcesses(list, await sessions(), { spare })
     const { changes, inherited } = changesFor(chosen, current, applied, cores, { all: current === 'off' })
     if (changes.length > 0) {
       try {
