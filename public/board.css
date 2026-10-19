@@ -88,6 +88,33 @@ button, textarea, select { font: inherit; color: inherit; }
 .restart .ready { color: var(--working); font-weight: 600; }
 .restart-ask { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .restart-ask p { flex: 1 1 260px; }
+/* B364: the pause's ring, the user's pick B of 2026-10-19 */
+.pause-panel { display: flex; align-items: center; gap: 18px; }
+.pause-ring { position: relative; flex: none; width: 96px; height: 96px; }
+.pause-ring-svg { width: 96px; height: 96px; }
+.pause-slice { stroke: var(--unknown); }
+.pause-slice.is-track { stroke: var(--inset); }
+.pause-slice.is-still { stroke: var(--working); }
+.pause-slice.is-working, .pause-slice.is-typing { stroke: var(--waiting); animation: pause-blink 1.4s ease-in-out infinite; }
+.pause-slice.is-asking { stroke: var(--ask); }
+.pause-slice.is-off { stroke: var(--unknown); opacity: 0.6; }
+@keyframes pause-blink { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .pause-slice { animation: none; } }
+.pause-ring-mid { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.pause-ring-count { font-size: 22px; font-weight: 700; }
+.pause-ring-tick { font-size: 30px; font-weight: 700; color: var(--working); }
+.pause-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pause-head { font-size: 16px; font-weight: 600; }
+.pause-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 16px; font-size: 13px; }
+.pause-legend span { display: flex; align-items: center; gap: 7px; }
+.pause-key { flex: none; width: 10px; height: 10px; border-radius: 2px; background: var(--unknown); }
+.pause-key.is-still { background: var(--working); }
+.pause-key.is-working, .pause-key.is-typing { background: var(--waiting); }
+.pause-key.is-asking { background: var(--ask); }
+.restart:has(.pause-panel.is-done) { border-color: #1f6b45; }
+.pause-details { flex: 1 1 260px; color: var(--muted); font-size: 13px; }
+.pause-details summary { cursor: pointer; text-decoration: underline; width: fit-content; }
+.pause-details p { margin: 4px 0 0; }
 .button.is-quiet { background: var(--inset); color: var(--text); border: 1px solid var(--line); }
 .updated.is-stale { color: var(--warn); }
 

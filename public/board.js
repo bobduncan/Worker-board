@@ -39,6 +39,8 @@ const drafts = new Map()
 const chosen = new Map()
 const problems = new Map()
 const sending = new Set()
+/** B364: the pause panel's Details stay open across redraws once opened. */
+let isPauseDetailsOpen = false
 const openForms = new Set()
 /** The requests whose game is being started. */
 const starting = new Set()
@@ -767,30 +769,47 @@ function drawLimits(state) {
 // A restart of the app
 
 // pause:start
+/** B364: the ring's states, in the order the names beside it are listed, with what is said after a group's names. */
+const PAUSE_STATES = [['working', ''], ['asking', ' (waiting for you)'], ['typing', ''], ['still', ''], ['off', ' (not running)']]
+
 /**
- * Pause and resume (spec 2026-10-18): what the banner says of the pause (`state.pause`), from the board's facts alone:
- * while pausing who still runs a turn (working, in the app's question form, a line being typed into it), then "Safe to
- * restart" (the review of Pause 2: an app restart loses only a turn in flight); a step with no checkpoint since the pause
- * is said beside it and blocks nothing, as it resumes from its branch and History. After Resume all who has not started
- * a turn yet, and the link that opens the main chat when it does not run (`link`). Nothing once all are back (running).
+ * B364 (the user's pick B of 2026-10-19): while pausing, the panel is one ring with a slice per chat (`pause.chats`,
+ * coloured by its state), the count of still chats of those that run in its middle, and beside it one line for the
+ * whole ("Pausing…", then "All still: safe to restart") and the names by state. The rest (since when, steps with no
+ * checkpoint) are `notes`, one click away. Null outside a pause.
  */
-function pauseLines(pause) {
-  if (pause === null || pause === undefined || pause.state === 'running') return []
-  if (pause.state === 'pausing') {
-    const parts = [
-      (pause.working ?? []).length === 0 ? null : `still working: ${pause.working.join(', ')}`,
-      (pause.asking ?? []).length === 0 ? null : `waiting for you (question form): ${pause.asking.join(', ')}`,
-      (pause.typing ?? []).length === 0 ? null : `a line is being typed into: ${pause.typing.join(', ')}`,
-    ].filter(part => part !== null)
-    const head = pause.isSafe
-      ? { tone: 'ready', text: `Safe to restart: paused since ${clock(pause.since)}, no chat is working. You can quit Claude now.` }
-      : { tone: '', text: `Pausing since ${clock(pause.since)}: ${parts.join('; ')}.` }
-    const info = [
+function pauseRing(pause) {
+  if (pause === null || pause === undefined || pause.state !== 'pausing') return null
+  // A server from before B364 names no chats: the ring is drawn from who still works, asks or has a line typed into it.
+  const chats = pause.chats ?? [
+    ...(pause.working ?? []).map(name => ({ name, state: 'working' })),
+    ...(pause.asking ?? []).map(name => ({ name, state: 'asking' })),
+    ...(pause.typing ?? []).map(name => ({ name, state: 'typing' })),
+  ]
+  const running = chats.filter(chat => chat.state !== 'off')
+  const still = running.filter(chat => chat.state === 'still').length
+  const groups = PAUSE_STATES
+    .map(([state, after]) => ({ state, names: chats.filter(chat => chat.state === state).map(chat => chat.name), after }))
+    .filter(group => group.names.length > 0)
+    .map(({ state, names, after }) => ({ state, text: `${names.join(', ')}${after}` }))
+  const notes = [
+    `Paused since ${clock(pause.since)}.`,
+    // B386: which chat a line is being typed into is a detail, not said on the panel.
+    ...chats.filter(chat => chat.state === 'typing').map(chat => `A line is being typed into ${chat.name}.`),
+    ...[
       ...(pause.unsaved ?? []).map(one => `${one.id} (${one.chat})`),
       ...(pause.offBoard ?? []).map(one => `${one.id} (${one.title}, not on the board)`),
-    ].map(what => ({ tone: 'muted', text: `${what} has no checkpoint; it resumes from its branch and History.` }))
-    return [head, ...info]
+    ].map(what => `${what} has no checkpoint; it resumes from its branch and History.`),
+  ]
+  return {
+    head: pause.isSafe ? 'All still: safe to restart' : 'Pausing…', tone: pause.isSafe ? 'ready' : '', isDone: pause.isSafe === true,
+    still, of: running.length, slices: chats.map(chat => chat.state), groups, notes,
   }
+}
+
+/** The pause's lines in words: those of a resume (a pause shows as its ring, pauseRing). */
+function pauseLines(pause) {
+  if (pause === null || pause === undefined || pause.state === 'running' || pause.state === 'pausing') return []
   const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.id})`).join(', ')}.` }]
   const main = pause.main ?? null
   if (main === null || pause.waiting.length === 0) return lines
@@ -837,7 +856,8 @@ function drawRestart(state) {
   const down = restart.notRunning ?? []
   const isAtHand = restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running')
   if (isAtHand && down.includes(restart.main)) parts.push(line('alert', `${restart.main} is not running: open its chat first, the buttons here type into it.`))
-  if (isAtHand && down.some(name => name !== restart.main)) {
+  // B364: while pausing the ring names who does not run; this line is for a restart and a resume.
+  if (isAtHand && pause?.state !== 'pausing' && down.some(name => name !== restart.main)) {
     parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
   }
   // B315: a word to the main chat that was only copied, because no chat ran to take it: said plainly, with the way to
@@ -866,9 +886,16 @@ function drawRestart(state) {
     row.append(line(one.tone, one.text), open)
     parts.push(row)
   }
-  if (pause?.state === 'pausing') {
+  const ring = pauseRing(pause)
+  if (ring === null) isPauseDetailsOpen = false
+  if (ring !== null) {
+    parts.push(drawPauseRing(ring))
     const row = el('div', 'restart-ask')
-    row.append(button('Resume all', pause.isSafe ? 'is-quiet' : '', 'resume'), el('small', 'muted', 'Every chat goes on from its checkpoint.'))
+    const details = el('details', 'pause-details')
+    details.open = isPauseDetailsOpen
+    details.addEventListener('toggle', () => { isPauseDetailsOpen = details.open })
+    details.append(el('summary', '', `Details (${ring.notes.length} ${ring.notes.length === 1 ? 'note' : 'notes'})`), ...ring.notes.map(note => el('p', 'muted', note)))
+    row.append(button('Resume all', pause.isSafe ? 'is-quiet' : '', 'resume'), details)
     parts.push(row)
   }
   // The review of part 1: a chat that will never start (gone, or not to be resumed) ends the resume by the person's word.
@@ -887,6 +914,43 @@ function drawRestart(state) {
   if (problems.has('restart')) parts.push(line('problem', problems.get('restart')))
   box.hidden = parts.length === 0
   fill(box, parts)
+}
+
+/**
+ * B364: the pause's ring (pauseRing): a slice per chat in its state's colour, the count of still chats in the middle (a
+ * tick once all are still), and beside it the line for the whole and the names by state.
+ */
+function drawPauseRing(ring) {
+  const SVG = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(SVG, 'svg')
+  svg.setAttribute('viewBox', '0 0 36 36')
+  svg.setAttribute('class', 'pause-ring-svg')
+  const n = Math.max(ring.slices.length, 1)
+  const gap = n > 1 ? 1.6 : 0
+  const circle = (state, length, offset) => {
+    const node = document.createElementNS(SVG, 'circle')
+    for (const [key, value] of Object.entries({ cx: '18', cy: '18', r: '15.9155', fill: 'none', 'stroke-width': '4', 'stroke-dasharray': `${length} ${100 - length}`, 'stroke-dashoffset': String(offset) })) node.setAttribute(key, value)
+    node.setAttribute('class', `pause-slice is-${state}`)
+    return node
+  }
+  svg.append(circle('track', 100, 0))
+  ring.slices.forEach((state, i) => svg.append(circle(state, Math.max(100 / n - gap, 0.4), 25 - (i * 100) / n - gap / 2)))
+  const middle = el('div', 'pause-ring-mid')
+  if (ring.isDone) middle.append(el('span', 'pause-ring-tick', '✓'))
+  else middle.append(el('span', 'pause-ring-count', `${ring.still}/${ring.of}`), el('small', 'muted', 'still'))
+  const dial = el('div', 'pause-ring')
+  dial.append(svg, middle)
+  const legend = el('div', 'pause-legend')
+  for (const group of ring.groups) {
+    const item = el('span', '')
+    item.append(el('b', `pause-key is-${group.state}`), document.createTextNode(group.text))
+    legend.append(item)
+  }
+  const side = el('div', 'pause-side')
+  side.append(el('p', `pause-head ${ring.tone}`, ring.head), legend)
+  const box = el('div', `pause-panel${ring.isDone ? ' is-done' : ''}`)
+  box.append(dial, side)
+  return box
 }
 
 // copied:start
@@ -11294,45 +11358,46 @@ $('say-text').addEventListener('keydown', event => {
 
 // help:start
 /**
- * B348: the help tour's six cards (G26, the person's brainstorm of 2026-10-18): each with its painting (B347, no words
- * in it), its title, one or two plain lines, and what the painting shows for whoever cannot see it.
+ * B348: the help tour's six cards (G26, the person's brainstorm of 2026-10-18): each with its picture, its title, one or
+ * two plain lines, and what the picture shows for whoever cannot see it. B375: the pictures are drawings of the board
+ * itself (tools/help-pictures.mjs), the part each card is about ringed and numbered (the person's pick, Q173).
  */
 const HELP_CARDS = [
   {
-    picture: '/help/1-set-up.webp',
-    title: 'Set up a project',
-    lines: ['One command installs the board and makes your project.', 'Then press Initialise: the main chat starts and sets up the rest.'],
-    alt: 'A command window, then a hand pressing a big button, and a robot waving in front of three desks that light up',
+    picture: '/help/1-install.svg',
+    title: 'Install the board',
+    lines: ['One command installs the board and makes your project.', 'Your board opens in the browser.'],
+    alt: 'A terminal running the install command, ringed as step 1, and the new board opening beside it',
   },
   {
-    picture: '/help/2-pick-focus.webp',
-    title: 'Pick a goal as your focus',
-    lines: ['Of everything you want, choose the one goal to work on now.', 'The Focus tab keeps it in front of you and your chats.'],
-    alt: 'A hand lifting one glowing goal card out of several',
+    picture: '/help/2-initialise.svg',
+    title: 'Press Initialise',
+    lines: ['Initialise starts the main chat in the Claude app.', 'It sets up the rest: the workers, your partner, the backlog.'],
+    alt: 'The Overview of a new project with its Initialise button ringed as step 2, and the main chat starting',
   },
   {
-    picture: '/help/3-vibe-and-how.webp',
-    title: 'Agree its vibe and how with your partner',
-    lines: ['Your partner, the Advisor, works it out with you: how it should feel, and how to build it.'],
-    alt: 'You and a robot partner at a table, agreeing on a goal and its three steps',
+    picture: '/help/3-talk.svg',
+    title: 'Talk it through with your partner',
+    lines: ['Pick a goal on the Focus tab.', 'Your partner, the Advisor, works out with you how it should feel and how to build it.'],
+    alt: 'The Focus tab at the vibe of a goal, with the talk with your partner on the right ringed as step 3',
   },
   {
-    picture: '/help/4-work-divides.webp',
-    title: 'The work divides itself',
-    lines: ['Press Go: your partner makes the steps, and the main chat hands them to the workers.'],
-    alt: 'A goal card splitting into three steps, each going to a robot worker at its desk',
+    picture: '/help/4-go.svg',
+    title: 'Press Go',
+    lines: ['Agreed on the how? Press Go: your partner makes the steps.'],
+    alt: 'The how of a goal with three parts and its Go button ringed as step 4, and the steps it makes beside it',
   },
   {
-    picture: '/help/5-answer.webp',
-    title: 'Answer what needs you',
-    lines: ['What only you can decide or look at waits under Needs your attention.', 'Answer there; the chat that asked goes on.'],
-    alt: 'You tapping one of two choices on a card a robot sent, and a green arrow going back to it',
+    picture: '/help/5-workers.svg',
+    title: 'The workers build',
+    lines: ['The main chat hands the steps to the workers.', 'The Overview shows who builds what and how far it is.'],
+    alt: 'The Overview with the Workers column ringed as step 5, each worker with its step and a progress bar',
   },
   {
-    picture: '/help/6-check-result.webp',
-    title: 'Check the result',
-    lines: ['A finished step comes with a picture to look at or a link to try it.', 'Keep it, or say what to change.'],
-    alt: 'You checking the finished picture with a magnifying glass, a green tick beside it, robots cheering',
+    picture: '/help/6-check.svg',
+    title: 'You check',
+    lines: ['What needs you waits under Needs your attention.', 'Look at the result: Approve it, or Reject it and say what to change.'],
+    alt: 'Needs your attention ringed as step 6: the result picture a worker sent, with its Approve and Reject buttons',
   },
 ]
 
