@@ -157,7 +157,7 @@ test('the window: the step on top, one question at a time, cards, the rest folde
   // Sending: every answer given goes to the store; a No without words, or a look without a pick, is not sent: the
   // window shows that question and says why. Sent without a problem, the window closes.
   const send = script.slice(script.indexOf('async function sendCalm('), script.indexOf('// calmsend:end'))
-  for (const words of ["sendWork({ action: 'answer', id: need.workId, ...answer }, need.id)", 'calmPlan(group,', "'Say in the note why No: the chat needs to know what to change.'", "'Pick an answer first.'", 'closeDetails()', 'isGoneAlready(', 'isShowing()']) assert.ok(send.includes(words), words)
+  for (const words of ["sendWork({ action: 'answer', id: need.workId, ...answer }, need.id, { reread: false })", 'calmPlan(group,', "'Say in the note why No: the chat needs to know what to change.'", "'Pick an answer first.'", 'closeDetails()', 'isGoneAlready(', 'isShowing()']) assert.ok(send.includes(words), words)
   // The other windows leave nothing of the calm one behind.
   assert.equal((script.match(/box\.classList\.remove\('is-calm'\)\n\s+delete box\.dataset\.calmAt/g) ?? []).length, 2)
 })

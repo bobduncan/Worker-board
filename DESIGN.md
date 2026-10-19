@@ -2486,6 +2486,22 @@ step moved to "waiting on you" as the flow says (the project's flow.json is the 
    the last; at 30 minutes it goes to the person as before. Only a step still at work (taken, in progress, waiting on
    you) waits for anybody (`stepWaitsForPartner`).
 
+## An ask's links (B397)
+
+The person, 2026-10-19, on an ask that only named another: "i dont have enough information to make a decision. where
+can i find Q202, i need a link in the future".
+
+1. In an ask's card (Needs your attention, the daily note), its calm window and its details, a Q id of an open ask
+   or a B id of a step of the backlog is a link that opens that ask's or step's window; an id the board does not
+   know stays words (`askLinkPieces`, between the marks `asklinks`).
+2. A page of the project the words name (a path with `/` and a text or picture ending, standing on its own) is a
+   link: a picture opens in the picture popup, a text page read-only in the file window (`/api/game-file`, the game's
+   folder first, then the project's, as the game plan's links). A path inside a web address stays words.
+3. An ask that names one other open ask shows that ask inline under its words: its question, words and options, so
+   one window holds what is needed (`pointedAsk`).
+4. The partner's role says: an ask handed on with escalate stands under Needs your attention itself; the partner
+   files no second ask that points to it.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

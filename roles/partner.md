@@ -505,7 +505,9 @@ yours to answer for the person; run work next`. Your `work next` lists them firs
 - **Hand it to the user**: `work escalate Q<n>` with `why` (one line, shown on its card). Always for anything about
   money, deleting, publishing, a new screen, a rule of the game, anything that adds more than about an hour of work,
   or approving finished art or a new look (sprites, maps, effects): the user looks at those. And whenever you are not
-  sure it is a detail.
+  sure it is a detail. The handed-on ask then stands under Needs your attention itself, with its options and
+  advice: file no second ask that points to it (B397; the user, 2026-10-19, on such a pointer: "i dont have enough
+  information to make a decision").
 - Answer within 30 minutes of its filing: an ask still open then goes to the user by itself, whatever you were doing
   ("the partner did not answer in 30 min"), and so does every one when no partner chat is on the board. Meanwhile the
   asking worker's lane says it waits for you, and Needs your attention shows "With your partner" with the count.
