@@ -204,31 +204,35 @@ step on the backlog for the user to approve it ("Decide: ...").
 
 ## The plan interview
 
-The eight answers every goal and step falls back to. They stand in the product plan, `docs/product-plan.md` in the
-game (unless the settings name another place), one heading per answer, `P1` to `P8`, each with `State:`, `Answer:` and
-where it came from. The user starts the interview with "plan interview" in your chat, or on the board; you run it
-once at the start and again when a milestone's end asks for it (the log, below).
+The answers every goal and step falls back to. They stand in the product plan, `docs/product-plan.md` in the game
+(unless the settings name another place), one heading per answer, each with its state and where it came from. The
+board shows the page on its Vision tab: the pitch and a card per answer, and your open questions one slide at a time.
+The user starts the interview with "plan interview" in your chat; you run it once at the start and again when a
+milestone's end asks for it (the log, below). There is no P4: "how long it lives" was dropped (the user, 2026-10-19:
+a game is always built to last, and a proof of concept would not change the approach); an id is never used again.
 
 | Id | The question | Who you are | Show the user | When they do not know |
 |---|---|---|---|---|
-| P1 | What it is, for whom: the type, the one-line pitch, the player | product owner | three one-line pitches in different directions | "like X, but Y": ask for a game they loved and what annoyed them |
-| P2 | Why it is good: the feel, the core loop, what makes it different | game designer | a playable of the loop in placeholder art, ten minutes long | the genre's usual loop, playable |
-| P3 | How it looks and sounds: style, references, mood | art director | three style boards side by side | the style of their named reference |
-| P4 | How long it lives: a finished v1, or a thing that keeps growing, and what growing means | product owner, producer | the two in one line each | "finish v1 first"; ask again after v1 is played |
-| P5 | How it reaches people: where it runs, where it is put, who may play, free or paid, how they hear of it | publisher | the two or three forms that fit the pitch | "a link for friends"; ask again after someone else played |
-| P6 | What it is built on: the stack, the limits, the decisions hard to change later | tech lead | the "hard to change later" list with what each costs | decide it yourself; the user sees the list |
-| P7 | In what order, how fast: milestones, what is in each, when the user judges | producer | a draft of three to five milestones to reorder | the draft stands |
-| P8 | What counts as good enough: per kind of work, how it is judged | QA lead | one pass and one fail example per kind | derived from the pitch and the references |
+| P1 | What it is: the type, the one-line pitch, the player | product owner | three one-line pitches in different directions | "like X, but Y": ask for a game they loved and what annoyed them |
+| P2 | Why it's fun: the feel, the core loop, what makes it different | game designer | a playable of the loop in placeholder art, ten minutes long | the genre's usual loop, playable |
+| P3 | Look and sound: style, references, mood | art director | three style boards side by side, made with Codex as the Design tab makes pictures; for sound, three short clips named by style | the style of their named reference |
+| P5 | How people get it: where it runs, where it is put, who may play, free or paid, how they hear of it | publisher | the two or three forms that fit the pitch | "a link for friends"; ask again after someone else played |
+| P6 | Built on: the stack, the limits, the decisions hard to change later | tech lead | the "hard to change later" list with what each costs | decide it yourself; the user sees the list |
+| P7 | The road: milestones, what is in each, when the user judges | producer | a draft of three to five milestones to reorder | the draft stands |
+| P8 | Good enough means: per kind of work, how it is judged | QA lead | one pass and one fail example per kind | derived from the pitch and the references |
 
 The rules:
 
 1. **Pre-fill first.** Read the documents the settings name and the backlog; every answer they hold is written as
    `State: decided (from <document>, <date>)`. Ask only what is open, and say in one line which answers you pre-filled
    so the user can correct one.
-2. **Never a blank question.** Every ask has two or three options, each as the user would see it (a picture where the
-   options differ in what they would see, as one picture with all options side by side), and your advice. One ask at
-   a time (`work ask`, kind decide, under the plan's goal: the one with `From the game plan: the goal`), with the
-   question's id in its title, `P5: ...`.
+2. **Never a blank question.** Every ask has two or three options and your advice. One ask at a time (`work ask`,
+   kind decide, under the plan's goal: the one with `From the game plan: the goal`); its title is the question's id and
+   the question itself, plain and short (`P5: How should people get the game?`); its text one or two lines on why you
+   ask. Each option is a card on its slide: write it `A <head>: <point>; <point>` (`A A link for friends: free and
+   unlisted; ask again after M2`), the head two to five words, at most three short points. Where the options differ in
+   what the user would see or hear, give each its picture: as many `pictures` as options, in the options' order (the
+   board puts one on each card); a picture of one option alone is never enough.
 3. **"Don't know" is an answer.** Take the default of the table, write `State: assumed (partner, <date>) · revisit
    after <the moment>`, and go on. An assumed answer is what the first prototype tests: the answer comes from the
    user's reaction ("closer" or "further"), which you write as their decision.
@@ -244,14 +248,16 @@ The rules:
    count per question: hits, gaps, overturned. A question with hits stays; a gap that came up twice becomes a question
    (propose it to the user as an ask); a question nobody needed in two milestones is proposed for removal. Changing the
    table above is a step on the board with the user's yes.
-7. **The board's Plan part.** The board shows the product plan on top of the Focus page, one row per answer, and
-   your open ask `P<n>: ...` on its open row with its options and "Don't know". It writes nothing into the page: it
-   types `plan: P<n> confirmed` (write the answer's state `decided (you, <date>)`) or `plan: P<n> change` with
-   `Words:` (rewrite the answer from them, state `decided (you, <date>)`) into your chat. An answer "Don't know" to
-   your ask: write the advised default as `assumed`. Keep the page's form exactly: `## P<n> · <title>`, then
-   `- State: ...`, `- Answer: ...` (an open one `- Known: ...`), `- Overturned (<date>): ...`; the log's lines under
-   `## The log` as `- hit P<n>: ...`, `- gap: ...`, `- overturned P<n>: ...`. Commit and push the page as the game's
-   repository says.
+7. **The page's form: conclusions, not questions.** Under the page's title one line `Pitch: <one sentence>`. Each
+   answer: `## P<n> · <a card title of two or three words>` (`Look and sound`), then `- State: ...`, two to four
+   `- Point: **<lead words>** <the rest>` lines in plain, paraphrased words (never a copy of a document's sentence),
+   `- Picture: <path in the picture folder> · <caption>` where it is about looks (at most three: P3 always has them),
+   an open one `- Known: ...`, and `- Overturned (<date>): ...`; the log's lines under `## The log` as
+   `- hit P<n>: ...`, `- gap: ...`, `- overturned P<n>: ...`. The board writes nothing into the page: on a card's
+   **Yes, mine** or **Confirm** it types `plan: P<n> confirmed` (write the state `decided (you, <date>)`); on **Change**
+   `plan: P<n> change` with `Words:` (rewrite the answer from them, state `decided (you, <date>)`; when the words leave
+   a choice open, ask it as a question with options instead). An answer "Don't know" to your ask: write the advised
+   default as `assumed`. Commit and push the page as the game's repository says.
 8. **Success.** The plan is good when the user reads it in two minutes and says "yes, that is my game", and no
    hard-to-change answer is assumed. The process is good when a milestone brings fewer asks the plan should have
    answered, fewer overturned answers, and the user says the result does what they intended.

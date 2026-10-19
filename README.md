@@ -308,7 +308,7 @@ Enter, and the main chat names itself, joins the list and starts the Advisor and
 - each chat's card and requests (`.claude\chats`, `.claude\asks`), the work store and the goal map (`goals`,
   `.claude\goals.md`, also the way to the next milestone) in `<project>\.claude`, and the game plan in the game's
   repository (`gamePlan` in `config.json`, `docs/game-plan.md`) for the Advisor tab, and the product plan beside it
-  (`productPlan`, `docs/product-plan.md`) for the Plan part on top of the Focus page;
+  (`productPlan`, `docs/product-plan.md`) for the Vision tab;
 - the app's usage file for the limits, pictures in the picture folders of `<project>`, and the working folders through git
   commands that only read.
 

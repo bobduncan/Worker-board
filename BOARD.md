@@ -285,6 +285,17 @@ done, with what became of it; a question or a proposal waiting is also a line un
 of this page), **Suggestions** (the Advisor's open suggestions with their Why, Cost and Unblocks, and when its rounds
 come), **Refine** (the steps by where their refine stands) and **Chat** (a chat with the Advisor, as "Talk to Main").
 
+## Vision (2026-10-19)
+
+The product plan (`productPlan`, the game's `docs/product-plan.md`, written by the partner): the answers every goal and
+step falls back to. Two views under **The vision** and **Interview**. The vision: the page's pitch in large type, then
+a card per answer: its title, its state (decided green, assumed blue, open amber), two to four points with bold lead
+words, up to three pictures with captions (Look and sound always), where it came from, and **Yes, mine** / **Confirm**
+and **Change**; an open card has **Answer it →**. The interview: one slide per question the partner asked, as the help
+tour's cards: the options as picture cards (the advised one marked), the question, why it is asked, a dot per slide,
+**Back**, **Don't know**, **Answer: A**, **Next**; Change adds a slide with the answer as it is and a box for the
+person's words. Nothing is written by the board: the moves go to the partner (`roles/protocol.md`).
+
 ## Backlog (`06-backlog.png`)
 
 The whole backlog: filters **All**, **In progress**, **Queued**, **Needs your attention**, **Without a worker**, with

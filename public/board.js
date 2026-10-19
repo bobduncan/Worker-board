@@ -5745,6 +5745,7 @@ function tabOfAddress(hash) {
   if (hash === '#advice' || goalFocusOf(hash) !== undefined) return 'advice'
   if (hash === '#backlog' || hash === '#coordinate') return 'coordinate'
   if (hash === '#design') return 'design'
+  if (hash === '#vision') return 'vision'
   return null
 }
 
@@ -8603,28 +8604,58 @@ function goalStepIds(goals, id) {
   walk(id)
   return [...found].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
 }
+// focus:end
 
+// vision:start
 /**
- * Plan (2026-10-19): the Plan part on top of the Focus page: the product plan's answers P1 to P8 as rows, each with
- * its state (decided, assumed, open), its text, where it came from and when to ask again, and on an open one the
- * partner's ask with its options. `ui.change` is the answer whose Change box is open. Null without a page.
+ * Vision (2026-10-19): the Vision tab's view of the product plan (src/plan.mjs). `read`: the pitch and one card per
+ * answer, its points (bold lead words), pictures, state, and where it came from. `interview`: one slide per question
+ * the person has to answer (an open answer the partner asked, its options as cards), and one for the answer they
+ * press Change on; dots to step through them, as the help tour has. `ui` is the tab's own state: the mode, the slide
+ * at, the option picked per slide, and the answer being changed.
  */
-function planView(plan, ui = { change: null }) {
+function visionView(plan, ui = { mode: 'read', at: 0, picked: {}, change: null }) {
   if (plan === null || plan === undefined) return null
   const when = answer => (answer.at === null ? '' : `, ${answer.at}`)
-  const rows = plan.answers.map(answer => ({
+  const slides = []
+  for (const answer of plan.answers) {
+    if (answer.state !== 'open' || answer.ask === null) continue
+    slides.push({
+      kind: 'ask', id: answer.id, title: answer.title, askId: answer.ask.id, question: answer.ask.question || answer.title,
+      text: answer.ask.text, advice: answer.ask.advice, pictures: answer.ask.pictures,
+      options: answer.ask.options.map(option => ({ ...option, isPicked: ui.picked?.[answer.id] === option.label })),
+      picked: answer.ask.options.find(option => option.label === ui.picked?.[answer.id]) ?? null,
+    })
+  }
+  const changing = plan.answers.find(answer => answer.id === ui.change && answer.state !== 'open') ?? null
+  if (changing !== null) slides.push({ kind: 'change', id: changing.id, title: changing.title, question: `Change: ${changing.title}`, points: changing.points.length > 0 ? changing.points : [changing.answer].filter(Boolean), pictures: changing.pictures })
+  const cards = plan.answers.map(answer => ({
     id: answer.id, title: answer.title, state: answer.state,
-    text: answer.state === 'open' ? (answer.ask?.text || answer.known || '') : answer.answer,
+    points: answer.state === 'open' ? [answer.known].filter(Boolean) : answer.points.length > 0 ? answer.points : [answer.answer].filter(Boolean),
+    pictures: answer.pictures,
     source: answer.from !== null ? `from ${answer.from}${when(answer)}` : answer.by !== null ? `${answer.by}${when(answer)}` : null,
     revisit: answer.revisit, overturned: answer.overturned,
-    ask: answer.ask === null ? null : { id: answer.ask.id, advice: answer.ask.advice, options: answer.ask.options, pictures: answer.ask.pictures },
-    isChanging: ui.change === answer.id,
+    slide: slides.findIndex(slide => slide.kind === 'ask' && slide.id === answer.id),
+    isAsked: answer.ask !== null,
   }))
+  const asked = slides.filter(slide => slide.kind === 'ask').length
   const { decided, assumed, open } = plan.counts
-  const log = `${plan.log.hits} hits, ${plan.log.gaps} gaps${plan.log.overturned > 0 ? `, ${plan.log.overturned} overturned` : ''}`
-  return { path: plan.path, rows, summary: `${decided} decided · ${assumed} assumed · ${open} open · the log: ${log}` }
+  const total = plan.answers.length
+  const parts = [`${decided} of ${total} decided by you`, assumed > 0 ? `${assumed} assumed for now` : null, open > 0 ? `${open} open` : null].filter(Boolean)
+  const at = slides.length === 0 ? 0 : Math.min(Math.max(0, ui.at ?? 0), slides.length - 1)
+  return {
+    path: plan.path, pitch: plan.pitch, cards, slides, at, summary: parts.join(' · '),
+    mode: ui.mode === 'interview' ? 'interview' : 'read',
+    interviewLabel: asked > 0 ? `Interview · ${asked} to answer` : 'Interview',
+  }
 }
-// focus:end
+
+/** "**Thinking pays:** a clever push" as text nodes and bold ones, so the lead words stand out. */
+function boldParts(text) {
+  return String(text).split(/\*\*(.+?)\*\*/).map((part, index) => (index % 2 === 1 ? el('b', '', part) : document.createTextNode(part)))
+}
+// vision:end
+
 function showAdvisorPane(name) {
   const pane = ADVISOR_PANES.includes(name) ? name : advisorFirstPart(board?.advisorParts)
   $('view-advice').dataset.pane = pane
@@ -8675,14 +8706,12 @@ function drawAdvisorParts(state) {
  * box of "Not yet" open (`vibe` or `how`) and the words typed in each box, the option picked for the open question.
  */
 // B354: `asked`, the goals whose Done when the person asked the partner for on this page.
-const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], plan: { change: null }, words: { talk: '', notYet: '', new: '', bar: '', planChange: '' } }
-const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'plan-change-words': 'planChange' }
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], words: { talk: '', notYet: '', new: '', bar: '' } }
+const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar' }
 
 function focusData(state) {
   const effort = state.advisor?.effort ?? null
   return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking, focusUi.asked.join(','),
-    // Plan (2026-10-19): the product plan's answers and which one's Change box is open.
-    state.plan ?? null, focusUi.plan.change,
     // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
     effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null,
     // B360: the recaps gathered under the daily note, with their sending and problems; B390: and their box open or not.
@@ -9007,73 +9036,273 @@ function focusNoteCard(view) {
   return card
 }
 
-/**
- * Plan (2026-10-19): the Plan part's card, on top of the Focus page: one row per answer of the product plan. A decided
- * or assumed answer has Confirm (your word now) and Change (your words to the partner, who rewrites it); an open one
- * shows the partner's options as buttons and "Don't know" (the advised default stands as assumed). The partner
- * writes the page; the board types your word to it. Without a page the card says how to start one.
- */
-function planCard(state) {
-  const view = planView(state.plan ?? null, focusUi.plan)
-  const card = el('section', 'focus-card plan-card')
-  const canWrite = board?.goalsEdit?.canWrite === true && (state.advisor ?? null) !== null
-  if (view === null) {
-    card.append(el('h3', '', 'Plan'), el('p', 'muted', 'No product plan yet. Type "plan interview" to your partner: the eight answers every goal falls back to appear here, each decided by you, assumed for now, or open.'))
-    return card
-  }
-  const head = el('div', 'plan-head')
-  const file = el('button', 'plan-path', view.path)
-  file.type = 'button'
-  file.dataset.gameFile = view.path
-  file.title = 'Open the whole page'
-  head.append(el('h3', '', 'Plan'), el('span', 'muted plan-summary', view.summary), file)
-  card.append(head)
-  for (const row of view.rows) {
-    const line = el('div', `plan-row is-${row.state}`)
-    const top = el('div', 'plan-top')
-    top.append(el('span', 'plan-id', row.id), el('b', 'plan-title', row.title), el('span', `plan-state is-${row.state}`, row.state))
-    line.append(top)
-    if (row.text !== '') line.append(el('p', 'plan-answer', row.text))
-    const meta = [row.source, row.revisit === null ? null : `revisit after ${row.revisit}`].filter(one => one !== null).join(' · ')
-    if (meta !== '') line.append(el('p', 'muted plan-meta', meta))
-    for (const over of row.overturned) line.append(el('p', 'plan-overturned', `Overturned ${over}`))
-    if (row.state === 'open') {
-      if (row.ask === null) line.append(el('p', 'muted', 'Your partner has not asked it yet: type "plan interview" to your partner, and its options appear here.'))
-      else {
-        const options = el('div', 'focus-ask-options')
-        for (const option of [...row.ask.options, { label: "Don't know", isAdvised: false, isDunno: true }]) {
-          const button = el('button', `focus-answer${option.isAdvised ? ' is-advised' : ''}${option.isDunno ? ' plan-dunno' : ''}`, option.isAdvised ? `${option.label} (advised)` : option.label)
-          button.type = 'button'
-          button.disabled = focusUi.busy || !canWrite
-          button.dataset.focusAnswer = row.ask.id
-          button.dataset.focusLabel = option.label
-          options.append(button)
-        }
-        line.append(options)
-        if (row.ask.advice !== null) line.append(el('p', 'muted plan-advice', `Your partner advises ${row.ask.advice}. "Don't know" takes the advised default, marked assumed.`))
-        if (row.ask.pictures.length > 0) {
-          const pictures = el('div', 'focus-ask-pictures')
-          for (const path of row.ask.pictures) pictures.append(picture(path, row.title))
-          line.append(pictures)
-        }
-      }
-    } else {
-      const buttons = el('div', 'plan-buttons')
-      for (const [act, label] of [['plan-confirm', row.state === 'assumed' ? 'Confirm: decided' : 'Confirm'], ['plan-change-open', row.isChanging ? 'Keep it' : 'Change']]) {
-        const button = el('button', 'focus-answer', label)
-        button.type = 'button'
-        button.disabled = focusUi.busy || !canWrite
-        button.dataset.focusAct = act
-        button.dataset.focusGoal = row.id
-        buttons.append(button)
-      }
-      line.append(buttons)
-      if (row.isChanging) line.append(focusSay('What should the answer be? Your words go to your partner, who rewrites it.', 'focus-say is-slim', { box: 'plan-change-words', act: 'plan-change', isEnabled: canWrite, title: 'Your partner chat is not on the board.' }))
+// Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page; the board
+// types Confirm, Change and the answers to it (src/focus.mjs `planWord`, the store's `answer`).
+const visionUi = { mode: 'read', at: 0, picked: {}, change: null, words: '', busy: false, note: null }
+
+function visionData(state) {
+  return [state.plan ?? null, visionCan(state), visionUi.mode, visionUi.at, visionUi.picked, visionUi.change, visionUi.busy, visionUi.note]
+}
+function redrawVision() {
+  if (board !== null && board !== undefined) once('vision', visionData(board), () => drawVision(board))
+}
+const visionCan = state => state.goalsEdit?.canWrite === true && (state.advisor ?? null) !== null
+
+function visionButton(label, act, { id = null, className = '', isEnabled = true, title = '' } = {}) {
+  const button = el('button', `vision-button ${className}`.trim(), label)
+  button.type = 'button'
+  button.dataset.visionAct = act
+  if (id !== null) button.dataset.visionId = id
+  button.disabled = !isEnabled || visionUi.busy
+  if (!isEnabled && title !== '') button.title = title
+  return button
+}
+
+function drawVision(state) {
+  const view = visionView(state.plan ?? null, visionUi)
+  const can = visionCan(state)
+  const off = 'This board only shows, or no partner chat is on it.'
+  const main = el('main', 'vision')
+  const top = el('header', 'vision-top')
+  const title = el('div', 'vision-title')
+  title.append(el('h1', '', 'Vision'))
+  if (view !== null) title.append(el('small', 'muted', view.summary))
+  top.append(title)
+  if (view !== null) {
+    const modes = el('div', 'vision-modes')
+    for (const [mode, label] of [['read', 'The vision'], ['interview', view.interviewLabel]]) {
+      const button = visionButton(label, 'mode', { id: mode, className: 'vision-mode' })
+      button.disabled = false
+      button.setAttribute('aria-pressed', String(view.mode === mode))
+      modes.append(button)
     }
-    card.append(line)
+    top.append(modes)
   }
+  main.append(top)
+  if (visionUi.note !== null) main.append(el('p', `vision-note${visionUi.note.isProblem ? ' is-problem' : ''}`, visionUi.note.text))
+  if (view === null) {
+    main.append(el('p', 'vision-empty', 'No product plan yet. Type "plan interview" to your partner: the answers every goal falls back to appear here, and the questions it asks you come one per slide.'))
+  } else if (view.mode === 'read') {
+    if (view.pitch !== '') main.append(el('p', 'vision-pitch', view.pitch))
+    const grid = el('div', 'vision-grid')
+    for (const card of view.cards) {
+      const box = el('section', `vision-card is-${card.state}`)
+      const head = el('h3', '')
+      head.append(el('span', '', card.title), el('span', `vision-state is-${card.state}`, card.state))
+      box.append(head)
+      if (card.pictures.length > 0) {
+        const pictures = el('div', 'vision-pictures')
+        for (const shown of card.pictures.slice(0, 3)) {
+          const frame = el('figure', 'vision-picture')
+          frame.append(picture(shown.path, shown.caption))
+          if (shown.caption !== '') frame.append(el('figcaption', '', shown.caption))
+          pictures.append(frame)
+        }
+        box.append(pictures)
+      }
+      if (card.points.length > 0) {
+        const list = el('ul', 'vision-points')
+        for (const point of card.points) {
+          const item = el('li')
+          item.append(...boldParts(point))
+          list.append(item)
+        }
+        box.append(list)
+      }
+      for (const over of card.overturned) box.append(el('p', 'vision-overturned', `Overturned ${over}`))
+      const meta = [card.source, card.revisit === null ? null : `ask again after ${card.revisit}`].filter(one => one !== null).join(' · ')
+      const foot = el('div', 'vision-foot')
+      if (meta !== '') foot.append(el('span', 'muted', meta))
+      foot.append(el('span', 'grow'))
+      if (card.state === 'open') {
+        if (card.slide >= 0) foot.append(visionButton('Answer it →', 'goto', { id: String(card.slide), className: 'is-primary' }))
+        else foot.append(el('span', 'muted', 'Your partner asks it soon: type "plan interview" to it.'))
+      } else {
+        if (card.state === 'assumed' || card.source?.startsWith('from ')) foot.append(visionButton(card.state === 'assumed' ? 'Confirm' : 'Yes, mine', 'confirm', { id: card.id, isEnabled: can, title: off }))
+        foot.append(visionButton('Change', 'change', { id: card.id, isEnabled: can, title: off }))
+      }
+      box.append(foot)
+      grid.append(box)
+    }
+    main.append(grid)
+    const file = el('button', 'vision-file', `The whole page: ${view.path}`)
+    file.type = 'button'
+    file.dataset.gameFile = view.path
+    main.append(file)
+  } else if (view.slides.length === 0) {
+    main.append(el('p', 'vision-empty', 'Nothing to answer: every answer is decided by you or assumed for now. Press Change on a card to change one.'))
+  } else {
+    main.append(visionSlide(view, can, off))
+  }
+  $('view-vision').replaceChildren(main)
+}
+
+/** One slide of the interview: its options as picture cards (or the Change box), the question, the dots, the buttons. */
+function visionSlide(view, can, off) {
+  const slide = view.slides[view.at]
+  const card = el('section', 'vision-slide')
+  const stage = el('div', 'vision-stage')
+  if (slide.kind === 'ask') {
+    if (slide.pictures.length > 0) {
+      const pictures = el('div', 'vision-pictures')
+      for (const path of slide.pictures) pictures.append(picture(path, slide.question))
+      stage.append(pictures)
+    }
+    const options = el('div', 'vision-options')
+    for (const option of slide.options) {
+      const box = el('button', `vision-option${option.isPicked ? ' is-picked' : ''}`)
+      box.type = 'button'
+      box.dataset.visionAct = 'pick'
+      box.dataset.visionId = option.label
+      box.setAttribute('aria-pressed', String(option.isPicked))
+      if (option.picture !== null) box.append(picture(option.picture, option.head))
+      const name = el('b', '', `${option.key === '' ? '' : `${option.key} · `}${option.head}`)
+      box.append(name)
+      if (option.isAdvised) box.append(el('span', 'vision-advised', 'advised'))
+      if (option.points.length > 0) {
+        const list = el('ul', '')
+        for (const point of option.points) list.append(el('li', '', point))
+        box.append(list)
+      }
+      options.append(box)
+    }
+    stage.append(options)
+  } else {
+    const now = el('ul', 'vision-points')
+    for (const point of slide.points) {
+      const item = el('li')
+      item.append(...boldParts(point))
+      now.append(item)
+    }
+    const form = el('form', 'vision-change')
+    const text = el('textarea')
+    text.id = 'vision-change-words'
+    text.rows = 3
+    text.maxLength = 1000
+    text.placeholder = 'What should it be? In your words; your partner rewrites the answer.'
+    text.value = visionUi.words
+    text.disabled = !can || visionUi.busy
+    form.append(text)
+    if (slide.pictures.length > 0) {
+      const pictures = el('div', 'vision-pictures')
+      for (const shown of slide.pictures.slice(0, 3)) {
+        const frame = el('figure', 'vision-picture')
+        frame.append(picture(shown.path, shown.caption))
+        if (shown.caption !== '') frame.append(el('figcaption', '', shown.caption))
+        pictures.append(frame)
+      }
+      stage.append(pictures)
+    }
+    stage.append(el('p', 'muted', 'Now:'), now, form)
+  }
+  card.append(stage, el('h2', 'vision-question', slide.question))
+  if (slide.kind === 'ask') {
+    if (slide.text !== '') card.append(el('p', 'vision-why', slide.text))
+    if (slide.advice !== null) card.append(el('p', 'vision-why muted', `Your partner advises ${slide.advice}.`))
+  }
+  const dots = el('div', 'help-dots')
+  view.slides.forEach((one, place) => {
+    const dot = el('button', 'help-dot')
+    dot.type = 'button'
+    dot.dataset.visionAct = 'goto'
+    dot.dataset.visionId = String(place)
+    dot.setAttribute('aria-label', `Question ${place + 1}: ${one.question}`)
+    if (place === view.at) dot.setAttribute('aria-current', 'true')
+    dots.append(dot)
+  })
+  card.append(dots)
+  const buttons = el('div', 'vision-buttons')
+  const back = visionButton('Back', 'goto', { id: String(view.at - 1) })
+  back.disabled = view.at === 0
+  buttons.append(back, el('span', 'grow'))
+  if (slide.kind === 'ask') {
+    buttons.append(visionButton("Don't know", 'dunno', { id: slide.askId, isEnabled: can, title: off }))
+    buttons.append(visionButton(slide.picked === null ? 'Pick an option' : `Answer: ${slide.picked.key || slide.picked.head}`, 'answer', { id: slide.askId, className: 'is-primary', isEnabled: can && slide.picked !== null, title: slide.picked === null ? 'Pick an option first.' : off }))
+  } else {
+    buttons.append(visionButton('Keep it', 'keep', { id: slide.id }))
+    buttons.append(visionButton('Send to your partner', 'send-change', { id: slide.id, className: 'is-primary', isEnabled: can, title: off }))
+  }
+  const next = visionButton('Next', 'goto', { id: String(view.at + 1) })
+  next.disabled = view.at >= view.slides.length - 1
+  buttons.append(next)
+  card.append(buttons)
   return card
 }
+
+/** A move of the Vision tab: to the store (an answer) or to the goals route (Confirm, Change), then read again. */
+async function visionSend(url, body, done) {
+  visionUi.busy = true
+  visionUi.note = null
+  redrawVision()
+  let ok = false
+  try {
+    const answer = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(body) })
+    ok = answer.ok
+    if (answer.ok) {
+      visionUi.note = { isProblem: false, text: done }
+      showPaste((await answer.json().catch(() => null))?.paste ?? null)
+    } else visionUi.note = { isProblem: true, text: `Not done: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
+  } catch {
+    visionUi.note = { isProblem: true, text: 'Not done: the board\'s server does not answer.' }
+  } finally {
+    visionUi.busy = false
+  }
+  await read()
+  redrawVision()
+  return ok
+}
+
+async function visionAct(act, id) {
+  const view = visionView(board?.plan ?? null, visionUi)
+  if (view === null) return
+  const slide = view.slides[view.at] ?? null
+  if (act === 'mode') {
+    visionUi.mode = id
+    visionUi.note = null
+  } else if (act === 'goto') {
+    visionUi.mode = 'interview'
+    visionUi.at = Math.min(Math.max(0, Number(id)), Math.max(0, view.slides.length - 1))
+  } else if (act === 'pick' && slide?.kind === 'ask') {
+    visionUi.picked = { ...visionUi.picked, [slide.id]: visionUi.picked[slide.id] === id ? null : id }
+  } else if (act === 'change') {
+    visionUi.change = id
+    visionUi.words = ''
+    visionUi.mode = 'interview'
+    visionUi.at = visionView(board?.plan ?? null, visionUi).slides.length - 1
+  } else if (act === 'keep') {
+    visionUi.change = null
+    visionUi.mode = 'read'
+  } else if (act === 'confirm') {
+    return visionSend('/api/goals', { command: 'plan-confirm', id }, `${id} is your decision now: your partner writes it so.`)
+  } else if (act === 'send-change' && slide?.kind === 'change') {
+    if (visionUi.words.trim() === '') visionUi.note = { isProblem: true, text: 'Say what it should be, in your words.' }
+    else if (await visionSend('/api/goals', { command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, 'Sent to your partner: it rewrites the answer.')) {
+      visionUi.change = null
+      visionUi.words = ''
+      visionUi.mode = 'read'
+    }
+  } else if ((act === 'answer' || act === 'dunno') && slide?.kind === 'ask') {
+    const label = act === 'dunno' ? "Don't know: take your advice for now" : slide.picked?.label ?? null
+    if (label === null) return
+    await visionSend('/api/work', { action: 'answer', id, text: label }, act === 'dunno' ? `${slide.id}: your partner takes its advice for now, marked assumed.` : `${slide.id}: answered. Your partner writes it into the plan.`)
+    return
+  }
+  redrawVision()
+}
+
+$('view-vision').addEventListener('click', event => {
+  const button = event.target.closest('[data-vision-act]')
+  if (button === null || button.disabled || event.target.closest('[data-zoom]') !== null) return
+  visionAct(button.dataset.visionAct, button.dataset.visionId ?? null)
+})
+$('view-vision').addEventListener('input', event => {
+  if (event.target.id === 'vision-change-words') visionUi.words = event.target.value
+})
+$('view-vision').addEventListener('keydown', event => {
+  if (visionUi.mode !== 'interview' || event.target.tagName === 'TEXTAREA') return
+  if (event.key === 'ArrowRight') visionAct('goto', String(visionUi.at + 1))
+  else if (event.key === 'ArrowLeft') visionAct('goto', String(visionUi.at - 1))
+})
 
 /**
  * B360: the recaps of finished work gathered under the daily note (the setting botherMe "daily"), each with its
@@ -9143,8 +9372,6 @@ function drawFocus(state) {
   // Partner answers (2026-10-19): the switch, beside today's note in the run, else under everything else.
   const toggle = partnerSwitch(state)
   let switchDrawn = false
-  // Plan (2026-10-19): the product plan first: what every goal below it falls back to.
-  parts.push(planCard(state))
   if (view.head !== null) {
     const head = el('header', 'focus-head')
     const title = el('div', 'focus-title')
@@ -9274,13 +9501,6 @@ async function focusAct(act, goal = null, extra = null) {
     focusUi.note = null
     return redrawFocus()
   }
-  // Plan (2026-10-19): the Change box of an answer opens and closes without a word to anyone.
-  if (act === 'plan-change-open') {
-    focusUi.plan.change = focusUi.plan.change === goal ? null : goal
-    focusUi.note = null
-    redrawFocus()
-    return $('plan-change-words')?.focus()
-  }
   if (act === 'vibe-not-yet' || act === 'how-not-yet' || act === 'vibe-there-no') {
     const stage = act === 'vibe-not-yet' ? 'vibe' : act === 'how-not-yet' ? 'how' : 'there'
     focusUi.notYet = focusUi.notYet === stage ? null : stage
@@ -9335,15 +9555,6 @@ async function focusAct(act, goal = null, extra = null) {
     // Partner answers, the review's findings: a partner's answer is taken back, and the line says so (by the line's field).
     else if (act === 'undo' && focus !== null && extra !== null) await sendFocus({ command: 'note-undo', id: focus.id, note: extra.note, line: extra.line }, extra.ask ? 'Taken back: the question comes to you under Needs your attention, and its chat waits for your answer.' : 'Your partner is asked to undo it.')
     else if (act === 'answer' && extra !== null) await focusAnswerAsk(extra.id, extra.label)
-    // Plan (2026-10-19): an answer of the product plan confirmed as yours, or your words for a new one, to the partner.
-    else if (act === 'plan-confirm' && goal !== null) await sendFocus({ command: 'plan-confirm', id: goal }, `${goal} is your decision now: your partner writes it so.`)
-    else if (act === 'plan-change' && focusUi.plan.change !== null) {
-      if (words('planChange') === '') focusUi.note = { isProblem: true, text: 'Say what the answer should be, in your words.' }
-      else if (await sendFocus({ command: 'plan-change', id: focusUi.plan.change, text: words('planChange') }, 'Sent to your partner: it rewrites the answer.') !== null) {
-        focusUi.words.planChange = ''
-        focusUi.plan.change = null
-      }
-    }
   } finally {
     focusUi.busy = false
     redrawFocus()
@@ -11970,6 +12181,7 @@ function show(tab) {
   $('view-advice').hidden = tab !== 'advice'
   $('view-coordinate').hidden = tab !== 'coordinate'
   $('view-design').hidden = tab !== 'design'
+  $('view-vision').hidden = tab !== 'vision'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
   if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) {
@@ -12035,6 +12247,8 @@ function draw(state) {
   once('brainstorm', brainstormData(state), () => drawBrainstorm(state))
   // Focus 1: the Focus page, when the focus, the map or the brainstorms change; the tab's bar, when its setting does.
   once('focus', focusData(state), () => drawFocus(state))
+  // Vision (2026-10-19): the Vision tab, when the plan or what the person does on it changes.
+  once('vision', visionData(state), () => drawVision(state))
   once('advisor-parts', state.advisorParts ?? null, () => drawAdvisorParts(state))
   // The line about a round left out goes after a day.
   once('advice-rounds', [state.rounds ?? null, Math.floor(state.readAt / 3_600_000)], () => { $('advice-rounds').textContent = roundsLine(state.rounds, state.readAt, clock) })

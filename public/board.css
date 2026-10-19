@@ -281,28 +281,64 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-ask-pictures { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .focus-ask-pictures .picture { display: block; width: 100%; }
 .focus-ask-pictures .picture img { aspect-ratio: auto; max-height: 190px; object-fit: contain; }
-/* Plan (2026-10-19): the Plan part on top of the Focus page: one row per answer of the product plan, its state at the right. */
-.plan-card { margin-bottom: 14px; padding: 14px 18px 10px; }
-.plan-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 8px; }
-.plan-head h3 { margin: 0; }
-.plan-summary { font-size: 14px; }
-.plan-path { margin-left: auto; padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--muted); text-decoration: underline; cursor: pointer; }
-.plan-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); margin-bottom: 6px; }
-.plan-row.is-open { border-color: var(--waiting); }
-.plan-top { display: flex; align-items: baseline; gap: 10px; }
-.plan-id { color: var(--muted); font-weight: 600; min-width: 2.2em; }
-.plan-title { flex: 1; overflow-wrap: anywhere; }
-.plan-state { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
-.plan-state.is-decided { border-color: var(--working); color: var(--working); }
-.plan-state.is-assumed { border-color: var(--free); color: var(--free); }
-.plan-state.is-open { border-color: var(--waiting); color: var(--waiting); }
-.plan-answer { margin: 6px 0 0 2.9em; font-size: 14px; overflow-wrap: anywhere; }
-.plan-meta, .plan-advice { margin: 4px 0 0 2.9em; font-size: 13px; }
-.plan-overturned { margin: 4px 0 0 2.9em; font-size: 13px; color: var(--warn); }
-.plan-buttons, .plan-row .focus-ask-options { margin: 8px 0 2px 2.9em; display: flex; flex-wrap: wrap; gap: 8px; }
-.plan-buttons .focus-answer { min-width: 0; padding: 6px 14px; font-weight: 500; }
-.plan-dunno { border-style: dashed; }
-.plan-row .focus-say { margin: 8px 0 4px 2.9em; }
+/* Vision (2026-10-19): the Vision tab: the plan's conclusions as cards, and the interview as slides with dots (the help tour's). */
+.vision { min-height: 0; overflow-y: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 14px; max-width: 1240px; width: 100%; margin: 0 auto; }
+.vision-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 18px; }
+.vision-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.vision-title h1 { font-size: 22px; font-weight: 700; margin: 0; }
+.vision-title small { font-size: 14px; }
+.vision-modes { display: flex; gap: 6px; }
+.vision-button { padding: 7px 14px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.vision-button:hover:not(:disabled), .vision-button:focus-visible { filter: brightness(1.12); outline: 2px solid #8fb4ff; outline-offset: 2px; }
+.vision-button.is-primary { border-color: transparent; background: var(--free); color: #fff; font-weight: 600; }
+.vision-button:disabled { opacity: 0.5; cursor: default; }
+.vision-mode[aria-pressed="true"] { border-color: var(--free); background: #16294a; font-weight: 600; }
+.vision-note { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--inset); color: var(--muted); }
+.vision-note.is-problem { background: #3a1d17; color: #ffb4a3; }
+.vision-empty { color: var(--muted); max-width: 70ch; }
+.vision-pitch { margin: 4px 0 2px; font-size: 24px; font-weight: 700; line-height: 1.3; max-width: 46ch; }
+.vision-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; align-items: start; }
+.vision-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.vision-card.is-open { border-color: var(--waiting); }
+.vision-card h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; font-size: 17px; }
+.vision-state { font-size: 12px; font-weight: 500; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.vision-state.is-decided { border-color: var(--working); color: var(--working); }
+.vision-state.is-assumed { border-color: var(--free); color: var(--free); }
+.vision-state.is-open { border-color: var(--waiting); color: var(--waiting); }
+.vision-pictures { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; }
+.vision-picture { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.vision-picture .picture, .vision-option .picture { display: block; width: 100%; }
+.vision-picture .picture img, .vision-option .picture img { aspect-ratio: 16 / 10; width: 100%; object-fit: contain; border-radius: 8px; background: var(--bg); }
+.vision-picture figcaption { font-size: 12px; color: var(--muted); text-align: center; }
+.vision-points { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; font-size: 14.5px; line-height: 1.45; list-style: disc; }
+.vision-points li { display: list-item; }
+.vision-points b { color: var(--text); }
+.vision-overturned { margin: 0; font-size: 13px; color: var(--warn); }
+.vision-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.vision-foot .grow { flex: 1; }
+.vision-foot .vision-button { padding: 5px 12px; font-size: 13px; }
+.vision-file { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
+.vision-slide { width: min(820px, 100%); margin: 6px auto 0; padding: 18px 22px 16px; border: 1px solid #2a3850; border-radius: 14px; background: var(--panel); text-align: center; }
+.vision-stage { padding: 16px; border-radius: 10px; background: var(--bg); text-align: left; }
+.vision-stage > .muted { margin: 0 0 4px; }
+.vision-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.vision-option { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid #2a3850; border-radius: 12px; background: var(--panel); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.vision-option:hover, .vision-option:focus-visible { border-color: #8fb4ff; outline: none; }
+.vision-option.is-picked { border: 2px solid var(--free); padding: 9px; background: #16294a; }
+.vision-option b { font-size: 15px; }
+.vision-option ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); line-height: 1.45; list-style: disc; }
+.vision-advised { align-self: flex-start; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #16294a; color: #8fb4ff; }
+.vision-change textarea { width: 100%; margin-top: 10px; padding: 10px 12px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; resize: vertical; }
+.vision-question { margin: 16px 0 6px; font-size: 20px; }
+.vision-why { max-width: 60ch; margin: 0 auto 4px; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+.vision-why.muted { font-size: 13.5px; }
+.vision-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vision-buttons .grow { flex: 1; }
+@media (max-width: 700px) {
+  .vision { padding: 12px 12px 24px; }
+  .vision-pitch { font-size: 20px; }
+  .vision-slide { padding: 12px; }
+}
 .focus-there { border-color: var(--working); }
 .focus-there h3 { color: var(--working); }
 /* B255: the goal map's outline (spec 2026-10-15): one level at a time, the rest folded and dimmed. */

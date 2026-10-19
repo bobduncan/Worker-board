@@ -125,48 +125,58 @@ const ASKS = now => [
   { id: 'old-question', from: 'Features', kind: 'input', title: 'An answered question', state: 'answered' },
 ]
 
-// Plan (2026-10-19): the demo's product plan: six decided, one assumed, one open with the partner's ask P5 (ASKS).
+// Vision (2026-10-19): the demo's product plan: six decided, one open with the partner's ask P5 (demoWork).
 const PRODUCT_PLAN = `# Demo: the product plan
 
-## P1 · What it is, for whom
+Pitch: Push enemies into lava. Win a fight, grow stronger, until your party falls.
+
+## P1 · What it is
 
 - State: decided (from game-vision.md, 2026-10-10)
-- Answer: a turn-based tactics roguelite on lava, short puzzle-like battles. The player: you first, then a friend.
+- Answer: a turn-based tactics roguelite on lava, short puzzle-like battles.
+- Point: **Tactics roguelite:** short, puzzle-like fights
+- Point: **Like Into the Breach,** but a run of fights with random upgrades
+- Point: **For:** you first, then a friend at version 1
 
-## P2 · Why it is good
+## P2 · Why it's fun
 
 - State: decided (from game-vision.md, 2026-10-10)
-- Answer: thinking is rewarded, the game is dangerous, you can become really powerful.
+- Point: **Thinking pays:** a clever push beats brute force
+- Point: **Danger:** one careless turn costs a hero
+- Point: **Power:** the right upgrades make turns overwhelming
 
-## P3 · How it looks and sounds
+## P3 · Look and sound
 
 - State: decided (from the definitions of done, 2026-10-11)
-- Answer: 4x pixel art against the references; short punchy sounds, no voices.
+- Picture: art-inbox/jump/jump-arc.png · a fight today
+- Picture: art-inbox/settings/settings-screen.png · the menus
+- Point: **4x pixel art,** warm lava against dark stone
+- Point: **Short, punchy sounds;** no voices, no cinematic booms
 
-## P4 · How long it lives
-
-- State: assumed (partner, 2026-10-18) · revisit after M1 is played
-- Answer: a polished version 1 first; then a growing roguelite, one milestone per kind of growth.
-
-## P5 · How it reaches people
+## P5 · How people get it
 
 - State: open
 - Known: it runs in the browser on a desktop. Not said: where it is put, who may play, free or paid.
 
-## P6 · What it is built on
+## P6 · Built on
 
 - State: decided (from architecture.md, 2026-10-11)
-- Answer: TypeScript and Vite in the browser; content as data. Hard to change later: stairs-only cliffs.
+- Point: **TypeScript and Vite,** in the browser
+- Point: **Everything is data:** units, maps, upgrades
+- Point: **Hard to change later:** stairs-only cliffs
 
-## P7 · In what order, how fast
+## P7 · The road
+
+- State: assumed (partner, 2026-10-18) · revisit after M1 is played
+- Point: **M1 the loop is fun:** two runs played, you say "fun"
+- Point: **M2 version 1, polished:** someone else plays it without help
+- Point: **M3 and on:** growth, one milestone each
+
+## P8 · Good enough means
 
 - State: decided (from game-plan.md, 2026-10-14)
-- Answer: M1 the loop is fun, then M2 version 1 polished, then growth.
-
-## P8 · What counts as good enough
-
-- State: decided (from game-plan.md, 2026-10-14)
-- Answer: a definition of done and a reference per kind; art at 75 or more; checked by a helper that did not build it.
+- Point: **Art scores 75+** against its reference
+- Point: **Checked by someone else** than who built it
 
 ## The log
 
@@ -535,11 +545,12 @@ function demoWork(now) {
   })
   work.items.set('N90', recap('N90', now - 180 * MIN, 'open', 'B05', ['B05 Footstep sounds is done', 'Every surface has its own footstep: stone, wood and grass.'], 'art-inbox/jump/jump-arc.png'))
   work.items.set('N91', recap('N91', now - 40 * MIN, 'overturned', 'B07', ['B07 Fog in the forest is done', 'The forest has a low fog that moves with the wind.'], 'none (nothing to see)', 'The fog hides the paths: make it thinner near them.'))
-  // Plan (2026-10-19): the partner's open ask on the product plan's open answer P5, shown on its row in the Plan part.
+  // Vision (2026-10-19): the partner's open ask on the product plan's open answer P5, a slide of the Vision tab's interview.
   work.items.set('Q95', {
     head: new Map([['Id', 'Q95'], ['Kind', 'ask'], ['Title', 'P5: how does the game reach people?'], ['State', 'open'], ['Owner', 'Advisor'], ['Since', stamp(now - 20 * MIN)],
       ['Filed', String(now - 20 * MIN)], ['Asks', 'decide'], ['Blocking', 'no'], ['Of', 'G1'],
-      ['Options', 'A a link for friends, free, unlisted | B public and free on itch.io | C Steam, paid, later'], ['Advice', 'A, revisit after M2']]),
+      ['Pictures', 'art-inbox/settings/settings-screen.png, art-inbox/pathfinding/option-a-navmesh.png, art-inbox/pathfinding/option-b-grid.png'],
+      ['Options', 'A A link for friends: free and unlisted; ask again after M2 | B Public on itch.io: free, anyone finds it; needs a page and pictures | C Steam, paid: a desktop build; much later'], ['Advice', 'A, revisit after M2']]),
     sections: new Map([['Text', ['Known: it runs in the browser on a desktop. Not said: where it is put, who may play, free or paid.']]]),
     problem: null,
   })

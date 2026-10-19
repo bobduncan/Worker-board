@@ -1,10 +1,11 @@
-// Plan (2026-10-19): the product plan's page read for the Plan part of the Focus page: the eight answers with their
-// state, source and revisit moment, the log's counts, and the partner's open ask matched to an open answer.
+// Plan (2026-10-19): the product plan's page read for the Vision tab: its pitch, the answers with their state, source,
+// revisit moment, points and pictures, the log's counts, and the partner's open ask matched to an open answer, its
+// options as cards.
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { focusMove } from '../src/focus.mjs'
-import { parsePlan, planState } from '../src/plan.mjs'
+import { optionCard, parsePlan, planState } from '../src/plan.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { itemsOf, storeFromText } from '../src/work/read.mjs'
 
@@ -12,12 +13,18 @@ const PAGE = `# A game: the product plan
 
 Some words above the answers.
 
+Pitch: Push them into the lava.
+
 ## P1 · What it is, for whom
 
 - State: decided (from [game-vision.md](game-vision.md), 2026-10-10) · the player: assumed, revisit after M1 is played
 - Answer: a tactics roguelite on lava,
   short battles.
 - The player: you first.
+- Point: **Tactics roguelite:** short fights
+- Point: **For:** you first
+- Picture: art-inbox/vision/look.png · the look · we aim for
+- Picture: art-inbox/vision/today.png
 
 ## P2 · Why it is good
 
@@ -43,6 +50,22 @@ Some words above the answers.
 - overturned P2: brute force wins
 - not a log line
 `
+
+test('parsePlan: the pitch, the points and the pictures', () => {
+  const { pitch, answers } = parsePlan(PAGE)
+  assert.equal(pitch, 'Push them into the lava.')
+  assert.deepEqual(answers[0].points, ['**Tactics roguelite:** short fights', '**For:** you first'])
+  assert.deepEqual(answers[0].pictures, [{ path: 'art-inbox/vision/look.png', caption: 'the look · we aim for' }, { path: 'art-inbox/vision/today.png', caption: '' }])
+  assert.deepEqual([answers[1].points, answers[1].pictures], [[], []])
+  assert.equal(parsePlan(['# Title', '', 'Pitch: one', '', '## Other', '', 'Pitch: not this', ''].join('\n')).pitch, 'one')
+})
+
+test('optionCard: the letter, the head before the colon, and the points after it', () => {
+  assert.deepEqual(optionCard('A A link for friends: free and unlisted; ask again after M2'), { key: 'A', head: 'A link for friends', points: ['free and unlisted', 'ask again after M2'] })
+  assert.deepEqual(optionCard('B public on itch.io'), { key: 'B', head: 'public on itch.io', points: [] })
+  assert.deepEqual(optionCard('Yes'), { key: '', head: 'Yes', points: [] })
+  assert.deepEqual(optionCard('Steam: later'), { key: '', head: 'Steam', points: ['later'] })
+})
 
 test('parsePlan: the answers with their state, source, revisit and text, and the log counted', () => {
   const { answers, log } = parsePlan(PAGE)
@@ -95,10 +118,16 @@ Options: Yes | No
   assert.deepEqual(counts, { decided: 1, assumed: 1, open: 2 })
   assert.deepEqual(log, { hits: 2, gaps: 1, overturned: 1 })
   assert.equal(answers[0].ask, null)
-  assert.deepEqual(answers[2].ask.options, [
-    { label: 'A a link for friends', isAdvised: true }, { label: 'B public on itch.io', isAdvised: false }, { label: 'C Steam, later', isAdvised: false },
+  assert.deepEqual(answers[2].ask.options.map(({ key, head, isAdvised, picture }) => [key, head, isAdvised, picture]), [
+    ['A', 'a link for friends', true, null], ['B', 'public on itch.io', false, null], ['C', 'Steam, later', false, null],
   ])
-  assert.deepEqual([answers[2].ask.id, answers[2].ask.advice, answers[2].ask.text], ['Q7', 'A, revisit after M2', 'Known: the browser on a desktop.'])
+  assert.deepEqual([answers[2].ask.id, answers[2].ask.question, answers[2].ask.advice, answers[2].ask.text, answers[2].ask.pictures],
+    ['Q7', 'How does the game reach people?', 'A, revisit after M2', 'Known: the browser on a desktop.', []])
+  // As many pictures as options: one per option, in their order; another number: all above the options.
+  const pictured = ask.replace('Advice:', 'Pictures: a.png, b.png, c.png\nAdvice:')
+  assert.deepEqual(planState(PAGE, [parseItem(pictured)], 'p.md').answers[2].ask.options.map(option => option.picture), ['a.png', 'b.png', 'c.png'])
+  const two = ask.replace('Advice:', 'Pictures: a.png, b.png\nAdvice:')
+  assert.deepEqual([planState(PAGE, [parseItem(two)], 'p.md').answers[2].ask.pictures, planState(PAGE, [parseItem(two)], 'p.md').answers[2].ask.options[0].picture], [['a.png', 'b.png'], null])
 })
 
 test('the Plan part\'s Confirm and Change: a word to the partner, nothing written; a bad id or empty words refused', async () => {
