@@ -17,7 +17,7 @@ const files = { readFile, writeFile, rename, rm, mkdir, access, readdir }
  * The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar;
  * B354: ask the partner for a goal's Done when; B358: tick a goal on the Goals part (its re-check first).
  */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done', 'plan-confirm', 'plan-change']
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done', 'plan-confirm', 'plan-change', 'plan-ask']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -104,7 +104,7 @@ async function move(body, ctx) {
   if (ctx.canWrite !== true) return refuse(403, 'This board only shows: work on the focus on the board that delivers.')
   const isMove = FOCUS_MOVES.includes(command)
   if (isMove && (ctx.partner ?? null) === null) return refuse(409, 'No partner chat is on the board: the setting advisor names none.')
-  if (command === 'plan-confirm' || command === 'plan-change') return planWord(command, body, ctx)
+  if (command === 'plan-confirm' || command === 'plan-change' || command === 'plan-ask') return planWord(command, body, ctx)
   const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
   const text = await readMap(ctx.fs, ctx.goalsFile)
   if (text === null) return refuse(404, 'There is no goal map to write into.')

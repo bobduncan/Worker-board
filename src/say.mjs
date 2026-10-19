@@ -103,6 +103,8 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
 export function planWords(command, { to, id, words = null, job }) {
   const lines = command === 'plan-confirm'
     ? [`plan: ${id} confirmed`, `Your job: ${job}, "The plan interview"`]
+    // Vision: an open answer the partner has not asked yet: the person wants its options, as a question to pick from.
+    : command === 'plan-ask' ? [`plan: ${id} ask`, `Your job: ${job}, "The plan interview"`]
     : [`plan: ${id} change`, `Words: ${String(words ?? '').replace(/\s+/g, ' ').trim()}`, `Your job: ${job}, "The plan interview"`]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id, text: lines.join('\n') }
 }

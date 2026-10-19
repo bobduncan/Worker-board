@@ -8607,6 +8607,9 @@ function goalStepIds(goals, id) {
 // focus:end
 
 // vision:start
+/** The own-words card's label among an ask's options: no option of the partner's is written so. */
+const OWN_WORDS = '\u0000own words'
+
 /**
  * Vision (2026-10-19): the Vision tab's view of the product plan (src/plan.mjs). `read`: the pitch and one card per
  * answer, its points (bold lead words), pictures, state, and where it came from. `interview`: one slide per question
@@ -8619,12 +8622,21 @@ function visionView(plan, ui = { mode: 'read', at: 0, picked: {}, change: null }
   const when = answer => (answer.at === null ? '' : `, ${answer.at}`)
   const slides = []
   for (const answer of plan.answers) {
-    if (answer.state !== 'open' || answer.ask === null) continue
+    if (answer.state !== 'open') continue
+    // An open answer the partner has not asked yet: get its options from the partner, or answer it in your words.
+    if (answer.ask === null) {
+      slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isAsked: (ui.asked ?? []).includes(answer.id) })
+      continue
+    }
+    // The last card is always your own words, with the next letter (D after A, B, C).
+    const keys = answer.ask.options.map(option => option.key).filter(key => /^[A-Z]$/.test(key))
+    const ownKey = keys.length === 0 ? '' : String.fromCharCode(Math.max(...keys.map(key => key.charCodeAt(0))) + 1)
+    const own = { label: OWN_WORDS, key: ownKey, head: 'In your own words', points: [], isAdvised: false, picture: null, isOwn: true }
     slides.push({
       kind: 'ask', id: answer.id, title: answer.title, askId: answer.ask.id, question: answer.ask.question || answer.title,
       text: answer.ask.text, advice: answer.ask.advice, pictures: answer.ask.pictures,
-      options: answer.ask.options.map(option => ({ ...option, isPicked: ui.picked?.[answer.id] === option.label })),
-      picked: answer.ask.options.find(option => option.label === ui.picked?.[answer.id]) ?? null,
+      options: [...answer.ask.options, own].map(option => ({ ...option, isPicked: ui.picked?.[answer.id] === option.label })),
+      picked: [...answer.ask.options, own].find(option => option.label === ui.picked?.[answer.id]) ?? null,
     })
   }
   const changing = plan.answers.find(answer => answer.id === ui.change && answer.state !== 'open') ?? null
@@ -8635,10 +8647,10 @@ function visionView(plan, ui = { mode: 'read', at: 0, picked: {}, change: null }
     pictures: answer.pictures,
     source: answer.from !== null ? `from ${answer.from}${when(answer)}` : answer.by !== null ? `${answer.by}${when(answer)}` : null,
     revisit: answer.revisit, overturned: answer.overturned,
-    slide: slides.findIndex(slide => slide.kind === 'ask' && slide.id === answer.id),
+    slide: slides.findIndex(slide => slide.kind !== 'change' && slide.id === answer.id),
     isAsked: answer.ask !== null,
   }))
-  const asked = slides.filter(slide => slide.kind === 'ask').length
+  const asked = slides.filter(slide => slide.kind !== 'change').length
   const { decided, assumed, open } = plan.counts
   const total = plan.answers.length
   const parts = [`${decided} of ${total} decided by you`, assumed > 0 ? `${assumed} assumed for now` : null, open > 0 ? `${open} open` : null].filter(Boolean)
@@ -9038,10 +9050,10 @@ function focusNoteCard(view) {
 
 // Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page; the board
 // types Confirm, Change and the answers to it (src/focus.mjs `planWord`, the store's `answer`).
-const visionUi = { mode: 'read', at: 0, picked: {}, change: null, words: '', busy: false, note: null }
+const visionUi = { mode: 'read', at: 0, picked: {}, change: null, asked: [], words: '', busy: false, note: null }
 
 function visionData(state) {
-  return [state.plan ?? null, visionCan(state), visionUi.mode, visionUi.at, visionUi.picked, visionUi.change, visionUi.busy, visionUi.note]
+  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, visionUi.mode, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.busy, visionUi.note]
 }
 function redrawVision() {
   if (board !== null && board !== undefined) once('vision', visionData(board), () => drawVision(board))
@@ -9061,7 +9073,8 @@ function visionButton(label, act, { id = null, className = '', isEnabled = true,
 function drawVision(state) {
   const view = visionView(state.plan ?? null, visionUi)
   const can = visionCan(state)
-  const off = 'This board only shows, or no partner chat is on it.'
+  // Why the buttons are off: a copy or the demo only shows; without a partner chat nobody takes the words.
+  const off = state.goalsEdit?.whyNot ?? ((state.advisor ?? null) === null ? 'No partner chat is on the board: the setting advisor names none.' : 'This board only shows.')
   const main = el('main', 'vision')
   const top = el('header', 'vision-top')
   const title = el('div', 'vision-title')
@@ -9079,6 +9092,7 @@ function drawVision(state) {
     top.append(modes)
   }
   main.append(top)
+  if (view !== null && !can) main.append(el('p', 'vision-note', `The buttons are off here. ${off}`))
   if (visionUi.note !== null) main.append(el('p', `vision-note${visionUi.note.isProblem ? ' is-problem' : ''}`, visionUi.note.text))
   if (view === null) {
     main.append(el('p', 'vision-empty', 'No product plan yet. Type "plan interview" to your partner: the answers every goal falls back to appear here, and the questions it asks you come one per slide.'))
@@ -9110,17 +9124,17 @@ function drawVision(state) {
         box.append(list)
       }
       for (const over of card.overturned) box.append(el('p', 'vision-overturned', `Overturned ${over}`))
+      // The foot sits at the card's bottom, so cards of a row end level: where it came from, then the buttons.
       const meta = [card.source, card.revisit === null ? null : `ask again after ${card.revisit}`].filter(one => one !== null).join(' · ')
       const foot = el('div', 'vision-foot')
-      if (meta !== '') foot.append(el('span', 'muted', meta))
-      foot.append(el('span', 'grow'))
-      if (card.state === 'open') {
-        if (card.slide >= 0) foot.append(visionButton('Answer it →', 'goto', { id: String(card.slide), className: 'is-primary' }))
-        else foot.append(el('span', 'muted', 'Your partner asks it soon: type "plan interview" to it.'))
-      } else {
-        if (card.state === 'assumed' || card.source?.startsWith('from ')) foot.append(visionButton(card.state === 'assumed' ? 'Confirm' : 'Yes, mine', 'confirm', { id: card.id, isEnabled: can, title: off }))
-        foot.append(visionButton('Change', 'change', { id: card.id, isEnabled: can, title: off }))
+      if (meta !== '') foot.append(el('p', 'vision-meta muted', meta))
+      const buttons = el('div', 'vision-foot-buttons')
+      if (card.state === 'open') buttons.append(visionButton('Answer it →', 'goto', { id: String(card.slide), className: 'is-primary' }))
+      else {
+        if (card.state === 'assumed' || card.source?.startsWith('from ')) buttons.append(visionButton(card.state === 'assumed' ? 'Confirm' : 'Yes, mine', 'confirm', { id: card.id, isEnabled: can, title: off }))
+        buttons.append(visionButton('Change', 'change', { id: card.id, isEnabled: can, title: off }))
       }
+      foot.append(buttons)
       box.append(foot)
       grid.append(box)
     }
@@ -9130,7 +9144,7 @@ function drawVision(state) {
     file.dataset.gameFile = view.path
     main.append(file)
   } else if (view.slides.length === 0) {
-    main.append(el('p', 'vision-empty', 'Nothing to answer: every answer is decided by you or assumed for now. Press Change on a card to change one.'))
+    main.append(el('p', 'vision-empty', 'Nothing open: every answer is decided by you or assumed for now. Press Change on a card to change one.'))
   } else {
     main.append(visionSlide(view, can, off))
   }
@@ -9150,8 +9164,12 @@ function visionSlide(view, can, off) {
     }
     const options = el('div', 'vision-options')
     for (const option of slide.options) {
-      const box = el('button', `vision-option${option.isPicked ? ' is-picked' : ''}`)
-      box.type = 'button'
+      // The own-words card holds a text box, which a button may not: it is a card that acts as one.
+      const box = el(option.isOwn ? 'div' : 'button', `vision-option${option.isPicked ? ' is-picked' : ''}`)
+      if (option.isOwn) {
+        box.setAttribute('role', 'button')
+        box.tabIndex = 0
+      } else box.type = 'button'
       box.dataset.visionAct = 'pick'
       box.dataset.visionId = option.label
       box.setAttribute('aria-pressed', String(option.isPicked))
@@ -9164,9 +9182,37 @@ function visionSlide(view, can, off) {
         for (const point of option.points) list.append(el('li', '', point))
         box.append(list)
       }
+      // Your own words: the card holds its box; picking the card or typing in it picks it.
+      if (option.isOwn) {
+        const text = el('textarea', 'vision-own')
+        text.id = 'vision-change-words'
+        text.rows = 3
+        text.maxLength = 1000
+        text.placeholder = 'Something else: say it here'
+        text.value = visionUi.words
+        text.disabled = !can || visionUi.busy
+        box.classList.add('is-own')
+        box.append(text)
+      }
       options.append(box)
     }
     stage.append(options)
+  } else if (slide.kind === 'open') {
+    // No options yet: the partner prepares them (with pictures where it is about looks), or you answer in your words.
+    const ask = el('div', 'vision-open')
+    ask.append(el('b', '', slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.'),
+      el('p', 'muted', slide.isAsked ? 'They come here as cards, with pictures where it is about how it looks. You can answer in your own words meanwhile.' : 'Get two or three options to pick from, or answer it in your own words.'))
+    if (!slide.isAsked) ask.append(visionButton('Get options from your partner', 'ask-options', { id: slide.id, className: 'is-primary', isEnabled: can, title: off }))
+    const form = el('form', 'vision-change')
+    const text = el('textarea')
+    text.id = 'vision-change-words'
+    text.rows = 2
+    text.maxLength = 1000
+    text.placeholder = 'Or answer it in your own words'
+    text.value = visionUi.words
+    text.disabled = !can || visionUi.busy
+    form.append(text)
+    stage.append(ask, form)
   } else {
     const now = el('ul', 'vision-points')
     for (const point of slide.points) {
@@ -9196,10 +9242,8 @@ function visionSlide(view, can, off) {
     stage.append(el('p', 'muted', 'Now:'), now, form)
   }
   card.append(stage, el('h2', 'vision-question', slide.question))
-  if (slide.kind === 'ask') {
-    if (slide.text !== '') card.append(el('p', 'vision-why', slide.text))
-    if (slide.advice !== null) card.append(el('p', 'vision-why muted', `Your partner advises ${slide.advice}.`))
-  }
+  if (slide.kind !== 'change' && slide.text !== '') card.append(el('p', 'vision-why', slide.text))
+  if (slide.kind === 'ask' && slide.advice !== null) card.append(el('p', 'vision-why muted', `Your partner advises ${slide.advice}.`))
   const dots = el('div', 'help-dots')
   view.slides.forEach((one, place) => {
     const dot = el('button', 'help-dot')
@@ -9218,6 +9262,8 @@ function visionSlide(view, can, off) {
   if (slide.kind === 'ask') {
     buttons.append(visionButton("Don't know", 'dunno', { id: slide.askId, isEnabled: can, title: off }))
     buttons.append(visionButton(slide.picked === null ? 'Pick an option' : `Answer: ${slide.picked.key || slide.picked.head}`, 'answer', { id: slide.askId, className: 'is-primary', isEnabled: can && slide.picked !== null, title: slide.picked === null ? 'Pick an option first.' : off }))
+  } else if (slide.kind === 'open') {
+    buttons.append(visionButton('Send my answer', 'send-open', { id: slide.id, isEnabled: can, title: off }))
   } else {
     buttons.append(visionButton('Keep it', 'keep', { id: slide.id }))
     buttons.append(visionButton('Send to your partner', 'send-change', { id: slide.id, className: 'is-primary', isEnabled: can, title: off }))
@@ -9260,8 +9306,11 @@ async function visionAct(act, id) {
     visionUi.mode = id
     visionUi.note = null
   } else if (act === 'goto') {
+    const at = Math.min(Math.max(0, Number(id)), Math.max(0, view.slides.length - 1))
+    // Words typed on one slide do not follow to the next.
+    if (at !== view.at || visionUi.mode !== 'interview') visionUi.words = ''
     visionUi.mode = 'interview'
-    visionUi.at = Math.min(Math.max(0, Number(id)), Math.max(0, view.slides.length - 1))
+    visionUi.at = at
   } else if (act === 'pick' && slide?.kind === 'ask') {
     visionUi.picked = { ...visionUi.picked, [slide.id]: visionUi.picked[slide.id] === id ? null : id }
   } else if (act === 'change') {
@@ -9281,24 +9330,55 @@ async function visionAct(act, id) {
       visionUi.words = ''
       visionUi.mode = 'read'
     }
+  } else if (act === 'ask-options' && slide?.kind === 'open') {
+    if (await visionSend('/api/goals', { command: 'plan-ask', id: slide.id }, `Your partner prepares the options for ${slide.title}: they come here as a slide.`)) visionUi.asked = [...new Set([...visionUi.asked, slide.id])]
+  } else if (act === 'send-open' && slide?.kind === 'open') {
+    // Your own words for an open answer: the partner writes them as your decision, as a change does.
+    if (visionUi.words.trim() === '') visionUi.note = { isProblem: true, text: 'Write your answer first.' }
+    else if (await visionSend('/api/goals', { command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, `Sent to your partner: it writes ${slide.title} as your decision.`)) visionUi.words = ''
   } else if ((act === 'answer' || act === 'dunno') && slide?.kind === 'ask') {
-    const label = act === 'dunno' ? "Don't know: take your advice for now" : slide.picked?.label ?? null
+    const isOwn = act === 'answer' && slide.picked?.isOwn === true
+    if (isOwn && visionUi.words.trim() === '') {
+      visionUi.note = { isProblem: true, text: 'Write your answer in the box first.' }
+      return redrawVision()
+    }
+    const label = act === 'dunno' ? "Don't know: take your advice for now"
+      : isOwn ? `${slide.picked.key === '' ? '' : `${slide.picked.key}, `}in my own words: ${visionUi.words.trim()}` : slide.picked?.label ?? null
     if (label === null) return
+    if (isOwn) visionUi.words = ''
     await visionSend('/api/work', { action: 'answer', id, text: label }, act === 'dunno' ? `${slide.id}: your partner takes its advice for now, marked assumed.` : `${slide.id}: answered. Your partner writes it into the plan.`)
     return
   }
   redrawVision()
 }
 
+/** Back into the own-words box after the slide was drawn anew, the caret at its end. */
+function visionRefocus() {
+  const box = $('vision-change-words')
+  if (box === null || box.disabled) return
+  box.focus()
+  box.setSelectionRange(box.value.length, box.value.length)
+}
+
 $('view-vision').addEventListener('click', event => {
   const button = event.target.closest('[data-vision-act]')
   if (button === null || button.disabled || event.target.closest('[data-zoom]') !== null) return
+  // A click into the own-words box picks its card (never unpicks it), and the box keeps the caret.
+  if (event.target.id === 'vision-change-words') {
+    if (button.dataset.visionAct === 'pick' && button.getAttribute('aria-pressed') !== 'true') visionAct('pick', button.dataset.visionId).then(visionRefocus)
+    return
+  }
   visionAct(button.dataset.visionAct, button.dataset.visionId ?? null)
 })
 $('view-vision').addEventListener('input', event => {
   if (event.target.id === 'vision-change-words') visionUi.words = event.target.value
 })
 $('view-vision').addEventListener('keydown', event => {
+  // The own-words card picks with Enter or Space, as a button does.
+  if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('div.vision-option[data-vision-act]')) {
+    event.preventDefault()
+    return visionAct('pick', event.target.dataset.visionId)
+  }
   if (visionUi.mode !== 'interview' || event.target.tagName === 'TEXTAREA') return
   if (event.key === 'ArrowRight') visionAct('goto', String(visionUi.at + 1))
   else if (event.key === 'ArrowLeft') visionAct('goto', String(visionUi.at - 1))

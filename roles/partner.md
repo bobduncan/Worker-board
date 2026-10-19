@@ -256,8 +256,12 @@ The rules:
    `- hit P<n>: ...`, `- gap: ...`, `- overturned P<n>: ...`. The board writes nothing into the page: on a card's
    **Yes, mine** or **Confirm** it types `plan: P<n> confirmed` (write the state `decided (you, <date>)`); on **Change**
    `plan: P<n> change` with `Words:` (rewrite the answer from them, state `decided (you, <date>)`; when the words leave
-   a choice open, ask it as a question with options instead). An answer "Don't know" to your ask: write the advised
-   default as `assumed`. Commit and push the page as the game's repository says.
+   a choice open, ask it as a question with options instead). On an open card's **Get options from your partner** it
+   types `plan: P<n> ask`: file that question now (rule 2), with pictures where it is about looks. Each question's
+   slide ends with a card of the user's own words after your options (`D, in my own words: ...`): write those words as
+   the answer, state `decided (you, <date>)`, paraphrased into points; an open answer they answer in their words comes
+   as `plan: P<n> change`. An answer "Don't know" to your ask: write the advised default as `assumed`. Commit and push
+   the page as the game's repository says.
 8. **Success.** The plan is good when the user reads it in two minutes and says "yes, that is my game", and no
    hard-to-change answer is assumed. The process is good when a milestone brings fewer asks the plan should have
    answered, fewer overturned answers, and the user says the result does what they intended.

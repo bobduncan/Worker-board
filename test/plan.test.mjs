@@ -138,6 +138,8 @@ test('the Plan part\'s Confirm and Change: a word to the partner, nothing writte
   assert.equal(confirmed.words.text, 'plan: P5 confirmed\nYour job: C:/board/roles/partner.md, "The plan interview"')
   const changed = await focusMove({ command: 'plan-change', id: 'P1', text: 'The player:\n  anyone who likes Into the Breach' }, ctx)
   assert.equal(changed.words.text, 'plan: P1 change\nWords: The player: anyone who likes Into the Breach\nYour job: C:/board/roles/partner.md, "The plan interview"')
+  const asked = await focusMove({ command: 'plan-ask', id: 'P6' }, ctx)
+  assert.equal(asked.words.text, ['plan: P6 ask', 'Your job: C:/board/roles/partner.md, "The plan interview"'].join('\n'))
   assert.equal((await focusMove({ command: 'plan-change', id: 'P1', text: '  ' }, ctx)).status, 400)
   assert.equal((await focusMove({ command: 'plan-confirm', id: 'G5' }, ctx)).status, 400)
   assert.equal((await focusMove({ command: 'plan-confirm', id: 'P5' }, { ...ctx, canWrite: false })).status, 403)
