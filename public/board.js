@@ -11153,8 +11153,8 @@ const HELP_CARDS = [
   {
     picture: '/help/6-check.svg',
     title: 'You check',
-    lines: ['What needs you waits under Needs your attention.', 'Look at the result, keep it or say what to change.'],
-    alt: 'Needs your attention ringed as step 6: the result picture a worker sent, with Keep it and Change buttons',
+    lines: ['What needs you waits under Needs your attention.', 'Look at the result: Approve it, or Reject it and say what to change.'],
+    alt: 'Needs your attention ringed as step 6: the result picture a worker sent, with its Approve and Reject buttons',
   },
 ]
 

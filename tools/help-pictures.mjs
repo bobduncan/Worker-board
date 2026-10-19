@@ -212,14 +212,15 @@ export const HELP_PICTURES = [
     name: '6-check',
     svg: () => frame('Overview', [
       overviewBody(),
-      rect(648, 190, 276, 300, { fill: '#1b1608', stroke: C.waiting, r: 10 }),
+      rect(648, 190, 276, 274, { fill: '#1b1608', stroke: C.waiting, r: 10 }),
       pill(662, 204, '?', C.waiting, '#1a1204', 24), text(696, 221, 'Worker 2', { size: 14, weight: 700 }), pill(772, 204, 'Look', C.waiting, '#1a1204', 48),
       bar(662, 244, 230, C.text), bar(662, 260, 180, C.text),
       rect(662, 280, 248, 120, { fill: C.inset, r: 8 }),
       `<polygon points="680,386 740,330 790,370 830,344 896,386" fill="#2c4a6e"/><circle cx="858" cy="318" r="14" fill="${C.waiting}" opacity="0.85"/>`,
-      rect(662, 412, 118, 34, { fill: C.working, stroke: 'none', r: 8 }), text(721, 434, 'Keep it', { size: 14, fill: '#08110c', weight: 700, anchor: 'middle' }),
-      rect(790, 412, 120, 34, { fill: C.inset, stroke: C.edge, r: 8 }), text(850, 434, 'Change…', { size: 14, anchor: 'middle' }),
-      ring(632, 146, 308, 380, 6, 'Look, then keep it or change it', { labelAt: 'inside' }),
+      // B385: the board's own buttons of a look ask (public/board.css .button.is-approve, .is-reject).
+      rect(662, 412, 118, 34, { fill: '#2fb568', stroke: 'none', r: 8 }), text(721, 434, '✓  Approve', { size: 14, fill: '#08110c', weight: 700, anchor: 'middle' }),
+      rect(790, 412, 120, 34, { fill: '#e5484d', stroke: 'none', r: 8 }), text(850, 434, '✕  Reject', { size: 14, weight: 700, anchor: 'middle' }),
+      ring(632, 146, 308, 380, 6, 'Look, then approve or reject', { labelAt: 'inside' }),
     ].join('\n'), { dim: [[20, 146, 290, 380], [326, 146, 290, 380]] }),
   },
 ]
