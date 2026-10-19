@@ -1618,7 +1618,7 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 /* B425: a refined step's summary, its picture and what we build under the task's header. */
 .task-brief .brief-summary { font-size: 15.5px; line-height: 1.45; overflow-wrap: anywhere; }
 .task-brief .refined-picture { margin-top: 10px; }
-.task-brief h3 + .refined-build, .task-brief .brief-part > h3:not(:first-child) { margin-top: 10px; }
+.task-brief .brief-part > h3:not(:first-child) { margin-top: 10px; }
 .task-brief ul.refined-build { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14.5px; line-height: 1.4; }
 /* B281: the person's feedback the worker is on, set apart by a bar. */
 .task-brief .brief-part:has(.brief-feedback) { border-left: 3px solid var(--waiting, #e0a33a); padding-left: 10px; }

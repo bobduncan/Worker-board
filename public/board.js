@@ -4254,14 +4254,17 @@ const MOST_TITLE_CHARS = 72
 /**
  * B425: a step's title for the head of its window (the person, I40: "It's title is too long"): a short one whole; a
  * long one up to its first clause (a ": ", "; ", " - ", ", " or " (" after its first 20 characters, so "Build the
- * Causeway," is not all it says); what is still too long cut at a word, with "…".
+ * Causeway," is not all it says; a ", " in a list, "summary, picture and what we build", ends none); what is still too
+ * long cut at a word, with "…".
  */
 function shortTitle(title) {
   const words = String(title).trim()
   if (words.length <= SHORT_TITLE_CHARS) return words
   const clause = /:\s|;\s|\s[—–-]\s|,\s|\s\(/g
+  // A comma whose part after it, up to the next clause mark, holds an "and" or an "or" is a list's.
+  const isList = found => found[0] === ', ' && /\s(?:and|or)\s/.test(words.slice(found.index + 2).split(/:\s|;\s|\s[—–-]\s|,\s|\s\(/)[0])
   let found = clause.exec(words)
-  while (found !== null && found.index < 20) found = clause.exec(words)
+  while (found !== null && (found.index < 20 || isList(found))) found = clause.exec(words)
   const first = found === null ? words : words.slice(0, found.index).trim()
   if (first.length <= MOST_TITLE_CHARS) return first
   // One more character, so a word that ends right at the limit stays.
@@ -4344,8 +4347,10 @@ function laneWindowOf(lane, now, mainTitle) {
   const step = given?.step ?? null
   // B425: what the store holds of the step: its refined parts, what it is, its goal by name, the rest for the details.
   const brief = step?.brief ?? null
-  const refined = brief === null || (brief.summary.length === 0 && brief.what.length === 0) ? null
-    : { summary: brief.summary.join(' '), picture: brief.picture, what: brief.what }
+  // A refine block with a summary, what we build or a picture file (not "none (...)").
+  const hasPicture = typeof brief?.picture === 'string' && !/^none\b/i.test(brief.picture.trim())
+  const refined = brief === null || (brief.summary.length === 0 && brief.what.length === 0 && !hasPicture) ? null
+    : { summary: brief.summary.join(' '), picture: hasPicture ? brief.picture : null, what: brief.what }
   const line = stepLine(lane, now)
   const time = timeOf(lane, now)
   const fullTitle = laneTaskOf(lane).text
@@ -4364,12 +4369,13 @@ function laneWindowOf(lane, now, mainTitle) {
     refined,
     task: step === null
       ? shortTask(given?.text ?? null, null, task === null || task.text === '' ? null : task.text)
-      : refined !== null ? twoLines(refined.summary)
+      : refined !== null && refined.summary !== '' ? twoLines(refined.summary)
         : (brief?.about ?? []).length > 0 ? twoLines(brief.about.join(' '))
           : given.by === 'step' ? stepTask('', step) : stepTask(given.text, step, task === null || task.text === '' ? null : task.text),
     details: step === null ? null : {
       step: `${step.id} · ${step.title}`,
-      context: brief?.context ?? [],
+      // What it touches stands apart, not again among its context.
+      context: (brief?.context ?? []).filter(one => !/^Touches:/.test(one)),
       touches: brief?.touches ?? [],
       history: brief?.history ?? [],
     },
@@ -4394,8 +4400,7 @@ const LANE_PARTS = {
     // B157: on top, set apart: the task in at most two lines, and its plan in plain words. B281: the step it is on,
     // and the person's feedback it is on now in a part of its own.
     view => briefPart([['The task', taskNodes(view)], [view.feedback?.title ?? '', feedbackNodes(view.feedback)], ['Its plan', planNodes(view.plan)]]),
-    // B157: below, folded: the task as it was given, its backlog step, where it stands. B425: the step with its whole
-    // title, its context, what it touches and its history.
+    // B157: below, folded: the task as it was given, its step, where it stands; B425: its context, touches, history.
     view => foldedDetails([
       section('Its task as it was given', view.given === null
         ? [el('p', 'muted', 'The message that gave it this task is not in the part of its chat the board reads.')]
@@ -4433,7 +4438,8 @@ function taskNodes(view) {
   if (view.refined === null) return [briefTask(view.task)]
   const picture = view.refined.picture === null ? null : pictureOfLine(view.refined.picture)
   return [
-    el('p', 'brief-summary', view.refined.summary),
+    // Without a summary, what the step is from its context.
+    view.refined.summary === '' ? briefTask(view.task) : el('p', 'brief-summary', view.refined.summary),
     ...(picture === null || picture.path === null ? [] : [pictureRow(picture.path, picture.caption)]),
     ...(view.refined.what.length === 0 ? [] : [el('h3', '', 'What we build'), buildList(view.refined.what)]),
   ]

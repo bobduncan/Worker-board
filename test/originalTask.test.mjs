@@ -86,7 +86,9 @@ test('a working lane carries the task as it was given: the step the store holds 
   const units = lane(working)
   assert.equal(units.state, 'working')
   assert.equal(units.task.text, 'Zebracorn walk')
-  assert.deepEqual(units.givenTask, { by: 'step', at: null, text: '', step: { id: 'B12', title: 'The zebracorn\'s walk', about: null } })
+  // B425: with the step's brief for its window (taskPopup.test.mjs).
+  assert.deepEqual({ ...units.givenTask, step: { ...units.givenTask.step, brief: undefined } }, { by: 'step', at: null, text: '', step: { id: 'B12', title: 'The zebracorn\'s walk', about: null, brief: undefined } })
+  assert.deepEqual([units.givenTask.step.brief.summary, units.givenTask.step.brief.what], [[], []])
   // Without a step of the store, what the person typed.
   assert.deepEqual(lane(working, { backlogText: '' }).givenTask, { by: 'you', at: NOW - 50 * MIN, text: HAND_OVER, step: null })
   // B301: a hand-over of the main chat gives it none.
@@ -123,7 +125,7 @@ test('the window shows the card\'s task in its head, the task as it was given, i
   // B301: the step is the task; no words gave it.
   assert.equal(view.given, null)
   assert.deepEqual(plain(page.laneWindowOf(lane(working, { backlogText: '' }), NOW, 'Game - Main')).given, { from: `Typed by you, ${page.clock(NOW - 50 * MIN)}`, text: HAND_OVER })
-  assert.deepEqual(view.step, { id: 'B12', title: 'The zebracorn\'s walk', about: null })
+  assert.deepEqual({ ...view.step, brief: undefined }, { id: 'B12', title: 'The zebracorn\'s walk', about: null, brief: undefined })
   assert.deepEqual(view.standing, ['Step 2 of 3: Views, 6 min left', `ETA: 18 min left, until ${page.clock(NOW + 18 * MIN)}`, 'Now: Draw the sheet'])
 })
 

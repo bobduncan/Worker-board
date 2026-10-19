@@ -75,6 +75,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const script = await readFile(join(HERE, '..', 'public', 'board.js'), 'utf8')
 const style = await readFile(join(HERE, '..', 'public', 'board.css'), 'utf8')
 const design = await readFile(join(HERE, '..', 'DESIGN.md'), 'utf8')
+const stateSource = await readFile(join(HERE, '..', 'src', 'state.mjs'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow')}\nObject.assign(this, { laneWindowOf, shortTitle })`, page)
@@ -100,8 +101,9 @@ test('a lane on a refined step carries its brief: summary, picture, what we buil
   assert.equal(units.givenTask.step.about, 'The herd asked for three meadows. Requirements: three maps, each crossed.')
 })
 
-test('a goal the map does not name stays its id; a step without a goal has none', () => {
+test('a goal the map does not name stays its id; a step without a goal has none; without a goal map, its id', () => {
   assert.equal(lane(REFINED, '# Goals\n').givenTask.step.brief.goal, 'G29')
+  assert.equal(lane(REFINED, null).givenTask.step.brief.goal, 'G29')
   assert.equal(lane(REFINED.replace('  [store] Priority: fix · Goal: G29\n', '')).givenTask.step.brief.goal, null)
 })
 
@@ -137,16 +139,42 @@ test('a step without a refine block: no refined part, the first lines of its con
 test('the details keep the rest: the step with its whole title, its context, what it touches and its history', () => {
   const view = plain(page.laneWindowOf(lane(REFINED), NOW, 'Game - Main'))
   assert.deepEqual(view.details.step, 'B12 · Build the Clover, the Thistle and the Ring as meadow maps, each crossed by the test herd')
-  assert.deepEqual(view.details.context, ['The herd asked for three meadows. Requirements: three maps, each crossed.', 'Touches: src/meadows, tests.'])
+  // What it touches stands apart, not again in the context.
+  assert.deepEqual(view.details.context, ['The herd asked for three meadows. Requirements: three maps, each crossed.'])
   assert.deepEqual(view.details.touches, ['src/meadows, tests.'])
   assert.ok(view.details.history.length > 0)
+  // The brief holds the last lines of the history only; the step's own window has them all.
+  assert.ok(/history: item\.history\.slice\(-BRIEF_HISTORY\)/.test(stateSource) && /const BRIEF_HISTORY = 12/.test(stateSource))
+})
+
+/** REFINED without its summary and what we build; with `picture` for its picture line. */
+const pictureOnly = (picture = null) => {
+  const bare = REFINED.replace(/ {2}Summary:[^\n]*\n[^\n]*\n/, '').replace(/ {2}What we build:\n(?: {2}- [^\n]*\n)+/, '')
+  return picture === null ? bare : bare.replace(/ {2}Picture: [^\n]*/, `  Picture: ${picture}`)
+}
+
+test('a refine block with a picture only, or with "Picture: none (...)"', () => {
+  const view = plain(page.laneWindowOf(lane(pictureOnly()), NOW, 'Game - Main'))
+  assert.deepEqual(view.refined, { summary: '', picture: 'art-inbox/meadows/plan.png (the three meadows side by side)', what: [] })
+  // Without a summary, the two lines say what the step is, from its context.
+  assert.equal(view.task, 'The herd asked for three meadows.')
+  assert.equal(plain(page.laneWindowOf(lane(REFINED.replace(/ {2}Picture: [^\n]*/, '  Picture: none (a rule only)')), NOW, 'Game - Main')).refined.picture, null)
+  // A picture of none alone is no refine block to show.
+  assert.equal(page.laneWindowOf(lane(pictureOnly('none (a rule only)')), NOW, 'Game - Main').refined, null)
+})
+
+test('what a step is leaves off the lead of the person\'s words, and the lines of what happened to it', () => {
+  const said = PLAIN.replace('  The herd keeps walking', '  Asked Q12 (look): is the gate high enough?\n  Your words (board, 18:26): the herd keeps walking')
+  assert.deepEqual(lane(said).givenTask.step.brief.about[0], 'the herd keeps walking off the north edge. A gate there keeps it in.')
 })
 
 test('a short title: the first clause of a long one, a cut at a word for one without, a short one whole', () => {
   assert.equal(page.shortTitle('Make the Ballista read at play size, loaded state visible'), 'Make the Ballista read at play size, loaded state visible')
   assert.equal(page.shortTitle('Fix: the sound definition of done\'s own checks are not all met: no test pins when map_choose plays'), 'Fix: the sound definition of done\'s own checks are not all met')
-  // A clause too short to say anything ("Build the Clover,", above) is not cut off: the next one is.
-  assert.equal(page.shortTitle('Show a step\'s refined summary, picture and What we build in the worker\'s task popup'), 'Show a step\'s refined summary')
+  // A clause too short to say anything ("Build the Clover,", above) is not cut off: the next one is. A comma in a list
+  // ends no clause.
+  assert.equal(page.shortTitle('Build the Causeway, the Terraces and the Ring as World 1 maps, each won by the test players'), 'Build the Causeway, the Terraces and the Ring as World 1 maps')
+  assert.equal(page.shortTitle('Show a step\'s refined summary, picture and What we build in the worker\'s task popup'), 'Show a step\'s refined summary, picture and What we build in the worker\'s…')
   const long = 'Keep the board and the Workers mod\'s work tool in step with one table of actions and a test'
   assert.equal(page.shortTitle(long), 'Keep the board and the Workers mod\'s work tool in step with one table of…')
 })
