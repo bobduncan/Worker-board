@@ -10121,7 +10121,8 @@ function designView(design, chosen, now) {
     canRetry: canMake && !isSent && version !== null && version.state === 'failed',
     canAgree: !isSent && isDone && idea.agreed !== version.n,
     canTakeBack: !isSent && isDone && idea.agreed === version.n,
-    form: isSent ? 'sent' : 'open',
+    // B379: an idea is as it was: part 3 opens once its picture is agreed. A step without a picture is a New idea's.
+    form: isSent ? 'sent' : idea.agreed !== null ? 'open' : 'locked',
     isLost,
   }
 }
@@ -10417,7 +10418,8 @@ function drawDesignForm(design, view, main) {
   const cannotSend = design?.canSend === false
   for (const id of ['design-backlog', 'design-queue']) $(id).disabled = !isOpen || isDesignSending || cannotSend
   $('design-agreed').hidden = idea === null || idea.agreed === null
-  $('design-form-note').textContent = view.form === 'locked' ? ''
+  $('design-form-note').textContent = view.form === 'locked'
+    ? (idea === null ? '' : 'Agree with a picture of this idea first: "I agree" under it. For a step without a picture, choose New idea.')
     : view.form === 'open' && cannotSend ? design.whyNot ?? 'This board cannot ask the main chat for the step.'
       : view.form === 'open' && view.isLost ? 'Your asking did not arrive. Send it again.'
         // B368: the step of its own that was just asked for; the form is empty again for the next.

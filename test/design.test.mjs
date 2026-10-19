@@ -372,17 +372,14 @@ test('B198: new ideas go into the project\'s picture folder; ideas saved in anot
   assert.equal(isUploadedReference('shots/ideas/_references/../x.png', 'shots'), false)
 })
 
-test('B368: a step without a picture: no idea at all, or an idea with no agreed picture, and no pictures line', () => {
+test("B368, B379: a step without a picture is a New idea's: no idea, no pictures line; an idea needs its agreed picture", () => {
   const send = { action: 'send', where: 'backlog', title: 'Sort the backlog', description: 'Oldest first.', requirements: ['Newest on top'], worker: null, minutes: 30 }
   const bare = checkDesign(send, design([]))
   assert.deepEqual([bare.ok, bare.idea], [true, null])
   assert.equal(bare.text, 'backlog step from the Design tab\nTitle: Sort the backlog\nDescription: Oldest first.\nRequirements:\n- Newest on top\nWorker: you decide\nTime: about 30 min')
   assert.equal(checkDesign({ ...send, idea: null }, design([])).ok, true)
-  // An idea whose picture was never agreed: its kind is said, its folder is not.
-  const loose = checkDesign({ ...send, idea: 'i1' }, design([idea()]))
-  assert.deepEqual([loose.ok, loose.idea], [true, 'i1'])
-  assert.match(loose.text, /\nAbout: game screen\n/)
-  assert.doesNotMatch(loose.text, /Pictures:/)
+  // B379: an idea is as before: not before its picture is agreed, so a step from it always names its picture.
+  assert.deepEqual(checkDesign({ ...send, idea: 'i1' }, design([idea()])), { ok: false, status: 409, why: 'Agree to a picture first, or choose New idea for a step without one.' })
   // With an agreed picture it is as before.
   assert.match(checkDesign({ ...send, idea: 'i1' }, design([idea({ agreed: 1 })])).text, /\nPictures: art-inbox\/ideas\/shop-screen \(agreed: v1\.png\)\n/)
   // An idea named that is not there is still refused, and so is a step on a board that cannot ask.

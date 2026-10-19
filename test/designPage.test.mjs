@@ -65,7 +65,7 @@ test('the picture looked at: the one chosen, else the agreed one, else the newes
 
 test('what the buttons under the picture do: again, try again, agree, take it back', () => {
   const look = view(design())
-  assert.deepEqual([look.canAgain, look.canRetry, look.canAgree, look.canTakeBack, look.form], [true, false, true, false, 'open'])
+  assert.deepEqual([look.canAgain, look.canRetry, look.canAgree, look.canTakeBack, look.form], [true, false, true, false, 'locked'])
   const agreed = view(design([idea({ agreed: 2, status: 'agreed' })]))
   assert.deepEqual([agreed.canAgree, agreed.canTakeBack, agreed.canAgain, agreed.form], [false, true, true, 'open'])
   // Looking at another version than the agreed one: that one can be agreed to instead.
@@ -211,11 +211,12 @@ test('B156: the page listens for a paste on the Design tab, and the box to add a
   assert.match(script, /\} finally \{\n      referencesOnTheWay -= 1/)
 })
 
-test('B368: part 3 is open without a picture: for a new idea, and for an idea not agreed to; a step goes without one', () => {
+test('B368, B379: part 3 is open without a picture for a New idea; an idea opens it once agreed, as before', () => {
   const fresh = view(design(), { idea: null, version: null })
   assert.equal(fresh.form, 'open')
-  assert.equal(view(design()).form, 'open')
-  assert.equal(view(design([idea({ versions: [] })])).form, 'open')
+  // B379: an idea is as before: part 3 opens when its picture is agreed.
+  assert.equal(view(design()).form, 'locked')
+  assert.equal(view(design([idea({ versions: [] })])).form, 'locked')
   // A board without the Design part has nothing to fill in.
   assert.equal(page.designView(null, { idea: null, version: null }, NOW).form, 'locked')
   const form = { title: 'Sort the backlog', description: '', requirements: [''], worker: '', time: '' }
@@ -228,7 +229,7 @@ test('B368: part 3 is open without a picture: for a new idea, and for an idea no
   const agreed = view(design([idea({ agreed: 2, status: 'agreed' })]))
   assert.deepEqual([agreed.form, agreed.canTakeBack], ['open', true])
   assert.deepEqual([view(design()).canAgree], [true])
-  // The click sends without an idea, and the note says no picture is needed.
+  // The click sends without an idea; an idea not agreed to says how to go on without a picture.
   assert.doesNotMatch(script, /view\.idea === null \|\| form === null \|\| view\.form !== 'open'/)
-  assert.doesNotMatch(script, /Agree with a picture first/)
+  assert.match(script, /'Agree with a picture of this idea first: "I agree" under it\. For a step without a picture, choose New idea\.'/)
 })

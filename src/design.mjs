@@ -185,6 +185,8 @@ export function checkDesign(body, design) {
   }
   if (body.action === 'send') {
     if (design.canSend !== true || (design.main ?? null) === null) return refuse(409, design.whyNot ?? 'This board cannot ask the main chat.')
+    // B379: an idea is as it was: its step names its agreed picture, which links the idea to the step it became.
+    if (idea !== null && idea.agreed === null) return refuse(409, 'Agree to a picture first, or choose New idea for a step without one.')
     if (idea !== null && isHanded(idea)) return refuse(409, 'This idea was handed to the main chat already.')
     if (body.where !== 'backlog' && body.where !== 'queue') return refuse(400, 'On the backlog, or in a queue.')
     const title = oneLine(body.title, LIMITS.title + 1)
