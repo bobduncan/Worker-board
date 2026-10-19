@@ -5,6 +5,7 @@
 // partner-answers.json, on unless switched off); the partner answers it (`partner-answer`) or hands it to the person
 // (`escalate`); the person's Undo opens it again for them. Made-up names only.
 import assert from 'node:assert/strict'
+import * as files from 'node:fs/promises'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -146,7 +147,9 @@ test('partner-answer: the ask is answered by the partner, the asking chat woken 
     // The line in the daily note of the focus, with an Undo.
     const note = await item(dir, 'N1')
     assert.deepEqual(['Kind', 'From', 'To', 'Of'].map(key => valueOf(note, key)), ['note', 'Sage', 'you', 'G6'])
-    assert.deepEqual(dailyNote(note).decided, [{ text: 'Q1 (Digger, B1): A number or a bar for the damage? → A number (your advice; it fits the vibe)', undoAsked: false, ask: 'Q1' }])
+    assert.deepEqual(dailyNote(note).decided, [{ text: 'Q1 (Digger, B1): A number or a bar for the damage? → A number (your advice; it fits the vibe)', undoAsked: false }])
+    // The review's findings: the ask keeps its line as a field (`## Note line`), so nothing is read from the note's words.
+    assert.deepEqual(q1.sections.get('Note line'), ['Q1 (Digger, B1): A number or a bar for the damage? → A number (your advice; it fits the vibe)'])
     assert.equal(answered.result.note, 'N1')
     // A second answer the same day joins the same note; the note's line counts it.
     await digger({ action: 'ask', of: 'B1', kind: 'decide', text: 'Yellow or white?', options: ['A yellow', 'B white'], advice: 'A' })
@@ -162,7 +165,7 @@ test('partner-answer: the ask is answered by the partner, the asking chat woken 
   }
 })
 
-test('partner-answer: the newest note is the partner\'s own of today; yesterday\'s gets none; no focus makes a note of the day', async () => {
+test('the review\'s findings: one note per goal per day: answers and the partner\'s own daily note share it; yesterday\'s gets none', async () => {
   const { dir, digger, sage } = await garden()
   try {
     await sage({ action: 'note', to: 'you', of: 'G6', decided: ['Kept the old map icons'] }, NOW - 24 * 60 * MIN)
@@ -170,11 +173,25 @@ test('partner-answer: the newest note is the partner\'s own of today; yesterday\
     await sage({ action: 'partner-answer', id: 'Q1', why: 'your advice' })
     assert.equal(valueOf(await item(dir, 'Q1'), 'Daily note'), 'N2')
     assert.deepEqual((await item(dir, 'N1')).sections.get('Decided for you'), ['- Kept the old map icons'])
-    // The morning note of today takes the answers of today.
-    await sage({ action: 'note', to: 'you', of: 'G6', decided: ['Death puff lasts half a second'], needs: [] }, NOW + MIN)
+    // The partner's own note written later that day joins today's note: no second note hides the answers.
+    await digger({ action: 'ask', of: 'B1', kind: 'decide', text: 'Icons or words?', options: ['A icons', 'B words'], advice: 'A' })
+    await sage({ action: 'ask', of: 'G6', kind: 'decide', text: 'Night or day?', options: ['A night', 'B day'], advice: 'A' })
+    const morning = await sage({ action: 'note', to: 'you', of: 'G6', decided: ['Death puff lasts half a second', 'Death puff lasts half a second'], needs: ['Q3'] }, NOW + MIN)
+    assert.equal(morning.ok, true, morning.why)
+    assert.equal(morning.result.id, 'N2')
     await digger({ action: 'ask', of: 'B1', kind: 'decide', text: 'Yellow or white?', options: ['A yellow', 'B white'], advice: 'A' }, NOW + 2 * MIN)
-    await sage({ action: 'partner-answer', id: 'Q2', why: 'your advice' }, NOW + 3 * MIN)
-    assert.deepEqual(dailyNote(await item(dir, 'N3')).decided.map(one => one.text), ['Death puff lasts half a second', 'Q2 (Digger, B1): Yellow or white? → A (your advice)'])
+    await sage({ action: 'partner-answer', id: 'Q4', why: 'your advice' }, NOW + 3 * MIN)
+    await sage({ action: 'note', to: 'you', of: 'G6', decided: ['Kept the order of the parts'], needs: ['Q2'] }, NOW + 4 * MIN)
+    const today = await item(dir, 'N2')
+    assert.deepEqual(dailyNote(today).decided.map(one => one.text), [
+      'Q1 (Digger, B1): A number or a bar for the damage? → A (your advice)',
+      'Death puff lasts half a second',
+      'Q4 (Digger, B1): Yellow or white? → A (your advice)',
+      'Kept the order of the parts',
+    ])
+    assert.deepEqual(dailyNote(today).needs, ['Q2', 'Q3'])
+    assert.equal(valueOf(today, 'Text'), 'Today\'s note on G6: 4 decided for you, 2 need you')
+    assert.equal((await readStore(dir)).items.has('N3'), false, 'one note per goal per day')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -232,9 +249,12 @@ test('Undo from the answered ask\'s card (by its id) does the same; an ask the p
     await digger({ ...DECIDE, blocking: false })
     await sage({ action: 'partner-answer', id: 'Q1', text: 'A number', why: 'your advice' })
     const needs = () => readStore(dir).then(store => storeNeeds({ ok: true, dir, ...store }, { now: NOW + 60 * MIN, names: ['Digger'], prefix: 'Garden · ' }))
-    // Answered by the partner, it stays among the closed cards for a day, with its Undo.
+    // Answered by the partner, it stays among the closed cards for 7 days, with its Undo (the review's findings).
     const [shown] = await needs()
     assert.deepEqual([shown.workId, shown.answer.by, shown.answer.text, shown.answer.why, shown.canTakeBack], ['Q1', 'partner', 'A number', 'your advice', true])
+    const at = async now => storeNeeds({ ok: true, dir, ...(await readStore(dir)) }, { now, names: ['Digger'], prefix: 'Garden · ' }).map(one => one.workId)
+    assert.deepEqual(await at(NOW + 6 * 24 * 60 * MIN), ['Q1'])
+    assert.deepEqual(await at(NOW + 8 * 24 * 60 * MIN), [])
     const undone = await person({ action: 'undo', id: 'Q1' }, NOW + 61 * MIN)
     assert.equal(undone.ok, true, undone.why)
     assert.equal(undone.result.wake.to, 'Digger')
@@ -244,6 +264,39 @@ test('Undo from the answered ask\'s card (by its id) does the same; an ask the p
     assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'in progress')
     await person({ action: 'answer', id: 'Q1', text: 'B bar' })
     assert.equal((await person({ action: 'undo', id: 'Q1' })).status, 409)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('the review\'s findings: a take-back whose note cannot be marked fails loudly and keeps the Undo', async () => {
+  const { dir, ctx, digger, sage } = await garden()
+  try {
+    await digger(DECIDE)
+    await sage({ action: 'partner-answer', id: 'Q1', text: 'A number', why: 'your advice' })
+    const locked = { ...files, writeFile: (file, ...rest) => (String(file).includes('N1.md') ? Promise.reject(Object.assign(new Error('locked'), { code: 'EBUSY' })) : files.writeFile(file, ...rest)) }
+    const failed = await workApi({ action: 'undo', id: 'Q1' }, { ...ctx(), fs: locked, as: 'person' })
+    assert.deepEqual([failed.ok, failed.status], [false, 500])
+    assert.match(failed.why, /nothing changed; try Undo again/)
+    const q1 = await item(dir, 'Q1')
+    assert.deepEqual(['State', 'Answered by', 'Route'].map(key => valueOf(q1, key)), ['answered', 'partner', 'partner'])
+    assert.equal(valueOf(await item(dir, 'B1'), 'State'), 'in progress')
+    assert.equal((await item(dir, 'N1')).sections.has('Undo asked'), false)
+    // Once the note can be written, the Undo works.
+    assert.equal((await workApi({ action: 'undo', id: 'Q1' }, { ...ctx(), as: 'person' })).ok, true)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('the review\'s findings: a decided line that only looks like an answer goes to the partner as an Undo, as before', async () => {
+  const { dir, sage, person } = await garden()
+  try {
+    await sage({ action: 'note', to: 'you', of: 'G6', decided: ['Q9 (old notes): kept the icons'] })
+    const checked = await person({ action: 'undo', id: 'N1', line: 'Q9 (old notes): kept the icons', check: true })
+    assert.equal(checked.ok, true, checked.why)
+    assert.equal(checked.result.undo.ask ?? null, null)
+    assert.equal(checked.result.undo.line, 'Q9 (old notes): kept the icons')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -303,7 +356,7 @@ test('the reconciler: the partner is woken for a routed ask while it is free; no
   }
 })
 
-test('the reconciler: to the person after 30 minutes the partner was free and did not answer; at once without a partner chat or when switched off', async () => {
+test('the review\'s findings: to the person 30 minutes after its filing, whatever the partner does; at once without a partner chat or when switched off', async () => {
   const { dir, digger, person } = await garden()
   try {
     await digger(DECIDE, NOW)
@@ -311,14 +364,19 @@ test('the reconciler: to the person after 30 minutes the partner was free and di
     assert.equal(routed, String(NOW))
     assert.deepEqual((await plan(dir, partnerLane('free', NOW - 60 * MIN), NOW + 29 * MIN)).escalations, [])
     assert.deepEqual((await plan(dir, partnerLane('free', NOW - 60 * MIN), NOW + 31 * MIN)).escalations, [{ id: 'Q1', why: 'the partner did not answer in 30 min' }])
-    // Busy for most of it: the 30 minutes count from when it was free again.
-    assert.deepEqual((await plan(dir, partnerLane('free', NOW + 20 * MIN), NOW + 31 * MIN)).escalations, [])
-    assert.deepEqual((await plan(dir, partnerLane('working'), NOW + 90 * MIN)).escalations, [])
+    // Busy, cut off or paused: the 30 minutes count from its filing all the same.
+    for (const lane of [partnerLane('free', NOW + 20 * MIN), partnerLane('working'), partnerLane('interrupted'), partnerLane('waiting')]) {
+      assert.deepEqual((await plan(dir, lane, NOW + 31 * MIN)).escalations, [{ id: 'Q1', why: 'the partner did not answer in 30 min' }], lane.state)
+      assert.deepEqual((await plan(dir, lane, NOW + 29 * MIN)).escalations, [], lane.state)
+    }
     // Not the person's yet: no "has waited for your answer" either.
     assert.equal((await plan(dir, partnerLane('working'), NOW + 90 * MIN)).flags.some(flag => flag.kind === 'old ask'), false)
     assert.deepEqual((await plan(dir, null, NOW + MIN)).escalations, [{ id: 'Q1', why: 'no partner chat is on the board' }])
     await person({ action: 'partner-answers', on: false })
     assert.deepEqual((await plan(dir, partnerLane('working'), NOW + MIN)).escalations, [{ id: 'Q1', why: 'your partner\'s answers are switched off' }])
+    await person({ action: 'partner-answers', on: true })
+    await person({ action: 'pause-all' })
+    assert.deepEqual((await plan(dir, partnerLane('free', NOW - 60 * MIN), NOW + 31 * MIN)).escalations, [{ id: 'Q1', why: 'the partner did not answer in 30 min' }])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
