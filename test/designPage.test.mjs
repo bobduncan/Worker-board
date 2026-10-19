@@ -15,7 +15,7 @@ const markup = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const style = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const cut = script.slice(script.indexOf('// design:start'), script.indexOf('// design:end'))
 const page = {}
-vm.runInNewContext(`${cut}\nObject.assign(this, { limitsOf, ideaName, ideaBadge, designView, timeTyped, makeBody, againBody, retryBody, missingOf, sendBody, firstForm, sentWords, pastedReference })`, page)
+vm.runInNewContext(`${cut}\nObject.assign(this, { limitsOf, ideaName, ideaBadge, designView, timeTyped, makeBody, againBody, retryBody, missingOf, sendBody, firstForm, blankForm, bareSentWords, sentWords, pastedReference })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const MIN = 60_000
@@ -43,7 +43,7 @@ test('the page has the Design tab after the person\'s layout: three parts side b
 
 test('a new idea: nothing is chosen, a picture can be made unless one is being made or the board cannot', () => {
   const fresh = view(design(), { idea: null, version: null })
-  assert.deepEqual([fresh.idea, fresh.version, fresh.canMake, fresh.canAgain, fresh.canAgree, fresh.form], [null, null, true, false, false, 'locked'])
+  assert.deepEqual([fresh.idea, fresh.version, fresh.canMake, fresh.canAgain, fresh.canAgree, fresh.form], [null, null, true, false, false, 'open'])
   assert.equal(view(design([], { canMake: false, why: 'Codex was not found.' }), { idea: null, version: null }).canMake, false)
   const busy = view(design([idea()], { busy: { idea: 'i9', version: 1, since: NOW - 32_000 } }), { idea: null, version: null })
   assert.deepEqual([busy.canMake, busy.making.idea, busy.making.line], [false, 'i9', '0:32 of about 1:00'])
@@ -65,7 +65,7 @@ test('the picture looked at: the one chosen, else the agreed one, else the newes
 
 test('what the buttons under the picture do: again, try again, agree, take it back', () => {
   const look = view(design())
-  assert.deepEqual([look.canAgain, look.canRetry, look.canAgree, look.canTakeBack, look.form], [true, false, true, false, 'locked'])
+  assert.deepEqual([look.canAgain, look.canRetry, look.canAgree, look.canTakeBack, look.form], [true, false, true, false, 'open'])
   const agreed = view(design([idea({ agreed: 2, status: 'agreed' })]))
   assert.deepEqual([agreed.canAgree, agreed.canTakeBack, agreed.canAgain, agreed.form], [false, true, true, 'open'])
   // Looking at another version than the agreed one: that one can be agreed to instead.
@@ -209,4 +209,26 @@ test('B156: the page listens for a paste on the Design tab, and the box to add a
   assert.match(script, /if \(\$\('view-design'\)\.hidden \|\| document\.querySelector\('dialog\[open\]'\) !== null\) return/)
   assert.match(script, /designDraft\.references\.length \+ referencesOnTheWay >= limits\.references/)
   assert.match(script, /\} finally \{\n      referencesOnTheWay -= 1/)
+})
+
+test('B368: part 3 is open without a picture: for a new idea, and for an idea not agreed to; a step goes without one', () => {
+  const fresh = view(design(), { idea: null, version: null })
+  assert.equal(fresh.form, 'open')
+  assert.equal(view(design()).form, 'open')
+  assert.equal(view(design([idea({ versions: [] })])).form, 'open')
+  // A board without the Design part has nothing to fill in.
+  assert.equal(page.designView(null, { idea: null, version: null }, NOW).form, 'locked')
+  const form = { title: 'Sort the backlog', description: '', requirements: [''], worker: '', time: '' }
+  assert.deepEqual(plain(page.sendBody(null, form, 'backlog', design())), { body: { action: 'send', where: 'backlog', title: 'Sort the backlog', description: '', requirements: [], worker: null, minutes: null } })
+  assert.deepEqual(plain(page.blankForm()), { title: '', description: '', requirements: [''], worker: '', time: '' })
+  assert.equal(page.bareSentWords({ where: 'queue', worker: 'Units', title: 'Sort it' }, 'Main'), 'Sent: you asked Main to have "Sort it" put in the queue of Units. It shows on the backlog once Main wrote it.')
+  assert.match(script, /\$\('design-fields'\)\.disabled = !isOpen \|\| isDesignSending/)
+  // With a picture everything is as it was: agree, take it back, and the idea's id in the step.
+  assert.equal(page.sendBody(idea(), form, 'queue', design()).body.idea, 'i1')
+  const agreed = view(design([idea({ agreed: 2, status: 'agreed' })]))
+  assert.deepEqual([agreed.form, agreed.canTakeBack], ['open', true])
+  assert.deepEqual([view(design()).canAgree], [true])
+  // The click sends without an idea, and the note says no picture is needed.
+  assert.doesNotMatch(script, /view\.idea === null \|\| form === null \|\| view\.form !== 'open'/)
+  assert.doesNotMatch(script, /Agree with a picture first/)
 })

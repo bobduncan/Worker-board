@@ -916,7 +916,8 @@ async function main(args) {
         // The step is asked of the main chat in the board's own wording; the main chat writes it.
         const message = { id: randomBytes(8).toString('hex'), at: now, to: state.restart.main, ask: null, step: null, title: null, version: null, verdict: null, command: 'step', text: checked.text, state: 'waiting' }
         await store.say(message)
-        await ideas.send(checked.idea, { at: now, where: checked.where, worker: checked.worker, title: checked.title, message: message.id })
+        // B368: a step asked without an idea has no idea to mark.
+        if (checked.idea !== null) await ideas.send(checked.idea, { at: now, where: checked.where, worker: checked.worker, title: checked.title, message: message.id })
         readState.reset()
       }
       return { ok: true, result: {} }

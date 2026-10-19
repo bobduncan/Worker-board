@@ -10103,7 +10103,8 @@ function designView(design, chosen, now) {
   const making = busy === null ? null : { idea: busy.idea, version: busy.version, line: `${counted(now - busy.since)} of about ${counted((design.seconds ?? 60) * 1000)}` }
   const canMake = design?.canMake === true && busy === null
   const idea = (design?.ideas ?? []).find(one => one.id === chosen.idea) ?? null
-  if (idea === null) return { idea: null, version: null, making, canMake, canAgain: false, canAgree: false, canTakeBack: false, canRetry: false, form: 'locked' }
+  // B368: a step needs no picture: with no idea chosen, part 3 is open for one of its own.
+  if (idea === null) return { idea: null, version: null, making, canMake, canAgain: false, canAgree: false, canTakeBack: false, canRetry: false, form: design === null ? 'locked' : 'open' }
   const version = idea.versions.find(one => one.n === chosen.version)
     ?? idea.versions.find(one => one.n === idea.agreed) ?? newestDone(idea) ?? idea.versions.at(-1) ?? null
   const isLost = idea.sent !== null && (idea.sent.state === 'expired' || idea.sent.state === 'failed')
@@ -10120,7 +10121,7 @@ function designView(design, chosen, now) {
     canRetry: canMake && !isSent && version !== null && version.state === 'failed',
     canAgree: !isSent && isDone && idea.agreed !== version.n,
     canTakeBack: !isSent && isDone && idea.agreed === version.n,
-    form: isSent ? 'sent' : idea.agreed !== null ? 'open' : 'locked',
+    form: isSent ? 'sent' : 'open',
     isLost,
   }
 }
@@ -10177,7 +10178,21 @@ function sendBody(idea, form, where, design) {
   if (requirements.length > limits.requirements) return { problem: `At most ${limits.requirements} requirements.` }
   if (requirements.some(line => line.length > limits.requirement)) return { problem: `A requirement is too long: ${limits.requirement} characters at most.` }
   if (Number.isNaN(minutes)) return { problem: 'I cannot read that time. Write it like "45 min" or "1 h 30".' }
-  return { body: { action: 'send', idea: idea.id, where, title, description, requirements, worker: form.worker === '' ? null : form.worker, minutes } }
+  const body = { action: 'send', where, title, description, requirements, worker: form.worker === '' ? null : form.worker, minutes }
+  // B368: without an idea the step goes on its own, with no picture.
+  return { body: idea === null ? body : { action: 'send', idea: idea.id, ...body } }
+}
+
+/** B368: what part 3 says after a step without an idea was sent: that it was sent and where it goes, not more. */
+function bareSentWords(sent, main = null) {
+  const who = main ?? 'the main chat'
+  const what = sent.where === 'queue' ? `put in ${sent.worker === null ? 'a queue' : `the queue of ${sent.worker}`}` : 'put on the backlog'
+  return `Sent: you asked ${who} to have "${sent.title}" ${what}. It shows on the backlog once ${who} wrote it.`
+}
+
+/** B368: the empty form of a step asked without an idea. */
+function blankForm() {
+  return { title: '', description: '', requirements: [''], worker: '', time: '' }
 }
 
 /** The form an agreed idea starts with: a title from the idea's first line, the idea as the description. */
@@ -10220,6 +10235,8 @@ const designChanges = new Map()
 const designProblems = { make: null, picture: null, form: null }
 let isDesignSending = false
 let designFormOf = null
+/** B368: the last step asked without an idea (where, worker, title), said under part 3 until the next one is typed. */
+let designBareSent = null
 let isDropAsked = false
 
 const designNow = () => (board === null ? null : board.design ?? null)
@@ -10368,12 +10385,14 @@ function drawDesignForm(design, view, main) {
   const { idea } = view
   const isOpen = view.form === 'open'
   // The fields show the form of the idea that is chosen: its own draft, kept while the page is open.
-  const form = idea === null ? null : designForms.get(idea.id) ?? firstForm(idea)
-  if (idea !== null && isOpen && !designForms.has(idea.id)) designForms.set(idea.id, form)
+  // B368: with no idea chosen it is a step of its own, without a picture, kept under no id.
+  const key = idea?.id ?? null
+  const form = view.form === 'locked' ? null : designForms.get(key) ?? (idea === null ? blankForm() : firstForm(idea))
+  if (form !== null && isOpen && !designForms.has(key)) designForms.set(key, form)
   const shown = `${idea?.id ?? ''}:${view.form}`
   if (designFormOf !== shown) {
     designFormOf = shown
-    $('design-title').value = form === null || view.form === 'locked' ? '' : idea.sent?.title ?? form.title
+    $('design-title').value = form === null || view.form === 'locked' ? '' : idea?.sent?.title ?? form.title
     $('design-description').value = form === null || view.form === 'locked' ? '' : form.description
     $('design-time').value = form === null || view.form === 'locked' ? '' : form.time
     drawRequirements(form === null || view.form === 'locked' ? { requirements: [''] } : form, !isOpen)
@@ -10387,8 +10406,9 @@ function drawDesignForm(design, view, main) {
       return option
     })])
   })
-  $('design-worker').value = form === null || view.form === 'locked' ? '' : idea.sent?.worker ?? form.worker
-  $('design-fields').disabled = !isOpen
+  $('design-worker').value = form === null || view.form === 'locked' ? '' : idea?.sent?.worker ?? form.worker
+  // While a step is being asked for the fields wait too: what is typed then would be emptied with the form.
+  $('design-fields').disabled = !isOpen || isDesignSending
   // Once the step was asked for, what was asked stands in its place.
   $('design-fields').hidden = view.form === 'sent'
   $('design-title').maxLength = limitsOf(design).title
@@ -10397,10 +10417,13 @@ function drawDesignForm(design, view, main) {
   const cannotSend = design?.canSend === false
   for (const id of ['design-backlog', 'design-queue']) $(id).disabled = !isOpen || isDesignSending || cannotSend
   $('design-agreed').hidden = idea === null || idea.agreed === null
-  $('design-form-note').textContent = view.form === 'locked'
-    ? (idea === null ? 'Agree with a picture first. Then you say here what you want and where it goes.' : 'Agree with a picture of this idea first: "I agree" under it.')
+  $('design-form-note').textContent = view.form === 'locked' ? ''
     : view.form === 'open' && cannotSend ? design.whyNot ?? 'This board cannot ask the main chat for the step.'
-      : view.form === 'open' && view.isLost ? 'Your asking did not arrive. Send it again.' : ''
+      : view.form === 'open' && view.isLost ? 'Your asking did not arrive. Send it again.'
+        // B368: the step of its own that was just asked for; the form is empty again for the next.
+        // Its way to the main chat is not followed here: the note says only that it was sent, and where it goes.
+        : idea === null && designBareSent !== null ? bareSentWords(designBareSent, main)
+          : idea === null ? 'A picture is optional: fill this in for a step without one, or make a picture first.' : ''
   $('design-form-note').hidden = $('design-form-note').textContent === ''
   const sent = $('design-sent')
   sent.hidden = view.form !== 'sent'
@@ -10606,7 +10629,13 @@ function designForm() {
   return form
 }
 
-$('design-fields').addEventListener('input', designForm)
+$('design-fields').addEventListener('input', () => {
+  designForm()
+  if (designChosen.idea === null && designBareSent !== null) {
+    designBareSent = null
+    drawDesign()
+  }
+})
 $('design-fields').addEventListener('change', designForm)
 
 $('design-add-line').addEventListener('click', () => {
@@ -10637,13 +10666,20 @@ for (const [id, where] of [['design-backlog', 'backlog'], ['design-queue', 'queu
   $(id).addEventListener('click', () => {
     const view = designLook()
     const form = designForm()
-    if (view.idea === null || form === null || view.form !== 'open') return
+    if (form === null || view.form !== 'open') return
     const sent = sendBody(view.idea, form, where, designNow())
     if (sent.problem !== undefined) {
       designProblems.form = sent.problem
       return drawDesign()
     }
-    designCall(sent.body, 'form')
+    designCall(sent.body, 'form').then(answer => {
+      // B368: a step without an idea leaves no idea to show it: the form empties and the note says it was asked.
+      if (answer === null || view.idea !== null) return
+      designBareSent = { where, worker: sent.body.worker, title: sent.body.title }
+      designForms.delete(null)
+      designFormOf = null
+      drawDesign()
+    })
   })
 }
 

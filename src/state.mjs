@@ -23,6 +23,7 @@ import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
+import { askIdsIn, askKey, sameAsk } from './work/askWords.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { informationOf, instructionsOf, notesToMain, storeNeeds, storeWaits } from './work/lists.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
@@ -516,17 +517,38 @@ function restingOf({ entries, turn, idle, isRunningOn, isStopped }) {
  * and the longer look back); when it cannot be found the board warns all the same and says so (`isStartUnknown`).
  * `{ at, words, isStartUnknown }` (the answer, for the window), or null. A question asked with the app's own form is
  * filed by the Workers mod, so it is not this.
+ * Warnings (2026-10-19): the turn is the one that wrote that answer: its start is the last opening at or before the
+ * answer. A turn opened since (the person's answer to its ask, typed by the board) has not answered yet, and the app's
+ * summary of the answer before keeps counting it as ended until it does: seen live at 08:24, when Q154, filed at 00:28
+ * in the turn that wrote the block, counted as filed before the turn of 08:24 the answer to it had opened. An ask's
+ * time is `askFiledMs` (to the millisecond; an older one at the end of its minute). And an open ask of its own that an
+ * item of the block asks (its id named, as the work tool writes it, or the same words) keeps the warning away, from
+ * whichever turn it is.
  */
 function unfiledAsk(entries, scan, turn, waits, name, prefix) {
   if (entries === null || turn !== 'ended') return null
   const said = waitingFor(entries)
   if (said === null || !asksAtEnd(said.words)) return null
-  const opened = turnStart(scan ?? entries, { prefix })?.at ?? null
+  if (blockAsksOpen(said.words, waits.open?.get(name.toLowerCase()) ?? [])) return null
+  const opened = turnStart((scan ?? entries).filter(entry => !(entry.at > said.at)), { prefix })?.at ?? null
   if (opened === null) return { at: said.at, words: said.words, isStartUnknown: true }
   const filed = waits.filed.get(name.toLowerCase()) ?? -Infinity
-  // An ask's time is written to the minute.
-  if (filed >= Math.floor(opened / MIN) * MIN) return null
+  if (filed >= opened) return null
   return { at: said.at, words: said.words, isStartUnknown: false }
+}
+
+/**
+ * Warnings (2026-10-19): whether an item of the "For you" block an answer ends with asks one of the open asks given
+ * (`{ id, key }`): it names the ask's id as a word of its own, or asks the same words (`sameAsk`).
+ */
+function blockAsksOpen(words, open) {
+  if (open.length === 0) return false
+  const items = parseHandover(words)?.items ?? []
+  return items.some(item => {
+    const named = askIdsIn(item.text)
+    const key = askKey(item.ask)
+    return open.some(ask => named.includes(ask.id) || (key !== '' && ask.key !== '' && sameAsk(ask.key, key)))
+  })
 }
 
 /**

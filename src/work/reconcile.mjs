@@ -25,6 +25,14 @@ const plainFrom = (name, prefix = '') => {
   return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim()
 }
 const whose = name => (/s$/i.test(name) ? `${name}'` : `${name}'s`)
+/**
+ * Warnings (2026-10-19): when the person answered an ask: its Since (the store sets it with the move to answered), at
+ * the end of that minute, as the answer may have come at any second of it.
+ */
+const askAnsweredMs = item => {
+  const at = sinceMs(valueOf(item, 'Since'))
+  return Number.isFinite(at) ? at + MIN - 1 : Number.NaN
+}
 const span = ms => {
   const minutes = Math.floor(ms / MIN)
   const hours = Math.floor(minutes / 60)
@@ -106,14 +114,21 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // idle time: it may wait for the person without having said so where the board looks. One hint per chat, naming
   // all its steps; it goes when the chat runs again, files an ask or reports. Nothing of its words is read.
   // B315: never for a chat whose process is not running: its lane says "Not running", and the hint would contradict it.
-  const asking = new Set([...items.values()].filter(item => kindOf(item) === 'ask' && stateOf(item) === 'open' && valueOf(item, 'Owner') !== null).map(item => plain(valueOf(item, 'Owner'), prefix)))
+  // Warnings (2026-10-19): any open ask keeps it away, blocking or not: the chat's own (under its step or alone), or
+  // another chat's under a step it holds. And the person's answer to an ask of its own starts the idle time anew: the
+  // answer is on its way to the chat, which goes on once it has it. Seen live at 08:24: the person answered Q153, the
+  // only ask of Worker 2, and the hint stood at once, before the answer had reached it.
+  const allAsks = [...items.values()].filter(item => kindOf(item) === 'ask')
+  const asking = new Set(allAsks.filter(item => stateOf(item) === 'open' && valueOf(item, 'Owner') !== null).map(item => plain(valueOf(item, 'Owner'), prefix)))
   for (const lane of live) {
     if (lane.isMain === true || lane.state === 'suspended' || lane.isRunning === false || !Number.isFinite(lane.resting?.since) || asking.has(plain(lane.name, prefix))) continue
     const mine = ok.filter(item => ['taken', 'in progress'].includes(stateOf(item)) && laneOf(valueOf(item, 'Owner')) === lane)
     if (mine.length === 0) continue
-    const since = Math.max(lane.resting.since, ...mine.map(item => sinceMs(valueOf(item, 'Since'))).filter(Number.isFinite))
-    if (now - since < times.idleMs) continue
     const ids = mine.map(item => valueOf(item, 'Id'))
+    if (allAsks.some(item => stateOf(item) === 'open' && ids.includes(valueOf(item, 'Of')))) continue
+    const answered = allAsks.filter(item => stateOf(item) === 'answered' && laneOf(valueOf(item, 'Owner')) === lane).map(askAnsweredMs)
+    const since = Math.max(lane.resting.since, ...[...mine.map(item => sinceMs(valueOf(item, 'Since'))), ...answered].filter(Number.isFinite))
+    if (now - since < times.idleMs) continue
     const named = ids.length === 1 ? ids[0] : `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`
     flags.push({ kind: 'idle hold', id: ids[0], ids, chat: lane.name, text: `${lane.name} holds ${named} but is not working and asked you nothing: it may wait for you`, button: null })
   }
