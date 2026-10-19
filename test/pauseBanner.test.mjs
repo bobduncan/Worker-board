@@ -93,7 +93,7 @@ test('resuming with the main chat not running: who has not started a turn yet, a
   const nobody = { shown: {}, other: {} }
   const state = build({ pause: { state: 'resuming', since: NOW - 2 * MIN, by: 'person' }, seen: nobody, board: { startedAt: NOW - 5 * MIN, offSince: NOW - 20 * MIN } })
   assert.deepEqual(state.pause, {
-    state: 'resuming', since: NOW - 2 * MIN, waiting: [{ chat: 'Board', id: 'B269' }, { chat: 'Support', id: 'B280' }], isResumed: false,
+    state: 'resuming', since: NOW - 2 * MIN, waiting: [{ chat: 'Board', ids: ['B269'] }, { chat: 'Support', ids: ['B280'] }], isResumed: false, until: NOW + 18 * MIN,
     main: { ...MAIN, isRunning: null }, typedAt: null,
   })
 })
@@ -102,7 +102,7 @@ test('resuming: done once every holder has started a turn since the resume; the 
   const since = NOW - 4 * MIN
   const outbox = [{ id: 'r1', at: since + 1_000, to: 'Main', ask: null, command: 'resume', text: 'resume', state: 'delivered' }]
   const half = build({ pause: { state: 'resuming', since, by: 'person' }, outbox, tails: { Board: running(2) } })
-  assert.deepEqual([half.pause.waiting, half.pause.isResumed, half.pause.typedAt], [[{ chat: 'Support', id: 'B280' }], false, since + 1_000])
+  assert.deepEqual([half.pause.waiting, half.pause.isResumed, half.pause.typedAt], [[{ chat: 'Support', ids: ['B280'] }], false, since + 1_000])
   const back = build({ pause: { state: 'resuming', since, by: 'person' }, outbox, tails: { Board: running(2), Support: { lines: [typed(NOW - 3 * MIN, 'resume your step B280 from your checkpoint'), answer(NOW - MIN, 'Back on it.')], at: NOW - MIN } } })
   assert.deepEqual([back.pause.waiting, back.pause.isResumed], [[], true])
 })
@@ -157,7 +157,7 @@ const SESSION = 'local_84e3310d-5c34-43b7-a5f4-d59006c1d556'
 
 test('the page after Resume all: who has not started yet; "Open <main>" by its session when the main chat does not run', () => {
   const since = new Date(2026, 9, 18, 21, 30).getTime()
-  const resuming = { state: 'resuming', since, waiting: [{ chat: 'Board', id: 'B269' }], isResumed: false, main: { ...MAIN, session: SESSION, isRunning: false }, typedAt: null }
+  const resuming = { state: 'resuming', since, waiting: [{ chat: 'Board', ids: ['B269'] }], isResumed: false, main: { ...MAIN, session: SESSION, isRunning: false }, typedAt: null }
   assert.deepEqual(pauseLinesOf(resuming), [
     { tone: '', text: 'Resuming since 21:30: not started yet: Board (B269).' },
     { tone: 'alert', text: 'Game - Main is not running: open it; its Workers mod tells it whom to wake.', link: { label: 'Open Game - Main', href: `claude://claude.ai/epitaxy/${SESSION}` } },

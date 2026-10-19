@@ -63,7 +63,7 @@ import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { overlapsIn, workApi } from './src/work/api.mjs'
-import { isHolding, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
+import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor } from './src/work/deliver.mjs'
 import { followRenames } from './src/work/rename.mjs'
@@ -1250,8 +1250,9 @@ async function main(args) {
       // Who asks runs, also a chat the board shows another session for.
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
       if (!checked.ok) return checked
-      // The review of Pause 2: while the person pauses (until running) no chat takes what would start a turn; only the
-      // board's own "resume" to the main chat goes. The rest waits in the outbox, held until the resume.
+      // The review of Pause 2: while the person pauses no chat takes what would start a turn; only the board's own
+      // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
+      // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
       const only = isHolding((await readState()).pause) ? message => message.command === 'resume' : undefined
       const taken = await store.take(checked.chat, clock(), keep, only)
       // What was taken shows as on its way at once.
@@ -1440,8 +1441,9 @@ async function main(args) {
           readState.reset()
         }
         // Pause and resume (spec 2026-10-18): once every chat holding a step has started a turn since Resume all, the
-        // board sets running, and the banner goes.
-        if (state.pause?.state === 'resuming' && state.pause.isResumed === true) {
+        // board sets running, and the banner goes. 2026-10-19: or 20 minutes after Resume all, whichever is first; the
+        // banner then names for an hour who did not start, as information.
+        if (resumeEnds(state.pause, clock())) {
           const set = await workAction({ action: 'resumed' }, 'server')
           if (set.ok && set.result.changed !== false) readState.reset()
         }
