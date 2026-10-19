@@ -30,7 +30,7 @@ export function goalAttempts(node, items) {
   for (const item of items ?? []) {
     if (item.head.get('Kind') !== 'step' || item.head.get('Goal') !== node.id) continue
     const id = item.head.get('Id')
-    const failed = (item.sections.get('History') ?? []).map(one => one.replace(/^[-*]\s+/, '').match(FAILED)).filter(one => one !== null && one[1] >= since)
+    const failed = (item.sections.get('History') ?? []).map(one => one.replace(/^[-*]\s+/, '').match(FAILED)).filter(one => one !== null && one[1] > since)
     const points = (checkedOf(item)?.points ?? []).filter(one => one.verdict === 'fail').map(one => one.text)
     failed.forEach((found, place) => {
       const isLast = place === failed.length - 1
@@ -38,7 +38,7 @@ export function goalAttempts(node, items) {
     })
   }
   for (const recheck of node.rechecks ?? []) {
-    if (recheck.verdict === 'failed' && recheck.at >= since) failures.push({ at: recheck.at, id: node.id, text: lineOf(recheck.gap ?? recheck.summary) })
+    if (recheck.verdict === 'failed' && recheck.at > since) failures.push({ at: recheck.at, id: node.id, text: lineOf(recheck.gap ?? recheck.summary) })
   }
   failures.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
   return { count: failures.length, since, failures }

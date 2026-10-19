@@ -129,20 +129,22 @@ const read = fs => parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('ut
 
 test('while the evaluation runs the partner\'s how-draft replaces the agreed how and counts as Go', async () => {
   const fs = fakeFs({ [FILE]: latin(evaluating) })
-  const done = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h', 'Cushions · 1 h'], partnerDecides: ['the stone'], youDecide: [] }, ctx(fs))
+  const done = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h', 'Cushions · 1 h'], partnerDecides: ['the stone', 'Evaluation: wood caps the comfort: stone with cushions'], youDecide: [] }, ctx(fs))
   assert.equal(done.ok, true, done.why)
   assert.equal(done.result.evaluated, true)
   const now = read(fs)
   assert.deepEqual(now.parts.map(part => part.title), ['Stone benches', 'Cushions'])
   assert.equal(now.howAgreed, '2026-10-19 10:00')
   assert.equal(now.evaluationAsked, null)
-  assert.match(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'), /\n {2}Evaluated \(2026-10-19 10:00\): a new how \(2 parts\)/)
+  assert.match(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'), /\n {2}Evaluated \(2026-10-19 10:00\): a new how \(2 parts\) · wood caps the comfort: stone with cushions\n/)
+  // The marker is not kept as a line of the how.
+  assert.deepEqual(now.partnerDecides, ['the stone'])
   assert.equal(goalAttempts(now, ITEMS).count, 0)
 })
 
 test('the same how again ends the evaluation as "keep going"; without one running an agreed how stays as it is', async () => {
   const fs = fakeFs({ [FILE]: latin(evaluating) })
-  const same = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Wooden benches · 2 h · steps B1, B2'], partnerDecides: [], youDecide: [] }, ctx(fs))
+  const same = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Wooden benches · 2 h · steps B1, B2'], partnerDecides: ['Evaluation: the approach is right, keep going'], youDecide: [] }, ctx(fs))
   assert.equal(same.ok, true, same.why)
   assert.match(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'), /\n {2}Evaluated \(2026-10-19 10:00\): the how stays/)
   assert.equal(read(fs).evaluationAsked, null)
@@ -173,4 +175,23 @@ test('Go on a reopened how ends an evaluation left from before', async () => {
   const done = await focusMove({ command: 'how-go', id: 'G2' }, ctx(fs))
   assert.equal(done.ok, true, done.why)
   assert.deepEqual([read(fs).howAgreed, read(fs).evaluationAsked], ['2026-10-19 10:00', null])
+})
+
+test('review: a routine draft while the evaluation runs keeps the usual rule and does not end it', async () => {
+  const fs = fakeFs({ [FILE]: latin(evaluating) })
+  // Follow-up steps added to the part: kept, the evaluation runs on.
+  const steps = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Wooden benches · 2 h · steps B1, B2, B9'], partnerDecides: [], youDecide: [] }, ctx(fs))
+  assert.equal(steps.ok, true, steps.why)
+  assert.equal(steps.result.evaluated, undefined)
+  assert.deepEqual([read(fs).evaluationAsked, read(fs).howAgreed], ['2026-10-19 09:31', '2026-10-19 08:00'])
+  // Another how without the marker is refused, as for any agreed how.
+  assert.equal((await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h'], partnerDecides: [], youDecide: [] }, ctx(fs))).ok, false)
+})
+
+test('review: the guard fires only for the focus goal, and a failure in the minute of Go is not counted', async () => {
+  const fs = fakeFs({ [FILE]: latin(MAP.replace('Focus: G2', 'Focus: G3')) })
+  const fired = await guardGoal('G2', { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: ITEMS })
+  assert.equal(fired.result.fired, false)
+  const atGo = [step('B9', 'G2', ['2026-10-19 08:00 Partner: result check failed: 0 of 1 points pass; fix B10 for W1'])]
+  assert.deepEqual(goalAttempts(goal(), atGo).failures.map(one => one.id), ['G2'], 'only the re-check after Go')
 })

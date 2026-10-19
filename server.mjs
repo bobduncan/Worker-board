@@ -591,7 +591,7 @@ async function main(args) {
   /** B359: the goal a checked item counts for: the goal itself (G<n>), or the step's Goal in the store. */
   const goalOfChecked = async id => {
     const plain = String(id ?? '').trim()
-    if (/^Gd+$/.test(plain)) return plain
+    if (/^G\d+$/.test(plain)) return plain
     const item = (await readStore(workDir).catch(() => ({ items: new Map() }))).items.get(plain)
     return item?.head.get('Goal') ?? null
   }

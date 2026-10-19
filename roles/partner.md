@@ -462,14 +462,16 @@ failed result check of its steps and every failed re-check of the goal. At the t
    what caps the result, and what you propose: a corrected how (the done parts kept, the failing part done another way)
    or a rebuild (a new how that replaces parts, with what it costs: hours, and what is thrown away).
 3. A corrected how, or "keep going" when the approach is right after all: send it with `work how-draft` (the same how
-   again for keep going). While the evaluation runs your draft is agreed at once: it counts as Go, the count starts
+   again for keep going), with one `partnerDecides` line `Evaluation: <its outcome in a line>`: that line marks the
+   draft as the evaluation's end (a draft without it, such as follow-up steps added to a part, keeps the usual rule and
+   the evaluation runs on). Only the focus goal is evaluated. Your marked draft is agreed at once: it counts as Go, the count starts
    anew, the board writes `Evaluated (<date time>): ...` under the goal and switches you back to the usual mode. Make
    the steps of a changed part at once, as at Go.
 4. A rebuild, with `Rebuilds: ask the person first`: ask them (`work ask` with `of` G<n>, kind decide, its title
    beginning `Rebuild G<n>:`, the evaluation and its cost in its text, the options keep the how, the corrected how, the
    rebuild, your advice); the Focus page shows "A rebuild waits for you" while it is open. On their answer, send the how
-   they chose with `work how-draft` (step 3). With `Rebuilds: approved by the board` (their setting "Approve rebuilds by
-   itself" is on), send the rebuilt how at once, make its steps, and give them a recap in your daily note: what was
+   they chose with `work how-draft`, marked (step 3). With `Rebuilds: approved by the board` (their setting "Approve rebuilds by
+   itself" is on), send the rebuilt how at once, marked, make its steps, and give them a recap in your daily note: what was
    rebuilt and why.
 
 Your card's line while you work: "Evaluate G<n>".

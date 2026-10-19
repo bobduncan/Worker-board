@@ -396,8 +396,10 @@ async function fireGuard(id, ctx) {
   const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
   let node = null
   const done = await changeGoalsFile(text => {
-    const now = parseGoals(text).byId.get(id)
-    if (now === undefined || !needsEvaluation(now, ctx.items)) return { ok: false, why: 'calm' }
+    const map = parseGoals(text)
+    const now = map.byId.get(id)
+    // Only the focus goal: its evaluation ends with a how-draft, and only the focus goal is drafted.
+    if (now === undefined || map.focus !== id || !needsEvaluation(now, ctx.items)) return { ok: false, why: 'calm' }
     node = now
     return setGoalLine(text, id, 'Evaluation asked', minuteOf(ctx.now))
   }, goalsAt)
@@ -473,7 +475,11 @@ async function draft(body, node, ctx, goalsAt, focus) {
   }
   // A part as an object, or in the work tool's words: "<title> · <size> · steps B1, B2", as goals.md reads a Part line.
   const parts = Array.isArray(body.parts) ? body.parts.map(part => (typeof part === 'string' ? partOf(part) : part)) : body.parts
-  const how = { parts, partnerDecides: body.partnerDecides ?? [], youDecide: body.youDecide ?? [] }
+  // B359: a line "Evaluation: <its outcome>" marks the draft as the goal guard's evaluation ending; it is not kept as a line.
+  const decides = Array.isArray(body.partnerDecides) ? body.partnerDecides : body.partnerDecides ?? []
+  const marked = Array.isArray(decides) ? decides.find(one => typeof one === 'string' && /^\s*Evaluation:/i.test(one)) : undefined
+  const outcome = marked === undefined ? null : marked.replace(/^\s*Evaluation:\s*/i, '').replace(/\s+/g, ' ').trim() || 'ended'
+  const how = { parts, partnerDecides: Array.isArray(decides) ? decides.filter(one => one !== marked) : decides, youDecide: body.youDecide ?? [] }
   if (!Array.isArray(how.parts) || !how.parts.every(part => part !== null && typeof part === 'object') || !isLines(how.partnerDecides) || !isLines(how.youDecide)) {
     return refuse(400, 'A how is its parts ({ title, size, steps }) and the lines of who decides what.')
   }
@@ -489,13 +495,15 @@ async function draft(body, node, ctx, goalsAt, focus) {
     if (!next.ok || now.howAgreed === null) return next
     // B359: while the goal guard's evaluation runs, the draft is its outcome: the how it names (corrected, rebuilt, or
     // the same one: keep going) is agreed at once, so the count of failed checks starts anew, and the evaluation ends.
-    if ((now.evaluationAsked ?? null) !== null) {
+    // Only a draft that says it is the outcome (a "partner decides" line "Evaluation: ...") ends it: a routine draft
+    // (a re-check's follow-up steps added to a part) keeps the usual rule, and the evaluation runs on.
+    if ((now.evaluationAsked ?? null) !== null && outcome !== null) {
       evaluated = true
       const isSame = agreedOf(parseGoals(next.text).byId.get(node.id)) === agreedOf(now)
       const at = minuteOf(ctx.now)
       const agreed = setGoalLine(next.text, node.id, 'How agreed', at)
       const cleared = agreed.ok ? setGoalLine(agreed.text, node.id, 'Evaluation asked', '') : agreed
-      return cleared.ok ? addGoalLine(cleared.text, node.id, `Evaluated (${at}): ${isSame ? 'the how stays' : `a new how (${how.parts.length} ${how.parts.length === 1 ? 'part' : 'parts'})`}`) : cleared
+      return cleared.ok ? addGoalLine(cleared.text, node.id, `Evaluated (${at}): ${isSame ? 'the how stays' : `a new how (${how.parts.length} ${how.parts.length === 1 ? 'part' : 'parts'})`} · ${outcome}`) : cleared
     }
     changed = agreedOf(parseGoals(next.text).byId.get(node.id)) !== agreedOf(now)
     return changed ? { ok: false, why: 'agreed' } : next
