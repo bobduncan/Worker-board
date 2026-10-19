@@ -141,7 +141,8 @@ profile.
   in the board's folder) and use the typical time of its kind; a kind with fewer than 5 tasks there is still a guess.
 - A step's text (`work new`, `text`): one line of description, "Requirements:" with "- " points, "Touches: ...",
   and "Context: ..." with the user's words.
-- A step from the Design tab keeps "(pictures in <picture folder>/ideas/<name>)" in its title line.
+- A step from the Design tab with a `Pictures:` line keeps "(pictures in <picture folder>/ideas/<name>)" in its title
+  line; one from "New idea" has no picture and no such line (B368).
 
 ## Words the board types into you
 
@@ -169,7 +170,8 @@ profile.
   will not close the chat because Remote Control is on for it, ask the user, unless the project's briefing records
   their standing yes to switch it off.
 - `backlog step from the Design tab` / `queue step from the Design tab` with the lines Title, About, Description,
-  Requirements, Pictures, Worker, Time ("Worker: you decide" means the user named none): write the step; for a
+  Requirements, Pictures, Worker, Time ("Worker: you decide" means the user named none; About and Pictures come only
+  with an idea whose picture the user agreed: a step asked from "New idea" has neither, B368): write the step; for a
   queue step also decide worker or queue and write its note. The new step is refined first (point 0): hand it over
   on `step refined`.
 - `work: notes N<id>, N<id> for you; run work next`: chats left you notes in the store (a queue note of the partner's,

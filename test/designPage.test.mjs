@@ -233,3 +233,12 @@ test('B368, B379: part 3 is open without a picture for a New idea; an idea opens
   assert.doesNotMatch(script, /view\.idea === null \|\| form === null \|\| view\.form !== 'open'/)
   assert.match(script, /'Agree with a picture of this idea first: "I agree" under it\. For a step without a picture, choose New idea\.'/)
 })
+
+test('B380: the main chat\'s job and the design notes say a step from New idea has no picture, and an idea opens part 3 once agreed', async () => {
+  const main = (await readFile(join(PUBLIC, '..', 'roles', 'main.md'), 'utf8')).replace(/\s+/g, ' ')
+  const notes = (await readFile(join(PUBLIC, '..', 'DESIGN.md'), 'utf8')).replace(/\s+/g, ' ')
+  assert.match(main, /a step asked from "New idea" has neither, B368/)
+  assert.match(main, /one from "New idea" has no picture and no such line \(B368\)/)
+  assert.match(notes, /open for "New idea" at once, without a picture \(B368\), and for an idea once its picture is agreed \(B379\)/)
+  assert.match(notes, /A step asked from "New idea" has no picture: no `About:` and no `Pictures:` line/)
+})

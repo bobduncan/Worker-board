@@ -634,8 +634,8 @@ and `wirePictureSlot`), not a copy.
 (`art-inbox/worker-board/design-tab/2026-10-12-design-tab-a-side-by-side.png`): three parts side by side and "Ideas
 so far" along the bottom. 1 New idea: the idea, what it is about (the kinds the board names), reference pictures of
 the person's own (picked from disk, or pasted with Ctrl+V anywhere on the tab, B156), "Make a picture". 2 The picture: the version looked at, large; every version to choose from; "What
-should change?" with "Make it again"; "I agree", which can be taken back. 3 Add what you want, open once a picture
-is agreed: title, description, requirements, the worker or the main chat's choice, an optional time; "Put on the
+should change?" with "Make it again"; "I agree", which can be taken back. 3 Add what you want, open for "New idea" at
+once, without a picture (B368), and for an idea once its picture is agreed (B379): title, description, requirements, the worker or the main chat's choice, an optional time; "Put on the
 backlog" or "Put in a queue". The page reads `state.design` and writes only through `POST /api/design` and
 `/api/design/reference` (the board's side, B101); it writes nothing into the backlog, the main chat does (the one
 thing the board itself writes there is the tick of an approved step, B110, below). What is
@@ -995,7 +995,8 @@ the backlog or in the queue"). The page is `public/`; this is the board's side (
 - *The step is asked of the main chat.* "Put on the backlog" and "Put in a queue" type a word into the main chat,
   with the board's mark: the first line `backlog step from the Design tab` or `queue step from the Design tab`,
   then `Title:`, `About:` (the kind), `Description:`, `Requirements:` with its points, `Pictures:` (the folder and
-  the agreed picture), `Worker:` (a worker, or "Game - Main decides") and `Time:` when given. The first line and
+  the agreed picture), `Worker:` (a worker, or "Game - Main decides") and `Time:` when given. A step asked from "New
+  idea" has no picture: no `About:` and no `Pictures:` line, and no idea to show its id on (B368). The first line and
   the labels are the board's; every field is the person's own words, kept to one line. The main chat writes the
   step with its id and keeps the folder in its words, by which the board finds the step and shows its id on the
   idea. The board writes no step into the backlog; the one thing it writes there is the tick of a step the person
