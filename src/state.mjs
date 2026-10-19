@@ -680,13 +680,17 @@ function answerOf(outbox, id, version = null) {
  * A chat that waits brings what its window shows (B100): its task as its card names it (`task`) and what it
  * last said (`waits`).
  * B275: the Advisor (`advisor`, its card) asks as a worker does when it waits (`advisorWaits`), answered in its chat.
+ * B424: so does the partner's helper (`helper`, its card), which is no lane either.
  * B301: what waits for the person is the store's asks (`storeNeeds`); a chat's own card stands only for the app's
  * question form that the mod could not file, and a chat that wrote questions in its chat without filing an ask is a
  * warning (`unfiled`) with the way to its chat, never a question to answer here.
  */
-function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null, waits, idle = [] }) {
+function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null, helper = null, waits, idle = [] }) {
   const live = lanes.filter(lane => !lane.isLeftover)
-  const names = new Set(live.map(lane => lane.name))
+  const helpers = helper === null ? [] : [helper]
+  const names = new Set([...live, ...helpers].map(lane => lane.name))
+  // The chats whose own question form and silence the cards below read: the lanes, the Advisor while it waits, the helper.
+  const asking = [...live, ...(advisorWaits === null ? [] : [advisorWaits]), ...helpers]
   // Work to verify is looked at in the game: on the branch the ask names, else on main.
   // An answer is about the ask as it was filed: one filed anew, also under the same name, asks again.
   const items = asks.map(ask => ({
@@ -697,7 +701,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
   }))
   const asked = new Set(asks.map(ask => ask.from))
   const blank = { options: [], pictures: [], run: null, game: null, checks: [], tried: [] }
-  for (const lane of advisorWaits === null ? live : [...live, advisorWaits]) {
+  for (const lane of asking) {
     // B299: the store's asks are the cards; a chat's own card stays only for the app's question form that the mod could
     // not file.
     const isFiled = !lane.isAsking || waits.form.has(lane.name.toLowerCase())
@@ -721,7 +725,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
     }
   }
   // B301: a chat that wrote questions in its chat but filed no ask: a warning, with the way to its chat.
-  for (const lane of advisor === null ? live : [...live, advisor]) {
+  for (const lane of [...live, ...(advisor === null ? [] : [advisor]), ...helpers]) {
     if ((lane.unfiled ?? null) === null) continue
     const isAdvisor = advisor !== null && lane === advisor
     items.push({
@@ -764,7 +768,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       talk: 'window',
     })
   }
-  for (const lane of advisorWaits === null ? live : [...live, advisorWaits]) {
+  for (const lane of asking) {
     if (lane.isQuiet) {
       items.push({
         id: `quiet:${lane.name}`,
@@ -790,12 +794,13 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
 /**
  * Focus 4 (spec 2026-10-18, section 4): each card of Needs your attention says whether it is the partner's
  * (`isPartner`): asked by the chat the setting advisor names (`partner`), with or without the project's prefix. The
- * page shows those first, under "From your partner". No partner: none is.
+ * page shows those first, under "From your partner". No partner: none is. B424: `partner` may be a list, the partner and
+ * its helper.
  */
 export function markPartner(needs, partner, prefix = '') {
   const plain = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
-  const own = plain(partner)
-  return needs.map(need => ({ ...need, isPartner: own !== '' && need.from !== null && need.from !== undefined && plain(need.from) === own }))
+  const owns = new Set((Array.isArray(partner) ? partner : [partner]).map(plain).filter(own => own !== ''))
+  return needs.map(need => ({ ...need, isPartner: need.from !== null && need.from !== undefined && owns.has(plain(need.from)) }))
 }
 
 /** A name for a backlog step that stays the same as long as its words do: an answer is kept under it. */
@@ -1155,6 +1160,14 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     return isStale ? offLane(shown, writtenAt) : shown
   })
 
+  // B424: the helper's card, read as a worker's: one left "working" by a quit app is "Not running".
+  const helperLane = helperCard === null ? null : (() => {
+    const { usage, ...lane } = helperCard
+    const shown = { ...lane, suspended: heldUntil(lane.suspended, limits, now) }
+    const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
+    return isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now }) ? offLane(shown, writtenAt) : shown
+  })()
+
   const counts = { working: 0, waiting: 0, free: 0, unknown: 0, interrupted: 0, suspended: 0, off: 0 }
   for (const lane of cards) if (!lane.isLeftover) counts[lane.state] += 1
 
@@ -1408,7 +1421,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const pause = pauseRecord === null ? null : {
     // The review of Pause 2: a line handed to a chat and not typed yet starts a turn: no Safe while one is on its way.
     ...pauseFacts({
-      pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...[advisorCard, helperCard].filter(one => one !== null)], prefix, now,
+      pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...[advisorCard, helperLane].filter(one => one !== null)], prefix, now,
       pending: sent.filter(message => message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS),
     }),
     // `hasActed`: the main chat ran a turn since the pause's last change, or runs one now (the review of Pause 2: once its
@@ -1466,19 +1479,19 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     },
     // Focus 4: the partner's cards marked, for the group "From your partner".
     forYou: markPartner([
-      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold') }),
+      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, helper: helperLane, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold') }),
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
-      ...storeNeeds(raw.work, { now, names: [...names, ...(advisorChat === undefined ? [] : [advisorChat.name])], prefix, answerOf: id => answerOf(sent, id) })
+      ...storeNeeds(raw.work, { now, names: [...names, ...[advisorChat, helperChat].filter(one => one !== undefined).map(one => one.name)], prefix, answerOf: id => answerOf(sent, id) })
         .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
       // Focus 4: the focus's steps made but not handed out, longer than the grace time: a hint, with the way to Main.
       ...handoutNeeds(focus, main === undefined ? null : main.name, now),
-    ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), config.advisor ?? null, prefix),
+    ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null], prefix),
     // B299: notes and reports for the person.
     information: informationOf(raw.work, now),
     // Partner answers, the review's findings: the asks with the partner now, and its answers of the last 7 days that the
     // Focus page's note does not show, each with its Undo.
-    withPartner: !workOk ? [] : withPartnerOf(raw.work, { names: [...names, ...(advisorChat === undefined ? [] : [advisorChat.name])], prefix }),
+    withPartner: !workOk ? [] : withPartnerOf(raw.work, { names: [...names, ...[advisorChat, helperChat].filter(one => one !== undefined).map(one => one.name)], prefix }),
     partnerDecided: !workOk ? [] : partnerDecidedOf(raw.work, { now, shownNote: focus?.note?.id ?? null, names, prefix }),
     // B360: the recaps of finished work, and where they show: "now" in Needs your attention, "daily" in the daily note.
     recaps: recapsOf(raw.work, now),
@@ -1556,19 +1569,19 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     })(),
     advisor: advisor === null ? null : { ...advisor, isRunning: runningOf(advisor.name) },
     // B424: the partner's helper, on its own card under the Advisor's: how it stands, its task and its time.
-    advisorHelper: helperCard === null ? null : {
-      name: helperCard.name,
-      session: helperCard.session,
-      appSession: helperCard.appSession,
-      state: helperCard.state,
-      doingNow: helperCard.doingNow,
-      task: helperCard.task,
-      eta: helperCard.eta,
-      between: helperCard.between,
-      idle: helperCard.idle,
-      suspended: heldUntil(helperCard.suspended, limits, now),
-      asksYou: helperCard.state === 'waiting' || waits.asking.has(helperCard.name.toLowerCase()),
-      isRunning: runningOf(helperCard.name),
+    advisorHelper: helperLane === null ? null : {
+      name: helperLane.name,
+      session: helperLane.session,
+      appSession: helperLane.appSession,
+      state: helperLane.state,
+      doingNow: helperLane.doingNow,
+      task: helperLane.task,
+      eta: helperLane.eta,
+      between: helperLane.between,
+      idle: helperLane.idle,
+      suspended: helperLane.suspended,
+      asksYou: helperLane.state === 'waiting' || waits.asking.has(helperLane.name.toLowerCase()),
+      isRunning: helperLane.state === 'off' ? false : runningOf(helperLane.name),
     },
     // B212: no Workers mod has asked this board for its words since it started: what is sent is copied for the person
     // to paste instead (null on a board that does not deliver). `chatPrefix` makes a chat's name its title.

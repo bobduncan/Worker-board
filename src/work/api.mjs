@@ -64,10 +64,11 @@ const ROLES = {
 }
 /**
  * B424: what the partner's helper (the role 'helper' of the list) does as the partner's own: the refines and the result
- * checks the partner hands it. Its History lines name the helper. In everything else it is a worker, that no step is
- * queued for.
+ * checks of steps the partner hands it, and the asks under a step they lead to. Its History lines name the helper. A
+ * goal is the partner's alone (its re-check and its asks). In everything else it is a worker, that no step is queued for.
  */
-const HELPS = new Set(['refine', 'refined', 'checked'])
+const HELPS = new Set(['refine', 'refined', 'checked', 'ask'])
+const helps = body => HELPS.has(body.action) && !/^G\d+$/.test(String(body.action === 'ask' ? body.of ?? '' : body.id ?? '').trim())
 /** The order of a chat's own steps in `next`: what it works on first. */
 const MINE = ['in progress', 'waiting on you', 'taken', 'review', 'queued']
 const STEP_ID = /^B\d+$/
@@ -162,7 +163,7 @@ async function act(body, ctx) {
     }
     role = ctx.roleOf?.(who) ?? null
     if (role === null) return refuse(403, `${who} is no chat of the list.`)
-    if (role === 'helper') role = HELPS.has(action) ? 'advisor' : 'worker'
+    if (role === 'helper') role = helps(body) ? 'advisor' : 'worker'
   }
   if (PERSON.has(action) && role !== 'person') return refuse(403, 'Only the person does that, on the board.')
   if (SERVER.has(action) && role !== 'server') return refuse(403, 'Only the board does that.')

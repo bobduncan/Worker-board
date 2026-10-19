@@ -2514,10 +2514,12 @@ advisor tab and not an worker".
 2. The Overview draws it on its own card right under the Advisor's, in the Advisor's part (`drawHelperCard`): its
    standing as the Advisor's (`advisorStanding`), its task, step and time while it works, else "helps <partner>:
    refines and result checks". Nothing to open and no worker buttons.
-3. The work tool gives it the role `helper`: its `refine`, `refined` and `checked` count as the partner's (`HELPS`),
-   its own name on the History lines; in all else it is a worker. `queue` and `requeue` for it are refused.
+3. The work tool gives it the role `helper`: its `refine`, `refined`, `checked` and `ask` count as the partner's
+   (`HELPS`), its own name on the History lines, but never of a goal (its re-check, its asks and its daily note stay
+   the partner's); in all else it is a worker. `queue` and `requeue` for it are refused.
 4. The board's words reach it as the partner's do: the bridge serves it, an answer on the page may go to it, a rename
-   follows it, and the pause counts it.
+   follows it, and the pause counts it. Its app question form, a "For you" block without an ask and a long silence get
+   their cards under Needs your attention, among the partner's; a card left "working" by a quit app is "Not running".
 5. `roles/partner.md` ("Your helper"): hand it the next refine or check whenever it is free, take the next one while
    it is busy, never let one wait while either is free. `roles/main.md`: never queue for it.
 6. Not in it: more than one helper, a helper for the main chat, and the Workers mod's own role for it (the mod's chat

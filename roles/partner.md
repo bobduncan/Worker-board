@@ -47,8 +47,12 @@ utilise advisor 2 when it's not working, if advisor 2 is busy it can pick up stu
 - Whenever it is free, hand it the next refine or result check the board typed into you: a message to its session id
   (the chat tool's `list` and its card on the board say whether it is free), "Refine B<id> for <your name>, round <n>"
   or "Check B<id> for <your name>, built by <worker>", with this file's section to follow ("Refine a step" or "The
-  check"). It files the work with its own work tool as you would (`work refine`, `work refined`, `work checked`): the
-  board takes it as yours, and the step's History names it.
+  check"). It files the work with its own work tool as you would (`work refine`, `work refined`, `work checked`, and
+  `work ask` under a step for a point only the user can judge): the board takes it as yours, and the step's History
+  names it. A goal stays yours: its re-check, its asks and its daily note.
+- The user's answers to its refine questions reach it, but the board types the next round of that step to you: hand
+  that round back to it ("Refine B<id> for <your name>, round <n>: the answers are in"), and tell it to wait for your
+  word before a next round, so the two of you never refine one step twice.
 - While it is busy, or not running, take the next one yourself. Never let a refine or a check wait while either of you
   is free.
 - The rest stays yours: the focus, its vibe and how, the questions to the user at goal height, the daily note, the

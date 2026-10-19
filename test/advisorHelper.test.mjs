@@ -12,7 +12,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { answer, step, typed } from '../fixtures/lines.mjs'
+import { answer, assistant, step, text, tool, typed } from '../fixtures/lines.mjs'
 import { parseList } from '../src/appChats.mjs'
 import { checkTake } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
@@ -72,6 +72,23 @@ test('the helper is no worker: no lane, no queue, not counted; its card carries 
   assert.equal(helper.session, 'cli-Second')
   // The name is the list's, in any case of letters.
   assert.equal(build({ list: '{"prefix":"Garden · ","main":"Lead","helper":"second"}' }).advisorHelper.name, 'Second')
+})
+
+test('a helper that asks with the app\'s question form gets its card under Needs your attention, from your partner', () => {
+  const state = build({
+    second: [typed(NOW - 12 * MIN, 'Refine B12'), step(NOW - MIN, 'Ask about the lamps')],
+    plan: { text: 'Refine B12', step: 2, steps: 3, left: 20 * MIN },
+  })
+  assert.equal(state.forYou.some(need => need.from === 'Second'), false)
+  const form = assistant(NOW - 9 * MIN, 'tool_use', [text('One choice.'), tool('AskUserQuestion', {
+    questions: [{ question: 'Thin or thick lamps?', header: 'Lamps', options: [{ label: 'Thin', description: '' }, { label: 'Thick', description: '' }], multiSelect: false }],
+  })])
+  const asking = build({ second: [typed(NOW - 20 * MIN, 'Refine B12'), form] })
+  assert.equal(asking.advisorHelper.state, 'waiting')
+  assert.equal(asking.advisorHelper.asksYou, true)
+  const card = asking.forYou.find(need => need.from === 'Second')
+  assert.equal(card?.title, 'Asked you a question in its chat')
+  assert.equal(card.isPartner, true)
 })
 
 test('without "helper" in the list, or without its chat, there is no helper card and the chat stays a worker', () => {
@@ -140,6 +157,13 @@ test('the helper files a result check as the partner would', async () => {
     const three = await item(store.dir, id)
     assert.equal(valueOf(three, 'State'), 'done')
     assert.ok(three.sections.get('History').some(one => one.includes('Second:')), three.sections.get('History').join('\n'))
+    // A point only the person can judge: the helper asks it under the worker's step, as the partner's job says.
+    const asked = await store.second({ action: 'ask', of: 'B1', kind: 'look', text: 'Is the wick short enough?' })
+    assert.equal(asked.ok, true, asked.why)
+    // A goal stays the partner's: no re-check, no daily note, no ask of a goal by the helper.
+    assert.equal((await store.second({ action: 'checked', id: 'G3', evidence: 'none (x)', points: ['pass: x'] })).status, 403)
+    assert.equal((await store.second({ action: 'ask', of: 'G3', kind: 'decide', text: 'x' })).status, 403)
+    assert.equal((await store.second({ action: 'note', to: 'you', of: 'G3', decided: ['x'] })).status, 403)
   } finally {
     await rm(store.dir, { recursive: true, force: true })
   }
