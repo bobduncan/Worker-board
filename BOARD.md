@@ -87,7 +87,9 @@ and the questions that hold up no chat then gather under your partner's daily no
 holds up a chat always comes at once) and **Approve rebuilds by itself** (B361: Off, On; saved in the board's settings
 file), the board's
 version and since when, "Last updated", and a refresh button. When the board's folder holds a newer version, a
-yellow note on top says so; a click starts the new version. Without the Workers mod a bar on top says that what the
+yellow note on top says so; a click starts the new version. When a data file of the board was torn (by a restart or a
+power cut) and could not be read at its start, a red note on top names it and the copy it was kept aside as
+(`<name>.broken-<time>`, B406): the board started without it. Without the Workers mod a bar on top says that what the
 person sent was copied, and into which chat to paste it. At the far right a round **?** opens the help tour (below).
 
 ## The help tour (B348)

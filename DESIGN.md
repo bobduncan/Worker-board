@@ -2553,6 +2553,34 @@ advisor tab and not an worker".
 6. Not in it: more than one helper, a helper for the main chat, and the Workers mod's own role for it (the mod's chat
    tool still lists it as a worker; its change needs the person's word).
 
+## Torn files and whole writes (B406)
+
+The person, 2026-10-19 (Q207 B): place 2 of docs/robustness-2026-10.md. A file the board kept was written over in
+place: a restart or a power cut in the middle left half of it, and a torn data file kept the board from starting until
+someone deleted it.
+
+1. `src/write.mjs` holds the board's writes. `writeAtomic(file, data)` writes beside (`<file>.<pid>.<random>.tmp`),
+   flushes to disk and puts the new file in place with a rename: the file is whole, the old one or the new one.
+   `again` tries a rename, a delete or an append again on EPERM, EBUSY and EACCES (five tries; Windows holds a file for
+   a moment while a virus scanner or the indexer reads it). Every write of the board goes through it: the data files,
+   the settings, the launch entry, the list of boards, the work store (`putInPlace`, `removeItem`), the goal map and
+   its daily copy, the ideas, the backlog view, the CPU level, the port file, a new project's files and Codex's
+   pictures. A module that takes its file functions as `fs` (the tests' files in memory) keeps them; without `open` a
+   file is written plainly.
+2. `appendLines` ends a line torn by a power cut before it appends, so the next record of the outbox or the history
+   never runs into it.
+3. At the start (`readKept`), finished.json, rounds.json, refine-gate.json and task-times.json that do not parse are
+   kept aside as `<name>.broken-<yyyymmdd-hhmmss>` and the board starts without them; the state's `setAside` names
+   them and the page says so on top (`setAsideNote`). A board showing another's history never moves that board's
+   files. A `launch.json` that cannot be read or does not parse is never written over.
+4. Writes whose result was dropped are checked: delivered.json's record of a line sent is read anew and written again
+   (three tries), so a line is not sent twice; a fix step that could not be taken back is said in the answer; a
+   recap that could not be written is said in the goal's re-check; the chats' names record holds a held rename once.
+5. The tests take their folders away with retries (`test/tempDir.mjs`, `maxRetries` on every clean-up); the two-board
+   test runs on fixed ports below the system's own range and waits for a stopped board's port.
+6. Not in it: the data layout of any file; files made new under a name of their own (a pasted picture, a brainstorm
+   thread's first file, the store's id claims), which are never written over.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.
