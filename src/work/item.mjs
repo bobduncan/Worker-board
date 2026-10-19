@@ -23,7 +23,7 @@ export const HEAD_KEYS = {
   instruction: ['Id', 'Kind', 'Chat', 'State', 'Since', 'Filed', 'Via', 'Missed', 'Text', 'Closed as'],
   // Focus 3: `Of` names the goal of the partner's daily note (dailyNote.mjs). Focus 4: `Via: report` marks the board's
   // note of a report; `Main read` when the main chat read it with work next (the person's read is its State). B360:
-  // `Recap` marks a recap of finished work (recap.mjs: open, approved, overturned or feedback), `Evidence` its picture.
+  // `Recap` marks a recap of finished work (recap.mjs: open, approved, seen, overturned or feedback), `Evidence` its picture.
   note: ['Id', 'Kind', 'From', 'To', 'Of', 'Via', 'State', 'Since', 'Main read', 'Recap', 'Evidence', 'Text'],
 }
 const REQUIRED = ['Id', 'Kind', 'State', 'Since']

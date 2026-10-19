@@ -1048,6 +1048,9 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .button { padding: 8px 22px; border: 0; border-radius: 7px; background: var(--free); color: #fff; font-weight: 700; cursor: pointer; }
 .button.is-approve { background: #2fb568; color: var(--ink); }
 .button.is-reject { background: #e5484d; }
+/* B390: a recap's OK, seen is blue; its box's Overturn takes the room, Cancel what it needs. */
+.button.is-seen { background: var(--free); }
+.recap-words > .is-reject { flex: 1; }
 .button:disabled { opacity: 0.5; cursor: default; }
 .sent { border: 1px solid var(--line); border-radius: 7px; padding: 8px 11px; font-size: 13.5px; color: var(--muted); }
 .sent b { color: var(--text); font-weight: 600; }

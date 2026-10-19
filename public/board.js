@@ -3034,22 +3034,28 @@ const quoted = words => `"${String(words).trim().replace(/[.!?]+$/, '')}"`
 /** B360: what a recap says under its picture: when it approves itself, or what became of it. */
 function recapStatus(recap, now) {
   if (recap.state === 'approved') return 'Approved by itself: its 24 hours passed.'
+  if (recap.state === 'seen') return 'Seen by you: approved.'
   if (recap.state === 'overturned') return `Overturned: ${quoted(recap.words)}. ${recap.isGoal ? 'The goal is open again; your partner makes its next steps.' : 'Your partner makes the fix.'}`
   if (recap.state === 'feedback') return `Your feedback went to your partner: ${quoted(recap.words)}.`
   const left = recap.approvesAt === null ? 0 : recap.approvesAt - now
-  return `${left <= 0 ? 'Approves itself now' : `Approves itself in ${timeLeft(left)}`}, unless you overturn it or give feedback.`
+  return `${left <= 0 ? 'Approves itself now' : `Approves itself in ${timeLeft(left)}`}, unless you overturn it or mark it seen.`
 }
-/** B360: what the person's click on a recap's button sends: Overturn and Feedback both need their words. */
+/** B360, B390: what the person's click on a recap's button sends: Overturn needs their words, OK, seen sends none. */
 function recapSend(recap, verdict, text) {
-  if (verdict !== 'overturn' && verdict !== 'feedback') return { ok: false, why: 'Overturn or Feedback.' }
-  if (text === '') return { ok: false, why: verdict === 'overturn' ? 'Say what is wrong: your partner makes the fix from your words.' : 'Write your feedback first.' }
+  if (verdict === 'seen') return { ok: true, body: { action: 'seen', id: recap.workId } }
+  if (verdict !== 'overturn') return { ok: false, why: 'Overturn or OK, seen.' }
+  if (text === '') return { ok: false, why: 'Say what is wrong: your partner makes the fix from your words.' }
   return { ok: true, body: { action: verdict, id: recap.workId, text } }
 }
 // recaps:end
 
+// B390: kept between these two marks so a test can run it without the page.
+// recapCard:start
 /**
  * B360: a recap of finished work: marked Information (it asks nothing and blocks nothing), the step or goal, what the
- * person gets, the evidence picture, when it approves itself, and Overturn and Feedback with a box for their words.
+ * person gets, the evidence picture and when it approves itself. B390 (the person, I28: "red is overturn with text
+ * feedback, blue is ok, mark as seen no text needed"): at rest two buttons, Overturn (red) and OK, seen (blue); Overturn
+ * opens a box for their words, sent with "Overturn with these words" or closed again with Cancel.
  */
 function drawRecap(recap, state) {
   const card = el('article', `need is-recap${recap.isClosed ? ' is-closed' : ''}`)
@@ -3065,29 +3071,42 @@ function drawRecap(recap, state) {
   }
   card.append(el('p', 'muted recap-status', recapStatus(recap, state.readAt)))
   if (recap.isClosed) return card
-  const text = el('textarea')
-  text.rows = 2
-  text.maxLength = state.maxMessageChars
-  text.placeholder = recap.isGoal ? 'What is missing (Overturn opens the goal again), or what you think (Feedback)…' : 'What is wrong (Overturn: a fix step), or what you think (Feedback)…'
-  text.value = drafts.get(recap.id) ?? ''
-  text.setAttribute('aria-label', `Your words on ${recap.about ?? 'this recap'}`)
-  const buttons = el('div', 'buttons is-split')
-  const button = (label, className, verdict, title) => {
+  const button = (label, className, title) => {
     const node = el('button', `button ${className}`, label)
     node.type = 'button'
-    node.dataset.send = verdict
     node.disabled = sending.has(recap.id)
     node.title = title
     return node
   }
-  buttons.append(
-    button('↺  Overturn', 'is-reject', 'overturn', recap.isGoal ? 'Opens the goal again; your partner makes its next steps from your words.' : 'Your partner makes a fix step from your words.'),
-    button('✎  Feedback', '', 'feedback', 'Your words go to your partner; the work stays done.'),
-  )
-  card.append(text, buttons)
+  const overturns = recap.isGoal ? 'Opens the goal again; your partner makes its next steps from your words.' : 'Your partner makes a fix step from your words.'
+  if (!openForms.has(recap.id)) {
+    // At rest: Overturn opens the box (the answer forms' data-open); OK, seen approves it now, with no words.
+    const overturn = button('↺  Overturn', 'is-reject', overturns)
+    overturn.dataset.open = recap.id
+    const seen = button('✓  OK, seen', 'is-seen', 'Approves it now: the work stays done, and nothing goes to your partner.')
+    seen.dataset.send = 'seen'
+    const buttons = el('div', 'buttons is-split')
+    buttons.append(overturn, seen)
+    card.append(buttons)
+  } else {
+    const text = el('textarea')
+    text.rows = 2
+    text.maxLength = state.maxMessageChars
+    text.placeholder = recap.isGoal ? 'What is missing: the goal opens again, and your partner makes its next steps from your words…' : 'What is wrong: your partner makes a fix step from your words…'
+    text.value = drafts.get(recap.id) ?? ''
+    text.setAttribute('aria-label', `Your words on ${recap.about ?? 'this recap'}`)
+    const send = button('↺  Overturn with these words', 'is-reject', overturns)
+    send.dataset.send = 'overturn'
+    const cancel = button('Cancel', 'is-quiet', 'Closes the box; the recap stays as it is.')
+    cancel.dataset.cancel = recap.id
+    const buttons = el('div', 'buttons recap-words')
+    buttons.append(send, cancel)
+    card.append(text, buttons)
+  }
   if (problems.has(recap.id)) card.append(el('p', 'problem', problems.get(recap.id)))
   return card
 }
+// recapCard:end
 
 // B85 (the order of the cards): kept between these two marks so a test can run it without the page.
 // order:start
@@ -3346,6 +3365,15 @@ function takeAnswers(box) {
       refocus(box, id)
       return
     }
+    // B390: Cancel closes a recap's box for the words again, and drops them.
+    if (event.target.closest('[data-cancel]') !== null) {
+      openForms.delete(id)
+      drafts.delete(id)
+      problems.delete(id)
+      redrawNeeds()
+      redrawFocus()
+      return
+    }
     const choice = event.target.closest('[data-choose]')
     if (choice !== null) {
       // Choosing an option writes it into the answer, where it can be added to before it is sent.
@@ -3362,7 +3390,7 @@ function takeAnswers(box) {
     if (button === null || need === undefined) return
     const verdict = button.dataset.send === '' ? null : button.dataset.send
     const text = (drafts.get(id) ?? '').trim()
-    // B360: a recap takes the person's words with Overturn or Feedback.
+    // B360, B390: a recap takes the person's words with Overturn, or none with OK, seen.
     if (id.startsWith('recap:')) {
       const sent = recapSend(need, verdict, text)
       return sent.ok ? sendWork(sent.body, id) : fail(id, sent.why)
@@ -8272,8 +8300,8 @@ function focusData(state) {
   return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking, focusUi.asked.join(','),
     // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
     effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null,
-    // B360: the recaps gathered under the daily note, with their sending and problems.
-    gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null]),
+    // B360: the recaps gathered under the daily note, with their sending and problems; B390: and their box open or not.
+    gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null, openForms.has(recap.id)]),
     // the minute, for "Approves itself in ..."
     gatheredRecaps(state).length > 0 ? Math.floor(state.readAt / MIN) : null,
     // B361: the asks gathered under the daily note are drawn as Needs your attention draws them, from what it reads.
@@ -8596,12 +8624,12 @@ function focusNoteCard(view) {
 
 /**
  * B360: the recaps of finished work gathered under the daily note (the setting botherMe "daily"), each with its
- * picture, Overturn and Feedback, as in Needs your attention.
+ * picture, Overturn and OK, seen (B390), as in Needs your attention.
  */
 function focusRecapCard(state) {
   const card = el('section', 'focus-card focus-recaps')
   const recaps = gatheredRecaps(state)
-  card.append(el('h3', '', `Finished: ${recaps.length}`), el('p', 'muted', 'Gathered here under your partner\'s note, not one by one in Needs your attention. Each approves itself 24 hours after it came, unless you overturn it or give feedback.'))
+  card.append(el('h3', '', `Finished: ${recaps.length}`), el('p', 'muted', 'Gathered here under your partner\'s note, not one by one in Needs your attention. Each approves itself 24 hours after it came, unless you overturn it or mark it seen.'))
   card.append(...recaps.map(recap => drawRecap(recap, state)))
   return card
 }

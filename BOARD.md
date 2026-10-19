@@ -134,8 +134,9 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   closed ones grey with what came of them). B360: after the questions, a **recap** of every step that passed its
   result check and every goal that passed its re-check: a card marked Information (a green edge; it asks nothing and
   blocks nothing) with the step or goal, what the person gets, its evidence picture and when it approves itself, and
-  **Overturn** (the partner makes a fix step from the person's words; a goal opens again) and **Feedback** (the words go
-  to the partner); left alone it approves itself 24 hours after it came and moves to the closed items (setting
+  two buttons (B390): **Overturn** in red opens a box for the person's words (the partner makes a fix step from them; a
+  goal opens again; Cancel closes the box) and **OK, seen** in blue approves it at once, with no words ("Seen by you");
+  left alone it approves itself 24 hours after it came and moves to the closed items (setting
   `botherMe` "daily": gathered under the daily note on the Focus page instead, as the questions that hold up no chat
   are, B361). B301: no card comes from a chat's words; a chat that wrote questions in
   its chat without filing an ask is a warning card, "<chat> wrote questions in its chat but filed no ask", with a

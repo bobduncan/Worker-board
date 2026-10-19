@@ -2426,6 +2426,19 @@ approval from the user, but can be automatically approved."
    beside the recaps of B360, as their own cards: their pictures, options and answer, answered there.
 3. Not in it: new kinds of notification.
 
+## A recap's two buttons (B390)
+
+The person, 2026-10-19 (I28): "i get 2 buttons, overturn and feedback but dont they mean the same thing. i also want a
+button approve/mark as seen. so red is overturn with text feedback, blue is ok, mark as seen no text needed."
+
+1. A recap card at rest shows two buttons and no box: **Overturn** (red) and **OK, seen** (blue). The Feedback button
+   is gone, on Needs your attention and under the daily note alike.
+2. Overturn opens a box for the person's words (the answer forms' `openForms`), sent with "Overturn with these words"
+   as before: a fix step from them, or the goal opened again; Cancel closes the box and drops the words.
+3. OK, seen sends the store's `seen` (the person only): the recap is approved at once, `Recap: seen`, read, its
+   History "seen by you: approved at once"; no words, so no partner chat is needed and nobody is woken. The store's
+   `feedback` action is gone; a recap answered with it before still says so.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

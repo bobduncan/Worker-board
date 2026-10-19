@@ -1,7 +1,7 @@
 // B360: recaps. A step through its result check and a goal through its re-check give the person a recap: a note to
-// them marked Recap, with what they get and the evidence picture. It blocks nothing; the person may overturn it or give
-// feedback (their words go to the partner), and left alone it approves itself 24 hours after it showed. Made-up samples
-// only.
+// them marked Recap, with what they get and the evidence picture. It blocks nothing; the person may overturn it (their
+// words go to the partner) or mark it seen (B390: approved at once), and left alone it approves itself 24 hours after it
+// showed. Made-up samples only.
 
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -121,7 +121,7 @@ test('Overturn: the recap closes with the person\'s words, and the partner is wo
     assert.deepEqual(['Recap', 'State'].map(key => valueOf(after, key)), ['overturned', 'read'])
     assert.deepEqual(after.sections.get('Answer'), ['The lamp by the pond is still white.'])
     // Once is enough.
-    assert.equal((await one.person({ action: 'feedback', id: recap, text: 'more' })).status, 409)
+    assert.equal((await one.person({ action: 'seen', id: recap })).status, 409)
     const [shown] = recapsOf(await store(one.dir), NOW + HOUR)
     assert.deepEqual([shown.state, shown.isClosed, shown.words, shown.approvesAt], ['overturned', true, 'The lamp by the pond is still white.', null])
   } finally {
@@ -129,16 +129,54 @@ test('Overturn: the recap closes with the person\'s words, and the partner is wo
   }
 })
 
-test('Feedback: the words go to the partner as their word, and the recap closes', async () => {
+test('B390: OK, seen approves the recap at once with no words: closed, its History says seen by you, nobody is woken', async () => {
   const one = await fresh()
   try {
     const id = await reported(one)
     await one.partner({ ...PASSED, id })
     const [note] = await recapNotes(one.dir)
-    const done = await one.person({ action: 'feedback', id: valueOf(note, 'Id'), text: 'Lovely. A little dimmer next time.' })
+    const recap = valueOf(note, 'Id')
+    // Only the person marks it seen.
+    assert.equal((await one.lamplighter({ action: 'seen', id: recap })).status, 403)
+    const done = await one.person({ action: 'seen', id: recap }, NOW + HOUR)
     assert.equal(done.ok, true, done.why)
-    assert.match(done.result.wake.text, /^Feedback: Lovely\. A little dimmer next time\.\nAbout: B\d+\nYour job: take it as their word/)
-    assert.equal(valueOf((await readStore(one.dir)).items.get(valueOf(note, 'Id')), 'Recap'), 'feedback')
+    assert.equal(done.result.wake, undefined)
+    const after = (await readStore(one.dir)).items.get(recap)
+    assert.deepEqual(['Recap', 'State'].map(key => valueOf(after, key)), ['seen', 'read'])
+    assert.equal(after.sections.has('Answer'), false)
+    assert.match(after.sections.get('History').at(-1), / person: seen by you: approved at once$/)
+    const [shown] = recapsOf(await store(one.dir), NOW + 2 * HOUR)
+    assert.deepEqual([shown.state, shown.isClosed, shown.approvesAt], ['seen', true, null])
+    // Once is enough, and a seen recap does not approve itself again.
+    assert.equal((await one.person({ action: 'overturn', id: recap, text: 'late' })).status, 409)
+    assert.deepEqual((await one.server({ action: 'approve-recaps' }, NOW + 2 * RECAP_WINDOW_MS)).result.approved, [])
+  } finally {
+    await rm(one.dir, { recursive: true, force: true })
+  }
+})
+
+test('B390: OK, seen needs no partner chat on the board: no words go anywhere', async () => {
+  const one = await fresh()
+  try {
+    const id = await reported(one)
+    await one.partner({ ...PASSED, id })
+    const [note] = await recapNotes(one.dir)
+    const alone = await workApi({ action: 'seen', id: valueOf(note, 'Id') }, { dir: one.dir, now: NOW + HOUR, prefix: '', roleOf: () => null, chats: [], as: 'person' })
+    assert.equal(alone.ok, true, alone.why)
+    assert.equal(valueOf((await readStore(one.dir)).items.get(valueOf(note, 'Id')), 'Recap'), 'seen')
+  } finally {
+    await rm(one.dir, { recursive: true, force: true })
+  }
+})
+
+test('B390: Feedback on a recap is gone: the action is refused and the recap stays open', async () => {
+  const one = await fresh()
+  try {
+    const id = await reported(one)
+    await one.partner({ ...PASSED, id })
+    const [note] = await recapNotes(one.dir)
+    assert.equal((await one.person({ action: 'feedback', id: valueOf(note, 'Id'), text: 'Lovely.' })).ok, false)
+    assert.equal(valueOf((await readStore(one.dir)).items.get(valueOf(note, 'Id')), 'Recap'), 'open')
   } finally {
     await rm(one.dir, { recursive: true, force: true })
   }
@@ -158,7 +196,7 @@ test('left alone, a recap approves itself 24 hours after it showed, and stays am
     assert.deepEqual(due.result.approved, [valueOf(note, 'Id')])
     const after = (await readStore(one.dir)).items.get(valueOf(note, 'Id'))
     assert.deepEqual(['Recap', 'State'].map(key => valueOf(after, key)), ['approved', 'read'])
-    assert.ok(after.sections.get('History').some(line => line.endsWith('approved by itself: its 24 hours passed without an overturn or feedback')))
+    assert.ok(after.sections.get('History').some(line => line.endsWith('approved by itself: its 24 hours passed without an overturn')))
     assert.equal(recapsOf(await store(one.dir), shownAt + RECAP_WINDOW_MS + HOUR).at(0).state, 'approved')
     assert.deepEqual(recapsOf(await store(one.dir), shownAt + 2 * RECAP_WINDOW_MS + HOUR), [])
     // An approved recap takes no answer any more.
@@ -229,7 +267,7 @@ test('the review: without a partner chat on the board an answer to a recap is re
     const id = await reported(one)
     await one.partner({ ...PASSED, id })
     const [note] = await recapNotes(one.dir)
-    const alone = await workApi({ action: 'feedback', id: valueOf(note, 'Id'), text: 'Nice.' }, { dir: one.dir, now: NOW + HOUR, prefix: '', roleOf: () => null, chats: [], as: 'person' })
+    const alone = await workApi({ action: 'overturn', id: valueOf(note, 'Id'), text: 'The pond lamp is white.' },{ dir: one.dir, now: NOW + HOUR, prefix: '', roleOf: () => null, chats: [], as: 'person' })
     assert.equal(alone.status, 409)
     assert.equal(valueOf((await readStore(one.dir)).items.get(valueOf(note, 'Id')), 'Recap'), 'open')
   } finally {
