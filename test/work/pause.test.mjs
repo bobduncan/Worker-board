@@ -183,17 +183,33 @@ test('the facts of a pause: who still works, who holds a step without a checkpoi
   const items = new Map([['B1', step('B1', 'Board', 'a1b2c3d · wire it · 2026-10-18 21:02:00')], ['B2', step('B2', 'Team - Support')]])
   const pause = { state: 'pausing', since: NOW + MIN, by: 'person' }
   const facts = pauseFacts({ pause, items, lanes: LANES, prefix: 'Team - ' })
-  assert.deepEqual(facts, { state: 'pausing', since: NOW + MIN, working: ['Board'], asking: [], typing: [], unsaved: [{ chat: 'Support', id: 'B2' }], offBoard: [], isSafe: false })
+  const chats = [{ name: 'Main', state: 'still' }, { name: 'Board', state: 'working' }, { name: 'Support', state: 'still' }]
+  assert.deepEqual(facts, { state: 'pausing', since: NOW + MIN, working: ['Board'], asking: [], typing: [], unsaved: [{ chat: 'Support', id: 'B2' }], offBoard: [], isSafe: false, chats })
   // A chat that is between two turns (held, not running one) is not working.
   const calm = LANES.map(lane => ({ ...lane, state: lane.name === 'Board' ? 'working' : lane.state, between: lane.name === 'Board' ? 'its card names a task' : null }))
   items.set('B2', step('B2', 'Support', 'none · start · 2026-10-18 21:03:00'))
-  assert.deepEqual(pauseFacts({ pause, items, lanes: calm, prefix: 'Team - ' }), { state: 'pausing', since: NOW + MIN, working: [], asking: [], typing: [], unsaved: [], offBoard: [], isSafe: true })
+  assert.deepEqual(pauseFacts({ pause, items, lanes: calm, prefix: 'Team - ' }), { state: 'pausing', since: NOW + MIN, working: [], asking: [], typing: [], unsaved: [], offBoard: [], isSafe: true, chats: chats.map(chat => ({ ...chat, state: 'still' })) })
   // A checkpoint from before the pause does not count.
   items.set('B2', step('B2', 'Support', 'none · start · 2026-10-18 20:59:00'))
   assert.deepEqual(pauseFacts({ pause, items, lanes: calm, prefix: 'Team - ' }).unsaved, [{ chat: 'Support', id: 'B2' }])
   // A step whose chat is no lane on the board is not among the unsaved: it is named apart (`offBoard`, review 2).
   items.set('B3', step('B3', 'Gone'))
   assert.deepEqual(pauseFacts({ pause, items, lanes: calm, prefix: 'Team - ' }).unsaved, [{ chat: 'Support', id: 'B2' }])
+})
+
+test('B364: the facts of a pause name every chat of the board by its state, for the loader of the panel: working, asking, typing, still or off', () => {
+  const pause = { state: 'pausing', since: NOW + MIN, by: 'person' }
+  const lanes = [
+    ...LANES,
+    { name: 'Advisor', isMain: false, state: 'free', between: null, isAsking: true, turnAt: NOW, session: 'cli-A', appSession: 'local_A', isRunning: true },
+    { name: 'Worker 5', isMain: false, state: 'off', between: null, turnAt: NOW - 90 * MIN, session: 'cli-5', appSession: 'local_5', isRunning: false },
+    { name: 'Helper', isMain: false, state: 'free', between: null, turnAt: NOW - 9 * MIN, session: 'cli-H', appSession: 'local_H', isRunning: true },
+  ]
+  const facts = pauseFacts({ pause, items: new Map(), lanes, prefix: 'Team - ', pending: [{ to: 'Team - Helper' }] })
+  assert.deepEqual(facts.chats, [
+    { name: 'Main', state: 'still' }, { name: 'Board', state: 'working' }, { name: 'Support', state: 'still' },
+    { name: 'Advisor', state: 'asking' }, { name: 'Worker 5', state: 'off' }, { name: 'Helper', state: 'typing' },
+  ])
 })
 
 test('the facts of a resume: who has not started a turn since, and when every holder has (then the board sets running)', () => {

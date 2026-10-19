@@ -65,7 +65,7 @@ const MAIN = { name: 'Main', title: 'Game - Main', session: 'local_Main', isRunn
 
 test('pausing: the banner names who still runs a turn and who holds a step with no checkpoint since the pause', () => {
   const state = build({ pause: { state: 'pausing', since: PAUSED, by: 'person' }, tails: { Board: running(15) }, steps: [held('B269', 'Board'), held('B280', 'Support', PAUSED + 2 * MIN)] })
-  assert.deepEqual(state.pause, { state: 'pausing', since: PAUSED, working: ['Board'], asking: [], typing: [], unsaved: [{ chat: 'Board', id: 'B269' }], offBoard: [], isSafe: false, main: MAIN, typedAt: null })
+  assert.deepEqual(state.pause, { state: 'pausing', since: PAUSED, working: ['Board'], asking: [], typing: [], unsaved: [{ chat: 'Board', id: 'B269' }], offBoard: [], isSafe: false, chats: [{ name: 'Main', state: 'still' }, { name: 'Board', state: 'working' }, { name: 'Support', state: 'still' }], main: MAIN, typedAt: null })
 })
 
 test('pausing: safe to restart once no chat runs a turn; a step held with no checkpoint since the pause is named, and blocks nothing (the review of Pause 2)', () => {
