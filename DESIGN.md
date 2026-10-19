@@ -2553,6 +2553,24 @@ advisor tab and not an worker".
 6. Not in it: more than one helper, a helper for the main chat, and the Workers mod's own role for it (the mod's chat
    tool still lists it as a worker; its change needs the person's word).
 
+## Redraw keys from what is drawn, and one click table (B408)
+
+The person, 2026-10-19 (Q207 B): place 3 of `docs/robustness-2026-10.md`, its first slice. A part redrew only when its
+hand-listed key changed, and a click worked only in the box it was bound to: the "With your partner" line opened up to
+a minute late, a refused change of the Partner answers switch never showed, and Undo under the daily note did nothing.
+
+1. Needs your attention and the Focus page each have a view (`needsView`, `focusPageView`, between `// redraw:start`
+   and `// redraw:end`): plain data in the state's own shape, holding only what the part draws (a chat as its name and
+   whether it runs, the backlog as its steps' ids, the time as its minute), and `ui`, what the person does there
+   (`needsUi`, `focusPageUi`). `once` is keyed on the view's JSON and the part is drawn from the view, not from the
+   whole state, so a field it reads and its view leaves out is missing at once instead of drawn late.
+2. One click handler on the document (`CLICK_ACTS`, `clickAct`, between `// clicks:start` and `// clicks:end`): a
+   button names its act by a data attribute, and the act runs wherever the button is drawn. It holds `take-back` (the
+   Undo of a partner's answer) and `with-partner` (the line's list) for now; the boxes' own handlers keep the rest.
+3. The tests (`test/redrawKeys.test.mjs`) check the views and the click table by what they do, and that every field
+   the two parts read is in their views.
+4. Not in it: the rest of the page, part by part (about 30 h), and `public/pages/*.js` modules.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

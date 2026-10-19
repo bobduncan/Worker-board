@@ -97,6 +97,7 @@ written as a field by one module and never read back from a sentence.**
   board's list of files it serves must grow).
 - **Size:** first slice **3 h** (fix a–c, key Needs and Focus on their views); the whole page about **30 h**, done page
   by page.
+- **Done:** the first slice, B408 (DESIGN.md, "Redraw keys from what is drawn, and one click table").
 
 ### 4. A slow or cut answer reads as "not recorded", and the call is recorded twice
 

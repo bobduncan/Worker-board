@@ -2583,20 +2583,18 @@ function laneStateText(lane, states = STATES) {
 }
 // partner-answers:end
 
-/** Partner answers: whether the "With your partner" line is open (this page only). */
-let withPartnerOpen = false
-
-/** Partner answers, the review's findings: the "With your partner" line, a click lists the asks. */
+/** Partner answers, the review's findings: the "With your partner" line, a click lists the asks (B408: open as the view says). */
 function drawWithPartner(state) {
   const view = withPartnerView(state.withPartner ?? [])
   if (view === null) return null
+  const isOpen = state.ui?.withPartnerOpen === true
   const part = el('section', 'information with-partner')
-  const toggle = el('button', 'choice with-partner-toggle', `${withPartnerOpen ? '▾' : '▸'} ${view.text}`)
+  const toggle = el('button', 'choice with-partner-toggle', `${isOpen ? '▾' : '▸'} ${view.text}`)
   toggle.type = 'button'
   toggle.dataset.withPartner = 'toggle'
   toggle.title = 'Questions your partner answers for you first; one it has not answered in 30 minutes comes to you'
   part.append(toggle)
-  if (withPartnerOpen) part.append(fill(el('ul', 'with-partner-list'), view.rows.map(row => el('li', 'muted', row))))
+  if (isOpen) part.append(fill(el('ul', 'with-partner-list'), view.rows.map(row => el('li', 'muted', row))))
   return part
 }
 
@@ -3431,17 +3429,40 @@ function drawMissed(missed) {
   return part
 }
 
-/** Partner answers (2026-10-19): the Undo of a partner's answer on an ask's card (the board's undo: the ask opens for the person). */
-function takeBackClick(event) {
-  if (event.target.closest('[data-with-partner]') !== null) {
-    withPartnerOpen = !withPartnerOpen
+// clicks:start
+/** Partner answers: whether the "With your partner" line is open (this page only). */
+const withPartnerUi = { isOpen: false }
+
+/**
+ * B408: the page's one click handler, with a table of acts. A button names its act by a data attribute (the table's
+ * key), and the act runs wherever the button is drawn: in Needs your attention, in a worker's details, or under the
+ * daily note on the Focus page. The table grows part by part (docs/robustness-2026-10.md, place 3); the boxes' own
+ * handlers hold the rest until then.
+ */
+const CLICK_ACTS = {
+  // Partner answers (2026-10-19): the Undo of a partner's answer (the board's undo: the ask opens for the person).
+  'take-back': button => sendWork({ action: 'undo', id: button.dataset.takeBack }, `work:${button.dataset.takeBack}`),
+  // Partner answers, the review's findings: the "With your partner" line opens and closes its list.
+  'with-partner': () => {
+    withPartnerUi.isOpen = !withPartnerUi.isOpen
     redrawNeeds()
-  }
-  const takeBack = event.target.closest('[data-take-back]')
-  if (takeBack !== null && !takeBack.disabled) sendWork({ action: 'undo', id: takeBack.dataset.takeBack }, `work:${takeBack.dataset.takeBack}`)
+  },
 }
-$('needs').addEventListener('click', takeBackClick)
-$('details').addEventListener('click', takeBackClick)
+
+/** The act of a click: the nearest button with an attribute of the table, and the act; null for none, or a button that is off. */
+function clickAct(target, acts = CLICK_ACTS) {
+  for (const name of Object.keys(acts)) {
+    const button = target?.closest?.(`[data-${name}]`) ?? null
+    if (button !== null) return button.disabled === true ? null : { name, button }
+  }
+  return null
+}
+
+document.addEventListener('click', event => {
+  const act = clickAct(event.target)
+  if (act !== null) CLICK_ACTS[act.name](act.button)
+})
+// clicks:end
 
 // B299: "Read" puts a note away. Calm panel: a missed instruction's line opens the log at it.
 $('needs').addEventListener('click', event => {
@@ -3554,15 +3575,86 @@ function drawNeeds(state) {
 
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
-// A card says how long ago it was filed: the minute is part of what is drawn.
-const needsData = state => [state.forYou, state.recaps ?? [], state.recapsShow ?? null, (state.focus?.needs ?? []).map(need => need.id), state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], state.goalAskNeeds ?? [], state.brainstormNeeds ?? [], state.goalsEdit?.canWrite ?? null, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
+
+// redraw:start
+/**
+ * B408: what a part of the page draws, as plain data. once() is keyed on its JSON, and the part is drawn from it, not
+ * from the whole state: a field the part reads and its view leaves out is missing on the page at once, never drawn
+ * late. A chat counts by its name and whether it runs (a card asks to start it), the backlog by its steps' ids (the
+ * linked words), the time by its minute (how long ago; the times keep counting by themselves). `ui` is what the
+ * person does on the page.
+ */
+const minuteOf = at => Math.floor((at ?? 0) / MIN) * MIN
+const runnerOf = chat => ((chat ?? null) === null ? null : { name: chat.name, isRunning: chat.isRunning ?? null })
+const stepKeysOf = backlog => [{ steps: (backlog ?? []).flatMap(activity => activity.steps ?? []).map(step => ({ key: step.key })) }]
+
+/** What a card of Needs your attention reads (drawNeed, drawRecap): the asks (its linked words), who runs, the box's length. */
+function cardsView(state) {
+  return {
+    forYou: state.forYou ?? [],
+    backlogForYou: state.backlogForYou ?? [],
+    backlogClosed: state.backlogClosed ?? [],
+    recaps: state.recaps ?? [],
+    recapsShow: state.recapsShow ?? null,
+    chats: (state.chats ?? []).map(runnerOf),
+    advisor: runnerOf(state.advisor),
+    restart: { main: state.restart?.main ?? null, starting: state.restart?.starting ?? [] },
+    backlog: stepKeysOf(state.backlog),
+    maxMessageChars: state.maxMessageChars ?? null,
+    readAt: minuteOf(state.readAt),
+  }
+}
+
+/** Needs your attention as drawn (drawNeeds): its cards in the daily note's order, the log's lines, the partner's parts, Information. */
+function needsView(state, ui) {
+  return {
+    ...cardsView(state),
+    focus: { needs: (state.focus?.needs ?? []).map(need => ({ id: need.id })) },
+    instructions: state.instructions ?? [],
+    information: state.information ?? [],
+    goalAskNeeds: state.goalAskNeeds ?? [],
+    brainstormNeeds: state.brainstormNeeds ?? [],
+    goalsEdit: { canWrite: state.goalsEdit?.canWrite ?? null, whyNot: state.goalsEdit?.whyNot ?? null },
+    withPartner: state.withPartner ?? [],
+    partnerDecided: state.partnerDecided ?? [],
+    ui,
+  }
+}
+
+/**
+ * The Focus page as drawn (drawFocus): the focus, the map, the talks, the partner (its name, whether it runs, its
+ * effort), the Partner answers switch, and what the daily note gathers, drawn as Needs your attention draws it.
+ */
+function focusPageView(state, ui) {
+  return {
+    ...cardsView(state),
+    focus: state.focus ?? null,
+    goals: state.goals ?? null,
+    brainstorms: state.brainstorms ?? null,
+    advisor: (state.advisor ?? null) === null ? null : { ...runnerOf(state.advisor), effort: state.advisor.effort ?? null },
+    goalsEdit: { canWrite: state.goalsEdit?.canWrite ?? null, whyNot: state.goalsEdit?.whyNot ?? null },
+    workers: { main: state.workers?.main ?? null },
+    partnerAnswers: state.partnerAnswers ?? null,
+    ui,
+  }
+}
+// redraw:end
+
+/** B408: what the person does in Needs your attention, for its view: the order, Show closed, what is picked, sent, open. */
+const needsUi = () => ({ showsClosed: showsClosed(), order: $('needs-order').value, withPartnerOpen: withPartnerUi.isOpen, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+
+/** B408: Needs your attention, drawn from its view when that changed. */
+function needsOnce(state) {
+  const view = needsView(state, needsUi())
+  once('needs', view, () => drawNeeds(view))
+}
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
   if (board === null) return
   drawMainGame(board)
   drawRestart(board)
-  once('needs', needsData(board), () => drawNeeds(board))
+  needsOnce(board)
   drawDetails(board)
 }
 
@@ -8787,20 +8879,19 @@ function drawAdvisorParts(state) {
 const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], words: { talk: '', notYet: '', new: '', bar: '' } }
 const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar' }
 
-function focusData(state) {
-  const effort = state.advisor?.effort ?? null
-  return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking, focusUi.asked.join(','),
-    // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
-    effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null,
-    // B360: the recaps gathered under the daily note, with their sending and problems; B390: and their box open or not.
-    gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null, openForms.has(recap.id)]),
-    // the minute, for "Approves itself in ..."
-    gatheredRecaps(state).length > 0 ? Math.floor(state.readAt / MIN) : null,
-    // B361: the asks gathered under the daily note are drawn as Needs your attention draws them, from what it reads.
-    gatheredAsks(state).length > 0 ? [gatheredAsks(state), needsData(state)] : null]
+/**
+ * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw
+ * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
+ */
+const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, asked: [...focusUi.asked], chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+
+/** B408: the Focus page, drawn from its view when that changed. */
+function focusOnce(state) {
+  const view = focusPageView(state, focusPageUi())
+  once('focus', view, () => drawFocus(view))
 }
 function redrawFocus() {
-  if (board !== null && board !== undefined) once('focus', focusData(board), () => drawFocus(board))
+  if (board !== null && board !== undefined) focusOnce(board)
 }
 
 /** A button of the page: its move (`act`), off with why on hover while it may not go or a move is on its way. */
@@ -12364,7 +12455,7 @@ function draw(state) {
   drawLanes(state)
   drawStrips(state)
   drawToday(state)
-  once('needs', needsData(state), () => drawNeeds(state))
+  needsOnce(state)
   // B181: also when an "Add to queue" is on its way or was refused, and when the main chat it asks comes or goes.
   const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:')), state.workers?.main ?? null]
   // B302: the goal map too, which groups the tab when "One list" is off.
@@ -12392,7 +12483,7 @@ function draw(state) {
   // B259: the brainstorms, when one changes or what the person does on the part.
   once('brainstorm', brainstormData(state), () => drawBrainstorm(state))
   // Focus 1: the Focus page, when the focus, the map or the brainstorms change; the tab's bar, when its setting does.
-  once('focus', focusData(state), () => drawFocus(state))
+  focusOnce(state)
   // Vision (2026-10-19): the Vision tab, when the plan or what the person does on it changes.
   once('vision', visionData(state), () => drawVision(state))
   once('advisor-parts', state.advisorParts ?? null, () => drawAdvisorParts(state))
