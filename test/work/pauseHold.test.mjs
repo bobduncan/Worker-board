@@ -1,7 +1,7 @@
 // The review of Pause 2 (2026-10-18), fix first. 1: an app restart only loses a turn in flight, files on disk survive:
 // "Safe to restart" is no chat running a turn (nor in the app's question form) and no line handed to a chat; a held
-// step with no checkpoint is said, and resumes from its branch and History. 2: while the person pauses (until running)
-// the board hands out nothing that starts a turn: no delivery, no pull, no note-wake, no outbox line taken (but the
+// step with no checkpoint is said, and resumes from its branch and History. 2: while the person pauses (2026-10-19:
+// while pausing only, no longer until running) the board hands out nothing that starts a turn: no delivery, no pull, no note-wake, no outbox line taken (but the
 // board's own "resume" to the main chat); what the person types waits, and does not grow late. 3: once the main
 // chat's process runs while resuming and it has done nothing, the board types "resume" into it, once. Made-up samples.
 
@@ -63,7 +63,7 @@ test('1: the pause state gives a held step its branch and last History lines, to
 })
 
 test('3: the board types "resume" into a main chat that runs while resuming and has done nothing since, once', () => {
-  const pause = { state: 'resuming', since: NOW, waiting: [{ chat: 'Board', id: 'B313' }], isResumed: false, typedAt: null, main: { name: 'Main', title: 'Team - Main', session: 'local_Main', isRunning: true, hasActed: false } }
+  const pause = { state: 'resuming', since: NOW, waiting: [{ chat: 'Board', ids: ['B313'] }], isResumed: false, typedAt: null, main: { name: 'Main', title: 'Team - Main', session: 'local_Main', isRunning: true, hasActed: false } }
   assert.equal(resumeRetypeTo({ pause }), 'Main')
   assert.equal(resumeRetypeTo({ pause: { ...pause, typedAt: NOW + MIN } }), null)
   assert.equal(resumeRetypeTo({ pause: { ...pause, main: { ...pause.main, hasActed: true } } }), null)
@@ -139,11 +139,12 @@ test('2: while the person pauses no step is delivered, no pull is answered, and 
     // The worker's pull at its turn's end, alone or with turn-ended: nothing.
     assert.equal((await digger({ action: 'pull' })).result.wake, null)
     assert.equal((await digger({ action: 'turn-ended', since: NOW - MIN, pull: true })).result.pull.wake, null)
-    // Resuming holds too; running hands out again, and keeps when the pause began.
+    // 2026-10-19: resuming holds nothing (it is there to get chats started); running keeps when the pause began and
+    // when the resume began.
     await person({ action: 'resume-all' }, NOW - 5 * MIN)
-    assert.equal((await digger({ action: 'pull' })).result.wake, null)
+    assert.deepEqual((await digger({ action: 'pull' })).result.wake, { to: 'Digger', id: 'B1' })
     await person({ action: 'end-resume' }, NOW - 2 * MIN)
-    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW - 2 * MIN, by: 'person', pausedSince: NOW - 10 * MIN })
+    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW - 2 * MIN, by: 'person', pausedSince: NOW - 10 * MIN, resumedSince: NOW - 5 * MIN })
     assert.deepEqual((await digger({ action: 'pull' })).result.wake, { to: 'Digger', id: 'B1' })
     const again = await deliver(await build(), outbox)
     assert.equal(again.sent.length, 1)

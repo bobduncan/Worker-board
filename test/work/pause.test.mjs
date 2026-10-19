@@ -111,7 +111,7 @@ test('pause-all and resume-all are the person\'s: they write pause.json in the s
     at(NOW + 25 * MIN)
     assert.equal((await workApi({ action: 'resumed' }, { dir, now: NOW + 25 * MIN, as: 'server' })).ok, true)
     // The review of Pause 2: running keeps when the pause began, for the outbox's lines it held.
-    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW + 25 * MIN, by: 'server', pausedSince: NOW })
+    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW + 25 * MIN, by: 'server', pausedSince: NOW, resumedSince: NOW + 20 * MIN })
     assert.equal((await workApi({ action: 'resumed' }, { dir, now: NOW + 26 * MIN, as: 'server' })).result.changed, false)
     // pause.json is no item: the store has no problem with it.
     assert.deepEqual((await readStore(dir)).problems, [])
@@ -222,10 +222,10 @@ test('the facts of a resume: who has not started a turn since, and when every ho
   const pause = { state: 'resuming', since: NOW, by: 'person' }
   const off = LANES.map(lane => ({ ...lane, state: 'off', isRunning: false }))
   const facts = pauseFacts({ pause, items, lanes: off, prefix: '' })
-  assert.deepEqual(facts, { state: 'resuming', since: NOW, waiting: [{ chat: 'Board', id: 'B1' }, { chat: 'Support', id: 'B2' }], isResumed: false })
+  assert.deepEqual(facts, { state: 'resuming', since: NOW, waiting: [{ chat: 'Board', ids: ['B1'] }, { chat: 'Support', ids: ['B2'] }], isResumed: false, until: NOW + 20 * MIN })
   // Board's turn started after the resume; Support runs one now.
   const back = off.map(lane => (lane.name === 'Board' ? { ...lane, state: 'free', turnAt: NOW + MIN } : lane.name === 'Support' ? { ...lane, state: 'working', turnAt: NOW - 50 * MIN } : lane))
-  assert.deepEqual(pauseFacts({ pause, items, lanes: back, prefix: '' }), { state: 'resuming', since: NOW, waiting: [], isResumed: true })
+  assert.deepEqual(pauseFacts({ pause, items, lanes: back, prefix: '' }), { state: 'resuming', since: NOW, waiting: [], isResumed: true, until: NOW + 20 * MIN })
   assert.deepEqual(pauseFacts({ pause: { state: 'running', since: NOW, by: 'server' }, items, lanes: back, prefix: '' }), { state: 'running', since: NOW })
   assert.equal(pauseFacts({ pause: null, items, lanes: back, prefix: '' }), null)
   // The answer for a chat of the list that holds nothing.
@@ -277,7 +277,7 @@ test('review 1: a step waiting on you or in review is held as the work API holds
   const pausing = pauseFacts({ pause: { state: 'pausing', since: NOW, by: 'person' }, items, lanes: calm })
   assert.deepEqual([pausing.unsaved, pausing.isSafe], [[{ chat: 'Board', id: 'B1' }, { chat: 'Support', id: 'B2' }], true])
   const resuming = pauseFacts({ pause: { state: 'resuming', since: NOW + MIN, by: 'person' }, items, lanes: calm })
-  assert.deepEqual(resuming.waiting, [{ chat: 'Board', id: 'B1' }, { chat: 'Support', id: 'B2' }])
+  assert.deepEqual(resuming.waiting, [{ chat: 'Board', ids: ['B1'] }, { chat: 'Support', ids: ['B2'] }])
   const list = pauseAnswer({ pause: { state: 'resuming', since: NOW + MIN, by: 'person' }, items, lanes: calm, chat: 'Main', role: 'main' }).resumeList
   assert.deepEqual(list.map(one => one.step), ['B1', 'B2'])
 })
@@ -328,7 +328,7 @@ test('review 5: a checkpoint counts from the pause to the millisecond; End resum
     assert.equal((await person({ action: 'end-resume' })).result.changed, false)
     await person({ action: 'resume-all' })
     assert.equal((await person({ action: 'end-resume' })).ok, true)
-    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW, by: 'person' })
+    assert.deepEqual(JSON.parse(await readFile(join(dir, 'pause.json'), 'utf8')), { state: 'running', since: NOW, by: 'person', resumedSince: NOW })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
