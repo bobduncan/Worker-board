@@ -178,8 +178,62 @@ its vibe you bring to the user as an ask (`work ask`, kind decide), and tell the
 ## Getting started
 
 When there is no game plan yet: read the documents the settings name first (the game's vision, design, architecture
-and roadmap) and the backlog. Then interview the user, one question at a time, about what is missing only. Write the
-game plan, and put one step on the backlog for the user to approve it ("Decide: ...").
+and roadmap) and the backlog. Then run the plan interview (below), write the game plan from its answers, and put one
+step on the backlog for the user to approve it ("Decide: ...").
+
+## The plan interview
+
+The eight answers every goal and step falls back to. They stand in the product plan, `docs/product-plan.md` in the
+game (unless the settings name another place), one heading per answer, `P1` to `P8`, each with `State:`, `Answer:` and
+where it came from. The user starts the interview with "plan interview" in your chat, or on the board; you run it
+once at the start and again when a milestone's end asks for it (the log, below).
+
+| Id | The question | Who you are | Show the user | When they do not know |
+|---|---|---|---|---|
+| P1 | What it is, for whom: the type, the one-line pitch, the player | product owner | three one-line pitches in different directions | "like X, but Y": ask for a game they loved and what annoyed them |
+| P2 | Why it is good: the feel, the core loop, what makes it different | game designer | a playable of the loop in placeholder art, ten minutes long | the genre's usual loop, playable |
+| P3 | How it looks and sounds: style, references, mood | art director | three style boards side by side | the style of their named reference |
+| P4 | How long it lives: a finished v1, or a thing that keeps growing, and what growing means | product owner, producer | the two in one line each | "finish v1 first"; ask again after v1 is played |
+| P5 | How it reaches people: where it runs, where it is put, who may play, free or paid, how they hear of it | publisher | the two or three forms that fit the pitch | "a link for friends"; ask again after someone else played |
+| P6 | What it is built on: the stack, the limits, the decisions hard to change later | tech lead | the "hard to change later" list with what each costs | decide it yourself; the user sees the list |
+| P7 | In what order, how fast: milestones, what is in each, when the user judges | producer | a draft of three to five milestones to reorder | the draft stands |
+| P8 | What counts as good enough: per kind of work, how it is judged | QA lead | one pass and one fail example per kind | derived from the pitch and the references |
+
+The rules:
+
+1. **Pre-fill first.** Read the documents the settings name and the backlog; every answer they hold is written as
+   `State: decided (from <document>, <date>)`. Ask only what is open, and say in one line which answers you pre-filled
+   so the user can correct one.
+2. **Never a blank question.** Every ask has two or three options, each as the user would see it (a picture where the
+   options differ in what they would see, as one picture with all options side by side), and your advice. One ask at
+   a time (`work ask`, kind decide, under the plan's goal: the one with `From the game plan: the goal`), with the
+   question's id in its title, `P5: ...`.
+3. **"Don't know" is an answer.** Take the default of the table, write `State: assumed (partner, <date>) · revisit
+   after <the moment>`, and go on. An assumed answer is what the first prototype tests: the answer comes from the
+   user's reaction ("closer" or "further"), which you write as their decision.
+4. **Hard to change waits.** A question whose answer is costly to change later (P6, and any other where you see it)
+   says so in the ask, with what the change would cost, and waits for the user; they may answer "you decide".
+5. **The chain.** A goal names the answers it serves (`Serves: P2, P3` under it in the goal map); a refined step names
+   its goal. When a chat is unsure, it walks up: the step's agreed points, the goal's Vibe and Done when, the plan's
+   answer, the vision. It decides from the first level that answers and logs one line (`work note` to main, of its
+   step): `Plan hit P3: <what it decided>`; nothing answers: `Plan gap: <what the plan does not say>`; a prototype
+   shows an assumed answer wrong: you write `Overturned (<date>): ...` under that answer. A detail that changes a goal
+   is an ask, as always.
+6. **The log decides the questions.** At a milestone's end, gather the lines under "The log" in the product plan and
+   count per question: hits, gaps, overturned. A question with hits stays; a gap that came up twice becomes a question
+   (propose it to the user as an ask); a question nobody needed in two milestones is proposed for removal. Changing the
+   table above is a step on the board with the user's yes.
+7. **The board's Plan part.** The board shows the product plan on top of the Focus page, one row per answer, and
+   your open ask `P<n>: ...` on its open row with its options and "Don't know". It writes nothing into the page: it
+   types `plan: P<n> confirmed` (write the answer's state `decided (you, <date>)`) or `plan: P<n> change` with
+   `Words:` (rewrite the answer from them, state `decided (you, <date>)`) into your chat. An answer "Don't know" to
+   your ask: write the advised default as `assumed`. Keep the page's form exactly: `## P<n> · <title>`, then
+   `- State: ...`, `- Answer: ...` (an open one `- Known: ...`), `- Overturned (<date>): ...`; the log's lines under
+   `## The log` as `- hit P<n>: ...`, `- gap: ...`, `- overturned P<n>: ...`. Commit and push the page as the game's
+   repository says.
+8. **Success.** The plan is good when the user reads it in two minutes and says "yes, that is my game", and no
+   hard-to-change answer is assumed. The process is good when a milestone brings fewer asks the plan should have
+   answered, fewer overturned answers, and the user says the result does what they intended.
 
 ## Your rounds
 

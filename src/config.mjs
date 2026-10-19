@@ -94,6 +94,9 @@ export const DEFAULTS = {
   work: '.claude/work',
   // The way to the next milestone is part of the goal map since B260 (the setting milestoneMap is gone).
   gamePlan: 'docs/game-plan.md',
+  // Plan (2026-10-19): the product plan, the eight answers P1 to P8 (roles/partner.md, "The plan interview"), in the
+  // game's repository; the Plan part on the Focus page reads it.
+  productPlan: 'docs/product-plan.md',
   advisorDecisions: 'docs/advisor/decisions.md',
   advisorReadFirst: [],
   advisorSuggestions: 'Advisor suggestions',
@@ -215,7 +218,7 @@ export async function ownMapNow(config, { main = null } = {}) {
 
 const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
 // The paths inside the project or the game's repository, written with /.
-const PROJECT_PATHS = ['backlog', 'gamePlan', 'advisorDecisions', 'designKinds']
+const PROJECT_PATHS = ['backlog', 'gamePlan', 'productPlan', 'advisorDecisions', 'designKinds']
 // Focus 1: the goal map's paths, inside the project or a whole path of their own (a copy's).
 const MAP_PATHS = ['goals', 'brainstorms', 'goalAsks', 'goalsHistory']
 const NUMBERS = ['port', 'refreshSeconds', 'quietMinutes', 'estimateOldMinutes', 'hoursBack', 'hoursAhead', 'maxMessageChars', 'messageKeepMinutes', 'answerKeepHours', 'gamePort', 'gameIdleSeconds', 'gameOpenSeconds', 'limitWarnPercent', 'morningSkipPercent']

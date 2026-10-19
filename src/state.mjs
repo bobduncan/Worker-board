@@ -23,6 +23,7 @@ import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
+import { planState } from './plan.mjs'
 import { askIdsIn, askKey, sameAsk } from './work/askWords.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { informationOf, instructionsOf, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
@@ -1606,6 +1607,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // steps of the backlog's group for them, with their "Why:", "Cost:" and "Unblocks:" lines.
     advice: typeof raw.adviceText === 'string' && raw.adviceText.trim() !== '' ? raw.adviceText : null,
     gamePlan: config.gamePlan,
+    // Plan (2026-10-19): the product plan's eight answers with their state, and the partner's open ask on each open
+    // one, for the Plan part on top of the Focus page; null without the page.
+    plan: planState(raw.productPlanText ?? null, itemsOf(raw.work), config.productPlan),
     // B193: the project's own picture folder, where the board keeps the pictures it is given.
     pictures: config.pictureRoots[0],
     suggestions: backlog.activities

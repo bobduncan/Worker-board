@@ -123,6 +123,55 @@ const ASKS = now => [
   { id: 'old-question', from: 'Features', kind: 'input', title: 'An answered question', state: 'answered' },
 ]
 
+// Plan (2026-10-19): the demo's product plan: six decided, one assumed, one open with the partner's ask P5 (ASKS).
+const PRODUCT_PLAN = `# Demo: the product plan
+
+## P1 · What it is, for whom
+
+- State: decided (from game-vision.md, 2026-10-10)
+- Answer: a turn-based tactics roguelite on lava, short puzzle-like battles. The player: you first, then a friend.
+
+## P2 · Why it is good
+
+- State: decided (from game-vision.md, 2026-10-10)
+- Answer: thinking is rewarded, the game is dangerous, you can become really powerful.
+
+## P3 · How it looks and sounds
+
+- State: decided (from the definitions of done, 2026-10-11)
+- Answer: 4x pixel art against the references; short punchy sounds, no voices.
+
+## P4 · How long it lives
+
+- State: assumed (partner, 2026-10-18) · revisit after M1 is played
+- Answer: a polished version 1 first; then a growing roguelite, one milestone per kind of growth.
+
+## P5 · How it reaches people
+
+- State: open
+- Known: it runs in the browser on a desktop. Not said: where it is put, who may play, free or paid.
+
+## P6 · What it is built on
+
+- State: decided (from architecture.md, 2026-10-11)
+- Answer: TypeScript and Vite in the browser; content as data. Hard to change later: stairs-only cliffs.
+
+## P7 · In what order, how fast
+
+- State: decided (from game-plan.md, 2026-10-14)
+- Answer: M1 the loop is fun, then M2 version 1 polished, then growth.
+
+## P8 · What counts as good enough
+
+- State: decided (from game-plan.md, 2026-10-14)
+- Answer: a definition of done and a reference per kind; art at 75 or more; checked by a helper that did not build it.
+
+## The log
+
+- hit P3: the Ballista's colours taken from the units' reference sheet
+- gap: the plan does not say whether a run may be paused and resumed
+`
+
 const ADVICE = `# Advice
 
 1. Decide on Units' pathfinding approach to unblock progress.
@@ -478,6 +527,14 @@ function demoWork(now) {
   })
   work.items.set('N90', recap('N90', now - 180 * MIN, 'open', 'B05', ['B05 Footstep sounds is done', 'Every surface has its own footstep: stone, wood and grass.'], 'art-inbox/jump/jump-arc.png'))
   work.items.set('N91', recap('N91', now - 40 * MIN, 'overturned', 'B07', ['B07 Fog in the forest is done', 'The forest has a low fog that moves with the wind.'], 'none (nothing to see)', 'The fog hides the paths: make it thinner near them.'))
+  // Plan (2026-10-19): the partner's open ask on the product plan's open answer P5, shown on its row in the Plan part.
+  work.items.set('Q95', {
+    head: new Map([['Id', 'Q95'], ['Kind', 'ask'], ['Title', 'P5: how does the game reach people?'], ['State', 'open'], ['Owner', 'Advisor'], ['Since', stamp(now - 20 * MIN)],
+      ['Filed', String(now - 20 * MIN)], ['Asks', 'decide'], ['Blocking', 'no'], ['Of', 'G1'],
+      ['Options', 'A a link for friends, free, unlisted | B public and free on itch.io | C Steam, paid, later'], ['Advice', 'A, revisit after M2']]),
+    sections: new Map([['Text', ['Known: it runs in the browser on a desktop. Not said: where it is put, who may play, free or paid.']]]),
+    problem: null,
+  })
   return work
 }
 
@@ -516,6 +573,7 @@ export async function demoSources(now) {
     // B113: the app's usage file, three minutes old.
     usageText: `{"version":2,"samples":[{"t":${now - 3 * MIN},"org":"demo","u":{"fh":86,"sd":64}}]}`,
     adviceText: ADVICE,
+    productPlanText: PRODUCT_PLAN,
     folders: await readFolders(REPO, async args => answers[args.join(' ')] ?? null),
     askTexts: ASKS(filedFrom).map(ask => JSON.stringify(ask)),
     pictureLists: { 'art-inbox/jump': await listPictures(PROJECT, ROOTS, 'art-inbox/jump') },
