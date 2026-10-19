@@ -393,12 +393,22 @@ async function workOnBoard($: EngineInterface, fields: Record<string, unknown>, 
   } catch (error) {
     // B412: a board that took no connection has recorded nothing; one whose answer was cut off may have.
     const isRefused = /ECONNREFUSED/.test(String((error as { message?: unknown } | undefined)?.message ?? error))
-    return { ok: false, text: 'The worker board did not answer: nothing was recorded. Try again in a moment.', isCut: true, isRefused }
+    // B440: the reason, so a board that is slow, gone or on another port can be told apart (one line, no stack).
+    let why = ''
+    try {
+      const cause = error instanceof Error ? (error as Error & { cause?: { code?: unknown } }).cause?.code : undefined
+      const text = String(error instanceof Error ? error.message : error)
+      why = (typeof cause === 'string' ? `${text}, ${cause}` : text).split('\n')[0].trim().slice(0, 200)
+    } catch {
+      // A thrown value that cannot be turned into text: the line without a reason.
+    }
+    const reason = why === '' ? '' : ' (' + why + ')'
+    return { ok: false, text: 'The worker board did not answer' + reason + ': nothing was recorded. Try again in a moment.', isCut: true, isRefused, why }
   }
 }
 
 /** B412: one answer of the board to a work call; `isCut` when none came (`isRefused`: it took no connection). */
-type WorkAnswer = { ok: boolean; text: string; status?: number; isCut?: boolean; isRefused?: boolean }
+type WorkAnswer = { ok: boolean; text: string; status?: number; isCut?: boolean; isRefused?: boolean; why?: string }
 
 /** B412: a new request id for one work call: this session, the time, and the count of this process. */
 async function newRequest($: EngineInterface): Promise<string> {
@@ -428,7 +438,8 @@ async function workTool($: EngineInterface, fields: Record<string, unknown>): Pr
   if (answer.ok) return answer
   // A refusal of the repeat does not say the first was not recorded: the board may have taken it before it was cut.
   if (answer.isCut !== true) return { ...answer, text: `${NOT_KNOWN} The board then said: ${answer.text} Run work next (or work list) to see whether it is there before you try again.` }
-  return { ...answer, text: `${NOT_KNOWN} Run work next (or work list) to see whether it is there before you try again.` }
+  const reason = answer.why === undefined || answer.why === '' ? '' : ` (${answer.why})`
+  return { ...answer, text: `${NOT_KNOWN}${reason} Run work next (or work list) to see whether it is there before you try again.` }
 }
 
 /** B412: what the work tool says when the board's answer was cut off and asking again brought none. */

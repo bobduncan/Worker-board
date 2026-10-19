@@ -236,9 +236,11 @@ export function cpuLimiter({ file, fallback = 'off', platform = process.platform
 
   async function once() {
     if (available && !isFreed) {
-      isFreed = true
+      // B440: done only when Windows took every one of them; a slow or failed call (a board at Idle on a busy PC is
+      // slow) is tried again on the next pass.
       const own = boardChanges(spare, cores)
-      if (own.length > 0) await processes.set(own).catch(() => {})
+      const done = own.length === 0 ? [] : await processes.set(own).catch(() => [])
+      isFreed = own.every(one => Array.isArray(done) && done.includes(one.pid))
     }
     const current = await load()
     if (!available || (current === 'off' && !restore)) {

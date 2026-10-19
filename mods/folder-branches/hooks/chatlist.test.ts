@@ -1239,7 +1239,7 @@ describe('B297: the work tool asks the worker board', () => {
     // A board that took no connection at all has recorded nothing: it says so at once, and is not asked again.
     w.worked = []
     w.cuts = ['ECONNREFUSED']
-    expect((await $.tool.call({ tool: WORK, action: 'note', to: 'main', text: 'hello' })).result).toBe('The worker board did not answer: nothing was recorded. Try again in a moment.')
+    expect((await $.tool.call({ tool: WORK, action: 'note', to: 'main', text: 'hello' })).result).toMatch(/^The worker board did not answer \(.*ECONNREFUSED.*\): nothing was recorded\. Try again in a moment\.$/)
     expect(w.worked.length).toBe(1)
   })
 
@@ -1306,7 +1306,7 @@ describe('B297: the work tool asks the worker board', () => {
     stand(on, w)
     await $.session.start(START)
     await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
-    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe('The worker board did not answer: nothing was recorded. Try again in a moment.')
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toMatch(/^The worker board did not answer \(.+\): nothing was recorded\. Try again in a moment\.$/)
   })
 
   test('take writes the card from the title of the step, and step moves it', async ($, on) => {

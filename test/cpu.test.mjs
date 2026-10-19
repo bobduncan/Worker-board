@@ -201,6 +201,31 @@ test('the limiter spares the board: its first pass gives the board and its keepe
   assert.deepEqual(off.calls.sets, [[{ pid: 203, key: 'board 203', priority: 'Normal', affinity: String(0xFF) }]])
 })
 
+test('B440: the board is set back to Normal again on the next pass when the first call failed or missed one', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const answers = [Promise.reject(new Error('timed out')), Promise.resolve([203]), Promise.resolve([203, 202])]
+  answers[0].catch(() => {})
+  const sets = []
+  const processes = {
+    list: async () => machine(),
+    set: async changes => {
+      sets.push(changes.map(one => one.pid))
+      return changes.some(one => one.key.startsWith('board ')) ? answers.shift() : changes.map(one => one.pid)
+    },
+  }
+  const limiter = cpuLimiter({ file: join(dir, 'cpu.json'), platform: 'win32', cores: 8, sessions: async () => [A], processes, spare: [203, 202] })
+  const boardSets = () => sets.filter(pids => pids.includes(203)).length
+  await limiter.apply()
+  assert.equal(boardSets(), 1)
+  await limiter.apply() // 202 was missed: again
+  assert.equal(boardSets(), 2)
+  await limiter.apply() // both taken
+  assert.equal(boardSets(), 3)
+  await limiter.apply()
+  assert.equal(boardSets(), 3)
+})
+
 test('the limiter: Off does nothing; Gentle and Strong set the chats; back to Off gives Normal and all cores once', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

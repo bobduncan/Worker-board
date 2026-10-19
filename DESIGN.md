@@ -1688,6 +1688,11 @@ but [not] prevent my ability to play the game". A setting in the board's head, b
   list, the affinity mask for N cores, what is set and what is passed over, the Off pass, a failed listing, another
   platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
   replace.
+- **B440** (2026-10-19): a board that a chat started was itself a process below a chat. Strong put it at Idle on one core,
+  and while the PC was busy every request took 1.5 to 5 s, so the chats' work tool gave up. The board and its keeper
+  are spared (`spare`, which also leaves out what they start; the parent only when it is the keeper), and both get
+  Normal and all cores back, tried again each pass until Windows took both. The Workers mod 0.13.14 names the reason when the board does not answer ("did not answer (<reason>): nothing
+  was recorded").
 
 ## The Focus tab, increment 4 (Focus 4): the main chat delegates, the partner's questions first, the talk bar
 

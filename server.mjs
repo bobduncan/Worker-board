@@ -936,7 +936,8 @@ async function main(args) {
     // board and its keeper are spared, and given Normal and all cores back at the first pass.
     cores: logicalCores(),
     sessions: chatSessions,
-    spare: [process.pid, process.ppid],
+    // B440: the parent is the keeper only when there is one (it talks to the board); otherwise it may be a chat.
+    spare: typeof process.send === 'function' ? [process.pid, process.ppid] : [process.pid],
   })
   if (cpu !== null && cpu.available) {
     const applyCpu = () => cpu.apply().catch(() => {})
