@@ -46,7 +46,6 @@ const openForms = new Set()
 const starting = new Set()
 const pictures = new Map()
 const drawn = {}
-let isLegacyOpen = false
 let board = null
 let timer = null
 /** When the board stopped answering; null while it answers. */
@@ -2760,29 +2759,83 @@ function storeAskLines(need, state) {
   return out
 }
 
+// calmpanel:start
+/** Calm panel: a count with its word, in the singular for one. */
+const countOf = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`
+
+/**
+ * Calm panel (2026-10-19): what the log holds that is new: the notes and reports not read yet, and the instructions not
+ * closed (missed ones among them). Never part of the count of Needs your attention.
+ */
+function logCounts(information, instructions) {
+  return {
+    reports: (information ?? []).filter(one => one.isRead !== true).length,
+    instructions: (instructions ?? []).filter(one => (one.closedAs ?? null) === null).length,
+  }
+}
+
+/** The log's one quiet line: "Log: 44 reports · 3 instructions", a part with none left out; "nothing new" for none. */
+function logLineText({ reports, instructions }) {
+  const parts = [reports > 0 ? countOf(reports, 'report') : null, instructions > 0 ? countOf(instructions, 'instruction') : null].filter(part => part !== null)
+  return `Log: ${parts.length === 0 ? 'nothing new' : parts.join(' · ')}`
+}
+
+/**
+ * An instruction a chat missed (it ended a turn with the person's words open: red in the log) is something for the
+ * person: one line each under Needs your attention, "Main missed your words of 14:02: open the log". `clockOf` says a
+ * time as the page does.
+ */
+function missedLines(instructions, clockOf) {
+  return (instructions ?? []).filter(one => one.isMissed === true && (one.closedAs ?? null) === null)
+    .map(one => ({ id: one.id, text: `${one.chat} missed your words${typeof one.since === 'number' ? ` of ${clockOf(one.since)}` : ''}: open the log` }))
+}
+
+/**
+ * The cards of Needs your attention: the asks of the chats and of the store, then the asks the backlog held (migrated
+ * with their B ids), open ones as cards like every other and ticked ones closed, shown with "Show closed".
+ */
+const panelNeeds = state => [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])]
+// calmpanel:end
+
 /** B307: the notes opened to their whole words, by id. */
 const openInfos = new Set()
+
+/** Calm panel: whether the log is open: folded unless the person opened it in this browser. */
+let isLogOpen = false
+try {
+  isLogOpen = localStorage.getItem('log-open') === 'yes'
+} catch {
+  // Without storage the log is folded after each reload.
+}
 
 /**
  * B299: the part "Information" under Needs your attention: what the chats told the person; "Read" puts it away. B307:
  * in a box of its own under a handle that sets its height, each note one line (the step it is about, who sent it, its
  * words cut at the edge); a click opens the whole note with its Read button. "Mark all read" reads every new one.
+ * Calm panel (2026-10-19): that box is the log, folded behind one quiet line at the bottom of the panel ("Log: 44
+ * reports · 3 instructions"); open, it holds Open instructions and Information as they were.
  */
 function drawInformation(state) {
   const box = $('information')
+  const line = $('log-line')
+  line.textContent = logLineText(logCounts(state.information, state.instructions))
+  line.setAttribute('aria-expanded', String(isLogOpen))
+  line.title = isLogOpen ? 'Fold the log' : 'Open the log: your instructions to the chats with what came of them, and their notes and reports'
   // A note that is no longer there is no longer open.
   for (const id of openInfos) if (!(state.information ?? []).some(one => one.id === id)) openInfos.delete(id)
+  box.hidden = !isLogOpen
+  $('info-resizer').hidden = !isLogOpen
+  if (!isLogOpen) return fill(box, [])
   const rows = informationRows(state.information).filter(row => !row.isRead || showsClosed())
-  const isEmpty = rows.length === 0 && (state.information ?? []).length === 0
-  box.hidden = isEmpty
-  $('info-resizer').hidden = isEmpty
-  if (isEmpty) return fill(box, [])
   const top = box.scrollTop
   const focused = document.activeElement?.closest?.('#information [data-info-open]')?.dataset.infoOpen ?? null
   const unread = informationRows(state.information).filter(row => !row.isRead)
   // All read, however: what held "Mark all read" back is said no more.
   if (unread.length === 0) problems.delete('read:all')
-  const part = el('section', 'information')
+  const hasInstructions = instructionGroups(state.instructions ?? []).length > 0
+  // Information as it was, when there is any note at all.
+  const information = (state.information ?? []).length === 0 ? null : el('section', 'information')
+  const part = information ?? el('section', 'information')
   const head = el('h3', '', 'Information')
   head.append(el('small', 'muted', unread.length === 0 ? 'all read' : `${unread.length} new`))
   if (unread.length > 0) {
@@ -2829,9 +2882,13 @@ function drawInformation(state) {
   }
   // All read and hidden: one line, no height to drag.
   if (rows.length === 0) part.append(el('p', 'empty', 'All read: "Show closed" shows them.'))
-  box.classList.toggle('is-all-read', rows.length === 0)
-  $('info-resizer').hidden = rows.length === 0
-  fill(box, [part])
+  // Nothing in the log at all: one line says so.
+  const empty = information === null && !hasInstructions ? el('p', 'empty', 'Nothing in the log yet.') : null
+  // A short log (no note shown, no instruction) has no height to drag.
+  const isShort = rows.length === 0 && !hasInstructions
+  box.classList.toggle('is-all-read', isShort)
+  $('info-resizer').hidden = isShort
+  fill(box, [drawInstructions(state), information, empty])
   box.scrollTop = top
   if (focused !== null) [...box.querySelectorAll('[data-info-open]')].find(node => node.dataset.infoOpen === focused)?.focus()
 }
@@ -2860,6 +2917,9 @@ async function readAllInformation(ids) {
 
 $('information').addEventListener('click', event => {
   if (board === null) return
+  // B298: the main chat's name over its instructions opens the talk with it (in the log since the calm panel).
+  const side = event.target.closest('.instructions [data-show-side]')
+  if (side !== null) return showSide(side.dataset.showSide)
   const read = event.target.closest('[data-read]')
   if (read !== null) return sendWork({ action: 'read', id: read.dataset.read }, `read:${read.dataset.read}`)
   if (event.target.closest('[data-read-all]') !== null && !sending.has('read:all')) {
@@ -2870,6 +2930,29 @@ $('information').addEventListener('click', event => {
   if (!openInfos.delete(toggle.dataset.infoOpen)) openInfos.add(toggle.dataset.infoOpen)
   drawInformation(board)
 })
+
+/** Calm panel: the log opened or folded by the person, and kept so in this browser. */
+function setLogOpen(open) {
+  isLogOpen = open
+  try {
+    localStorage.setItem('log-open', isLogOpen ? 'yes' : 'no')
+  } catch {
+    // Not kept; it still holds until the page is closed.
+  }
+  if (board !== null) drawInformation(board)
+}
+$('log-line').addEventListener('click', () => setLogOpen(!isLogOpen))
+
+/**
+ * Calm panel: a missed instruction's line opens the log at that instruction; in Simple, which leaves the log out, it
+ * goes to Details first, as the person's own click there would.
+ */
+function openLog(instruction = null) {
+  if ($('view-overview').dataset.mode === 'simple') document.querySelector('#overview-mode [data-overview-mode="details"]')?.click()
+  setLogOpen(true)
+  const row = instruction === null ? undefined : [...$('information').querySelectorAll('[data-instruction]')].find(node => node.dataset.instruction === instruction)
+  ;(row ?? $('log-line')).scrollIntoView({ block: 'nearest' })
+}
 
 /**
  * B258: the part "Answers to your asks" under Needs your attention: each ask on the goal map the Advisor answered and
@@ -3105,26 +3188,6 @@ function ordered(needs) {
 }
 // order:end
 
-function drawLegacy(state) {
-  const open = state.backlogForYou.filter(step => !isClosed(step))
-  const closed = [...state.backlogForYou.filter(isClosed), ...state.backlogClosed]
-  if (open.length === 0 && closed.length === 0) return null
-  const box = el('details', 'legacy')
-  box.open = isLegacyOpen
-  // What still waits for the person: an answered step is among the closed ones (B307), and is not counted.
-  const waiting = open.filter(step => !isAnswered(step))
-  const counts = Object.keys(ASKS).map(asks => [ASKS[asks], waiting.filter(step => step.asks === asks).length]).filter(([, count]) => count > 0)
-  const summary = el('summary', '', `From the backlog (${waiting.length})`)
-  const notes = counts.map(([name, count]) => `${count} ${name.toLowerCase()}`)
-  if (closed.length > 0) notes.push(`${closed.length} closed ${showsClosed() ? 'shown' : 'hidden'}`)
-  summary.append(el('small', '', notes.join(' · ')))
-  box.append(summary)
-  for (const step of ordered(open)) box.append(drawNeed(step, state))
-  if (showsClosed()) for (const step of ordered(closed)) box.append(drawNeed(step, state))
-  box.addEventListener('toggle', () => { isLegacyOpen = box.open })
-  return box
-}
-
 /** Puts the cursor back into the answer it was in, after a redraw of `box`. The words are kept in `drafts`. */
 function refocus(box, id) {
   if (id === null) return
@@ -3158,7 +3221,10 @@ function instructionGroups(list) {
 }
 // instructions:end
 
-/** B298: the part "Open instructions": the person's words per chat; a click on the main chat's opens the talk with it. */
+/**
+ * B298: the part "Open instructions": the person's words per chat; a click on the main chat's opens the talk with it.
+ * Calm panel: in the log, above Information; each line names its instruction, so a missed line opens the log at it.
+ */
 function drawInstructions(state) {
   const groups = instructionGroups(state.instructions ?? [])
   if (groups.length === 0) return null
@@ -3178,10 +3244,25 @@ function drawInstructions(state) {
     box.append(name)
     for (const row of group.rows) {
       const line = el('p', `instruction is-${row.tone}`)
+      line.dataset.instruction = row.id
       line.append(el('span', 'instruction-id', row.id), el('span', 'instruction-text', row.text), el('small', 'instruction-note', row.at === null || row.tone === 'closed' ? row.note : `${row.note} · ${ago(row.at, state.readAt)}`))
       box.append(line)
     }
     part.append(box)
+  }
+  return part
+}
+
+/** Calm panel: the instructions a chat missed, one red line each under Needs your attention; a click opens the log. */
+function drawMissed(missed) {
+  if (missed.length === 0) return null
+  const part = el('div', 'log-missed')
+  for (const line of missed) {
+    const button = el('button', 'log-missed-line', line.text)
+    button.type = 'button'
+    button.dataset.openLog = line.id
+    button.title = `Opens the log at ${line.id}, your words the chat has not taken up yet`
+    part.append(button)
   }
   return part
 }
@@ -3198,10 +3279,10 @@ function takeBackClick(event) {
 $('needs').addEventListener('click', takeBackClick)
 $('details').addEventListener('click', takeBackClick)
 
-// B298: the main chat's name over its instructions opens the talk with it. B299: "Read" puts a note away.
+// B299: "Read" puts a note away. Calm panel: a missed instruction's line opens the log at it.
 $('needs').addEventListener('click', event => {
-  const side = event.target.closest('.instructions [data-show-side]')
-  if (side !== null) showSide(side.dataset.showSide)
+  const missed = event.target.closest('[data-open-log]')
+  if (missed !== null) openLog(missed.dataset.openLog)
   // B301: a warning's way to its chat.
   const talk = event.target.closest('[data-open-talk]')
   if (talk !== null) {
@@ -3275,26 +3356,32 @@ function drawNeeds(state) {
   // B361: with "Bother me" once a day the asks that hold up no chat gather under the daily note instead.
   const gathered = new Set(gatheredAsks(state).map(need => need.id))
   const forYou = state.forYou.filter(need => !gathered.has(need.id))
-  const open = forYou.filter(need => !isClosed(need))
+  // Calm panel: the open asks the backlog held are cards as every other ask (`panelNeeds`), its ticked ones closed.
+  const needs = panelNeeds({ ...state, forYou })
+  const open = needs.filter(need => !isClosed(need))
   // B287: a refine question has no card: its step's line says it, and only while it is open.
   const lines = refineLines(open)
   const cardsOpen = open.filter(need => !isRefineQuestion(need))
+  // What was answered on this board lately; the backlog's old ticked asks show with "Show closed", uncounted.
   const answered = forYou.filter(need => isClosed(need) && !isRefineQuestion(need)).length
+  // Calm panel: an instruction a chat missed is the person's: one line here, while the log holds the rest.
+  const missed = missedLines(state.instructions, clock)
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
-  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length
+  // Calm panel: the missed lines count too; the log's notes and open instructions never do.
+  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   // Focus 4: the partner's questions first, under "From your partner"; the rest as before.
-  const shown = ordered(shownNeeds(forYou, showsClosed()).filter(need => !isRefineQuestion(need)))
+  const shown = ordered(shownNeeds(needs, showsClosed()).filter(need => !isRefineQuestion(need)))
   const { partner, rest } = partnerFirst(shown, (state.focus?.needs ?? []).map(need => need.id))
   const partnerCards = partner.map(need => drawNeed(need, state))
   // B300: a blocking ask that waited too long stands first, above the refine lines too.
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   const cards = rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
-  const none = cardsOpen.length > 0 || lines.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawWithPartner(state), drawDecidedForYou(state), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, ...recaps, drawLegacy(state), drawInstructions(state)])
+  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawWithPartner(state), drawDecidedForYou(state), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, ...recaps])
   box.scrollTop = top
   refocus(box, focused)
   // B307: Information in its own box under the asks, as high as the person dragged it.

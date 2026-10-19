@@ -53,11 +53,11 @@ test('"From the backlog" goes: its open asks are cards among the others, its clo
   const open = { id: 'backlog:B40', step: 'B40', activity: 'Units', answer: null, isClosed: false }
   const ticked = { id: 'backlog:B03', step: 'B03', activity: 'Units', answer: null, isClosed: true }
   const needs = page.panelNeeds({ forYou: [ask], backlogForYou: [open], backlogClosed: [ticked] })
-  assert.deepEqual(needs.map(need => need.id), ['work:Q7', 'backlog:B40', 'backlog:B03'])
-  assert.deepEqual(page.shownNeeds(needs, false).map(need => need.id), ['work:Q7', 'backlog:B40'])
-  assert.deepEqual(page.shownNeeds(needs, true).map(need => need.id), ['work:Q7', 'backlog:B40', 'backlog:B03'])
+  assert.deepEqual(plain(needs.map(need => need.id)), ['work:Q7', 'backlog:B40', 'backlog:B03'])
+  assert.deepEqual(plain(page.shownNeeds(needs, false).map(need => need.id)), ['work:Q7', 'backlog:B40'])
+  assert.deepEqual(plain(page.shownNeeds(needs, true).map(need => need.id)), ['work:Q7', 'backlog:B40', 'backlog:B03'])
   // A board without them (an older server) draws its own asks.
-  assert.deepEqual(page.panelNeeds({ forYou: [ask] }).map(need => need.id), ['work:Q7'])
+  assert.deepEqual(plain(page.panelNeeds({ forYou: [ask] }).map(need => need.id)), ['work:Q7'])
   // Nothing of the fold is left: no part, no flag, no look.
   assert.ok(!script.includes('From the backlog ('))
   assert.ok(!script.includes('drawLegacy'))
@@ -67,7 +67,8 @@ test('"From the backlog" goes: its open asks are cards among the others, its clo
 
 test('Needs your attention draws the cards and the missed lines, and the log no longer stands in it', () => {
   const needs = script.slice(script.indexOf('function drawNeeds(state)'), script.indexOf('/** Who runs and who was asked'))
-  assert.match(needs, /const forYou = panelNeeds\(state\)\.filter\(need => !gathered\.has\(need\.id\)\)/)
+  assert.match(needs, /const needs = panelNeeds\(\{ \.\.\.state, forYou \}\)\n  const open = needs\.filter/)
+  assert.match(needs, /shownNeeds\(needs, showsClosed\(\)\)/)
   assert.ok(!needs.includes('drawInstructions(state)'))
   assert.ok(!needs.includes('drawLegacy(state)'))
   assert.match(needs, /drawPartnerNeeds\([^\n]*\), drawMissed\(missed\), drawWithPartner\(state\)/)
@@ -76,7 +77,7 @@ test('Needs your attention draws the cards and the missed lines, and the log no 
   assert.match(count, /\+ missed\.length/)
   assert.doesNotMatch(count, /information|logCounts|instructions/)
   // "1 answered, hidden" counts the answers of this board, not the backlog's old ticked asks.
-  assert.match(needs, /const answered = state\.forYou\.filter\(need => isClosed\(need\) && !isRefineQuestion\(need\)\)\.length/)
+  assert.match(needs, /const answered = forYou\.filter\(need => isClosed\(need\) && !isRefineQuestion\(need\)\)\.length/)
 })
 
 test('the log: one quiet line at the very bottom of the panel, the two lists folded under it, open or closed as kept', () => {
