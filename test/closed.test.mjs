@@ -48,7 +48,8 @@ test('an answer that did not arrive opens its card again; a ticked step is close
 })
 
 test('Needs your attention draws through shownNeeds and needLook, and no card waits a while after it was typed', () => {
-  assert.match(script, /const shown = ordered\(shownNeeds\(forYou, showsClosed\(\)\)/)
+  // (Calm panel: `needs`, the asks with the backlog's among them.)
+  assert.match(script, /const shown = ordered\(shownNeeds\(needs, showsClosed\(\)\)/)
   assert.match(script, /const card = el\('article', `need is-\$\{need\.kind\}\$\{isStep\(need\) \? ' is-step' : ''\}\$\{needLook\(need\)\}`\)/)
   assert.ok(!script.includes('SHOWN_AFTER_TYPED_MS'))
 })

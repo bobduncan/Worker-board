@@ -1348,7 +1348,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   board's own words are not filed.
 - **What you see** (`work/lists.mjs`, `instructionsOf`; the page's `instructionGroups`): under Needs your attention a
   part "Open instructions", per chat: the missed ones first, in red with their turns, then the open ones, then the
-  ones closed within a day, grey, with "→ <Closed as>". The main chat's name opens the talk with it.
+  ones closed within a day, grey, with "→ <Closed as>". The main chat's name opens the talk with it. Since the calm
+  panel (2026-10-19) the part stands in the log, folded at the bottom of Needs your attention; a missed one also stands
+  among the asks as one red line (see "A calm Needs your attention: the log").
 
 ## The work store, increment 4 (B299): asks by kind, the three lists
 
@@ -1875,6 +1877,7 @@ make Information smaller or bigger. Nothing is gone: what leaves a row is in its
    arrow keys too; a double-click gives the usual 260 pixels; kept in this browser, `infoHeightFit`). Each note is one
    line: the step it is about, who sent it, its words without "Report from ...:" (`infoLine`); a click opens the whole
    note with its Read button; "Mark all read" reads each new one in turn. All read and hidden, the box is one line.
+   Since the calm panel (2026-10-19) this box is the log, folded by default behind one quiet line.
 2. One line per worker: its task, or "free since 13:01" (`freeShort`). "Now:" and "Between turns" are in the task's
    tooltip and its details; the compaction note shows only when it warns, else on hovering the name; "No active task"
    and "Ready for a new task" go, and so does the empty bar of a worker without a task. Alerts, flags, a held or cut-off
@@ -1908,8 +1911,9 @@ workers and maybe what the current focus is with the tasks"). Since B343, after 
    yet says so, without a count, as the Next milestone row does.
 3. Workers: every chat of the list but leftovers, with its step, a bar of its steps and its time left; one without work
    says in a few words why (free, waits for you, paused until 19:23, not running, cut off).
-4. Needs your attention as in Details, without "From the backlog", "Open instructions", the closed and answered
-   cards and the order and closed switches: those stay under Details. On a phone the inbox stays the third column,
+4. Needs your attention as in Details, without the log's line (and so without "Open instructions" and Information),
+   the closed and answered cards and the order and closed switches: those stay under Details. ("From the backlog" is
+   gone everywhere since the calm panel; a missed instruction's red line shows here too, and opens the log in Details.) On a phone the inbox stays the third column,
    under the workers (Details puts it first). The restart box shows across the page under the bar, as "Prepare restart"
    needs it.
 
@@ -2425,6 +2429,31 @@ approval from the user, but can be automatically approved."
    question, not of the app's form; `gatheredAsks`), and the Focus page shows them under the partner's daily note,
    beside the recaps of B360, as their own cards: their pictures, options and answer, answered there.
 3. Not in it: new kinds of notification.
+
+## A calm Needs your attention: the log (2026-10-19)
+
+The person, 2026-10-19, about the "Open instructions" part and the Information list on the right side: "can we hide
+these two away somewhere? i rather not see this information by default. Also the 'from the backlog' can be removed."
+Pictures: `art-inbox/worker-board/calm-panel/before.png` and `after.png`.
+
+1. **The log.** Open instructions and Information leave the list. At the very bottom of the panel one quiet line
+   (`#log-line`, a button): "Log: 44 reports · 3 instructions", the notes not read yet and the instructions not closed
+   (`logCounts`, `logLineText`: one in the singular, a part with none left out, "Log: nothing new" for none). A click
+   unfolds the log under it (`#information`, the box of B307 with its handle): Open instructions as B298 drew them,
+   then Information as B299 and B307 drew it, "Mark all read" and all; "Nothing in the log yet." when both are empty.
+   Folded or open is kept in this browser (`log-open`, in try/catch: without storage it is folded after a reload).
+   Simple leaves the line and the log out. On a phone (up to 1250 px) the log flows under the asks, without a handle.
+2. **A missed instruction is the person's.** An instruction a chat missed (red in the log) also stands among the asks,
+   after the partner's group, as one red line each (`missedLines`, `drawMissed`): "Main missed your words of 14:02:
+   open the log". A click opens the log and brings that instruction into sight (`openLog`); in Simple it goes to
+   Details first, as the person's click on Details would.
+3. **"From the backlog" goes.** The asks the backlog held (migrated with their B ids, kind ask) are cards like every
+   other (`panelNeeds`): an open one among the asks, counted; a ticked one closed, shown only with "Show closed". The
+   server still sends them as `backlogForYou` and `backlogClosed`, which their answers go by (say.mjs, tick.mjs,
+   games.mjs). "1 answered, hidden" still counts only what was answered on the board lately. The Backlog tab's own
+   filter for the person's steps stays as it was.
+4. **The count** on the tab counts what waits for the person: the open cards, the refine lines, the answers to read on
+   the goal map, the brainstorms waiting, and the missed lines; never the log's notes or open instructions.
 
 ## A recap's two buttons (B390)
 

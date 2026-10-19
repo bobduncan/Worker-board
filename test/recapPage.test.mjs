@@ -144,7 +144,7 @@ test('B390: after Overturn the box opens for the words, with Overturn with these
 
 test('the wiring: the cards after the questions, the clicks through the answer forms, the daily note\'s card, the look', () => {
   assert.match(script, /const recaps = shownRecaps\(state, showsClosed\(\)\)\.map\(recap => drawRecap\(recap, state\)\)/)
-  assert.match(script, /\.\.\.cards, \.\.\.recaps, drawLegacy\(state\)/)
+  assert.match(script, /\.\.\.cards, \.\.\.recaps\]\)/)
   assert.match(script, /if \(id\.startsWith\('recap:'\)\) \{\s+const sent = recapSend\(need, verdict, text\)\s+return sent\.ok \? sendWork\(sent\.body, id\) : fail\(id, sent\.why\)/)
   // B390: Overturn opens the box through the answer forms' [data-open]; Cancel closes it and drops the words.
   assert.match(script, /if \(event\.target\.closest\('\[data-cancel\]'\) !== null\) \{\s+openForms\.delete\(id\)\s+drafts\.delete\(id\)\s+problems\.delete\(id\)\s+redrawNeeds\(\)\s+redrawFocus\(\)\s+return\s+\}/)

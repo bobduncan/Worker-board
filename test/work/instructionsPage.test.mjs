@@ -28,12 +28,15 @@ test('per chat, the missed ones first and named as missed, the closed ones last 
   assert.deepEqual(groups(undefined), [])
 })
 
-test('the part sits under Needs your attention, missed red and closed grey', () => {
+test('the part sits in the log under Needs your attention, missed red and closed grey', () => {
   // Focus 4: the partner's questions first; B258: then the answers to the person's asks on the goal map; B287: the
   // refine lines before the cards. Partner answers: "With your partner" and "Decided for you" after the partner's.
-  assert.match(script, /fill\(box, \[none, drawPartnerNeeds\(partnerCards, [^\n]*?\.length\), drawWithPartner\(state\), drawDecidedForYou\(state\), drawGoalAskNeeds\(state\), drawBrainstormNeeds\(state\), \.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards, \.\.\.recaps, drawLegacy\(state\), drawInstructions\(state\)\]\)/)
-  // B307: Information in its own box under the asks, as high as the person drags it.
+  // Calm panel (2026-10-19): the instructions left the list for the log; a missed one is a line after the partner's.
+  assert.match(script, /fill\(box, \[none, drawPartnerNeeds\(partnerCards, [^\n]*?\.length\), drawMissed\(missed\), drawWithPartner\(state\), drawDecidedForYou\(state\), drawGoalAskNeeds\(state\), drawBrainstormNeeds\(state\), \.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards, \.\.\.recaps\]\)/)
+  // B307: Information in its own box under the asks, as high as the person drags it; since the calm panel the log's
+  // box, with Open instructions above Information.
   assert.match(script, /refocus\(box, focused\)\n  \/\/ B307[^\n]*\n  drawInformation\(state\)/)
+  assert.match(script, /fill\(box, \[drawInstructions\(state\), information, empty\]\)/)
   assert.match(style, /\.instruction\.is-missed \.instruction-id, \.instruction\.is-missed \.instruction-note \{ color: var\(--warn\); \}/)
   assert.match(style, /\.instruction\.is-closed \{ opacity: \.6; \}/)
 })
