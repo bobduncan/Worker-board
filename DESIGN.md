@@ -2314,6 +2314,23 @@ the screen to show the steps associated to the selected goal and to show the 'mi
    goes on. Dismiss (`missing-dismiss`, `removeGoalMissing`) takes the line out, undoable as any change of the map.
 4. Not in it: the left and middle of the page (a step of its own afterwards, as the person said).
 
+## When you are bothered, and rebuilds by themselves (B361)
+
+Part 6 of G11's how (agreed 2026-10-18 21:21). The person, 20:56: "I want a setting where I can tweak if i get bothered
+right away or when i need to be notified, in the boards settings"; 21:18 on rebuilds: "this will normally require an
+approval from the user, but can be automatically approved."
+
+1. The ⚙ panel holds two switches beside CPU for the chats: **Bother me** (At once, Once a day; it says that a question
+   that holds up a chat always comes at once) and **Approve rebuilds by itself** (Off, On). They are the settings
+   `botherMe` (B360) and `approveRebuilds` (B359): a click sends `POST /api/settings` with one key and value
+   (src/boardSettings.mjs `checkSetting`), the board writes it into its config.json (`settingChanged`: every other
+   setting, the indent and the line ends kept; a broken file is left alone) and runs on it at once. The demo changes
+   them in memory only; a board that shows another board's history does not change them.
+2. Once a day: Needs your attention leaves out the store's asks that hold up no chat (not blocking, not a refine
+   question, not of the app's form; `gatheredAsks`), and the Focus page shows them under the partner's daily note,
+   beside the recaps of B360, as their own cards: their pictures, options and answer, answered there.
+3. Not in it: new kinds of notification.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

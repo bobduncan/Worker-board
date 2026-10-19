@@ -983,6 +983,8 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .is-recap .tag { background: #12341f; color: #6fe3a1; }
 .recap-status { margin: 0; }
 .focus-recaps .need { margin-top: 10px; }
+/* B361: the asks that can wait, gathered under the daily note. */
+.focus-asks .need { margin-top: 10px; }
 .need.is-intervene, .need.is-unfiled, .need.is-idle { border-left-color: var(--warn); }
 .need-head { display: flex; flex-direction: column; gap: 9px; cursor: pointer; }
 .need-head:hover h4 { text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }

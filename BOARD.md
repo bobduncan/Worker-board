@@ -77,7 +77,10 @@ running yet: open Game - Main in the app (or click it in the sidebar) and paste 
 and **Dismiss**, until the main chat has it or it no longer matters: "resume" once the main chat got "resume" another
 way, and any word after two hours), **CPU for the
 chats** (B311: Off, Gentle, Strong, one click each; when not Off, how many processes it applies to, "15 processes,
-below normal"; "not available here" off Windows; a listing that failed is one red line on top), the board's
+below normal"; "not available here" off Windows; a listing that failed is one red line on top), **Bother me** (B361: At once, or Once a day: the recaps
+and the questions that hold up no chat then gather under your partner's daily note on the Focus page; a question that
+holds up a chat always comes at once) and **Approve rebuilds by itself** (B361: Off, On; saved in the board's settings
+file), the board's
 version and since when, "Last updated", and a refresh button. When the board's folder holds a newer version, a
 yellow note on top says so; a click starts the new version. Without the Workers mod a bar on top says that what the
 person sent was copied, and into which chat to paste it. At the far right a round **?** opens the help tour (below).
@@ -128,7 +131,8 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   blocks nothing) with the step or goal, what the person gets, its evidence picture and when it approves itself, and
   **Overturn** (the partner makes a fix step from the person's words; a goal opens again) and **Feedback** (the words go
   to the partner); left alone it approves itself 24 hours after it came and moves to the closed items (setting
-  `botherMe` "daily": gathered under the daily note on the Focus page instead). B301: no card comes from a chat's words; a chat that wrote questions in
+  `botherMe` "daily": gathered under the daily note on the Focus page instead, as the questions that hold up no chat
+  are, B361). B301: no card comes from a chat's words; a chat that wrote questions in
   its chat without filing an ask is a warning card, "<chat> wrote questions in its chat but filed no ask", with a
   button to its chat (Talk to Main, the Advisor's chat, or a worker's answer in the card's window). B308: a worker
   that holds a step, has ended its turn with nothing running and filed no ask, for more than 5 minutes, is a hint

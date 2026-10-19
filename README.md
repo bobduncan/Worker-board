@@ -197,8 +197,11 @@ without your yes. The guard: at a goal's third failed check since Go (its steps'
 with an agreed how, the focus or not, B382), the
 board switches the partner to high effort and asks it for a fundamental evaluation of the approach; the Focus page shows
 the count, the evaluation, and a rebuild that waits for you.
-`botherMe` (`"now"` unless set, B360; `"daily"`): where the recaps of finished work reach you: each as a card under
-Needs your attention as it comes, or gathered under your partner's daily note on the Focus page.
+`botherMe` (`"now"` unless set, B360; `"daily"`): where the recaps of finished work and the questions that hold up no
+chat reach you: each as a card under Needs your attention as it comes, or gathered under your partner's daily note on
+the Focus page, answered there. A question that holds up a chat always comes at once.
+Both are also the board's ⚙ panel (B361): "Bother me" (At once, Once a day) and "Approve rebuilds by itself" (Off,
+On). A click there writes them into config.json, every other setting kept, and the board runs on them at once.
 `advisorParts` (`["focus", "goals", "brainstorm"]` unless set): the parts the Focus tab's bar shows, by name; add
 `"way"` (Next milestone), `"plan"` (Game plan), `"suggestions"`, `"refine"` or `"chat"` to bring one back.
 `work` (`.claude/work` unless set): the work store's folder, a path inside the project or a whole path of its own
