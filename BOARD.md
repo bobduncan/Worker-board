@@ -203,6 +203,18 @@ and its pictures. Once every part is done, **Is the vibe there?** stands above t
 the goal and clears the focus (the page then asks for the next one); **No** opens a box for what is missing, and the
 goal goes back to the how.
 
+Partner answers (2026-10-19; picture `art-inbox/worker-board/partner-answers/note.png`): under the Focus page a switch
+**Your partner answers detail questions** (on unless you switch it off; "on: detail questions go to your partner
+first", "off: every question comes to you"). While it is on, a worker's or the main chat's question with its options
+or advice goes to your partner first and does not stand under Needs your attention; your partner answers it (normally
+with the worker's advice) and the answer stands in today's note under "Decided for you" as `Q<n> (<worker>, B<n>):
+<question> → <answer> (<why>)`, with **Undo**. Undo takes the answer back: the question comes to you under Needs your
+attention, with "Your partner had answered: ...; you took it back", its chat waits for your answer, and the line says
+"taken back". With **Show closed**, the answered question's card says "Your partner answered: ..." with its why and the
+same **Undo**, for a day. A question your partner hands on, or leaves unanswered for 30 minutes while free, comes to you
+with a line on its card that says why ("Your partner hands this to you: ...", "Your partner did not answer in 30 min:
+it is yours"). Questions only you can answer (provide, do, without options or advice) come to you as before.
+
 B354: a goal becomes your focus, and gets its tick, only with a **Done when** that says how you check it. In the pick
 list a goal without one says "No Done when yet" with **Ask your partner to write it** in place of Pick (then "Your
 partner writes its Done when", with **Ask again**); something new is put into the map at once and your partner is asked for its Done

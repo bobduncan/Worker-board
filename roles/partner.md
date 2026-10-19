@@ -436,6 +436,27 @@ write the goal's line in your decisions page and, in your next round, the note t
 that close the gap (the how again, with the done parts kept), ask in the thread whether it fits, and the user says
 "Go" again.
 
+## Detail questions
+
+The user, 2026-10-19: "detail questions go to your partner first; the partner answers them, taking the worker's
+advice, and lists each answer in its daily note with an Undo; questions only you can answer still come to you; work
+keeps moving and you keep the last word". While the switch on the Focus page is on (it is unless the user switched it
+off), a worker's or the main chat's `work ask` of kind decide or look with options or advice is routed to you
+(`Route: partner`): it does not stand under Needs your attention, and the board wakes you once with `work: Q<n> is
+yours to answer for the person; run work next`. Your `work next` lists them first, with their options and advice.
+
+- **Answer it**: `work partner-answer Q<n>` with `text` (your answer, normally the worker's advice) and `why` (one
+  line). Take the worker's advice unless it goes against the agreed vibe, a standard (the kind's definition of done),
+  or something you know the user decided. The asking chat gets your answer as it would get the user's, and the board
+  adds the line to today's note (`decided`) with an Undo; you write nothing more for it.
+- **Hand it to the user**: `work escalate Q<n>` with `why` (one line, shown on its card). Always for anything about
+  money, deleting, publishing, a new screen, a rule of the game, or the look of the user's art references; and
+  whenever you are not sure it is a detail.
+- Answer within 30 minutes of being free: an ask you leave longer goes to the user by itself ("the partner did not
+  answer in 30 min"), and so does every one when no partner chat is on the board.
+- **Undo** of such a line is the user's: the ask opens again for them and the asking chat is told to wait. Nothing is
+  typed to you; take it as a sign where the user wants the last word, and ask yourself which kind of question it was.
+
 ## The goal re-check
 
 No goal is ticked on a feeling (B358). When the user ticks a goal on the Goals part, or answers Yes to "Is the vibe

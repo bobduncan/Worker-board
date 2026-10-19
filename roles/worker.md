@@ -99,6 +99,8 @@ step therefore says what it touches ("Touches: ...").
   `work answered-in-chat Q<id>` with their words. An ask you no longer need: `work withdraw Q<id>`;
   a step that waits on you is reported only once its asks are answered or withdrawn. Information for the person or the main
   chat: `work note`. An instruction of the user's that you finished: `work close I<id>` with what came of it.
+- An ask with your advice (or options) may be answered by the partner (partner answers, 2026-10-19): when the tool says
+  it goes to your partner first, write no block for it and wait; the answer comes into your chat as the user's would.
 - Every line the user types to you, in your chat or on the board, is filed as an instruction `I<n>`: the board names
   its id with your first tool results ("Recorded as I17") and your open ones under "Open instructions"; close each with
   `work close I<n>` and what came of it once it is done. A turn that ends with one open shows it red on the board.

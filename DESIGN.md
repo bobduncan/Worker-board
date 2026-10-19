@@ -2314,6 +2314,63 @@ the screen to show the steps associated to the selected goal and to show the 'mi
    goes on. Dismiss (`missing-dismiss`, `removeGoalMissing`) takes the line out, undoable as any change of the map.
 4. Not in it: the left and middle of the page (a step of its own afterwards, as the person said).
 
+## Partner answers: detail questions go to the partner first (2026-10-19)
+
+The person, 2026-10-19, chose this over a blanket auto-approve (which this project will not build): "detail questions
+go to your partner first; the partner answers them, taking the worker's advice, and lists each answer in its daily
+note with an Undo; questions only you can answer still come to you; work keeps moving and you keep the last word".
+Picture: `art-inbox/worker-board/partner-answers/note.png`.
+
+1. **The setting** (`src/work/partnerAnswers.mjs`, `store.mjs` `readPartnerAnswersFile`, `writePartnerAnswers`):
+   `<work>/partner-answers.json`, `{ "on": true|false, "since": <ms> }`; missing or unreadable is on (the person gave it
+   priority). `readStore` gives it as `partnerAnswers`, the state as `partnerAnswers` (null without a store). The
+   person switches it on the Focus page (`partnerSwitchView`, `partnerSwitch`, under everything else): `POST /api/work`
+   `partner-answers` with `on`, person only. Off: everything as before.
+2. **Routing** (`api.mjs` `ask`, `routesToPartner`): while on, an ask filed with the work tool by a worker or the main
+   chat (not the partner, not the person; not `Via` form or chat: the app's question form and a "For you" block the
+   person already sees) of kind decide or look with options or advice gets `Route: partner` (History "asked (...): to
+   the partner first"). The tool answers "Q<n> goes to your partner first ..." instead of the "For you" block. A
+   blocking ask of the holder still moves its step to waiting on you. `storeNeeds` leaves it out of Needs your
+   attention, and the reconciler's "old ask" too.
+3. **The wake** (`reconcile.mjs` `partnerAsks`, `deliver.mjs` `partnerAskKey`): `reconcile` takes the partner's card
+   (`partner`: name, state, isRunning, idle; from `state.mjs`) and names each routed ask while the partner is free (its
+   card free or off, or its chat not running: `wakeFor` asks the main chat to start it), never while the person pauses;
+   the delivery sends `work: Q<n> is yours to answer for the person; run work next` once per ask (`kind:
+   'partner-ask'`), withdrawn while waiting once the ask is no longer routed and open. The partner's `work next` lists
+   the routed asks first ("Asks you answer for the person ...", their options and advice) and how to answer them.
+4. **The answer** (`api.mjs` `partnerAnswer`, the partner only): `partner-answer` with `id`, `text` (by default the
+   advice) and `why` (required): the ask is answered (`Answered by: partner`, `## Answer`, `## Why`, `Daily note`),
+   History "answered by the partner: ... (why: ...)"; its step goes on as with the person's answer, and the asking chat
+   (and the owner of a step it frees) is woken as by the person's answer, through `server.mjs` `sendWakes`, now also
+   from the work tool: `(answered on the worker board, HH:MM) Q<n> "<title>": Your partner answered this for the
+   person: <answer> (why: <why>). The person may still take it back.` The line `Q<n> (<asker>, B<n>): <title> →
+   <answer> (<why>)` is added under "Decided for you" of the partner's newest note of the focus made today (its first
+   History line's date; a note that only counted its lines counts them anew), else a new note of the day (`Today's
+   note on G<n>: ...`); without a focus, a note to the person of no goal ("Your partner's answers of <date>").
+5. **Handed on** (`escalate`, the partner with a why, or the board): `Route: person`, Since now, the card's line under
+   `## Route` ("Your partner hands this to you: <why>"; the board's: "Your partner did not answer in 30 min: it is
+   yours", "No partner chat is on the board: it is yours", "Your partner's answers are switched off: it is yours"),
+   History "to the person: <why>". The reconciler names (`escalations`) a routed ask the partner left unanswered for
+   `PARTNER_ANSWER_MS` (30 min) counted from the later of when it was filed, the partner's turn end (`idle.since`) and
+   a resume, while free; every routed ask at once when no partner chat is on the board or the setting is off; the
+   delivery carries them out as the server, also while paused.
+6. **Undo** (`api.mjs` `undo`, `takeBack`; `focus.mjs` `undoLine` with a `tell` port; `server.mjs` `undoNow`): the
+   note's Undo on a line that lists a partner's answer (`askOfLine`, and the ask's `Daily note` is that note), and the
+   Undo on the answered ask's card ("Show closed": a partner's answer stays among the closed cards for a day,
+   `canTakeBack`; `partnerAnswerView`, `partnerAnswerParts`, `takeBackClick`), take it back: the ask is open again with
+   `Route: person` and "Your partner had answered: <answer>; you took it back" under `## Route`, a step its holder blocked
+   on it waits on the person again (the flow's move as its holder's role), the note's line is marked under "Undo
+   asked" (the page says "taken back"), and the asking chat gets one line, "The person took back the partner's answer
+   on Q<n>; wait for their answer." (`takenBackWords`, `kind: 'taken-back'`). Nothing is typed to the partner. Once only:
+   a second Undo changes nothing; an ask the person answered after is no partner's answer any more (409).
+7. **The jobs**: `roles/partner.md` "Detail questions" (take the worker's advice unless it goes against the agreed
+   vibe, a standard or something the person decided; escalate money, deleting, publishing, a new screen, a rule of the
+   game, the look of the person's art references; one line why), one line each in `roles/worker.md` and `roles/main.md`,
+   `roles/protocol.md`. The Workers mod 0.13.12: the work tool's actions `partner-answer` and `escalate` (`id`, `text`,
+   `why`).
+8. Tests: `test/work/partnerAnswers.test.mjs`, `test/partnerAnswersPage.test.mjs`; four older ask tests switch it off
+   (the person answers there, as before).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

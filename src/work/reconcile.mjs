@@ -141,7 +141,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
 
   // An ask open with Blocking yes for longer than the ask time: it stands first under Needs your attention; nothing is
   // sent again.
-  const asks = [...items.values()].filter(item => kindOf(item) === 'ask' && stateOf(item) === 'open' && valueOf(item, 'Blocking') === 'yes')
+  // Partner answers (2026-10-19): not one routed to the partner: it is not the person's yet.
+  const asks = [...items.values()].filter(item => kindOf(item) === 'ask' && stateOf(item) === 'open' && valueOf(item, 'Blocking') === 'yes' && valueOf(item, 'Route') !== 'partner')
   for (const item of asks.sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
     const waited = now - sinceMs(valueOf(item, 'Since'))
     if (!(waited > times.askMs)) continue

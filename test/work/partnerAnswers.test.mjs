@@ -314,6 +314,8 @@ test('the reconciler: to the person after 30 minutes the partner was free and di
     // Busy for most of it: the 30 minutes count from when it was free again.
     assert.deepEqual((await plan(dir, partnerLane('free', NOW + 20 * MIN), NOW + 31 * MIN)).escalations, [])
     assert.deepEqual((await plan(dir, partnerLane('working'), NOW + 90 * MIN)).escalations, [])
+    // Not the person's yet: no "has waited for your answer" either.
+    assert.equal((await plan(dir, partnerLane('working'), NOW + 90 * MIN)).flags.some(flag => flag.kind === 'old ask'), false)
     assert.deepEqual((await plan(dir, null, NOW + MIN)).escalations, [{ id: 'Q1', why: 'no partner chat is on the board' }])
     await person({ action: 'partner-answers', on: false })
     assert.deepEqual((await plan(dir, partnerLane('working'), NOW + MIN)).escalations, [{ id: 'Q1', why: 'your partner\'s answers are switched off' }])
