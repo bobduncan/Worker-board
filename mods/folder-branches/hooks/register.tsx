@@ -893,7 +893,7 @@ const WORK_TOOL = {
     + 'and "next" (the next action, one line) it writes the step\'s checkpoint: write a checkpoint with every commit and when '
     + 'the person pauses, so the chat goes on from it after a restart. "ask" ("of" the step, "kind" '
     + 'decide, look, provide or do, "blocking", "text", "options", "advice", "pictures", "play"): something only the person can '
-    + 'do; put the "For you" block it answers into your answer. "withdraw" ("id", "why"): take your own ask back when '
+    + 'do; put the "For you" block it answers into your answer (a decide or look with options or advice may go to your partner first: then it says so, and you write none). "withdraw" ("id", "why"): take your own ask back when '
     + 'it is no longer needed (the main chat: also an ask with no asking chat, with a why); a step that waited on it goes '
     + 'on. "answered-in-chat" ("id", "text"): the person answered one of your asks here in the chat (the main chat and the '
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
@@ -906,7 +906,10 @@ const WORK_TOOL = {
     + 'the Advisor. "checked" ("id", "evidence", "points", "score"): the partner files the result check of a step in review, by a helper that did not build it. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
     + 'the partner (the Advisor) keeps its draft of the focus goal\'s vibe and how on the board; each call takes the place '
     + 'of the draft the goal had. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old '
-    + 'name of a chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one).',
+    + 'name of a chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one). '
+    + '"partner-answer" ("id", "text", "why"): the partner answers an ask the board routed to it for the person ("text" its '
+    + 'answer, normally the advice; "why" one line); the asking chat is woken as with the person\'s answer, and the answer '
+    + 'stands in the partner\'s daily note with an Undo. "escalate" ("id", "why"): the partner hands a routed ask to the person.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -921,7 +924,7 @@ const WORK_TOOL = {
       of: { type: 'string', description: 'ask, note: the step it belongs to; the partner: also the focus goal (G6).' },
       kind: { type: 'string', enum: ['decide', 'look', 'provide', 'do'], description: 'ask: what you ask of the person.' },
       blocking: { type: 'boolean', description: 'ask: true when your work waits for the answer.' },
-      text: { type: 'string', description: 'ask, note, new: the words.' },
+      text: { type: 'string', description: 'ask, note, new: the words; partner-answer: your answer, normally the advice.' },
       options: { type: 'array', items: { type: 'string' }, description: 'ask: the options, each with its letter ("A thin").' },
       advice: { type: 'string', description: 'ask: the option you advise, in a few words ("B").' },
       pictures: { type: 'array', items: { type: 'string' }, description: 'ask: pictures to look at, as paths in the project.' },
@@ -937,7 +940,7 @@ const WORK_TOOL = {
       after: { type: 'string', description: 'queue: the steps it waits on, or what it waits for.' },
       about: { type: 'string', description: 'queue: how long it takes, roughly ("1 h").' },
       as: { type: 'string', description: 'close: what came of the instruction ("made step B300").' },
-      why: { type: 'string', description: 'drop: why.' },
+      why: { type: 'string', description: 'drop: why; partner-answer, escalate: why, in one line.' },
       summary: { type: 'string', description: 'refine, and new from an agreed how: the step in a few lines.' },
       picture: { type: 'string', description: 'refine: the picture of what it makes; vibe-draft: the vibe\'s picture.' },
       size: { type: 'string', description: 'refine, and new from an agreed how: how long it takes, roughly.' },

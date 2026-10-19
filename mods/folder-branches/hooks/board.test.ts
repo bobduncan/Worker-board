@@ -83,6 +83,13 @@ describe('B354: a step\'s standard with the work tool', () => {
   })
 })
 
+describe('Partner answers: the partner answers a routed ask for the person, or hands it to them', () => {
+  test('partner-answer and escalate are actions of the tool, at its end, with id, text and why', () => {
+    expect(WORK_ACTIONS.slice(-2)).toEqual(['partner-answer', 'escalate'])
+    for (const field of ['id', 'text', 'why']) expect(WORK_FIELDS.includes(field)).toBe(true)
+  })
+})
+
 describe("B313: the main chat moves a renamed chat's work with the work tool", () => {
   test('rename is an action of the tool, with from and to', () => {
     expect(WORK_ACTIONS.includes('rename')).toBe(true)

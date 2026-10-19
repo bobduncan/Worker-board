@@ -1210,6 +1210,21 @@ describe('B297: the work tool asks the worker board', () => {
     expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'note', to: 'you', of: 'G6', decided: ['Damage numbers in yellow'], needs: ['Q3'], chat: 'Units', session: 'units' })
   })
 
+  test('Partner answers: the partner answers a routed ask, or hands it to the person, with its fields sent to the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Q12 answered for the person: B. It stands in your daily note N7 with an Undo.' }) }
+    expect((await $.tool.call({ tool: WORK, action: 'partner-answer', id: 'Q12', text: 'B', why: 'the advice fits the vibe' } as never)).result).toBe('Q12 answered for the person: B. It stands in your daily note N7 with an Undo.')
+    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'partner-answer', id: 'Q12', text: 'B', why: 'the advice fits the vibe', chat: 'Units', session: 'units' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Q13 goes to the person: a new screen.' }) }
+    await $.tool.call({ tool: WORK, action: 'escalate', id: 'Q13', why: 'a new screen' } as never)
+    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'escalate', id: 'Q13', why: 'a new screen', chat: 'Units', session: 'units' })
+  })
+
   test('a board that is down answers with one line and no throw', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })

@@ -60,8 +60,12 @@ export function parseTaken(text: string): { messages: Taken[]; refused: string[]
   return taken
 }
 
-/** B297: the actions of the work tool. Focus 2: the partner's drafts of the focus, `vibe-draft` and `how-draft`. */
-export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename']
+/**
+ * B297: the actions of the work tool. Focus 2: the partner's drafts of the focus, `vibe-draft` and `how-draft`. Partner
+ * answers (2026-10-19): the partner answers an ask routed to it for the person (`partner-answer`: "id", "text", "why")
+ * or hands it to the person (`escalate`: "id", "why").
+ */
+export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate']
 
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
