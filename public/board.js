@@ -5255,6 +5255,68 @@ function goalTreeDrop(goals, layout, fromId, x, y) {
 }
 // goals:end
 
+// goalsteps:start
+// B383: the right side of the Goals page, "Steps for this goal" (the person's design picture
+// art-inbox/ideas/i-want-to-use/v1.png): the selected goal's steps and what it still misses.
+
+/** A step's badge in the panel, from where it stands in the flow: its words and its tone. */
+function goalStepBadge(step) {
+  const state = step.flow?.state ?? null
+  if (state === 'done' || step.status === 'done') return ['Done', 'done']
+  if (state === 'waiting on you' || step.status === 'you') return ['Needs you', 'you']
+  if (state === 'in progress' || state === 'taken' || (state === null && step.status === 'progress')) return ['Working', 'working']
+  if (state === 'review') return ['In review', 'review']
+  if (state === 'queued' || (state === null && step.status === 'queued')) return ['Queued', 'queued']
+  if (state === 'refined') return ['Ready', 'ready']
+  return ['New', 'new']
+}
+
+/**
+ * The panel for the goal `goalId` of the map (`goals`), from the state's backlog: its steps (those its Steps and Part
+ * lines name, then the store's steps with its Goal, a dropped one left out), each numbered with its title, one line of
+ * what it does, its badge and its chat; the filter All / Open / Done, done steps folded under "Show N completed steps"
+ * while All shows; its Missing lines, each split at a dash into words and a line under them; "Add all" for two or more.
+ * `ui`: `tab` (steps or missing), `filter`, `showDone`, `canWrite` and `whyNot`.
+ */
+function goalStepsView(goals, goalId, backlog, ui = {}) {
+  const node = goalId === null || goalId === undefined ? null : (goals?.nodes ?? []).find(one => one.id === goalId) ?? null
+  if (node === null) return { goal: null, empty: 'Pick a goal on the map: its steps and what it still misses show here.' }
+  const steps = (backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string')
+  const byId = new Map(steps.map(step => [step.id, step]))
+  const named = [...new Set([...(node.steps ?? []), ...(node.parts ?? []).flatMap(part => part.steps ?? [])])]
+  const number = id => Number(String(id).slice(1))
+  const others = steps.filter(step => step.item?.goal === node.id && !named.includes(step.id)).map(step => step.id).sort((a, b) => number(a) - number(b))
+  const all = [...named, ...others].map(id => byId.get(id)).filter(step => step !== undefined && step.flow?.state !== 'dropped').map(step => {
+    const [badge, tone] = goalStepBadge(step)
+    const line = String(step.item?.summary?.[0] ?? step.item?.what?.[0] ?? '').replace(/\s+/g, ' ').trim()
+    return { id: step.id, key: step.key ?? step.id, title: step.title, line: line.length > 140 ? `${line.slice(0, 139)}…` : line, badge, tone, chat: step.worker ?? '' }
+  })
+  const done = all.filter(row => row.tone === 'done')
+  const open = all.filter(row => row.tone !== 'done')
+  const filter = ['all', 'open', 'done'].includes(ui.filter) ? ui.filter : 'all'
+  const shown = filter === 'open' ? open : filter === 'done' ? done : ui.showDone === true ? all : open
+  const missing = (node.missing ?? []).map((text, index) => {
+    const [title, ...rest] = text.split(/\s+[—–]\s+/)
+    return { index, text, title: title.trim(), sub: rest.length === 0 ? null : rest.join(' — ').trim() }
+  })
+  const tab = ui.tab === 'missing' ? 'missing' : 'steps'
+  const allowed = ui.canWrite === true
+  return {
+    goal: { id: node.id, title: node.title },
+    tab,
+    tabs: [{ key: 'steps', label: 'Associated steps', count: all.length, isOn: tab === 'steps' }, { key: 'missing', label: 'Missing steps', count: missing.length, isOn: tab === 'missing' }],
+    filter,
+    filters: [['all', 'All'], ['open', 'Open'], ['done', 'Done']].map(([key, label]) => ({ key, label, isOn: filter === key })),
+    rows: shown.map((row, index) => ({ n: index + 1, ...row })),
+    foldedDone: filter === 'all' && ui.showDone !== true && done.length > 0 ? `Show ${done.length} completed step${done.length === 1 ? '' : 's'}` : null,
+    missing,
+    addAll: missing.length < 2 ? null : { label: `Add all ${missing.length} to this goal`, isEnabled: allowed, title: allowed ? `Each becomes a new step under ${node.id}; your partner refines it` : ui.whyNot ?? 'This board only shows.' },
+    canWrite: allowed,
+    whyNot: allowed ? null : ui.whyNot ?? 'This board only shows.',
+  }
+}
+// goalsteps:end
+
 const GOAL_STATES = { open: 'open', now: 'in progress', done: 'done' }
 /** B256: what each editor asks for, and the words of its box. */
 const GOAL_EDITORS = {
