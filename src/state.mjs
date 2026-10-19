@@ -153,6 +153,8 @@ export function isStaleWork({ state, isRunning, writtenAt, appStartedAt, now, gr
 /** B315: a stale lane as the board shows it: "Not running", its task and step kept, nothing of a turn or a time. */
 const offLane = (lane, since) => ({
   ...lane, state: 'off', offSince: since, eta: null, isWithoutTime: false, doingNow: null, between: null, quietMs: null, isQuiet: false, unanswered: null, resting: null,
+  // Partner answers, the review's findings: a chat that does not run waits for nobody; its lane says "Not running".
+  waitsForPartner: null,
 })
 
 /**

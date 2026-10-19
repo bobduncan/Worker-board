@@ -112,14 +112,14 @@ const sinceOf = at => {
 }
 const ask = (id, route, at) => parseItem(`Id: ${id}\nKind: ask\nTitle: Number or bar?\nState: open\nOwner: Digger\nSince: ${sinceOf(at)}\nFiled: ${at}\nAsks: decide\nBlocking: no\nOf: B12\nOptions: A number | B bar\nAdvice: A\n${route === null ? '' : `Route: ${route}\n`}`)
 
-function build(items, partnerAnswers, goalsText = undefined) {
+function build(items, partnerAnswers, goalsText = undefined, more = {}) {
   const work = storeFromText('## Garden\n- [ ] B12 Plant the hedge\n', { now: NOW - 60 * MIN })
   for (const one of items) work.items.set(one.head.get('Id'), one)
   if (partnerAnswers !== undefined) work.partnerAnswers = partnerAnswers
   const raw = {
     listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead'), app('Digger'), app('Advisor')],
     tails: { 'cli-Lead': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Digger': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Advisor': tail([typed(NOW - 20 * MIN, 'hi'), answer(NOW - 12 * MIN, 'ok')]) },
-    planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, ...(goalsText === undefined ? {} : { goalsText }),
+    planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, ...(goalsText === undefined ? {} : { goalsText }), ...more,
   }
   return buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config })
 }
@@ -158,6 +158,9 @@ test('the review\'s findings, the state: the lane waits for the partner; "With y
   const digger = state.chats.find(one => one.name === 'Digger')
   assert.deepEqual([digger.state, digger.waitsForPartner], ['working', ['Q1']])
   assert.match(digger.between, /waits for your partner's answer \(Q1\)/)
+  // A chat that does not run (the app started after its last word) says "Not running", not that it waits for the partner.
+  const gone = build([waiting, routed], undefined, undefined, { appStartedAt: NOW + 1 }).chats.find(one => one.name === 'Digger')
+  assert.deepEqual([gone.state, gone.waitsForPartner], ['off', null])
   assert.deepEqual(state.withPartner.map(one => [one.id, one.from, one.title]), [['Q1', 'Digger', 'Box or yew?']])
   // Today's note: every line, the answers by their asks (a field), one taken back.
   assert.deepEqual(state.focus.note.decided, [
