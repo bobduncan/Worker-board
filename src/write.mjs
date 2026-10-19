@@ -61,7 +61,7 @@ export async function writeAtomic(file, data, fs = files) {
     await writeNew(beside, data, fs)
     await moveInPlace(beside, file, fs)
   } catch (error) {
-    await fs.rm(beside, { force: true }).catch(() => {})
+    await removeFile(beside, fs, { force: true }).catch(() => {})
     throw error
   }
 }
@@ -109,22 +109,28 @@ const stampOf = ms => {
 }
 
 /**
- * A JSON file the board keeps and reads at its start: `{ value, setAside }`. Not there, or not readable: null. One
- * that does not parse (torn by a restart or a power cut) is kept aside as `<file>.broken-<time>` and the board starts
- * without it: `setAside` names that file (null when it could not be moved; the next write replaces the torn file).
+ * A JSON file the board keeps and reads at its start: `{ value, setAside, unread }`. Not there: value null, nothing
+ * else. One that does not parse (torn by a restart or a power cut) is kept aside as `<file>.broken-<time>` and the
+ * board starts without it: `setAside` names that file. One that is there but could not be read, or not kept aside, is
+ * `unread` (why, in a few words): the board starts without it too, and its next write replaces it.
  */
 export async function readKept(file, now, fs = files) {
   let text
   try {
     text = await again(() => fs.readFile(file, 'utf8'))
-  } catch {
-    return { value: null, setAside: null }
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { value: null, setAside: null, unread: null }
+    return { value: null, setAside: null, unread: `not readable: ${error?.code ?? error?.message}` }
   }
   try {
-    return { value: JSON.parse(text), setAside: null }
+    return { value: JSON.parse(text.replace(/^﻿/, '')), setAside: null, unread: null }
   } catch {
     const aside = `${file}.broken-${stampOf(now)}`
-    const moved = await moveInPlace(file, aside, fs).then(() => true, () => false)
-    return { value: null, setAside: moved ? aside : null }
+    try {
+      await moveInPlace(file, aside, fs)
+      return { value: null, setAside: aside, unread: null }
+    } catch (error) {
+      return { value: null, setAside: null, unread: `torn, and not kept aside: ${error?.code ?? error?.message}` }
+    }
   }
 }
