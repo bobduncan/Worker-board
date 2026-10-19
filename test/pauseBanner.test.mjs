@@ -128,11 +128,11 @@ test('B364, the user\'s pick B: while pausing the panel is one ring, a slice per
   assert.deepEqual([ring.head, ring.tone, ring.still, ring.of], ['Pausing…', '', 3, 5])
   assert.deepEqual(ring.slices, ['still', 'working', 'still', 'still', 'off', 'typing'])
   assert.deepEqual(ring.groups, [
-    { state: 'working', text: 'Worker 1' }, { state: 'typing', text: 'Advisor (a line is being typed)' },
+    { state: 'working', text: 'Worker 1' }, { state: 'typing', text: 'Advisor' },
     { state: 'still', text: 'Main, Worker 2, Worker 3' }, { state: 'off', text: 'Worker 5 (not running)' },
   ])
   // The details, one click away: since when, and each step with no checkpoint.
-  assert.deepEqual(ring.notes, ['Paused since 21:01.', 'B09 (Worker 1) has no checkpoint; it resumes from its branch and History.'])
+  assert.deepEqual(ring.notes, ['Paused since 21:01.', 'A line is being typed into Advisor.', 'B09 (Worker 1) has no checkpoint; it resumes from its branch and History.'])
   // Nobody works any more: all still, safe to restart.
   const still = chats.map(chat => ({ ...chat, state: chat.state === 'off' ? 'off' : 'still' }))
   const safe = pauseRingOf({ ...pausing, working: [], typing: [], unsaved: [], isSafe: true, chats: still })

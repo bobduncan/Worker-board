@@ -189,7 +189,8 @@ test('the page: Safe from turns in flight alone; a step with no checkpoint is in
   ])
   const busy = ringOf({ ...base, working: ['Board'], asking: ['Support'], typing: ['Digger'], isSafe: false, chats: [{ name: 'Board', state: 'working' }, { name: 'Support', state: 'asking' }, { name: 'Digger', state: 'typing' }] })
   assert.deepEqual([busy.head, busy.still, busy.of], ['Pausing…', 0, 3])
-  assert.deepEqual(busy.groups.map(group => group.text), ['Board', 'Support (waiting for you)', 'Digger (a line is being typed)'])
+  assert.deepEqual(busy.groups.map(group => group.text), ['Board', 'Support (waiting for you)', 'Digger'])
+  assert.deepEqual(busy.notes, ['Paused since 21:01.', 'A line is being typed into Digger.'])
 })
 
 test('the page: a line held by the pause says "held until resume"', () => {

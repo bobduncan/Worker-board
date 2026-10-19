@@ -770,7 +770,7 @@ function drawLimits(state) {
 
 // pause:start
 /** B364: the ring's states, in the order the names beside it are listed, with what is said after a group's names. */
-const PAUSE_STATES = [['working', ''], ['asking', ' (waiting for you)'], ['typing', ' (a line is being typed)'], ['still', ''], ['off', ' (not running)']]
+const PAUSE_STATES = [['working', ''], ['asking', ' (waiting for you)'], ['typing', ''], ['still', ''], ['off', ' (not running)']]
 
 /**
  * B364 (the user's pick B of 2026-10-19): while pausing, the panel is one ring with a slice per chat (`pause.chats`,
@@ -794,6 +794,8 @@ function pauseRing(pause) {
     .map(({ state, names, after }) => ({ state, text: `${names.join(', ')}${after}` }))
   const notes = [
     `Paused since ${clock(pause.since)}.`,
+    // B386: which chat a line is being typed into is a detail, not said on the panel.
+    ...chats.filter(chat => chat.state === 'typing').map(chat => `A line is being typed into ${chat.name}.`),
     ...[
       ...(pause.unsaved ?? []).map(one => `${one.id} (${one.chat})`),
       ...(pause.offBoard ?? []).map(one => `${one.id} (${one.title}, not on the board)`),
