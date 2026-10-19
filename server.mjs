@@ -48,7 +48,7 @@ import { parseHistory } from './src/history.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
 import { findPicture, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, withInstruction } from './src/say.mjs'
+import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -534,15 +534,41 @@ async function main(args) {
   const undoNow = async body => {
     const state = await readState()
     const partner = state.advisor ?? null
-    if (partner === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
     // The review: typed first, marked after (src/focus.mjs `undoLine`); a word not kept leaves the line unmarked.
+    // Partner answers (2026-10-19): a partner's answer of an ask is taken back in the store, and its asking chat told.
     return undoLine({ note: body?.note, line: body?.line }, {
       work: action => workAction(action, 'person'),
       type: ({ of, line }) => {
+        if (partner === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
         const title = (state.goals?.nodes ?? []).find(node => node.id === of)?.title ?? ''
         return toPartner(focusWords('undo', { to: partner.name, goal: { id: of, title }, words: line, note: body?.note }), {}, state)
       },
+      tell: wake => sendWakes({ ok: true, result: { wake } }),
     })
+  }
+  /**
+   * B299: the chats an action on the store wakes (`wake`, `wakeOwner`): the chat that asked, with the answer to its ask
+   * (bridge.mjs, as the person's answer reads), and the owner of the step the answer frees. Partner answers (2026-10-19):
+   * also from the work tool (the partner's answer), and a line of its own (`line`: the person took a partner's answer
+   * back). Only to a chat the board shows; copied without the Workers mod. What to paste, or null.
+   */
+  const sendWakes = async done => {
+    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
+    let paste = null
+    for (const wake of isShowOnly ? [] : wakes) {
+      const state = await readState()
+      const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].some(chat => chat.name === wake.to)
+      if (!shown) continue
+      const isCopied = state.bridge?.isMissing === true
+      const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: 'taken-back' } : answerWords(wake)
+      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
+      await store.say(message)
+      const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+      if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
+      readState.reset()
+      if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
+    }
+    return paste
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   const workCtx = async () => {
@@ -575,6 +601,8 @@ async function main(args) {
       kinds: config.kinds,
       // B356: a board without a partner chat makes no result check: its own check closes a step.
       hasPartner: (state.advisor ?? null) !== null,
+      // Partner answers (2026-10-19): the focus goal, whose daily note lists the partner's answers of the day.
+      focusGoal: state.focus?.id ?? null,
     }
   }
   /**
@@ -1146,20 +1174,7 @@ async function main(args) {
         return { ok: true, result: { ...done.result, typed: typed?.ok === true } }
       }
       // Focus 3, the review: and the owner of the step the answer frees, when another chat asked (`wakeOwner`).
-      const wakes = done.ok ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
-      let paste = null
-      for (const wake of isShowOnly ? [] : wakes) {
-        const state = await readState()
-        const shown = [...(state.chats ?? []).filter(chat => !chat.isLeftover), ...(state.advisor ? [state.advisor] : [])].some(chat => chat.name === wake.to)
-        if (!shown) continue
-        const isCopied = state.bridge?.isMissing === true
-        const message = { id: randomBytes(8).toString('hex'), at: clock(), ...answerWords(wake), state: isCopied ? 'copied' : 'waiting' }
-        await store.say(message)
-        const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-        if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
-        readState.reset()
-        if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
-      }
+      const paste = await sendWakes(done)
       if (paste !== null) return { ok: true, result: { ...done.result, paste } }
       return done
     },
@@ -1169,6 +1184,8 @@ async function main(args) {
       const checked = checkTake(body, state)
       if (!checked.ok) return checked
       const done = await workAction({ ...body, chat: checked.chat })
+      // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
+      if (body?.action === 'partner-answer') await sendWakes(done)
       // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
       // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
       // that is held by the limit or busy, as the board reads it anew now, or when the line went before.

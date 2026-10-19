@@ -2,7 +2,7 @@
 // that carries the ask's own id, refine questions as asks, the app's question form, and notes read. Made-up samples only.
 
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -51,6 +51,8 @@ test('the block of a look with a picture and a play link, in the project\'s form
 test('ask answers with that block and keeps the advice; an answer carries the ask\'s id, not the chat\'s state', async () => {
   const { dir, board, person } = await fresh()
   try {
+    // Partner answers (2026-10-19) off: the person answers it, as before.
+    await writeFile(join(dir, 'partner-answers.json'), '{"on":false}\n')
     await board({ action: 'take', id: 'B1' })
     const first = await board({ action: 'ask', of: 'B1', kind: 'decide', text: 'Thin or thick?', options: ['A thin', 'B thick'], advice: 'B', blocking: true })
     assert.equal(first.ok, true, first.why)

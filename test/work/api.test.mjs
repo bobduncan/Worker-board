@@ -126,6 +126,8 @@ test('step writes one History line on the step the chat holds', async () => {
 test('ask with Blocking yes moves the step to waiting on you; answer moves it back', async () => {
   const { dir, board, person } = await fresh()
   try {
+    // Partner answers (2026-10-19) off: the person answers it, as before.
+    await writeFile(join(dir, 'partner-answers.json'), '{"on":false}\n')
     await board({ action: 'take', id: 'B1' })
     const asked = await board({ action: 'ask', of: 'B1', kind: 'look', blocking: 'yes', text: 'Is the strip readable at a glance?', options: ['A thin', 'B thick (I advise B)'], pictures: 'pictures/strip.png' })
     assert.equal(asked.ok, true, asked.why)

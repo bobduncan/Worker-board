@@ -1406,7 +1406,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B301: when each step of the store went done, for the finished list and the board's own notes (finished.mjs).
   const doneAtOf = doneTimes(raw.work, prefix)
   // B356, the review: a board without a partner chat makes no result check, here too.
-  const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined })
+  // Partner answers (2026-10-19): the partner's card, for the asks routed to it (woken while free, handed on after 30 min).
+  const partner = advisorChat === undefined || advisorCard === null ? null : { name: advisorChat.name, state: advisorCard.state, isRunning: runningOf(advisorChat.name), idle: advisorCard.idle ?? null }
+  const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner })
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null)
@@ -1429,7 +1431,10 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
     // server carries out; empty and null while the store cannot be read.
     workFlags: (reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [] },
+    // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
+    // without a store.
+    partnerAnswers: !workOk ? null : raw.work.partnerAnswers ?? { on: true },
     // Queued steps that name no worker on the board.
     unassigned: queued.filter(step => step.worker === null || !names.includes(step.worker)).map(step => ({ ...step, why: whyNot(step, null) })),
     // B83: the newest ask to stop each worker's task, open while on its way and for a while after it arrived, so the

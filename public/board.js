@@ -2349,14 +2349,53 @@ function approveHint(need) {
 }
 // approve:end
 
+// partner-answers:start
+/**
+ * Partner answers (2026-10-19): what an ask's card says of the partner: its answer, its why and the Undo that takes it
+ * back (while it may be taken back), or the line of an ask that came to the person by the partner (handed on, or its
+ * answer taken back). Null for an ask the partner had nothing to do with.
+ */
+function partnerAnswerView(need) {
+  if (need.answer?.by === 'partner') {
+    return {
+      text: `Your partner answered: ${need.answer.text}`,
+      why: typeof need.answer.why === 'string' && need.answer.why !== '' ? `Why: ${need.answer.why}` : null,
+      undo: need.canTakeBack === true ? { id: need.workId, label: 'Undo', title: TAKE_BACK_TITLE } : null,
+    }
+  }
+  if (typeof need.routeNote === 'string' && need.routeNote !== '') return { text: need.routeNote, why: null, undo: null }
+  return null
+}
+// partner-answers:end
+
+/** Partner answers: the card's part of the partner, drawn (partnerAnswerView); none for an ask it had nothing to do with. */
+function partnerAnswerParts(need) {
+  const view = partnerAnswerView(need)
+  if (view === null) return []
+  const part = el('div', `partner-answer${need.answer?.by === 'partner' ? '' : ' is-routed'}`)
+  part.append(el('b', '', view.text))
+  if (view.why !== null) part.append(el('div', 'muted', view.why))
+  if (view.undo !== null) {
+    const undo = el('button', 'choice partner-undo', view.undo.label)
+    undo.type = 'button'
+    undo.title = view.undo.title
+    undo.dataset.takeBack = view.undo.id
+    undo.disabled = sending.has(need.id)
+    part.append(undo)
+  }
+  return [part]
+}
+
 /**
  * The part of a request that takes the answer: what was sent, or the form its kind needs. `isFolded` keeps the
  * form of a backlog step behind a button until it is opened, so the many steps stay short.
  */
 function answerPart(need, state, isFolded) {
-  const parts = []
   const answer = need.answer
-  if (answer !== null && !isLost(answer)) return [sentLine(answer, need.from)]
+  // Partner answers (2026-10-19): the partner's answer with its Undo; an ask it handed on, or taken back, says so.
+  if (answer?.by === 'partner') return [...partnerAnswerParts(need), ...(problems.has(need.id) ? [el('p', 'problem', problems.get(need.id))] : [])]
+  const parts = [...partnerAnswerParts(need)]
+  if (answer !== null && !isLost(answer)) return [...parts, sentLine(answer, need.from)]
   if (need.isClosed === true) return [el('p', 'muted', 'Closed: ticked in the backlog.')]
   if (answer !== null) parts.push(el('p', 'problem', `Your answer of ${clock(answer.at)} did not reach the chat. Send it again when the chat can take it.`))
   // The step changed since it was answered: it asks again, and says what was answered before.
@@ -3021,6 +3060,14 @@ function drawInstructions(state) {
   }
   return part
 }
+
+/** Partner answers (2026-10-19): the Undo of a partner's answer on an ask's card (the board's undo: the ask opens for the person). */
+function takeBackClick(event) {
+  const takeBack = event.target.closest('[data-take-back]')
+  if (takeBack !== null && !takeBack.disabled) sendWork({ action: 'undo', id: takeBack.dataset.takeBack }, `work:${takeBack.dataset.takeBack}`)
+}
+$('needs').addEventListener('click', takeBackClick)
+$('details').addEventListener('click', takeBackClick)
 
 // B298: the main chat's name over its instructions opens the talk with it. B299: "Read" puts a note away.
 $('needs').addEventListener('click', event => {
@@ -7908,6 +7955,26 @@ function focusView(focus, goals, can = null, ui = {}) {
   return view
 }
 
+/** Partner answers (2026-10-19): what the Undo of a partner's answer of an ask does. */
+const TAKE_BACK_TITLE = 'Take back your partner\'s answer: the question comes to you, and its chat waits for your answer'
+
+/**
+ * Partner answers (2026-10-19): the Focus page's switch, "Your partner answers detail questions", as the store keeps it
+ * (the state's `partnerAnswers`, on unless the person switched it off); null without a store.
+ */
+function partnerSwitchView(partnerAnswers) {
+  if (partnerAnswers === null || partnerAnswers === undefined) return null
+  const on = partnerAnswers.on !== false
+  return {
+    label: 'Your partner answers detail questions',
+    on,
+    isEnabled: true,
+    title: on
+      ? 'On: a worker\'s question that comes with its options or advice goes to your partner first; it answers it and lists the answer in its daily note with an Undo; questions only you can answer still come to you.'
+      : 'Off: every question comes to you, as before.',
+  }
+}
+
 /** Focus 3: at most this many of the partner's questions show under "Needs you"; the rest as "and n more". */
 const FOCUS_NEEDS_SHOWN = 3
 
@@ -7919,9 +7986,10 @@ const FOCUS_NEEDS_SHOWN = 3
 function focusNoteView(focus, allowed, why) {
   const note = focus.note ?? null
   const needs = focus.needs ?? []
+  // Partner answers (2026-10-19): a line that lists the partner's answer of an ask is taken back, not undone by the partner.
   const undo = one => (one.undoAsked
-    ? { label: 'undo asked', isEnabled: false, title: 'You asked your partner to undo this' }
-    : { label: 'Undo', isEnabled: allowed, title: allowed ? 'Ask your partner to undo this' : why })
+    ? (typeof one.ask === 'string' ? { label: 'taken back', isEnabled: false, title: 'You took your partner\'s answer back: the question came to you' } : { label: 'undo asked', isEnabled: false, title: 'You asked your partner to undo this' })
+    : { label: 'Undo', isEnabled: allowed, title: allowed ? (typeof one.ask === 'string' ? TAKE_BACK_TITLE : 'Ask your partner to undo this') : why })
   return {
     title: 'Today\'s note from your partner',
     decided: note === null ? [] : note.decided.map(one => ({ text: one.text, note: note.id, undo: undo(one) })),
@@ -8476,6 +8544,9 @@ function drawFocus(state) {
   }
   // B360: without a run on the page (or while the focus is being changed), the gathered recaps stand under it.
   if (!recapsDrawn && gatheredRecaps(state).length > 0) parts.push(focusRecapCard(state))
+  // Partner answers (2026-10-19): the switch, under everything else.
+  const toggle = partnerSwitch(state)
+  if (toggle !== null) parts.push(toggle)
   if (focusUi.note !== null) parts.splice(view.head === null ? 0 : 1, 0, el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text))
   // The box typed in keeps its words, and the cursor where it was.
   const active = document.activeElement
@@ -8492,6 +8563,24 @@ function drawFocus(state) {
     again.focus()
     again.setSelectionRange(typing.at, typing.at)
   }
+}
+
+/** Partner answers (2026-10-19): the switch drawn (partnerSwitchView), with the problem of its last change. */
+function partnerSwitch(state) {
+  const view = partnerSwitchView(state.partnerAnswers ?? null)
+  if (view === null) return null
+  const row = el('div', 'focus-partner-switch')
+  row.title = view.title
+  const label = el('label', '')
+  const box = el('input', '')
+  box.type = 'checkbox'
+  box.checked = view.on
+  box.disabled = !view.isEnabled || sending.has('partner-answers')
+  box.dataset.partnerAnswers = 'switch'
+  label.append(box, el('span', '', view.label), el('small', 'muted', view.on ? 'on: detail questions go to your partner first' : 'off: every question comes to you'))
+  row.append(label)
+  if (problems.has('partner-answers')) row.append(el('p', 'problem', problems.get('partner-answers')))
+  return row
 }
 
 /** Focus 2: one move of the page (POST /api/goals); the line after it, and the state read anew. The board's answer, or null. */
@@ -8648,6 +8737,10 @@ $('advisor-focus').addEventListener('click', event => {
   if (undo !== null && !undo.disabled) focusAct('undo', null, { note: undo.dataset.focusNote, line: undo.dataset.focusUndo })
   const answer = event.target.closest('[data-focus-answer]')
   if (answer !== null && !answer.disabled) focusAct('answer', null, { id: answer.dataset.focusAnswer, label: answer.dataset.focusLabel })
+})
+// Partner answers (2026-10-19): the switch kept in the store, as the person's change.
+$('advisor-focus').addEventListener('change', event => {
+  if (event.target.dataset?.partnerAnswers === 'switch') sendWork({ action: 'partner-answers', on: event.target.checked }, 'partner-answers')
 })
 // The words typed stay while the page is drawn anew; Enter sends a box's words, Shift+Enter makes a new line.
 $('advisor-focus').addEventListener('input', event => {

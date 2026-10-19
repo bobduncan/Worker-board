@@ -4,7 +4,7 @@
 // ask is a warning with the way to its chat, never a question. Made-up samples only.
 
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -54,6 +54,8 @@ const digger = state => state.chats.find(one => one.name === 'Digger')
 test('an ask stands under Needs your attention after the chat\'s next answer without it, and holds the chat as waiting', async () => {
   const { dir, digger: asks, build } = await garden()
   try {
+    // Partner answers (2026-10-19) off: the person answers it, as before.
+    await writeFile(join(dir, 'partner-answers.json'), '{"on":false}\n')
     await asks({ action: 'take', id: 'B1' })
     await asks({ action: 'ask', of: 'B1', kind: 'decide', blocking: true, text: 'Box or yew?', options: ['A box', 'B yew'], advice: 'B' })
     const state = await build(PLAIN)
