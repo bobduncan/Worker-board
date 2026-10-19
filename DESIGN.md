@@ -2346,7 +2346,9 @@ Picture: `art-inbox/worker-board/partner-answers/note.png`.
    person: <answer> (why: <why>). The person may still take it back.` The line `Q<n> (<asker>, B<n>): <title> →
    <answer> (<why>)` is added under "Decided for you" of the partner's newest note of the focus made today (its first
    History line's date; a note that only counted its lines counts them anew), else a new note of the day (`Today's
-   note on G<n>: ...`); without a focus, a note to the person of no goal ("Your partner's answers of <date>").
+   note on G<n>: ...`); without a focus, a note to the person of no goal ("Your partner's answers of <date>"). Known
+   limit: a daily note the partner writes later that day is the newest, so the Focus page shows that one; the earlier
+   answers keep their note (Information) and their Undo on the answered cards ("Show closed").
 5. **Handed on** (`escalate`, the partner with a why, or the board): `Route: person`, Since now, the card's line under
    `## Route` ("Your partner hands this to you: <why>"; the board's: "Your partner did not answer in 30 min: it is
    yours", "No partner chat is on the board: it is yours", "Your partner's answers are switched off: it is yours"),
