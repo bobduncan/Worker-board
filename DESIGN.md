@@ -1459,7 +1459,9 @@ and does not pretend.
   answered since that turn began. Needs your attention shows the warning "<chat> wrote questions in its chat but filed
   no ask" (kind `unfiled`), with a button to its chat: Talk to Main, the Advisor's chat on its tab, or, for a worker,
   the card's window with its answer. The app's question form is filed by the mod as before, so it counts. (B308: a
-  worker that holds a step, is not working and asked nothing at all is a hint of its own; see below.)
+  worker that holds a step, is not working and asked nothing at all is a hint of its own; see below. Warnings,
+  2026-10-19: "that turn" is the one that wrote the answer, and an open ask an item of the block asks keeps it away;
+  see "The warnings see the chat's asks".)
 - **Kept, and why**: "Note from <name>: paused for the limit until HH:MM" (the store holds no pause; the lane shows
   "Suspended"; B310: as a message or as the first line of a work note to the main chat); the closing block's "+ Done:   yes" (a card is the chat's own, not the store's: a chat that is done is
   free whatever its card says); "Note from"/"Question from" messages (the mod only notes that the worker waits for
@@ -1513,13 +1515,45 @@ said so only in prose in its chat, filed no ask and wrote no "For you" block, so
 - **The hint** (`idle hold` in `reconcile.mjs`, from the lane's `resting` in `state.mjs`): a worker (not the main chat;
   the Advisor has no lane) that holds steps taken or in progress, whose turn has ended with nothing running (no
   command or subagent it left in the background, read as `heldBy` reads it, so "Done: yes" overrules one), that is
-  not cut off or suspended, and that holds no open ask of its own, for longer than `IDLE_HOLD_MS` (5 min, in
-  `src/config.mjs`, from the later of its turn's end and its steps' Since): Needs your attention shows one line per
+  not cut off or suspended, and that holds no open ask of its own (Warnings, 2026-10-19: nor stands another chat's
+  open ask under a step it holds), for longer than `IDLE_HOLD_MS` (5 min, in `src/config.mjs`, from the later of its
+  turn's end, its steps' Since and the person's last answer to an ask of its own): Needs your attention shows one line per
   chat, "<chat> holds B269 and B280 but is not working and asked you nothing: it may wait for you" (kind `idle`), with
   the button to its answer in the card's window, as the warning that a chat filed no ask has. It counts in the number
   of Needs your attention as that warning does. It has no answered state: it goes when the chat runs again, files an
   ask, or reports. A chat whose answer ends with a "For you" block and filed no ask has that warning instead, not both.
   Nothing of the chat's words is read for it.
+
+## The warnings see the chat's asks (Warnings, 2026-10-19)
+
+Seen live at 08:24 on 2026-10-19: the person answered Q153 (Worker 2's decide on B356, not blocking, filed 00:02) and
+Q154 (Worker 4's look on B333, not blocking, filed 00:28) on the board, and Needs your attention showed at once
+"Worker 2 holds B356 but is not working and asked you nothing: it may wait for you" and "Worker 4 wrote questions in
+its chat but filed no ask", dated 00:30 and 00:28. Checked on copies of the night's store and transcripts: neither
+showed while the two asks were open; both came with the answers.
+
+- **Why "filed no ask"**: the board typed the answer to Q154 into Worker 4 (08:24:33), which opened a new turn. Until
+  the chat answers in it, the app's summary of its answer before stays current, so the board counts that turn as
+  ended, and it read the last answer (00:28, the block that asked Q154) against the start of the new turn: Q154,
+  filed in the turn that wrote the block, counted as filed before it.
+- **Why "asked you nothing"**: the answer closed Worker 2's only open ask before it had reached the chat, and the hint
+  read "no open ask" as "asked nothing".
+- **The turn that wrote the answer** (`unfiledAsk` in `state.mjs`): its start is the last opening at or before that
+  answer; one opened since has not answered yet. The warning stays away when an ask of the chat was filed at or after
+  that start, or when an open ask of its own is one an item of the block asks: the item names its id as a word of its
+  own (the work tool's "(Q154, look on B333)"), or asks the same words (`sameAsk`, as B317 files the block). The words
+  are compared in `src/work/askWords.mjs`, shared with `askForYou`.
+- **An ask's time** (`askFiledMs` in `src/work/item.mjs`): an ask gets `Filed`, the millisecond it was filed (the head
+  key after Since, as an instruction's), and every "since this turn began" reads it: the warning's `filed`
+  (`storeWaits`) and the asks B317 does not file again (`askForYou`). An older ask without it counts at the end of the
+  minute its first History line (else its Since) names, so one filed in the minute a turn began counts as filed in it.
+- **The idle hint** (`idle hold` in `reconcile.mjs`): any open ask keeps it away, blocking or not: the chat's own,
+  under its step or alone, or another chat's under a step it holds. The person's answer to an ask of the chat's own
+  starts the idle time anew (its Since, at the end of that minute): the answer is on its way, and the hint comes back
+  only when the chat has not gone on 5 minutes after it.
+- **Not changed**: a turn whose prompt has no answer yet still counts as ended while the app's summary of the answer
+  before is current (its lane says free for those seconds; seen at 08:24:38 for Worker 4).
+- Tests: `test/warningsSeeAsks.test.mjs` (the two cases with their own times).
 
 ## A chat renamed keeps its work (B313)
 
