@@ -11,7 +11,8 @@ import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
-import { ASK_KINDS, HEAD_KEYS, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
+import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
+import { askIdsIn, askKey, askWordsOf, sameAsk } from './askWords.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
@@ -534,7 +535,7 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
   const title = line(text[0], 200)
   let question = ordered({
     head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', w.role === 'person' ? '-' : w.who], ['Activity', of === null ? '-' : valueOf(of, 'Activity') ?? '-'],
-      ['Since', stamp(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? goal ?? '-' : valueOf(of, 'Id')],
+      ['Since', stamp(w.now)], ['Filed', String(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? goal ?? '-' : valueOf(of, 'Id')],
       ['Options', options.length === 0 ? '-' : options.join(' | ')], ['Advice', advice === '' ? '-' : advice], ['Via', via ?? '-']].filter(([, value]) => value !== '-')),
     sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]])]),
     problem: null,
@@ -1275,23 +1276,15 @@ async function turnEnded(body, w) {
   return { ok: true, result: { text, missed, open, changed: missed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...(pulled === undefined ? {} : { pull: pulled }), pause } }
 }
 
-const MINUTE = 60_000
 const ASK_REF = /^Q\d+$/
-/** B317: an ask's words for comparing: no links, marks of markdown, the work tool's "(Q4, decide, ...)", case or end marks. */
-const askKey = value => line(String(value ?? '').replace(/\[([^\]\n]*)\]\([^)\s]*\)/g, '$1').replace(/\((Q\d+),[^)]*\)\s*$/, '').replace(/[*_`~]/g, ''), 200)
-  .toLowerCase().replace(/[\s.?!:;,]+$/, '')
-/** B317: two asks' words are the same question: equal, or one the start of the other (a title is cut, advice added). */
-const sameAsk = (a, b) => a === b || (a.length >= 12 && b.startsWith(a)) || (b.length >= 12 && a.startsWith(b))
 /**
  * B362: whether an item's lines name an open ask of the chat's own by its id, anywhere in them, as a word of its own.
  * The review: only its own, so a new question that names another chat's ask for context is still filed.
  */
-const namesOpenAsk = (text, w) => text.some(words => [...words.matchAll(/(?<![\w-])(Q\d{1,6})(?![\w-])/g)].some(([, id]) => {
+const namesOpenAsk = (text, w) => text.some(words => askIdsIn(words).some(id => {
   const named = w.store.items.get(id)
   return named !== undefined && kindOf(named) === 'ask' && stateOf(named) === 'open' && isOwner(named, w.who, w.prefix)
 }))
-/** B317: when an ask was filed: its first History line (to the minute), else its Since. */
-const askedMs = item => sinceMs((item.sections.get('History') ?? [])[0]?.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s/)?.[1] ?? valueOf(item, 'Since'))
 
 /**
  * B317: the items of the "For you" block a chat's answer ended with (the Workers mod reads them, hooks/foryou.ts:
@@ -1303,9 +1296,9 @@ const askedMs = item => sinceMs((item.sections.get('History') ?? [])[0]?.match(/
 async function askForYou(value, since, w) {
   const items = (Array.isArray(value) ? value : []).filter(one => one !== null && typeof one === 'object' && !Array.isArray(one)).slice(0, 9)
   const all = [...w.store.items.values()]
-  const turn = Math.floor(since / MINUTE) * MINUTE
-  const known = all.filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && (stateOf(one) === 'open' || askedMs(one) >= turn))
-    .map(one => askKey((one.sections.get('Text') ?? []).find(words => words.trim() !== '') ?? valueOf(one, 'Title')))
+  // Warnings (2026-10-19): an ask's time to the millisecond (`Filed`; an older one at the end of its minute).
+  const known = all.filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && (stateOf(one) === 'open' || askFiledMs(one) >= since))
+    .map(one => askKey(askWordsOf(one)))
   const held = all.filter(one => kindOf(one) === 'step' && stateOf(one) === 'in progress' && isOwner(one, w.who, w.prefix))
   const of = held.length === 1 ? valueOf(held[0], 'Id') : null
   const asked = []

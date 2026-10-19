@@ -12,8 +12,9 @@ export const HEAD_KEYS = {
   // 2026-10-18): `Checkpoint` is the holder's last checkpoint, "<commit or none> · <next action> · <date time>".
   step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Fix of', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
   // B299: `Advice` is the option the asking chat advises; `Via` says how it was asked: form (the app's question form,
-  // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of).
-  ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Advice', 'Via', 'Queue note', 'Line'],
+  // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of). Warnings
+  // (2026-10-19): `Filed` when it was filed, to the millisecond, as an instruction's (`askFiledMs`).
+  ask: ['Id', 'Kind', 'Title', 'State', 'Owner', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Filed', 'Estimate', 'Branch', 'Pictures', 'Refined', 'Asks', 'Blocking', 'Of', 'Options', 'Advice', 'Via', 'Queue note', 'Line'],
   // B298: `Via` says where the words were typed (chat: in the chat's own box; board: on the worker board), `Missed` how
   // many of the chat's turns ended while it stood open, `Filed` when it was filed to the millisecond (review: the
   // turn's start is compared with it).
@@ -127,4 +128,22 @@ export function sinceMs(value) {
   if (found === null) return Number.NaN
   const [, y, m, d, h = 0, min = 0, sec = 0] = found
   return new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec)).getTime()
+}
+
+const MINUTE = 60_000
+const FIRST_STAMP = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s/
+
+/**
+ * Warnings (2026-10-19): when an ask was filed, for every "since this turn began" the board reads: its `Filed`, to the
+ * millisecond. An older ask without it, by its first History line (else its Since), at the end of what that wrote (a
+ * minute's last millisecond, or a second's): an ask filed in the minute a turn began counts as filed in that turn,
+ * never before it. NaN when nothing says.
+ */
+export function askFiledMs(item) {
+  const filed = valueOf(item, 'Filed')
+  if (/^\d+$/.test(filed ?? '')) return Number(filed)
+  const written = (item.sections?.get('History') ?? [])[0]?.match(FIRST_STAMP)?.[1] ?? valueOf(item, 'Since')
+  const start = sinceMs(written)
+  if (!Number.isFinite(start)) return Number.NaN
+  return start + (/:\d\d:\d\d$/.test(written) ? 1000 : MINUTE) - 1
 }

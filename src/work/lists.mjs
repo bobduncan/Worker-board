@@ -3,7 +3,8 @@
 // alone, never from a chat's words.
 
 import { sinceMs } from './api.mjs'
-import { valueOf } from './item.mjs'
+import { askKey, askWordsOf } from './askWords.mjs'
+import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -40,8 +41,10 @@ const asksOfStore = work => itemsOf(work).filter(item => valueOf(item, 'Kind') =
 /**
  * B299: who waits for the person by the store: the chats (by plain name, lower case) with an open blocking ask, and
  * those with an open ask of the app's question form. B301: `filed`, per chat when it last filed an ask of its own
- * (its first History line, else its Since): a chat that wrote questions in its chat after
- * that filed none. Empty when the store cannot be read: no chat waits by a chat's words instead.
+ * (Warnings, 2026-10-19: `askFiledMs`, to the millisecond; an older ask at the end of its minute): a chat that wrote
+ * questions in its chat after that filed none. Warnings: `open`, per chat its open asks of its own (`{ id, key }`, the
+ * key its words as `askKey` compares them), for the items of a "For you" block that ask one of them. Empty when the
+ * store cannot be read: no chat waits by a chat's words instead.
  */
 export function storeWaits(work, prefix = '') {
   const own = asksOfStore(work).filter(item => valueOf(item, 'Owner') !== null)
@@ -49,9 +52,13 @@ export function storeWaits(work, prefix = '') {
   const filed = new Map()
   for (const item of own) {
     const name = plainName(valueOf(item, 'Owner'), prefix)
-    const first = (item.sections.get('History') ?? [])[0]?.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s/)?.[1]
-    const at = sinceMs(first ?? valueOf(item, 'Since'))
+    const at = askFiledMs(item)
     if (Number.isFinite(at)) filed.set(name, Math.max(filed.get(name) ?? -Infinity, at))
+  }
+  const openOf = new Map()
+  for (const item of open) {
+    const name = plainName(valueOf(item, 'Owner'), prefix)
+    openOf.set(name, [...(openOf.get(name) ?? []), { id: valueOf(item, 'Id'), key: askKey(askWordsOf(item)) }])
   }
   return {
     blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes').map(item => plainName(valueOf(item, 'Owner'), prefix))),
@@ -59,6 +66,7 @@ export function storeWaits(work, prefix = '') {
     // B280: the chats with an open ask of their own for the person, blocking or not; a refine question is the refine's.
     asking: new Set(open.filter(item => valueOf(item, 'Via') !== 'refine').map(item => plainName(valueOf(item, 'Owner'), prefix))),
     filed,
+    open: openOf,
   }
 }
 
