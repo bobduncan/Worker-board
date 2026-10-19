@@ -2548,7 +2548,7 @@ function drawDecidedForYou(state) {
     undo.title = row.undo.title
     undo.dataset.takeBack = row.undo.id
     undo.disabled = sending.has(`work:${row.undo.id}`)
-    item.append(el('span', '', row.text), undo)
+    item.append(linkedEl('span', '', row.text), undo)
     if (problems.has(`work:${row.undo.id}`)) item.append(el('p', 'problem', problems.get(`work:${row.undo.id}`)))
     list.append(item)
   }
@@ -3147,7 +3147,8 @@ function drawNeed(need, state) {
   const top = el('header', 'need-top')
   if (isStep(need)) top.append(el('span', 'kind', kind.sign), need.step === null ? '' : el('b', '', need.step), el('span', 'tag', ASKS[need.asks] ?? 'Not sorted'), el('small', 'muted', need.activity))
   else top.append(el('span', 'kind', kind.sign), el('b', '', need.from ?? 'the board'), el('span', 'tag', storeAskParts(need)?.tag ?? kind.tag), since(need.at, state.readAt))
-  head.append(top, el('h4', '', need.title))
+  // B426: its ids and the pages it names are links in the title too
+  head.append(top, linkedEl('h4', '', need.title))
   card.append(head, ...storeAskLines(need, state))
   // B397: its ids and the pages it names are links, and an ask it points to stands inline.
   if (need.text !== '') {
@@ -8969,7 +8970,7 @@ function focusNoteCard(view) {
       undo.dataset.focusUndo = one.text
       undo.dataset.focusNote = one.note
       if (typeof one.ask === 'string') undo.dataset.focusAsk = one.ask
-      row.append(el('span', '', one.text), undo)
+      row.append(linkedEl('span', '', one.text), undo)
       list.append(row)
     }
     card.append(list)
@@ -8981,7 +8982,7 @@ function focusNoteCard(view) {
     card.append(el('h4', '', 'Needs you'))
     for (const ask of needs) {
       const box = el('div', 'focus-ask')
-      box.append(el('b', '', ask.title))
+      box.append(linkedEl('b', '', ask.title))
       if (ask.options.length > 0) {
         const options = el('div', 'focus-ask-options')
         for (const option of ask.options) {
@@ -9865,13 +9866,9 @@ function linkedWords(text, state) {
     if (typeof piece === 'string') return piece
     const link = el('button', 'ask-link', piece.ask ?? piece.step ?? piece.path)
     link.type = 'button'
-    if (piece.isPicture === true) {
-      // A picture in the picture popup, as a worker's #picture= link shows it.
-      link.dataset.zoom = piece.path
-      link.dataset.caption = piece.path
-      link.title = `Show ${piece.path}`
-    } else if (piece.path !== undefined) {
-      // A page of the game's folder, else of the project's: read-only in a window.
+    if (piece.path !== undefined) {
+      // A page of the game's folder, else of the project's: read-only in a window, a picture in the picture popup
+      // (B426: wherever it stands in the project, not only in the picture folders).
       link.dataset.gameFile = piece.path
       link.dataset.projectFile = piece.path
       link.title = `Open ${piece.path}`
@@ -9881,6 +9878,13 @@ function linkedWords(text, state) {
     }
     return link
   })
+}
+
+/** B426: a node of `tag` holding text whose ids and pages are links (linkedWords, with the board as it is now). */
+function linkedEl(tag, className, text) {
+  const node = el(tag, className)
+  node.append(...linkedWords(text, board))
+  return node
 }
 
 /** B397: the ask an ask points to, inline: its question, its words and its options, so one window holds it all. */
@@ -9910,6 +9914,12 @@ function pointedAskBox(need, state) {
 }
 
 document.addEventListener('click', event => {
+  // B426: a page link in a card's title opens the page, not the card's window as well
+  const page = event.target.closest('.ask-link[data-game-file]')
+  if (page !== null) {
+    event.stopPropagation()
+    return openGameFile(page.dataset.gameFile, page.dataset.projectFile ?? null)
+  }
   const link = event.target.closest('[data-ask-link]')
   if (link === null || board === null) return
   event.stopPropagation()
