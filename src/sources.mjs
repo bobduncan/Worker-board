@@ -165,5 +165,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     branches: await readBranches().catch(() => null),
     // When the game plan was last written.
     adviceAt: plan === null ? null : await stat(plan).then(file => file.mtimeMs, () => null),
+    // Vision (2026-10-19): when the product plan was last written: a word to the partner about it is done once it changed.
+    productPlanAt: productPlan === null ? null : await stat(productPlan).then(file => file.mtimeMs, () => null),
   }
 }

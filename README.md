@@ -161,7 +161,9 @@ and the briefings for the main chat and the workers.
   project's chats and everything they started run below normal priority) or Strong (idle priority, on the higher
   half of the cores); Off gives them normal priority and all cores back. The board keeps applying it at every refresh,
   also to what the chats start later, and remembers it in `data\cpu.json`. Only the project's chats: never the Claude
-  app itself or another program.
+  app itself or another program, and never the board itself, its keeper or what the board starts (the game you
+  play), even when a chat started the board; at its start the board gives itself normal priority and all cores back.
+  "The higher half" counts all of the PC's cores, not the ones the board may use.
 - "✕ Remove" on a worker's lane asks the main chat to close that worker; a worker that is not free gets a warning
   first, which says what would stop.
 - The evidence picture (B357), the one picture a check shows you: `node tools/evidence.mjs --step B314 --title "..."

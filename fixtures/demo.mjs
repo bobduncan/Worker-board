@@ -178,6 +178,67 @@ Pitch: Push enemies into lava. Win a fight, grow stronger, until your party fall
 - Point: **Art scores 75+** against its reference
 - Point: **Checked by someone else** than who built it
 
+## Features
+
+### F1 · Battles with knockback
+
+- Mark: must (from game-vision.md, 2026-10-10)
+- Complex: no
+- Built: yes
+- Picture: art-inbox/jump/jump-arc.png · a fight
+- Point: **Push** enemies into lava and each other
+
+### F2 · A shop that sells
+
+- Mark: must (from game-plan.md, 2026-10-14)
+- Complex: no
+- Built: partly
+- Picture: art-inbox/settings/settings-screen.png · the shop today
+- Point: **Gold** from fights buys potions and charms
+
+### F3 · Unlocks between runs
+
+- Mark: ? (partner, 2026-10-19)
+- Complex: yes · what a run starts with is read from a save across runs
+- Built: no
+- Point: **Something kept** after the party falls
+
+### F4 · More heroes to pick
+
+- Mark: later (package B, 2026-10-19)
+- Complex: yes · a party of any heroes changes every map's start and the bot
+- Built: no
+
+## Goals preset
+
+### M1 · The loop is fun
+
+#### S1 · Five harder fights and a boss
+
+- State: proposed
+- Done when: a run has five fights that get harder, and the boss can cost you a hero
+- Serves: P2
+- Picture: art-inbox/jump/jump-arc.png · a fight today
+- Sub: Three new enemies, one trouble each
+- Sub: The boss on its own ground
+- Goal: G2
+
+#### S2 · Two runs and your verdict
+
+- State: confirmed (you, 2026-10-19)
+- Done when: you played two whole runs and said whether it is fun
+- Serves: P7
+
+### M2 · Version 1, polished
+
+#### S3 · A shop that sells
+
+- State: proposed
+- Done when: every visit offers goods you can buy with the run's gold
+- Serves: P2, P3
+- Picture: art-inbox/settings/settings-screen.png · the shop today
+- Sub: Goods for both heroes
+
 ## The log
 
 - hit P3: the Ballista's colours taken from the units' reference sheet
