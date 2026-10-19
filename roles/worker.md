@@ -43,6 +43,16 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   new project gets it as its own, B320). The board reads your answer's closing block
   ("+ Done:   yes": you are free, see `protocol.md`), never its "For you" block as questions.
 
+## When your step does not say
+
+A step never says everything. When you must decide something it leaves open, walk up before you guess: the step's
+agreed points, its goal in the goal map (`.claude/goals.md`: its Vibe and Done when), the product plan's answer that
+goal serves (`Serves: P<n>`; the plan is `docs/product-plan.md` in the repository, unless the briefing names another
+place), the game's vision. Decide from the first level that answers, and log one line with `work note` to main, of
+your step: `Plan hit P3: <what you decided>`. When no level answers it: decide as the vision's spirit says and log
+`Plan gap: <what the plan does not say>`. A choice that changes a goal is an ask (`work ask`, kind decide), as always.
+The partner reads these lines at a milestone's end; they decide which planning questions the user is asked.
+
 ## Several workers at once: stay in your lane
 
 The main chat gives two workers tasks at the same time only when the tasks do not touch the same things. Every
