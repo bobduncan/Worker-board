@@ -216,7 +216,8 @@ point says which step it fixes.
 B358: a goal is ticked only after your partner re-checked it against its Done when and its vibe. Ticking it on the
 Goals part, or Yes to "Is the vibe there?", asks for that re-check ("Your partner re-checks it…"); a passed one ticks
 it and leaves you a recap, a failed one names the gap and the attempt under the goal while your partner adds the steps
-that close it. You may still tick it after a failed re-check: that overturn is written under the goal.
+that close it. While the re-check runs, a click on the dot asks your partner again, and a second click ticks it
+without the re-check: that overturn is written under the goal. **Take the re-check back** leaves the goal open.
 
 The other parts: **Next milestone** (the way to the next milestone, drawn from the goal map: the first
 milestone of the game plan in it that is not done, its sub-goals as the row, the milestone's own Done when as the

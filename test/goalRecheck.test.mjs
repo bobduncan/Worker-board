@@ -96,12 +96,12 @@ test('a tick on the Goals part asks the partner for the re-check, once; without 
 
 test('a passed re-check ticks the goal, clears the focus and takes the asked line away; a failed one keeps it open as an attempt', async () => {
   const fs = fakeFs({ [MAP]: latin(GOALS) })
-  await focusMove({ command: 'vibe-there-yes', id: 'G2' }, ctx(fs, { allDone: true }))
+  await focusMove({ command: 'goal-done', id: 'G2' }, ctx(fs))
   const failed = await goalChecked({ id: 'G2', verdict: 'failed', line: 'failed · 1 of 2 points pass · gap: nobody sat down unasked · evidence pictures/g2/evidence.png', by: 'Partner' }, ctx(fs))
   assert.deepEqual(failed.result, { id: 'G2', title: 'Benches that feel like home', ticked: false, attempts: 1 })
   let goal = mapOf(fs).byId.get('G2')
   assert.deepEqual([goal.state, goal.recheckAsked, goal.rechecks.at(-1).verdict, mapOf(fs).focus], ['now', null, 'failed', 'G2'])
-  await focusMove({ command: 'vibe-there-yes', id: 'G2' }, ctx(fs, { allDone: true }))
+  await focusMove({ command: 'goal-done', id: 'G2' }, ctx(fs))
   const passed = await goalChecked({ id: 'G2', verdict: 'passed', line: 'passed · 2 of 2 points pass · evidence pictures/g2/evidence.png', by: 'Partner' }, ctx(fs))
   assert.deepEqual(passed.result, { id: 'G2', title: 'Benches that feel like home', ticked: true, attempts: 1 })
   goal = mapOf(fs).byId.get('G2')
@@ -110,14 +110,42 @@ test('a passed re-check ticks the goal, clears the focus and takes the asked lin
   assert.equal((await goalChecked({ id: 'G2', verdict: 'passed', line: 'passed', by: 'Partner' }, ctx(fs))).status, 409)
 })
 
-test('after a failed re-check the person\'s tick stands: the goal is ticked, the overturn written under it', async () => {
+test('the review: a tick after a failed re-check asks a new one; the person\'s tick without it is their second click, an overturn', async () => {
   const fs = fakeFs({ [MAP]: latin(GOALS) })
   await focusMove({ command: 'goal-done', id: 'G1' }, ctx(fs))
   await goalChecked({ id: 'G1', verdict: 'failed', line: 'failed · 0 of 1 points pass · gap: few visitors', by: 'Partner' }, ctx(fs))
-  const overturned = await focusMove({ command: 'goal-done', id: 'G1' }, ctx(fs))
+  const overturned = await focusMove({ command: 'goal-done', id: 'G1', overturn: true }, ctx(fs))
   assert.deepEqual([overturned.ok, overturned.words, overturned.result], [true, null, { id: 'G1', overturned: true }])
   const goal = mapOf(fs).byId.get('G1')
   assert.deepEqual([goal.state, goal.overturned], ['done', ['ticked by you after the re-check failed']])
+  // Another goal: after a failed re-check a plain tick asks a new one; while it is open a tick asks again (once a
+  // minute), and the second click ticks it before the re-check came.
+  const other = fakeFs({ [MAP]: latin(GOALS) })
+  await focusMove({ command: 'goal-done', id: 'G1' }, ctx(other))
+  await goalChecked({ id: 'G1', verdict: 'failed', line: 'failed · 0 of 1 points pass · gap: few visitors', by: 'Partner' }, ctx(other))
+  const anew = await focusMove({ command: 'goal-done', id: 'G1' }, ctx(other))
+  assert.deepEqual([anew.result, anew.words.command], [{ id: 'G1', recheck: 'asked' }, 'goal-recheck'])
+  const same = await focusMove({ command: 'goal-done', id: 'G1' }, ctx(other))
+  assert.deepEqual([same.result, same.words], [{ id: 'G1', recheck: 'asked again', unchanged: true }, null])
+  const later = await focusMove({ command: 'goal-done', id: 'G1' }, ctx(other, { now: NOW + 5 * 60_000 }))
+  assert.deepEqual([later.result, later.words.command], [{ id: 'G1', recheck: 'asked again' }, 'goal-recheck'])
+  await focusMove({ command: 'goal-done', id: 'G1', overturn: true }, ctx(other))
+  const ticked = mapOf(other).byId.get('G1')
+  assert.deepEqual([ticked.state, ticked.overturned, ticked.recheckAsked], ['done', ['ticked by you before its re-check came'], null])
+})
+
+test('the review: a re-check taken back is not filed; one that waits for the person stays asked', async () => {
+  const { editGoals } = await import('../src/goalsWrite.mjs')
+  const fs = fakeFs({ [MAP]: latin(GOALS) })
+  await focusMove({ command: 'goal-done', id: 'G1' }, ctx(fs))
+  await goalChecked({ id: 'G1', verdict: 'waits for you', line: 'waits for you · 0 of 1 points pass · for you: is it busy enough?', by: 'Partner' }, ctx(fs))
+  assert.equal(mapOf(fs).byId.get('G1').recheckAsked, '2026-10-19 09:00')
+  const back = await editGoals({ command: 'line', id: 'G1', name: 'Recheck asked', value: '' }, { canWrite: true, file: MAP, historyDir: 'D:/Work/p/history', now: NOW, fs })
+  assert.equal(back.ok, true, back.why)
+  assert.equal(mapOf(fs).byId.get('G1').recheckAsked, null)
+  assert.equal((await editGoals({ command: 'line', id: 'G1', name: 'Recheck asked', value: 'now' }, { canWrite: true, file: MAP, historyDir: 'D:/Work/p/history', now: NOW, fs })).status, 400)
+  const late = await goalChecked({ id: 'G1', verdict: 'passed', line: 'passed · 1 of 1 points pass', by: 'Partner' }, ctx(fs))
+  assert.deepEqual([late.status, mapOf(fs).byId.get('G1').state], [409, 'now'])
 })
 
 const ROLES = { Keeper: 'main', Partner: 'advisor', Lamplighter: 'worker' }
@@ -153,7 +181,7 @@ test('the partner files the re-check with checked of a goal; a pass gives the pe
 test('the board routes a tick on the Goals part through the re-check while a partner is on it, and the work tool\'s goal check into the map', async () => {
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  assert.match(server, /if \(body\?\.command === 'state' && body\?\.state === 'done' && \(\(await readState\(\)\)\.advisor \?\? null\) !== null\) return focusNow\(\{ command: 'goal-done', id: body\.id \}\)/)
+  assert.match(server, /if \(body\?\.command === 'state' && body\?\.state === 'done' && \(\(await readState\(\)\)\.advisor \?\? null\) !== null\) return focusNow\(\{ command: 'goal-done', id: body\.id, overturn: body\.overturn === true \}\)/)
   assert.match(server, /goalChecked: async body => \{\n\s+const done = await goalChecked\(body, \{/)
 })
 
@@ -184,5 +212,8 @@ test('the pages: the Goals part names the re-check and every outcome under a goa
   const gap = JSON.parse(JSON.stringify(page.focusView({ ...focus, recheckAsked: null, lastRecheck: { verdict: 'failed', summary: '1 of 2 points pass', gap: 'the gate path is dark' }, attempts: 1 }, null, { canWrite: true, whyNot: null })))
   assert.deepEqual(gap.recheck, { tone: 'failed', title: 'The re-check found a gap (attempt 1)', text: '1 of 2 points pass; the gap: the gate path is dark. Your partner makes the steps that close it.' })
   assert.notEqual(gap.vibeThere, null)
-  assert.match(script, /goalTickSaid\(await sendGoals\(\{ command: 'state', id, state: next \}\)\)/)
+  // The tick goes through goalTick: a second click while the re-check is open ticks it without (an overturn).
+  assert.match(script, /if \(next === 'done'\) return goalTick\(id\)/)
+  assert.match(script, /if \(isOpen && isConfirmed\('overturn', id\)\) \{\n\s+goalsUi\.confirm = null\n\s+return goalTickSaid\(await sendGoals\(\{ command: 'state', id, state: 'done', overturn: true \}\)\)/)
+  assert.match(script, /if \(tool === 'recheck-back'\) return sendGoals\(\{ command: 'line', id: focus, name: 'Recheck asked', value: '' \}\)/)
 })

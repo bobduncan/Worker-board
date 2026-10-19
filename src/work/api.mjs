@@ -854,12 +854,14 @@ async function goalCheck(body, w) {
   const read = parsePoints(body.points)
   if (!read.ok) return refuse(400, read.why)
   const score = line(body.score, 60)
-  const { points } = read
+  // The review: a point's own " · " would split the goal map's line.
+  const points = read.points.map(one => ({ ...one, text: one.text.replace(/\s*·\s*/g, ' - ') }))
   const failed = points.filter(one => one.verdict === 'fail').map(one => one.text)
   const judged = points.filter(one => one.verdict === 'ask').map(one => one.text)
   const summary = `${points.filter(one => one.verdict === 'pass').length} of ${points.length} points pass${score === '' ? '' : `, score ${score}`}`
   const verdict = failed.length > 0 ? 'failed' : judged.length > 0 ? 'waits for you' : 'passed'
-  const tail = failed.length > 0 ? ` · gap: ${failed.join('; ')}` : judged.length > 0 ? ` · for you: ${judged.join('; ')}` : ''
+  // The review: the gap is cut, never the evidence after it.
+  const tail = failed.length > 0 ? ` · gap: ${failed.join('; ').slice(0, 400)}` : judged.length > 0 ? ` · for you: ${judged.join('; ').slice(0, 400)}` : ''
   const done = await w.goalChecked({ id, verdict, line: `${verdict} · ${summary}${tail} · evidence ${evidence}`, by: w.who })
   if (!done.ok) return done
   const { ticked, title, attempts } = done.result

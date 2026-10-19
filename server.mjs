@@ -1014,7 +1014,7 @@ async function main(args) {
       if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
       if (body?.command === 'note-undo') return undoNow(body)
       // B358: a goal ticked on the Goals part gets its re-check by the partner first, while a partner is on the board.
-      if (body?.command === 'state' && body?.state === 'done' && ((await readState()).advisor ?? null) !== null) return focusNow({ command: 'goal-done', id: body.id })
+      if (body?.command === 'state' && body?.state === 'done' && ((await readState()).advisor ?? null) !== null) return focusNow({ command: 'goal-done', id: body.id, overturn: body.overturn === true })
       const done = await editGoals(body, {
         canWrite: writesMap,
         file: projectFile(config, 'goals'),

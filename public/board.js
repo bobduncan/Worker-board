@@ -4901,8 +4901,9 @@ function goalFrameLine(node) {
 
 /** B358: a goal's re-check in a few words: asked, or its last outcome with the attempts so far; null without one. */
 function goalRecheckLine(node) {
-  if ((node.recheckAsked ?? null) !== null) return 'your partner re-checks it'
   const last = (node.rechecks ?? []).at(-1)
+  // A re-check that waits for the person stays asked: its last outcome says so.
+  if ((node.recheckAsked ?? null) !== null && !(last?.verdict === 'waits for you' && last.at >= node.recheckAsked)) return 'your partner re-checks it'
   if (last === undefined) return null
   const attempts = (node.rechecks ?? []).filter(one => one.verdict === 'failed').length
   if (last.verdict === 'passed') return `re-checked: ${last.summary}`
@@ -5456,6 +5457,8 @@ function drawGoals(state) {
       if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Ask the Advisor…', { goalTool: 'ask' }), tools.children[1] ?? null)
       // B259: think it through with the Advisor, one question at a time, on the Brainstorm part.
       if ((state.advisor ?? null) !== null) tools.insertBefore(goalButton('goals-tool is-ask', 'Brainstorm this', { goalTool: 'brainstorm' }), tools.children[2] ?? null)
+      // B358, the review: a re-check that is asked can be taken back; the goal stays open.
+      if ((focus.recheckAsked ?? null) !== null && focus.state !== 'done') tools.append(goalButton('goals-tool', 'Take the re-check back', { goalTool: 'recheck-back' }))
       // B354: a goal without a Done when is not ticked and not picked as the focus: the partner is asked to write one.
       // The review: also a goal of the game plan, whose line the partner takes from its milestone in the plan.
       if ((state.advisor ?? null) !== null && focus.state !== 'done' && !hasDoneWhenLine(focus)) {
@@ -6115,7 +6118,7 @@ $('goals-outline').addEventListener('click', event => {
     }
     goalsUi.confirm = null
     close()
-    return sendGoals({ command: 'state', id, state: 'done' }).then(goalTickSaid)
+    return goalTick(id)
   }
   if (name === 'delete' || name === 'dissolve') {
     if (!isConfirmed(name, id)) {
@@ -6186,7 +6189,8 @@ async function sendGoals(body) {
   // A change that changed nothing is nothing to undo. B258: an ask and a read mark are no change undo takes back, and
   // after them the map no longer reads as the changes before left it, so those cannot be undone either.
   // B354: a word to the partner (done-when) changes nothing in the map: nothing to count for undo.
-  if (result !== null && result.unchanged !== true && body.command !== 'done-when') goalsUi.undoable = body.command === 'ask' || body.command === 'read' ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
+  // B358, the review: a re-check asked or an overturn is no change the page's undo takes back.
+  if (result !== null && result.unchanged !== true && body.command !== 'done-when' && result.recheck === undefined && result.overturned !== true) goalsUi.undoable = body.command === 'ask' || body.command === 'read' ? 0 : body.command === 'undo' ? Math.max(0, goalsUi.undoable - 1) : Math.min(20, goalsUi.undoable + 1)
   // Changed or refused, the map is read anew (a refusal is often a change made elsewhere in between), and the next
   // key works on the map as it now is.
   await read()
@@ -6245,9 +6249,29 @@ async function goalsLink(target) {
 
 /** B358: what a tick on the Goals part did when it did not tick at once: the partner's re-check asked, or an overturn. */
 function goalTickSaid(result) {
-  if (result?.recheck === 'asked') goalsSay('Your partner re-checks it against its Done when first: it gets its tick once that passed.', 'ok')
-  else if (result?.overturned === true) goalsSay('Ticked by you after its re-check failed: the overturn is written under the goal.', 'ok')
+  // The review: without the Workers mod the word is put on the clipboard to paste, as every word to the partner.
+  showPaste(result?.paste ?? null)
+  const copied = result?.paste ? ' Copied: paste it into your partner’s chat.' : ''
+  if (result?.recheck === 'asked') goalsSay(`Your partner re-checks it against its Done when first: it gets its tick once that passed.${copied}`, 'ok')
+  else if (result?.recheck === 'asked again') goalsSay(`Your partner is asked again for its re-check. Click again to tick it without the re-check.${copied}`, 'ok')
+  else if (result?.overturned === true) goalsSay('Ticked by you without a passed re-check: the overturn is written under the goal.', 'ok')
   return result
+}
+
+/**
+ * B358: a tick of a goal on the Goals part: its re-check is asked first. While the re-check is open, a click asks the
+ * partner again, and a second click soon after ticks it without the re-check (an overturn, written under the goal).
+ */
+async function goalTick(id) {
+  const node = board?.goals ? goalById(board.goals, id) : null
+  const isOpen = (node?.recheckAsked ?? null) !== null
+  if (isOpen && isConfirmed('overturn', id)) {
+    goalsUi.confirm = null
+    return goalTickSaid(await sendGoals({ command: 'state', id, state: 'done', overturn: true }))
+  }
+  const result = await sendGoals({ command: 'state', id, state: 'done' })
+  if (result?.recheck === 'asked again') goalsAsk('overturn', id)
+  return goalTickSaid(result)
 }
 
 /** The dot: the next state; done with open goals inside asks once. */
@@ -6261,7 +6285,8 @@ async function goalsCycle(id) {
     return redrawGoals()
   }
   goalsUi.confirm = null
-  goalTickSaid(await sendGoals({ command: 'state', id, state: next }))
+  if (next === 'done') return goalTick(id)
+  await sendGoals({ command: 'state', id, state: next })
 }
 
 async function goalsMove(id, target) {
@@ -7076,6 +7101,7 @@ $('goals-frame').addEventListener('click', event => {
   if (tool === 'brainstorm') return openBrainstorm(focus)
   // B354: the partner is asked to write the goal's Done when; the map itself is not changed.
   // The review: without the Workers mod the word is put on the clipboard to paste, as every word to the partner.
+  if (tool === 'recheck-back') return sendGoals({ command: 'line', id: focus, name: 'Recheck asked', value: '' }).then(done => { if (done !== null) goalsSay('The re-check is taken back: the goal stays open.', 'ok') })
   if (tool === 'done-when') {
     return sendGoals({ command: 'done-when', id: focus }).then(done => {
       if (done === null) return
@@ -7343,7 +7369,8 @@ function focusCan(state) {
  * partner closes with follow-up steps, or points for the person. Null without one, or after a passed one.
  */
 function focusRecheckView(focus) {
-  if ((focus.recheckAsked ?? null) !== null) return { tone: 'asked', title: 'Your partner re-checks it', text: `Against its Done when and its vibe, with the steps' evidence: ${focus.id} gets its tick once that passed.` }
+  const waits = focus.lastRecheck?.verdict === 'waits for you' && (focus.recheckAsked === null || focus.lastRecheck.at >= focus.recheckAsked)
+  if ((focus.recheckAsked ?? null) !== null && !waits) return { tone: 'asked', title: 'Your partner re-checks it', text: `Against its Done when and its vibe, with the steps' evidence: ${focus.id} gets its tick once that passed.` }
   const last = focus.lastRecheck ?? null
   if (last === null || last.verdict === 'passed') return null
   if (last.verdict === 'waits for you') return { tone: 'waits', title: 'The re-check waits for you', text: `${last.summary}; for you to judge: ${last.gap ?? 'see the questions from your partner'}.` }
@@ -8108,7 +8135,7 @@ async function focusAct(act, goal = null, extra = null) {
       else if (await sendFocus({ command: 'talk', id: focus.id, text: words('bar') }, 'Sent to your partner, in the talk about this goal.') !== null) focusUi.words.bar = ''
     }
     // Focus 3: the run's moves: the vibe is there; Undo of a decided line; an answer to the partner's question.
-    else if (act === 'vibe-there-yes' && focus !== null) await sendFocus({ command: 'vibe-there-yes', id: focus.id }, 'The goal is done. Your partner asks for your next focus.')
+    else if (act === 'vibe-there-yes' && focus !== null) await sendFocus({ command: 'vibe-there-yes', id: focus.id }, 'Your partner re-checks it against its Done when and its vibe: it gets its tick once that passed.')
     else if (act === 'undo' && focus !== null && extra !== null) await sendFocus({ command: 'note-undo', id: focus.id, note: extra.note, line: extra.line }, 'Your partner is asked to undo it.')
     else if (act === 'answer' && extra !== null) await focusAnswerAsk(extra.id, extra.label)
   } finally {

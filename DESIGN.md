@@ -2233,6 +2233,12 @@ automatically create follow up steps".
    Focus run shows "Your partner re-checks it" in place of "Is the vibe there?", or the gap it found with the attempt.
 5. Not in it: the two guards (the next step), the recap's own look; no change to the Workers mod (`checked` takes a
    goal's id).
+6. The review's findings: a tick after a failed re-check asks a new one; the person's tick without a passed re-check
+   is their second click while one is open (`overturn`), written "before its re-check came" or "after the re-check
+   failed"; a tick while it is open types the word again, once a minute at most, so a re-check never stays stuck; the
+   Goals part can take a re-check back (its line removed), and `goalChecked` then refuses a late outcome; one that waits
+   for the person stays asked; without the Workers mod the word is put on the clipboard; Undo does not count a re-check
+   asked or an overturn; a point's " · " and a long gap no longer break the line.
 
 ## What it does not do
 

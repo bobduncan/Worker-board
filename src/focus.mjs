@@ -97,7 +97,7 @@ async function move(body, ctx) {
   if (!isId(body.id)) return refuse(400, 'Name the goal by its id (G12).')
   if (command === 'done-when') return askDoneWhen(parseGoals(text).byId.get(body.id), ctx)
   // B358: the person's tick on the Goals part, routed here by the board while a partner is on it.
-  if (command === 'goal-done') return goalDone(parseGoals(text).byId.get(body.id), ctx, goalsAt)
+  if (command === 'goal-done') return goalDone(parseGoals(text).byId.get(body.id), ctx, goalsAt, body.overturn === true)
   const node = parseGoals(text).byId.get(body.id)
   if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt, parseGoals(text).focus)
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
@@ -277,8 +277,9 @@ function askDoneWhen(node, ctx) {
 
 /**
  * Focus 3 (spec 2026-10-18, section 3): the person's answer to "Is the vibe there?", once every part is done
- * (`ctx.allDone`, from the store). Yes ticks the goal and clears `Focus:`, once, and types `vibe there: yes`; No (with
- * the person's words) takes `How agreed` away, so the partner proposes the how anew, and types `vibe there: no`.
+ * (`ctx.allDone`, from the store). B358: Yes asks the partner for the goal's re-check (askRecheck); its pass ticks the
+ * goal and clears `Focus:`. No (with the person's words) takes `How agreed` away, so the partner proposes the how anew,
+ * and types `vibe there: no`.
  */
 async function vibeThere(command, node, words, ctx, goalsAt, say) {
   if (focusStage(node) !== 'run') return refuse(409, command === 'vibe-there-no' && node.vibeAgreed !== null ? 'The how is open again already.' : 'The how is not agreed: there is nothing to look at yet.')
@@ -294,14 +295,11 @@ async function vibeThere(command, node, words, ctx, goalsAt, say) {
     const now = map.byId.get(node.id)
     if (now === undefined) return { ok: false, why: 'gone' }
     wrote = map.focus === node.id && focusStage(now) === 'run'
-    if (!wrote) return { ok: false, why: 'late' }
-    if (command === 'vibe-there-no') return reopenHow(text, node.id)
-    const ticked = setGoalState(text, node.id, 'done')
-    return ticked.ok ? setFocus(ticked.text, null) : ticked
+    return wrote ? reopenHow(text, node.id) : { ok: false, why: 'late' }
   }, goalsAt)
   if (!wrote) return { ok: true, result: { unchanged: true }, words: null }
   if (!done.ok) return failed(done.why)
-  return { ok: true, result: {}, words: await say(command, command === 'vibe-there-no' ? words : null) }
+  return { ok: true, result: {}, words: await say(command, words) }
 }
 
 /** B358: whether a goal's re-check was asked and has no outcome yet. */
@@ -312,22 +310,31 @@ const isRecheckOpen = node => node.recheckAsked !== null && node.recheckAsked !=
  * a Done when gets its re-check first (askRecheck); after a failed re-check the person's tick stands, written under the
  * goal as an overturn. Refused without a Done when (B354).
  */
-async function goalDone(node, ctx, goalsAt) {
+async function goalDone(node, ctx, goalsAt, isOverturn = false) {
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
   if (node.state === 'done') return { ok: true, result: { unchanged: true }, words: null }
   if (!hasDoneWhen(node)) return refuse(409, `${node.id} gets its tick only with a Done when that says how you check it: write it with "Done when…", or ask your partner to.`)
-  if (isRecheckOpen(node)) return { ok: true, result: { id: node.id, recheck: 'asked', unchanged: true }, words: null }
-  if (node.rechecks.at(-1)?.verdict !== 'failed') return askRecheck(node, ctx, goalsAt)
+  // The review: the person's tick without the re-check only on their second click (`overturn`), written under the goal.
+  if (isOverturn) return overturnTick(node, ctx, goalsAt)
+  // The review: a tick while the re-check is open asks the partner again, so a re-check that never came is not stuck.
+  return askRecheck(node, ctx, goalsAt, isRecheckOpen(node))
+}
+
+/** B358: the person's tick without a passed re-check: ticked, the overturn written under the goal, the focus cleared. */
+async function overturnTick(node, ctx, goalsAt) {
   let late = false
+  let why = 'without its re-check'
   const done = await changeGoalsFile(text => {
     const map = parseGoals(text)
     const now = map.byId.get(node.id)
     if (now === undefined) return { ok: false, why: 'gone' }
-    late = now.state === 'done' || isRecheckOpen(now)
+    late = now.state === 'done'
     if (late) return { ok: false, why: 'late' }
+    why = isRecheckOpen(now) ? 'before its re-check came' : now.rechecks.at(-1)?.verdict === 'failed' ? 'after the re-check failed' : 'without its re-check'
     const ticked = setGoalState(text, node.id, 'done')
-    if (!ticked.ok) return ticked
-    const noted = addGoalLine(ticked.text, node.id, `Overturned (${minuteOf(ctx.now)}): ticked by you after the re-check failed`)
+    const cleared = ticked.ok ? setGoalLine(ticked.text, node.id, 'Recheck asked', '') : ticked
+    if (!cleared.ok) return cleared
+    const noted = addGoalLine(cleared.text, node.id, `Overturned (${minuteOf(ctx.now)}): ticked by you ${why}`)
     return noted.ok && map.focus === node.id ? setFocus(noted.text, null) : noted
   }, goalsAt)
   if (late) return { ok: true, result: { unchanged: true }, words: null }
@@ -338,17 +345,20 @@ async function goalDone(node, ctx, goalsAt) {
  * B358: the partner is asked to re-check the goal against its Done when and its vibe before its tick: `Recheck
  * asked: <date time>` under it (once), and the word `goal re-check:` to the partner.
  */
-async function askRecheck(node, ctx, goalsAt) {
+async function askRecheck(node, ctx, goalsAt, isAgain = false) {
   let wrote = false
+  const at = minuteOf(ctx.now)
   const done = await changeGoalsFile(text => {
     const now = parseGoals(text).byId.get(node.id)
     if (now === undefined) return { ok: false, why: 'gone' }
-    wrote = now.state !== 'done' && !isRecheckOpen(now)
-    return wrote ? setGoalLine(text, node.id, 'Recheck asked', minuteOf(ctx.now)) : { ok: false, why: 'late' }
+    // Once a minute at most: a double click types one word.
+    wrote = now.state !== 'done' && (isAgain ? now.recheckAsked !== at : !isRecheckOpen(now))
+    return wrote ? setGoalLine(text, node.id, 'Recheck asked', at) : { ok: false, why: 'late' }
   }, goalsAt)
-  if (!wrote) return { ok: true, result: { id: node.id, recheck: 'asked', unchanged: true }, words: null }
+  const asked = isAgain ? 'asked again' : 'asked'
+  if (!wrote) return { ok: true, result: { id: node.id, recheck: asked, unchanged: true }, words: null }
   if (!done.ok) return failed(done.why)
-  return { ok: true, result: { id: node.id, recheck: 'asked' }, words: focusWords('goal-recheck', { to: ctx.partner.name, goal: node, job: ctx.job }) }
+  return { ok: true, result: { id: node.id, recheck: asked }, words: focusWords('goal-recheck', { to: ctx.partner.name, goal: node, job: ctx.job }) }
 }
 
 /**
@@ -374,16 +384,21 @@ async function recheckDone(body, ctx) {
     const now = map.byId.get(body.id)
     if (now === undefined) return { ok: false, why: 'gone' }
     if (now.state === 'done') return { ok: false, why: 'ticked' }
+    // The review: only a re-check that is asked (the person may have taken it back) is filed.
+    if (!isRecheckOpen(now)) return { ok: false, why: 'notAsked' }
     title = now.title
     attempts = now.rechecks.filter(one => one.verdict === 'failed').length + (body.verdict === 'failed' ? 1 : 0)
-    const lined = addGoalLine(text, body.id, `Rechecked (${minuteOf(ctx.now)}, ${oneLine(body.by, 60)}): ${oneLine(body.line, 500)}`)
+    const lined = addGoalLine(text, body.id, `Rechecked (${minuteOf(ctx.now)}, ${oneLine(body.by, 60).replace(/[(),]/g, ' ').trim()}): ${oneLine(body.line, 900)}`)
     if (!lined.ok) return lined
+    // Waiting for the person, the re-check stays asked: the partner files it again once they judged.
+    if (body.verdict === 'waits for you') return lined
     const cleared = setGoalLine(lined.text, body.id, 'Recheck asked', '')
     if (!cleared.ok || body.verdict !== 'passed') return cleared
     const ticked = setGoalState(cleared.text, body.id, 'done')
     return ticked.ok && map.focus === body.id ? setFocus(ticked.text, null) : ticked
   }, goalsAt)
   if (!done.ok && done.why === 'ticked') return refuse(409, `${body.id} is ticked already.`)
+  if (!done.ok && done.why === 'notAsked') return refuse(409, `${body.id} has no re-check asked: the person took it back, or it was filed already.`)
   if (!done.ok) return failed(done.why)
   return { ok: true, result: { id: body.id, title, ticked: body.verdict === 'passed', attempts } }
 }

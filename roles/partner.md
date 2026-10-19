@@ -441,5 +441,6 @@ follow-up steps at once, as at Go (`work new` with `goal`, `summary`, `what` fro
 and add their ids to the goal's how (`work how-draft`, the part they belong to, " · steps B<id>") or, for a goal that
 is not the focus, to its `Steps:` line; the run goes on, and "Is the vibe there?" comes again once they are done. A
 point only the user can judge: ask them under the goal (`work ask` with `of` G<n>, kind look, the picture), then file
-`checked` again. The user may still tick a goal after a failed re-check: the board ticks it and writes the overturn
-under it; take it as their word. Say nothing in your chat; your card's line while you work: "Re-check G<n>".
+`checked` again (the re-check stays asked meanwhile). A tick while the re-check is open types the word to you once
+more; the user may also tick a goal without a passed re-check (their second click): the board ticks it and writes the
+overturn under it; take it as their word. They may take a re-check back: then your `checked` of it is refused. Say nothing in your chat; your card's line while you work: "Re-check G<n>".

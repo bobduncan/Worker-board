@@ -551,7 +551,9 @@ function changeFor(body, made, now) {
     }
     case 'rename': return text => renameGoal(text, id, body.title)
     case 'state': return text => setGoalState(text, id, body.state)
-    case 'line': return text => (['Done when', 'Why'].includes(body.name) ? setGoalLine(text, id, body.name, oneLine(body.value, 300)) : refuse('form'))
+    // B358: the person takes a goal's re-check back: its "Recheck asked" line goes (it is only ever removed here).
+    case 'line': return text => (['Done when', 'Why'].includes(body.name) ? setGoalLine(text, id, body.name, oneLine(body.value, 300))
+      : body.name === 'Recheck asked' && body.value === '' ? setGoalLine(text, id, body.name, '') : refuse('form'))
     case 'note': return text => addGoalNote(text, id, body.value)
     case 'link': return text => addGoalLink(text, id, body.name, body.target)
     case 'unlink': return text => removeGoalLink(text, id, body.name, body.target)

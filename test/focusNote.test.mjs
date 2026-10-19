@@ -314,7 +314,7 @@ test('the partner\'s job: the daily note, what it decides without the user, Undo
   assert.match(partner, /`work ask` with `of` G<n>/)
   for (const words of ['small visual details', 'numbers', 'wording', 'the order of the parts', 'a rule of the game', 'a new screen', 'more than about an hour']) assert.ok(partner.includes(words), words)
   assert.match(partner, /`undo: <line>`/)
-  assert.match(partner, /`vibe there: yes`/)
+  assert.match(partner, /`goal re-check:`/)
   assert.match(partner, /`vibe there: no` with `Words: \.\.\.`/)
   for (const words of ['`undo: <line>`', '`vibe there: yes`', '`vibe there: no`', '`## Decided for you`', '`## Needs you`', '`## Undo asked`']) assert.ok(protocol.includes(words), words)
 })
