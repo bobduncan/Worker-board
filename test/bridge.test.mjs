@@ -52,9 +52,10 @@ test('B463: a refused name says which name the board shows that session under, s
   // A session the board does not show, or shows only as a leftover: no name to follow.
   assert.equal(checkTake({ chat: 'Units', session: 's-other' }, board).why, 'Not the chat the board shows under that name.')
   assert.equal(checkTake({ chat: 'Units', session: 's-old' }, board).why, 'Not the chat the board shows under that name.')
-  // The name comes from a chat's title: it is kept to one line without quotes.
-  const quoted = { chats: [{ name: 'The "new"\none', session: 's-q' }] }
-  assert.equal(checkTake({ chat: 'Units', session: 's-q' }, quoted).why, 'Not the chat the board shows under that name. The board shows this session as "The new one".')
+  // The name is a JSON string, so a title with quotes stays exact; the Advisor and its helper are found too.
+  const quoted = { chats: [{ name: 'The "new" one', session: 's-q' }], advisor: { name: 'Advisor', session: 's-advisor' } }
+  assert.equal(checkTake({ chat: 'Units', session: 's-q' }, quoted).why, 'Not the chat the board shows under that name. The board shows this session as "The \\"new\\" one".')
+  assert.equal(checkTake({ chat: 'Units', session: 's-advisor' }, quoted).why, 'Not the chat the board shows under that name. The board shows this session as "Advisor".')
 })
 
 test('checkTake: only the chat the board shows under a name takes for it', () => {

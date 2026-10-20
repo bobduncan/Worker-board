@@ -384,7 +384,8 @@ async function followShown($: EngineInterface, refusal: string): Promise<boolean
     const list = parseList(await $.fs.read(inFolder(chatsDir, LIST_FILE)).catch(() => ''))
     if (list === null) return false
     const before = myself.name
-    await joinByTitle($, `${list.prefix}${shown}`)
+    // The review of B463: a rename keeps what the card says (a question open to the person stays theirs).
+    await joinByTitle($, `${list.prefix}${shown}`, 'waiting')
     return myself !== null && myself.name !== before
   } catch {
     return false
@@ -862,7 +863,7 @@ async function join($: EngineInterface, name: string, role: ChatRole, state: Cha
  * A chat whose title says it is one of the project's joins the list by itself, and follows a new title: the
  * project's `.claude/chats/list.json` names the titles' shared beginning.
  */
-async function joinByTitle($: EngineInterface, title: unknown): Promise<void> {
+async function joinByTitle($: EngineInterface, title: unknown, state: ChatFile['state'] = isInTurn ? 'working' : 'waiting'): Promise<void> {
   try {
     if (typeof title !== 'string' || title.trim() === '') return
     const dir = await findChatsDir($, true)
@@ -879,7 +880,7 @@ async function joinByTitle($: EngineInterface, title: unknown): Promise<void> {
     // A chat that was taken out stays out until it is asked to join again.
     if (hasLeft(own)) return
     const before = parseChat(own)
-    if (before?.name !== named.name || before.role !== named.role) await join($, named.name, named.role, isInTurn ? 'working' : 'waiting')
+    if (before?.name !== named.name || before.role !== named.role) await join($, named.name, named.role, state)
   } catch {
     // no list.json, or the folder cannot be read: the chat joins when asked to
   }

@@ -1907,7 +1907,7 @@ describe('Pause 2: each chat reads the person\'s pause in its own calls to the b
 
 describe('B463: a chat renamed while it runs', () => {
   /** The board's refusal of a name it does not show this session under, with the name it does show. */
-  const notShown = (name: string | null): string => `Not the chat the board shows under that name.${name === null ? '' : ` The board shows this session as "${name}".`}`
+  const notShown = (name: string | null): string => `Not the chat the board shows under that name.${name === null ? '' : ` The board shows this session as ${JSON.stringify(name)}.`}`
   const settled = async (): Promise<void> => {
     for (let i = 0; i < 200; i++) await Promise.resolve()
   }
@@ -1966,6 +1966,22 @@ describe('B463: a chat renamed while it runs', () => {
     expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe(`${notShown('Sound')} (HTTP 409)`)
     expect(w.worked.length).toBe(2)
     expect(fileOf(w)?.name).toBe('Sound')
+  })
+
+  test('only the refusal\'s own words name the chat, a name with quotes exactly, and a rename keeps what the card says', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.worked = []
+    // Words the board echoes from elsewhere name nobody.
+    w.workAnswers = [{ status: 409, text: `B12 decided no such thing: "x". ${notShown('Sound')}` }]
+    await $.tool.call({ tool: WORK, action: 'next' })
+    expect([w.worked.length, fileOf(w)?.name]).toEqual([1, 'Units'])
+    w.workAnswers = [{ status: 409, text: notShown('The "new" one') }, { status: 200, text: '{"text":"Yours:"}' }]
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe('Yours:')
+    expect([fileOf(w)?.name, fileOf(w)?.state]).toEqual(['The "new" one', 'waiting'])
   })
 
   test('a chat that was taken out stays out, whatever name the board shows it under', async ($, on) => {

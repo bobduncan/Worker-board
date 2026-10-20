@@ -27,13 +27,14 @@ export function checkTake(body, state) {
 /**
  * B463: the refusal of a name the board does not show a session under. A chat renamed in the app goes on under its old
  * name until it learns the new one, so the refusal says the name the board shows that session under, when it shows it
- * (the Workers mod joins under it and asks again, once). The name comes from a chat's title: one line, no quotes.
+ * (the Workers mod joins under it and asks again, once). The name is written as a JSON string, so it stays exact.
  */
 function notShown(state, session) {
   const why = 'Not the chat the board shows under that name.'
-  const mine = (state.chats ?? []).find(one => !one.isLeftover && (one.session ?? null) === session)
-  const name = String(mine?.name ?? '').replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80)
-  return name === '' ? why : `${why} The board shows this session as "${name}".`
+  const shown = [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])]
+  const mine = shown.find(one => (one.session ?? null) === session)
+  const name = typeof mine?.name === 'string' ? mine.name.trim() : ''
+  return name === '' || name.length > 80 ? why : `${why} The board shows this session as ${JSON.stringify(name)}.`
 }
 
 const ids = value => (Array.isArray(value) ? value : []).filter(id => typeof id === 'string' && id !== '').slice(0, 100)
