@@ -332,6 +332,8 @@ test('parsePlan: the standards per kind, and a card\'s advice and settled lines'
 - Picture: art-inbox/levels/ember-hollow-plan.png · the map's plan
 - Bar: reads at a glance where you walk
 - Bar: cliffs and lava as the reference, scored 75+ · art-inbox/vision/standards/maps-cliffs.png
+- Bar: every tile in view above the
+  unit panel at 1280x720 · art-inbox/vision/standards/maps-view.png
 - Foundation: a way from the reference to the game's tiles · about 8 h
 - Per item: about 2 h
 - Score: 0 of 7 meet the bar · your word: clunky
@@ -345,13 +347,15 @@ test('parsePlan: the standards per kind, and a card\'s advice and settled lines'
 `)
   assert.deepEqual([answers[0].advice, answers[0].settled, answers[1].advice, answers[1].settled], ['solid; ask again after M1.', { by: 'you', at: '2026-10-20' }, '', null])
   assert.deepEqual(standards.map(one => [one.id, one.title, one.state, one.by, one.count, one.kind, one.done, one.bar.length, one.foundation, one.perItem, one.score, one.met, one.total, one.gap]), [
-    ['K1', 'Maps', 'confirmed', 'you', '5 per world · from S3', 'map', 'docs/process/done/level.md', 2, "a way from the reference to the game's tiles · about 8 h", 'about 2 h', '0 of 7 meet the bar · your word: clunky', 0, 7, 'every map → "Maps meet the bar"'],
+    ['K1', 'Maps', 'confirmed', 'you', '5 per world · from S3', 'map', 'docs/process/done/level.md', 3, "a way from the reference to the game's tiles · about 8 h", 'about 2 h', '0 of 7 meet the bar · your word: clunky', 0, 7, 'every map → "Maps meet the bar"'],
     ['K2', 'Feel', 'proposed', null, '', '', '', 1, '', '', 'not measured', null, null, ''],
   ])
   assert.deepEqual([standards[0].reference, standards[0].today, standards[1].reference], [{ path: 'art-inbox/vision/look-target.png', caption: 'the look we aim for' }, { path: 'art-inbox/vision/look-today.png', caption: 'Ember Hollow' }, null])
   assert.deepEqual([standards[0].pictures, standards[1].pictures], [[{ path: 'art-inbox/levels/ember-hollow-plan.png', caption: "the map's plan" }], []])
   // A bar point's own picture, the aspect highlighted: the point keeps its words, the picture stands beside it.
-  assert.deepEqual([standards[0].bar[1], standards[0].barPictures], ['cliffs and lava as the reference, scored 75+', [{ at: 1, path: 'art-inbox/vision/standards/maps-cliffs.png' }]])
+  // A bar line the partner wrapped keeps its words whole and its picture (the third point, 2026-10-20).
+  assert.deepEqual([standards[0].bar[1], standards[0].bar[2], standards[0].barPictures], ['cliffs and lava as the reference, scored 75+', 'every tile in view above the unit panel at 1280x720',
+    [{ at: 1, path: 'art-inbox/vision/standards/maps-cliffs.png' }, { at: 2, path: 'art-inbox/vision/standards/maps-view.png' }]])
   assert.deepEqual(parsePlan('# P\n').standards, [])
 })
 

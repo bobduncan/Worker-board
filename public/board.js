@@ -8958,6 +8958,9 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     state: one.state === 'confirmed' ? 'confirmed' : standardConfirms.includes(one.id) ? 'confirming' : 'proposed',
     source: visionSource(one), slide: slideOf(one.id), measureWork: workOn('plan-measure', one.id)?.state ?? null,
   }))
+  // The Change slide of a standard carries its card, so the slide shows the bar and the rest as the card does.
+  const changing = slides.find(slide => slide.kind === 'change')
+  if (changing !== undefined && /^K/.test(changing.id)) changing.standard = standardCards.find(card => card.id === changing.id) ?? null
   const { decided, assumed, open: openAnswers } = plan.counts
   const total = plan.answers.length
   const asks = slides.filter(slide => slide.kind !== 'change').length
@@ -9731,6 +9734,49 @@ function goalsPage(view, can, off) {
 }
 
 /**
+ * A standard's three parts, apart (the user, 2026-10-20: "not all the bullets are the bar ... it all feels the same"):
+ * the bar, what each thing must meet (the standard itself, each point with a "see" where it has a picture); to get
+ * there, the foundation and the cost; today, the score and the gap. What the goals need ("5 per world") is no part of
+ * the standard: one muted line first. The card and the Change slide show the same (the user: "the same the bar and
+ * to get there I want to see in the details page").
+ */
+function standardParts(card) {
+  const parts = []
+  if (card.count !== '') parts.push(el('p', 'vision-meta muted', `Needed: ${card.count}`))
+  const bar = el('section', 'vision-part is-bar')
+  bar.append(el('h4', 'vision-part-label', 'The bar: what each one must meet'))
+  if (card.bar.length > 0) {
+    const list = el('ul', 'vision-points')
+    card.bar.forEach((point, index) => {
+      const item = el('li')
+      item.append(...boldParts(point))
+      if (card.barPictureAt[index] >= 0) {
+        const see = visionButton(card.shownPicture === card.barPictureAt[index] ? '◉ shown' : '◎ see', 'gallery', { id: `${card.id}:${card.barPictureAt[index]}`, className: 'vision-see' })
+        see.disabled = false
+        see.title = 'Show this aspect\'s picture big'
+        item.append(document.createTextNode(' '), see)
+      }
+      list.append(item)
+    })
+    bar.append(list)
+  } else bar.append(el('p', 'muted', 'Not written yet.'))
+  parts.push(bar)
+  if (card.foundation !== '' || card.perItem !== '') {
+    const way = el('section', 'vision-part')
+    way.append(el('h4', 'vision-part-label', 'To get there'))
+    way.append(visionPoints([card.foundation === '' ? null : `**First, once:** ${card.foundation}`, card.perItem === '' ? null : `**Then each:** ${card.perItem}`].filter(Boolean)))
+    parts.push(way)
+  }
+  const today = el('section', 'vision-part')
+  today.append(el('h4', 'vision-part-label', 'Today'))
+  today.append(el('p', 'vision-today', card.score === '' ? 'Not measured yet.' : card.score))
+  if (card.gap !== '') today.append(el('span', 'vision-gap', `gap: ${card.gap}`))
+  else if (card.score !== '') today.append(el('span', 'vision-gap is-ok', 'no gap'))
+  parts.push(today)
+  return parts
+}
+
+/**
  * Step 4 (2026-10-20): the standards, one card per kind of thing the goals need: how many, the bar beside its reference
  * and a picture of today, the foundation to build first, the cost per item, today's score and the gap. Confirm (sent in
  * one word), Change, Measure today (the partner's helper scores what exists), your words on the whole, the gaps into goals.
@@ -9763,41 +9809,7 @@ function standardsPage(view, can, off) {
     const badge = card.state === 'confirmed' ? 'decided' : card.state === 'confirming' ? 'assumed' : 'open'
     head.append(el('span', '', card.title), el('span', `vision-state is-${badge}`, card.state === 'confirming' ? 'confirm, not sent' : card.state))
     body.append(head)
-    // Three parts, apart (the user, 2026-10-20: "not all the bullets are the bar ... it all feels the same"): the bar,
-    // what each thing must meet (the standard itself); to get there, the foundation and the cost; today, the score.
-    // What the goals need ("5 per world") is no part of the standard: one muted line under the title.
-    if (card.count !== '') body.append(el('p', 'vision-meta muted', `Needed: ${card.count}`))
-    const bar = el('section', 'vision-part is-bar')
-    bar.append(el('h4', 'vision-part-label', 'The bar: what each one must meet'))
-    if (card.bar.length > 0) {
-      // Each bar point, and where it has a picture of its aspect, a "see" that shows it big in the gallery.
-      const list = el('ul', 'vision-points')
-      card.bar.forEach((point, index) => {
-        const item = el('li')
-        item.append(...boldParts(point))
-        if (card.barPictureAt[index] >= 0) {
-          const see = visionButton(card.shownPicture === card.barPictureAt[index] ? '◉ shown' : '◎ see', 'gallery', { id: `${card.id}:${card.barPictureAt[index]}`, className: 'vision-see' })
-          see.disabled = false
-          see.title = 'Show this aspect\'s picture big'
-          item.append(document.createTextNode(' '), see)
-        }
-        list.append(item)
-      })
-      bar.append(list)
-    } else bar.append(el('p', 'muted', 'Not written yet.'))
-    body.append(bar)
-    if (card.foundation !== '' || card.perItem !== '') {
-      const way = el('section', 'vision-part')
-      way.append(el('h4', 'vision-part-label', 'To get there'))
-      way.append(visionPoints([card.foundation === '' ? null : `**First, once:** ${card.foundation}`, card.perItem === '' ? null : `**Then each:** ${card.perItem}`].filter(Boolean)))
-      body.append(way)
-    }
-    const today = el('section', 'vision-part')
-    today.append(el('h4', 'vision-part-label', 'Today'))
-    today.append(el('p', 'vision-today', card.score === '' ? 'Not measured yet.' : card.score))
-    if (card.gap !== '') today.append(el('span', 'vision-gap', `gap: ${card.gap}`))
-    else if (card.score !== '') today.append(el('span', 'vision-gap is-ok', 'no gap'))
-    body.append(today)
+    body.append(...standardParts(card))
     const meta = [card.source, card.kind === '' ? null : `kind ${card.kind}`, card.done === '' ? null : `definition of done: ${card.done}`].filter(one => one !== null).join(' · ')
     if (meta !== '') body.append(el('p', 'vision-meta muted', meta))
     const buttons = el('div', 'vision-goal-buttons')
@@ -9875,10 +9887,16 @@ function visionSlide(view, can, off) {
     form.append(visionBox('vision-change-words', 'Or answer it in your own words', 2, can))
     stage.append(ask, form)
   } else {
-    if (slide.pictures.length > 0) stage.append(visionPictures(slide.pictures))
     const form = el('form', 'vision-change')
     form.append(visionBox('vision-change-words', 'What should it be? In your words; your partner rewrites it.', 3, can))
-    stage.append(el('p', 'muted', 'Now:'), visionPoints(slide.points), form)
+    if (slide.standard !== undefined && slide.standard !== null) {
+      // A standard: its gallery and its three parts, as its card shows them.
+      stage.append(visionGallery(slide.standard.id, slide.standard.gallery, slide.standard.shownPicture, 'no picture yet'))
+      stage.append(el('p', 'muted', 'Now:'), ...standardParts(slide.standard), form)
+    } else {
+      if (slide.pictures.length > 0) stage.append(visionPictures(slide.pictures))
+      stage.append(el('p', 'muted', 'Now:'), visionPoints(slide.points), form)
+    }
   }
   const kicker = slide.kind === 'ask' && slide.isDeeper ? `Deeper · ${slide.title}` : slide.kind === 'ask' && slide.id !== slide.title ? slide.title : null
   if (kicker !== null && kicker !== slide.question) card.append(el('p', 'vision-kicker', kicker))
