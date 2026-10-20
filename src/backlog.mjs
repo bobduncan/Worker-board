@@ -194,6 +194,8 @@ const REFINED_PARTS = {
   Summary: 'summary', Picture: 'picture', 'Part of': 'partOf', Size: 'size', 'What we build': 'build', 'Not in it': 'not',
   // B354: the step's standard, "<kind> · <reference picture> · target <score>" or "none (<why>)".
   Standard: 'standard',
+  // B468: the effort its worker runs at, "<level> · <reason>".
+  Effort: 'effort',
 }
 const NAMED = /^([A-Z][A-Za-z /]{1,28}):\s*(.*)$/
 /**
@@ -247,6 +249,7 @@ export function refinedOf(notes) {
     partOf: '',
     size: '',
     standard: '',
+    effort: '',
     problem: '',
     goal: '',
     build: [],
@@ -296,7 +299,7 @@ function pictureOf(written) {
 function addRefined(refined, part, line, isMore) {
   const point = line.match(/^[-*]\s+(.*)$/)
   const words = point === null ? line : point[1]
-  if (part === 'problem' || part === 'goal' || part === 'summary' || part === 'partOf' || part === 'size' || part === 'standard') {
+  if (part === 'problem' || part === 'goal' || part === 'summary' || part === 'partOf' || part === 'size' || part === 'standard' || part === 'effort') {
     refined[part] = joined(refined[part], words)
     return
   }

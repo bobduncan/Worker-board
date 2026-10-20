@@ -4,11 +4,13 @@
 // task runs from the worker's own `work take B<id>` to its `work report B<id>` (the work tool's calls, not the words
 // of a message), and only the time its turns run counts: waiting for the person, in a queue, or while the board was
 // off does not. A task paused for the limit, or never reported, is left out. Nothing is kept by hand: the list updates
-// itself, for the board and for the chats that give times (`listText`, in the board's data folder).
+// itself, for the board and for the chats that give times (`listText`, in the board's data folder). B468: with each task
+// its step's effort level, the effort its answers ran at, and the tokens they took, so the levels can be tuned later.
 
 import { open } from 'node:fs/promises'
 
 import { PAUSED } from './limits.mjs'
+import { EFFORTS } from './work/effort.mjs'
 import { endsTurn, hasToolResult, isCommandText, parseTail, textOf } from './transcript.mjs'
 
 const MIN = 60_000
@@ -58,10 +60,19 @@ const sentFirstLines = entry => entry.blocks
   .map(block => [block.input?.message, block.input?.content, block.input?.text].find(value => typeof value === 'string') ?? '')
   .map(words => words.trim().split('\n')[0] ?? '')
 
+/** B468: no tokens yet. */
+const noTokens = () => ({ input: 0, cacheWrite: 0, cacheRead: 0, output: 0 })
+/** B468: all the tokens of a task's answers, what the app read from its cache among them. */
+export const tokensOf = tokens => (tokens === null || tokens === undefined ? 0 : tokens.input + tokens.cacheWrite + tokens.cacheRead + tokens.output)
+/** B468: the effort most of a task's answers ran at, or null. */
+const mostOf = counts => Object.entries(counts ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
 /**
  * Walks entries of one worker's transcript in order, on from where the last walk stopped (`scan`, changed in place),
- * and returns the tasks it saw finished: `{ step, steps, worker, area, estimateMin, startedAt, reportedAt, workMs }`.
- * `stepOf(id)` gives a step's `{ area, estimateMin }` as the store holds it, or null.
+ * and returns the tasks it saw finished: `{ step, steps, worker, area, estimateMin, startedAt, reportedAt, workMs,
+ * effort, ranOn, tokens }`. `stepOf(id)` gives a step's `{ area, estimateMin, effort }` as the store holds it, or null.
+ * B468: `effort` is the step's level, `ranOn` the effort most of its answers ran at, `tokens` theirs from its take to its
+ * report, each message once.
  */
 export function walk(entries, scan, stepOf = () => null) {
   const finished = []
@@ -75,7 +86,7 @@ export function walk(entries, scan, stepOf = () => null) {
     const task = scan.task
     scan.task = null
     if (task === null || task.isPaused) return
-    finished.push({ step: task.steps[0] ?? null, steps: task.steps, worker: scan.worker, area: task.area, estimateMin: task.estimateMin, startedAt: task.startedAt, reportedAt: at, workMs: task.workMs })
+    finished.push({ step: task.steps[0] ?? null, steps: task.steps, worker: scan.worker, area: task.area, estimateMin: task.estimateMin, startedAt: task.startedAt, reportedAt: at, workMs: task.workMs, effort: task.effort ?? null, ranOn: mostOf(task.ranOn), tokens: task.tokens ?? noTokens() })
   }
   for (const entry of entries) {
     if (entry.isSidechain || !Number.isFinite(entry.at)) continue
@@ -97,8 +108,16 @@ export function walk(entries, scan, stepOf = () => null) {
       // that was never reported is left out.
       if (scan.task !== null && scan.task.steps.includes(take.id)) continue
       const step = stepOf(take.id)
-      scan.task = { steps: [take.id], area: step?.area ?? 'game', estimateMin: step?.estimateMin ?? null, startedAt: entry.at, workMs: 0, countedTo: null, isPaused: false }
+      scan.task = { steps: [take.id], area: step?.area ?? 'game', estimateMin: step?.estimateMin ?? null, effort: step?.effort ?? null, startedAt: entry.at, workMs: 0, countedTo: null, isPaused: false, tokens: noTokens(), ranOn: {}, lastMessage: null }
       if (scan.turnAt === null) scan.turnAt = entry.at
+    }
+    // B468: a message's tokens once (the app writes them on each of its lines), and the effort it ran at.
+    if (scan.task !== null && entry.type === 'assistant' && entry.usage != null && (entry.messageId === null || entry.messageId !== scan.task.lastMessage)) {
+      const task = scan.task
+      task.tokens ??= noTokens()
+      for (const key of Object.keys(task.tokens)) task.tokens[key] += entry.usage[key] ?? 0
+      task.lastMessage = entry.messageId
+      if (typeof entry.effort === 'string') task.ranOn = { ...task.ranOn, [entry.effort]: (task.ranOn?.[entry.effort] ?? 0) + 1 }
     }
     if (scan.task !== null && entry.type === 'assistant') {
       if (entry.error === 'rate_limit' || sentFirstLines(entry).some(first => PAUSED.test(first))) scan.task.isPaused = true
@@ -188,7 +207,7 @@ export function taskTimesOf(kept) {
       const copy = { ...task }
       tasks.push(copy)
       if (task.step !== null) steps.set(task.step, copy)
-    } else Object.assign(same, { workMs: same.workMs + task.workMs, reportedAt: Math.max(same.reportedAt, task.reportedAt), estimateMin: same.estimateMin ?? task.estimateMin })
+    } else Object.assign(same, { workMs: same.workMs + task.workMs, reportedAt: Math.max(same.reportedAt, task.reportedAt), estimateMin: same.estimateMin ?? task.estimateMin, tokens: sumTokens(same.tokens, task.tokens) })
   }
   const areas = [...new Set(tasks.map(task => task.area))].map(area => {
     const mine = tasks.filter(task => task.area === area)
@@ -201,7 +220,33 @@ export function taskTimesOf(kept) {
   for (const task of [...tasks].sort((a, b) => a.reportedAt - b.reportedAt)) {
     if (task.step !== null) byStep[task.step] = { estimateMin: task.estimateMin, workMin: Math.max(1, Math.round(task.workMs / MIN)), worker: task.worker, at: task.reportedAt }
   }
-  return { areas, lately: { count: recent.length, off: offWords(ratio), ratio }, byStep, count: tasks.length }
+  // B468: per effort level, the tasks whose step had one when taken: how many, their typical time and tokens.
+  const efforts = EFFORTS.map(level => {
+    const mine = tasks.filter(task => task.effort === level)
+    if (mine.length === 0) return null
+    const measured = mine.filter(task => task.tokens != null)
+    return {
+      level, count: mine.length, typicalMin: Math.max(1, Math.round(median(mine.map(task => task.workMs / MIN)))),
+      tokens: measured.length === 0 ? null : Math.round(median(measured.map(task => tokensOf(task.tokens)))),
+      output: measured.length === 0 ? null : Math.round(median(measured.map(task => task.tokens.output))),
+      ranOther: mine.filter(task => task.ranOn != null && task.ranOn !== level).length, isEnough: mine.length >= ENOUGH,
+    }
+  }).filter(one => one !== null)
+  return { areas, lately: { count: recent.length, off: offWords(ratio), ratio }, byStep, efforts, count: tasks.length }
+}
+
+/** B468: two tasks' tokens together; a task measured before B468 has none. */
+function sumTokens(a, b) {
+  if (a == null || b == null) return a ?? b ?? null
+  return { input: a.input + b.input, cacheWrite: a.cacheWrite + b.cacheWrite, cacheRead: a.cacheRead + b.cacheRead, output: a.output + b.output }
+}
+
+/** B468: tokens as the list writes them: "850", "12 k", "3.4 M". */
+export function tokensText(tokens) {
+  if (tokens === null || tokens === undefined) return '–'
+  if (tokens < 1000) return String(Math.round(tokens))
+  if (tokens < 1_000_000) return `${Math.round(tokens / 1000)} k`
+  return `${Math.round(tokens / 100_000) / 10} M`
 }
 
 /** Minutes as the chats write them: "45 min", "1 h", "1 h 30 min". */
@@ -229,6 +274,17 @@ export function listText(tasks, now) {
     '',
     `Lately (the last ${times.lately.count} tasks with an estimate): estimates were ${times.lately.off ?? 'not measured yet'}.`,
     '',
+    // B468: per effort level of the steps, so the levels can be tuned.
+    ...(times.efforts.length === 0 ? [] : [
+      '## Per effort level',
+      '',
+      'The step\'s effort when its worker took it; tokens are all its answers took, what the app read from its cache among them.',
+      '',
+      '| Effort | Tasks | Typical time | Typical tokens | Typical output tokens | Ran at another level |',
+      '| --- | --- | --- | --- | --- | --- |',
+      ...times.efforts.map(one => `| ${one.level} | ${one.count} | ${one.isEnough ? minutesText(one.typicalMin) : `${minutesText(one.typicalMin)} (too few tasks to go by)`} | ${tokensText(one.tokens)} | ${tokensText(one.output)} | ${one.ranOther} |`),
+      '',
+    ]),
     '## The last 20 tasks',
     '',
     '| Step | Worker | Area | Estimate | Took |',

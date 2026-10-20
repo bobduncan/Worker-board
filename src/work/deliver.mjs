@@ -14,6 +14,7 @@ import { sinceMs } from './item.mjs'
 import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 import { isHolding } from './pause.mjs'
 import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
+import { AGAIN_MS, effortWords } from './effort.mjs'
 
 export { partnerAskWords }
 
@@ -223,6 +224,19 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })
     if (sent !== null) done.sent.push(sent)
+  }
+  // B468: the words that have the main chat set a worker's effort (effort.mjs, `effortPlan`): once per level of a chat in
+  // half an hour, also when two refreshes plan the same one before the state shows the first.
+  for (const one of plan.efforts ?? []) {
+    const isSent = outbox.outbox().some(message => message.command === 'worker-effort' && message.about === one.chat && message.effort === one.level && now - message.at < AGAIN_MS)
+    if (isSent || one.to === null) continue
+    const message = { id: newId(), at: now, ...effortWords(one), state: 'waiting' }
+    try {
+      await outbox.say(message)
+      done.sent.push(message)
+    } catch {
+      // Planned again at the next refresh.
+    }
   }
   return done
 }

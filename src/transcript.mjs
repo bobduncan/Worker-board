@@ -94,6 +94,13 @@ function blocksOf(content) {
   return content.filter(block => block !== null && typeof block === 'object')
 }
 
+const count = value => (Number.isFinite(value) && value > 0 ? value : 0)
+/** B468: an answer's tokens as the app writes them: `{ input, cacheWrite, cacheRead, output }`, or null without any. */
+function usageOf(usage) {
+  if (usage === null || typeof usage !== 'object') return null
+  return { input: count(usage.input_tokens), cacheWrite: count(usage.cache_creation_input_tokens), cacheRead: count(usage.cache_read_input_tokens), output: count(usage.output_tokens) }
+}
+
 /**
  * The user and assistant entries of a tail, in the file's order, the messages of other chats that arrived in the
  * middle of a turn (`type: 'queued'`), and B262 the app's marks of a compaction (`type: 'compaction'`, with its
@@ -150,6 +157,9 @@ export function parseTail(text, isCut) {
       // B352: what an answer ran on: its model, and the effort the app writes beside it.
       model: entry.type === 'assistant' && typeof message.model === 'string' ? message.model : null,
       effort: entry.type === 'assistant' && typeof entry.effort === 'string' ? entry.effort : null,
+      // B468: what an answer cost, and its message's id: the app writes a message's tokens on each of its lines.
+      messageId: entry.type === 'assistant' && typeof message.id === 'string' ? message.id : null,
+      usage: entry.type === 'assistant' ? usageOf(message.usage) : null,
       blocks: blocksOf(message.content),
     })
   }

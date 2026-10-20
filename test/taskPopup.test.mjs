@@ -91,6 +91,7 @@ test('a lane on a refined step carries its brief: summary, picture, what we buil
     summary: ['Three new meadows for the zebracorns,', 'each one crossed by the test herd before it ships.'],
     picture: 'art-inbox/meadows/plan.png (the three meadows side by side)',
     what: ['The Clover, the Thistle and the Ring as meadow maps.', 'Not in it: a fourth meadow.'],
+    effort: { level: 'medium', why: null, isSet: false },
     about: ['The herd asked for three meadows.'],
     context: ['The herd asked for three meadows. Requirements: three maps, each crossed.', 'Touches: src/meadows, tests.'],
     touches: ['src/meadows, tests.'],

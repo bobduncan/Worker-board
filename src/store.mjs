@@ -54,8 +54,10 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
   // B352, review: the newest word that set the partner's mode stays known: the partner runs on it until the next one,
   // however long it is idle (src/partnerEffort.mjs).
   const effortWord = known.findLast(message => message.command === 'partner-effort' && message.state !== 'expired' && message.state !== 'failed')
+  // B468: so does the newest word that set a worker's effort, per worker: it carries the worker's usual level.
+  const workerWords = new Set(new Map(known.filter(message => message.command === 'worker-effort').map(message => [message.about, message])).values())
   return known
-    .filter(message => message === effortWord
+    .filter(message => message === effortWord || workerWords.has(message)
       || message.state === 'waiting'
       // B285: a queue ask held on the board until its step is refined stays known as long as it is held.
       || message.state === 'held'

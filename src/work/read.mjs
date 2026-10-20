@@ -8,6 +8,7 @@ import { DEFAULT_FLOW, nextMoves, statesOf } from './flow.mjs'
 import { isFix, valueOf } from './item.mjs'
 import { migrateBacklog } from './migrate.mjs'
 import { stepWaitsForPartner } from './partnerAnswers.mjs'
+import { effortOf } from './effort.mjs'
 import { checkedOf } from './resultCheck.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
 import { readStore } from './store.mjs'
@@ -137,6 +138,8 @@ export function itemOfStep(work, key) {
     queueWhenRefined: valueOf(item, 'Queue when refined'),
     // B356: its last result check (the evidence, the ticks, the score), and the step it fixes.
     checked: checkedOf(item), fixOf: valueOf(item, 'Fix of'), attempts: Number(valueOf(item, 'Attempts') ?? 0),
+    // B468: the effort its worker runs at (medium when its refine gave none), and who holds it in which state.
+    effort: effortOf(item), owner: valueOf(item, 'Owner'), state: valueOf(item, 'State'),
   }
 }
 
