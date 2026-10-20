@@ -303,8 +303,20 @@ function storeNote(store, workFlags = []) {
 function setAsideNote(setAside) {
   if (!Array.isArray(setAside) || setAside.length === 0) return null
   const listed = names => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`)
-  const [them, files] = setAside.length > 1 ? ['them', 'those files'] : ['it', 'that file']
-  return `At its start the board could not read ${listed(setAside.map(one => one.file))} in its data folder (torn, perhaps by a restart or a power cut). It kept ${them} aside as ${listed(setAside.map(one => one.aside))} and started without ${them}. Delete ${files} once you no longer need ${them}.`
+  const words = list => (list.length > 1 ? ['them', 'those files'] : ['it', 'that file'])
+  const kept = setAside.filter(one => typeof one.aside === 'string')
+  // One there that could not be read, or not kept aside: its next write replaces it.
+  const lost = setAside.filter(one => typeof one.aside !== 'string')
+  const lines = []
+  if (kept.length > 0) {
+    const [them, files] = words(kept)
+    lines.push(`At its start the board could not read ${listed(kept.map(one => one.file))} in its data folder (torn, perhaps by a restart or a power cut). It kept ${them} aside as ${listed(kept.map(one => one.aside))} and started without ${them}. Delete ${files} once you no longer need ${them}.`)
+  }
+  if (lost.length > 0) {
+    const [them] = words(lost)
+    lines.push(`At its start the board could not read ${listed(lost.map(one => `${one.file} (${one.why})`))} in its data folder, nor keep ${them} aside: it started without ${them} and writes ${them} anew.`)
+  }
+  return lines.join(' ')
 }
 // setAside:end
 

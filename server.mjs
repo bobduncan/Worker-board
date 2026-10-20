@@ -351,10 +351,10 @@ export function createBoard({
 }
 
 const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
-/** Whether `text` is valid JSON. */
+/** Whether `text` is valid JSON (after the byte-order mark a Windows editor may put first). */
 const parses = text => {
   try {
-    JSON.parse(text)
+    JSON.parse(text.replace(/^\uFEFF/, ''))
     return true
   } catch {
     return false
@@ -402,8 +402,12 @@ async function main(args) {
     // B406: a launch.json that is there but cannot be read or parsed is never written over: its other entries would be
     // lost.
     const before = await readFile(file, 'utf8').catch(error => error?.code === 'ENOENT' ? '' : null)
-    if (before === null) return console.error(`${file} could not be read: it is left as it is.`)
-    if (before.trim() !== '' && !parses(before)) return console.error(`${file} is not valid JSON: fix it by hand; it is left as it is.`)
+    const refuse = why => {
+      process.exitCode = 1
+      console.error(why)
+    }
+    if (before === null) return refuse(`${file} could not be read: it is left as it is.`)
+    if (before.trim() !== '' && !parses(before)) return refuse(`${file} is not valid JSON: fix it by hand; it is left as it is.`)
     await writeAtomic(file, withEntry(before, entry))
     return console.log(`Launch entry "${entry.name}" in ${file}: ${entry.url}/`)
   }
@@ -713,8 +717,18 @@ async function main(args) {
   // step then, above which a step is new and gets one refine, and the steps queued then unrefined. Null before.
   const REFINE_FILE = join(HERE, 'data', 'refine-gate.json')
   let refineKept = null
-  /** B406: the data files that did not parse at the start, each kept aside: `{ file, aside }`. */
+  /**
+   * B406: the data files the board started without: `{ file, aside, why }`, `aside` the copy a torn one was kept as, or
+   * null when it could not be read or kept aside (`why`).
+   */
   const setAside = []
+  /** B406: a kept data file as the board reads it at its start (src/write.mjs, readKept); what it starts without is noted. */
+  const kept = async file => {
+    const read = await readKept(file, clock())
+    if (read.setAside !== null) setAside.push({ file: basename(file), aside: basename(read.setAside), why: null })
+    else if (read.unread !== null) setAside.push({ file: basename(file), aside: null, why: read.unread })
+    return read.value
+  }
   // B185: how long the tasks really took, read from the workers' transcripts and kept in the data folder, with the
   // list the chats read when they give a time. A board that shows another's history starts from that one's file
   // and measures in memory only.
@@ -737,11 +751,6 @@ async function main(args) {
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock())
       // B406: a file torn by a restart or a power cut is set aside, and the board starts without it (the page says so).
-      const kept = async file => {
-        const read = await readKept(file, clock())
-        if (read.value === null && read.setAside !== null) setAside.push({ file: basename(file), aside: basename(read.setAside) })
-        return read.value
-      }
       finishedSeen = await kept(FINISHED_FILE)
       roundsKept = await kept(ROUNDS_FILE)
       refineKept = await kept(REFINE_FILE)
@@ -796,7 +805,9 @@ async function main(args) {
   const settings = parseDesignSettings(kindsFile === null ? '' : await readFile(kindsFile, 'utf8').catch(() => ''))
   // B198: new ideas go into the project's picture folder.
   const ideas = isDemo ? ideasOver((await import('./fixtures/demo.mjs')).demoIdeas(clock()), undefined, { pictures: config.pictureRoots[0] })
-    : await ideasFile(join(HERE, 'data', 'ideas.json'), { pictures: config.pictureRoots[0] })
+    // B406: a torn ideas file is set aside like the other data files, never written over with no ideas in it; a board
+    // showing another's history reads its own as it is.
+    : await ideasFile(join(HERE, 'data', 'ideas.json'), { pictures: config.pictureRoots[0], ...(historyFrom === undefined ? { kept: await kept(join(HERE, 'data', 'ideas.json')) } : {}) })
   const codex = isDemo ? null : await findCodex({ given: settings.codex })
   const inProject = (project, path) => join(project, ...path.split('/'))
   /** The picture being made: which idea and version, since when, and how to stop it. */
@@ -896,8 +907,11 @@ async function main(args) {
     const rounds = { morningRound: config.morningRound, weeklyRound: config.weeklyRound, last: roundsKept, group: config.advisorSuggestions }
     // B132: whether the project has a game to run; the demo has its made-up one.
     // B273: where the board found the app's folder after the app moved it, for the note on top.
-    // B406: the data files set aside at the start, for the note on top.
-    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside }
+    // B406: the data files the board started without, for the note on top: a copy kept aside only while it is there
+    // (the person deletes it once read).
+    const shownAside = []
+    for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
+    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside }
   }, STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read

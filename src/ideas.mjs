@@ -143,13 +143,20 @@ export async function placeReferences(project, paths, folder) {
   return placed
 }
 
-/** The ideas over their file. The file is replaced whole, by way of a second file, so a write never leaves half of it. */
-export async function ideasFile(file, { pictures = null } = {}) {
+/**
+ * The ideas over their file. The file is replaced whole, by way of a second file, so a write never leaves half of it.
+ * B406: `kept`, the file as the board read it at its start (null: not there, or set aside when torn); without it the
+ * file is read here.
+ */
+export async function ideasFile(file, { pictures = null, kept } = {}) {
   let text = ''
-  try {
-    text = await readFile(file, 'utf8')
-  } catch {
-    // No ideas yet.
+  if (kept !== undefined) text = kept === null ? '' : JSON.stringify(kept)
+  else {
+    try {
+      text = await readFile(file, 'utf8')
+    } catch {
+      // No ideas yet.
+    }
   }
   return ideasOver(parseIdeas(text), async next => {
     await mkdir(dirname(file), { recursive: true })

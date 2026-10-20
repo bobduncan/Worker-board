@@ -49,7 +49,8 @@ const isUntaken = (message, now, keep) => message !== undefined && ((message.sta
 export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId, fs, keep }) {
   return oneAtATime(dir, async () => {
     const { record } = await readDeliveredFile(dir, fs)
-    const before = record.sent[key] ?? (record.keys.includes(key) ? { message: null, wake: null, again: 0 } : null)
+    const pending = pendingOf(dir)
+    const before = record.sent[key] ?? pending.get(key) ?? (record.keys.includes(key) ? { message: null, wake: null, again: 0 } : null)
     if (before !== null) {
       const sent = outbox.outbox().find(message => message.id === before.message)
       if ((before.again ?? 0) >= 1 || keep === undefined || !isUntaken(sent, now, keep)) return null
@@ -64,14 +65,25 @@ export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId,
       return null
     }
     // B406: the key must be written, or the next refresh sends the line again: read anew and written again when the
-    // file changed in between.
-    await changeDelivered(dir, fs, held => ({
-      ...held,
-      keys: held.keys.includes(key) ? held.keys : [...held.keys, key],
-      sent: { ...held.sent, [key]: { message: message.id, wake: wake?.id ?? null, again: before === null ? 0 : (before.again ?? 0) + 1 } },
-    }))
+    // file changed in between. One that still could not be written is held here, so the line is not sent again, and
+    // written with the next record that can be.
+    pending.set(key, { message: message.id, wake: wake?.id ?? null, again: before === null ? 0 : (before.again ?? 0) + 1 })
+    const done = await changeDelivered(dir, fs, held => {
+      const keys = [...held.keys]
+      for (const one of pending.keys()) if (!keys.includes(one)) keys.push(one)
+      return { ...held, keys, sent: { ...held.sent, ...Object.fromEntries(pending) } }
+    })
+    if (done.ok) pending.clear()
     return message
   })
+}
+
+/** B406: per store folder, the lines sent whose key could not be written yet (`key` to what `sent` records). */
+const unrecorded = new Map()
+function pendingOf(dir) {
+  const at = resolve(dir)
+  if (!unrecorded.has(at)) unrecorded.set(at, new Map())
+  return unrecorded.get(at)
 }
 
 /**

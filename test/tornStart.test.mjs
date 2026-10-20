@@ -61,7 +61,10 @@ test('a board whose data files were torn starts, sets them aside and says so on 
     }
     child.stdout.on('data', read)
     child.stderr.on('data', read)
-    child.once('exit', code => fail(new Error(`The board ended (${code}): ${out}`)))
+    child.once('exit', code => {
+      clearTimeout(late)
+      fail(new Error(`The board ended (${code}): ${out}`))
+    })
   })
 
   const names = await readdir(join(board, 'data'))
@@ -90,6 +93,9 @@ test('the page\'s note on top names each file set aside, and is gone when there 
   assert.equal(note, 'At its start the board could not read task-times.json and rounds.json in its data folder (torn, perhaps by a restart or a power cut). It kept them aside as task-times.json.broken-20261019-230509 and rounds.json.broken-20261019-230509 and started without them. Delete those files once you no longer need them.')
   const one = page.setAsideNote([{ file: 'finished.json', aside: 'finished.json.broken-20261019-230509' }])
   assert.match(one, /could not read finished\.json in its data folder .* It kept it aside as finished\.json\.broken-20261019-230509 and started without it\. Delete that file once you no longer need it\.$/)
+  // One that could not be read, or not kept aside, is named with why; the board writes it anew.
+  const lost = page.setAsideNote([{ file: 'refine-gate.json', aside: null, why: 'not readable: EBUSY' }])
+  assert.equal(lost, 'At its start the board could not read refine-gate.json (not readable: EBUSY) in its data folder, nor keep it aside: it started without it and writes it anew.')
   // The note has its place on top, and the page draws it with the others.
   assert.match(html, /<p class="app-note is-problem" id="set-aside-note" role="status" hidden><\/p>/)
   assert.match(script, /\n {2}drawSetAsideNote\(state\)\n/)

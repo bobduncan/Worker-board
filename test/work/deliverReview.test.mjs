@@ -44,6 +44,28 @@ test('the pull and the refresh at the same moment send one line, and every key o
   }
 })
 
+test('B406: a line whose key could not be written is still sent once, and its key is written with the next record', async () => {
+  const dir = await folder()
+  try {
+    const outbox = memoryStore()
+    const files = await import('node:fs/promises')
+    const refused = () => Promise.reject(Object.assign(new Error('locked'), { code: 'EACCES' }))
+    // delivered.json cannot be written for a while (a virus scanner, a lost write right).
+    const locked = { ...files, open: (file, ...rest) => (String(file).includes('delivered.json') ? refused() : files.open(file, ...rest)) }
+    assert.notEqual(await send(dir, outbox, { fs: locked }), null)
+    assert.equal(await send(dir, outbox, { fs: locked }), null)
+    assert.equal(outbox.outbox().length, 1)
+    assert.deepEqual((await readDelivered(dir)).keys, [])
+    // Once it can be written again, the next line's record carries the first key too.
+    assert.notEqual(await send(dir, outbox, { key: 'B287 Units y', words: words('Units', 'B287') }), null)
+    assert.deepEqual((await readDelivered(dir)).keys.sort(), ['B286 Units 2026-10-17 11:00', 'B287 Units y'])
+    assert.equal(await send(dir, outbox), null)
+    assert.equal(outbox.outbox().length, 2)
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
 test('a line that could not be put into the outbox spends no key: it goes at the next refresh', async () => {
   const dir = await folder()
   try {

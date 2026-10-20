@@ -265,7 +265,10 @@ function run(started, board, env, until = null) {
     }
     child.stdout.on('data', read)
     child.stderr.on('data', read)
-    child.once('exit', code => fail(new Error(`The board ended (${code}): ${out}`)))
+    child.once('exit', code => {
+      clearTimeout(late)
+      fail(new Error(`The board ended (${code}): ${out}`))
+    })
   })
 }
 

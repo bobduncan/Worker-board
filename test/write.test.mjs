@@ -81,16 +81,44 @@ test('appendLines ends a torn last line first, so the next record stands on a li
 test('readKept: a file not there is null; a torn one is set aside as .broken-<time> and the board starts without it', async t => {
   const dir = await tempDir(t)
   const now = new Date(2026, 9, 19, 23, 5, 9).getTime()
-  assert.deepEqual(await readKept(join(dir, 'none.json'), now), { value: null, setAside: null })
-  await writeFile(join(dir, 'rounds.json'), '{"morning":"2026-10-19"}')
-  assert.deepEqual(await readKept(join(dir, 'rounds.json'), now), { value: { morning: '2026-10-19' }, setAside: null })
+  assert.deepEqual(await readKept(join(dir, 'none.json'), now), { value: null, setAside: null, unread: null })
+  // A file a Windows editor saved with a byte-order mark is read as it is.
+  await writeFile(join(dir, 'rounds.json'), '\uFEFF{"morning":"2026-10-19"}')
+  assert.deepEqual(await readKept(join(dir, 'rounds.json'), now), { value: { morning: '2026-10-19' }, setAside: null, unread: null })
   for (const torn of ['{"scans":{"s1":{"wor', '']) {
     const file = join(dir, 'task-times.json')
     await writeFile(file, torn)
     const read = await readKept(file, now)
-    assert.deepEqual(read, { value: null, setAside: `${file}.broken-20261019-230509` })
+    assert.deepEqual(read, { value: null, setAside: `${file}.broken-20261019-230509`, unread: null })
     assert.equal(await readFile(read.setAside, 'utf8'), torn)
     await assert.rejects(readFile(file), { code: 'ENOENT' })
     await rm(read.setAside)
   }
+})
+
+test('readKept: a file there that cannot be read, or not kept aside, is named as unread, never taken for "not there"', async t => {
+  const dir = await tempDir(t)
+  const now = new Date(2026, 9, 19, 23, 5, 9).getTime()
+  const file = join(dir, 'finished.json')
+  await writeFile(file, '{"B7":1')
+  const held = { ...real, readFile: async () => { throw busy('EBUSY') } }
+  assert.deepEqual(await readKept(file, now, held), { value: null, setAside: null, unread: 'not readable: EBUSY' })
+  const stuck = { ...real, rename: async () => { throw busy('EPERM') } }
+  assert.deepEqual(await readKept(file, now, stuck), { value: null, setAside: null, unread: 'torn, and not kept aside: EPERM' })
+  assert.equal(await readFile(file, 'utf8'), '{"B7":1')
+})
+
+test('writeAtomic flushes the new file to disk before it puts it in place', async t => {
+  const dir = await tempDir(t)
+  const steps = []
+  const watched = {
+    ...real,
+    open: async (path, flags) => {
+      const handle = await open(path, flags)
+      return { writeFile: data => { steps.push('write'); return handle.writeFile(data) }, sync: () => { steps.push('sync'); return handle.sync() }, close: () => { steps.push('close'); return handle.close() } }
+    },
+    rename: (from, to) => { steps.push('rename'); return rename(from, to) },
+  }
+  await writeAtomic(join(dir, 'emus.json'), '{}', watched)
+  assert.deepEqual(steps, ['write', 'sync', 'close', 'rename'])
 })

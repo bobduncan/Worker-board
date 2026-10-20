@@ -316,7 +316,8 @@ export function launchEntry({ folder, port, node, main = null }) {
 export function withEntry(text, entry) {
   let file = null
   try {
-    file = JSON.parse(text)
+    // B406: after the byte-order mark a Windows editor may put first.
+    file = JSON.parse(text.replace(/^\uFEFF/, ''))
   } catch {
     file = null
   }
