@@ -881,7 +881,7 @@ describe('a working chat never stays without a time on its card', () => {
     expect(fileOf(w)?.task?.asked).toBe(true)
     await $.turn.start({ text: 'go on', turnId: 't2' })
     w.workAnswer = { status: 409, text: 'B12 waits on Q4: withdraw it (work withdraw Q4) or wait for the answer.' }
-    expect((await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'the archer' })).result).toBe('B12 waits on Q4: withdraw it (work withdraw Q4) or wait for the answer.')
+    expect((await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'the archer' })).result).toBe('B12 waits on Q4: withdraw it (work withdraw Q4) or wait for the answer. (HTTP 409)')
     await $.turn.complete({ ...ENDED, turnId: 't2' })
     expect([fileOf(w)?.task?.text, fileOf(w)?.task?.isReported]).toEqual(['Skeleton Archer', false])
   })
@@ -1180,7 +1180,7 @@ describe('B297: the work tool asks the worker board', () => {
     expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'note', to: 'main', text: 'Found a bug', chat: 'Units', session: 'units' })
     // A refusal is the board's own line.
     w.workAnswer = { status: 409, text: 'B12: Board holds it (in progress).\n' }
-    expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12' })).result).toBe('B12: Board holds it (in progress).')
+    expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12' })).result).toBe('B12: Board holds it (in progress). (HTTP 409)')
     // A subagent reads, and changes nothing.
     expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12', agentId: 'a1' })).result).toBe("Only the chat's main conversation changes the work: nothing was changed.")
     expect(w.worked.length).toBe(3)
@@ -1309,6 +1309,31 @@ describe('B297: the work tool asks the worker board', () => {
     expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toMatch(/^The worker board did not answer \(.+\): nothing was recorded\. Try again in a moment\.$/)
   })
 
+  test('B445: a board that holds the call is a time-out with its seconds; a refusal shows the HTTP status beside the board\'s words', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Units' })
+    w.hangs = true
+    const asked = $.tool.call({ tool: WORK, action: 'next' })
+    // The first call and its three repeats each wait 10 s; 2 s between them.
+    for (let i = 0; i < 4; i++) {
+      await settle()
+      await clock.advance(10_000)
+      await settle()
+      await clock.advance(2_000)
+    }
+    const said = String((await asked).result)
+    expect(said).toContain('not known whether it was recorded')
+    expect(said).toContain('(timed out after 10 s)')
+    w.hangs = false
+    w.workAnswer = { status: 500, text: '' }
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe('The worker board refused it (HTTP 500).')
+    w.workAnswer = { status: 403, text: 'Only the Workers mod may take.' }
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe('Only the Workers mod may take. (HTTP 403)')
+  })
+
   test('take writes the card from the title of the step, and step moves it', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
@@ -1326,7 +1351,7 @@ describe('B297: the work tool asks the worker board', () => {
     expect(fileOf(w)?.task?.step).toBe(2)
     // A step the board refused leaves the card as it is.
     w.workAnswer = { status: 409, text: 'B12 is not in progress for Units: take it first.' }
-    expect((await $.tool.call({ tool: WORK, action: 'step', id: 'B12', step: 3 })).result).toBe('B12 is not in progress for Units: take it first.')
+    expect((await $.tool.call({ tool: WORK, action: 'step', id: 'B12', step: 3 })).result).toBe('B12 is not in progress for Units: take it first. (HTTP 409)')
     expect(fileOf(w)?.task?.step).toBe(2)
   })
 })

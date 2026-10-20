@@ -1722,7 +1722,10 @@ but [not] prevent my ability to play the game". A setting in the board's head, b
   are spared (`spare`, which also leaves out what they start; the parent only when it is the keeper), and both get
   Normal and all cores back, tried again each pass until Windows took both, and again whenever a listing finds one of
   them lowered (another board's limiter, say), with a line in the board's log. The Workers mod 0.13.14 names the reason when the board does not answer ("did not answer (<reason>): nothing
-  was recorded").
+  was recorded"). B445 (the Workers mod 0.13.15): a call the board holds for 10 s counts as timed out, said with its
+  seconds ("timed out after 10 s"; asked again as a cut answer, B412), and a refusal shows the board's words with the
+  HTTP status beside them ("… (HTTP 409)", or "The worker board refused it (HTTP 500)." without words). The mod's own
+  late calls (a form's ask) keep waiting as long as the board takes, so their answer still closes the ask.
 
 ## The Focus tab, increment 4 (Focus 4): the main chat delegates, the partner's questions first, the talk bar
 

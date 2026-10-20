@@ -374,20 +374,32 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
  * B297: one call of the work tool, sent to the worker board as this chat: `{ ok, text }`, the board's answer or one
  * line saying why there is none. It never throws.
  */
-async function workOnBoard($: EngineInterface, fields: Record<string, unknown>, request: string | null = null): Promise<WorkAnswer> {
+async function workOnBoard($: EngineInterface, fields: Record<string, unknown>, request: string | null = null, limitMs: number | null = WORK_CALL_MS): Promise<WorkAnswer> {
   if (myself === null || chatsDir === null) return { ok: false, text: 'This chat is not in the list of chats: the work tool is for the chats of the list.' }
   try {
     const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
     const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
     if (board === null) return { ok: false, text: 'The worker board is not running: nothing was recorded. Try again once it runs.' }
     // B412: the call's request id: the board gives a repeat of it the first answer, so a call is recorded once.
-    const answer = await $.http.fetch(`${board.url}${WORK_PATH}`, {
+    const asked = $.http.fetch(`${board.url}${WORK_PATH}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, ...(request === null ? {} : { [REQUEST_HEADER]: request }) },
       // Who asks is the mod's to say, never the chat's.
       body: JSON.stringify({ ...fields, chat: myself.name, session: await $.session.id() }),
     })
-    if (!answer.ok) return { ok: false, text: answer.text.trim() || `The worker board refused it (${answer.status}).`, status: answer.status }
+    // B445: the engine's fetch has no time limit of its own: a board that holds the call is a time-out, said with its
+    // seconds (a cut answer: B412 asks again with the same request id).
+    let timer: { cancel: () => void } | null = null
+    // The mod's own late calls (workLate) wait as long as the board takes (limitMs null): their answer closes a form's ask.
+    const late = limitMs === null ? new Promise<null>(() => {}) : new Promise<null>(done => { timer = $.clock.after(limitMs, () => done(null)) })
+    const answer = await Promise.race([asked, late]).finally(() => (timer as { cancel: () => void } | null)?.cancel())
+    if (answer === null) {
+      asked.catch(() => {})
+      const why = `timed out after ${String((limitMs ?? WORK_CALL_MS) / 1000)} s`
+      return { ok: false, text: `The worker board did not answer (${why}): nothing was recorded. Try again in a moment.`, isCut: true, isRefused: false, why }
+    }
+    // B445: the board's own words with the HTTP status beside them.
+    if (!answer.ok) return { ok: false, text: answer.text.trim() === '' ? `The worker board refused it (HTTP ${String(answer.status)}).` : `${answer.text.trim()} (HTTP ${String(answer.status)})`, status: answer.status }
 
     return { ok: true, text: answer.text, status: answer.status }
   } catch (error) {
@@ -406,6 +418,9 @@ async function workOnBoard($: EngineInterface, fields: Record<string, unknown>, 
     return { ok: false, text: 'The worker board did not answer' + reason + ': nothing was recorded. Try again in a moment.', isCut: true, isRefused, why }
   }
 }
+
+/** B445: how long one work call may wait for the board's answer before it counts as timed out. */
+const WORK_CALL_MS = 10_000
 
 /** B412: one answer of the board to a work call; `isCut` when none came (`isRefused`: it took no connection). */
 type WorkAnswer = { ok: boolean; text: string; status?: number; isCut?: boolean; isRefused?: boolean; why?: string }
@@ -464,7 +479,7 @@ async function workLate($: EngineInterface, fields: Record<string, unknown>): Pr
   try {
     if (myself === null) await withinTime($, changeMine($, () => null))
     // Review of B298: a board that hangs or starts anew holds the person's prompt a moment at most.
-    const running = workOnBoard($, fields, await newRequest($))
+    const running = workOnBoard($, fields, await newRequest($), null)
     const answer = await withinTime($, running)
     if (answer === null) return { read: null, isRefused: false, late: running.then(late => fieldsOf(late), () => null) }
     return { read: fieldsOf(answer), isRefused: !answer.ok && answer.isCut !== true, late: null }
