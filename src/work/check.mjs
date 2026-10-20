@@ -68,7 +68,11 @@ export async function reportCheck({ id, branch, result, merged, repos, run, proj
     const name = nameOf(repo.dir)
     const { dir, base } = repo
     const [local, remote] = await Promise.all([run(['-C', dir, 'rev-parse', base]), run(['-C', dir, 'rev-parse', `origin/${base}`])])
+    // B404: origin/<base> unread is "no remote" only when git names no origin; a failed or timed-out call never passes.
+    const origins = local === null || remote !== null ? null : await run(['-C', dir, 'remote'])
     if (local === null) faults.push(`git did not answer for ${name}`)
+    else if (remote === null && origins === null) faults.push(`git did not answer for origin/${base} of ${name}`)
+    else if (remote === null && linesOf(origins).includes('origin')) faults.push(`origin/${base} of ${name} could not be read`)
     else if (remote === null) passed.push(`${base} of ${name} has no remote`)
     else if (local.trim() !== remote.trim()) faults.push(`${base} of ${name} is not the same as origin/${base}`)
     else passed.push(`${base} of ${name} equals origin/${base}`)

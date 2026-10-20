@@ -547,6 +547,17 @@ function drawStoreNote(state) {
   if (shown !== null) note.textContent = shown.text
 }
 
+/** B404: the note on top when a background loop of the board keeps failing ("Delivery failing since 23:10 (...)"). */
+function drawLoopsNote(state) {
+  const line = typeof state.loops?.line === 'string' && state.loops.line !== '' ? state.loops.line : null
+  const note = $('loops-note')
+  note.hidden = line === null
+  if (line !== null) {
+    note.textContent = line
+    note.title = "The board keeps trying; its errors are in board-errors.log in the project's .claude folder."
+  }
+}
+
 /** The note on top (see `updateView`). */
 function drawUpdate(state) {
   const note = $('update-note')
@@ -12747,6 +12758,7 @@ function draw(state) {
   drawModNote(state)
   drawStoreNote(state)
   drawSetAsideNote(state)
+  drawLoopsNote(state)
   drawCpu(state)
   drawMainGame(state)
   drawLimits(state)

@@ -73,6 +73,7 @@ import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from '
 import { loads, readVersion } from './src/version.mjs'
 import { findGameFile } from './src/gameFile.mjs'
 import { readKept, writeAtomic } from './src/write.mjs'
+import { failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -183,6 +184,7 @@ export function createBoard({
   design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
+  onError = () => {}, onAnswered = () => {}, isClosing = () => false,
   backlog = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   goals = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   brainstorm = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -217,6 +219,11 @@ export function createBoard({
         req.resume()
         if (req.method !== 'POST') return refuse(res, 405, 'Only POST.')
         return mayTake ? refuse(res, 415, 'Send JSON.') : refuse(res, 403, 'Only the Workers mod may take.')
+      }
+      // B404: a board that restarts takes no more work; the chat is told to try again in a moment.
+      if (isClosing()) {
+        req.resume()
+        return refuse(res, 503, 'The board restarts: try again in a moment.')
       }
       const body = await readBody(req)
       if (body === null) return refuse(res, 413, 'Too large.')
@@ -307,7 +314,15 @@ export function createBoard({
         const done = await restart(parsed)
         if (!done.ok) return refuse(res, done.status, done.why)
         // B142: the answer goes out first; then the board ends, and its keeper starts it anew.
-        res.on('finish', () => done.after?.())
+        // B404: also when the page's connection drops before the answer is out, so a closing board always ends.
+        let isAfter = false
+        const after = () => {
+          if (isAfter) return
+          isAfter = true
+          done.after?.()
+        }
+        res.on('finish', after)
+        res.on('close', after)
         return json(res, done.result)
       }
       const answer = await say(parsed)
@@ -347,13 +362,19 @@ export function createBoard({
   }
 
   return createServer((req, res) => {
-    handle(req, res).catch(() => {
-      // No details: the error may quote a chat.
+    handle(req, res).then(() => {
+      try { onAnswered() } catch { /* the record is no reason to fail the answer */ }
+    }, error => {
+      // B404: the error goes to the board's log; the answer has no details, as the error may quote a chat.
+      try { onError(error) } catch { /* the log is no reason to fail the answer */ }
       if (!res.headersSent) refuse(res, 500, 'The board could not answer.')
       else res.destroy()
     })
   })
 }
+
+/** B404: how long a restart waits for the reconciler's pass and the running checks before the board ends. */
+const RESTART_WAIT_MS = 10_000
 
 const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
 /** Whether `text` is valid JSON (after the byte-order mark a Windows editor may put first). */
@@ -421,6 +442,15 @@ async function main(args) {
 
   const keep = { messageMs: config.messageKeepMinutes * 60_000, answerMs: config.answerKeepHours * 60 * 60_000 }
   const timeOf = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  // B404: every background loop runs through the record: its last success and error, and a log file of the errors
+  // in the project's .claude folder (none for the demo).
+  const loops = loopRecord({ now: clock, write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')) })
+  /** B404: the checks after a report that run now, by step id; a restart waits for them, the stuck-check pass skips them. */
+  const runningChecks = new Map()
+  /** B404: set once a restart was asked: the board takes no more work and its loops start nothing new. */
+  let isClosing = false
+  /** B404: the reconciler's pass that runs now, for the restart to wait on. */
+  let reconciling = null
   // The demo has no chats to type into, so it has no bridge.
   // Neither has a board that only shows another one's history: the board that records is the one that delivers,
   // so of two boards on one project it is always the same one.
@@ -691,21 +721,31 @@ async function main(args) {
       const { id, branch, result, merged, touches } = done.result.check
       // B304: the repositories the board knows; the check finds the one the step's work is in among them.
       const repos = [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
-      // B363: work outside git is checked by its files, in the project's folder or a repository's.
-      const exists = path => stat(path).then(() => true, () => false)
-      void reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists })
-        .then(async outcome => workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' }))
-        .then(async checked => {
-          // B356: the board's check passed and the step waits for its result check: the partner is asked for it.
-          if (checked?.ok === true && checked.result.resultCheck !== undefined) await askResultCheck(checked.result.resultCheck)
-        })
-        .then(() => {
-          work.reset?.()
-          readState.reset()
-        })
-        .catch(() => {})
+      void runCheck({ id, branch, result, merged, touches, repos })
     }
     return done
+  }
+  /**
+   * The board's check of a reported step (B304), run in the background. B404: kept in runningChecks while it runs, and
+   * its errors recorded (loop "check") instead of swallowed; a check that never finished is run again by the reconciler.
+   */
+  function runCheck({ id, branch, result, merged, touches, repos = [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }] }) {
+    if (runningChecks.has(id)) return runningChecks.get(id)
+    // B404: a closing board starts no check; the stuck-check pass of the next board runs it.
+    if (isClosing) return Promise.resolve()
+    // B363: work outside git is checked by its files, in the project's folder or a repository's.
+    const exists = path => stat(path).then(() => true, () => false)
+    const running = loops.run(`check:${id}`, async () => {
+      const outcome = await reportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists })
+      const checked = await workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' })
+      if (checked?.ok !== true) throw new Error(`the check of ${id} could not be written: ${checked?.why ?? 'no answer'}`)
+      // B356: the board's check passed and the step waits for its result check: the partner is asked for it.
+      if (checked?.ok === true && checked.result.resultCheck !== undefined) await askResultCheck(checked.result.resultCheck)
+      work.reset?.()
+      readState.reset()
+    }).finally(() => runningChecks.delete(id))
+    runningChecks.set(id, running)
+    return running
   }
 
   let store
@@ -954,7 +994,7 @@ async function main(args) {
     }
   }
   if (!isDemo && historyFrom !== undefined) {
-    const measure = () => readState().then(measureTasks).catch(() => {})
+    const measure = () => loops.run('measure', () => readState().then(measureTasks))
     measure()
     setInterval(measure, TICK_MS)
   }
@@ -979,7 +1019,7 @@ async function main(args) {
     log: line => console.log(line),
   })
   if (cpu !== null && cpu.available) {
-    const applyCpu = () => cpu.apply().catch(() => {})
+    const applyCpu = () => loops.run('cpu', () => cpu.apply())
     applyCpu()
     setInterval(applyCpu, Math.max(5, config.refreshSeconds) * 1000)
   }
@@ -1036,7 +1076,7 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
@@ -1247,6 +1287,9 @@ async function main(args) {
       return done
     },
     // B142: started anew on the person's click, once the version its folder holds loads.
+    onError: error => loops.failed('request', error),
+    onAnswered: () => loops.succeeded('request'),
+    isClosing: () => isClosing,
     restart: async () => {
       if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
       // B128: a new start on a broken settings file would stop the board: this one keeps running instead.
@@ -1254,7 +1297,13 @@ async function main(args) {
       if (settings !== null) return { ok: false, status: 409, why: `The settings file config.json is broken: ${settings}. Fix it first; this board keeps running.` }
       const check = await loads(join(HERE, 'server.mjs'))
       if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }
-      return { ok: true, result: { at: clock() }, after: () => process.exit(START_ANEW) }
+      // B404: the board stops taking work and waits up to 10 s for the reconciler's pass and the running checks.
+      isClosing = true
+      return { ok: true, result: { at: clock() }, after: async () => {
+        const inTime = await settleWithin([reconciling, ...runningChecks.values()], RESTART_WAIT_MS)
+        if (!inTime) console.log('Restart: the board did not wait longer than 10 s for its running work; the next start checks again.')
+        process.exit(START_ANEW)
+      } }
     },
     // The page's own version goes into the page, so it can tell when the folder holds a newer one.
     pageVersion: async () => {
@@ -1408,7 +1457,7 @@ async function main(args) {
   })
 
   if (!isDemo && historyFrom === undefined) {
-    const look = () => readState().then(async state => {
+    const look = () => isClosing ? Promise.resolve() : loops.run('look', () => readState().then(async state => {
       await tick(store, state, clock())
       await measureTasks(state).catch(() => {})
       // B155: the steps it sees ticked for the first time, with when. B301: only from a store it can read, and with
@@ -1468,7 +1517,7 @@ async function main(args) {
         await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...ask, state: 'waiting' })
         readState.reset()
       }
-    }).catch(() => {})
+    }))
     look()
     setInterval(look, TICK_MS)
   }
@@ -1481,8 +1530,10 @@ async function main(args) {
     /** The review of Pause 2: the main chats the board typed "resume" into by itself, per resume (its since). */
     const retyped = new Set()
     const reconcileNow = async () => {
-      if (isReconciling) return
+      if (isReconciling || isClosing) return
       isReconciling = true
+      let finish = () => {}
+      reconciling = new Promise(done => { finish = done })
       try {
         const state = await readState()
         // B313: a chat renamed (its session under another name) takes its open items along, once.
@@ -1509,8 +1560,12 @@ async function main(args) {
           const typed = await sayNow({ to: retype, command: 'resume' })
           if (typed?.ok === true) readState.reset()
         }
-        // B360: a recap left alone for its 24 hours approves itself and moves to the closed items.
-        await workAction({ action: 'approve-recaps' }, 'server')
+        // B360: a recap left alone for its 24 hours approves itself and moves to the closed items. B404: on its own, so
+        // an odd recap that makes it throw stops no delivery.
+        await loops.run('approve-recaps', async () => {
+          const approved = await workAction({ action: 'approve-recaps' }, 'server')
+          if (!approved.ok) throw new Error(approved.why ?? 'approve-recaps was refused')
+        })
         const done = await deliverWork({
           state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,
@@ -1519,10 +1574,21 @@ async function main(args) {
           work.reset?.()
           readState.reset()
         }
-      } catch {
-        // tried again at the next refresh
+        loops.succeeded('reconcile')
+        // B404: a step that has stood on "check pending" for more than 2 minutes (a restart right after a report ended
+        // its check) is checked again; the checks that run now are skipped.
+        await loops.run('stuck-checks', async () => {
+          const stuck = await workAction({ action: 'recheck-stuck', skip: [...runningChecks.keys()] }, 'server')
+          if (!stuck.ok) throw new Error(stuck.why ?? 'recheck-stuck was refused')
+          for (const check of stuck.result.checks ?? []) void runCheck(check)
+        })
+      } catch (error) {
+        // Tried again at the next refresh; B404: recorded, so the page shows a delivery that keeps failing.
+        loops.failed('reconcile', error)
       } finally {
         isReconciling = false
+        reconciling = null
+        finish()
       }
     }
     setInterval(reconcileNow, Math.max(5, config.refreshSeconds) * 1000)

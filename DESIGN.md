@@ -1656,6 +1656,35 @@ over the current goal/focus of the advisor".
   one queued, says "A board fix goes first: B<id>" (`state.mjs`, `fixAhead`: the fix under way first, else the lowest
   id). The partner's job text: a board fix is never held back for the focus, nor argued in the daily note.
 
+## The background loops and the check after a report (B404)
+
+Place 1 of `docs/robustness-2026-10.md` (the person's Q207 B). The board's loops used to swallow their errors, so a
+loop that kept failing stopped delivery while the page looked healthy, and a restart seconds after a report left the
+step on "check pending" for good.
+
+- **The record** (`src/loops.mjs`): the look, the reconciler, approve-recaps, the stuck-check pass, measuring, CPU for
+  the chats, answering the page and each step's check after a report (`check:<id>`) run through `loops.run(name, fn)`:
+  last success, last error, failures in a row, since when. It never throws; the next run goes on. approve-recaps runs
+  on its own, so an odd recap stops no delivery.
+- **The log**: each new error (another message than the loop's last) is one line in `<project>/.claude/board-errors.log`
+  (UTC time, the loop, the error's first line); at 1 MB the file moves to `board-errors.log.1`. Not for the demo.
+- **The page**: one note on top while a loop fails ("Delivery failing since 23:10 (EBUSY …); also …"); nothing else
+  changes. The state carries `loops: { failing, line }`.
+- **A stuck check**: the reconciler asks the server-only action `recheck-stuck` (skipping the checks that run now):
+  a step in review whose last check line is "check pending" from more than 2 minutes ago is checked again, with the
+  History line "check run again: it stood on check pending for more than 2 minutes"; at most 3 times per report, then
+  it waits for the person's Check again.
+- **A restart** stops taking work (the Workers mod gets 503 "The board restarts: try again in a moment."), starts no
+  new look, pass or check, and waits up to 10 s for the reconciler's pass and the running checks before it ends; it
+  also ends when the page's connection drops before the answer is out.
+- **No remote** (`src/work/check.mjs`): origin/<base> unread passes as "has no remote" only when `git remote` names no
+  origin; git not answering, or an origin whose base cannot be read, is a fault. A repository with an origin whose base
+  was never pushed now fails the check, as it should.
+- Tests: `test/loops.test.mjs` (fake clock: a loop that throws once and goes on, one failing every refresh logged once,
+  the page line, the log file and its rotation, stuck checks and their cap, the restart's wait), `test/work/recheck.test.mjs`
+  (the action on a store), `test/work/check.test.mjs` (no remote against a failed call).
+- Not in it: taking `main()` apart into modules (12 to 16 h, a later step).
+
 ## CPU for the chats (B311)
 
 The person, 2026-10-18, while playing the game: the workers made the PC lag; "i want the board to not completely stop

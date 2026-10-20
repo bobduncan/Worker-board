@@ -35,17 +35,17 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state'])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers'])
+const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
  */
 const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers'])
+const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'recheck-stuck'])
 /** What only the person does, on the board's page; and what only the server does. */
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers'])
-const SERVER = new Set(['check', 'advance', 'resumed', 'approve-recaps'])
+const SERVER = new Set(['check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -1085,6 +1085,42 @@ async function recheck(body, w) {
   const done = await save(item, found.text, w)
   if (!done.ok) return done
   return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), ...lastReport(item), touches: touchesLines(item) } })
+}
+
+/** B404: how long a step may stand on "check pending" before the board runs its check again. */
+export const STUCK_CHECK_MS = 2 * 60_000
+const CHECK_LINE = /^- (\d{4}-\d\d-\d\d \d\d:\d\d) server: check (passed|failed|pending)\b/
+/** B404: how often a stuck check is run again after one report; then it waits for the person's Check again. */
+export const STUCK_RETRIES = 3
+const RUN_AGAIN = / server: check run again: it stood on check pending\b/
+const REPORTED_LINE = / → review\b|: reported again\b|: check asked again\b/
+/**
+ * B404: the steps in review whose board check has stood on "check pending" for more than STUCK_CHECK_MS (a restart
+ * seconds after a report ends the check that ran), by id. `skip`: the ids whose check runs now.
+ */
+export function stuckChecks(items, now, skip = new Set()) {
+  return [...items].filter(item => valueOf(item, 'Kind') === 'step' && stateOf(item) === 'review' && !skip.has(valueOf(item, 'Id')))
+    .filter(item => {
+      const last = (item.sections.get('History') ?? []).map(one => CHECK_LINE.exec(String(one).trim())).filter(Boolean).at(-1)
+      if (last === undefined || last[2] !== 'pending' || !(now - sinceMs(last[1]) > STUCK_CHECK_MS)) return false
+      const history = (item.sections.get('History') ?? []).map(String)
+      const from = history.findLastIndex(one => REPORTED_LINE.test(one))
+      return history.slice(from + 1).filter(one => RUN_AGAIN.test(one)).length < STUCK_RETRIES
+    }).map(item => valueOf(item, 'Id')).sort(byId)
+}
+
+/** B404: the board runs its check again for every step stuck on "check pending" (stuckChecks); the History says so. */
+async function recheckStuck(body, w) {
+  const skip = new Set(Array.isArray(body.skip) ? body.skip.map(String) : [])
+  const checks = []
+  for (const id of stuckChecks(w.store.items.values(), w.now, skip)) {
+    const found = await load(id, w, { kind: ['step'] })
+    if (!found.ok) continue
+    const item = appendHistory(said(found.item, w, 'check run again: it stood on check pending for more than 2 minutes'), 'server', 'check pending', w.now)
+    const done = await save(item, found.text, w)
+    if (done.ok) checks.push({ id, branch: valueOf(item, 'Branch'), ...lastReport(item), touches: touchesLines(item) })
+  }
+  return { ok: true, result: { text: checks.length === 0 ? 'No check is stuck.' : `Checked again: ${checks.map(one => one.id).join(', ')}.`, checks, changed: checks.length > 0 } }
 }
 
 /** The open asks under a step, by id. */
@@ -2211,6 +2247,7 @@ const CHANGE = {
   overturn: recapAnswer,
   seen: recapAnswer,
   'approve-recaps': approveRecaps,
+  'recheck-stuck': recheckStuck,
   'partner-answer': partnerAnswer,
   escalate,
   'partner-answers': partnerSetting,

@@ -79,3 +79,24 @@ test('a flow without the move review → review refuses a report from review, in
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+test('B404: a report whose check never came (a restart right after it) is checked again after 2 minutes, by the board only', async () => {
+  const { dir, lamplighter } = await fresh()
+  try {
+    await lamplighter({ action: 'take', id: 'B1', branch: 'b1-lamps' })
+    await lamplighter({ action: 'report', id: 'B1', result: 'The lamps glow.', merged: 'c0ffee1' })
+    const at = ms => body => workApi(body, { dir, now: NOW + ms, prefix: '', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(), as: 'server' })
+    assert.equal((await lamplighter({ action: 'recheck-stuck' })).status, 403)
+    // A minute after the report: not stuck yet.
+    assert.deepEqual((await at(2 * 60_000)({ action: 'recheck-stuck' })).result.checks, [])
+    // Its check runs now: skipped.
+    assert.deepEqual((await at(4 * 60_000)({ action: 'recheck-stuck', skip: ['B1'] })).result.checks, [])
+    const again = await at(4 * 60_000)({ action: 'recheck-stuck' })
+    assert.deepEqual(again.result.checks, [{ id: 'B1', branch: 'b1-lamps', result: 'The lamps glow.', merged: 'c0ffee1', touches: [] }])
+    assert.deepEqual((await history(dir, 'B1')).slice(-2), ['- 2026-10-17 11:09 server: check run again: it stood on check pending for more than 2 minutes', '- 2026-10-17 11:09 server: check pending'])
+    // Pending anew from 11:09: not again at once.
+    assert.deepEqual((await at(5 * 60_000)({ action: 'recheck-stuck' })).result.checks, [])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

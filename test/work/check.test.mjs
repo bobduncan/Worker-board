@@ -55,8 +55,17 @@ test('no merged commit and no branch anywhere: the check fails, saying it could 
 test('git that does not answer is named, never a pass; a repository without a remote is let be; a failed check names only its faults', async () => {
   const silent = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: async () => null })
   assert.deepEqual(silent, { passed: false, lines: ['could not tell which repository B5\'s work is in'] })
-  const noRemote = { ...world, '/projects/tools/board rev-parse origin/main': undefined, [`/projects/tools/board ${remotes}`]: '' }
+  const noRemote = { ...world, '/projects/tools/board rev-parse origin/main': undefined, [`/projects/tools/board ${remotes}`]: '', '/projects/tools/board remote': '' }
   assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(noRemote) })).lines, ['work in board', 'main of board has no remote', 'branch gone', 'result named'])
+  // B404: origin/main unread while git names an origin, or git not answering at all, is a fault, never "no remote".
+  const unread = { ...world, '/projects/tools/board rev-parse origin/main': undefined, '/projects/tools/board remote': 'origin\n' }
+  const failed = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(unread) })
+  assert.equal(failed.passed, false)
+  assert.ok(failed.lines.includes('origin/main of board could not be read'))
+  const timedOut = { ...world, '/projects/tools/board rev-parse origin/main': undefined }
+  const silentRemote = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(timedOut) })
+  assert.equal(silentRemote.passed, false)
+  assert.ok(silentRemote.lines.includes('git did not answer for origin/main of board'))
   const noBase = { ...world, '/projects/tools/board rev-parse main': undefined }
   assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: 'x', merged: 'c0ffee1', repos, run: git(noBase) })).lines, ['work in board', 'git did not answer for board'])
 })
