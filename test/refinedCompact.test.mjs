@@ -185,7 +185,7 @@ test('the review\'s findings: a step in a worker\'s queue carries its block apar
   assert.match(script, /: refined !== null && !isItemShown \? refineToRead\(refined\) : null/)
   // B299: with the store's item shown above, the refine part holds the questions only, and a ready one nothing more.
   assert.match(script, /if \(isDescribed && isItemShown\) return working === null \? null : holding\('section', 'details-part refine', working\)/)
-  assert.match(script, /refinedParts\(isItemShown \? \{ \.\.\.refined, summary: '', picture: null, pictureNote: '', build: \[\] \} : refined\)/)
+  assert.match(script, /refinedParts\(isItemShown \? \{ \.\.\.refined, summary: '', picture: null, pictureNote: '', build: \[\], effort: '' \} : refined\)/)
 })
 
 test('the review\'s findings: a caption on its own line, a path in backticks, a dash before the reason, a lone "Not in it:"', () => {
