@@ -3989,17 +3989,51 @@ function flowStripOf(flow) {
 }
 
 // item:start
+/** B468: the levels of a step's effort, lowest first, as the app names them. */
+const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+const EFFORT_HOLDS = ['taken', 'in progress', 'waiting on you']
+const effortClock = ms => { const at = new Date(ms); return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` }
+const effortMinutes = minutes => (minutes < 60 ? `${minutes} min` : minutes % 60 === 0 ? `${minutes / 60} h` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`)
+const effortTokens = tokens => (tokens < 1000 ? String(tokens) : tokens < 1_000_000 ? `${Math.round(tokens / 1000)} k` : `${Math.round(tokens / 100_000) / 10} M`)
+
+/**
+ * B468: what a step's window says under its effort, from its worker's lane (`lanes`, the state's chats with their
+ * `effortRun`, src/work/effort.mjs): that the worker runs at it until the step ends, or that the main chat was asked to
+ * set it and it is not set yet; for a step queued for a worker, that it will. Null for a step nobody holds or will take.
+ */
+function effortRunLine(item, lanes = []) {
+  const owner = item?.owner ?? null
+  const isHeld = EFFORT_HOLDS.includes(item?.state)
+  if (owner === null || (!isHeld && item.state !== 'queued')) return null
+  const level = item.effort.level
+  const run = lanes.find(lane => lane.name === owner)?.effortRun ?? null
+  if (run !== null && run.step === item.id && run.isSet) {
+    return isHeld ? `${owner} runs at ${level} until the step ends, then at its usual level (${run.usual}).` : `${owner} is set to ${level} for it already.`
+  }
+  if (run !== null && run.step === item.id && run.asked !== null) return `The main chat was asked at ${effortClock(run.asked.at)} to set ${owner} to ${level}; not set yet.`
+  return isHeld ? `${owner} is to run at ${level} while it holds the step.` : `${owner} is set to ${level} before the step goes to it.`
+}
+
+/** B468: what the board kept for a level (`efforts`, the state's taskTimes.efforts): its steps, their typical time and tokens. */
+function effortKeptLine(level, efforts = []) {
+  const kept = efforts.find(one => one.level === level) ?? null
+  if (kept === null) return `Kept per level: the time and tokens its steps take, so the levels can be tuned. None at ${level} yet.`
+  return `Kept for ${level}: ${kept.count} step${kept.count === 1 ? '' : 's'} so far, typically ${effortMinutes(kept.typicalMin)}${kept.tokens === null ? '' : ` and ${effortTokens(kept.tokens)} tokens`}.`
+}
+
 /**
  * B299: the parts of a step's window from the work store, in their order: the Summary on top, the picture, the
- * goal chip, the flow strip, What we build, then Requirements and Touches folded, History last. `item` is the state's
- * `item` of the step; only the parts it has.
+ * goal chip, B468 its effort, the flow strip, What we build, then Requirements and Touches folded, History last. `item`
+ * is the state's `item` of the step; only the parts it has. `lanes` and `efforts` (the state's chats and
+ * taskTimes.efforts) say who runs at its effort and what was kept for that level.
  */
-function itemPartsOf(item, hasFlow) {
+function itemPartsOf(item, hasFlow, { lanes = [], efforts = [] } = {}) {
   if (item === null || item === undefined) return []
   const parts = [
     item.summary.length > 0 ? { key: 'summary', title: 'Summary', lines: item.summary, isFolded: false } : null,
     item.picture !== null ? { key: 'picture', title: 'Picture', lines: [item.picture], isFolded: false } : null,
     item.goal !== null ? { key: 'goal', title: 'Goal', lines: [item.goal], isFolded: false } : null,
+    (item.effort ?? null) !== null ? { key: 'effort', title: 'Effort', lines: [], isFolded: false, effort: item.effort, run: effortRunLine(item, lanes), kept: effortKeptLine(item.effort.level, efforts) } : null,
     hasFlow ? { key: 'flow', title: 'Flow', lines: [], isFolded: false } : null,
     item.what.length > 0 ? { key: 'what', title: 'What we build', lines: item.what, isFolded: false } : null,
     // B356: the result check by a helper that did not build it: the ticks, the score and the evidence picture.
@@ -4690,7 +4724,9 @@ function laneWindowOf(lane, now, mainTitle) {
     // B425: the title cut to its first clause (the person, I40: "It's title is too long"); the whole one on hover.
     title: fullTitle === null ? 'Task not recorded yet' : shortTitle(fullTitle),
     fullTitle,
-    chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }, ...((brief?.goal ?? null) === null ? [] : [{ text: brief.goal, tone: 'goal' }])],
+    chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }, ...((brief?.goal ?? null) === null ? [] : [{ text: brief.goal, tone: 'goal' }]),
+      // B468: the effort it runs at for the step, and "not set yet" while the main chat was asked and the app has not.
+      ...((brief?.effort ?? null) === null ? [] : [{ text: `Effort: ${brief.effort.level}${lane.effortRun?.step === step.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
     // B301: only the person's words give a task; the main chat's messages give none.
     given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
     step,
@@ -5294,7 +5330,7 @@ function drawDetails(state) {
   const strip = flowStripOf(flowFor(subject.step ?? step ?? null, need, state))
   // B299: a step's window shows its item from the work store: Summary, picture, goal, the strip, What we
   // build, Requirements and Touches folded; its History comes last.
-  const itemParts = itemPartsOf(itemNow, strip !== null)
+  const itemParts = itemPartsOf(itemNow, strip !== null, { lanes: state.chats ?? [], efforts: state.taskTimes?.efforts ?? [] })
   const isItemShown = itemParts.length > 0
   // B233: a step of the Backlog tab: what refining it says, with the person's answers and feedback. B293: without
   // the store's item, once ready it is the step's description, first, and the step's own lines follow as its notes;
@@ -5400,6 +5436,13 @@ function itemPart(part, strip) {
   if (part.key === 'flow') return flowPart(strip)
   if (part.key === 'picture') return pictureSection(pictureOfLine(part.lines[0]))
   if (part.key === 'goal') return el('p', 'chip is-goal', `Goal: ${part.lines[0]}`)
+  // B468: the five levels with the step's lit, its reason, who runs at it, and what the board kept for that level.
+  if (part.key === 'effort') {
+    const levels = el('div', 'effort-levels')
+    for (const level of EFFORT_LEVELS) levels.append(el('span', `effort-level${level === part.effort.level ? ' is-on' : ''}`, level))
+    const why = el('p', 'muted', part.effort.isSet ? part.effort.why : 'Its refine gave no effort: it counts as medium.')
+    return section('Effort', [levels, why, ...(part.run === null ? [] : [el('p', 'effort-run', part.run)]), el('p', 'muted effort-kept', part.kept)])
+  }
   if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
   // B293: what we build as the refine shows it, "Not in it" greyed.
   if (part.key === 'what') return section('What we build', [buildList(part.lines)])
@@ -12031,7 +12074,7 @@ function refinePart(step, state, isItemShown = false) {
       box.append(heading)
     }
     // With the store's item shown, its Summary and picture stand above: not twice.
-    box.append(...refinedParts(isItemShown ? { ...refined, summary: '', picture: null, pictureNote: '', build: [] } : refined))
+    box.append(...refinedParts(isItemShown ? { ...refined, summary: '', picture: null, pictureNote: '', build: [], effort: '' } : refined))
     if (refined.questions.length > 0) box.append(refineQuestions(step, refined, view))
     if (refined.feedback.length > 0) {
       box.append(el('span', 'refine-tag', 'Your feedback so far'), listOf(refined.feedback))
@@ -12074,6 +12117,8 @@ function refinedParts(refined) {
   if (refined.build.length > 0) {
     parts.push(holding('div', '', el('span', 'refine-tag', 'What we build'), buildList(refined.build)))
   }
+  // B468: the effort its worker runs at, "<level> · <reason>".
+  if ((refined.effort ?? '') !== '') parts.push(holding('div', 'refined-effort', el('span', 'refine-tag', 'Effort'), el('p', '', refined.effort)))
   return parts
 }
 

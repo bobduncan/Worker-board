@@ -169,6 +169,12 @@ profile.
   `set_session_effort` (load them with ToolSearch when they are deferred), to the Model and Effort lines; find the
   chat by its session id, else by its title. Nothing else: no message to the partner. The board shows it set once the
   partner's next answer runs on it. When a tool refuses, tell the user in one line.
+- `set effort` with "Chat:", "Effort:", "Session:" (when the board knows the chat's id), "Step:" (none when it goes
+  back to its usual level) and "Why:" (B468): a worker runs at its step's effort, to save tokens (the user, I52). Set
+  that chat's effort with the app's `set_session_effort` (load it with ToolSearch when it is deferred) to the Effort
+  line; find the chat by its session id, else by its title. Nothing else: no message to the worker. The board reads
+  the effort from the app and sends the step's line to the worker once it is set, three minutes at most. When the tool
+  refuses, tell the user in one line.
 - `remove worker` with "Name: ...", "State: ..." and "Why: ...": the user removes that worker. If it works, ask it to
   stop at a safe point (work committed and pushed, nothing new started) and wait for its note; then take it out of
   the list of chats (the chat tool, action "leave" with its name), close its chat, and hand the steps that were

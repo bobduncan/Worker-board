@@ -168,8 +168,8 @@ draft the goal had, and answers one line: the board kept it, or why not.
      a line of description, "Requirements:", "Touches: ...", and "Context:" with the vibe and the user's words from the
      thread;
    - each is made refined at once: give `work new` also `summary`, `what` (the vibe and the how are the answers),
-     and `size` and `picture` where they help, and `standard` for a step that makes a thing of a kind of work ("Refine
-     a step", Standard); the board writes its ready block ("from the how of G<n>"), so no refine round follows. What the user still decides is an ask of yours under it (`work ask`, kind decide, a picture per
+     and `size` and `picture` where they help, `standard` for a step that makes a thing of a kind of work ("Refine
+     a step", Standard), and its `effort` ("Refine a step", Effort); the board writes its ready block ("from the how of G<n>"), so no refine round follows. What the user still decides is an ask of yours under it (`work ask`, kind decide, a picture per
      option): it holds the step back from nothing;
    - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added
      (once the how is agreed the board takes only that);
@@ -570,7 +570,7 @@ refined before it goes into a queue): once for every new step, for a step about 
 it, or the main chat queued it before it was refined), and once more when the user's answers wait to be folded in.
 Do the same for those. Read the step (`work list`, its record in the work store) and what it touches, then write its
 refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
-`size` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
+`size`, `effort` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
 writes the block in the form below; `refined` folds the questions away and moves a new step to refined, as the flow
 file says. What a refined step
 is, as the user approved it on 2026-10-17 ("1 fully comprehensive description that is compact with pictures and
@@ -584,6 +584,7 @@ summary. that doesnt read like it was in progress text"), in two stages:
     Part of: <its goal and milestone on the goal map, "G9 M2 · <title>">
     Size: <about N hours; over about 4, cut it into steps>
     Standard: <kind> · <reference picture> · target <score>     (or: none (<why>); only for a step that names a kind of work)
+    Effort: <low, medium, high, xhigh or max> · <why, in one line>
     Questions:
     - <the question itself, at most 12 words, answered with yes or no?> <its numbers and why, short> Advised: yes, <the reason in a few words>
 
@@ -597,6 +598,7 @@ the feedback. It reads as the finished description, not as a talk:
     Part of: ...
     Size: ...
     Standard: ...
+    Effort: ...
     What we build:
     - <a short point, with every decision folded in>
     - Not in it: <what is left out, and why in a few words>
@@ -617,6 +619,13 @@ the feedback. It reads as the finished description, not as a talk:
   the board that mentions a map) gets `none (<why>)`. Without one, `refined` is refused for a step that names a kind.
   When your work tool has no field `standard` yet (a chat started before it came), give it as a line of `what` that
   starts with `Standard:`; the board takes it out of What we build.
+- **Effort** (B468): the effort level the worker runs at while it holds the step, to save tokens (the user, I52):
+  give `effort` with `work refine` (or `work refined`, or `work new` from an agreed how) as `<level>: <why, in one
+  line>`. Choose by the step's kind and risk: a text or data fix **low**; a board fix or one rule **medium**; new art,
+  or a rule that touches many parts, **high**; a rebuild or an unclear design **xhigh**; **max** only with the user's
+  word. The board writes it as the block's `Effort:` line and keeps it for the next round; a step without one runs at
+  medium. When your work tool has no field `effort` yet, give it as a line of `questions` (or of `what`) that starts
+  with `Effort:`; the board takes it out.
 - **Questions**: at most five, only what changes the work, each one line ending in `Advised: yes` or `Advised: no`
   and its reason (B293): the board shows them with Yes and No, and "Take the advice" answers every open one with your
   advice. Each is an ask too, so it leads with an ask's title (B462): the question itself first, in at most 12 words,
