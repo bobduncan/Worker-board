@@ -303,6 +303,11 @@ test('the Vision tab sits beside Overview, with its view, its address and its st
   assert.match(script, /const scrolled = \$\('view-vision'\)\.querySelector\('\.vision'\)\?\.scrollTop \?\? 0/)
   assert.match(script, /if \(scrolled > 0\) main\.scrollTop = scrolled/)
   assert.match(css, /\.vision-standard \{ display: grid; grid-template-columns: 480px/)
+  // A standard's card in three parts, the bar set apart; what the goals need is a muted line, not a bar point.
+  assert.match(script, /'The bar: what each one must meet'/)
+  assert.match(script, /'To get there'/)
+  assert.match(script, /`Needed: \$\{card\.count\}`/)
+  assert.match(css, /\.vision-part\.is-bar \{/)
   // The Focus page no longer carries the plan.
   assert.doesNotMatch(script, /planCard\(/)
 })

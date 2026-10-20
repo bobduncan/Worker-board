@@ -417,6 +417,13 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-see:hover, .vision-see:focus-visible { color: #c3d6ff; outline: none; filter: none; }
 .vision-standard-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .vision-standard-body h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; font-size: 16px; }
+/* A standard's three parts (2026-10-20): the bar set apart, to get there, today. */
+.vision-part { display: flex; flex-direction: column; gap: 4px; }
+.vision-part-label { margin: 2px 0 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.vision-part.is-bar { padding: 8px 12px 10px; border-left: 3px solid var(--advisor); border-radius: 0 8px 8px 0; background: var(--inset); }
+.vision-part.is-bar .vision-part-label { color: var(--advisor); }
+.vision-part.is-bar .vision-points { font-size: 15px; }
+.vision-today { margin: 0; font-size: 14px; }
 .vision-gap { align-self: flex-start; font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--waiting); color: var(--waiting); }
 .vision-gap.is-ok { border-color: var(--working); color: var(--working); }
 .vision-goal-buttons .vision-button { padding: 5px 12px; font-size: 13px; }
