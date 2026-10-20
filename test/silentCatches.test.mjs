@@ -21,7 +21,8 @@ const part = (from, to) => {
   return server.slice(start, end)
 }
 
-test('B446: no catch in server.mjs drops its error without a word; only the settings queue goes on, its caller gets the error', () => {
+// The other catches that give a value (`() => []`, `() => null`, ...) are fallbacks of a read, not of an action.
+test('B446: no `.catch(() => {})` in server.mjs drops an error; only the settings queue has one, and its caller gets the error', () => {
   const silent = server.split('\n').map((line, i) => [i + 1, line.trim()]).filter(([, line]) => /\.catch\(\(\) => \{\}\)/.test(line))
   assert.deepEqual(silent.map(([, line]) => line), ['settingsQueue = turn.catch(() => {})'], silent.map(([at, line]) => `${at}: ${line}`).join('\n'))
   // The queue's caller has the turn itself, with its error.
@@ -30,8 +31,16 @@ test('B446: no catch in server.mjs drops its error without a word; only the sett
 
 test('B446: the result check and the goal guard after a chat\'s checked run as loops', () => {
   const action = part('const workAction = async (body, as) => {', 'if (done.ok && done.result.changed !== false)')
-  assert.match(action, /loops\.run\('result-check', \(\) => askResultCheck\(done\.result\.resultCheck\)\)/)
+  // The error names the step that was not asked for: the loop runs for every step.
+  assert.match(action, /loops\.run\('result-check', \(\) => askResultCheck\(asked\)\.catch\(error => \{ throw aboutError\(asked\.id, error\) \}\)\)/)
   assert.match(action, /loops\.run\('guard', async \(\) => guardNow\(await goalOfChecked\(body\.id\)\)\)/)
+  // A store the guard cannot read fails its loop, instead of counting no attempt as a success.
+  const guard = part('const guardNow = async id => {', 'const toPartner = async')
+  const goal = part('const goalOfChecked = async id => {', 'const openOverturnedGoal')
+  for (const one of [guard, goal]) {
+    assert.match(one, /await readStore\(workDir\)\)\.items/)
+    assert.doesNotMatch(one, /readStore\(workDir\)\.catch/)
+  }
 })
 
 test('B446: a picture whose making fails still gets its end, and its error is kept with the end\'s', () => {

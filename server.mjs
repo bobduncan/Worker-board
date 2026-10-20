@@ -73,7 +73,7 @@ import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from '
 import { loads, readVersion } from './src/version.mjs'
 import { findGameFile } from './src/gameFile.mjs'
 import { readKept, writeAtomic } from './src/write.mjs'
-import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
+import { aboutError, afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -565,7 +565,8 @@ async function main(args) {
     if (!writesMap || workDir === null || id === null) return
     const state = await readState()
     if ((state.advisor ?? null) === null) return
-    const items = [...(await readStore(workDir).catch(() => ({ items: new Map() }))).items.values()]
+    // B446: a store it cannot read fails the guard's loop (shown and logged) instead of counting no attempt.
+    const items = [...(await readStore(workDir)).items.values()]
     const done = await guardGoal(id, {
       canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
       partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true,
@@ -684,7 +685,7 @@ async function main(args) {
   const goalOfChecked = async id => {
     const plain = String(id ?? '').trim()
     if (/^G\d+$/.test(plain)) return plain
-    const item = (await readStore(workDir).catch(() => ({ items: new Map() }))).items.get(plain)
+    const item = (await readStore(workDir)).items.get(plain)
     return item?.head.get('Goal') ?? null
   }
   /**
@@ -710,8 +711,10 @@ async function main(args) {
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
     const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
     // B356, the second review: a fix's check that leaves the step it fixes in review asks the partner for that step again.
-    // B446: both run as loops: a failure shows on the page and in the log, and never fails the chat's call.
-    if (done.ok && done.result.resultCheck !== undefined) await loops.run('result-check', () => askResultCheck(done.result.resultCheck))
+    // B446: both run as loops: a failure shows on the page and in the log (with the step not asked for), and never
+    // fails the chat's call.
+    const asked = done.ok ? done.result.resultCheck : undefined
+    if (asked !== undefined) await loops.run('result-check', () => askResultCheck(asked).catch(error => { throw aboutError(asked.id, error) }))
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
     if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) await loops.run('guard', async () => guardNow(await goalOfChecked(body.id)))
     if (done.ok && done.result.changed !== false) {

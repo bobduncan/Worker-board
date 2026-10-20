@@ -2674,16 +2674,21 @@ The result check of B404 found four catches left in `server.mjs` that dropped th
 nothing in the log. They now run through the loops' record (`src/loops.mjs`) as the other loops do:
 
 1. After a chat's call on the store, asking the partner for a result check (`result-check`, "asking for a result
-   check") and the goal guard after a failed check (`guard`, "the goal guard"). A failure never fails the chat's call.
+   check"; the error names the step not asked for, `aboutError`) and the goal guard after a failed check (`guard`,
+   "the goal guard"; a store it cannot read now fails it, where it counted no attempt before). A failure never fails
+   the chat's call. Neither is asked again by itself: the page's note and the log say what was lost.
 2. Making a picture of an idea (`picture`, "making a picture"): a making that throws still ends the idea's version
    ("The picture could not be made."); when that end cannot be written either, the one error names both (`afterError`).
 3. Measuring the tasks inside the look (`measure`, as on a board that shows another's history): its failure no longer
    hides inside the look's success, and the look goes on.
 4. The log tells a new error from the same one again by its words without their random part (`errorKey`): a file
    written beside its place (`<file>.<pid>.<random>.tmp`) has another name on every run, so a loop failing on it each
-   refresh wrote a line every few seconds; it writes one now. The page still shows the error as it last was.
-5. Tests: `test/loops.test.mjs` (the random part, the joined error, the page's words) and `test/silentCatches.test.mjs`
-   (server.mjs keeps no catch that drops its error, apart from the settings queue whose caller gets the error).
+   refresh wrote a line every few seconds; it writes one now. The page still shows the error as it last was. After a
+   success the same error is a new failure and is logged again (one that fails now and then, as a picture, is seen).
+5. Tests: `test/loops.test.mjs` (the random part, a repeat after a success, the joined and named errors, the page's
+   words) and `test/silentCatches.test.mjs` (the four places as loops, the guard's store read; server.mjs keeps no
+   `.catch(() => {})` apart from the settings queue, whose caller gets the error; the catches that give a value are
+   the fallbacks of a read).
 
 ## What it does not do
 

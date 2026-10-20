@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterError, failingLine, fileLog, loopRecord, settleWithin, wordsOf } from '../src/loops.mjs'
+import { aboutError, afterError, errorKey, failingLine, fileLog, loopRecord, settleWithin, wordsOf } from '../src/loops.mjs'
 import { STUCK_CHECK_MS, stuckChecks } from '../src/work/api.mjs'
 
 const clockAt = start => {
@@ -68,13 +68,34 @@ test('B446: an error that differs only in its temp file name writes one line; an
   assert.equal(lines.length, 2, 'another file is another error')
   await loops.run('look', async () => { throw new Error('state unreadable') })
   assert.equal(lines.length, 3)
+  // Only the form of a file written beside its place is masked: a version in a name is part of the error.
+  assert.notEqual(errorKey('cannot open app-1.2.3.tmp'), errorKey('cannot open app-1.2.4.tmp'))
+  assert.equal(errorKey('x.json.4120.0a1b2c3d.tmp'), errorKey('x.json.88.ffffffff.tmp'))
+})
+
+test('B446: the same error after a success is a new failure and is logged again', async () => {
+  const lines = []
+  const loops = loopRecord({ now: () => 0, write: line => lines.push(line) })
+  const fail = () => loops.run('picture', async () => { throw new Error('codex exited with 1') })
+  await fail()
+  await fail()
+  assert.equal(lines.length, 1)
+  await loops.run('picture', async () => 'made')
+  await fail()
+  assert.equal(lines.length, 2, 'logged again after the success')
 })
 
 test('B446: a failure and the failure of its clean-up after it are one error, in both their words', () => {
-  const joined = afterError(new Error('codex exited with 1\nstack'), new Error('EBUSY: ideas.json'), 'the idea\'s end could not be written')
+  const first = new Error('codex exited with 1\nstack')
+  const joined = afterError(first, new Error('EBUSY: ideas.json'), 'the idea\'s end could not be written')
   assert.ok(joined instanceof Error)
   assert.equal(joined.message, 'codex exited with 1; the idea\'s end could not be written: EBUSY: ideas.json')
+  assert.equal(joined.cause, first)
   assert.equal(afterError('odd', 'worse', 'then').message, 'odd; then: worse')
+  // A loop that runs for many steps names the one it failed for.
+  const about = aboutError('B12', new Error('EBUSY: outbox\nstack'))
+  assert.equal(about.message, 'B12: EBUSY: outbox')
+  assert.equal(about.cause.message, 'EBUSY: outbox\nstack')
 })
 
 test('B446: the page has words for the loops that run on a chat\'s report and for the pictures', () => {
