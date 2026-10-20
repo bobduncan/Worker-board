@@ -17,6 +17,10 @@ export const LOOP_WORDS = {
   measure: 'measuring the tasks',
   cpu: 'CPU for the chats',
   request: 'answering the page',
+  // B446: after a chat's report or checked, and the pictures of an idea.
+  'result-check': 'asking for a result check',
+  guard: 'the goal guard',
+  picture: 'making a picture',
 }
 
 /** The page's words for a loop; `check:<id>` is the check after the report of that step. */
@@ -25,11 +29,25 @@ export const wordsOf = name => LOOP_WORDS[name] ?? (String(name).startsWith('che
 /** At most this many bytes in the log file; a larger one is moved to `<file>.1` (one older file is kept). */
 export const LOG_MAX_BYTES = 1_000_000
 
+const messageOf = error => (error instanceof Error ? error.message : String(error))
+const firstLine = error => messageOf(error).split('\n')[0].trim()
+
 /** One line of the log file: the time (UTC), the loop, the error's first line. */
 export function logLine(at, name, error) {
-  const message = error instanceof Error ? error.message : String(error)
-  return `${new Date(at).toISOString()} ${name}: ${message.split('\n')[0].trim().slice(0, 500)}\n`
+  return `${new Date(at).toISOString()} ${name}: ${firstLine(error).slice(0, 500)}\n`
 }
+
+/**
+ * B446: an error's words without their random part, to tell a new error from the same one again: the name of a file
+ * written beside its place (`<file>.<pid>.<random>.tmp`, write.mjs `besideOf`) differs on every run.
+ */
+export const errorKey = message => String(message).replace(/\.\d+\.[0-9a-f]{8}\.tmp\b/g, '.tmp')
+
+/** B446: one error for a failure and the failure of what was done after it (`what`), in both their words. */
+export const afterError = (error, later, what) => new Error(`${firstLine(error)}; ${what}: ${firstLine(later)}`, { cause: error })
+
+/** B446: an error with what it was about first (a step's id), for a loop that runs for many. */
+export const aboutError = (about, error) => new Error(`${about}: ${firstLine(error)}`, { cause: error })
 
 /** Writes a line to the log file, moving a full one aside first; never throws. */
 export function fileLog(file, { maxBytes = LOG_MAX_BYTES } = {}) {
@@ -47,11 +65,13 @@ export function fileLog(file, { maxBytes = LOG_MAX_BYTES } = {}) {
 
 /**
  * The record of the loops. `now` is the clock; `write(line)` takes a log line (fileLog, or a test's list). A failing
- * loop's line is written when its error is new (another message than the last), so a loop failing every refresh
- * writes once, not every few seconds.
+ * loop's line is written when its error is new (another message than the last, its random part aside: `errorKey`), so
+ * a loop failing every refresh writes once, not every few seconds; after a success, its next failure is new again.
  */
 export function loopRecord({ now = Date.now, write = () => {} } = {}) {
   const loops = new Map()
+  // B446: the words (without their random part) of each loop's last line in the log, until it succeeds again.
+  const logged = new Map()
   const of = name => {
     if (!loops.has(name)) loops.set(name, { name, lastOk: null, lastError: null, errorAt: null, failingSince: null, failures: 0, runs: 0 })
     return loops.get(name)
@@ -60,11 +80,12 @@ export function loopRecord({ now = Date.now, write = () => {} } = {}) {
   /** Notes a failure of `name` (also for a loop that does not run through run()). */
   function failed(name, error) {
     const one = of(name)
-    const message = (error instanceof Error ? error.message : String(error)).split('\n')[0].trim().slice(0, 300) || 'unknown error'
+    const message = firstLine(error).slice(0, 300) || 'unknown error'
     const at = now()
     if (one.failures === 0) one.failingSince = at
     one.failures += 1
-    if (message !== one.lastError) write(logLine(at, name, message))
+    if (logged.get(name) !== errorKey(message)) write(logLine(at, name, message))
+    logged.set(name, errorKey(message))
     one.lastError = message
     one.errorAt = at
   }
@@ -75,6 +96,8 @@ export function loopRecord({ now = Date.now, write = () => {} } = {}) {
     one.lastOk = now()
     one.failures = 0
     one.failingSince = null
+    // B446: the same error after a success is a new failure, and logged again.
+    logged.delete(name)
   }
 
   /** Runs `fn` as loop `name`: its outcome is recorded; it never throws. Answers fn's value, or undefined on an error. */
