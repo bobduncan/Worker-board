@@ -255,11 +255,14 @@ The rules:
    answer: `## P<n> · <a card title of two or three words>` (`Look and sound`), then `- State: ...`, two to four
    `- Point: **<lead words>** <the rest>` lines in plain, paraphrased words (never a copy of a document's sentence),
    `- Picture: <path in the picture folder> · <caption>` where it is about looks (at most three: P3 always has them),
-   an open one `- Known: ...`, and `- Overturned (<date>): ...`. An answer without pictures gets two or three
-   `- Icon: <name> · <caption>` lines, so every card has a visual (the user, 2026-10-20): a name of the board's set
-   (gamepad, person, spark, layers, map, store, browser, link, code, flag, check, gauge, sound, brush, clock, coins)
-   or `badge:<up to five letters>` for a tool or a brand ("badge:TS · TypeScript"), never a logo file. The board shows a
-   card's first four points and folds
+   an open one `- Known: ...`, and `- Overturned (<date>): ...`. Every card has a picture (the user, 2026-10-21: "I
+   wanted pictures so it looks the same, not drawn icons"): an answer that is not about looks gets one `- Picture:`
+   line with a scene that stands for it, made with Codex in P3's look (P3's reference picture attached, the same
+   palette and tilt, no text in the picture), saved as `<picture folder>/vision/vision-<card>.png`, its caption the
+   answer in a few words. Until that picture exists a card may carry two or three `- Icon: <name> · <caption>` lines
+   (a name of the board's set: gamepad, person, spark, layers, map, store, browser, link, code, flag, check, gauge,
+   sound, brush, clock, coins; or `badge:<up to five letters>` for a tool, never a logo file); the board shows icons
+   only on a card without pictures. The board shows a card's first four points and folds
    the rest under "Details", so the four that matter most come first. Two more lines per answer (2026-10-20): `- Advice:
    <one line>`, your verdict on the card as its partner ("solid; nothing left to ask; ask again after M1 is played",
    or "thin: go deeper on the player"), and `- Settled: (you, <date>)` once the card is done for now: you write it

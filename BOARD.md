@@ -294,8 +294,9 @@ step falls back to. Four steps, broad to narrow, **1 · Vision → 2 · Features
 a step that is settled), and an **Interview** over all of them. The vision: the page's pitch in large type, then a
 card per answer: its title, its state (decided green, assumed blue, open amber; **settled ✓** in teal once a deeper
 round is answered or the person pressed **Good enough**), its first four points with bold lead words and the rest
-under **Details · n more**, up to three pictures with captions (Look and sound always; a card without pictures shows
-two or three line icons with captions instead, or lettered badges for tools), the partner's one line of
+under **Details · n more**, up to three pictures with captions (Look and sound always; every other card gets one
+scene made in its look, 2026-10-21; a card still without pictures shows two or three line icons with captions
+instead, or lettered badges for tools), the partner's one line of
 advice, where it came from, **Go deeper** (or "2 deeper questions →", or **Deepen again** once settled), **Good
 enough**, **Yes, mine** / **Confirm** and **Change**; an open card has **Answer it →**. Standards (2026-10-20): the
 guard on top (no second thing of a kind before its standard is confirmed and its foundation exists), then a row per
