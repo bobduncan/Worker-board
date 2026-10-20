@@ -789,7 +789,9 @@ the first design let only the main chat receive.
 **The bridge as built** (`src/bridge.mjs`, and `hooks/board.ts` in the Workers mod, version 0.4.0). While it runs,
 the board keeps `<project>\.claude\board.json` with its address and a key. Every chat in the Workers list asks
 `POST /api/bridge/take` with that key, its own name and its session's id every few seconds. The board serves only
-the session it shows under that name, marks what waits for that chat taken, writes that down, then hands it out;
+the session it shows under that name (B463: refusing another name, it says the name it shows that session under, so
+a chat renamed in the app joins under it at its next take, or at a refused work call, which it then asks once more),
+marks what waits for that chat taken, writes that down, then hands it out;
 the mod types it into its chat as the person's own words and tells the board what was typed and what was not
 (`POST /api/bridge/typed`), so the card says "handed to its chat", then "typed into its chat", or that it did not
 arrive. The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only

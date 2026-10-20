@@ -28,6 +28,8 @@ type World = {
   whileAsked: ChatFile | null
   /** What the worker board holds for this chat, handed out at the next take. */
   waiting: { id: string; text: string }[]
+  /** B463: the board's next answers to a take, before it hands out what waits (a refusal of the chat's name). */
+  takeAnswers: { status: number; text: string }[]
   /** Each question to the board: its address, its key and its body. */
   fetched: { url: string; key: string; body: string }[]
   /** What the mod typed into the chat: who it says typed it, and the words. */
@@ -89,7 +91,7 @@ async function settle(): Promise<void> {
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -235,6 +237,8 @@ function stand(on: On, w: World): void {
       return { value: { status: 200, ok: true, headers: {}, text: '{}' } }
     }
     w.fetched.push({ url: e.url, key: e.init?.headers?.['X-Board-Key'] ?? '', body: e.init?.body ?? '' })
+    const refused = e.url.endsWith('/api/bridge/take') ? w.takeAnswers.shift() : undefined
+    if (refused !== undefined) return { value: { status: refused.status, ok: refused.status === 200, headers: {}, text: refused.text } }
 
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ messages: w.waiting.splice(0) }) } }
   })
@@ -1898,5 +1902,84 @@ describe('Pause 2: each chat reads the person\'s pause in its own calls to the b
     expect(started.additionalContext ?? []).toEqual([])
     await $.turn.start({ text: 'go', turnId: 't1' })
     expect(await told($)).not.toContain('pauses all chats')
+  })
+})
+
+describe('B463: a chat renamed while it runs', () => {
+  /** The board's refusal of a name it does not show this session under, with the name it does show. */
+  const notShown = (name: string | null): string => `Not the chat the board shows under that name.${name === null ? '' : ` The board shows this session as "${name}".`}`
+  const settled = async (): Promise<void> => {
+    for (let i = 0; i < 200; i++) await Promise.resolve()
+  }
+
+  test('takes the name the board shows from its refusal, whatever wakes it: its next take asks under that name', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    expect(fileOf(w)?.name).toBe('Units')
+    // The person renamed the chat in the app to "Game - Sound": no prompt of theirs comes, only the board's refusal.
+    w.takeAnswers.push({ status: 409, text: notShown('Sound') })
+    await clock.advance(5000)
+    await settled()
+    expect([fileOf(w)?.name, fileOf(w)?.role]).toEqual(['Sound', 'worker'])
+    w.waiting.push({ id: 'm1', text: '(answered on the worker board, 00:31) Q9 "The card": A' })
+    await clock.advance(5000)
+    await settled()
+    expect(w.fetched.at(-1)?.body).toBe('{"chat":"Sound","session":"units"}')
+    expect(w.typedIn).toEqual(['plugin:as the person:(answered on the worker board, 00:31) Q9 "The card": A'])
+  })
+
+  test('a work call refused under the old name joins under the shown name and is asked once more, with the same request id', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    // Woken by another chat's message, not by the person: no title comes with the turn.
+    await $.turn.start({ text: 'Another Claude session sent a message: run work next', turnId: 't1' })
+    w.worked = []
+    w.requests = []
+    w.workAnswers = [{ status: 409, text: notShown('Sound') }, { status: 200, text: '{"text":"Yours, Sound:"}' }]
+    const next = await $.tool.call({ tool: WORK, action: 'next' })
+    expect(next.result).toBe('Yours, Sound:')
+    expect(w.worked.map(body => JSON.parse(body).chat)).toEqual(['Units', 'Sound'])
+    expect(new Set(w.requests).size).toBe(1)
+    expect(fileOf(w)?.name).toBe('Sound')
+  })
+
+  test('it asks once more at most, and not at all when the board shows the session under no name or under its own', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.worked = []
+    w.workAnswers = [{ status: 409, text: notShown('Sound') }, { status: 409, text: notShown('Music') }]
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe(`${notShown('Music')} (HTTP 409)`)
+    expect(w.worked.length).toBe(2)
+    w.worked = []
+    w.workAnswers = [{ status: 409, text: notShown(null) }]
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe(`${notShown(null)} (HTTP 409)`)
+    w.workAnswers = [{ status: 409, text: notShown('Sound') }]
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe(`${notShown('Sound')} (HTTP 409)`)
+    expect(w.worked.length).toBe(2)
+    expect(fileOf(w)?.name).toBe('Sound')
+  })
+
+  test('a chat that was taken out stays out, whatever name the board shows it under', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    expect((await $.tool.call({ tool: TOOL, action: 'leave' })).result).toBe('This chat is out of the list.')
+    w.takeAnswers.push({ status: 409, text: notShown('Sound') })
+    w.workAnswers = [{ status: 409, text: notShown('Sound') }]
+    await clock.advance(5000)
+    await settled()
+    expect((await $.tool.call({ tool: WORK, action: 'next' })).result).toBe('This chat is not in the list of chats: the work tool is for the chats of the list.')
+    expect(fileOf(w)).toBeNull()
   })
 })

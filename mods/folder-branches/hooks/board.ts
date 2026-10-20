@@ -45,6 +45,15 @@ export function parseBoard(text: string): Board | null {
 }
 
 /**
+ * B463: the name the board shows this session under, from its refusal of the name the chat asked under (src/bridge.mjs,
+ * notShown); null when the refusal names none.
+ */
+export function shownName(text: string): string | null {
+  const name = /The board shows this session as "([^"\n]{1,80})"/.exec(text)?.[1]?.trim() ?? ''
+  return name === '' ? null : name
+}
+
+/**
  * What the board handed out: each message with its id and the words to type. One that is no text, or too long, is
  * not typed; its id is in `refused`, so the board is told it did not arrive.
  */

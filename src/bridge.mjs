@@ -20,8 +20,20 @@ export function checkTake(body, state) {
   if (chat === '' || chat.length > 80 || session === '' || session.length > 120) return refuse(400, 'Name the chat and its session.')
   // B424: the partner's helper takes its words as the Advisor does.
   const shown = [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].find(one => one.name === chat)
-  if (shown === undefined || (shown.session ?? null) !== session) return refuse(409, 'Not the chat the board shows under that name.')
+  if (shown === undefined || (shown.session ?? null) !== session) return refuse(409, notShown(state, session))
   return { ok: true, chat }
+}
+
+/**
+ * B463: the refusal of a name the board does not show a session under. A chat renamed in the app goes on under its old
+ * name until it learns the new one, so the refusal says the name the board shows that session under, when it shows it
+ * (the Workers mod joins under it and asks again, once). The name comes from a chat's title: one line, no quotes.
+ */
+function notShown(state, session) {
+  const why = 'Not the chat the board shows under that name.'
+  const mine = (state.chats ?? []).find(one => !one.isLeftover && (one.session ?? null) === session)
+  const name = String(mine?.name ?? '').replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80)
+  return name === '' ? why : `${why} The board shows this session as "${name}".`
 }
 
 const ids = value => (Array.isArray(value) ? value : []).filter(id => typeof id === 'string' && id !== '').slice(0, 100)
