@@ -87,6 +87,22 @@ function markOf(value) {
 }
 
 /**
+ * More words onto a standard's last bar point. A bar point may end with its picture, the aspect it names highlighted:
+ * "... · <picture folder>/x.png" (2026-10-20); the picture goes to `barPictures`, the words stay the point, also when
+ * the picture comes on a wrapped line.
+ */
+function setBar(current, words) {
+  const at = current.bar.length - 1
+  const joined = `${current.bar[at]} ${words}`.trim()
+  const parts = joined.split(' · ')
+  const last = parts.at(-1).trim()
+  if (parts.length > 1 && /\.(png|jpe?g|webp|gif)$/i.test(last)) {
+    if (!current.barPictures.some(one => one.at === at)) current.barPictures.push({ at, path: last })
+    current.bar[at] = parts.slice(0, -1).join(' · ').trim()
+  } else current.bar[at] = joined
+}
+
+/**
  * The page's pitch, answers, features, goal preset and log. `pitch`: the "Pitch:" line above the first answer, or ''.
  * `answers`: one per "## P<n>" heading, in the page's order: `id`, `title`, `state`, `detail` (the state line after its
  * word), `from`, `by`, `at`, `revisit`, `answer` (the Answer line and its indented continuation, one line), `points`,
@@ -204,13 +220,9 @@ export function parsePlan(text) {
         else if (key === 'reference') current.reference = pictureOf(value)
         else if (key === 'today') current.today = pictureOf(value)
         else if (key === 'bar') {
-          // A bar point may end with its picture, the aspect it names highlighted: "... · <picture folder>/x.png" (2026-10-20).
-          const parts = value.trim().split(' · ')
-          const last = parts.at(-1).trim()
-          if (parts.length > 1 && /\.(png|jpe?g|webp|gif)$/i.test(last)) {
-            current.barPictures.push({ at: current.bar.length, path: last })
-            current.bar.push(parts.slice(0, -1).join(' · ').trim())
-          } else current.bar.push(value.trim())
+          current.bar.push('')
+          setBar(current, value)
+          field = 'bar'
         }
         else if (key === 'foundation') { current.foundation = value.trim(); field = 'foundation' }
         else if (key === 'per item') current.perItem = value.trim()
@@ -245,8 +257,10 @@ export function parsePlan(text) {
       }
       continue
     }
-    // An indented continuation of an Answer, Known, Advice, Done when or a standard's long line.
-    if (field !== null && /^\s+\S/.test(raw)) current[field] = `${current[field]} ${raw.trim()}`.trim()
+    // An indented continuation of an Answer, Known, Advice, Done when or a standard's long line; a bar point's
+    // continuation may carry its picture (a line the partner wrapped).
+    if (field === 'bar' && /^\s+\S/.test(raw)) setBar(current, raw.trim())
+    else if (field !== null && /^\s+\S/.test(raw)) current[field] = `${current[field]} ${raw.trim()}`.trim()
   }
   return { pitch, answers, features, milestones, standards, log }
 }
