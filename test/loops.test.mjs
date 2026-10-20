@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { failingLine, fileLog, loopRecord, settleWithin } from '../src/loops.mjs'
+import { afterError, failingLine, fileLog, loopRecord, settleWithin, wordsOf } from '../src/loops.mjs'
 import { STUCK_CHECK_MS, stuckChecks } from '../src/work/api.mjs'
 
 const clockAt = start => {
@@ -50,6 +50,38 @@ test('a loop failing every refresh writes its error once, keeps its first time, 
   const line = failingLine(failing, at => new Date(at).toISOString().slice(11, 16))
   assert.equal(line, 'Delivery failing since 21:10 (EBUSY: resource busy); also the board\'s look')
   assert.equal(failingLine([], () => ''), null)
+})
+
+test('B446: an error that differs only in its temp file name writes one line; another error writes its own', async () => {
+  const clock = clockAt(Date.UTC(2026, 9, 21, 0, 40))
+  const lines = []
+  const loops = loopRecord({ now: clock.now, write: line => lines.push(line) })
+  const busy = beside => new Error(`EPERM: operation not permitted, rename 'C:\\p\\data\\finished.json.${beside}.tmp' -> 'C:\\p\\data\\finished.json'`)
+  for (const beside of ['4120.0a1b2c3d', '4120.9f8e7d6c', '4120.00ff00ff', '577.deadbeef']) {
+    await loops.run('look', async () => { throw busy(beside) })
+    clock.add(5000)
+  }
+  assert.equal(lines.length, 1, 'the same error again with another temp file is not a new line')
+  assert.equal(loops.failing()[0].failures, 4)
+  assert.match(loops.failing()[0].error, /finished\.json\.577\.deadbeef\.tmp/, 'the page shows the last error as it was')
+  await loops.run('look', async () => { throw new Error('EPERM: operation not permitted, rename \'C:\\p\\data\\rounds.json.4120.0a1b2c3d.tmp\' -> \'C:\\p\\data\\rounds.json\'') })
+  assert.equal(lines.length, 2, 'another file is another error')
+  await loops.run('look', async () => { throw new Error('state unreadable') })
+  assert.equal(lines.length, 3)
+})
+
+test('B446: a failure and the failure of its clean-up after it are one error, in both their words', () => {
+  const joined = afterError(new Error('codex exited with 1\nstack'), new Error('EBUSY: ideas.json'), 'the idea\'s end could not be written')
+  assert.ok(joined instanceof Error)
+  assert.equal(joined.message, 'codex exited with 1; the idea\'s end could not be written: EBUSY: ideas.json')
+  assert.equal(afterError('odd', 'worse', 'then').message, 'odd; then: worse')
+})
+
+test('B446: the page has words for the loops that run on a chat\'s report and for the pictures', () => {
+  assert.equal(wordsOf('result-check'), 'asking for a result check')
+  assert.equal(wordsOf('guard'), 'the goal guard')
+  assert.equal(wordsOf('picture'), 'making a picture')
+  assert.equal(wordsOf('measure'), 'measuring the tasks')
 })
 
 test('the log file is written, and a full one is moved aside', async t => {

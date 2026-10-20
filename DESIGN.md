@@ -1666,8 +1666,9 @@ step on "check pending" for good.
   the chats, answering the page and each step's check after a report (`check:<id>`) run through `loops.run(name, fn)`:
   last success, last error, failures in a row, since when. It never throws; the next run goes on. approve-recaps runs
   on its own, so an odd recap stops no delivery.
-- **The log**: each new error (another message than the loop's last) is one line in `<project>/.claude/board-errors.log`
-  (UTC time, the loop, the error's first line); at 1 MB the file moves to `board-errors.log.1`. Not for the demo.
+- **The log**: each new error (another message than the loop's last; B446: its random part aside) is one line in
+  `<project>/.claude/board-errors.log` (UTC time, the loop, the error's first line); at 1 MB the file moves to
+  `board-errors.log.1`. Not for the demo.
 - **The page**: one note on top while a loop fails ("Delivery failing since 23:10 (EBUSY …); also …"); nothing else
   changes. The state carries `loops: { failing, line }`.
 - **A stuck check**: the reconciler asks the server-only action `recheck-stuck` (skipping the checks that run now):
@@ -2666,6 +2667,23 @@ the whole text) as the title.
    numbers. The Workers mod's description of the tool does not name the title for an ask yet: a chat learns it from
    its role and from the refusal.
 6. Not in it: the options' own length, and the answers.
+
+## The last silent catches (B446)
+
+The result check of B404 found four catches left in `server.mjs` that dropped their errors: nothing on the page,
+nothing in the log. They now run through the loops' record (`src/loops.mjs`) as the other loops do:
+
+1. After a chat's call on the store, asking the partner for a result check (`result-check`, "asking for a result
+   check") and the goal guard after a failed check (`guard`, "the goal guard"). A failure never fails the chat's call.
+2. Making a picture of an idea (`picture`, "making a picture"): a making that throws still ends the idea's version
+   ("The picture could not be made."); when that end cannot be written either, the one error names both (`afterError`).
+3. Measuring the tasks inside the look (`measure`, as on a board that shows another's history): its failure no longer
+   hides inside the look's success, and the look goes on.
+4. The log tells a new error from the same one again by its words without their random part (`errorKey`): a file
+   written beside its place (`<file>.<pid>.<random>.tmp`) has another name on every run, so a loop failing on it each
+   refresh wrote a line every few seconds; it writes one now. The page still shows the error as it last was.
+5. Tests: `test/loops.test.mjs` (the random part, the joined error, the page's words) and `test/silentCatches.test.mjs`
+   (server.mjs keeps no catch that drops its error, apart from the settings queue whose caller gets the error).
 
 ## What it does not do
 

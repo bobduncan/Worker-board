@@ -17,6 +17,10 @@ export const LOOP_WORDS = {
   measure: 'measuring the tasks',
   cpu: 'CPU for the chats',
   request: 'answering the page',
+  // B446: after a chat's report or checked, and the pictures of an idea.
+  'result-check': 'asking for a result check',
+  guard: 'the goal guard',
+  picture: 'making a picture',
 }
 
 /** The page's words for a loop; `check:<id>` is the check after the report of that step. */
@@ -25,11 +29,22 @@ export const wordsOf = name => LOOP_WORDS[name] ?? (String(name).startsWith('che
 /** At most this many bytes in the log file; a larger one is moved to `<file>.1` (one older file is kept). */
 export const LOG_MAX_BYTES = 1_000_000
 
+const messageOf = error => (error instanceof Error ? error.message : String(error))
+const firstLine = error => messageOf(error).split('\n')[0].trim()
+
 /** One line of the log file: the time (UTC), the loop, the error's first line. */
 export function logLine(at, name, error) {
-  const message = error instanceof Error ? error.message : String(error)
-  return `${new Date(at).toISOString()} ${name}: ${message.split('\n')[0].trim().slice(0, 500)}\n`
+  return `${new Date(at).toISOString()} ${name}: ${firstLine(error).slice(0, 500)}\n`
 }
+
+/**
+ * B446: an error's words without their random part, to tell a new error from the same one again: the name of a file
+ * written beside its place (`<file>.<pid>.<random>.tmp`, write.mjs `besideOf`) differs on every run.
+ */
+export const errorKey = message => String(message).replace(/\.\d+\.[0-9a-f]+\.tmp\b/gi, '.tmp')
+
+/** B446: one error for a failure and the failure of what was done after it (`what`), in both their words. */
+export const afterError = (error, later, what) => new Error(`${firstLine(error)}; ${what}: ${firstLine(later)}`)
 
 /** Writes a line to the log file, moving a full one aside first; never throws. */
 export function fileLog(file, { maxBytes = LOG_MAX_BYTES } = {}) {
@@ -47,8 +62,8 @@ export function fileLog(file, { maxBytes = LOG_MAX_BYTES } = {}) {
 
 /**
  * The record of the loops. `now` is the clock; `write(line)` takes a log line (fileLog, or a test's list). A failing
- * loop's line is written when its error is new (another message than the last), so a loop failing every refresh
- * writes once, not every few seconds.
+ * loop's line is written when its error is new (another message than the last, its random part aside: `errorKey`), so
+ * a loop failing every refresh writes once, not every few seconds.
  */
 export function loopRecord({ now = Date.now, write = () => {} } = {}) {
   const loops = new Map()
@@ -60,11 +75,11 @@ export function loopRecord({ now = Date.now, write = () => {} } = {}) {
   /** Notes a failure of `name` (also for a loop that does not run through run()). */
   function failed(name, error) {
     const one = of(name)
-    const message = (error instanceof Error ? error.message : String(error)).split('\n')[0].trim().slice(0, 300) || 'unknown error'
+    const message = firstLine(error).slice(0, 300) || 'unknown error'
     const at = now()
     if (one.failures === 0) one.failingSince = at
     one.failures += 1
-    if (message !== one.lastError) write(logLine(at, name, message))
+    if (one.lastError === null || errorKey(message) !== errorKey(one.lastError)) write(logLine(at, name, message))
     one.lastError = message
     one.errorAt = at
   }

@@ -73,7 +73,7 @@ import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from '
 import { loads, readVersion } from './src/version.mjs'
 import { findGameFile } from './src/gameFile.mjs'
 import { readKept, writeAtomic } from './src/write.mjs'
-import { failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
+import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -710,9 +710,10 @@ async function main(args) {
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
     const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
     // B356, the second review: a fix's check that leaves the step it fixes in review asks the partner for that step again.
-    if (done.ok && done.result.resultCheck !== undefined) await askResultCheck(done.result.resultCheck).catch(() => {})
+    // B446: both run as loops: a failure shows on the page and in the log, and never fails the chat's call.
+    if (done.ok && done.result.resultCheck !== undefined) await loops.run('result-check', () => askResultCheck(done.result.resultCheck))
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
-    if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) await guardNow(await goalOfChecked(body.id)).catch(() => {})
+    if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) await loops.run('guard', async () => guardNow(await goalOfChecked(body.id)))
     if (done.ok && done.result.changed !== false) {
       work.reset?.()
       readState.reset()
@@ -926,7 +927,13 @@ async function main(args) {
       })
       await ideas.finish(idea.id, version.n, made.ok ? { picture, seconds: made.seconds } : { why: made.why, seconds: made.seconds })
     }
-    work().catch(() => ideas.finish(idea.id, version.n, { why: 'The picture could not be made.' }).catch(() => {})).finally(() => {
+    // B446: a making that fails still ends the idea's version; the error is kept as a loop's, with the end's when that
+    // fails too.
+    loops.run('picture', () => work().catch(async error => {
+      await ideas.finish(idea.id, version.n, { why: 'The picture could not be made.' })
+        .catch(ending => { throw afterError(error, ending, 'and the end of the picture could not be written') })
+      throw error
+    })).finally(() => {
       if (making === mine) making = null
     })
   }
@@ -1459,7 +1466,8 @@ async function main(args) {
   if (!isDemo && historyFrom === undefined) {
     const look = () => isClosing ? Promise.resolve() : loops.run('look', () => readState().then(async state => {
       await tick(store, state, clock())
-      await measureTasks(state).catch(() => {})
+      // B446: a loop of its own: its failure shows and is logged, and the look goes on.
+      await loops.run('measure', () => measureTasks(state))
       // B155: the steps it sees ticked for the first time, with when. B301: only from a store it can read, and with
       // the store's own time of each step's move to done.
       const next = seenFromState(finishedSeen, state, clock())

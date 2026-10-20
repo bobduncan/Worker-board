@@ -162,7 +162,8 @@ test('the board\'s word to the partner: check step, with the step, who built it 
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /if \(checked\?\.ok === true && checked\.result\.resultCheck !== undefined\) await askResultCheck\(checked\.result\.resultCheck\)/)
-  assert.match(server, /if \(done\.ok && done\.result\.resultCheck !== undefined\) await askResultCheck\(done\.result\.resultCheck\)/)
+  // B446: asked as a loop, so a failure shows on the page and in the log.
+  assert.match(server, /if \(done\.ok && done\.result\.resultCheck !== undefined\) await loops\.run\('result-check', \(\) => askResultCheck\(done\.result\.resultCheck\)\)/)
   assert.match(server, /checkStepWords\(state\.advisor\.name, step, join\(HERE, 'roles', 'partner\.md'\)\)/)
 })
 
