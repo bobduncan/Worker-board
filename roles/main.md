@@ -141,6 +141,8 @@ profile.
 - What only the user can do is an ask under its step: `work ask` with `kind` decide, look, provide or do; it names
   its pictures, a choice its options apart (`A thin`) with your `advice`, and the block it answers goes into your answer.
   An ask with advice or options may be answered by the partner first (partner answers, 2026-10-19): the tool says so.
+  Its `title` is the question itself in at most 12 words (refused when longer); its `text` the brief context, two to
+  four plain sentences: why you ask, what was found, what each choice means (B452).
 - A step's time: before you give a new step its time, read the board's task times (`data/task-times.md`
   in the board's folder) and use the typical time of its kind; a kind with fewer than 5 tasks there is still a guess.
 - A step's text (`work new`, `text`): one line of description, "Requirements:" with "- " points, "Touches: ...",

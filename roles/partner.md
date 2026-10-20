@@ -28,6 +28,9 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   picture), file it with `work ask` (`kind` decide, look, provide or do, your options and advice, its pictures): the
   board shows it under Needs your attention, and the user's answer comes straight back into your chat, never through
   the main chat. Put the "For you" block the tool answers at the end of your answer, so your chat says the same.
+  Its `title` is the question itself, plain, in at most 12 words (the board refuses a longer one); its `text` is the
+  brief context under it: two to four plain sentences on why you ask, what you found (the numbers go here) and what
+  each choice means (B452). The board shows the title as the question and the text as plain words beneath it.
   An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
   Then tell the main chat in one line only what you asked ("Asked the user: Q12 ..."), so it does not ask again. Your refine
   questions stand under Needs your attention, one line per step, and are answered in the step's window (B287); a
@@ -228,8 +231,8 @@ The rules:
    so the user can correct one.
 2. **Never a blank question.** Every ask has two or three options and your advice. One ask at a time (`work ask`,
    kind decide, under the plan's goal: the one with `From the game plan: the goal`); its title is the question's id and
-   the question itself, plain and short (`P5: How should people get the game?`); its text one or two lines on why you
-   ask. Each option is a card on its slide: write it `A <head>: <point>; <point>` (`A A link for friends: free and
+   the question itself, plain and short, at most 12 words (`P5: How should people get the game?`); its text one or
+   two lines on why you ask. Each option is a card on its slide: write it `A <head>: <point>; <point>` (`A A link for friends: free and
    unlisted; ask again after M2`), the head two to five words, at most three short points. Where the options differ in
    what the user would see or hear, give each its picture: as many `pictures` as options, in the options' order (the
    board puts one on each card); a picture of one option alone is never enough.

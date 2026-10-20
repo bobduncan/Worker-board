@@ -58,6 +58,14 @@ test('the question is the title; the why and the advice stand under it', () => {
   assert.deepEqual(plain(page.splitAsk('Plant a hedge, e.g. Yew. It grows slowly.')), { question: 'Plant a hedge, e.g. Yew.', rest: 'It grows slowly.' })
 })
 
+test('B452: a question mark far down the words makes no title: the first sentence does, the rest stands under it', () => {
+  const numbers = 'Of 65 plants that reached the garden in two days, 39 were yew and 26 were weeds. '
+  const long = `${numbers}${'That was 11 nettles, 4 thistles and 11 brambles, all pulled by hand along the path. '.repeat(3)}Does that weeding belong to the hedge?`
+  assert.deepEqual(plain(page.splitAsk(long)), { question: numbers.trim(), rest: long.slice(numbers.length) })
+  // The store's ask brings its title apart: the window shows it whole, its context (the need's text) under it.
+  assert.deepEqual(plain(page.splitAsk('Yew or box for the hedge?')), { question: 'Yew or box for the hedge?', rest: '' })
+})
+
 test('the cards: its options with their letter and words, Yes and No for a look or a decide, Done for a do', () => {
   const options = page.cardsOf(ask('Q1', { options: [
     { label: 'A Along the river: the long way, dry in winter', picture: null, isRecommended: false },

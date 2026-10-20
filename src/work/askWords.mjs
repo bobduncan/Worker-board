@@ -1,6 +1,8 @@
 // B317, Warnings (2026-10-19): whether an item of a chat's "For you" block asks what an ask of the store asks. The
 // board files the block's missing items by it (api.mjs, `askForYou`), and the warning "<chat> wrote questions in its
-// chat but filed no ask" stays away by it while such an ask stands open (state.mjs, `unfiledAsk`). PURE.
+// chat but filed no ask" stays away by it while such an ask stands open (state.mjs, `unfiledAsk`). B452: an ask's
+// title (the question itself, at most 12 words) and its context, as the work tool takes them and the board shows them.
+// PURE.
 
 import { valueOf } from './item.mjs'
 

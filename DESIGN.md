@@ -2641,6 +2641,31 @@ someone deleted it.
 6. Not in it: the data layout of any file; files made new under a name of their own (a pasted picture, a brainstorm
    thread's first file, the store's id claims), which are never written over.
 
+## An ask's title and its context (B452)
+
+The person, 2026-10-20 (I47): a partner's ask of a hundred words stood whole as the window's bold header; they want a
+short title and the rest as plain words under it. An ask had one free text, and the board showed its first line (here
+the whole text) as the title.
+
+1. The work tool's ask takes `title`, the question itself in at most 12 words (`TITLE_WORDS`, and 120 characters),
+   and `text` (or `context`), its brief context: two to four plain sentences on why, what was found and what each
+   choice means. Without `title` the first line of `text` is the title. A longer title is refused (400) with its word
+   count and where the rest goes (`titleProblem`, `src/work/askWords.mjs`). The store keeps the title as the Title
+   field and as the first line of Text, the context after it, so every older reader of an ask's Text still reads the
+   question first.
+2. The mod's own asks (`via` form or chat: the app's question form, a "For you" block) and refine questions keep their
+   words as they came: their title is their question (`askTitleOf`).
+3. `askTitleOf` gives every ask its title and context: a first line within a title's size is the title; a longer one
+   (an ask from before) is split, its first question that ends within 280 characters (else its first sentence) the
+   title, the rest of its words the context in their order. Needs your attention's card and the calm window lead with
+   the title and show the context as plain words (`storeNeeds`: `title`, `question`, `text`); the "For you" block the
+   tool answers carries the title and the links, never the context.
+4. The window's own split (`splitAsk`) takes the first sentence when the question mark stands past 280 characters.
+5. The roles (worker, main, partner) say how to write an ask: the title is the question, the context carries the
+   numbers. The Workers mod's description of the tool does not name the title for an ask yet: a chat learns it from
+   its role and from the refusal.
+6. Not in it: the options' own length, and the answers.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.
