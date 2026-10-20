@@ -78,7 +78,7 @@ export async function writeAtomic(file, data, fs = files) {
 /** Whether `file` ends a line: not there, empty, or its last byte a line end. */
 async function endsLine(file, fs) {
   if (typeof fs.open !== 'function') {
-    const text = await fs.readFile(file, 'utf8').catch(() => '')
+    const text = await fs.readFile(file, 'utf8').catch(absentAs(''))
     return text === '' || text.endsWith('\n')
   }
   let handle

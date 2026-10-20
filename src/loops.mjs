@@ -21,9 +21,11 @@ export const LOOP_WORDS = {
   'result-check': 'asking for a result check',
   guard: 'the goal guard',
   picture: 'making a picture',
-  // B467: reads that were taken for "nothing there" when they failed. The last three are read once, at the start: they
-  // show until the board starts again.
+  // B467: reads that were taken for "nothing there" when they failed. `evaluations` runs on a move on the Focus page
+  // and shows until the next move reads them; the last three are read once, at the start, and show until the board
+  // starts again.
   evaluations: 'reading the evaluations that run',
+  'chat-list': 'reading the list of chats for the CPU',
   'app-folder': 'following the app\'s folder',
   'design-kinds': 'reading the kinds of idea',
   history: 'reading the other board\'s task times',

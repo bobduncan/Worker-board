@@ -1021,9 +1021,10 @@ async function main(args) {
   // the person plays (src/cpu.mjs). Every board but the demo and one that only shows another's history; a copy beside
   // the person's board starts at Off whatever config.json says, and applies only what was clicked on it.
   const chatSessions = async () => {
-    // B467: no folder of cards is none; anything else fails this pass of the CPU loop (shown and logged).
+    // B467: no folder of cards is none; anything else fails this pass of the CPU loop (shown and logged). A state it
+    // cannot read is a loop of its own: the chats of the cards are still limited, and a click on a level still works.
     const cards = await readdir(join(config.project, '.claude', 'chats')).catch(absentAs([]))
-    const listed = (await readState()).chats ?? []
+    const listed = (await loops.run('chat-list', () => readState()))?.chats ?? []
     return [...new Set([...sessionsOfCards(cards), ...listed.filter(chat => !chat.isLeftover && typeof chat.session === 'string').map(chat => chat.session)])]
   }
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
@@ -1314,7 +1315,8 @@ async function main(args) {
     restart: async () => {
       if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
       // B128: a new start on a broken settings file would stop the board: this one keeps running instead.
-      const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, () => 'it is not there')
+      // B467: one Windows holds is not "not there": its own words, and the board keeps running.
+      const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? 'it is not there' : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
       if (settings !== null) return { ok: false, status: 409, why: `The settings file config.json is broken: ${settings}. Fix it first; this board keeps running.` }
       const check = await loads(join(HERE, 'server.mjs'))
       if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }

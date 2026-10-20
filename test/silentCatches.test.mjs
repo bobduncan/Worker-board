@@ -24,8 +24,36 @@ const part = (from, to) => {
 // B467: the result check of B446 found two more that gave a value instead (`() => []`, `() => ({ items: new Map() })`):
 // a store or goal map it could not read was taken for an empty one. A catch that drops its error is now one of two,
 // each with its reason; a read that may find nothing there says so with `absentAs` (only a missing file or folder).
-test('B467: no catch in server.mjs drops its error, apart from the settings queue and the refusal of a goal not reopened', () => {
-  const dropped = server.split('\n').map((line, i) => [i + 1, line.trim()]).filter(([, line]) => /\.catch\(\(\) =>/.test(line))
+/**
+ * The handlers in `text` that never name the error they get: a `.catch(...)`, and the second handler of a
+ * `.then(..., ...)` on one line, whose parameter is missing or unused in its body: the rest of its line, and the next
+ * six lines when the line ends in a block's `{`. `[line, text]` each.
+ */
+const droppingHandlers = text => {
+  const found = []
+  const lines = text.split('\n')
+  const check = (match, at, param) => {
+    const row = text.slice(0, at).split('\n').length - 1
+    const start = at + match.length
+    const end = text.indexOf('\n', start) < 0 ? text.length : text.indexOf('\n', start)
+    const rest = text.slice(start, end)
+    const body = /\{\s*$/.test(rest) ? [rest, ...lines.slice(row + 1, row + 7)].join('\n') : rest
+    if (param === undefined || !new RegExp(`\\b${param}\\b`).test(body)) found.push([row + 1, lines[row].trim()])
+  }
+  for (const one of text.matchAll(/\.catch\((?:\(\)|\(?(\w+)\)?) =>/g)) check(one[0], one.index, one[1])
+  lines.forEach((line, i) => {
+    const then = line.indexOf('.then(')
+    if (then < 0 || /\bstat\(/.test(line)) return
+    for (const one of line.slice(then).matchAll(/, (?:\(\)|\(?(\w+)\)?) =>/g)) {
+      const at = lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0) + then + one.index
+      check(one[0], at, one[1])
+    }
+  })
+  return found
+}
+
+test('B467: no handler in server.mjs drops its error, apart from the settings queue and the refusal of a goal not reopened', () => {
+  const dropped = droppingHandlers(server)
   assert.deepEqual(dropped.map(([, line]) => line), [
     '.catch(() => ({ ok: false, status: 500, why: `${about} could not be opened again: try once more.` }))',
     'settingsQueue = turn.catch(() => {})',
@@ -33,9 +61,21 @@ test('B467: no catch in server.mjs drops its error, apart from the settings queu
   // The queue's caller has the turn itself, with its error; the page is told the goal was not opened again.
   assert.match(part('const settingsTurn = run => {', 'const requests ='), /return turn\n/)
   assert.match(part('const openOverturnedGoal = async body => {', 'const workReads'), /return opened\n/)
-  // No `.then(..., () => ...)` drops a read's error either; a look whether a file is there (stat) may.
-  const second = server.split('\n').filter(line => /\.then\([^)]*\), \(\) =>/.test(line) && !/stat\(/.test(line))
-  assert.deepEqual(second, [])
+})
+
+test('B467: the rule finds a handler that drops its error in every form, and passes one that uses it', () => {
+  const lines = droppingHandlers([
+    'a().catch(() => [])',
+    'b().catch(_ => null)',
+    'c().catch(e => \'\')',
+    'd().then(configProblem, () => \'gone\')',
+    'e().then(text => text, error => null)',
+    'f().catch(absentAs([]))',
+    'g().catch(error => { loops.failed(\'g\', error); return [] })',
+    'h().then(parse, error => (error?.code === \'ENOENT\' ? null : String(error)))',
+    'stat(p).then(() => true, () => false)',
+  ].join('\n')).map(([at]) => at)
+  assert.deepEqual(lines, [1, 2, 3, 4, 5])
 })
 
 test('B467: a work store or goal map the server cannot read fails what needed it, never taken for an empty one', () => {
