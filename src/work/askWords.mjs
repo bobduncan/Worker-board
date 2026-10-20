@@ -36,6 +36,9 @@ export function titleProblem(title) {
   return `The title is ${size}: make it the question itself, in at most ${TITLE_WORDS} words, and put why you ask, what you found and what each choice means in "text", its context (two to four plain sentences).`
 }
 
+/** B452: a word with a full stop that ends no sentence ("e.g. Yew", "approx. 40", "fig. 3"). */
+const ABBREVIATION = /\b(?:e\.g|i\.e|etc|vs|cf|approx|fig|ca|incl|resp|est)$/i
+
 /**
  * B452: words as sentences. One ends at a full stop or "!" before a capital, a digit, a quote or a bracket, or at a
  * question mark before a space; an abbreviation ("e.g. Yew") ends none.
@@ -44,7 +47,7 @@ function sentencesOf(text) {
   const sentences = []
   let from = 0
   for (const found of text.matchAll(/[.!](?=\s+[A-Z0-9"“(])|\?(?=\s)/g)) {
-    if (found[0] !== '?' && /\b(?:e\.g|i\.e|etc|vs|cf)$/i.test(text.slice(0, found.index))) continue
+    if (found[0] !== '?' && ABBREVIATION.test(text.slice(0, found.index))) continue
     sentences.push(text.slice(from, found.index + 1).trim())
     from = found.index + 1
   }
@@ -65,4 +68,17 @@ export function askTitleOf(lines) {
   const at = Math.max(0, sentences.findIndex(one => one.endsWith('?') && one.length <= QUESTION_CHARS))
   const rest = sentences.filter((_, index) => index !== at).join(' ')
   return { title: sentences[at] ?? first, context: rest === '' ? more : [rest, ...more] }
+}
+
+const plainWords = value => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/[\s.?!:;,]+$/, '')
+
+/**
+ * B452: an ask of the store as its title and its context. A short Title its Text does not hold (one written apart,
+ * the Text all context) is the title as it stands; else the Text gives both (`askTitleOf`).
+ */
+export function askPartsOf(item) {
+  const words = (item.sections?.get('Text') ?? []).filter(one => one.trim() !== '')
+  const field = valueOf(item, 'Title')
+  const isApart = field !== null && words.length > 0 && titleProblem(field) === null && !plainWords(words.join(' ')).includes(plainWords(field))
+  return isApart ? { title: field, context: words } : askTitleOf(words.length > 0 ? words : [field ?? ''])
 }

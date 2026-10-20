@@ -101,6 +101,19 @@ test('an ask the mod files from the app\'s form keeps its words; its title is it
   assert.deepEqual(q.sections.get('Text'), [LONG], 'its words as the form had them')
 })
 
+test('the review of B452: a short question the mod filed shows once; an abbreviation ends no sentence; a repeated title is dropped', async () => {
+  const { dir, digger } = await fresh()
+  const words = 'Of 65 plants that reached the garden in two days, 39 were yew and 26 were weeds, mostly nettles and thistles pulled by hand. Does the weeding belong to the hedge?'
+  const filed = await digger({ action: 'ask', kind: 'decide', via: 'chat', text: words })
+  const need = await needOf(dir, filed.result.id)
+  assert.equal(need.title, 'Does the weeding belong to the hedge?')
+  assert.equal(need.text, 'Of 65 plants that reached the garden in two days, 39 were yew and 26 were weeds, mostly nettles and thistles pulled by hand.')
+  assert.equal(askTitleOf(['Plant approx. 40 hedges along the whole river path before the rain comes on Wednesday, as agreed. Then rest.']).title,
+    'Plant approx. 40 hedges along the whole river path before the rain comes on Wednesday, as agreed.')
+  const twice = await digger({ action: 'ask', of: 'B1', kind: 'decide', title: 'Yew or box?', text: 'Yew or box? Yew grows slowly.' })
+  assert.deepEqual((await readStore(dir)).items.get(twice.result.id).sections.get('Text'), ['Yew or box?', 'Yew grows slowly.'])
+})
+
 test('an old ask, one long line in the store: the board shows its question as the title and the rest as the context', async () => {
   const { dir, digger } = await fresh()
   const asked = await digger({ action: 'ask', kind: 'decide', via: 'form', text: LONG })

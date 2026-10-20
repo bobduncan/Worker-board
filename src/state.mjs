@@ -24,7 +24,7 @@ import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { planState, withPlanWork } from './plan.mjs'
-import { askIdsIn, askKey, sameAsk } from './work/askWords.mjs'
+import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { informationOf, instructionsOf, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
@@ -1061,7 +1061,8 @@ function focusRun(node, items, prefix, partner) {
       const advice = valueOf(item, 'Advice')
       return {
         id: valueOf(item, 'Id'),
-        title: valueOf(item, 'Title') ?? '',
+        // B452: its title, and its context under it.
+        ...((({ title, context }) => ({ title, context: context.join(' ') }))(askPartsOf(item))),
         asks: valueOf(item, 'Asks') ?? 'decide',
         options: (valueOf(item, 'Options') ?? '').split(' | ').map(one => one.trim()).filter(Boolean).map(label => ({ label, isAdvised: isAdvisedOption(label, advice) })),
         pictures: (valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),

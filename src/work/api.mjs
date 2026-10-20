@@ -566,7 +566,8 @@ async function ask(body, w) {
   // and "text" (or "context"); without "title", the first line of "text" is the title. The mod's own asks (`via`) keep
   // their words as they came: their title is their question (`askTitleOf`).
   const given = line(body.title, TEXT_CHARS)
-  const context = lines(body.context ?? body.text).filter(one => line(one, TEXT_CHARS) !== given)
+  const repeats = one => given !== '' && line(one, TEXT_CHARS).toLowerCase().startsWith(given.toLowerCase())
+  const context = lines(body.context ?? body.text).map(one => (repeats(one) ? line(one, TEXT_CHARS).slice(given.length).trim() : one)).filter(one => one.trim() !== '')
   const text = given === '' ? context : [given, ...context]
   if (text.length === 0) return refuse(400, 'Say what you ask in "title", the question itself, and its context in "text".')
   const problem = via === null && w.role !== 'person' ? titleProblem(line(text[0], TEXT_CHARS)) : null

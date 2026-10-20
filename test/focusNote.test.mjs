@@ -174,7 +174,7 @@ test('"Needs you" is the partner\'s open asks of the focus or its steps, those t
   ]
   const needs = stateOf(items).needs
   assert.deepEqual(needs.map(one => one.id), ['Q5', 'Q2', 'Q3'])
-  assert.deepEqual(needs[1], { id: 'Q2', title: 'Question Q2?', asks: 'decide', options: [{ label: 'A icons only', isAdvised: true }, { label: 'B icons and count', isAdvised: false }], pictures: ['art/a.png', 'art/b.png'] })
+  assert.deepEqual(needs[1], { id: 'Q2', title: 'Question Q2?', context: '', asks: 'decide', options: [{ label: 'A icons only', isAdvised: true }, { label: 'B icons and count', isAdvised: false }], pictures: ['art/a.png', 'art/b.png'] })
 })
 
 test('the run\'s note card: each decided line with Undo or "undo asked"; at most three asks, then "and n more"; without a note a line', () => {
