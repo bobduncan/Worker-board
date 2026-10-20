@@ -9432,6 +9432,9 @@ function visionBox(id, placeholder, rows, can) {
 }
 
 function drawVision(state) {
+  // The tab is drawn anew as a whole, so the place scrolled to is kept across the redraw (the user, 2026-10-20: a
+  // thumbnail clicked sent the page to the top).
+  const scrolled = $('view-vision').querySelector('.vision')?.scrollTop ?? 0
   const view = visionView(state.plan ?? null, visionUi)
   const can = visionCan(state)
   // Why the buttons are off: a copy or the demo only shows; without a partner chat nobody takes the words.
@@ -9476,6 +9479,7 @@ function drawVision(state) {
     main.append(file)
   }
   $('view-vision').replaceChildren(main)
+  if (scrolled > 0) main.scrollTop = scrolled
 }
 
 /** A small turning circle: something is being prepared. */

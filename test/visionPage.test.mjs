@@ -299,6 +299,10 @@ test('the Vision tab sits beside Overview, with its view, its address and its st
   assert.match(css, /\.vision-own \{[^}]*resize: none;/)
   assert.match(css, /\.vision-steps \{/)
   assert.match(css, /\.vision-goal \{/)
+  // The redraw keeps the place scrolled to, and the standards' main picture is wide enough to judge without the zoom.
+  assert.match(script, /const scrolled = \$\('view-vision'\)\.querySelector\('\.vision'\)\?\.scrollTop \?\? 0/)
+  assert.match(script, /if \(scrolled > 0\) main\.scrollTop = scrolled/)
+  assert.match(css, /\.vision-standard \{ display: grid; grid-template-columns: 480px/)
   // The Focus page no longer carries the plan.
   assert.doesNotMatch(script, /planCard\(/)
 })

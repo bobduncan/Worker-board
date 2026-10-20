@@ -282,7 +282,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-ask-pictures .picture { display: block; width: 100%; }
 .focus-ask-pictures .picture img { aspect-ratio: auto; max-height: 190px; object-fit: contain; }
 /* Vision (2026-10-19): the Vision tab: the plan's conclusions as cards, and the interview as slides with dots (the help tour's). */
-.vision { min-height: 0; overflow-y: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 14px; max-width: 1240px; width: 100%; margin: 0 auto; }
+.vision { min-height: 0; overflow-y: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 14px; max-width: 1480px; width: 100%; margin: 0 auto; }
 .vision-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 18px; }
 .vision-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 .vision-title h1 { font-size: 22px; font-weight: 700; margin: 0; }
@@ -399,7 +399,8 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-advice { margin: 0; padding: 7px 10px; border-radius: 8px; background: var(--inset); font-size: 13.5px; line-height: 1.45; color: var(--muted); }
 .vision-advice b { color: var(--text); font-weight: 600; }
 /* Standards (2026-10-20): a row per kind: the bar's picture beside today's, the bar, the foundation, the gap. */
-.vision-standard { display: grid; grid-template-columns: 300px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+/* The main picture large enough to judge without the zoom (the user, 2026-10-20); under 1200px the row stacks. */
+.vision-standard { display: grid; grid-template-columns: 480px minmax(0, 1fr) auto; gap: 16px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .vision-standard.is-confirmed { border-color: #1d5c3a; }
 .vision-standard.is-confirming { border-color: var(--free); }
 /* A gallery (2026-10-20): one big picture, the others as thumbnails under it; the picked one outlined. */
@@ -408,7 +409,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-gallery .vision-picture.is-big .picture img { aspect-ratio: 16 / 10; width: 100%; object-fit: contain; border-radius: 8px; background: var(--bg); }
 .vision-gallery .vision-nopicture { aspect-ratio: 16 / 10; }
 .vision-thumbs { display: flex; flex-wrap: wrap; gap: 4px; }
-.vision-thumb { width: 60px; height: 42px; padding: 0; border: 2px solid transparent; border-radius: 6px; background: var(--bg); cursor: pointer; overflow: hidden; }
+.vision-thumb { width: 76px; height: 50px; padding: 0; border: 2px solid transparent; border-radius: 6px; background: var(--bg); cursor: pointer; overflow: hidden; }
 .vision-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .vision-thumb[aria-pressed="true"] { border-color: var(--free); }
 .vision-thumb:hover, .vision-thumb:focus-visible { border-color: #8fb4ff; outline: none; }
@@ -419,6 +420,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-gap { align-self: flex-start; font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--waiting); color: var(--waiting); }
 .vision-gap.is-ok { border-color: var(--working); color: var(--working); }
 .vision-goal-buttons .vision-button { padding: 5px 12px; font-size: 13px; }
+@media (max-width: 1200px) {
+  .vision-standard { grid-template-columns: 1fr; }
+  .vision-standard .vision-goal-buttons { flex-direction: row; flex-wrap: wrap; }
+}
 @media (max-width: 700px) {
   .vision { padding: 12px 12px 24px; }
   .vision-pitch { font-size: 20px; }
