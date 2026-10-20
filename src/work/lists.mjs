@@ -3,7 +3,7 @@
 // alone, never from a chat's words.
 
 import { sinceMs } from './api.mjs'
-import { askKey, askTitleOf, askWordsOf } from './askWords.mjs'
+import { askKey, askTitleOf, askWordsOf, sameAsk, titleProblem } from './askWords.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
 import { NOTE_LINE, TAKE_BACK_MS, isPartnerAnswered, isRoutedToPartner } from './partnerAnswers.mjs'
@@ -130,9 +130,12 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const advice = valueOf(item, 'Advice')
     const via = valueOf(item, 'Via')
     const blocking = valueOf(item, 'Blocking') === 'yes'
-    // B452: the title the card and the window lead with, and the context under it (an old ask's long line split).
+    // B452: the title the card and the window lead with, and the context under it (an old ask's long line split). A
+    // short Title its Text does not lead with stands apart from it: the Text is then all context.
     const words = textOf(item)
-    const { title, context } = askTitleOf(words.length > 0 ? words : [valueOf(item, 'Title') ?? ''])
+    const field = valueOf(item, 'Title')
+    const isApart = field !== null && words.length > 0 && titleProblem(field) === null && !sameAsk(askKey(words[0]), askKey(field))
+    const { title, context } = isApart ? { title: field, context: words } : askTitleOf(words.length > 0 ? words : [field ?? ''])
     const known = answerOf(`work:${id}`)
     // Answered with nobody to wake (or before the board kept it): the answer as the store holds it.
     const stored = { at: since, verdict: null, text: (item.sections.get('Answer') ?? []).join(' '), state: 'delivered', takenAt: null, deliveredAt: since }
