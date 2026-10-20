@@ -151,7 +151,7 @@ export function parsePlan(text) {
     }
     const standard = section === 'standards' ? raw.match(/^###\s+(K\d+)\s*[·:-]\s*(.*)$/) : null
     if (standard !== null) {
-      current = { id: standard[1], title: standard[2].trim(), state: 'proposed', by: null, at: null, count: '', kind: '', done: '', reference: null, today: null, pictures: [], bar: [], barPictures: [], foundation: '', perItem: '', score: '', met: null, total: null, gap: '' }
+      current = { id: standard[1], title: standard[2].trim(), state: 'proposed', by: null, at: null, count: '', kind: '', done: '', reference: null, today: null, pictures: [], bar: [], barLevels: [], barPictures: [], foundation: '', perItem: '', score: '', met: null, total: null, gap: '' }
       standards.push(current)
       kind = 'standard'
       field = null
@@ -227,6 +227,7 @@ export function parsePlan(text) {
         else if (key === 'today') current.today = pictureOf(value)
         else if (key === 'bar') {
           current.bar.push('')
+          current.barLevels.push(0)
           setBar(current, value)
           field = 'bar'
         }
@@ -265,7 +266,13 @@ export function parsePlan(text) {
     }
     // An indented continuation of an Answer, Known, Advice, Done when or a standard's long line; a bar point's
     // continuation may carry its picture (a line the partner wrapped).
-    if (field === 'bar' && /^\s+\S/.test(raw)) setBar(current, raw.trim())
+    // A bar point's sub-points (the user, 2026-10-20: "use sub-bullets like I did, it reads easier"): indented "- "
+    // lines under it, each a point of level 1 with its own picture where it has one.
+    if (field === 'bar' && /^\s+-\s+\S/.test(raw)) {
+      current.bar.push('')
+      current.barLevels.push(1)
+      setBar(current, raw.trim().replace(/^-\s+/, ''))
+    } else if (field === 'bar' && /^\s+\S/.test(raw)) setBar(current, raw.trim())
     else if (field !== null && /^\s+\S/.test(raw)) current[field] = `${current[field]} ${raw.trim()}`.trim()
   }
   return { pitch, answers, features, milestones, standards, log }

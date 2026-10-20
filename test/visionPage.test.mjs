@@ -114,6 +114,7 @@ Pitch: A garden you can sit in.
 - Picture: art-inbox/garden/bench-old.png · the old bench
 - Bar: oak, never metal
 - Bar: a back you can lean on · art-inbox/garden/bench-back.png
+  - arm rests at both ends
 - Foundation: one bench drawing all benches are cut from · about 4 h
 - Per item: about 1 h
 - Score: 1 of 2 meet the bar
@@ -180,7 +181,7 @@ test('a card folds after four points, says when it is settled, and carries the p
 test('the standards: a card per kind with the bar beside today, the foundation, the score and the gap; Confirm not sent yet; the step done once all confirmed', () => {
   const view = visionView(plan, UI)
   assert.deepEqual(view.standards.cards.map(card => [card.id, card.title, card.state, card.count, card.kind, card.bar, card.met, card.total, card.gap, card.slide]), [
-    ['K1', 'Benches', 'confirmed', '10, from S1', 'bench', ['oak, never metal', 'a back you can lean on'], 1, 2, 'the old bench → a goal', -1],
+    ['K1', 'Benches', 'confirmed', '10, from S1', 'bench', ['oak, never metal', 'a back you can lean on', 'arm rests at both ends'], 1, 2, 'the old bench → a goal', -1],
     ['K2', 'Paths', 'proposed', '3, from S2', '', ['gravel, lit at night'], null, null, '', -1],
   ])
   assert.deepEqual([view.standards.cards[0].reference, view.standards.cards[0].today, view.standards.cards[0].foundation, view.standards.cards[0].perItem, view.standards.cards[0].score],
@@ -192,7 +193,7 @@ test('the standards: a card per kind with the bar beside today, the foundation, 
     ['', 'art-inbox/garden/bench-back.png', 'a back you can lean on'], ['', 'art-inbox/garden/bench-old.png', 'the old bench'],
   ])
   // The second bar point has its picture: the bullet points at the gallery's third picture.
-  assert.deepEqual([view.standards.cards[0].bar, view.standards.cards[0].barPictureAt], [['oak, never metal', 'a back you can lean on'], [-1, 2]])
+  assert.deepEqual([view.standards.cards[0].bar, view.standards.cards[0].barPictureAt], [['oak, never metal', 'a back you can lean on', 'arm rests at both ends'], [-1, 2, -1]])
   assert.deepEqual([view.standards.cards[0].shownPicture, view.standards.cards[1].gallery, view.standards.cards[1].shownPicture], [0, [], 0])
   assert.equal(visionView(plan, { ...UI, gallery: { K1: 2 } }).standards.cards[0].shownPicture, 2)
   assert.equal(visionView(plan, { ...UI, gallery: { K1: 9 } }).standards.cards[0].shownPicture, 3)
@@ -203,12 +204,14 @@ test('the standards: a card per kind with the bar beside today, the foundation, 
   assert.deepEqual([confirming.standards.cards[1].state, confirming.standards.pending, confirming.steps[3].isDone], ['confirming', ['K2'], false])
   // Change on a standard: its slide holds how many, the bar and the foundation, with both pictures.
   const change = visionView(plan, { ...UI, change: 'K1' }).slides.at(-1)
-  assert.deepEqual([change.kind, change.question, change.points.length, change.pictures.length], ['change', 'Change: Benches', 4, 3])
+  assert.deepEqual([change.kind, change.question, change.points.length, change.pictures.length], ['change', 'Change: Benches', 5, 3])
+  assert.match(change.points[3], /^– arm rests/)
   assert.match(change.points[1], /^\*\*Bar:\*\* oak/)
   // The slide carries the standard's card, so it shows the bar, to get there and today as the card does.
-  assert.deepEqual([change.standard.id, change.standard.bar.length, change.standard.gallery.length, change.standard.barPictureAt], ['K1', 2, 4, [-1, 2]])
+  // A sub-point (an indented "- " line under a bar point) is level 1: the card lists it under its point.
+  assert.deepEqual([change.standard.id, change.standard.bar.length, change.standard.gallery.length, change.standard.barPictureAt, change.standard.barLevels], ['K1', 3, 4, [-1, 2, -1], [0, 0, 1]])
   assert.equal(visionView(plan, { ...UI, change: 'P2' }).slides.at(-1).standard, undefined)
-  assert.match(script, /stage\.append\(el\('p', 'muted', 'Now:'\), \.\.\.standardParts\(slide\.standard\), form\)/)
+  assert.match(script, /stage\.append\(el\('p', 'muted', 'Now:'\), \.\.\.standardSections\(slide\.standard\), form\)/)
 })
 
 test('the interview: the questions in the page\'s order, deeper ones under their answer, an open answer not asked yet, your own words last', () => {

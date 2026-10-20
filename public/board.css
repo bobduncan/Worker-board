@@ -421,10 +421,12 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-thumb:hover, .vision-thumb:focus-visible { border-color: #8fb4ff; outline: none; }
 .vision-see { padding: 0 6px; border: 0; background: none; color: #8fb4ff; font-size: 12.5px; cursor: pointer; }
 .vision-see:hover, .vision-see:focus-visible { color: #c3d6ff; outline: none; filter: none; }
-.vision-standard-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vision-standard-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .vision-standard-body h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; font-size: 16px; }
 /* A standard's three parts (2026-10-20): the bar set apart, to get there, today. */
 .vision-part { display: flex; flex-direction: column; gap: 4px; }
+.vision-subpoints { margin: 4px 0 2px; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; list-style: circle; }
+.vision-subpoints li { display: list-item; font-size: 14px; }
 .vision-part-label { margin: 2px 0 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .vision-part.is-bar { padding: 8px 12px 10px; border-left: 3px solid var(--advisor); border-radius: 0 8px 8px 0; background: var(--inset); }
 .vision-part.is-bar .vision-part-label { color: var(--advisor); }

@@ -8892,7 +8892,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   else if (goal !== null) slides.push({ kind: 'change', id: goal.id, title: goal.title, question: `Change: ${goal.title}`, points: [goal.doneWhen === '' ? null : `**Done when:** ${goal.doneWhen}`, ...goal.subs].filter(Boolean), pictures: goal.pictures })
   else {
     const standard = standards.find(one => one.id === ui.change) ?? null
-    if (standard !== null) slides.push({ kind: 'change', id: standard.id, title: standard.title, question: `Change: ${standard.title}`, points: [standard.count === '' ? null : `**How many:** ${standard.count}`, ...standard.bar.map(point => `**Bar:** ${point}`), standard.foundation === '' ? null : `**Foundation first:** ${standard.foundation}`].filter(Boolean), pictures: [standard.reference, standard.today, ...(standard.pictures ?? [])].filter(one => one !== null) })
+    if (standard !== null) slides.push({ kind: 'change', id: standard.id, title: standard.title, question: `Change: ${standard.title}`, points: [standard.count === '' ? null : `**How many:** ${standard.count}`, ...standard.bar.map((point, index) => (standard.barLevels?.[index] ?? 0) > 0 ? `– ${point}` : `**Bar:** ${point}`), standard.foundation === '' ? null : `**Foundation first:** ${standard.foundation}`].filter(Boolean), pictures: [standard.reference, standard.today, ...(standard.pictures ?? [])].filter(one => one !== null) })
   }
   const slideOf = id => slides.findIndex(slide => slide.kind !== 'change' && (slide.id === id || slide.about === id))
   const open = ui.open ?? []
@@ -8952,7 +8952,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     ...(one.pictures ?? []).map(shown => ({ ...shown, label: '' })),
   ].filter(shown => shown !== null)
   const standardCards = standards.map(one => ({
-    id: one.id, title: one.title, count: one.count, kind: one.kind, done: one.done, reference: one.reference, today: one.today, bar: one.bar,
+    id: one.id, title: one.title, count: one.count, kind: one.kind, done: one.done, reference: one.reference, today: one.today, bar: one.bar, barLevels: one.barLevels ?? [],
     foundation: one.foundation, perItem: one.perItem, score: one.score, met: one.met, total: one.total, gap: one.gap,
     gallery: galleryOf(one), shownPicture: shownOf(one.id, galleryOf(one)),
     // Per bar point, where its picture stands in the gallery, or -1: the bullet shows it big on a click.
@@ -9798,13 +9798,21 @@ function goalsPage(view, can, off) {
  * the standard: one muted line first. The card and the Change slide show the same (the user: "the same the bar and
  * to get there I want to see in the details page").
  */
-function standardParts(card) {
+/** A foundation or per-item line without its hours ("… · about 8 h"): the card says what, the page keeps how long. */
+function withoutHours(text) {
+  return text.replace(/\s*(?:·\s*)?\babout\s+\d+(?:[.,]\d+)?\s*(?:h|hours?|min(?:utes)?)\b,?/gi, ' ').replace(/\s+/g, ' ').replace(/^\s*·\s*|\s*·\s*$/g, '').trim()
+}
+
+function standardSections(card) {
   const parts = []
   if (card.count !== '') parts.push(el('p', 'vision-meta muted', `Needed: ${card.count}`))
   const bar = el('section', 'vision-part is-bar')
   bar.append(el('h4', 'vision-part-label', 'The bar: what each one must meet'))
   if (card.bar.length > 0) {
+    // A point of level 1 is a sub-point: it goes in a list under the point before it (the user, 2026-10-20: "use
+    // sub-bullets like I did, it reads easier").
     const list = el('ul', 'vision-points')
+    let under = null
     card.bar.forEach((point, index) => {
       const item = el('li')
       item.append(...boldParts(point))
@@ -9814,15 +9822,29 @@ function standardParts(card) {
         see.title = 'Show this aspect\'s picture big'
         item.append(document.createTextNode(' '), see)
       }
-      list.append(item)
+      if ((card.barLevels?.[index] ?? 0) > 0 && under !== null) {
+        let subs = under.querySelector(':scope > ul')
+        if (subs === null) {
+          subs = el('ul', 'vision-subpoints')
+          under.append(subs)
+        }
+        subs.append(item)
+      } else {
+        list.append(item)
+        under = item
+      }
     })
     bar.append(list)
   } else bar.append(el('p', 'muted', 'Not written yet.'))
   parts.push(bar)
-  if (card.foundation !== '' || card.perItem !== '') {
+  // The foundation and what each item takes, in words without their hours: the hours are the partner's planning, kept
+  // on the page but not shown (the user, 2026-10-20: "I don't need 2 h to implement").
+  const first = withoutHours(card.foundation)
+  const each = withoutHours(card.perItem)
+  if (first !== '' || each !== '') {
     const way = el('section', 'vision-part')
     way.append(el('h4', 'vision-part-label', 'To get there'))
-    way.append(visionPoints([card.foundation === '' ? null : `**First, once:** ${card.foundation}`, card.perItem === '' ? null : `**Then each:** ${card.perItem}`].filter(Boolean)))
+    way.append(visionPoints([first === '' ? null : `**First, once:** ${first}`, each === '' ? null : `**Then each:** ${each}`].filter(Boolean)))
     parts.push(way)
   }
   const today = el('section', 'vision-part')
@@ -9867,7 +9889,7 @@ function standardsPage(view, can, off) {
     const badge = card.state === 'confirmed' ? 'decided' : card.state === 'confirming' ? 'assumed' : 'open'
     head.append(el('span', '', card.title), el('span', `vision-state is-${badge}`, card.state === 'confirming' ? 'confirm, not sent' : card.state))
     body.append(head)
-    body.append(...standardParts(card))
+    body.append(...standardSections(card))
     const meta = [card.source, card.kind === '' ? null : `kind ${card.kind}`, card.done === '' ? null : `definition of done: ${card.done}`].filter(one => one !== null).join(' · ')
     if (meta !== '') body.append(el('p', 'vision-meta muted', meta))
     const buttons = el('div', 'vision-goal-buttons')
@@ -9950,7 +9972,7 @@ function visionSlide(view, can, off) {
     if (slide.standard !== undefined && slide.standard !== null) {
       // A standard: its gallery and its three parts, as its card shows them.
       stage.append(visionGallery(slide.standard.id, slide.standard.gallery, slide.standard.shownPicture, 'no picture yet'))
-      stage.append(el('p', 'muted', 'Now:'), ...standardParts(slide.standard), form)
+      stage.append(el('p', 'muted', 'Now:'), ...standardSections(slide.standard), form)
     } else {
       if (slide.pictures.length > 0) stage.append(visionPictures(slide.pictures))
       stage.append(el('p', 'muted', 'Now:'), visionPoints(slide.points), form)

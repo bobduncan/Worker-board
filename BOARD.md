@@ -300,7 +300,7 @@ advice, where it came from, **Go deeper** (or "2 deeper questions →", or **Dee
 enough**, **Yes, mine** / **Confirm** and **Change**; an open card has **Answer it →**. Standards (2026-10-20): the
 guard on top (no second thing of a kind before its standard is confirmed and its foundation exists), then a row per
 kind of thing the goals need: its pictures as a gallery (one big: the bar, today, or any other; the rest as thumbnails
-under it, a click showing one big; a vision card with two or more pictures has the same), what the goals need as a muted line, then three parts set apart: **the bar** (three to six points, each with a "see" where it has a picture), **to get there** (the foundation to build first with its hours, the hours per item) and **today** (the score and a gap chip); **Confirm** (waits in the bar),
+under it, a click showing one big; a vision card with two or more pictures has the same), what the goals need as a muted line, then three parts set apart: **the bar** (three to six points, each with sub-points where the page indents them under it, and a "see" where a point has a picture), **to get there** (the foundation to build first, then what each item takes, in words: the hours stay on the page) and **today** (the score and a gap chip); **Confirm** (waits in the bar),
 **Change**, **Measure today**; a box for words on all of them, and **Gaps into goals**. Empty, the step has
 **Propose standards**. Features: the architecture check on top
 (a complex feature later or not sure: the structure is checked at every milestone), then a card per feature: its

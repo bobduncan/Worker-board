@@ -258,10 +258,12 @@ Pitch: Push enemies into lava. Win a fight, grow stronger, until your party fall
 - Kind: map
 - Reference: art-inbox/jump/jump-arc.png · the look we aim for
 - Today: art-inbox/settings/settings-screen.png · a map as built
-- Bar: reads at a glance where you walk and where a push kills
+- Bar: reads at a glance
+  - where you walk: ground, lava and cliff tell apart at play size
+  - where a push kills
 - Bar: cliffs, stairs and lava drawn as the reference, scored 75+ by three judges
 - Foundation: a way from the reference look to the game's tiles · about 8 h
-- Per item: about 2 h
+- Per item: one map from its painting, with the pieces · about 2 h
 - Score: 0 of 7 meet the bar · your word: clunky
 - Gap: every map → goal "Maps meet the bar", after the foundation
 

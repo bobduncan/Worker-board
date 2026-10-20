@@ -364,9 +364,21 @@ screens, sound: from the goals' sub-goals and the must features), and under it:
   with a look gets three example pictures drawn in the look we aim for (Codex, as the Design tab makes them; for maps
   three shapes, each playable as drawn) as `- Picture:` lines, and one highlighted picture per bar point (a screenshot
   or the reference with the aspect outlined and named).
+- A bar point that groups several checks gets them as sub-points: indented `  - <check>` lines right under its `- Bar:`
+  line, each with its own picture at the end where it has one (the user, 2026-10-20: "use sub-bullets like I did, it
+  reads easier"). Six groups at most; a group's line names what the sub-points have in common:
+
+      - Bar: visible at a glance
+        - the types of ground tell apart at play size · <picture folder>/standards/maps-walkable.png
+        - dangers read before a click · <picture folder>/standards/maps-dangers.png
+
+  The user's groups for a thing with a look (2026-10-20, on maps): what is visible at a glance, the look against the
+  reference, a vibe per world or theme (when the product has them), the size of one, and what is too simple or too
+  complex; take them as the first bar for any kind the user must see.
 - `- Foundation: <what to build first so each next one is cheap: the data format, the pipeline, the refactor> · about
-  <n> h`, from the game plan's foundations and the architecture; `- Per item: about <n> h` once it exists, from the
-  board's task times.
+  <n> h`, from the game plan's foundations and the architecture; `- Per item: <what one more takes once it exists, in
+  words> · about <n> h`, from the board's task times. The board shows both without their hours (the user: "I don't
+  need 2 h to implement"), so the words before the `·` must stand on their own.
 - `- Score: <n> of <m> meet the bar · <why in a few words>`: your estimate from the checks already done, until the
   user presses **Measure today** (`plan: K<n> measure`): then a helper that built none of them scores every existing
   thing of the kind against the bar (the evidence tool, three judges for art) and you write the score and the Today
