@@ -12,7 +12,7 @@ import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
-import { askIdsIn, askKey, askWordsOf, sameAsk } from './askWords.mjs'
+import { askIdsIn, askKey, askTitleOf, askWordsOf, sameAsk, titleProblem } from './askWords.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
@@ -561,13 +561,20 @@ async function ask(body, w) {
   // chat's ask under a worker's step is not blocking for it, so the step never waits on an ask its owner cannot close.
   const isHolder = holder !== null && isOwner(of.item, w.who, w.prefix)
   const blocking = (body.blocking === true || body.blocking === 'yes') && (isAlone || holder === null || isHolder)
-  const text = lines(body.text)
-  if (text.length === 0) return refuse(400, 'Say what you ask in "text".')
+  const via = ['form', 'chat'].includes(body.via) && w.role !== 'person' ? body.via : null
+  // B452: an ask leads with its title, the question itself in at most 12 words, and carries its context apart: "title"
+  // and "text" (or "context"); without "title", the first line of "text" is the title. The mod's own asks (`via`) keep
+  // their words as they came: their title is their question (`askTitleOf`).
+  const given = line(body.title, TEXT_CHARS)
+  const context = lines(body.context ?? body.text).filter(one => line(one, TEXT_CHARS) !== given)
+  const text = given === '' ? context : [given, ...context]
+  if (text.length === 0) return refuse(400, 'Say what you ask in "title", the question itself, and its context in "text".')
+  const problem = via === null && w.role !== 'person' ? titleProblem(line(text[0], TEXT_CHARS)) : null
+  if (problem !== null) return refuse(400, given === '' ? `An ask leads with its "title"; without one, the first line of "text" is the title. ${problem}` : problem)
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
   const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
   const play = line(body.play, 300)
   const advice = line(body.advice, 120)
-  const via = ['form', 'chat'].includes(body.via) && w.role !== 'person' ? body.via : null
   // Partner answers (2026-10-19): a detail question goes to the partner first; the person sees it only once handed on.
   const route = routesToPartner({ setting: w.store.partnerAnswers, role: w.role, kind, options, advice, via }) ? 'partner' : null
   const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route })
@@ -594,7 +601,8 @@ async function ask(body, w) {
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
 async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null }) {
   const id = await nextId(w.dir, 'Q', w.fs)
-  const title = line(text[0], 200)
+  // B452: the question its words lead with (a title over 12 words came from the mod's form or a "For you" block).
+  const title = line(askTitleOf(text).title, 200)
   let question = ordered({
     head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', w.role === 'person' ? '-' : w.who], ['Activity', of === null ? '-' : valueOf(of, 'Activity') ?? '-'],
       ['Since', stamp(w.now)], ['Filed', String(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? goal ?? '-' : valueOf(of, 'Id')],

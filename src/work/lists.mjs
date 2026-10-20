@@ -3,7 +3,7 @@
 // alone, never from a chat's words.
 
 import { sinceMs } from './api.mjs'
-import { askKey, askWordsOf } from './askWords.mjs'
+import { askKey, askTitleOf, askWordsOf } from './askWords.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
 import { NOTE_LINE, TAKE_BACK_MS, isPartnerAnswered, isRoutedToPartner } from './partnerAnswers.mjs'
@@ -130,7 +130,9 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const advice = valueOf(item, 'Advice')
     const via = valueOf(item, 'Via')
     const blocking = valueOf(item, 'Blocking') === 'yes'
-    const [title = valueOf(item, 'Title') ?? '', ...rest] = textOf(item)
+    // B452: the title the card and the window lead with, and the context under it (an old ask's long line split).
+    const words = textOf(item)
+    const { title, context } = askTitleOf(words.length > 0 ? words : [valueOf(item, 'Title') ?? ''])
     const known = answerOf(`work:${id}`)
     // Answered with nobody to wake (or before the board kept it): the answer as the store holds it.
     const stored = { at: since, verdict: null, text: (item.sections.get('Answer') ?? []).join(' '), state: 'delivered', takenAt: null, deliveredAt: since }
@@ -141,8 +143,8 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const routeNote = (item.sections.get('Route') ?? []).join(' ').trim()
     return [{
       id: `work:${id}`, workId: id, from: owner === null ? null : nameOf(owner), kind: asks === 'look' ? 'verify' : asks === 'do' ? 'do' : 'input', asks,
-      title: valueOf(item, 'Title') ?? title, text: rest.join('\n'), at: Number.isFinite(since) ? since : null,
-      // B269: its whole first line, which the calm window shows as the question (the Title may be cut).
+      title, text: context.join('\n'), at: Number.isFinite(since) ? since : null,
+      // B269: what the calm window shows as the question; B452: the ask's title, whole (the Title field may be cut).
       question: title,
       options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, picture: null, isRecommended: isAdvised(label, advice) })),
       advice, pictures: (valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),
