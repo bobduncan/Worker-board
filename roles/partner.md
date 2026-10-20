@@ -366,19 +366,34 @@ screens, sound: from the goals' sub-goals and the must features), and under it:
   or the reference with the aspect outlined and named).
 - A bar point that groups several checks gets them as sub-points: indented `  - <check>` lines right under its `- Bar:`
   line, each with its own picture at the end where it has one (the user, 2026-10-20: "use sub-bullets like I did, it
-  reads easier"). Six groups at most; a group's line names what the sub-points have in common:
+  reads easier"). Three to eight groups; a group's line names what the sub-points have in common:
 
       - Bar: visible at a glance
         - the types of ground tell apart at play size · <picture folder>/standards/maps-walkable.png
         - dangers read before a click · <picture folder>/standards/maps-dangers.png
 
-  The user's groups for a thing with a look (2026-10-20, on maps): what is visible at a glance, the look against the
-  reference, a vibe per world or theme (when the product has them), the size of one, and what is too simple or too
-  complex; take them as the first bar for any kind the user must see.
+  The first bar for anything the user must see: the user's groups for maps (2026-10-20 and 2026-10-21) in general
+  words, so that another product, a non-game too, gets the same questions. Take the groups that apply, each as a
+  `- Bar:` line, and write the project's own checks as its sub-points:
+    1. **At a glance**: what a person tells apart without a click or a second look (maps: the kinds of ground, the
+       dangers, the heights one can or cannot climb).
+    2. **The start reads**: at the first look one knows where things come from, where one would stand, and the one
+       idea of this one (a fight: hold the bridge; a screen: what it is for).
+    3. **Ways through**: more than one way to what matters, one hard point, no dead end (maps: two routes, a
+       chokepoint and a high tile, no trap; a flow: a second way to the same place).
+    4. **Its size**: how big one is, in what a person feels (tiles and turns; screens and clicks; pages and minutes).
+    5. **Neither too simple nor too complex**: the floor, what makes one dull, and the ceiling, what makes one too
+       much to hold at once.
+    6. **As the reference**: how close its look is to the reference, scored by the judges (75+ where it is art).
+    7. **Its world or theme**: one tells which world, theme or set it belongs to without its name, when the product
+       has them (a palette, a vibe).
+    8. **Fair and by the rules**: nothing hidden decides it; the rules it must keep, and who checks them (the bot's
+       runs, a test, a reader).
 - `- Foundation: <what to build first so each next one is cheap: the data format, the pipeline, the refactor> · about
-  <n> h`, from the game plan's foundations and the architecture; `- Per item: <what one more takes once it exists, in
-  words> · about <n> h`, from the board's task times. The board shows both without their hours (the user: "I don't
-  need 2 h to implement"), so the words before the `·` must stand on their own.
+  <n> h`, from the game plan's foundations and the architecture; `- Per item: <what one more takes once it exists> ·
+  about <n> h`, from the board's task times. The board shows neither: a standard says what each thing must meet, not
+  how it gets built (the user, 2026-10-21: "it's a standard, not a step"); the building is the gap goal's, with the
+  foundation as its first sub-goal (`plan: standards agreed`, below).
 - `- Score: <n> of <m> meet the bar · <why in a few words>`: your estimate from the checks already done, until the
   user presses **Measure today** (`plan: K<n> measure`): then a helper that built none of them scores every existing
   thing of the kind against the bar (the evidence tool, three judges for art) and you write the score and the Today

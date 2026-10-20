@@ -202,12 +202,13 @@ test('the standards: a card per kind with the bar beside today, the foundation, 
   assert.match(css, /\.vision-thumb\[aria-pressed="true"\]/)
   const confirming = visionView(plan, { ...UI, standardConfirms: ['K2'] })
   assert.deepEqual([confirming.standards.cards[1].state, confirming.standards.pending, confirming.steps[3].isDone], ['confirming', ['K2'], false])
-  // Change on a standard: its slide holds how many, the bar and the foundation, with both pictures.
+  // Change on a standard: its slide holds how many and the bar, with both pictures; not the foundation (a standard is
+  // not a step: how the things get built is the gap goal's).
   const change = visionView(plan, { ...UI, change: 'K1' }).slides.at(-1)
-  assert.deepEqual([change.kind, change.question, change.points.length, change.pictures.length], ['change', 'Change: Benches', 5, 3])
+  assert.deepEqual([change.kind, change.question, change.points.length, change.pictures.length], ['change', 'Change: Benches', 4, 3])
   assert.match(change.points[3], /^– arm rests/)
   assert.match(change.points[1], /^\*\*Bar:\*\* oak/)
-  // The slide carries the standard's card, so it shows the bar, to get there and today as the card does.
+  // The slide carries the standard's card, so it shows the bar and today as the card does.
   // A sub-point (an indented "- " line under a bar point) is level 1: the card lists it under its point.
   assert.deepEqual([change.standard.id, change.standard.bar.length, change.standard.gallery.length, change.standard.barPictureAt, change.standard.barLevels], ['K1', 3, 4, [-1, 2, -1], [0, 0, 1]])
   assert.equal(visionView(plan, { ...UI, change: 'P2' }).slides.at(-1).standard, undefined)
@@ -316,9 +317,10 @@ test('the Vision tab sits beside Overview, with its view, its address and its st
   assert.match(script, /const scrolled = \$\('view-vision'\)\.querySelector\('\.vision'\)\?\.scrollTop \?\? 0/)
   assert.match(script, /if \(scrolled > 0\) main\.scrollTop = scrolled/)
   assert.match(css, /\.vision-standard \{ display: grid; grid-template-columns: 480px/)
-  // A standard's card in three parts, the bar set apart; what the goals need is a muted line, not a bar point.
+  // A standard's card in two parts, the bar set apart; what the goals need is a muted line, not a bar point; how the
+  // things get built (the foundation, the hours) is not on the card (the user, 2026-10-21: "it's a standard, not a step").
   assert.match(script, /'The bar: what each one must meet'/)
-  assert.match(script, /'To get there'/)
+  assert.doesNotMatch(script, /'To get there'|Foundation first|withoutHours/)
   assert.match(script, /`Needed: \$\{card\.count\}`/)
   assert.match(css, /\.vision-part\.is-bar \{/)
   // The Focus page no longer carries the plan.
