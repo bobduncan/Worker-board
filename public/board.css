@@ -272,6 +272,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .with-partner-toggle { border: 0; background: none; padding: 4px 0; color: var(--muted); font-size: 13px; cursor: pointer; }
 .with-partner-list { margin: 2px 0 6px 18px; padding: 0; font-size: 13px; }
 .decided-for-you h3 { font-size: 14px; margin: 6px 0 2px; }
+/* B466: folded to one line with its count, under what needs you; opens on a click. */
+.decided-toggle { display: block; width: 100%; margin: 6px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
+.decided-toggle:hover { color: var(--text); }
+.decided-toggle[aria-expanded="true"] { color: var(--text); }
 .focus-ask { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
 .focus-ask b { overflow-wrap: anywhere; }
 .focus-ask-options { display: flex; flex-wrap: wrap; gap: 10px; }
