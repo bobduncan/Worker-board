@@ -9434,6 +9434,9 @@ function visionBox(id, placeholder, rows, can) {
 }
 
 function drawVision(state) {
+  // The tab is drawn anew as a whole, so the place scrolled to is kept across the redraw (the user, 2026-10-20: a
+  // thumbnail clicked sent the page to the top).
+  const scrolled = $('view-vision').querySelector('.vision')?.scrollTop ?? 0
   const view = visionView(state.plan ?? null, visionUi)
   const can = visionCan(state)
   // Why the buttons are off: a copy or the demo only shows; without a partner chat nobody takes the words.
@@ -9478,6 +9481,7 @@ function drawVision(state) {
     main.append(file)
   }
   $('view-vision').replaceChildren(main)
+  if (scrolled > 0) main.scrollTop = scrolled
 }
 
 /** A small turning circle: something is being prepared. */
@@ -9757,13 +9761,18 @@ function standardsPage(view, can, off) {
     const badge = card.state === 'confirmed' ? 'decided' : card.state === 'confirming' ? 'assumed' : 'open'
     head.append(el('span', '', card.title), el('span', `vision-state is-${badge}`, card.state === 'confirming' ? 'confirm, not sent' : card.state))
     body.append(head)
-    if (card.count !== '') body.append(el('p', 'vision-meta muted', `How many: ${card.count}`))
+    // Three parts, apart (the user, 2026-10-20: "not all the bullets are the bar ... it all feels the same"): the bar,
+    // what each thing must meet (the standard itself); to get there, the foundation and the cost; today, the score.
+    // What the goals need ("5 per world") is no part of the standard: one muted line under the title.
+    if (card.count !== '') body.append(el('p', 'vision-meta muted', `Needed: ${card.count}`))
+    const bar = el('section', 'vision-part is-bar')
+    bar.append(el('h4', 'vision-part-label', 'The bar: what each one must meet'))
     if (card.bar.length > 0) {
       // Each bar point, and where it has a picture of its aspect, a "see" that shows it big in the gallery.
       const list = el('ul', 'vision-points')
       card.bar.forEach((point, index) => {
         const item = el('li')
-        item.append(...boldParts(`**Bar:** ${point}`))
+        item.append(...boldParts(point))
         if (card.barPictureAt[index] >= 0) {
           const see = visionButton(card.shownPicture === card.barPictureAt[index] ? '◉ shown' : '◎ see', 'gallery', { id: `${card.id}:${card.barPictureAt[index]}`, className: 'vision-see' })
           see.disabled = false
@@ -9772,12 +9781,21 @@ function standardsPage(view, can, off) {
         }
         list.append(item)
       })
-      body.append(list)
+      bar.append(list)
+    } else bar.append(el('p', 'muted', 'Not written yet.'))
+    body.append(bar)
+    if (card.foundation !== '' || card.perItem !== '') {
+      const way = el('section', 'vision-part')
+      way.append(el('h4', 'vision-part-label', 'To get there'))
+      way.append(visionPoints([card.foundation === '' ? null : `**First, once:** ${card.foundation}`, card.perItem === '' ? null : `**Then each:** ${card.perItem}`].filter(Boolean)))
+      body.append(way)
     }
-    const lines = [card.foundation === '' ? null : `**Foundation first:** ${card.foundation}`, card.perItem === '' ? null : `**Then per item:** ${card.perItem}`, card.score === '' ? null : `**Today:** ${card.score}`].filter(Boolean)
-    if (lines.length > 0) body.append(visionPoints(lines))
-    if (card.gap !== '') body.append(el('span', 'vision-gap', `gap: ${card.gap}`))
-    else if (card.score !== '') body.append(el('span', 'vision-gap is-ok', 'no gap'))
+    const today = el('section', 'vision-part')
+    today.append(el('h4', 'vision-part-label', 'Today'))
+    today.append(el('p', 'vision-today', card.score === '' ? 'Not measured yet.' : card.score))
+    if (card.gap !== '') today.append(el('span', 'vision-gap', `gap: ${card.gap}`))
+    else if (card.score !== '') today.append(el('span', 'vision-gap is-ok', 'no gap'))
+    body.append(today)
     const meta = [card.source, card.kind === '' ? null : `kind ${card.kind}`, card.done === '' ? null : `definition of done: ${card.done}`].filter(one => one !== null).join(' · ')
     if (meta !== '') body.append(el('p', 'vision-meta muted', meta))
     const buttons = el('div', 'vision-goal-buttons')
