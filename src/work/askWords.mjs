@@ -37,7 +37,7 @@ export function titleProblem(title) {
 }
 
 /** B452: a word with a full stop that ends no sentence ("e.g. Yew", "approx. 40", "fig. 3"). */
-const ABBREVIATION = /\b(?:e\.g|i\.e|etc|vs|cf|approx|fig|ca|incl|resp|est)$/i
+const ABBREVIATION = /\b(?:e\.g|i\.e|etc|vs|cf|approx|fig|ca|incl|resp|est|mr|mrs|ms|dr|st)$/i
 
 /**
  * B452: words as sentences. One ends at a full stop or "!" before a capital, a digit, a quote or a bracket, or at a
@@ -70,6 +70,28 @@ export function askTitleOf(lines) {
   return { title: sentences[at] ?? first, context: rest === '' ? more : [rest, ...more] }
 }
 
+/** B462: a refine question's words before its advice (" Advised: yes|no, why"), as the refine block reads them. */
+const askedPart = question => String(question ?? '').replace(/\s+/g, ' ').replace(/\s+Advised:\s*(?:yes|no)\b.*$/i, '').trim()
+
+/** B462: a refine question's title: its question, found in its words before the advice. */
+export function refineTitleOf(question) {
+  return askTitleOf([askedPart(question)]).title
+}
+
+/**
+ * B462: why a refine question gives no short title, or null when it does. Its question is an ask's too, one line (the
+ * refine block holds it so): the question itself comes first, in at most 12 words, its numbers, why and advice after
+ * it, so its title (`refineTitleOf`) is the line's start and the step's window shows the same question.
+ */
+export function refineQuestionProblem(question) {
+  const asked = askedPart(question)
+  const title = askTitleOf([asked]).title
+  const how = `put the question itself first, in at most ${TITLE_WORDS} words and ending in "?", and the numbers, why and "Advised: ..." after it in the same line ("Should the hedge be yew? 40 plants in two rows. Advised: yes, it keeps the sheep out").`
+  if (titleProblem(title) !== null) return `leads with a question of ${wordsIn(title) > TITLE_WORDS ? `${wordsIn(title)} words` : `${title.length} characters`}: ${how}`
+  if (!asked.startsWith(title)) return `starts with words before its question: ${how}`
+  return null
+}
+
 const plainWords = value => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/[\s.?!:;,]+$/, '')
 
 /**
@@ -79,6 +101,11 @@ const plainWords = value => String(value ?? '').replace(/\s+/g, ' ').trim().toLo
 export function askPartsOf(item) {
   const words = (item.sections?.get('Text') ?? []).filter(one => one.trim() !== '')
   const field = valueOf(item, 'Title')
+  // B462: a short Title the first line starts with, and goes on after (a refine question, its title given): the rest of
+  // that line is the start of its context.
+  const head = (words[0] ?? '').replace(/\s+/g, ' ').trim()
+  const leads = field !== null && titleProblem(field) === null && head.length > field.length && /\s/.test(head[field.length]) && head.toLowerCase().startsWith(field.toLowerCase())
+  if (leads) return { title: field, context: [head.slice(field.length).trim(), ...words.slice(1)] }
   const isApart = field !== null && words.length > 0 && titleProblem(field) === null && !plainWords(words.join(' ')).includes(plainWords(field))
   return isApart ? { title: field, context: words } : askTitleOf(words.length > 0 ? words : [field ?? ''])
 }

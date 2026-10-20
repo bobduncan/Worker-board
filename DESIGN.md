@@ -2656,8 +2656,17 @@ the whole text) as the title.
    count and where the rest goes (`titleProblem`, `src/work/askWords.mjs`). The store keeps the title as the Title
    field and as the first line of Text, the context after it, so every older reader of an ask's Text still reads the
    question first.
-2. The mod's own asks (`via` form or chat: the app's question form, a "For you" block) and refine questions keep their
-   words as they came: their title is their question (`askTitleOf`).
+2. The mod's own asks (`via` form or chat: the app's question form, a "For you" block) keep their words as they came:
+   their title is their question (`askTitleOf`).
+   B462: a refine question is one line of the refine block and an ask. Seen live: refine questions of 24 to 32 words
+   stood as bold headers. Its title is its question, found in its words before " Advised:" (`refineTitleOf`), and it
+   must start the line: a refine whose question gives a title over 12 words (or 120 characters), or has words before
+   it, is refused before anything is written (400, "Question <n> leads with a question of <n> words" or "starts with
+   words before its question", `refineQuestionProblem`). So a question comes first, with its numbers, why and advice
+   after it in the same line ("Should the hedge be yew? 40 plants in two rows. Advised: yes, ..."). The ask keeps the
+   line whole as its Text, so the block's question and its ask still match, and gets the title given; `askPartsOf`
+   reads the rest of the line after a Title it starts with as the context. The step's window shows the question and
+   the rest muted after it (`refineQuestions`, `splitAsk`).
 3. `askTitleOf` gives every ask its title and context: a first line within a title's size is the title; a longer one
    (an ask from before) is split, its first question that ends within 280 characters (else its first sentence) the
    title, the rest of its words the context in their order (`askPartsOf`; a short Title its Text does not hold stands
