@@ -46,6 +46,18 @@ const board = {
   advisor: { name: 'Advisor', session: 's-advisor' },
 }
 
+test('B463: a refused name says which name the board shows that session under, so a renamed chat follows it', () => {
+  assert.deepEqual(checkTake({ chat: 'Worker 1', session: 's-units' }, board),
+    { ok: false, status: 409, why: 'Not the chat the board shows under that name. The board shows this session as "Units".' })
+  // A session the board does not show, or shows only as a leftover: no name to follow.
+  assert.equal(checkTake({ chat: 'Units', session: 's-other' }, board).why, 'Not the chat the board shows under that name.')
+  assert.equal(checkTake({ chat: 'Units', session: 's-old' }, board).why, 'Not the chat the board shows under that name.')
+  // The name is a JSON string, so a title with quotes stays exact; the Advisor and its helper are found too.
+  const quoted = { chats: [{ name: 'The "new" one', session: 's-q' }], advisor: { name: 'Advisor', session: 's-advisor' } }
+  assert.equal(checkTake({ chat: 'Units', session: 's-q' }, quoted).why, 'Not the chat the board shows under that name. The board shows this session as "The \\"new\\" one".')
+  assert.equal(checkTake({ chat: 'Units', session: 's-advisor' }, quoted).why, 'Not the chat the board shows under that name. The board shows this session as "Advisor".')
+})
+
 test('checkTake: only the chat the board shows under a name takes for it', () => {
   assert.deepEqual(checkTake({ chat: 'Units', session: 's-units' }, board), { ok: true, chat: 'Units' })
   assert.deepEqual(checkTake({ chat: 'Advisor', session: 's-advisor' }, board), { ok: true, chat: 'Advisor' })

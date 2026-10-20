@@ -789,7 +789,9 @@ the first design let only the main chat receive.
 **The bridge as built** (`src/bridge.mjs`, and `hooks/board.ts` in the Workers mod, version 0.4.0). While it runs,
 the board keeps `<project>\.claude\board.json` with its address and a key. Every chat in the Workers list asks
 `POST /api/bridge/take` with that key, its own name and its session's id every few seconds. The board serves only
-the session it shows under that name, marks what waits for that chat taken, writes that down, then hands it out;
+the session it shows under that name (B463: refusing another name, it says the name it shows that session under, so
+a chat renamed in the app joins under it at its next take, or at a refused work call, which it then asks once more),
+marks what waits for that chat taken, writes that down, then hands it out;
 the mod types it into its chat as the person's own words and tells the board what was typed and what was not
 (`POST /api/bridge/typed`), so the card says "handed to its chat", then "typed into its chat", or that it did not
 arrive. The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
@@ -2698,6 +2700,43 @@ nothing in the log. They now run through the loops' record (`src/loops.mjs`) as 
    words) and `test/silentCatches.test.mjs` (the four places as loops, the guard's store read; server.mjs keeps no
    `.catch(() => {})` apart from the settings queue, whose caller gets the error; the catches that give a value are
    the fallbacks of a read).
+
+## A file it cannot read is not an empty one (B467)
+
+The result check of B446 found two catches in `server.mjs` that gave a value instead of dropping nothing: a work store
+it could not read was taken for an empty one while measuring the tasks (they lost their area and estimate), and a goal
+map it could not read for "no evaluation runs" (the partner's effort could be switched back). The same held for more
+reads, so all of them were looked at:
+
+1. **`absentAs(value)`** (`src/write.mjs`), for a read's catch: a file or folder that is not there gives `value`; any
+   other error (held by Windows, not readable, not JSON) goes on. Used for config.json in the settings panel, the
+   folder of the chats' cards, the idea folders, the goal map for a Missing line, and the Focus moves' goal map and
+   talks (`src/focus.mjs`: every error was "There is no goal map to write into.", or a talk taken for none, so a second
+   one was started). Those reads, and the work store's own (`readOr`, `src/work/store.mjs`), first try a file Windows
+   holds again (`again`).
+2. **The work store is never read as empty**: an item file it cannot read fails the read instead of dropping that step,
+   and a held delivered.json is no empty record (which would send every line again). Measuring the tasks (the `measure`
+   loop fails and reads the transcripts on next time), the goal guard (B446), an Overturn of a recap and a Missing line
+   made into a step fail the same way (a call fails: the page gets an error, the log a line).
+3. **The evaluations that run** (`evaluations`, "reading the evaluations that run"): unknown keeps the partner's effort
+   as it is, where an unreadable map counted as none running. It is read on a move on the Focus page, so a failure
+   shows until the next move.
+4. **The focus word goes out** when the map, written a moment before, cannot be read again for its stage: the stage as
+   read before, and a line on the console; a click again would find nothing changed and send none.
+5. **Loops of their own**: following the app's folder (`app-folder`); the list of chats for the CPU (`chat-list`: the
+   chats of the cards are still limited, and a click on a level still works); and, read once at the start so they show
+   until the board starts again: the kinds of idea (`design-kinds`, the usual kinds meanwhile), another board's task
+   times on a board that shows its history (`history`), and `.claude/board.json`, where the chats find the board
+   (`bridge-note`, also on the console as before). Restart says "config.json cannot be read" for a held file, no
+   longer "it is not there".
+6. Two handlers in `server.mjs` still drop their error, each with its reason: the settings queue (its caller gets the
+   turn and its error) and an Overturn whose goal could not be opened again (the page is told).
+   `test/silentCatches.test.mjs` holds server.mjs to that: no other `.catch(...)`, and no second handler of a
+   `.then(..., ...)` on one line but a look whether a file is there (`stat`), may leave its error unused. `try`/`catch`
+   blocks are not checked: in server.mjs they answer the page or say why.
+7. Tests: `test/write.test.mjs` (`absentAs`), `test/goalGuard.test.mjs` (an unreadable map is no "none running" and no
+   "no goal map"), `test/focusFlow.test.mjs` (the focus word with a held map), `test/work/store.test.mjs` (a held step
+   and a held delivered.json), `test/silentCatches.test.mjs` (the rule, and the rule on samples of every form).
 
 ## What it does not do
 

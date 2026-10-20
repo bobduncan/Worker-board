@@ -7,7 +7,7 @@
 import { mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
-import { besideOf, moveInPlace, removeFile, writeNew } from '../write.mjs'
+import { absentAs, again, besideOf, moveInPlace, removeFile, writeNew } from '../write.mjs'
 import { storeProblems } from './adapter.mjs'
 import { DEFAULT_FLOW, parseFlow } from './flow.mjs'
 import { parseItem, serializeItem, validateHead, valueOf } from './item.mjs'
@@ -23,7 +23,9 @@ const CLAIM_FILE = /^([A-Z]\d+)\.claim$/
 const NUMBERED = /^[A-Z]\d+$/
 const MIGRATED = /server: migrated from the backlog$/
 
-const readOr = (fs, file, fallback) => fs.readFile(file, 'utf8').then(text => text, () => fallback)
+// B467: `fallback` only for a file that is not there. One Windows holds is tried again; one that stays held, or cannot
+// be read, fails the read: a step is never lost from the store, nor delivered.json read as empty (every line again).
+const readOr = (fs, file, fallback) => again(() => fs.readFile(file, 'utf8')).catch(absentAs(fallback))
 
 /**
  * Writes `text` to `file` beside and puts it in place, when the file still holds `expected` (a string, or null for

@@ -9,7 +9,7 @@ import { backlogText, storeProblems } from '../../src/work/adapter.mjs'
 
 import { parseItem, valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { appendHistory, nextId, readStore, writeItem, writeStore } from '../../src/work/store.mjs'
+import { appendHistory, nextId, readDelivered, readStore, writeItem, writeStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 17, 11, 5).getTime()
 const LATER = new Date(2026, 9, 17, 12, 30).getTime()
@@ -128,4 +128,33 @@ test('the example store reads without a problem and gives a backlog back', async
     "  One line under the tab's head: how many items, and whether the store says what the backlog says.",
     '',
   ])
+})
+
+test('B467: a store file Windows holds is tried again, and one that stays held fails the read, never reads as missing', async t => {
+  const dir = await folder()
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
+  const real = await import('node:fs/promises')
+  const holding = (name, times) => {
+    let left = times
+    return {
+      ...real,
+      readFile: async (file, ...rest) => {
+        if (String(file).endsWith(name) && left > 0) {
+          left -= 1
+          throw Object.assign(new Error(`EBUSY: resource busy or locked, open '${name}'`), { code: 'EBUSY' })
+        }
+        return real.readFile(file, ...rest)
+      },
+    }
+  }
+  // Held twice, then free: read as it is.
+  assert.ok((await readStore(dir, holding('B1.md', 2))).items.has('B1'))
+  // Held for good: the read fails instead of losing the step.
+  await assert.rejects(readStore(dir, holding('B1.md', 99)), /EBUSY/)
+  // A delivered record that is held is no empty record (which would send every line again).
+  await writeFile(join(dir, 'delivered.json'), JSON.stringify({ keys: ['B1|worker|Board'] }))
+  await assert.rejects(readDelivered(dir, holding('delivered.json', 99)), /EBUSY/)
+  // A file that is not there is still "none".
+  assert.equal((await readStore(dir)).items.has('B99'), false)
 })

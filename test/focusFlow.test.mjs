@@ -285,3 +285,20 @@ test('the review\'s findings: "Start the talk" (focus again) on a talk that is o
   const held = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
   assert.deepEqual([held.status, held.why], [409, 'The talk about this goal holds a proposal: create or discard it on the Brainstorm part first.'])
 })
+
+test('B467: a goal map Windows holds right after the pick still lets the focus word go out, with the stage read before', async t => {
+  const said = t.mock.method(console, 'error', () => {})
+  const fs = fakeFs({ [MAP]: latin(GOALS) })
+  // Once the goal's thread is written, the map is held for good (a scanner on it).
+  const read = fs.readFile
+  fs.readFile = async path => {
+    if (path === MAP && threadsOf(fs).length > 0) throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
+    return read(path)
+  }
+  const picked = await focusMove({ command: 'focus', id: 'G2' }, ctx(fs))
+  assert.equal(picked.ok, true, picked.why)
+  assert.equal(picked.words?.command, 'focus')
+  assert.match(picked.words.text, /\nStage: the vibe\n/)
+  // What could not be written or read is said, not dropped.
+  assert.ok(said.mock.calls.length >= 1)
+})
