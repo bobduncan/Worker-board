@@ -1556,6 +1556,10 @@ async function queueStep(body, w) {
     const done = await save(next, found.text, w)
     return done.ok ? changed(next) : done
   }
+  // The guard (2026-10-21): a step of a kind whose standard is not confirmed, or whose foundation is not built
+  // (unless it builds that foundation), stays out of the queue, with the reason.
+  const hold = w.standardHold?.(found.item) ?? null
+  if (hold !== null) return refuse(409, hold)
   const moved = move(found.item, 'queued', w.role, w)
   // B309: a refined step with asks under it that count as its refine questions (open, or answered and not folded in
   // yet) is not refined for the queue: the wish is kept, and the board queues it once the Advisor folded them in.
@@ -1619,6 +1623,8 @@ function queuesOnceRefined(item, words, w) {
 function queueAsked(item, w) {
   const wish = valueOf(item, 'Queue when refined')
   if (wish === null || stateOf(item) !== 'refined') return item
+  // The guard (2026-10-21): held by its kind's standard, the wish waits on the step.
+  if ((w.standardHold?.(item) ?? null) !== null) return item
   // B309: it waits for the asks under it too, and for the round that folds their answers in.
   if (openAsksUnder(w.store.items, valueOf(item, 'Id'), item).length > 0 || asksCounted(w.store.items, item).length > 0) return item
   const moved = move(item, 'queued', 'server', w, flowCtx(w, [item]))

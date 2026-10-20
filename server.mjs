@@ -66,6 +66,7 @@ import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor } from './src/work/deliver.mjs'
 import { followRenames } from './src/work/rename.mjs'
+import { standardHold } from './src/work/standardHold.mjs'
 import { storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
@@ -661,6 +662,8 @@ async function main(args) {
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,
+      // The guard (2026-10-21): a step of a kind waits for its standard's confirm and its foundation (the product plan).
+      standardHold: item => standardHold(item, state.plan?.standards ?? []),
       // B356: a board without a partner chat makes no result check: its own check closes a step.
       hasPartner: (state.advisor ?? null) !== null,
       // Partner answers (2026-10-19): the focus goal, whose daily note lists the partner's answers of the day.

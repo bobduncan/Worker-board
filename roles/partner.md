@@ -348,7 +348,7 @@ a new one gets the next G id under its milestone's goal (`From the game plan: M<
 standards`): the answer to "what is good enough, and what must exist before the second one" (the user, 2026-10-20: the
 levels came out clunky because seven were built with no bar and no pipeline). A heading `## Standards`, one
 `### K<n> · <kind, one or two words>` per kind of thing the goals need (units, maps, abilities and effects, feel,
-screens, sound: from the goals' sub-goals and the must features), and under it:
+light and atmosphere, screens, sound: from the goals' sub-goals and the must features), and under it:
 
 - `- State: proposed` or `confirmed (you, <date>)`.
 - `- Count: <how many> · from S<n>, S<n>`: what the goals ask for.
@@ -396,7 +396,9 @@ screens, sound: from the goals' sub-goals and the must features), and under it:
   <n> h`, from the game plan's foundations and the architecture; `- Per item: <what one more takes once it exists> ·
   about <n> h`, from the board's task times. The board shows neither: a standard says what each thing must meet, not
   how it gets built (the user, 2026-10-21: "it's a standard, not a step"); the building is the gap goal's, with the
-  foundation as its first sub-goal (`plan: standards agreed`, below).
+  foundation as its first sub-goal (`plan: standards agreed`, below). Once the foundation's steps are done, write
+  `- Foundation built: yes (<step>, <date>)` under it: until then the board keeps every other step of the kind out of
+  the queue. A kind whose foundation exists already (the sprite pipeline for units) gets that line at once.
 - `- Score: <n> of <m> meet the bar · <why in a few words>`: your estimate from the checks already done, until the
   user presses **Measure today** (`plan: K<n> measure`): then a helper that built none of them scores every existing
   thing of the kind against the bar (the evidence tool, three judges for art) and you write the score and the Today
@@ -409,8 +411,10 @@ pixels tall; subtle or bold effects). The user's words: `plan: standards confirm
 that standard. `plan: standards change` with `Words:`: rewrite them all from the words. `plan: standards agreed`:
 every gap becomes a goal of the preset and the goal map (as `plan: goals agreed`), under the milestone its count comes
 from, with the foundation as its first sub-goal and `Serves:` the kind's answers; a gap goal's steps carry the
-standard (`<kind> · <reference> · target 75`). The guard, until the board enforces it: no second thing of a kind in a
-refined step before its standard is confirmed and its foundation is built; say so in the refine.
+standard (`<kind> · <reference> · target 75`). The guard (the board holds it since 2026-10-21): a step whose
+Standard line names a kind with a standard here goes into a queue only once that standard is confirmed and its
+`Foundation built: yes`; a step that builds the foundation itself ends its Standard line in ` · foundation` and goes
+first. A queue the guard refuses says why; say it in the refine too, so nobody waits on a step that cannot go.
 
 ## Your rounds
 
@@ -612,7 +616,8 @@ the feedback. It reads as the finished description, not as a talk:
   "Kinds of work", each with its definition of done and its reference folder). A step that makes a thing of one of
   them carries its standard, written before it is built: give `standard` with `work refine` (or `work refined`), as
   `<kind> · <reference picture> · target <score>`: the kind as the settings name it, a picture from its reference
-  folder that the result is held against, and the score its definition of done must reach. The board writes it as the
+  folder that the result is held against, and the score its definition of done must reach; ` · foundation` at the
+  end for a step that builds its kind's foundation (the guard lets only those in until the foundation is built). The board writes it as the
   block's `Standard:` line and keeps it for the next round. A step whose title or text names a kind by chance (a fix of
   the board that mentions a map) gets `none (<why>)`. Without one, `refined` is refused for a step that names a kind.
   When your work tool has no field `standard` yet (a chat started before it came), give it as a line of `what` that

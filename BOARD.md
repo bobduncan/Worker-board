@@ -299,7 +299,9 @@ scene made in its look, 2026-10-21; a card still without pictures shows two or t
 instead, or lettered badges for tools), the partner's one line of
 advice, where it came from, **Go deeper** (or "2 deeper questions →", or **Deepen again** once settled), **Good
 enough**, **Yes, mine** / **Confirm** and **Change**; an open card has **Answer it →**. Standards (2026-10-20): the
-guard on top (no second thing of a kind before its standard is confirmed and its foundation exists), then a row per
+guard on top (since 2026-10-21 the board holds it: a step whose Standard line names a kind with a standard goes into a
+queue only once that standard is confirmed and its `Foundation built: yes`; a step that builds the foundation ends
+its Standard line in " · foundation" and goes first; each card says what it holds back), then a row per
 kind of thing the goals need: its pictures as a gallery (one big: the bar, today, or any other; the rest as thumbnails
 under it, a click showing one big; a vision card with two or more pictures has the same), what the goals need as a muted line, then two parts set apart: **the bar** (three to eight points, each with sub-points where the page indents them under it, and a "see" where a point has a picture) and **today** (the score and a gap chip); how the things get built (the foundation, the hours) stays on the page for the gap goal, since a standard says what each thing must meet, not how it gets built; **Confirm** (waits in the bar),
 **Change**, **Measure today**; a box for words on all of them, and **Gaps into goals**. Empty, the step has

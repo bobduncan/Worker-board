@@ -40,9 +40,11 @@ export function parseStandard(value, kinds) {
   if (known.length > 0 && found === undefined) return { ok: false, why: `"${kind}" is no kind of the settings: ${known.map(one => one.kind).join(', ')}.` }
   if (kind === '') return { ok: false, why: 'Name the kind first: "<kind> · <reference picture> · target <score>".' }
   if (picture === '' || /^target\b/i.test(picture)) return { ok: false, why: 'Name the reference picture: "<kind> · <reference picture> · target <score>".' }
-  if (!/^target\s+\S/i.test(target) || more.length > 0) return { ok: false, why: 'End with the target score: "<kind> · <reference picture> · target <score>".' }
+  // The guard (2026-10-21): a step that builds its kind's foundation ends in " · foundation"; nothing else may follow.
+  const isFoundation = more.length === 1 && more[0].toLowerCase() === 'foundation'
+  if (!/^target\s+\S/i.test(target) || (more.length > 0 && !isFoundation)) return { ok: false, why: 'End with the target score: "<kind> · <reference picture> · target <score>", and " · foundation" for a step that builds the foundation of its kind.' }
   const name = found?.kind ?? kind
-  return { ok: true, kind: name, line: [name, picture, target.replace(/^target\s+/i, 'target ')].join(SEP) }
+  return { ok: true, kind: name, line: [name, picture, target.replace(/^target\s+/i, 'target '), ...(isFoundation ? ['foundation'] : [])].join(SEP) }
 }
 
 /** A step's standard: its Standard section, else its refine block's Standard line; null when it has none. */

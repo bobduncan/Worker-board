@@ -8998,7 +8998,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   ].filter(shown => shown !== null)
   const standardCards = standards.map(one => ({
     id: one.id, title: one.title, count: one.count, kind: one.kind, done: one.done, reference: one.reference, today: one.today, bar: one.bar, barLevels: one.barLevels ?? [],
-    foundation: one.foundation, perItem: one.perItem, score: one.score, met: one.met, total: one.total, gap: one.gap,
+    foundation: one.foundation, foundationBuilt: one.foundationBuilt === true, perItem: one.perItem, score: one.score, met: one.met, total: one.total, gap: one.gap,
     gallery: galleryOf(one), shownPicture: shownOf(one.id, galleryOf(one)),
     // Per bar point, where its picture stands in the gallery, or -1: the bullet shows it big on a click.
     barPictureAt: one.bar.map((point, index) => galleryOf(one).findIndex(shown => shown.bar === index)),
@@ -9883,6 +9883,10 @@ function standardSections(card) {
   today.append(el('p', 'vision-today', card.score === '' ? 'Not measured yet.' : card.score))
   if (card.gap !== '') today.append(el('span', 'vision-gap', `gap: ${card.gap}`))
   else if (card.score !== '') today.append(el('span', 'vision-gap is-ok', 'no gap'))
+  // The guard (2026-10-21): what the board holds back for this kind, as the queue says it.
+  const held = card.state !== 'confirmed' ? `Held: no ${card.kind === '' ? 'step of this kind' : `${card.kind} step`} goes into a queue until this standard is confirmed.`
+    : (card.foundation ?? '') !== '' && card.foundationBuilt !== true ? `Held: until its foundation is built, only the foundation's own steps go into a queue.` : null
+  if (held !== null) today.append(el('p', 'vision-hold', held))
   parts.push(today)
   return parts
 }
@@ -9911,7 +9915,7 @@ function standardsPage(view, can, off) {
       visionButton('Undo', 'undo-standard-confirms'), visionButton('Send to your partner', 'send-standard-confirms', { className: 'is-primary', isEnabled: can && !view.busy.standardConfirms, title: view.busy.standardConfirms ? 'Your partner is still writing your last confirms.' : off }))
     parts.push(bar)
   }
-  parts.push(el('p', 'vision-check', 'The guard: no second thing of a kind is built before its standard is confirmed and its foundation exists; every step of that kind is checked against the bar.'))
+  parts.push(el('p', 'vision-check', "The guard: the board keeps a step of a kind out of the queue until that kind's standard is confirmed and its foundation is built; the foundation's own steps go first. Every step of the kind is checked against the bar."))
   for (const card of cards) {
     const row = el('div', `vision-standard is-${card.state}`)
     const pictures = visionGallery(card.id, card.gallery, card.shownPicture, 'no picture of the bar or of today yet')
