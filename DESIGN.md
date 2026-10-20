@@ -2657,7 +2657,8 @@ the whole text) as the title.
    words as they came: their title is their question (`askTitleOf`).
 3. `askTitleOf` gives every ask its title and context: a first line within a title's size is the title; a longer one
    (an ask from before) is split, its first question that ends within 280 characters (else its first sentence) the
-   title, the rest of its words the context in their order. Needs your attention's card and the calm window lead with
+   title, the rest of its words the context in their order (`askPartsOf`; a short Title its Text does not hold stands
+   apart, the Text all context). Needs your attention's card, the calm window and the Focus page's Needs you lead with
    the title and show the context as plain words (`storeNeeds`: `title`, `question`, `text`); the "For you" block the
    tool answers carries the title and the links, never the context.
 4. The window's own split (`splitAsk`) takes the first sentence when the question mark stands past 280 characters.
