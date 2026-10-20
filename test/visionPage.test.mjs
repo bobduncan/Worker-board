@@ -199,6 +199,10 @@ test('the standards: a card per kind with the bar beside today, the foundation, 
   const change = visionView(plan, { ...UI, change: 'K1' }).slides.at(-1)
   assert.deepEqual([change.kind, change.question, change.points.length, change.pictures.length], ['change', 'Change: Benches', 4, 3])
   assert.match(change.points[1], /^\*\*Bar:\*\* oak/)
+  // The slide carries the standard's card, so it shows the bar, to get there and today as the card does.
+  assert.deepEqual([change.standard.id, change.standard.bar.length, change.standard.gallery.length, change.standard.barPictureAt], ['K1', 2, 4, [-1, 2]])
+  assert.equal(visionView(plan, { ...UI, change: 'P2' }).slides.at(-1).standard, undefined)
+  assert.match(script, /stage\.append\(el\('p', 'muted', 'Now:'\), \.\.\.standardParts\(slide\.standard\), form\)/)
 })
 
 test('the interview: the questions in the page\'s order, deeper ones under their answer, an open answer not asked yet, your own words last', () => {
