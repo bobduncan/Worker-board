@@ -391,12 +391,31 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-goal-body h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; font-size: 16px; }
 .vision-done-when { margin: 0; font-size: 14px; line-height: 1.45; }
 .vision-goal-buttons { display: flex; flex-direction: column; gap: 6px; }
+/* Vision (2026-10-20): the card folds after four points, says when it is settled, and carries the partner's advice. */
+.vision-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.vision-state.is-settled { border-color: var(--advisor); color: var(--advisor); }
+.vision-fold { align-self: flex-start; padding: 0; border: 0; background: none; color: #8fb4ff; font-size: 13px; cursor: pointer; }
+.vision-fold:hover, .vision-fold:focus-visible { color: #c3d6ff; outline: none; filter: none; }
+.vision-advice { margin: 0; padding: 7px 10px; border-radius: 8px; background: var(--inset); font-size: 13.5px; line-height: 1.45; color: var(--muted); }
+.vision-advice b { color: var(--text); font-weight: 600; }
+/* Standards (2026-10-20): a row per kind: the bar's picture beside today's, the bar, the foundation, the gap. */
+.vision-standard { display: grid; grid-template-columns: 260px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.vision-standard.is-confirmed { border-color: #1d5c3a; }
+.vision-standard.is-confirming { border-color: var(--free); }
+.vision-standard-pictures { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.vision-standard-pictures .picture { display: block; width: 100%; }
+.vision-standard-pictures .picture img { aspect-ratio: 4 / 3; width: 100%; object-fit: contain; border-radius: 8px; background: var(--bg); }
+.vision-standard-pictures .vision-nopicture { aspect-ratio: 4 / 3; }
+.vision-standard-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vision-standard-body h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; font-size: 16px; }
+.vision-gap { align-self: flex-start; font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--waiting); color: var(--waiting); }
+.vision-gap.is-ok { border-color: var(--working); color: var(--working); }
 .vision-goal-buttons .vision-button { padding: 5px 12px; font-size: 13px; }
 @media (max-width: 700px) {
   .vision { padding: 12px 12px 24px; }
   .vision-pitch { font-size: 20px; }
   .vision-slide { padding: 12px; }
-  .vision-goal { grid-template-columns: 1fr; }
+  .vision-goal, .vision-standard { grid-template-columns: 1fr; }
   .vision-goal-buttons { flex-direction: row; flex-wrap: wrap; }
   .vision-interview { margin-left: 0; }
 }

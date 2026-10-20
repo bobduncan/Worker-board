@@ -100,9 +100,10 @@ export function parsePlan(text) {
   const answers = []
   const features = []
   const milestones = []
+  const standards = []
   const log = { hits: 0, gaps: 0, overturned: 0, lines: [] }
   let pitch = ''
-  if (typeof text !== 'string') return { pitch, answers, features, milestones, log }
+  if (typeof text !== 'string') return { pitch, answers, features, milestones, standards, log }
   let current = null
   let kind = null
   let section = 'top'
@@ -110,7 +111,7 @@ export function parsePlan(text) {
   for (const raw of text.split(/\r?\n/)) {
     const head = raw.match(HEAD)
     if (head !== null) {
-      current = { id: head[1], title: head[2].trim(), state: 'open', detail: '', from: null, by: null, at: null, revisit: null, answer: '', points: [], pictures: [], known: '', overturned: [] }
+      current = { id: head[1], title: head[2].trim(), state: 'open', detail: '', from: null, by: null, at: null, revisit: null, answer: '', points: [], pictures: [], known: '', overturned: [], advice: '', settled: null }
       answers.push(current)
       kind = 'answer'
       section = 'answers'
@@ -118,7 +119,7 @@ export function parsePlan(text) {
       continue
     }
     if (/^##\s+[^#]/.test(raw)) {
-      section = /^##\s+the log\b/i.test(raw) ? 'log' : /^##\s+features\b/i.test(raw) ? 'features' : /^##\s+goals preset\b/i.test(raw) ? 'preset' : 'other'
+      section = /^##\s+the log\b/i.test(raw) ? 'log' : /^##\s+features\b/i.test(raw) ? 'features' : /^##\s+goals preset\b/i.test(raw) ? 'preset' : /^##\s+standards\b/i.test(raw) ? 'standards' : 'other'
       current = null
       kind = null
       field = null
@@ -129,6 +130,14 @@ export function parsePlan(text) {
       current = { id: feature[1], name: feature[2].trim(), mark: 'unsure', by: null, from: null, at: null, isComplex: false, why: '', built: 'no', pictures: [], points: [] }
       features.push(current)
       kind = 'feature'
+      field = null
+      continue
+    }
+    const standard = section === 'standards' ? raw.match(/^###\s+(K\d+)\s*[·:-]\s*(.*)$/) : null
+    if (standard !== null) {
+      current = { id: standard[1], title: standard[2].trim(), state: 'proposed', by: null, at: null, count: '', kind: '', done: '', reference: null, today: null, bar: [], foundation: '', perItem: '', score: '', met: null, total: null, gap: '' }
+      standards.push(current)
+      kind = 'standard'
       field = null
       continue
     }
@@ -180,6 +189,30 @@ export function parsePlan(text) {
         else if (key === 'point') current.points.push(value.trim())
         else if (key === 'known') { current.known = value.trim(); field = 'known' }
         else if (key === 'overturned') current.overturned.push(`${inside === undefined ? '' : `${inside}: `}${value.trim()}`)
+        // The partner's one line of advice on the card, and the card settled (a deeper round answered, or the
+        // person's "Good enough"): "Settled: (you, 2026-10-20)" or "Settled: yes (you, 2026-10-20)".
+        else if (key === 'advice') { current.advice = value.trim(); field = 'advice' }
+        else if (key === 'settled') current.settled = /^no\b/i.test(value.trim()) ? null : { by: sourceOf(value).by ?? sourceOf(inside === undefined ? '' : `(${inside})`).by, at: sourceOf(value).at ?? sourceOf(inside === undefined ? '' : `(${inside})`).at }
+      } else if (kind === 'standard') {
+        if (key === 'state') {
+          current.state = /^confirmed\b/i.test(value.trim()) ? 'confirmed' : 'proposed'
+          const { by, at } = sourceOf(value)
+          Object.assign(current, { by, at })
+        } else if (key === 'count') { current.count = value.trim(); field = 'count' }
+        else if (key === 'kind') current.kind = value.trim()
+        else if (key === 'done') current.done = value.trim()
+        else if (key === 'reference') current.reference = pictureOf(value)
+        else if (key === 'today') current.today = pictureOf(value)
+        else if (key === 'bar') current.bar.push(value.trim())
+        else if (key === 'foundation') { current.foundation = value.trim(); field = 'foundation' }
+        else if (key === 'per item') current.perItem = value.trim()
+        else if (key === 'score') {
+          current.score = value.trim()
+          const found = current.score.match(/^(\d+)\s+of\s+(\d+)\b/)
+          current.met = found === null ? null : Number(found[1])
+          current.total = found === null ? null : Number(found[2])
+          field = 'score'
+        } else if (key === 'gap') { current.gap = value.trim(); field = 'gap' }
       } else if (kind === 'feature') {
         if (key === 'mark') {
           current.mark = markOf(value)
@@ -204,14 +237,14 @@ export function parsePlan(text) {
       }
       continue
     }
-    // An indented continuation of an Answer, Known or Done when line.
+    // An indented continuation of an Answer, Known, Advice, Done when or a standard's long line.
     if (field !== null && /^\s+\S/.test(raw)) current[field] = `${current[field]} ${raw.trim()}`.trim()
   }
-  return { pitch, answers, features, milestones, log }
+  return { pitch, answers, features, milestones, standards, log }
 }
 
-/** An ask's title that names a part of the plan: "P5: ...", a deeper "P1.2: ...", a feature "F7: ...", a goal "S3: ...". */
-const QUESTION = /^(P\d+(?:\.\d+)?|F\d+|S\d+)\b\s*[:·-]?\s*/
+/** An ask's title that names a part of the plan: "P5: ...", a deeper "P1.2: ...", a feature "F7: ...", a goal "S3: ...", a standard "K2: ...". */
+const QUESTION = /^(P\d+(?:\.\d+)?|F\d+|S\d+|K\d+)\b\s*[:·-]?\s*/
 
 /** A partner's open ask on the plan as a slide's question: its options as cards, its pictures one per option or above. */
 function questionOf(ask) {
@@ -249,11 +282,11 @@ function questionOf(ask) {
  */
 export function planState(text, items, path) {
   if (typeof text !== 'string' || text.trim() === '') return null
-  const { pitch, answers, features, milestones, log } = parsePlan(text)
+  const { pitch, answers, features, milestones, standards, log } = parsePlan(text)
   const asked = (items ?? [])
     .filter(item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'open' && QUESTION.test(String(valueOf(item, 'Title') ?? '')))
     .map(questionOf)
-  const order = [...answers.map(one => one.id), ...features.map(one => one.id), ...milestones.flatMap(one => one.goals.map(goal => goal.id))]
+  const order = [...answers.map(one => one.id), ...features.map(one => one.id), ...milestones.flatMap(one => one.goals.map(goal => goal.id)), ...standards.map(one => one.id)]
   const place = question => {
     const at = order.indexOf(question.about)
     return (at < 0 ? order.length : at) * 1000 + (question.isDeeper ? Number(question.id.split('.')[1]) : 0)
@@ -277,6 +310,9 @@ export function planState(text, items, path) {
   return {
     path, pitch, answers, counts, questions, features, marks, architecture, milestones,
     preset: { total: goals.length, confirmed: goals.filter(goal => goal.state === 'confirmed').length },
+    // Standards (2026-10-20): per kind of thing the goals need, the bar, the foundation first, and today's gap.
+    standards,
+    bars: { total: standards.length, confirmed: standards.filter(one => one.state === 'confirmed').length, gaps: standards.filter(one => one.gap !== '').length },
     log: { hits: log.hits, gaps: log.gaps, overturned: log.overturned },
   }
 }

@@ -137,6 +137,10 @@ Pitch: Push enemies into lava. Win a fight, grow stronger, until your party fall
 - Point: **Tactics roguelite:** short, puzzle-like fights
 - Point: **Like Into the Breach,** but a run of fights with random upgrades
 - Point: **For:** you first, then a friend at version 1
+- Point: **One world first,** more after version 1
+- Point: **No story,** a map per run
+- Advice: solid; nothing left to ask. Ask again after M1 is played.
+- Settled: (you, 2026-10-20)
 
 ## P2 · Why it's fun
 
@@ -238,6 +242,34 @@ Pitch: Push enemies into lava. Win a fight, grow stronger, until your party fall
 - Serves: P2, P3
 - Picture: art-inbox/settings/settings-screen.png · the shop today
 - Sub: Goods for both heroes
+
+## Standards
+
+### K1 · Maps
+
+- State: proposed
+- Count: 5 per world · from S1, S3
+- Kind: map
+- Reference: art-inbox/jump/jump-arc.png · the look we aim for
+- Today: art-inbox/settings/settings-screen.png · a map as built
+- Bar: reads at a glance where you walk and where a push kills
+- Bar: cliffs, stairs and lava drawn as the reference, scored 75+ by three judges
+- Foundation: a way from the reference look to the game's tiles · about 8 h
+- Per item: about 2 h
+- Score: 0 of 7 meet the bar · your word: clunky
+- Gap: every map → goal "Maps meet the bar", after the foundation
+
+### K2 · Units
+
+- State: confirmed (you, 2026-10-20)
+- Count: 2 heroes · 8 enemies · 2 bosses, from S1
+- Kind: unit
+- Done: docs/visual/unit-definition-of-done.md
+- Reference: art-inbox/jump/jump-arc.png · the line-up
+- Bar: 4x pixels, idle · attack · hit · death · walk, scored 75+
+- Foundation: a unit is one data entry; the sprite pipeline makes the set · built
+- Per item: about 3 h
+- Score: 9 of 9 meet the bar
 
 ## The log
 

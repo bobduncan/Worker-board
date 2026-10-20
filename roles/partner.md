@@ -252,7 +252,13 @@ The rules:
    answer: `## P<n> · <a card title of two or three words>` (`Look and sound`), then `- State: ...`, two to four
    `- Point: **<lead words>** <the rest>` lines in plain, paraphrased words (never a copy of a document's sentence),
    `- Picture: <path in the picture folder> · <caption>` where it is about looks (at most three: P3 always has them),
-   an open one `- Known: ...`, and `- Overturned (<date>): ...`; the log's lines under `## The log` as
+   an open one `- Known: ...`, and `- Overturned (<date>): ...`. The board shows a card's first four points and folds
+   the rest under "Details", so the four that matter most come first. Two more lines per answer (2026-10-20): `- Advice:
+   <one line>`, your verdict on the card as its partner ("solid; nothing left to ask; ask again after M1 is played",
+   or "thin: go deeper on the player"), and `- Settled: (you, <date>)` once the card is done for now: you write it
+   when a deeper round is answered, or when the board types `plan: P<n> settled` (the user's **Good enough**). A
+   settled card shows "settled ✓"; a change or another deeper round takes the line away. The log's lines under
+   `## The log` as
    `- hit P<n>: ...`, `- gap: ...`, `- overturned P<n>: ...`. The board writes nothing into the page: on a card's
    **Yes, mine** or **Confirm** it types `plan: P<n> confirmed` (write the state `decided (you, <date>)`); on **Change**
    `plan: P<n> change` with `Words:` (rewrite the answer from them, state `decided (you, <date>)`; when the words leave
@@ -288,7 +294,8 @@ options as picture cards and the user's own words as the last card.
 **Go deeper** (`plan: P<n> deeper`): one round of at most five questions about that card, by the rules above. For
 P1 (what it is) the first is the package question; for P3 (look and sound) style boards from Codex, one per option
 (camera, palette, menus). When the round is answered, rewrite the card's points from the answers (decided, you), and
-let a package's answer mark the features it settles (`Mark: later (package B, <date>)`).
+let a package's answer mark the features it settles (`Mark: later (package B, <date>)`); write the card's `Settled:`
+and `Advice:` lines (rule 7).
 
 **Features** (the user types `plan features`, or after the first deeper round): a heading `## Features` in the
 product plan, one feature per `### F<n> · <name>` (two to four words), under it:
@@ -326,6 +333,38 @@ them, the confirmed goals kept unless the words change them. `plan: goals agreed
 goal map (`.claude/goals.md`, its rules at its top): a goal with `Goal: G<n>` gets its Done when and `Serves:` there;
 a new one gets the next G id under its milestone's goal (`From the game plan: M<n>`), with `Done when:` and
 `Serves:`, and its id written back as `- Goal: G<n>`. Commit and push the page as for the vision.
+
+**Standards** (the user presses **Propose standards** on the fourth step: `plan: standards`; or types `plan
+standards`): the answer to "what is good enough, and what must exist before the second one" (the user, 2026-10-20: the
+levels came out clunky because seven were built with no bar and no pipeline). A heading `## Standards`, one
+`### K<n> · <kind, one or two words>` per kind of thing the goals need (units, maps, abilities and effects, feel,
+screens, sound: from the goals' sub-goals and the must features), and under it:
+
+- `- State: proposed` or `confirmed (you, <date>)`.
+- `- Count: <how many> · from S<n>, S<n>`: what the goals ask for.
+- `- Kind: <the kind in the project's settings>` and `- Done: <the kind's definition of done, its path in the game>`:
+  the standard is that definition's summary, and when the user confirms it you write the bar into the definition
+  (a new kind gets its definition and its row in the kinds list and the board's settings first).
+- `- Reference: <picture> · <caption>` (the look we aim for: a picture of P3's, the kind's reference folder, or a
+  Codex picture you make) and `- Today: <picture> · <caption>` (the thing as the game has it now).
+- Three to five `- Bar: <one checkable point>` lines, scored 75+ where it is art (three judges).
+- `- Foundation: <what to build first so each next one is cheap: the data format, the pipeline, the refactor> · about
+  <n> h`, from the game plan's foundations and the architecture; `- Per item: about <n> h` once it exists, from the
+  board's task times.
+- `- Score: <n> of <m> meet the bar · <why in a few words>`: your estimate from the checks already done, until the
+  user presses **Measure today** (`plan: K<n> measure`): then a helper that built none of them scores every existing
+  thing of the kind against the bar (the evidence tool, three judges for art) and you write the score and the Today
+  picture (the evidence panel).
+- `- Gap: <what is below the bar> → <the goal it becomes>`, or nothing when all meet it.
+
+Ask about a standard with the slides as everywhere (`K<n>: ...`, rule 2): the bar's choices with pictures (48 or 64
+pixels tall; subtle or bold effects). The user's words: `plan: standards confirmed` with `Standards: K1, K3`: write
+`State: confirmed (you, <date>)` and the bar into each definition of done. `plan: K<n> change` with `Words:`: rewrite
+that standard. `plan: standards change` with `Words:`: rewrite them all from the words. `plan: standards agreed`:
+every gap becomes a goal of the preset and the goal map (as `plan: goals agreed`), under the milestone its count comes
+from, with the foundation as its first sub-goal and `Serves:` the kind's answers; a gap goal's steps carry the
+standard (`<kind> · <reference> · target 75`). The guard, until the board enforces it: no second thing of a kind in a
+refined step before its standard is confirmed and its foundation is built; say so in the refine.
 
 ## Your rounds
 

@@ -303,3 +303,74 @@ test('withPlanWork: what the partner is preparing from the board\'s words, until
   assert.equal(withPlanWork(null, sent, null, at), null)
   assert.equal(PLAN_LATE_MS, 30 * 60_000)
 })
+
+test('parsePlan: the standards per kind, and a card\'s advice and settled lines', () => {
+  const { answers, standards } = parsePlan(`# P
+
+## P1 · What
+
+- State: decided (you, 2026-10-19)
+- Advice: solid; ask again
+  after M1.
+- Settled: yes (you, 2026-10-20)
+
+## P2 · Look
+
+- State: decided (you, 2026-10-19)
+- Settled: no
+
+## Standards
+
+### K1 · Maps
+
+- State: confirmed (you, 2026-10-20)
+- Count: 5 per world · from S3
+- Kind: map
+- Done: docs/process/done/level.md
+- Reference: art-inbox/vision/look-target.png · the look we aim for
+- Today: art-inbox/vision/look-today.png · Ember Hollow
+- Bar: reads at a glance where you walk
+- Bar: cliffs and lava as the reference, scored 75+
+- Foundation: a way from the reference to the game's tiles · about 8 h
+- Per item: about 2 h
+- Score: 0 of 7 meet the bar · your word: clunky
+- Gap: every map → "Maps meet the bar"
+
+### K2 · Feel
+
+- State: proposed
+- Bar: a shortcut for every action
+- Score: not measured
+`)
+  assert.deepEqual([answers[0].advice, answers[0].settled, answers[1].advice, answers[1].settled], ['solid; ask again after M1.', { by: 'you', at: '2026-10-20' }, '', null])
+  assert.deepEqual(standards.map(one => [one.id, one.title, one.state, one.by, one.count, one.kind, one.done, one.bar.length, one.foundation, one.perItem, one.score, one.met, one.total, one.gap]), [
+    ['K1', 'Maps', 'confirmed', 'you', '5 per world · from S3', 'map', 'docs/process/done/level.md', 2, "a way from the reference to the game's tiles · about 8 h", 'about 2 h', '0 of 7 meet the bar · your word: clunky', 0, 7, 'every map → "Maps meet the bar"'],
+    ['K2', 'Feel', 'proposed', null, '', '', '', 1, '', '', 'not measured', null, null, ''],
+  ])
+  assert.deepEqual([standards[0].reference, standards[0].today, standards[1].reference], [{ path: 'art-inbox/vision/look-target.png', caption: 'the look we aim for' }, { path: 'art-inbox/vision/look-today.png', caption: 'Ember Hollow' }, null])
+  assert.deepEqual(parsePlan('# P\n').standards, [])
+})
+
+test('planState: a question on a standard comes after the goals\', and the bars are counted', () => {
+  const page = '# P\n\n## P1 · What\n\n- State: decided (you, 2026-10-19)\n\n## Goals preset\n\n### M1 · First\n\n#### S1 · Benches\n\n## Standards\n\n### K1 · Maps\n\n- State: confirmed (you, 2026-10-20)\n- Gap: all\n\n### K2 · Feel\n\n- State: proposed\n'
+  const asks = ['K2: how fast must a hit answer?', 'S1: when?'].map((title, at) => parseItem(`Id: Q${at + 1}\nKind: ask\nTitle: ${title}\nState: open\nOwner: P - Partner\nAsks: decide\n`))
+  const state = planState(page, asks, 'p.md')
+  assert.deepEqual(state.questions.map(one => [one.id, one.about, one.askId, one.question]), [['S1', 'S1', 'Q2', 'When?'], ['K2', 'K2', 'Q1', 'How fast must a hit answer?']])
+  assert.deepEqual(state.bars, { total: 2, confirmed: 1, gaps: 1 })
+})
+
+test('the standards\' moves: settled, propose, confirm, change, measure, gaps into goals; a change of a standard', async () => {
+  const ctx = { canWrite: true, partner: { name: 'Game - Advisor' }, job: 'J' }
+  const words = async body => (await focusMove(body, ctx)).words.text.split('\n')
+  assert.deepEqual(await words({ command: 'plan-settled', id: 'P3' }), ['plan: P3 settled', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-standards' }), ['plan: standards', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-standards-confirm', text: 'K1, K3' }), ['plan: standards confirmed', 'Standards: K1, K3', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-standards-change', text: 'Maps: 60 is enough' }), ['plan: standards change', 'Words: Maps: 60 is enough', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-standards-agree' }), ['plan: standards agreed', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-measure', id: 'K1' }), ['plan: K1 measure', 'Your job: J, "The plan interview"'])
+  assert.deepEqual(await words({ command: 'plan-change', id: 'K2', text: 'drop the camera rule' }), ['plan: K2 change', 'Words: drop the camera rule', 'Your job: J, "The plan interview"'])
+  assert.equal((await focusMove({ command: 'plan-standards-confirm', text: 'K1 and K2' }, ctx)).status, 400)
+  assert.equal((await focusMove({ command: 'plan-measure', id: 'P1' }, ctx)).status, 400)
+  assert.equal((await focusMove({ command: 'plan-settled', id: 'K1' }, ctx)).status, 400)
+  assert.equal((await focusMove({ command: 'plan-standards-change', text: '' }, ctx)).status, 400)
+})

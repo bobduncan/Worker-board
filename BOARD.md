@@ -290,11 +290,18 @@ come), **Refine** (the steps by where their refine stands) and **Chat** (a chat 
 ## Vision (2026-10-19)
 
 The product plan (`productPlan`, the game's `docs/product-plan.md`, written by the partner): the answers every goal and
-step falls back to. Three steps, broad to narrow, **1 · Vision → 2 · Features → 3 · Goals** (a ✓ on a step that is
-settled), and an **Interview** over all of them. The vision: the page's pitch in large type, then a card per answer:
-its title, its state (decided green, assumed blue, open amber), two to four points with bold lead words, up to three
-pictures with captions (Look and sound always), where it came from, **Go deeper** (or "2 deeper questions →"),
-**Yes, mine** / **Confirm** and **Change**; an open card has **Answer it →**. Features: the architecture check on top
+step falls back to. Four steps, broad to narrow, **1 · Vision → 2 · Features → 3 · Goals → 4 · Standards** (a ✓ on
+a step that is settled), and an **Interview** over all of them. The vision: the page's pitch in large type, then a
+card per answer: its title, its state (decided green, assumed blue, open amber; **settled ✓** in teal once a deeper
+round is answered or the person pressed **Good enough**), its first four points with bold lead words and the rest
+under **Details · n more**, up to three pictures with captions (Look and sound always), the partner's one line of
+advice, where it came from, **Go deeper** (or "2 deeper questions →", or **Deepen again** once settled), **Good
+enough**, **Yes, mine** / **Confirm** and **Change**; an open card has **Answer it →**. Standards (2026-10-20): the
+guard on top (no second thing of a kind before its standard is confirmed and its foundation exists), then a row per
+kind of thing the goals need: the bar's picture beside today's, how many, three to five bar points, the foundation
+to build first with its hours, the hours per item, today's score and a gap chip; **Confirm** (waits in the bar),
+**Change**, **Measure today**; a box for words on all of them, and **Gaps into goals**. Empty, the step has
+**Propose standards**. Features: the architecture check on top
 (a complex feature later or not sure: the structure is checked at every milestone), then a card per feature: its
 picture, name, complex and built tags, points, and four marks **Must · Later · No · ?**; the person's marks wait in a
 blue bar ("2 marks not sent yet") until **Send to your partner**; a box for a feature they miss. Goals: the partner's

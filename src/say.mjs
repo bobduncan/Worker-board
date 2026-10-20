@@ -200,6 +200,14 @@ export function planWords(command, { to, id, words = null, job }) {
     'plan-goals-confirm': ['plan: goals confirmed', `Goals: ${said}`],
     'plan-goals-change': ['plan: goals change', `Words: ${said}`],
     'plan-goals-agree': ['plan: goals agreed'],
+    // Standards (2026-10-20): "Good enough" on a vision card; the standards step proposed, the confirms in one word,
+    // the person's words on the whole, a kind measured against its bar, the gaps into goals.
+    'plan-settled': [`plan: ${id} settled`],
+    'plan-standards': ['plan: standards'],
+    'plan-standards-confirm': ['plan: standards confirmed', `Standards: ${said}`],
+    'plan-standards-change': ['plan: standards change', `Words: ${said}`],
+    'plan-standards-agree': ['plan: standards agreed'],
+    'plan-measure': [`plan: ${id} measure`],
   }[command]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, text: [...head, `Your job: ${job}, "The plan interview"`].join('\n') }
 }
