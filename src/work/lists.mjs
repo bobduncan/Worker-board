@@ -65,6 +65,8 @@ export function storeWaits(work, prefix = '') {
   // Partner answers, the review's findings: a blocking ask routed to the partner holds its chat for the partner, not for
   // the person (`partner`: per chat the ids of such asks).
   const forPartner = new Map()
+  const forYou = open.filter(item => valueOf(item, 'Via') !== 'refine' && !isRoutedToPartner(item))
+    .sort((a, b) => Number(valueOf(a, 'Id').slice(1)) - Number(valueOf(b, 'Id').slice(1)))
   for (const item of open.filter(one => valueOf(one, 'Blocking') === 'yes' && isRoutedToPartner(one))) {
     const name = plainName(valueOf(item, 'Owner'), prefix)
     forPartner.set(name, [...(forPartner.get(name) ?? []), valueOf(item, 'Id')])
@@ -74,7 +76,13 @@ export function storeWaits(work, prefix = '') {
     partner: forPartner,
     form: new Set(open.filter(item => valueOf(item, 'Via') === 'form').map(item => plainName(valueOf(item, 'Owner'), prefix))),
     // B280: the chats with an open ask of their own for the person, blocking or not; a refine question is the refine's.
-    asking: new Set(open.filter(item => valueOf(item, 'Via') !== 'refine').map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    // B464: one routed to the partner first is not the person's (it stands under no Needs your attention).
+    asking: new Set(forYou.map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    // B464: per chat its asks that ask the person now, `{ id, title }`, oldest first, for its row to name them.
+    asks: forYou.reduce((byChat, item) => {
+      const name = plainName(valueOf(item, 'Owner'), prefix)
+      return byChat.set(name, [...(byChat.get(name) ?? []), { id: valueOf(item, 'Id'), title: askPartsOf(item).title }])
+    }, new Map()),
     filed,
     open: openOf,
   }

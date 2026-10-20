@@ -91,6 +91,13 @@ test('an Advisor with an open ask in the work store says so on its card; a refin
   assert.equal(build({ advisor: turn, work: storeWith([prefixed]) }).advisor.asksYou, true, 'an owner with the prefix is the same chat')
   assert.equal(build({ advisor: turn, work: storeWith([ask('Q1', { via: 'refine' })]) }).advisor.asksYou, false)
   assert.equal(build({ advisor: turn, work: storeWith([ask('Q1', { state: 'answered' })]) }).advisor.asksYou, false)
+  // B464: it names what it asks; an ask routed to the partner first does not stand under Needs your attention, so it
+  // asks the person nothing.
+  assert.deepEqual(build({ advisor: turn, work: storeWith([ask('Q1', {})]) }).advisor.asking, [{ id: 'Q1', title: 'Pond first?' }])
+  const routed = parseItem(serializeItem(ask('Q3', {})).replace('Owner: Advisor', 'Owner: Advisor\nRoute: partner'))
+  const toPartner = build({ advisor: turn, work: storeWith([routed]) }).advisor
+  assert.deepEqual([toPartner.asksYou, toPartner.asking], [false, []])
+  assert.deepEqual(build({ advisor: turn, work: storeWith([ask('Q1', { via: 'refine' })]) }).advisor.asking, [])
   // The board reads no questions from its chat's words.
   const asking = ['> **For you**', '> 1. **Answer:** Pond first? I advise yes.'].join('\n')
   assert.equal(build({ advisor: [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, asking)], work: storeWith([]) }).advisor.asksYou, false)
@@ -104,7 +111,7 @@ const html = await readFile(join(ROOT, 'public', 'index.html'), 'utf8')
 const style = await readFile(join(ROOT, 'public', 'board.css'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`${cut('advisorlane')}\nObject.assign(this, { advisorStanding, advisorQueued })`, page)
+vm.runInNewContext(`${cut('advisorlane')}\nObject.assign(this, { advisorStanding, advisorQueued, advisorAsks })`, page)
 
 test('its card says how it stands: working, needs your answer, idle, or not running', () => {
   const at = advisor => page.advisorStanding({ isRunning: true, state: 'free', asksYou: false, ...advisor }).label
@@ -116,6 +123,19 @@ test('its card says how it stands: working, needs your answer, idle, or not runn
   // A server without the card's fields: an Advisor that waits (its question form) still needs your answer.
   assert.equal(page.advisorStanding({ isRunning: true, state: 'waiting' }).label, 'Needs your answer')
   assert.equal(page.advisorStanding({ isRunning: true, state: 'waiting', asksYou: false }).label, 'Idle')
+})
+
+test('B464: while it asks you, its row names the ask; else no line of it', () => {
+  assert.equal(page.advisorAsks({ asksYou: false, asking: [] }), null)
+  assert.equal(page.advisorAsks({}), null)
+  assert.deepEqual({ ...page.advisorAsks({ asksYou: true, asking: [{ id: 'Q8', title: 'Press Start under the pond' }] }) }, { text: 'Asks you (Q8): Press Start under the pond', tone: 'waiting' })
+  assert.deepEqual({ ...page.advisorAsks({ asksYou: true, asking: [{ id: 'Q8', title: 'One' }, { id: 'Q9', title: 'Two' }] }) }, { text: 'Asks you (Q8 and 1 more): One', tone: 'waiting' })
+  // The app's question form: no ask to name.
+  assert.deepEqual({ ...page.advisorAsks({ asksYou: true, asking: [] }) }, { text: 'Asks you in its chat', tone: 'waiting' })
+  // The row shows it before what it refines; answers that wait for it are its own colour, not the one that asks you.
+  const card = script.slice(script.indexOf('function drawAdvisorLane'), script.indexOf('function drawLanes'))
+  assert.ok(card.includes('const asking = advisorAsks(advisor)'))
+  assert.match(style, /\.advisor-refine-state\.is-answered \{[^}]*var\(--advisor\)/)
 })
 
 test('the card keeps the keyboard focus over a redraw, says its standing in its pill only, and shows no count it does not have', () => {

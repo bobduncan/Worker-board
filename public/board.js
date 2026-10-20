@@ -1935,6 +1935,19 @@ function advisorStanding(advisor) {
   return { key: 'free', label: 'Idle' }
 }
 
+/**
+ * B464: what it asks you, for its row: the first of its open asks by id and title (and how many more), or its chat when
+ * the app's question form asks; null while it asks you nothing. The person, 2026-10-21: "i dont see this. please fix
+ * the notification for that" (its row said "Needs your answer" beside a refine line that waited for it, not for them).
+ */
+function advisorAsks(advisor) {
+  if (advisor?.asksYou !== true) return null
+  const asks = advisor.asking ?? []
+  if (asks.length === 0) return { text: 'Asks you in its chat', tone: 'waiting' }
+  const more = asks.length > 1 ? ` and ${asks.length - 1} more` : ''
+  return { text: `Asks you (${asks[0].id}${more}): ${asks[0].title}`, tone: 'waiting' }
+}
+
 /** B280: what waits for the Advisor, not in its chat yet: a count and its kinds ("1 refine, 2 messages"); null for nothing. */
 function advisorQueued(queued) {
   const kinds = [[queued?.refines ?? 0, 'refine', 'refines'], [queued?.rounds ?? 0, 'round of the clock', 'rounds of the clock'], [queued?.words ?? 0, 'message', 'messages']]
@@ -1997,8 +2010,18 @@ function drawAdvisorLane(state) {
   const refine = advisorRefine(state.backlog)
   // What the row does not say, on hovering the card and its line.
   const tip = []
-  if (refine !== null && hasTask && refine.canSend !== true) tip.push(refine.text)
-  if (refine !== null && (!hasTask || refine.canSend === true)) {
+  // B464: what it asks you comes first; what it refines then goes in the tooltip.
+  const asking = advisorAsks(advisor)
+  const isAsking = asking !== null && !hasTask
+  if (isAsking) {
+    const line = el('p', 'advisor-lane-refine')
+    line.append(el('span', `advisor-refine-state is-${asking.tone}`, asking.text))
+    what.append(line)
+  }
+  // The review: under a task, what it asks you is in the tooltip.
+  if (asking !== null && hasTask) tip.push(asking.text)
+  if (refine !== null && (hasTask || isAsking) && refine.canSend !== true) tip.push(refine.text)
+  if (refine !== null && ((!hasTask && !isAsking) || refine.canSend === true)) {
     const line = el('p', 'advisor-lane-refine')
     line.append(el('span', `advisor-refine-state is-${refine.tone}`, refine.text))
     // B312: the board stopped refining it: one round more, in the Refine button's words.
@@ -11045,7 +11068,8 @@ function advisorRefine(backlog) {
     return { step: stopped.id, text: `Refine of ${stopped.id} stopped after ${rounds} round${rounds === 1 ? '' : 's'} without new answers`, tone: 'stopped', canSend: true }
   }
   const answered = steps.find(step => step.refineState === 'answered' && isUp(step))
-  return answered === undefined ? null : { step: answered.id, text: `Your answers on ${answered.id} wait for it`, tone: 'waiting' }
+  // B464: they wait for the Advisor, not for you: in its own colour, not the one that asks you.
+  return answered === undefined ? null : { step: answered.id, text: `Your answers on ${answered.id} wait for the Advisor`, tone: 'answered' }
 }
 // advisorrefine:end
 
