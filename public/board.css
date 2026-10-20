@@ -272,6 +272,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .with-partner-toggle { border: 0; background: none; padding: 4px 0; color: var(--muted); font-size: 13px; cursor: pointer; }
 .with-partner-list { margin: 2px 0 6px 18px; padding: 0; font-size: 13px; }
 .decided-for-you h3 { font-size: 14px; margin: 6px 0 2px; }
+/* B466: folded to one line with its count, under what needs you; opens on a click. */
+.decided-toggle { display: block; width: 100%; margin: 6px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
+.decided-toggle:hover { color: var(--text); }
+.decided-toggle[aria-expanded="true"] { color: var(--text); }
 .focus-ask { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
 .focus-ask b { overflow-wrap: anywhere; }
 .focus-ask-options { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -1256,6 +1260,8 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .advisor-refine-state { font-size: 13px; padding: 2px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--inset); color: #c9d3e0; }
 .advisor-refine-state.is-working { border-color: #25774a; color: #8be3b0; }
 .advisor-refine-state.is-waiting { border-color: #7a5a1c; color: #f6d38b; }
+/* B464: your answers that wait for the Advisor: its own colour, not the one that asks you. */
+.advisor-refine-state.is-answered { border-color: var(--advisor); color: var(--advisor); }
 /* B312: the board stopped refining a step after its rounds without new answers; Send again asks one round more. */
 .advisor-refine-state.is-stopped { border-color: #8a3a3a; color: #f2a6a6; }
 .advisor-refine-again { margin-left: 8px; font: inherit; font-size: 13px; padding: 2px 10px; border-radius: 6px; border: 1px solid #8a3a3a; background: var(--inset); color: #f2a6a6; cursor: pointer; }

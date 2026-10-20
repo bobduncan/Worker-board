@@ -12,7 +12,7 @@ import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
-import { askIdsIn, askKey, askTitleOf, askWordsOf, sameAsk, titleProblem } from './askWords.mjs'
+import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
@@ -600,10 +600,11 @@ async function ask(body, w) {
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
-async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null }) {
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null }) {
   const id = await nextId(w.dir, 'Q', w.fs)
   // B452: the question its words lead with (a title over 12 words came from the mod's form or a "For you" block).
-  const title = line(askTitleOf(text).title, 200)
+  // B462: a refine question gives its own, found before its advice.
+  const title = line(given ?? askTitleOf(text).title, 200)
   let question = ordered({
     head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', w.role === 'person' ? '-' : w.who], ['Activity', of === null ? '-' : valueOf(of, 'Activity') ?? '-'],
       ['Since', stamp(w.now)], ['Filed', String(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? goal ?? '-' : valueOf(of, 'Id')],
@@ -1862,6 +1863,9 @@ async function refine(body, w) {
   if (goal !== '' && !/^G\d+$/.test(goal)) return refuse(400, 'A goal is named by its id (G17).')
   const size = line(body.size, 40).replace(/^about\s+/i, '')
   const questions = lines(body.questions, 600).map(one => one.replace(/^[-*]\s+/, '').trim())
+  // B462: each question is an ask, so it leads with an ask's short title.
+  const long = questions.findIndex(one => refineQuestionProblem(one) !== null)
+  if (long >= 0) return refuse(400, `Question ${long + 1} ${refineQuestionProblem(questions[long])}`)
   // B354: the standard given, else the one the step had.
   const given = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
   if (given !== null && !given.ok) return refuse(400, given.why)
@@ -1895,7 +1899,7 @@ async function refine(body, w) {
   for (const old of refineAsksOf(w, stepId)) await settleAsk(w, old, 'withdrawn', null, `replaced by round ${round}`)
   const asked = []
   for (const question of questions) {
-    const made = await makeAsk(w, { of: next, kind: 'decide', text: [question], via: 'refine' })
+    const made = await makeAsk(w, { of: next, kind: 'decide', text: [question], via: 'refine', title: refineTitleOf(question) })
     if (made.ok) asked.push(made.id)
   }
   return changed(next, undefined, { asks: asked })
@@ -1915,6 +1919,20 @@ async function settleAsk(w, ask, state, text, why) {
   const item = put(put(copy(found.item), 'State', state), 'Since', stamp(w.now))
   if (text !== null) item.sections.set('Answer', [text])
   await save(said(item, w, why), found.text, w)
+}
+
+/**
+ * B464: a refine question that asks to drop the step, answered yes: a note to the main chat at once, as the partner
+ * cannot drop a step (B17's "yes" waited two days for it). `question` may carry an earlier answer behind it.
+ */
+async function dropNote(w, stepId, question, answer) {
+  const asked = question.replace(/ Answer: [\s\S]*$/, '').trim()
+  // The review: only a question that drops this step ("Drop B7 ...", "Should we drop it?"), and a plain yes, without a
+  // "but", "not" or "keep" after it.
+  const dropsIt = /^\s*(?:should we\s+|shall we\s+)?drop\b/i.test(asked) || new RegExp(`\\bdrop (?:it|this step|${stepId})\\b`, 'i').test(asked)
+  const isYes = /^\s*(?:yes|yep|yeah|ja|ok|okay|sure|drop)\b/i.test(answer) && !/\b(?:but|not|don'?t|keep)\b/i.test(answer)
+  if (!dropsIt || /\b(?:don'?t|not)\s+drop\b/i.test(asked) || !isYes) return
+  await makeNote(w, 'main', [`${stepId}: the person answered "${line(answer, 200)}" to "${line(asked, 300)}": drop it; the partner cannot drop a step.`], stepId)
 }
 
 /** B299: the questions of a refine block as written, without the answers written after them. */
@@ -2048,6 +2066,8 @@ async function answer(body, w) {
   const owner = valueOf(found.item, 'Owner')
   const told = { id, title: valueOf(found.item, 'Title') ?? '', text: text.join('\n') }
   const wake =owner === null || !/^Q\d+$/.test(id) ? null : { to: owner, ...told }
+  // B464: a "yes" to a refine question that drops its step goes to the main chat at once.
+  if (done.ok && isRefine && of !== null) await dropNote(w, of, askWords(found.item), short)
   // Focus 3, the review: the step goes on, so its owner is woken too (the flow's "wake Owner") when another chat asked.
   const wakeOwner = freed !== null && (owner === null || plain(freed, w.prefix) !== plain(owner, w.prefix)) ? { to: freed, ...told } : null
   return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner } } : done
@@ -2156,6 +2176,13 @@ async function refineText(body, w) {
       const index = questionIndex(questions, ask, w)
       const given = answers.find(one => one !== null && typeof one === 'object' && one.index === index)?.answer
       if (index >= 0 && typeof given === 'string' && given.trim() !== '') await settleAsk(w, ask, 'answered', line(given, 1000), `answered in the step's window: ${line(given, 200)}`)
+    }
+  }
+  // B464: a "yes" to dropping it goes to the main chat; a question answered before told it then.
+  if (w.action !== 'refine-accept') {
+    for (const one of answers) {
+      const question = questions[one?.index]
+      if (typeof question === 'string' && !question.includes(' Answer: ') && typeof one.answer === 'string') await dropNote(w, id, question, one.answer)
     }
   }
   return changed(next)

@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { ChatFile, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName } from './board'
 import type { Board, BoardStart, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -366,15 +366,46 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
     headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key },
     body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more }),
   })
+  // B463: a chat renamed in the app learns its new name here, at the next take, whatever wakes it.
+  if (answer.status === 409) await followShown($, answer.text)
 
   return answer.ok ? answer.text : null
 }
 
 /**
+ * B463: a chat renamed in the app goes on under its old name until it learns the new one. The board's refusal of that
+ * name says the name it shows the session under: the chat joins under it as by its title (so a chat that was taken out
+ * stays out), once. True when this chat's name changed.
+ */
+async function followShown($: EngineInterface, refusal: string): Promise<boolean> {
+  try {
+    const shown = shownName(refusal)
+    if (shown === null || myself === null || shown === myself.name || chatsDir === null) return false
+    const list = parseList(await $.fs.read(inFolder(chatsDir, LIST_FILE)).catch(() => ''))
+    if (list === null) return false
+    const before = myself.name
+    // The review of B463: a rename keeps what the card says (a question open to the person stays theirs).
+    await joinByTitle($, `${list.prefix}${shown}`, 'waiting')
+    return myself !== null && myself.name !== before
+  } catch {
+    return false
+  }
+}
+
+/**
  * B297: one call of the work tool, sent to the worker board as this chat: `{ ok, text }`, the board's answer or one
- * line saying why there is none. It never throws.
+ * line saying why there is none. It never throws. B463: refused under a name the board no longer shows this chat
+ * under, it follows the board's name and asks once more, with the same request id.
  */
 async function workOnBoard($: EngineInterface, fields: Record<string, unknown>, request: string | null = null, limitMs: number | null = WORK_CALL_MS): Promise<WorkAnswer> {
+  const answer = await workOnce($, fields, request, limitMs)
+  if (answer.status !== 409 || !(await followShown($, answer.text))) return answer
+
+  return workOnce($, fields, request, limitMs)
+}
+
+/** B297: one call of the work tool as `workOnBoard`, asked once. */
+async function workOnce($: EngineInterface, fields: Record<string, unknown>, request: string | null, limitMs: number | null): Promise<WorkAnswer> {
   if (myself === null || chatsDir === null) return { ok: false, text: 'This chat is not in the list of chats: the work tool is for the chats of the list.' }
   try {
     const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
@@ -832,7 +863,7 @@ async function join($: EngineInterface, name: string, role: ChatRole, state: Cha
  * A chat whose title says it is one of the project's joins the list by itself, and follows a new title: the
  * project's `.claude/chats/list.json` names the titles' shared beginning.
  */
-async function joinByTitle($: EngineInterface, title: unknown): Promise<void> {
+async function joinByTitle($: EngineInterface, title: unknown, state: ChatFile['state'] = isInTurn ? 'working' : 'waiting'): Promise<void> {
   try {
     if (typeof title !== 'string' || title.trim() === '') return
     const dir = await findChatsDir($, true)
@@ -849,7 +880,7 @@ async function joinByTitle($: EngineInterface, title: unknown): Promise<void> {
     // A chat that was taken out stays out until it is asked to join again.
     if (hasLeft(own)) return
     const before = parseChat(own)
-    if (before?.name !== named.name || before.role !== named.role) await join($, named.name, named.role, isInTurn ? 'working' : 'waiting')
+    if (before?.name !== named.name || before.role !== named.role) await join($, named.name, named.role, state)
   } catch {
     // no list.json, or the folder cannot be read: the chat joins when asked to
   }

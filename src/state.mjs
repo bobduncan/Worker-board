@@ -1340,6 +1340,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       isTurnOpen: advisorCard.isTurnOpen ?? false,
       // B301: it asks with the work store's asks; also when the app says it waits (its question form).
       asksYou: advisorWaits !== null || waits.asking.has(advisorChat.name.toLowerCase()),
+      // B464: the asks it has open for the person, `{ id, title }`, for its row to name what it asks.
+      asking: waits.asks?.get(advisorChat.name.toLowerCase()) ?? [],
       queued: queuedFor(sent, advisorChat.name, now),
       // B288: a round runs from when it is sent, by the clock or on the person's request: while it waits to be typed;
       // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then

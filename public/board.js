@@ -1935,6 +1935,19 @@ function advisorStanding(advisor) {
   return { key: 'free', label: 'Idle' }
 }
 
+/**
+ * B464: what it asks you, for its row: the first of its open asks by id and title (and how many more), or its chat when
+ * the app's question form asks; null while it asks you nothing. The person, 2026-10-21: "i dont see this. please fix
+ * the notification for that" (its row said "Needs your answer" beside a refine line that waited for it, not for them).
+ */
+function advisorAsks(advisor) {
+  if (advisor?.asksYou !== true) return null
+  const asks = advisor.asking ?? []
+  if (asks.length === 0) return { text: 'Asks you in its chat', tone: 'waiting' }
+  const more = asks.length > 1 ? ` and ${asks.length - 1} more` : ''
+  return { text: `Asks you (${asks[0].id}${more}): ${asks[0].title}`, tone: 'waiting' }
+}
+
 /** B280: what waits for the Advisor, not in its chat yet: a count and its kinds ("1 refine, 2 messages"); null for nothing. */
 function advisorQueued(queued) {
   const kinds = [[queued?.refines ?? 0, 'refine', 'refines'], [queued?.rounds ?? 0, 'round of the clock', 'rounds of the clock'], [queued?.words ?? 0, 'message', 'messages']]
@@ -1997,8 +2010,18 @@ function drawAdvisorLane(state) {
   const refine = advisorRefine(state.backlog)
   // What the row does not say, on hovering the card and its line.
   const tip = []
-  if (refine !== null && hasTask && refine.canSend !== true) tip.push(refine.text)
-  if (refine !== null && (!hasTask || refine.canSend === true)) {
+  // B464: what it asks you comes first; what it refines then goes in the tooltip.
+  const asking = advisorAsks(advisor)
+  const isAsking = asking !== null && !hasTask
+  if (isAsking) {
+    const line = el('p', 'advisor-lane-refine')
+    line.append(el('span', `advisor-refine-state is-${asking.tone}`, asking.text))
+    what.append(line)
+  }
+  // The review: under a task, what it asks you is in the tooltip.
+  if (asking !== null && hasTask) tip.push(asking.text)
+  if (refine !== null && (hasTask || isAsking) && refine.canSend !== true) tip.push(refine.text)
+  if (refine !== null && ((!hasTask && !isAsking) || refine.canSend === true)) {
     const line = el('p', 'advisor-lane-refine')
     line.append(el('span', `advisor-refine-state is-${refine.tone}`, refine.text))
     // B312: the board stopped refining it: one round more, in the Refine button's words.
@@ -2617,7 +2640,12 @@ function withPartnerView(list) {
 /** Partner answers, the review's findings: "Decided for you" (the state's `partnerDecided`): each answer with its Undo. */
 function decidedView(list) {
   if (!Array.isArray(list) || list.length === 0) return null
-  return { title: 'Decided for you by your partner', rows: list.map(one => ({ ask: one.ask, text: one.line, undo: { id: one.ask, label: 'Undo', title: TAKE_BACK_TITLE } })) }
+  return { title: 'Decided for you by your partner', count: list.length, rows: list.map(one => ({ ask: one.ask, text: one.line, undo: { id: one.ask, label: 'Undo', title: TAKE_BACK_TITLE } })) }
+}
+
+/** B466: the one line it folds to, with its count and a chevron that says whether it is open. */
+function decidedToggleText(view, isOpen) {
+  return `${view.title} · ${view.count} ${isOpen ? '▾' : '›'}`
 }
 
 /** A lane's state in words; the review's findings: a chat that waits on the partner's answer says so, not "for you". */
@@ -2647,7 +2675,15 @@ function drawDecidedForYou(state) {
   const view = decidedView(state.partnerDecided ?? [])
   if (view === null) return null
   const part = el('section', 'information decided-for-you')
-  part.append(el('h3', '', view.title))
+  // B466: folded to one line with its count until opened; the page remembers it (decidedUi).
+  const isOpen = state.ui?.decidedOpen === true
+  const toggle = el('button', 'decided-toggle', decidedToggleText(view, isOpen))
+  toggle.type = 'button'
+  toggle.dataset.decided = 'toggle'
+  toggle.setAttribute('aria-expanded', String(isOpen))
+  toggle.title = 'What your partner answered for you; open it to see each answer and take one back'
+  part.append(toggle)
+  if (!isOpen) return part
   const list = el('ul', 'focus-decided')
   for (const row of view.rows) {
     const item = el('li', '')
@@ -3476,6 +3512,9 @@ function drawMissed(missed) {
 // clicks:start
 /** Partner answers: whether the "With your partner" line is open (this page only). */
 const withPartnerUi = { isOpen: false }
+/** B466: whether "Decided for you by your partner" is open; folded unless the person left it open (this browser). */
+const decidedUi = { isOpen: false }
+try { decidedUi.isOpen = localStorage.getItem('decided-open') === 'yes' } catch { /* a browser without storage: folded */ }
 
 /**
  * B408: the page's one click handler, with a table of acts. A button names its act by a data attribute (the table's
@@ -3489,6 +3528,12 @@ const CLICK_ACTS = {
   // Partner answers, the review's findings: the "With your partner" line opens and closes its list.
   'with-partner': () => {
     withPartnerUi.isOpen = !withPartnerUi.isOpen
+    redrawNeeds()
+  },
+  // B466: "Decided for you by your partner" opens and closes; the page remembers it.
+  'decided': () => {
+    decidedUi.isOpen = !decidedUi.isOpen
+    try { localStorage.setItem('decided-open', decidedUi.isOpen ? 'yes' : 'no') } catch { /* kept for this visit only */ }
     redrawNeeds()
   },
 }
@@ -3610,7 +3655,7 @@ function drawNeeds(state) {
   const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawWithPartner(state), drawDecidedForYou(state), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, ...recaps])
+  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
   box.scrollTop = top
   refocus(box, focused)
   // B307: Information in its own box under the asks, as high as the person dragged it.
@@ -3698,7 +3743,7 @@ function focusPageView(state, ui) {
 }
 
 /** B408: what the person does in Needs your attention, for its view: the order, Show closed, what is picked, sent, open. */
-const needsUi = () => ({ showsClosed: showsClosed(), order: $('needs-order').value, withPartnerOpen: withPartnerUi.isOpen, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+const needsUi = () => ({ showsClosed: showsClosed(), order: $('needs-order').value, withPartnerOpen: withPartnerUi.isOpen, decidedOpen: decidedUi.isOpen, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
 
 /**
  * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw
@@ -4080,7 +4125,7 @@ function splitAsk(words) {
   const mark = text.search(/\?(?=\s|$)/)
   // A sentence ends at a full stop before a capital, but not after an abbreviation ("e.g. Yew").
   const ends = [...text.matchAll(/[.!](?=\s+[A-Z0-9"“])/g)].map(found => found.index)
-  const sentence = ends.find(index => !/\b(?:e\.g|i\.e|etc|vs|cf|approx|fig|ca|incl|resp|est)$/i.test(text.slice(0, index))) ?? -1
+  const sentence = ends.find(index => !/\b(?:e\.g|i\.e|etc|vs|cf|approx|fig|ca|incl|resp|est|mr|mrs|ms|dr|st)$/i.test(text.slice(0, index))) ?? -1
   // B452: a question mark past 280 characters makes no title: the first sentence is the title then.
   const at = mark >= 0 && mark <= 280 ? mark : sentence
   if (at < 0 || at > 280) return { question: text, rest: '' }
@@ -11045,7 +11090,8 @@ function advisorRefine(backlog) {
     return { step: stopped.id, text: `Refine of ${stopped.id} stopped after ${rounds} round${rounds === 1 ? '' : 's'} without new answers`, tone: 'stopped', canSend: true }
   }
   const answered = steps.find(step => step.refineState === 'answered' && isUp(step))
-  return answered === undefined ? null : { step: answered.id, text: `Your answers on ${answered.id} wait for it`, tone: 'waiting' }
+  // B464: they wait for the Advisor, not for you: in its own colour, not the one that asks you.
+  return answered === undefined ? null : { step: answered.id, text: `Your answers on ${answered.id} wait for the Advisor`, tone: 'answered' }
 }
 // advisorrefine:end
 
@@ -12071,7 +12117,11 @@ function refineQuestions(step, refined, view) {
       button.disabled = view.working !== null
       choices.append(button)
     }
-    line.append(el('span', 'refine-n', String(index + 1)), el('span', 'refine-text', one.text), advice, choices)
+    // B462: the question itself first, its numbers and why muted after it, as an ask's title and context.
+    const { question, rest } = splitAsk(one.text)
+    const text = el('span', 'refine-text', question)
+    if (rest !== '') text.append(' ', el('span', 'muted', rest))
+    line.append(el('span', 'refine-n', String(index + 1)), text, advice, choices)
     // An answer in words of its own, not a yes or a no, shows under its question.
     if (one.answer !== null && !/^(yes|no)$/i.test(one.answer)) line.append(el('p', 'refine-answer', `Your answer: ${one.answer}`))
     box.append(line)
