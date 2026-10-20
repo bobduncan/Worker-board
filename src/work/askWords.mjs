@@ -70,6 +70,18 @@ export function askTitleOf(lines) {
   return { title: sentences[at] ?? first, context: rest === '' ? more : [rest, ...more] }
 }
 
+/**
+ * B462: why a refine question gives too long a title, or null when it fits. Its question is an ask's too, one line
+ * (the refine block holds it so): the title is its question as `askTitleOf` finds it, so the question itself comes
+ * first or after a sentence of context, and the numbers, why and advice stand after it.
+ */
+export function refineQuestionProblem(question) {
+  const { title } = askTitleOf([question])
+  if (titleProblem(title) === null) return null
+  const size = wordsIn(title) > TITLE_WORDS ? `${wordsIn(title)} words` : `${title.length} characters`
+  return `leads with a question of ${size}: make its question the question itself, in at most ${TITLE_WORDS} words and ending in "?", and put the numbers, why and "Advised: ..." after it in the same line ("Should the hedge be yew? 40 plants in two rows. Advised: yes, it keeps the sheep out").`
+}
+
 const plainWords = value => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/[\s.?!:;,]+$/, '')
 
 /**

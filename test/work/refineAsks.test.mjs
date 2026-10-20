@@ -18,8 +18,8 @@ import { readStore, writeStore } from '../../src/work/store.mjs'
 const NOW = new Date(2026, 9, 18, 14, 55).getTime()
 const BACKLOG = ['# Backlog', '', '## Board work', '- [ ] B7 Bats, a fast and weak swarm', ''].join('\n')
 const ROLES = { Main: 'main', Advisor: 'advisor' }
-// Longer than an ask's title (200), with a space where the title is cut.
-const LONG = `Bats fly: they cross lava and gaps while moving, and a push into lava does not kill them, so you must hit them instead of pushing? I advise yes: then they need their own answer, as you asked, where a push would solve them as it solves the rest.`
+// Longer than an ask's title once was (200), with a space where it was cut. B462: it leads with a short question.
+const LONG = `Do bats ignore lava? They fly: they cross lava and gaps while moving, and a push into lava does not kill them, so you must hit them instead of pushing them off. I advise yes: then they need their own answer, as you asked, where a push would solve them as it solves the rest.`
 const SHORT = 'Three bats at a time?'
 
 async function fresh() {
@@ -34,7 +34,7 @@ const questionsOf = async dir => {
   return refinedOf(parseBacklog(`## Board work\n${stepLine(step)}\n${stepNotes(step).join('\n')}\n`).activities[0].steps[0].notes).questions
 }
 
-test('the long question is cut at a space in its ask\'s title', () => {
+test('the long question has a space at 200 characters, where an ask\'s title was once cut', () => {
   assert.equal(LONG.replace(/\s+/g, ' ').trim().slice(0, 200).at(-1), ' ')
 })
 

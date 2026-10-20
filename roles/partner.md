@@ -585,7 +585,7 @@ summary. that doesnt read like it was in progress text"), in two stages:
     Size: <about N hours; over about 4, cut it into steps>
     Standard: <kind> · <reference picture> · target <score>     (or: none (<why>); only for a step that names a kind of work)
     Questions:
-    - <a question that changes the work, one line, answered with yes or no> Advised: yes, <the reason in a few words>
+    - <the question itself, at most 12 words, answered with yes or no?> <its numbers and why, short> Advised: yes, <the reason in a few words>
 
 **Ready,** once every question is answered (the user's answers stand behind them as ` Answer: ...`, their feedback
 under `Feedback:`): fold the answers and the feedback into "What we build" and remove the questions, the answers and
@@ -619,7 +619,9 @@ the feedback. It reads as the finished description, not as a talk:
   starts with `Standard:`; the board takes it out of What we build.
 - **Questions**: at most five, only what changes the work, each one line ending in `Advised: yes` or `Advised: no`
   and its reason (B293): the board shows them with Yes and No, and "Take the advice" answers every open one with your
-  advice. An answer may also be the user's own words. An answer that raises a new question opens one more short round
+  advice. Each is an ask too, so it leads with an ask's title (B462): the question itself in at most 12 words, ending
+  in "?", with its numbers and why after it ("Should the Ranger start with Long Shot and Pinning Arrow? 5 HP, 4 AP;
+  Long Shot hits within 6 for 2. Advised: yes, far and weak up close"); a refine with a longer one is refused. An answer may also be the user's own words. An answer that raises a new question opens one more short round
   with only that question; keep what is settled under "What we build" already. No question at all: write it ready at
   once.
 - No other step on the backlog or in a queue may do the same work: say so as a question when one does.

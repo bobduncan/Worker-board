@@ -12,7 +12,7 @@ import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
-import { askIdsIn, askKey, askTitleOf, askWordsOf, sameAsk, titleProblem } from './askWords.mjs'
+import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, sameAsk, titleProblem } from './askWords.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
@@ -1862,6 +1862,9 @@ async function refine(body, w) {
   if (goal !== '' && !/^G\d+$/.test(goal)) return refuse(400, 'A goal is named by its id (G17).')
   const size = line(body.size, 40).replace(/^about\s+/i, '')
   const questions = lines(body.questions, 600).map(one => one.replace(/^[-*]\s+/, '').trim())
+  // B462: each question is an ask, so it leads with an ask's short title.
+  const long = questions.findIndex(one => refineQuestionProblem(one) !== null)
+  if (long >= 0) return refuse(400, `Question ${long + 1} ${refineQuestionProblem(questions[long])}`)
   // B354: the standard given, else the one the step had.
   const given = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
   if (given !== null && !given.ok) return refuse(400, given.why)

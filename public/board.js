@@ -12071,7 +12071,11 @@ function refineQuestions(step, refined, view) {
       button.disabled = view.working !== null
       choices.append(button)
     }
-    line.append(el('span', 'refine-n', String(index + 1)), el('span', 'refine-text', one.text), advice, choices)
+    // B462: the question itself first, its numbers and why muted after it, as an ask's title and context.
+    const { question, rest } = splitAsk(one.text)
+    const text = el('span', 'refine-text', question)
+    if (rest !== '') text.append(' ', el('span', 'muted', rest))
+    line.append(el('span', 'refine-n', String(index + 1)), text, advice, choices)
     // An answer in words of its own, not a yes or a no, shows under its question.
     if (one.answer !== null && !/^(yes|no)$/i.test(one.answer)) line.append(el('p', 'refine-answer', `Your answer: ${one.answer}`))
     box.append(line)
