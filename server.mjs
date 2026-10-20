@@ -72,7 +72,7 @@ import { readStore } from './src/work/store.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { findGameFile } from './src/gameFile.mjs'
-import { readKept, writeAtomic } from './src/write.mjs'
+import { absentAs, readKept, writeAtomic } from './src/write.mjs'
 import { aboutError, afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -528,15 +528,17 @@ async function main(args) {
     })
     readState.reset()
     // B382: a goal that is not the focus may be evaluated meanwhile: while an evaluation runs, the partner stays on high effort.
-    const running = done.ok ? await evaluationsRunning({ goalsFile: projectFile(config, 'goals') }).catch(() => []) : []
+    // B467: a goal map it cannot read is not "none running": the partner's effort stays as it is (shown and logged).
+    const running = done.ok ? await loops.run('evaluations', () => evaluationsRunning({ goalsFile: projectFile(config, 'goals') })) : []
+    const isKnown = Array.isArray(running)
     // B359: the partner's how-draft ended the goal guard's evaluation: back to the usual partner, unless another runs.
-    if (done.ok && done.result?.evaluated === true && running.length === 0) await partnerMode(state, 'usual', 'the evaluation ended with the how: back to the usual partner')
+    if (done.ok && done.result?.evaluated === true && isKnown && running.length === 0) await partnerMode(state, 'usual', 'the evaluation ended with the how: back to the usual partner')
     if (!done.ok || done.words === null) return done.ok ? { ok: true, result: done.result } : done
     // B352: Go on the how, and another goal as the focus, switch the partner back to the usual mode (the talk about the
     // same goal started again keeps it).
     // B354: something new waits in the map for its Done when: the focus did not change, so neither does the partner.
     const isSameFocus = body.command === 'focus' && (body.id === state.focus?.id || done.result?.isFocus === false)
-    const back = isSameFocus || running.length > 0 ? null : effortBack(body.command, state.advisor?.effort)
+    const back = isSameFocus || !isKnown || running.length > 0 ? null : effortBack(body.command, state.advisor?.effort)
     const main = state.restart?.main ?? null
     if (back !== null && main !== null) {
       const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back })
@@ -694,7 +696,8 @@ async function main(args) {
    */
   const openOverturnedGoal = async body => {
     if (workDir === null) return null
-    const recap = (await readStore(workDir).catch(() => ({ items: new Map() }))).items.get(String(body.id ?? '').trim())
+    // B467: a store it cannot read fails the call (the page gets an error, the log a line), never "no such recap".
+    const recap = (await readStore(workDir)).items.get(String(body.id ?? '').trim())
     const about = recap?.sections.get('About')?.[0] ?? ''
     if (recap?.head.get('Recap') !== 'open' || !/^G\d+$/.test(about) || String(body.text ?? '').trim() === '') return null
     if (!writesMap) return { ok: false, status: 409, why: `This board does not write the goal map: overturn ${about} on the board that delivers.` }
@@ -793,7 +796,8 @@ async function main(args) {
     branches = cached(() => branchesNow(), FOLDERS_MS)
     readRaw = async () => {
       // B273: the app may move its folder while the board runs: the board follows it.
-      await followApp(config, process.env, process.platform).catch(() => false)
+      // B467: as a loop: a failed search shows and is logged; the board reads where it read before.
+      await loops.run('app-folder', () => followApp(config, process.env, process.platform))
       return readSources(config, folders, undefined, branches, work)
     }
     if (historyFrom === undefined) {
@@ -806,7 +810,9 @@ async function main(args) {
     } else {
       // The history of the board that is running; this one records nothing and keeps what is sent in memory.
       store = memoryStore()
-      taskTimes = await readFile(join(resolve(historyFrom), 'task-times.json'), 'utf8').then(text => JSON.parse(text)).catch(() => null) ?? taskTimes
+      // B467: none there is none yet; one it cannot read or parse is shown (it is the other board's: never moved here).
+      taskTimes = await readFile(join(resolve(historyFrom), 'task-times.json'), 'utf8').then(text => JSON.parse(text))
+        .catch(absentAs(null)).catch(error => { loops.failed('history', error); return null }) ?? taskTimes
       const shared = cached(async () => parseHistory((await readHead(join(resolve(historyFrom), 'history.jsonl'), HISTORY_BYTES))?.text ?? ''), TICK_MS / 2)
       const lines = { now: [] }
       readLines = () => lines.now
@@ -850,7 +856,8 @@ async function main(args) {
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
   // B133: the kinds of idea are the project's own (the setting designKinds); the demo has its made-up ones.
   const kindsFile = isDemo ? join(HERE, 'fixtures', 'demo-design.json') : config.project === '' ? null : join(config.project, ...config.designKinds.split('/'))
-  const settings = parseDesignSettings(kindsFile === null ? '' : await readFile(kindsFile, 'utf8').catch(() => ''))
+  // B467: no file gives the usual kinds; one it cannot read gives them too, and says so.
+  const settings = parseDesignSettings(kindsFile === null ? '' : await readFile(kindsFile, 'utf8').catch(absentAs('')).catch(error => { loops.failed('design-kinds', error); return '' }))
   // B198: new ideas go into the project's picture folder.
   const ideas = isDemo ? ideasOver((await import('./fixtures/demo.mjs')).demoIdeas(clock()), undefined, { pictures: config.pictureRoots[0] })
     // B406: a torn ideas file is set aside like the other data files, never written over with no ideas in it; a board
@@ -977,7 +984,8 @@ async function main(args) {
     measuring = true
     try {
       // B301: a step's area and estimate as the store holds them.
-      const items = (await readStore(workDir).catch(() => ({ items: new Map() }))).items
+      // B467: a store it cannot read fails this measuring (shown and logged); the transcripts are read on next time.
+      const items = (await readStore(workDir)).items
       const stepOf = id => {
         const item = items.get(id)
         if (item === undefined) return null
@@ -1013,8 +1021,9 @@ async function main(args) {
   // the person plays (src/cpu.mjs). Every board but the demo and one that only shows another's history; a copy beside
   // the person's board starts at Off whatever config.json says, and applies only what was clicked on it.
   const chatSessions = async () => {
-    const cards = await readdir(join(config.project, '.claude', 'chats')).catch(() => [])
-    const listed = (await readState().catch(() => ({ chats: [] }))).chats ?? []
+    // B467: no folder of cards is none; anything else fails this pass of the CPU loop (shown and logged).
+    const cards = await readdir(join(config.project, '.claude', 'chats')).catch(absentAs([]))
+    const listed = (await readState()).chats ?? []
     return [...new Set([...sessionsOfCards(cards), ...listed.filter(chat => !chat.isLeftover && typeof chat.session === 'string').map(chat => chat.session)])]
   }
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
@@ -1115,7 +1124,8 @@ async function main(args) {
       if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
       if (!isDemo) {
         const file = join(HERE, 'config.json')
-        const text = await readFile(file, 'utf8').catch(() => null)
+        // B467: only a file that is not there is "not there"; one it cannot read fails the call.
+        const text = await readFile(file, 'utf8').catch(absentAs(null))
         if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
         const changed = settingChanged(text, checked.key, checked.value)
         if (!changed.ok) return changed
@@ -1138,7 +1148,7 @@ async function main(args) {
       const now = clock()
       if (checked.action === 'make') {
         // The folders that are there already, also a copy's: a new idea gets one of its own.
-        const taken = await readdir(inProject(config.project, ideasFolder(config.pictureRoots[0]))).catch(() => [])
+        const taken = await readdir(inProject(config.project, ideasFolder(config.pictureRoots[0]))).catch(absentAs([]))
         // B156: a reference the page still names must be there: it may have gone with an idea that was not kept.
         const gone = await Promise.all(checked.references.map(path => stat(inProject(config.project, path)).then(file => !file.isFile(), () => true)))
         if (gone.some(Boolean)) return { ok: false, status: 409, why: 'A reference picture is not there any more: take it away and add it again.' }
@@ -1261,9 +1271,10 @@ async function main(args) {
       if (body?.command === 'missing-add') {
         if (!writesMap || workWriters === null) return { ok: false, status: 403, why: 'This board only shows: add steps on the board that delivers.' }
         const goalsAt = { file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() }
-        const store = await readStore(workDir).catch(() => null)
+        // B467: a store or map it cannot read fails the call, never a step made under no activity or from no map.
+        const store = await readStore(workDir)
         const done = await missingToSteps({ id: body.id, index: body.index, line: typeof body.line === 'string' ? body.line : undefined, all: body.all === true }, {
-          readMap: () => readFile(goalsAt.file, 'utf8').catch(() => ''),
+          readMap: () => readFile(goalsAt.file, 'utf8').catch(absentAs('')),
           makeStep: step => workAction(step, 'person'),
           changeMap: change => changeGoalsFile(change, goalsAt),
           activity: goal => activityFor(goal, store?.items, store?.activities),
@@ -1453,7 +1464,11 @@ async function main(args) {
       } else {
         await mkdir(join(config.project, '.claude'), { recursive: true })
           .then(() => writeAtomic(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
-          .catch(() => console.error('The board could not write .claude/board.json: answers will not reach the chats.'))
+          .catch(error => {
+            // B467: shown on the page too, until the board starts again: the chats cannot find it.
+            loops.failed('bridge-note', error)
+            console.error('The board could not write .claude/board.json: answers will not reach the chats.')
+          })
       }
     }
     // B319: listening, it keeps its port and games' range for its project in the PC's list of boards.

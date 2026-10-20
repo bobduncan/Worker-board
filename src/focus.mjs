@@ -10,6 +10,7 @@ import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
 import { evaluateWords, goalAttempts, needsEvaluation } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords, planWords } from './say.mjs'
+import { absentAs } from './write.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
 
@@ -47,7 +48,8 @@ const WHY = {
 const failed = why => refuse(...(WHY[why] ?? WHY.write))
 
 /** The goal map as it is now, UTF-8, or null when it is not there. */
-const readMap = (fs, file) => fs.readFile(file).then(bytes => bytes.toString('utf8'), () => null)
+// B467: null only for a map that is not there; one it cannot read is an error, never "no goal map".
+const readMap = (fs, file) => fs.readFile(file).then(bytes => bytes.toString('utf8'), absentAs(null))
 
 /**
  * The threads about a goal that are not over (running, or wrapping up), newest first: `{ path, file, thread }`, the path
@@ -454,6 +456,7 @@ export function guardGoal(id, ctx) {
  * one runs, the partner stays on high effort.
  */
 export async function evaluationsRunning(ctx) {
+  // B467: no map is none running; a map it cannot read is not, and goes to the caller (which then keeps the effort).
   const text = await readMap(ctx.fs ?? files, ctx.goalsFile)
   if (text === null) return []
   return parseGoals(text).nodes.filter(node => node.state !== 'done' && (node.evaluationAsked ?? null) !== null).map(node => node.id)

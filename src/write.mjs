@@ -27,6 +27,15 @@ export async function again(work, { tries = 5, waitMs = 40 } = {}) {
   }
 }
 
+/**
+ * B467: for a read's catch, `read().catch(absentAs(value))`: a file or folder that is not there gives `value`; any
+ * other error (held by Windows, not readable) goes on, so it is never taken for "nothing there".
+ */
+export const absentAs = value => error => {
+  if (error?.code === 'ENOENT') return value
+  throw error
+}
+
 /** A new name beside `file`, for the text that will take its place. */
 export const besideOf = file => `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
 

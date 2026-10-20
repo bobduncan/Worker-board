@@ -1,7 +1,7 @@
 // B446: the result check of B404 found four catches left in server.mjs that swallowed their errors: asking the partner
 // for a result check and the goal guard after a chat's checked, a picture's end after its making failed, and measuring
 // the tasks inside the look. They now run through the loops' record (src/loops.mjs), so a failure shows on the page
-// and is written to the log; no other catch in server.mjs drops an error without a word.
+// and is written to the log; no other catch in server.mjs drops an error without a reason (B467).
 
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -21,12 +21,39 @@ const part = (from, to) => {
   return server.slice(start, end)
 }
 
-// The other catches that give a value (`() => []`, `() => null`, ...) are fallbacks of a read, not of an action.
-test('B446: no `.catch(() => {})` in server.mjs drops an error; only the settings queue has one, and its caller gets the error', () => {
-  const silent = server.split('\n').map((line, i) => [i + 1, line.trim()]).filter(([, line]) => /\.catch\(\(\) => \{\}\)/.test(line))
-  assert.deepEqual(silent.map(([, line]) => line), ['settingsQueue = turn.catch(() => {})'], silent.map(([at, line]) => `${at}: ${line}`).join('\n'))
-  // The queue's caller has the turn itself, with its error.
+// B467: the result check of B446 found two more that gave a value instead (`() => []`, `() => ({ items: new Map() })`):
+// a store or goal map it could not read was taken for an empty one. A catch that drops its error is now one of two,
+// each with its reason; a read that may find nothing there says so with `absentAs` (only a missing file or folder).
+test('B467: no catch in server.mjs drops its error, apart from the settings queue and the refusal of a goal not reopened', () => {
+  const dropped = server.split('\n').map((line, i) => [i + 1, line.trim()]).filter(([, line]) => /\.catch\(\(\) =>/.test(line))
+  assert.deepEqual(dropped.map(([, line]) => line), [
+    '.catch(() => ({ ok: false, status: 500, why: `${about} could not be opened again: try once more.` }))',
+    'settingsQueue = turn.catch(() => {})',
+  ], dropped.map(([at, line]) => `${at}: ${line}`).join('\n'))
+  // The queue's caller has the turn itself, with its error; the page is told the goal was not opened again.
   assert.match(part('const settingsTurn = run => {', 'const requests ='), /return turn\n/)
+  assert.match(part('const openOverturnedGoal = async body => {', 'const workReads'), /return opened\n/)
+  // No `.then(..., () => ...)` drops a read's error either; a look whether a file is there (stat) may.
+  const second = server.split('\n').filter(line => /\.then\([^)]*\), \(\) =>/.test(line) && !/stat\(/.test(line))
+  assert.deepEqual(second, [])
+})
+
+test('B467: a work store or goal map the server cannot read fails what needed it, never taken for an empty one', () => {
+  assert.doesNotMatch(server, /readStore\(workDir\)\.catch/)
+  const measure = part('const measureTasks = async state => {', 'const stepOf =')
+  assert.match(measure, /const items = \(await readStore\(workDir\)\)\.items/)
+  // The evaluations that run: unknown keeps the partner's effort as it is, instead of switching it.
+  const focus = part('const focusNow = async body => {', 'const main = state.restart?.main ?? null')
+  assert.match(focus, /const running = done\.ok \? await loops\.run\('evaluations', \(\) => evaluationsRunning\(/)
+  assert.match(focus, /isKnown && running\.length === 0\) await partnerMode\(state, 'usual'/)
+  assert.match(focus, /const back = isSameFocus \|\| !isKnown \|\| running\.length > 0 \? null :/)
+})
+
+test('B467: the app\'s folder, the kinds of idea, another board\'s task times and where the chats find the board are shown when they fail', () => {
+  assert.match(server, /await loops\.run\('app-folder', \(\) => followApp\(config, process\.env, process\.platform\)\)/)
+  assert.match(server, /readFile\(kindsFile, 'utf8'\)\.catch\(absentAs\(''\)\)\.catch\(error => \{ loops\.failed\('design-kinds', error\); return '' \}\)/)
+  assert.match(server, /\.catch\(absentAs\(null\)\)\.catch\(error => \{ loops\.failed\('history', error\); return null \}\)/)
+  assert.match(server, /loops\.failed\('bridge-note', error\)/)
 })
 
 test('B446: the result check and the goal guard after a chat\'s checked run as loops', () => {

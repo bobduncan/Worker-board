@@ -2690,6 +2690,32 @@ nothing in the log. They now run through the loops' record (`src/loops.mjs`) as 
    `.catch(() => {})` apart from the settings queue, whose caller gets the error; the catches that give a value are
    the fallbacks of a read).
 
+## A file it cannot read is not an empty one (B467)
+
+The result check of B446 found two catches in `server.mjs` that gave a value instead of dropping nothing: a work store
+it could not read was taken for an empty one while measuring the tasks (they lost their area and estimate), and a goal
+map it could not read for "no evaluation runs" (the partner's effort could be switched back). The same held for more
+reads, so all of them were looked at:
+
+1. **`absentAs(value)`** (`src/write.mjs`), for a read's catch: a file or folder that is not there gives `value`; any
+   other error (held by Windows, not readable, not JSON) goes on. Used for config.json in the settings panel, the
+   folder of the chats' cards, the idea folders, the goal map for a Missing line, and the goal map of the Focus moves
+   (`readMap` in `src/focus.mjs`, which took every error for "There is no goal map to write into.").
+2. **The work store is never read as empty**: measuring the tasks (the `measure` loop fails and reads the transcripts
+   on next time), the goal guard (B446), an Overturn of a recap and a Missing line made into a step (the call fails:
+   the page gets an error, the log a line).
+3. **The evaluations that run** (`evaluations`, "reading the evaluations that run"): unknown keeps the partner's effort
+   as it is, where an unreadable map counted as none running.
+4. **Loops of their own**: following the app's folder (`app-folder`), and, read once at the start so they show until
+   the board starts again: the kinds of idea (`design-kinds`, the usual kinds meanwhile), another board's task times
+   on a board that shows its history (`history`), and `.claude/board.json`, where the chats find the board
+   (`bridge-note`, also on the console as before).
+5. Two catches still drop their error, each with its reason: the settings queue (its caller gets the turn and its
+   error) and an Overturn whose goal could not be opened again (the page is told). `test/silentCatches.test.mjs` holds
+   server.mjs to that: no other `.catch(() => ...)`, and no `.then(..., () => ...)` but a look whether a file is there.
+6. Tests: `test/write.test.mjs` (`absentAs`), `test/goalGuard.test.mjs` (an unreadable map is no "none running" and no
+   "no goal map"), `test/silentCatches.test.mjs`.
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

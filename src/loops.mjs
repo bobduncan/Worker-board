@@ -21,6 +21,13 @@ export const LOOP_WORDS = {
   'result-check': 'asking for a result check',
   guard: 'the goal guard',
   picture: 'making a picture',
+  // B467: reads that were taken for "nothing there" when they failed. The last three are read once, at the start: they
+  // show until the board starts again.
+  evaluations: 'reading the evaluations that run',
+  'app-folder': 'following the app\'s folder',
+  'design-kinds': 'reading the kinds of idea',
+  history: 'reading the other board\'s task times',
+  'bridge-note': 'telling the chats where the board is',
 }
 
 /** The page's words for a loop; `check:<id>` is the check after the report of that step. */
