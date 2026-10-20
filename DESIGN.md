@@ -388,7 +388,8 @@ own state (`src/say.mjs` `syncWords`): the worker's state, whether its chat runs
 question form too), the board's flags on its row, a pause and the limits; for the board a line per worker, the steps not
 handed out and the board's flags. The main chat compares it with the store, the chat and the limits, fixes what it can
 at once (unblock, wake, requeue, withdraw), makes a board fix step of the rest, and answers with a note to the person
-that starts `Sync check of <name>:` (roles/main.md, "Check sync"). The row (or the panel's head) says the check is on
+that starts `Sync check of <name>:` (roles/main.md, "Check sync"); only the main chat's note to the person counts, not a
+worker's note or one to the main chat with the same words (B439). The row (or the panel's head) says the check is on
 its way or with the main chat, then shows that answer for an hour (`src/sync.mjs`, `changeAsks.sync`); one open check
 at a time each, open until the answer or for half an hour after it arrived (or was copied for the person to paste).
 Only an answer newer than the last one when the check was asked counts (`seen`), as the store keeps minutes. The
@@ -1687,6 +1688,12 @@ but [not] prevent my ability to play the game". A setting in the board's head, b
   list, the affinity mask for N cores, what is set and what is passed over, the Off pass, a failed listing, another
   platform, the endpoint and the head's text; the PowerShell calls are the one object `windowsProcesses` that tests
   replace.
+- **B440** (2026-10-19): a board that a chat started was itself a process below a chat. Strong put it at Idle on one core,
+  and while the PC was busy every request took 1.5 to 5 s, so the chats' work tool gave up. The board and its keeper
+  are spared (`spare`, which also leaves out what they start; the parent only when it is the keeper), and both get
+  Normal and all cores back, tried again each pass until Windows took both, and again whenever a listing finds one of
+  them lowered (another board's limiter, say), with a line in the board's log. The Workers mod 0.13.14 names the reason when the board does not answer ("did not answer (<reason>): nothing
+  was recorded").
 
 ## The Focus tab, increment 4 (Focus 4): the main chat delegates, the partner's questions first, the talk bar
 
@@ -2409,7 +2416,7 @@ Picture: `art-inbox/worker-board/partner-answers/note.png`.
 6. **Undo** (`api.mjs` `undo`, `takeBack`; `focus.mjs` `undoLine` with a `tell` port; `server.mjs` `undoNow`): the
    note's Undo on a line that lists a partner's answer (the ask whose `Daily note` is that note and whose `Note line`
    is that line), and the Undo on the answered ask's card ("Show closed": a partner's answer stays among the closed cards for 7 days,
-   `canTakeBack`; `partnerAnswerView`, `partnerAnswerParts`, `takeBackClick`), take it back: the ask is open again with
+   `canTakeBack`; `partnerAnswerView`, `partnerAnswerParts`, the click table's `take-back`, B408), take it back: the ask is open again with
    `Route: person` and "Your partner had answered: <answer>; you took it back" under `## Route`, a step its holder blocked
    on it waits on the person again (the flow's move as its holder's role), the note's line is marked under "Undo
    asked" (the page says "taken back"), and the asking chat gets one line, "The person took back the partner's answer
@@ -2553,6 +2560,24 @@ advisor tab and not an worker".
 6. Not in it: more than one helper, a helper for the main chat, and the Workers mod's own role for it (the mod's chat
    tool still lists it as a worker; its change needs the person's word).
 
+## Redraw keys from what is drawn, and one click table (B408)
+
+The person, 2026-10-19 (Q207 B): place 3 of `docs/robustness-2026-10.md`, its first slice. A part redrew only when its
+hand-listed key changed, and a click worked only in the box it was bound to: the "With your partner" line opened up to
+a minute late, a refused change of the Partner answers switch never showed, and Undo under the daily note did nothing.
+
+1. Needs your attention and the Focus page each have a view (`needsView`, `focusPageView`, between `// redraw:start`
+   and `// redraw:end`): plain data in the state's own shape, holding only what the part draws (a chat as its name and
+   whether it runs, the backlog as its steps' ids, the time as its minute), and `ui`, what the person does there
+   (`needsUi`, `focusPageUi`). `once` is keyed on the view's JSON and the part is drawn from the view, not from the
+   whole state, so a field it reads and its view leaves out is missing at once instead of drawn late.
+2. One click handler on the document (`CLICK_ACTS`, `clickAct`, between `// clicks:start` and `// clicks:end`): a
+   button names its act by a data attribute, and the act runs wherever the button is drawn. It holds `take-back` (the
+   Undo of a partner's answer) and `with-partner` (the line's list) for now; the boxes' own handlers keep the rest.
+3. The tests (`test/redrawKeys.test.mjs`) check the views and the click table by what they do, and that every field
+   the two parts read is in their views.
+4. Not in it: the rest of the page, part by part (about 30 h), and `public/pages/*.js` modules.
+
 ## Torn files and whole writes (B406)
 
 The person, 2026-10-19 (Q207 B): place 2 of docs/robustness-2026-10.md. A file the board kept was written over in
@@ -2569,12 +2594,15 @@ someone deleted it.
    file is written plainly.
 2. `appendLines` ends a line torn by a power cut before it appends, so the next record of the outbox or the history
    never runs into it.
-3. At the start (`readKept`), finished.json, rounds.json, refine-gate.json and task-times.json that do not parse are
-   kept aside as `<name>.broken-<yyyymmdd-hhmmss>` and the board starts without them; the state's `setAside` names
-   them and the page says so on top (`setAsideNote`). A board showing another's history never moves that board's
-   files. A `launch.json` that cannot be read or does not parse is never written over.
+3. At the start (`readKept`), finished.json, rounds.json, refine-gate.json, task-times.json and ideas.json that do
+   not parse are kept aside as `<name>.broken-<yyyymmdd-hhmmss>` and the board starts without them; one that is there
+   but cannot be read, or not kept aside, is started without too and written anew. The state's `setAside` names them
+   and the page says so on top (`setAsideNote`), a kept copy for as long as it is there. A board showing another's
+   history never moves that board's files. A `launch.json` that cannot be read or does not parse is never written
+   over (a byte-order mark first is read as it is).
 4. Writes whose result was dropped are checked: delivered.json's record of a line sent is read anew and written again
-   (three tries), so a line is not sent twice; a fix step that could not be taken back is said in the answer; a
+   (three tries), and a key that still could not be written is held in memory, so the line is not sent twice, and
+   written with the next record; a fix step that could not be taken back is said in the answer; a
    recap that could not be written is said in the goal's re-check; the chats' names record holds a held rename once.
 5. The tests take their folders away with retries (`test/tempDir.mjs`, `maxRetries` on every clean-up); the two-board
    test runs on fixed ports below the system's own range and waits for a stopped board's port.

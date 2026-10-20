@@ -2616,20 +2616,18 @@ function laneStateText(lane, states = STATES) {
 }
 // partner-answers:end
 
-/** Partner answers: whether the "With your partner" line is open (this page only). */
-let withPartnerOpen = false
-
-/** Partner answers, the review's findings: the "With your partner" line, a click lists the asks. */
+/** Partner answers, the review's findings: the "With your partner" line, a click lists the asks (B408: open as the view says). */
 function drawWithPartner(state) {
   const view = withPartnerView(state.withPartner ?? [])
   if (view === null) return null
+  const isOpen = state.ui?.withPartnerOpen === true
   const part = el('section', 'information with-partner')
-  const toggle = el('button', 'choice with-partner-toggle', `${withPartnerOpen ? '▾' : '▸'} ${view.text}`)
+  const toggle = el('button', 'choice with-partner-toggle', `${isOpen ? '▾' : '▸'} ${view.text}`)
   toggle.type = 'button'
   toggle.dataset.withPartner = 'toggle'
   toggle.title = 'Questions your partner answers for you first; one it has not answered in 30 minutes comes to you'
   part.append(toggle)
-  if (withPartnerOpen) part.append(fill(el('ul', 'with-partner-list'), view.rows.map(row => el('li', 'muted', row))))
+  if (isOpen) part.append(fill(el('ul', 'with-partner-list'), view.rows.map(row => el('li', 'muted', row))))
   return part
 }
 
@@ -3464,17 +3462,40 @@ function drawMissed(missed) {
   return part
 }
 
-/** Partner answers (2026-10-19): the Undo of a partner's answer on an ask's card (the board's undo: the ask opens for the person). */
-function takeBackClick(event) {
-  if (event.target.closest('[data-with-partner]') !== null) {
-    withPartnerOpen = !withPartnerOpen
+// clicks:start
+/** Partner answers: whether the "With your partner" line is open (this page only). */
+const withPartnerUi = { isOpen: false }
+
+/**
+ * B408: the page's one click handler, with a table of acts. A button names its act by a data attribute (the table's
+ * key), and the act runs wherever the button is drawn: in Needs your attention, in a worker's details, or under the
+ * daily note on the Focus page. The table grows part by part (docs/robustness-2026-10.md, place 3); the boxes' own
+ * handlers hold the rest until then.
+ */
+const CLICK_ACTS = {
+  // Partner answers (2026-10-19): the Undo of a partner's answer (the board's undo: the ask opens for the person).
+  'take-back': button => sendWork({ action: 'undo', id: button.dataset.takeBack }, `work:${button.dataset.takeBack}`),
+  // Partner answers, the review's findings: the "With your partner" line opens and closes its list.
+  'with-partner': () => {
+    withPartnerUi.isOpen = !withPartnerUi.isOpen
     redrawNeeds()
-  }
-  const takeBack = event.target.closest('[data-take-back]')
-  if (takeBack !== null && !takeBack.disabled) sendWork({ action: 'undo', id: takeBack.dataset.takeBack }, `work:${takeBack.dataset.takeBack}`)
+  },
 }
-$('needs').addEventListener('click', takeBackClick)
-$('details').addEventListener('click', takeBackClick)
+
+/** The act of a click: the nearest button with an attribute of the table, and the act; null for none, or a button that is off. */
+function clickAct(target, acts = CLICK_ACTS) {
+  for (const name of Object.keys(acts)) {
+    const button = target?.closest?.(`[data-${name}]`) ?? null
+    if (button !== null) return button.disabled === true ? null : { name, button }
+  }
+  return null
+}
+
+document.addEventListener('click', event => {
+  const act = clickAct(event.target)
+  if (act !== null) CLICK_ACTS[act.name](act.button)
+})
+// clicks:end
 
 // B299: "Read" puts a note away. Calm panel: a missed instruction's line opens the log at it.
 $('needs').addEventListener('click', event => {
@@ -3587,15 +3608,106 @@ function drawNeeds(state) {
 
 /** Who runs and who was asked to be started: a card that waits for a chat says so, and follows it. */
 const runningData = state => [state.chats.map(chat => chat.isRunning), state.advisor?.isRunning ?? null, state.restart?.starting ?? [], state.restart?.main ?? null]
-// A card says how long ago it was filed: the minute is part of what is drawn.
-const needsData = state => [state.forYou, state.recaps ?? [], state.recapsShow ?? null, (state.focus?.needs ?? []).map(need => need.id), state.backlogForYou, state.backlogClosed, state.instructions ?? [], state.information ?? [], state.goalAskNeeds ?? [], state.brainstormNeeds ?? [], state.goalsEdit?.canWrite ?? null, showsClosed(), $('needs-order').value, [...chosen], [...problems], [...sending], [...openForms], [...starting], runningData(state), Math.floor(state.readAt / MIN)]
+
+// redraw:start
+/**
+ * B408: what a part of the page draws, as plain data. once() is keyed on its JSON, and the part is drawn from it, not
+ * from the whole state: a field the part reads and its view leaves out is missing on the page at once, never drawn
+ * late. A chat counts by its name and whether it runs (a card asks to start it), the backlog by its steps' ids (the
+ * linked words), the time by its minute (how long ago; the times keep counting by themselves). `ui` is what the
+ * person does on the page.
+ */
+const minuteOf = at => Math.floor((at ?? 0) / MIN) * MIN
+const runnerOf = chat => ((chat ?? null) === null ? null : { name: chat.name, isRunning: chat.isRunning ?? null })
+const stepKeysOf = backlog => [{ steps: (backlog ?? []).flatMap(activity => activity.steps ?? []).map(step => ({ key: step.key })) }]
+
+/** What a card of Needs your attention reads (drawNeed, drawRecap): the asks (its linked words), who runs, the box's length. */
+function cardsView(state) {
+  return {
+    forYou: state.forYou ?? [],
+    backlogForYou: state.backlogForYou ?? [],
+    backlogClosed: state.backlogClosed ?? [],
+    recaps: state.recaps ?? [],
+    recapsShow: state.recapsShow ?? null,
+    chats: (state.chats ?? []).map(runnerOf),
+    advisor: runnerOf(state.advisor),
+    restart: { main: state.restart?.main ?? null, starting: state.restart?.starting ?? [] },
+    backlog: stepKeysOf(state.backlog),
+    maxMessageChars: state.maxMessageChars ?? null,
+    readAt: minuteOf(state.readAt),
+  }
+}
+
+/** Needs your attention as drawn (drawNeeds): its cards in the daily note's order, the log's lines, the partner's parts, Information. */
+function needsView(state, ui) {
+  return {
+    ...cardsView(state),
+    focus: { needs: (state.focus?.needs ?? []).map(need => ({ id: need.id })) },
+    instructions: state.instructions ?? [],
+    information: state.information ?? [],
+    goalAskNeeds: state.goalAskNeeds ?? [],
+    brainstormNeeds: state.brainstormNeeds ?? [],
+    goalsEdit: { canWrite: state.goalsEdit?.canWrite ?? null, whyNot: state.goalsEdit?.whyNot ?? null },
+    withPartner: state.withPartner ?? [],
+    partnerDecided: state.partnerDecided ?? [],
+    ui,
+  }
+}
+
+/**
+ * The Focus page as drawn (drawFocus): the focus, the map, the talks, the partner (its name, whether it runs, its
+ * effort), the Partner answers switch, and the note's linked words (the asks' and the steps' ids). While the daily
+ * note gathers recaps or asks, they are drawn as Needs your attention draws them (who runs, the minute, the whole
+ * asks); without them none of that is drawn, so the page is not drawn anew each minute and its talk stays where the
+ * person reads it (the review of B408).
+ */
+function focusPageView(state, ui) {
+  const gathers = gatheredRecaps(state).length > 0 || gatheredAsks(state).length > 0
+  // An ask's id for the linked words, and what gatheredAsks and gatheredRecaps decide by.
+  const linkable = list => (list ?? []).map(one => ({ id: one.id, workId: one.workId, blocking: one.blocking, isRefine: one.isRefine, isForm: one.isForm, isClosed: one.isClosed }))
+  const cards = gathers ? cardsView(state) : {
+    forYou: linkable(state.forYou),
+    backlogForYou: linkable(state.backlogForYou),
+    backlogClosed: linkable(state.backlogClosed),
+    recaps: linkable(state.recaps),
+    recapsShow: state.recapsShow ?? null,
+    backlog: stepKeysOf(state.backlog),
+  }
+  return {
+    ...cards,
+    focus: state.focus ?? null,
+    goals: state.goals ?? null,
+    brainstorms: state.brainstorms ?? null,
+    advisor: (state.advisor ?? null) === null ? null : { ...runnerOf(state.advisor), effort: state.advisor.effort ?? null },
+    goalsEdit: { canWrite: state.goalsEdit?.canWrite ?? null, whyNot: state.goalsEdit?.whyNot ?? null },
+    workers: { main: state.workers?.main ?? null },
+    partnerAnswers: state.partnerAnswers ?? null,
+    ui,
+  }
+}
+
+/** B408: what the person does in Needs your attention, for its view: the order, Show closed, what is picked, sent, open. */
+const needsUi = () => ({ showsClosed: showsClosed(), order: $('needs-order').value, withPartnerOpen: withPartnerUi.isOpen, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+
+/**
+ * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw
+ * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
+ */
+const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, asked: [...focusUi.asked], chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+// redraw:end
+
+/** B408: Needs your attention, drawn from its view when that changed. */
+function needsOnce(state) {
+  const view = needsView(state, needsUi())
+  once('needs', view, () => drawNeeds(view))
+}
 
 /** Draws again what shows requests: the inbox, and the details when they are open. */
 function redrawNeeds() {
   if (board === null) return
   drawMainGame(board)
   drawRestart(board)
-  once('needs', needsData(board), () => drawNeeds(board))
+  needsOnce(board)
   drawDetails(board)
 }
 
@@ -8708,56 +8820,123 @@ function goalStepIds(goals, id) {
 // vision:start
 /** The own-words card's label among an ask's options: no option of the partner's is written so. */
 const OWN_WORDS = '\u0000own words'
+const MARK_LABELS = [['must', 'Must'], ['later', 'Later'], ['no', 'No'], ['unsure', '?']]
+
+/** "from game-vision.md, 2026-10-10", "you, 2026-10-19", or null: where an answer, mark or goal came from. */
+function visionSource(one) {
+  const when = one.at === null || one.at === undefined ? '' : `, ${one.at}`
+  return one.from !== null && one.from !== undefined ? `from ${one.from}${when}` : one.by !== null && one.by !== undefined ? `${one.by}${when}` : null
+}
+
+/** A question's slide: its options as cards, your own words as the last card (D after A, B, C), the one picked. */
+function questionSlide(question, ui, title) {
+  const keys = question.options.map(option => option.key).filter(key => /^[A-Z]$/.test(key))
+  const ownKey = keys.length === 0 ? '' : String.fromCharCode(Math.max(...keys.map(key => key.charCodeAt(0))) + 1)
+  const own = { label: OWN_WORDS, key: ownKey, head: 'In your own words', points: [], isAdvised: false, picture: null, isOwn: true }
+  const options = [...question.options, own]
+  return {
+    kind: 'ask', id: question.id, about: question.about, title, askId: question.askId, question: question.question || title,
+    isDeeper: question.isDeeper, text: question.text, advice: question.advice, pictures: question.pictures,
+    options: options.map(option => ({ ...option, isPicked: ui.picked?.[question.id] === option.label })),
+    picked: options.find(option => option.label === ui.picked?.[question.id]) ?? null,
+  }
+}
 
 /**
- * Vision (2026-10-19): the Vision tab's view of the product plan (src/plan.mjs). `read`: the pitch and one card per
- * answer, its points (bold lead words), pictures, state, and where it came from. `interview`: one slide per question
- * the person has to answer (an open answer the partner asked, its options as cards), and one for the answer they
- * press Change on; dots to step through them, as the help tour has. `ui` is the tab's own state: the mode, the slide
- * at, the option picked per slide, and the answer being changed.
+ * Vision (2026-10-19): the Vision tab's view of the product plan (src/plan.mjs), in three steps and an interview.
+ * `vision`: the pitch and a card per answer (its points, pictures, state, source, and Go deeper). `features`: a card per
+ * feature with its mark (your mark not sent yet over the page's), complex or not, built or not, and the architecture
+ * check. `goals`: the partner's preset per milestone, each goal with its done when, sub-goals and state (your Confirm
+ * not sent yet over the page's). `interview`: one slide per question, in the page's order: an open answer the partner
+ * has not asked yet, the partner's questions (the answers' own and deeper ones, then features', then goals'), and the
+ * part you press Change on; dots step through them, as the help tour has. `ui` is the tab's own state.
  */
-function visionView(plan, ui = { mode: 'read', at: 0, picked: {}, change: null }) {
+function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [] }) {
   if (plan === null || plan === undefined) return null
-  const when = answer => (answer.at === null ? '' : `, ${answer.at}`)
+  const questions = plan.questions ?? []
+  const features = plan.features ?? []
+  const milestones = plan.milestones ?? []
+  // What the partner is preparing from your words (src/plan.mjs `withPlanWork`): busy while waiting or working; late
+  // or failed may be sent again.
+  const working = plan.working ?? []
+  const workOn = (command, about = 'plan') => working.find(one => one.command === command && one.about === about) ?? null
+  const isBusy = one => one !== null && (one.state === 'waiting' || one.state === 'working')
   const slides = []
   for (const answer of plan.answers) {
-    if (answer.state !== 'open') continue
     // An open answer the partner has not asked yet: get its options from the partner, or answer it in your words.
-    if (answer.ask === null) {
-      slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isAsked: (ui.asked ?? []).includes(answer.id) })
-      continue
-    }
-    // The last card is always your own words, with the next letter (D after A, B, C).
-    const keys = answer.ask.options.map(option => option.key).filter(key => /^[A-Z]$/.test(key))
-    const ownKey = keys.length === 0 ? '' : String.fromCharCode(Math.max(...keys.map(key => key.charCodeAt(0))) + 1)
-    const own = { label: OWN_WORDS, key: ownKey, head: 'In your own words', points: [], isAdvised: false, picture: null, isOwn: true }
-    slides.push({
-      kind: 'ask', id: answer.id, title: answer.title, askId: answer.ask.id, question: answer.ask.question || answer.title,
-      text: answer.ask.text, advice: answer.ask.advice, pictures: answer.ask.pictures,
-      options: [...answer.ask.options, own].map(option => ({ ...option, isPicked: ui.picked?.[answer.id] === option.label })),
-      picked: [...answer.ask.options, own].find(option => option.label === ui.picked?.[answer.id]) ?? null,
-    })
+    if (answer.state === 'open' && answer.ask === null) slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isAsked: isBusy(workOn('plan-ask', answer.id)) || (ui.asked ?? []).includes(answer.id) })
+    for (const question of questions.filter(one => one.about === answer.id)) slides.push(questionSlide(question, ui, answer.title))
   }
-  const changing = plan.answers.find(answer => answer.id === ui.change && answer.state !== 'open') ?? null
-  if (changing !== null) slides.push({ kind: 'change', id: changing.id, title: changing.title, question: `Change: ${changing.title}`, points: changing.points.length > 0 ? changing.points : [changing.answer].filter(Boolean), pictures: changing.pictures })
-  const cards = plan.answers.map(answer => ({
-    id: answer.id, title: answer.title, state: answer.state,
-    points: answer.state === 'open' ? [answer.known].filter(Boolean) : answer.points.length > 0 ? answer.points : [answer.answer].filter(Boolean),
-    pictures: answer.pictures,
-    source: answer.from !== null ? `from ${answer.from}${when(answer)}` : answer.by !== null ? `${answer.by}${when(answer)}` : null,
-    revisit: answer.revisit, overturned: answer.overturned,
-    slide: slides.findIndex(slide => slide.kind !== 'change' && slide.id === answer.id),
-    isAsked: answer.ask !== null,
+  const titleOf = id => features.find(one => one.id === id)?.name ?? milestones.flatMap(one => one.goals).find(one => one.id === id)?.title ?? id
+  for (const question of questions.filter(one => !plan.answers.some(answer => answer.id === one.about))) slides.push(questionSlide(question, ui, titleOf(question.about)))
+  // The part being changed, last: an answer, a feature or a goal of the preset.
+  const answer = plan.answers.find(one => one.id === ui.change && one.state !== 'open') ?? null
+  const feature = features.find(one => one.id === ui.change) ?? null
+  const goal = milestones.flatMap(one => one.goals).find(one => one.id === ui.change) ?? null
+  if (answer !== null) slides.push({ kind: 'change', id: answer.id, title: answer.title, question: `Change: ${answer.title}`, points: answer.points.length > 0 ? answer.points : [answer.answer].filter(Boolean), pictures: answer.pictures })
+  else if (feature !== null) slides.push({ kind: 'change', id: feature.id, title: feature.name, question: `Change: ${feature.name}`, points: feature.points, pictures: feature.pictures })
+  else if (goal !== null) slides.push({ kind: 'change', id: goal.id, title: goal.title, question: `Change: ${goal.title}`, points: [goal.doneWhen === '' ? null : `**Done when:** ${goal.doneWhen}`, ...goal.subs].filter(Boolean), pictures: goal.pictures })
+  const slideOf = id => slides.findIndex(slide => slide.kind !== 'change' && (slide.id === id || slide.about === id))
+  const cards = plan.answers.map(one => ({
+    id: one.id, title: one.title, state: one.state,
+    points: one.state === 'open' ? [one.known].filter(Boolean) : one.points.length > 0 ? one.points : [one.answer].filter(Boolean),
+    pictures: one.pictures, source: visionSource(one), revisit: one.revisit, overturned: one.overturned,
+    slide: slideOf(one.id), deeper: one.deeper ?? 0, canDeeper: one.state !== 'open',
+    // Go deeper sent and not answered yet: the card says so, its button waits.
+    deeperWork: workOn('plan-deeper', one.id)?.state ?? null,
   }))
-  const asked = slides.filter(slide => slide.kind !== 'change').length
+  const titleOfPart = about => plan.answers.find(one => one.id === about)?.title ?? (about === 'plan' ? null : titleOf(about))
+  const marks = ui.marks ?? {}
+  const featureCards = features.map(one => ({
+    id: one.id, name: one.name, isComplex: one.isComplex, why: one.why, built: one.built, pictures: one.pictures, points: one.points,
+    mark: marks[one.id] ?? one.mark, isPending: marks[one.id] !== undefined && marks[one.id] !== one.mark,
+    source: visionSource(one), slide: slideOf(one.id),
+  }))
+  const pendingMarks = featureCards.filter(card => card.isPending).map(card => `${card.id} ${card.mark}`)
+  const count = mark => featureCards.filter(card => card.mark === mark).length
+  // The architecture check, from the marks as they stand with yours: a complex feature later or unsure means a check
+  // of the structure at every milestone.
+  const complexOpen = featureCards.filter(card => card.isComplex && (card.mark === 'later' || card.mark === 'unsure'))
+  const complex = featureCards.filter(card => card.isComplex)
+  const architecture = featureCards.length === 0 ? null : complexOpen.length > 0
+    ? `${complexOpen.length} complex feature${complexOpen.length === 1 ? ' is' : 's are'} later or not sure (${complexOpen.map(card => card.name).join(', ')}): the structure is checked again at every milestone, so a rebuild is a planned step, not a surprise.`
+    : complex.length > 0 ? `Every complex feature is decided (${complex.map(card => card.name).join(', ')}): build for them now; the structure is checked again only when a new complex feature comes.` : 'No complex feature: the structure is checked again only when one comes.'
+  const confirms = ui.confirms ?? []
+  const goalCards = milestones.map(one => ({
+    id: one.id, title: one.title,
+    goals: one.goals.map(item => ({
+      id: item.id, title: item.title, doneWhen: item.doneWhen, serves: item.serves, pictures: item.pictures, subs: item.subs, goal: item.goal,
+      state: item.state === 'confirmed' ? 'confirmed' : confirms.includes(item.id) ? 'confirming' : 'proposed', source: visionSource(item), slide: slideOf(item.id),
+    })),
+  }))
+  const allGoals = goalCards.flatMap(one => one.goals)
   const { decided, assumed, open } = plan.counts
   const total = plan.answers.length
-  const parts = [`${decided} of ${total} decided by you`, assumed > 0 ? `${assumed} assumed for now` : null, open > 0 ? `${open} open` : null].filter(Boolean)
+  const asks = slides.filter(slide => slide.kind !== 'change').length
   const at = slides.length === 0 ? 0 : Math.min(Math.max(0, ui.at ?? 0), slides.length - 1)
+  const page = ['vision', 'features', 'goals', 'interview'].includes(ui.page) ? ui.page : 'vision'
   return {
-    path: plan.path, pitch: plan.pitch, cards, slides, at, summary: parts.join(' · '),
-    mode: ui.mode === 'interview' ? 'interview' : 'read',
-    interviewLabel: asked > 0 ? `Interview · ${asked} to answer` : 'Interview',
+    path: plan.path, pitch: plan.pitch, page, cards, slides, at,
+    summary: [`${decided} of ${total} decided by you`, assumed > 0 ? `${assumed} assumed for now` : null, open > 0 ? `${open} open` : null].filter(Boolean).join(' · '),
+    steps: [
+      { id: 'vision', label: '1 · Vision', isDone: total > 0 && open === 0 },
+      { id: 'features', label: '2 · Features', isDone: featureCards.length > 0 && count('unsure') === 0 },
+      { id: 'goals', label: '3 · Goals', isDone: allGoals.length > 0 && allGoals.every(item => item.state === 'confirmed') },
+    ],
+    interviewLabel: asks > 0 ? `Interview · ${asks} to answer` : 'Interview',
+    working: working.map(one => ({ ...one, title: titleOfPart(one.about) })),
+    busy: {
+      marks: isBusy(workOn('plan-marks')), featureAdd: isBusy(workOn('plan-feature-add')),
+      confirms: isBusy(workOn('plan-goals-confirm')), goalsChange: isBusy(workOn('plan-goals-change')), agree: isBusy(workOn('plan-goals-agree')),
+    },
+    features: {
+      cards: featureCards, architecture, pending: pendingMarks,
+      summary: featureCards.length === 0 ? '' : [`${featureCards.length} features`, `${count('must')} must`, `${count('later')} later`, `${count('no')} no`, `${count('unsure')} not sure`].join(' · '),
+    },
+    goals: {
+      milestones: goalCards, pending: allGoals.filter(item => item.state === 'confirming').map(item => item.id),
+      summary: allGoals.length === 0 ? '' : `${allGoals.length} goals · ${allGoals.filter(item => item.state === 'confirmed').length} confirmed by you`,
+    },
   }
 }
 
@@ -8820,20 +8999,13 @@ function drawAdvisorParts(state) {
 const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, asked: [], words: { talk: '', notYet: '', new: '', bar: '' } }
 const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar' }
 
-function focusData(state) {
-  const effort = state.advisor?.effort ?? null
-  return [state.focus ?? null, state.goals ?? null, state.brainstorms ?? null, focusCan(state), state.advisor?.isRunning ?? null, focusUi.busy, focusUi.note, focusUi.notYet, focusUi.picked, focusUi.picking, focusUi.asked.join(','),
-    // B352: the high effort switch: its mode, whether it is set, its word's state, and its word on its way or refused.
-    effort === null ? null : [effort.mode, effort.isSet, effort.missed?.at ?? null], state.workers?.main ?? null, sending.has('partner-effort'), problems.get('partner-effort') ?? null,
-    // B360: the recaps gathered under the daily note, with their sending and problems; B390: and their box open or not.
-    gatheredRecaps(state), gatheredRecaps(state).map(recap => [sending.has(recap.id), problems.get(recap.id) ?? null, openForms.has(recap.id)]),
-    // the minute, for "Approves itself in ..."
-    gatheredRecaps(state).length > 0 ? Math.floor(state.readAt / MIN) : null,
-    // B361: the asks gathered under the daily note are drawn as Needs your attention draws them, from what it reads.
-    gatheredAsks(state).length > 0 ? [gatheredAsks(state), needsData(state)] : null]
+/** B408: the Focus page, drawn from its view when that changed. */
+function focusOnce(state) {
+  const view = focusPageView(state, focusPageUi())
+  once('focus', view, () => drawFocus(view))
 }
 function redrawFocus() {
-  if (board !== null && board !== undefined) once('focus', focusData(board), () => drawFocus(board))
+  if (board !== null && board !== undefined) focusOnce(board)
 }
 
 /** A button of the page: its move (`act`), off with why on hover while it may not go or a move is on its way. */
@@ -9148,11 +9320,14 @@ function focusNoteCard(view) {
 }
 
 // Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page; the board
-// types Confirm, Change and the answers to it (src/focus.mjs `planWord`, the store's `answer`).
-const visionUi = { mode: 'read', at: 0, picked: {}, change: null, asked: [], words: '', busy: false, note: null }
+// types your moves and answers to it (src/focus.mjs `planWord`, the store's `answer`). Your feature marks and goal
+// confirms wait on the page until you send them, in one word.
+const visionUi = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], words: '', extra: '', busy: false, note: null }
 
 function visionData(state) {
-  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, visionUi.mode, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.busy, visionUi.note]
+  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.busy, visionUi.note,
+    // While the partner prepares something, the minute, for "sent 2 min ago"; and the partner's name.
+    (state.plan?.working ?? []).length > 0 ? Math.floor(state.readAt / MIN) : null, state.advisor?.name ?? null]
 }
 function redrawVision() {
   if (board !== null && board !== undefined) once('vision', visionData(board), () => drawVision(board))
@@ -9169,6 +9344,41 @@ function visionButton(label, act, { id = null, className = '', isEnabled = true,
   return button
 }
 
+/** Up to three pictures, each with its caption under it. */
+function visionPictures(pictures, limit = 3) {
+  const box = el('div', 'vision-pictures')
+  for (const shown of pictures.slice(0, limit)) {
+    const frame = el('figure', 'vision-picture')
+    frame.append(picture(shown.path, shown.caption))
+    if (shown.caption !== '') frame.append(el('figcaption', '', shown.caption))
+    box.append(frame)
+  }
+  return box
+}
+
+/** A list of points with their bold lead words. */
+function visionPoints(points) {
+  const list = el('ul', 'vision-points')
+  for (const point of points) {
+    const item = el('li')
+    item.append(...boldParts(point))
+    list.append(item)
+  }
+  return list
+}
+
+/** A text box of the tab: `id` names which of the tab's words it keeps. */
+function visionBox(id, placeholder, rows, can) {
+  const text = el('textarea', 'vision-box')
+  text.id = id
+  text.rows = rows
+  text.maxLength = 1000
+  text.placeholder = placeholder
+  text.value = id === 'vision-extra-words' ? visionUi.extra : visionUi.words
+  text.disabled = !can || visionUi.busy
+  return text
+}
+
 function drawVision(state) {
   const view = visionView(state.plan ?? null, visionUi)
   const can = visionCan(state)
@@ -9178,76 +9388,225 @@ function drawVision(state) {
   const top = el('header', 'vision-top')
   const title = el('div', 'vision-title')
   title.append(el('h1', '', 'Vision'))
-  if (view !== null) title.append(el('small', 'muted', view.summary))
+  if (view !== null) title.append(el('small', 'muted', view.page === 'features' ? view.features.summary : view.page === 'goals' ? view.goals.summary : view.summary))
   top.append(title)
   if (view !== null) {
-    const modes = el('div', 'vision-modes')
-    for (const [mode, label] of [['read', 'The vision'], ['interview', view.interviewLabel]]) {
-      const button = visionButton(label, 'mode', { id: mode, className: 'vision-mode' })
+    const steps = el('nav', 'vision-steps')
+    steps.setAttribute('aria-label', 'The steps of the plan')
+    view.steps.forEach((step, place) => {
+      if (place > 0) steps.append(el('span', 'vision-arrow', '→'))
+      const button = visionButton(`${step.label}${step.isDone ? ' ✓' : ''}`, 'page', { id: step.id, className: `vision-mode${step.isDone ? ' is-done' : ''}` })
       button.disabled = false
-      button.setAttribute('aria-pressed', String(view.mode === mode))
-      modes.append(button)
-    }
-    top.append(modes)
+      button.setAttribute('aria-pressed', String(view.page === step.id))
+      steps.append(button)
+    })
+    const interview = visionButton(view.interviewLabel, 'page', { id: 'interview', className: 'vision-mode vision-interview' })
+    interview.disabled = false
+    interview.setAttribute('aria-pressed', String(view.page === 'interview'))
+    steps.append(interview)
+    top.append(steps)
   }
   main.append(top)
   if (view !== null && !can) main.append(el('p', 'vision-note', `The buttons are off here. ${off}`))
   if (visionUi.note !== null) main.append(el('p', `vision-note${visionUi.note.isProblem ? ' is-problem' : ''}`, visionUi.note.text))
-  if (view === null) {
-    main.append(el('p', 'vision-empty', 'No product plan yet. Type "plan interview" to your partner: the answers every goal falls back to appear here, and the questions it asks you come one per slide.'))
-  } else if (view.mode === 'read') {
-    if (view.pitch !== '') main.append(el('p', 'vision-pitch', view.pitch))
-    const grid = el('div', 'vision-grid')
-    for (const card of view.cards) {
-      const box = el('section', `vision-card is-${card.state}`)
-      const head = el('h3', '')
-      head.append(el('span', '', card.title), el('span', `vision-state is-${card.state}`, card.state))
-      box.append(head)
-      if (card.pictures.length > 0) {
-        const pictures = el('div', 'vision-pictures')
-        for (const shown of card.pictures.slice(0, 3)) {
-          const frame = el('figure', 'vision-picture')
-          frame.append(picture(shown.path, shown.caption))
-          if (shown.caption !== '') frame.append(el('figcaption', '', shown.caption))
-          pictures.append(frame)
-        }
-        box.append(pictures)
-      }
-      if (card.points.length > 0) {
-        const list = el('ul', 'vision-points')
-        for (const point of card.points) {
-          const item = el('li')
-          item.append(...boldParts(point))
-          list.append(item)
-        }
-        box.append(list)
-      }
-      for (const over of card.overturned) box.append(el('p', 'vision-overturned', `Overturned ${over}`))
-      // The foot sits at the card's bottom, so cards of a row end level: where it came from, then the buttons.
-      const meta = [card.source, card.revisit === null ? null : `ask again after ${card.revisit}`].filter(one => one !== null).join(' · ')
-      const foot = el('div', 'vision-foot')
-      if (meta !== '') foot.append(el('p', 'vision-meta muted', meta))
-      const buttons = el('div', 'vision-foot-buttons')
-      if (card.state === 'open') buttons.append(visionButton('Answer it →', 'goto', { id: String(card.slide), className: 'is-primary' }))
-      else {
-        if (card.state === 'assumed' || card.source?.startsWith('from ')) buttons.append(visionButton(card.state === 'assumed' ? 'Confirm' : 'Yes, mine', 'confirm', { id: card.id, isEnabled: can, title: off }))
-        buttons.append(visionButton('Change', 'change', { id: card.id, isEnabled: can, title: off }))
-      }
-      foot.append(buttons)
-      box.append(foot)
-      grid.append(box)
-    }
-    main.append(grid)
+  if (view !== null && view.working.length > 0) main.append(visionWorking(view.working, state, can, off))
+  if (view === null) main.append(el('p', 'vision-empty', 'No product plan yet. Type "plan interview" to your partner: the answers every goal falls back to appear here, and the questions it asks you come one per slide.'))
+  else if (view.page === 'vision') main.append(...visionPage(view, can, off))
+  else if (view.page === 'features') main.append(...featuresPage(view, can, off))
+  else if (view.page === 'goals') main.append(...goalsPage(view, can, off))
+  else if (view.slides.length === 0) main.append(el('p', 'vision-empty', 'Nothing to answer now. Press Go deeper on a vision card, Change on anything, or wait for your partner\'s questions.'))
+  else main.append(visionSlide(view, can, off))
+  if (view !== null) {
     const file = el('button', 'vision-file', `The whole page: ${view.path}`)
     file.type = 'button'
     file.dataset.gameFile = view.path
     main.append(file)
-  } else if (view.slides.length === 0) {
-    main.append(el('p', 'vision-empty', 'Nothing open: every answer is decided by you or assumed for now. Press Change on a card to change one.'))
-  } else {
-    main.append(visionSlide(view, can, off))
   }
   $('view-vision').replaceChildren(main)
+}
+
+/** A small turning circle: something is being prepared. */
+function visionSpinner() {
+  const spin = el('span', 'vision-spinner')
+  spin.setAttribute('aria-hidden', 'true')
+  return spin
+}
+
+/** "at 23:30, 2 min ago": when a word was sent, against the board's last read (`now`). */
+function visionAgo(at, now) {
+  const minutes = Math.max(0, Math.floor((now - at) / MIN))
+  const ago = minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ${minutes % 60} min ago`
+  return `at ${clock(at)}, ${ago}`
+}
+
+/**
+ * Vision (2026-10-19): what the partner is preparing from your words, a line each, with the partner's name: busy with a
+ * turning circle, late or failed with Send again where the word can be sent again as it was (no words in it).
+ */
+function visionWorking(working, state, can, off) {
+  const partner = `${state.chatPrefix ?? ''}${state.advisor?.name ?? 'your partner'}`
+  const box = el('section', 'vision-working')
+  box.setAttribute('aria-live', 'polite')
+  for (const one of working) {
+    const line = el('div', `vision-working-line is-${one.state}`)
+    const on = one.title === null ? '' : ` on ${one.title}`
+    const words = one.state === 'waiting' ? `Your word waits for ${partner} to pick it up: ${one.what}${on}.`
+      : one.state === 'working' ? `${partner} is preparing ${one.what}${on}.`
+        : one.state === 'late' ? `No answer from ${partner} yet on ${one.what}${on}.`
+          : `Your word for ${one.what}${on} did not reach ${partner}.`
+    if (one.state === 'waiting' || one.state === 'working') line.append(visionSpinner())
+    else line.append(el('span', 'vision-working-mark', '!'))
+    line.append(el('span', '', words), el('span', 'muted', `sent ${visionAgo(one.at, state.readAt ?? Date.now())}`), el('span', 'grow'))
+    if ((one.state === 'late' || one.state === 'failed') && ['plan-deeper', 'plan-ask', 'plan-goals-agree'].includes(one.command)) {
+      line.append(visionButton('Send again', 'resend', { id: `${one.command}|${one.about}`, isEnabled: can, title: off }))
+    } else if (one.state === 'late' || one.state === 'failed') line.append(el('span', 'muted', `Send it again from its box, or look in ${partner}'s chat.`))
+    box.append(line)
+  }
+  return box
+}
+
+/** Step 1: the pitch and a card per answer, with Go deeper. */
+function visionPage(view, can, off) {
+  const parts = []
+  if (view.pitch !== '') parts.push(el('p', 'vision-pitch', view.pitch))
+  const grid = el('div', 'vision-grid')
+  for (const card of view.cards) {
+    const box = el('section', `vision-card is-${card.state}`)
+    const head = el('h3', '')
+    head.append(el('span', '', card.title), el('span', `vision-state is-${card.state}`, card.state))
+    box.append(head)
+    if (card.pictures.length > 0) box.append(visionPictures(card.pictures))
+    if (card.points.length > 0) box.append(visionPoints(card.points))
+    for (const over of card.overturned) box.append(el('p', 'vision-overturned', `Overturned ${over}`))
+    // The foot sits at the card's bottom, so cards of a row end level: where it came from, then the buttons.
+    const meta = [card.source, card.revisit === null ? null : `ask again after ${card.revisit}`].filter(one => one !== null).join(' · ')
+    const foot = el('div', 'vision-foot')
+    if (meta !== '') foot.append(el('p', 'vision-meta muted', meta))
+    const buttons = el('div', 'vision-foot-buttons')
+    if (card.state === 'open') buttons.append(visionButton('Answer it →', 'goto', { id: String(card.slide), className: 'is-primary' }))
+    else {
+      if (card.deeper > 0) buttons.append(visionButton(`${card.deeper} deeper question${card.deeper === 1 ? '' : 's'} →`, 'goto', { id: String(card.slide), className: 'is-primary' }))
+      else if (card.deeperWork === 'waiting' || card.deeperWork === 'working') {
+        // Sent: the button waits, turning, until the partner's questions are there.
+        const busy = visionButton('Preparing questions…', 'deeper', { id: card.id, className: 'is-busy', isEnabled: false })
+        busy.title = 'Your partner is preparing up to five questions on this card; they come in the interview.'
+        busy.prepend(visionSpinner())
+        buttons.append(busy)
+      } else buttons.append(visionButton(card.deeperWork === null ? 'Go deeper' : 'Go deeper again', 'deeper', { id: card.id, isEnabled: can, title: off }))
+      if (card.state === 'assumed' || card.source?.startsWith('from ')) buttons.append(visionButton(card.state === 'assumed' ? 'Confirm' : 'Yes, mine', 'confirm', { id: card.id, isEnabled: can, title: off }))
+      buttons.append(visionButton('Change', 'change', { id: card.id, isEnabled: can, title: off }))
+    }
+    foot.append(buttons)
+    box.append(foot)
+    grid.append(box)
+  }
+  parts.push(grid)
+  return parts
+}
+
+/** Step 2: the features, each with its mark; the architecture check; your marks sent in one word; a feature you miss. */
+function featuresPage(view, can, off) {
+  const parts = []
+  const { cards, architecture, pending } = view.features
+  if (cards.length === 0) return [el('p', 'vision-empty', 'No features yet. Type "plan features" to your partner: it lists every feature it sees, each with a picture, for you to mark.')]
+  const check = el('p', 'vision-check')
+  check.append(el('b', '', 'Architecture check: '), document.createTextNode(architecture))
+  parts.push(check)
+  if (pending.length > 0) {
+    const bar = el('div', 'vision-pending')
+    bar.append(el('span', '', `${pending.length} mark${pending.length === 1 ? '' : 's'} not sent yet: ${pending.join(', ')}`), el('span', 'grow'),
+      visionButton('Undo', 'undo-marks'), visionButton('Send to your partner', 'send-marks', { className: 'is-primary', isEnabled: can && !view.busy.marks, title: view.busy.marks ? 'Your partner is still writing your last marks.' : off }))
+    parts.push(bar)
+  }
+  const grid = el('div', 'vision-grid is-features')
+  for (const card of cards) {
+    const box = el('section', `vision-card vision-feature is-${card.mark}${card.isPending ? ' is-pending' : ''}`)
+    if (card.pictures.length > 0) box.append(visionPictures(card.pictures, 1))
+    else box.append(el('div', 'vision-nopicture', card.built === 'no' ? 'no picture yet' : ''))
+    const head = el('h3', '')
+    head.append(el('span', '', card.name))
+    const tags = el('span', 'vision-tags')
+    if (card.isComplex) {
+      const tag = el('span', 'vision-tag is-complex', 'complex')
+      tag.title = card.why === '' ? 'Changes how the game is built underneath.' : card.why
+      tags.append(tag)
+    }
+    tags.append(el('span', `vision-tag is-built-${card.built}`, card.built === 'yes' ? 'in the game' : card.built === 'partly' ? 'partly built' : 'not built'))
+    head.append(tags)
+    box.append(head)
+    if (card.isComplex && card.why !== '') box.append(el('p', 'vision-why-complex', card.why))
+    if (card.points.length > 0) box.append(visionPoints(card.points))
+    const foot = el('div', 'vision-foot')
+    if (card.source !== null) foot.append(el('p', 'vision-meta muted', `${card.isPending ? 'yours, not sent yet' : card.source}`))
+    const chips = el('div', 'vision-marks')
+    for (const [mark, label] of MARK_LABELS) {
+      const chip = visionButton(label, 'mark', { id: `${card.id}:${mark}`, className: `vision-mark is-${mark}`, isEnabled: can, title: off })
+      chip.setAttribute('aria-pressed', String(card.mark === mark))
+      chip.title = mark === 'unsure' ? 'Not sure' : label
+      chips.append(chip)
+    }
+    foot.append(chips)
+    if (card.slide >= 0) foot.append(visionButton('Your partner asks about it →', 'goto', { id: String(card.slide), className: 'is-primary' }))
+    box.append(foot)
+    grid.append(box)
+  }
+  parts.push(grid)
+  const add = el('section', 'vision-extra')
+  add.append(el('h3', '', 'A feature you miss'), visionBox('vision-extra-words', 'In your own words: what should the game have that is not here?', 2, can),
+    visionButton('Send to your partner', 'feature-add', { className: 'is-primary', isEnabled: can && !view.busy.featureAdd, title: view.busy.featureAdd ? 'Your partner is still adding your last feature.' : off }))
+  parts.push(add)
+  return parts
+}
+
+/** Step 3: the partner's preset of goals per milestone; Confirm (sent in one word), Change, your words on the whole. */
+function goalsPage(view, can, off) {
+  const parts = []
+  const { milestones, pending } = view.goals
+  if (milestones.length === 0) return [el('p', 'vision-empty', 'No goals yet. Type "plan goals" to your partner: it proposes goals and sub-goals per milestone, from the vision and the features you marked must.')]
+  if (pending.length > 0) {
+    const bar = el('div', 'vision-pending')
+    bar.append(el('span', '', `${pending.length} goal${pending.length === 1 ? '' : 's'} to confirm: ${pending.join(', ')}`), el('span', 'grow'),
+      visionButton('Undo', 'undo-confirms'), visionButton('Send to your partner', 'send-confirms', { className: 'is-primary', isEnabled: can && !view.busy.confirms, title: view.busy.confirms ? 'Your partner is still writing your last confirms.' : off }))
+    parts.push(bar)
+  }
+  for (const milestone of milestones) {
+    const section = el('section', 'vision-milestone')
+    section.append(el('h2', '', `${milestone.id} · ${milestone.title}`))
+    for (const goal of milestone.goals) {
+      const row = el('div', `vision-goal is-${goal.state}`)
+      const shown = el('div', 'vision-goal-picture')
+      if (goal.pictures.length > 0) shown.append(picture(goal.pictures[0].path, goal.pictures[0].caption))
+      else shown.append(el('div', 'vision-nopicture', ''))
+      const body = el('div', 'vision-goal-body')
+      const head = el('h3', '')
+      head.append(el('span', '', goal.title), el('span', `vision-state is-${goal.state === 'confirmed' ? 'decided' : goal.state === 'confirming' ? 'assumed' : 'open'}`, goal.state === 'confirming' ? 'confirm, not sent' : goal.state))
+      body.append(head)
+      if (goal.doneWhen !== '') {
+        const done = el('p', 'vision-done-when')
+        done.append(el('b', '', 'Done when: '), document.createTextNode(goal.doneWhen))
+        body.append(done)
+      }
+      if (goal.subs.length > 0) body.append(visionPoints(goal.subs))
+      const meta = [goal.serves.length > 0 ? `serves ${goal.serves.join(', ')}` : null, goal.goal === null ? 'new' : `is ${goal.goal} in your goal map`].filter(Boolean).join(' · ')
+      body.append(el('p', 'vision-meta muted', meta))
+      const buttons = el('div', 'vision-goal-buttons')
+      if (goal.state !== 'confirmed') buttons.append(visionButton(goal.state === 'confirming' ? 'Unconfirm' : 'Confirm', 'confirm-goal', { id: goal.id, isEnabled: can, title: off }))
+      buttons.append(visionButton('Change', 'change', { id: goal.id, isEnabled: can, title: off }))
+      if (goal.slide >= 0) buttons.append(visionButton('Your partner asks →', 'goto', { id: String(goal.slide), className: 'is-primary' }))
+      row.append(shown, body, buttons)
+      section.append(row)
+    }
+    parts.push(section)
+  }
+  const extra = el('section', 'vision-extra')
+  extra.append(el('h3', '', 'What would you change in this plan?'),
+    visionBox('vision-extra-words', 'In your own words: a goal missing, two to merge, another order... Your partner proposes a new preset.', 3, can))
+  const buttons = el('div', 'vision-foot-buttons')
+  buttons.append(visionButton('Put the goals in my goal map', 'goals-agree', { isEnabled: can && !view.busy.agree, title: view.busy.agree ? 'Your partner is putting them in your goal map now.' : off }),
+    visionButton('Send to your partner', 'goals-change', { className: 'is-primary', isEnabled: can && !view.busy.goalsChange, title: view.busy.goalsChange ? 'Your partner is still proposing the changed preset.' : off }))
+  extra.append(buttons)
+  parts.push(extra)
+  return parts
 }
 
 /** One slide of the interview: its options as picture cards (or the Change box), the question, the dots, the buttons. */
@@ -9273,8 +9632,7 @@ function visionSlide(view, can, off) {
       box.dataset.visionId = option.label
       box.setAttribute('aria-pressed', String(option.isPicked))
       if (option.picture !== null) box.append(picture(option.picture, option.head))
-      const name = el('b', '', `${option.key === '' ? '' : `${option.key} · `}${option.head}`)
-      box.append(name)
+      box.append(el('b', '', `${option.key === '' ? '' : `${option.key} · `}${option.head}`))
       if (option.isAdvised) box.append(el('span', 'vision-advised', 'advised'))
       if (option.points.length > 0) {
         const list = el('ul', '')
@@ -9283,13 +9641,8 @@ function visionSlide(view, can, off) {
       }
       // Your own words: the card holds its box; picking the card or typing in it picks it.
       if (option.isOwn) {
-        const text = el('textarea', 'vision-own')
-        text.id = 'vision-change-words'
-        text.rows = 3
-        text.maxLength = 1000
-        text.placeholder = 'Something else: say it here'
-        text.value = visionUi.words
-        text.disabled = !can || visionUi.busy
+        const text = visionBox('vision-change-words', 'Something else: say it here', 3, can)
+        text.classList.add('vision-own')
         box.classList.add('is-own')
         box.append(text)
       }
@@ -9299,47 +9652,22 @@ function visionSlide(view, can, off) {
   } else if (slide.kind === 'open') {
     // No options yet: the partner prepares them (with pictures where it is about looks), or you answer in your words.
     const ask = el('div', 'vision-open')
-    ask.append(el('b', '', slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.'),
+    const head = el('b', '', slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.')
+    if (slide.isAsked) head.prepend(visionSpinner())
+    ask.append(head,
       el('p', 'muted', slide.isAsked ? 'They come here as cards, with pictures where it is about how it looks. You can answer in your own words meanwhile.' : 'Get two or three options to pick from, or answer it in your own words.'))
     if (!slide.isAsked) ask.append(visionButton('Get options from your partner', 'ask-options', { id: slide.id, className: 'is-primary', isEnabled: can, title: off }))
     const form = el('form', 'vision-change')
-    const text = el('textarea')
-    text.id = 'vision-change-words'
-    text.rows = 2
-    text.maxLength = 1000
-    text.placeholder = 'Or answer it in your own words'
-    text.value = visionUi.words
-    text.disabled = !can || visionUi.busy
-    form.append(text)
+    form.append(visionBox('vision-change-words', 'Or answer it in your own words', 2, can))
     stage.append(ask, form)
   } else {
-    const now = el('ul', 'vision-points')
-    for (const point of slide.points) {
-      const item = el('li')
-      item.append(...boldParts(point))
-      now.append(item)
-    }
+    if (slide.pictures.length > 0) stage.append(visionPictures(slide.pictures))
     const form = el('form', 'vision-change')
-    const text = el('textarea')
-    text.id = 'vision-change-words'
-    text.rows = 3
-    text.maxLength = 1000
-    text.placeholder = 'What should it be? In your words; your partner rewrites the answer.'
-    text.value = visionUi.words
-    text.disabled = !can || visionUi.busy
-    form.append(text)
-    if (slide.pictures.length > 0) {
-      const pictures = el('div', 'vision-pictures')
-      for (const shown of slide.pictures.slice(0, 3)) {
-        const frame = el('figure', 'vision-picture')
-        frame.append(picture(shown.path, shown.caption))
-        if (shown.caption !== '') frame.append(el('figcaption', '', shown.caption))
-        pictures.append(frame)
-      }
-      stage.append(pictures)
-    }
-    stage.append(el('p', 'muted', 'Now:'), now, form)
+    form.append(visionBox('vision-change-words', 'What should it be? In your words; your partner rewrites it.', 3, can))
+    stage.append(el('p', 'muted', 'Now:'), visionPoints(slide.points), form)
   }
+  const kicker = slide.kind === 'ask' && slide.isDeeper ? `Deeper · ${slide.title}` : slide.kind === 'ask' && slide.id !== slide.title ? slide.title : null
+  if (kicker !== null && kicker !== slide.question) card.append(el('p', 'vision-kicker', kicker))
   card.append(stage, el('h2', 'vision-question', slide.question))
   if (slide.kind !== 'change' && slide.text !== '') card.append(el('p', 'vision-why', slide.text))
   if (slide.kind === 'ask' && slide.advice !== null) card.append(el('p', 'vision-why muted', `Your partner advises ${slide.advice}.`))
@@ -9374,7 +9702,7 @@ function visionSlide(view, can, off) {
   return card
 }
 
-/** A move of the Vision tab: to the store (an answer) or to the goals route (Confirm, Change), then read again. */
+/** A move of the Vision tab: to the store (an answer) or to the goals route (a word to the partner), then read again. */
 async function visionSend(url, body, done) {
   visionUi.busy = true
   visionUi.note = null
@@ -9397,44 +9725,71 @@ async function visionSend(url, body, done) {
   return ok
 }
 
+const toPartner = (body, done) => visionSend('/api/goals', body, done)
+
 async function visionAct(act, id) {
   const view = visionView(board?.plan ?? null, visionUi)
   if (view === null) return
   const slide = view.slides[view.at] ?? null
-  if (act === 'mode') {
-    visionUi.mode = id
+  if (act === 'page') {
+    visionUi.page = id
     visionUi.note = null
   } else if (act === 'goto') {
     const at = Math.min(Math.max(0, Number(id)), Math.max(0, view.slides.length - 1))
     // Words typed on one slide do not follow to the next.
-    if (at !== view.at || visionUi.mode !== 'interview') visionUi.words = ''
-    visionUi.mode = 'interview'
+    if (at !== view.at || visionUi.page !== 'interview') visionUi.words = ''
+    visionUi.page = 'interview'
     visionUi.at = at
   } else if (act === 'pick' && slide?.kind === 'ask') {
     visionUi.picked = { ...visionUi.picked, [slide.id]: visionUi.picked[slide.id] === id ? null : id }
   } else if (act === 'change') {
     visionUi.change = id
     visionUi.words = ''
-    visionUi.mode = 'interview'
+    visionUi.page = 'interview'
     visionUi.at = visionView(board?.plan ?? null, visionUi).slides.length - 1
   } else if (act === 'keep') {
     visionUi.change = null
-    visionUi.mode = 'read'
+    visionUi.page = /^F/.test(slide?.id ?? '') ? 'features' : /^S/.test(slide?.id ?? '') ? 'goals' : 'vision'
+  } else if (act === 'mark') {
+    const [feature, mark] = String(id).split(':')
+    visionUi.marks = { ...visionUi.marks, [feature]: mark }
+  } else if (act === 'undo-marks') {
+    visionUi.marks = {}
+  } else if (act === 'confirm-goal') {
+    visionUi.confirms = visionUi.confirms.includes(id) ? visionUi.confirms.filter(one => one !== id) : [...visionUi.confirms, id]
+  } else if (act === 'undo-confirms') {
+    visionUi.confirms = []
   } else if (act === 'confirm') {
-    return visionSend('/api/goals', { command: 'plan-confirm', id }, `${id} is your decision now: your partner writes it so.`)
+    return toPartner({ command: 'plan-confirm', id }, `${id} is your decision now: your partner writes it so.`)
+  } else if (act === 'deeper') {
+    return toPartner({ command: 'plan-deeper', id }, `Your partner prepares up to five deeper questions on ${id}: they come in the interview.`)
+  } else if (act === 'send-marks') {
+    if (await toPartner({ command: 'plan-marks', text: view.features.pending.join('; ') }, 'Your marks went to your partner: it writes them into the plan.')) visionUi.marks = {}
+  } else if (act === 'feature-add' || act === 'goals-change') {
+    if (visionUi.extra.trim() === '') visionUi.note = { isProblem: true, text: 'Write it in the box first.' }
+    else if (await toPartner({ command: act === 'feature-add' ? 'plan-feature-add' : 'plan-goals-change', text: visionUi.extra.trim() }, act === 'feature-add' ? 'Sent to your partner: it adds the feature, with a picture.' : 'Sent to your partner: it proposes a changed preset.')) visionUi.extra = ''
+  } else if (act === 'send-confirms') {
+    if (await toPartner({ command: 'plan-goals-confirm', text: view.goals.pending.join(', ') }, 'Your confirms went to your partner: it marks the goals confirmed.')) visionUi.confirms = []
+  } else if (act === 'resend') {
+    // A late or lost word without words of the person's in it, sent again as it was.
+    const [command, about] = String(id).split('|')
+    if (!['plan-deeper', 'plan-ask', 'plan-goals-agree'].includes(command)) return
+    return toPartner(command === 'plan-goals-agree' ? { command } : { command, id: about }, 'Sent again to your partner.')
+  } else if (act === 'goals-agree') {
+    return toPartner({ command: 'plan-goals-agree' }, 'Your partner puts the confirmed goals into your goal map: they show on the Focus tab\'s Goals part.')
   } else if (act === 'send-change' && slide?.kind === 'change') {
     if (visionUi.words.trim() === '') visionUi.note = { isProblem: true, text: 'Say what it should be, in your words.' }
-    else if (await visionSend('/api/goals', { command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, 'Sent to your partner: it rewrites the answer.')) {
+    else if (await toPartner({ command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, 'Sent to your partner: it rewrites it.')) {
+      visionUi.page = /^F/.test(slide.id) ? 'features' : /^S/.test(slide.id) ? 'goals' : 'vision'
       visionUi.change = null
       visionUi.words = ''
-      visionUi.mode = 'read'
     }
   } else if (act === 'ask-options' && slide?.kind === 'open') {
-    if (await visionSend('/api/goals', { command: 'plan-ask', id: slide.id }, `Your partner prepares the options for ${slide.title}: they come here as a slide.`)) visionUi.asked = [...new Set([...visionUi.asked, slide.id])]
+    if (await toPartner({ command: 'plan-ask', id: slide.id }, `Your partner prepares the options for ${slide.title}: they come here as a slide.`)) visionUi.asked = [...new Set([...visionUi.asked, slide.id])]
   } else if (act === 'send-open' && slide?.kind === 'open') {
     // Your own words for an open answer: the partner writes them as your decision, as a change does.
     if (visionUi.words.trim() === '') visionUi.note = { isProblem: true, text: 'Write your answer first.' }
-    else if (await visionSend('/api/goals', { command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, `Sent to your partner: it writes ${slide.title} as your decision.`)) visionUi.words = ''
+    else if (await toPartner({ command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, `Sent to your partner: it writes ${slide.title} as your decision.`)) visionUi.words = ''
   } else if ((act === 'answer' || act === 'dunno') && slide?.kind === 'ask') {
     const isOwn = act === 'answer' && slide.picked?.isOwn === true
     if (isOwn && visionUi.words.trim() === '') {
@@ -9471,6 +9826,7 @@ $('view-vision').addEventListener('click', event => {
 })
 $('view-vision').addEventListener('input', event => {
   if (event.target.id === 'vision-change-words') visionUi.words = event.target.value
+  else if (event.target.id === 'vision-extra-words') visionUi.extra = event.target.value
 })
 $('view-vision').addEventListener('keydown', event => {
   // The own-words card picks with Enter or Space, as a button does.
@@ -9478,7 +9834,7 @@ $('view-vision').addEventListener('keydown', event => {
     event.preventDefault()
     return visionAct('pick', event.target.dataset.visionId)
   }
-  if (visionUi.mode !== 'interview' || event.target.tagName === 'TEXTAREA') return
+  if (visionUi.page !== 'interview' || event.target.tagName === 'TEXTAREA') return
   if (event.key === 'ArrowRight') visionAct('goto', String(visionUi.at + 1))
   else if (event.key === 'ArrowLeft') visionAct('goto', String(visionUi.at - 1))
 })
@@ -12398,7 +12754,7 @@ function draw(state) {
   drawLanes(state)
   drawStrips(state)
   drawToday(state)
-  once('needs', needsData(state), () => drawNeeds(state))
+  needsOnce(state)
   // B181: also when an "Add to queue" is on its way or was refused, and when the main chat it asks comes or goes.
   const queueing = [[...sending].filter(key => key.startsWith('queue:')), [...problems].filter(([key]) => key.startsWith('queue:')), state.workers?.main ?? null]
   // B302: the goal map too, which groups the tab when "One list" is off.
@@ -12426,7 +12782,7 @@ function draw(state) {
   // B259: the brainstorms, when one changes or what the person does on the part.
   once('brainstorm', brainstormData(state), () => drawBrainstorm(state))
   // Focus 1: the Focus page, when the focus, the map or the brainstorms change; the tab's bar, when its setting does.
-  once('focus', focusData(state), () => drawFocus(state))
+  focusOnce(state)
   // Vision (2026-10-19): the Vision tab, when the plan or what the person does on it changes.
   once('vision', visionData(state), () => drawVision(state))
   once('advisor-parts', state.advisorParts ?? null, () => drawAdvisorParts(state))

@@ -149,7 +149,8 @@ test('the wiring: the cards after the questions, the clicks through the answer f
   // B390: Overturn opens the box through the answer forms' [data-open]; Cancel closes it and drops the words.
   assert.match(script, /if \(event\.target\.closest\('\[data-cancel\]'\) !== null\) \{\s+openForms\.delete\(id\)\s+drafts\.delete\(id\)\s+problems\.delete\(id\)\s+redrawNeeds\(\)\s+redrawFocus\(\)\s+return\s+\}/)
   // B390: on the Focus page too, the box opens and closes at once.
-  assert.match(script, /gatheredRecaps\(state\)\.map\(recap => \[sending\.has\(recap\.id\), problems\.get\(recap\.id\) \?\? null, openForms\.has\(recap\.id\)\]\)/)
+  // B408: through the Focus page's view, which holds what is sent, refused and open on its cards.
+  assert.match(script, /const focusPageUi = \(\) => \(\{[^\n]*problems: \[\.\.\.problems\], sending: \[\.\.\.sending\], openForms: \[\.\.\.openForms\]/)
   assert.match(css, /\.button\.is-seen \{ background: var\(--free\); \}/)
   assert.match(script, /takeAnswers\(\$\('advisor-focus'\)\)/)
   // B361: the recaps and the asks that can wait, gathered under the note.

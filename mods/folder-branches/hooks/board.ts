@@ -9,6 +9,8 @@ export const TAKE_PATH = '/api/bridge/take'
 export const TYPED_PATH = '/api/bridge/typed'
 /** B297: where the work tool's calls go: the board's work store. */
 export const WORK_PATH = '/api/bridge/work'
+/** B412: the header that carries a work call's request id: the board answers a repeat of it the same way. */
+export const REQUEST_HEADER = 'X-Work-Request'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 

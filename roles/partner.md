@@ -266,6 +266,67 @@ The rules:
    hard-to-change answer is assumed. The process is good when a milestone brings fewer asks the plan should have
    answered, fewer overturned answers, and the user says the result does what they intended.
 
+### After the vision: go deeper, the features, the goals
+
+The Vision tab has three steps, broad to narrow, because each cuts the questions of the next (the user, 2026-10-19):
+**Vision** (above), **Features**, **Goals**, and one **Interview** over all of them. Feature answers breed more
+questions; ask few, and still let the user steer:
+
+- **Only steering questions:** costly to change later (how the game is built), the user's taste that no reference
+  answers, or options far apart in effort. Decide everything else yourself and show it as assumed.
+- **Packages first:** one pick that answers many questions ("a lean run, a growing run, or between"); then only the
+  differences.
+- **Five per round,** the highest stakes first; the rest waits.
+- **Ask later:** a question about a later milestone's feature waits until its goal is the focus. Only hard-to-change
+  answers are asked now.
+- **Assumed, never hidden:** what you decide shows on the card or the feature as assumed, the user can open it.
+
+Every question is an ask (rule 2), titled by what it is about: a deeper one `P<n>.<k>: ...` (`P1.1: How big is a
+run?`), a feature's `F<n>: ...`, a goal's `S<n>: ...`. The board shows each as a slide under its card, with your
+options as picture cards and the user's own words as the last card.
+
+**Go deeper** (`plan: P<n> deeper`): one round of at most five questions about that card, by the rules above. For
+P1 (what it is) the first is the package question; for P3 (look and sound) style boards from Codex, one per option
+(camera, palette, menus). When the round is answered, rewrite the card's points from the answers (decided, you), and
+let a package's answer mark the features it settles (`Mark: later (package B, <date>)`).
+
+**Features** (the user types `plan features`, or after the first deeper round): a heading `## Features` in the
+product plan, one feature per `### F<n> · <name>` (two to four words), under it:
+
+- `- Mark: must|later|no|unsure (<source>, <date>)`: must is version 1; from the documents or a package, never your
+  guess alone (that is `unsure`).
+- `- Complex: yes · <why in a line>` or `no`: as the tech lead, yes when it changes how the game is built underneath
+  (many parts depend on it, costly to add late).
+- `- Built: yes|partly|no`, as the game is now.
+- `- Picture: <path> · <caption>`: a screenshot of the game for what is built; a Codex concept picture, in the style P3
+  says, for a must that is not built; none for the rest until it becomes must.
+- One or two `- Point:` lines.
+
+Ask only about the unsure ones and the complex ones not must or no (`F<n>: ...`, rule 2). The board shows the
+architecture check from the marks: a complex feature later or unsure means the structure is checked again at every
+milestone, so every milestone not started yet begins with a goal "Architecture check before <the milestone>" (Done
+when: the structure is checked against the later features, and what to prepare now is named, or a rebuild planned
+with its cost; serves P6); with none, only when a complex feature arrives. The user's marks come as `plan: features marked` with `Marks: F3 later; F5 must`: write each
+`Mark: <mark> (you, <date>)`. A feature they miss comes as `plan: feature add` with `Words:`: add it with the next F
+id, its marks and picture by the same rules. `plan: F<n> change` with `Words:`: rewrite that feature.
+
+**Goals** (the user types `plan goals`, or once no feature is unsure): a heading `## Goals preset`, a
+`### M<n> · <milestone>` per milestone of P7 (`M3+` for the open end), and under each three to six goals
+`#### S<n> · <an outcome the user sees or plays, five to eight words>`, from the vision and the must features:
+
+- `- State: proposed`; `- Done when: <checkable: what the user sees, plays or counts>`; `- Serves: P2, P3`.
+- `- Picture: <path> · <caption>`: what done looks like (the game today, or a concept picture).
+- Two to four `- Sub: ...` lines, the sub-goals in their order.
+- `- Goal: G<n>` when it is a goal of the goal map already (keep the user's existing goals: map them, do not invent
+  new ones beside them).
+
+The user's words: `plan: goals confirmed` with `Goals: S1, S4`: write `State: confirmed (you, <date>)`.
+`plan: S<n> change` with `Words:`: rewrite that goal. `plan: goals change` with `Words:`: propose the preset anew from
+them, the confirmed goals kept unless the words change them. `plan: goals agreed`: write the confirmed goals into the
+goal map (`.claude/goals.md`, its rules at its top): a goal with `Goal: G<n>` gets its Done when and `Serves:` there;
+a new one gets the next G id under its milestone's goal (`From the game plan: M<n>`), with `Done when:` and
+`Serves:`, and its id written back as `- Goal: G<n>`. Commit and push the page as for the vision.
+
 ## Your rounds
 
 In every round, the focus first: its steps, what is stuck, what the user's asks wait on. The morning round ends with

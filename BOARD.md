@@ -290,13 +290,21 @@ come), **Refine** (the steps by where their refine stands) and **Chat** (a chat 
 ## Vision (2026-10-19)
 
 The product plan (`productPlan`, the game's `docs/product-plan.md`, written by the partner): the answers every goal and
-step falls back to. Two views under **The vision** and **Interview**. The vision: the page's pitch in large type, then
-a card per answer: its title, its state (decided green, assumed blue, open amber), two to four points with bold lead
-words, up to three pictures with captions (Look and sound always), where it came from, and **Yes, mine** / **Confirm**
-and **Change**; an open card has **Answer it →**. The interview: one slide per question the partner asked, as the help
-tour's cards: the options as picture cards (the advised one marked), the question, why it is asked, a dot per slide,
-**Back**, **Don't know**, **Answer: A**, **Next**; Change adds a slide with the answer as it is and a box for the
-person's words. Nothing is written by the board: the moves go to the partner (`roles/protocol.md`).
+step falls back to. Three steps, broad to narrow, **1 · Vision → 2 · Features → 3 · Goals** (a ✓ on a step that is
+settled), and an **Interview** over all of them. The vision: the page's pitch in large type, then a card per answer:
+its title, its state (decided green, assumed blue, open amber), two to four points with bold lead words, up to three
+pictures with captions (Look and sound always), where it came from, **Go deeper** (or "2 deeper questions →"),
+**Yes, mine** / **Confirm** and **Change**; an open card has **Answer it →**. Features: the architecture check on top
+(a complex feature later or not sure: the structure is checked at every milestone), then a card per feature: its
+picture, name, complex and built tags, points, and four marks **Must · Later · No · ?**; the person's marks wait in a
+blue bar ("2 marks not sent yet") until **Send to your partner**; a box for a feature they miss. Goals: the partner's
+preset per milestone, a row per goal with its picture, Done when, sub-goals, what it serves and whether it is a goal
+of the map, **Confirm** (waits in the bar) and **Change**; a box for words on the whole preset, and **Put the goals in
+my goal map**. The interview: one slide per question, in the page's order (deeper ones under their card, then the
+features', then the goals'), as the help tour's cards: the options as picture cards (the advised one marked), the
+person's own words as the last card, the question, why it is asked, a dot per slide, **Back**, **Don't know**,
+**Answer: A**, **Next**; Change adds a slide with the part as it is and a box for the person's words. Nothing is
+written by the board: the moves go to the partner (`roles/protocol.md`).
 
 ## Backlog (`06-backlog.png`)
 

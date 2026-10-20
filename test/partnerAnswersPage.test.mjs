@@ -84,12 +84,13 @@ test('the ask\'s card: the partner\'s answer with its why and Undo; the line of 
   assert.equal(made.partnerAnswerView({ workId: 'Q3', answer: null, routeNote: null }), null)
   // The card draws it, and its Undo goes the way of the note's Undo (the server's undoNow).
   assert.match(script, /partnerAnswerParts\(need\)/)
-  assert.match(script, /closest\('\[data-take-back\]'\)/)
-  assert.match(script, /action: 'undo', id: takeBack\.dataset\.takeBack/)
+  // B408: through the page's click table, wherever the button is drawn (test/redrawKeys.test.mjs clicks it).
+  assert.match(script, /'take-back': button => sendWork\(\{ action: 'undo', id: button\.dataset\.takeBack \}/)
 })
 
 test('the server: the work tool\'s answer wakes the asking chat as the page\'s does; an Undo of a partner\'s answer tells the asking chat', () => {
-  const bridge = server.slice(server.indexOf('bridgeWork: async body => {'), server.indexOf('take: async body => {'))
+  // B412: a chat's work call is made once, in bridgeWorkOnce.
+  const bridge = server.slice(server.indexOf('const bridgeWorkOnce = async'), server.indexOf('const server = createBoard({'))
   assert.match(bridge, /await sendWakes\(done/)
   const page = server.slice(server.indexOf('work: async body => {'), server.indexOf('bridgeWork: async body => {'))
   assert.match(page, /await sendWakes\(done/)

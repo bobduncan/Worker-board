@@ -28,13 +28,12 @@ import { createServer } from 'node:http'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { availableParallelism } from 'node:os'
 
 import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
-import { cpuLimiter, sessionsOfCards } from './src/cpu.mjs'
+import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -62,12 +61,13 @@ import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
-import { overlapsIn, workApi } from './src/work/api.mjs'
+import { isReadAction, workApi } from './src/work/api.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor } from './src/work/deliver.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { storeKeeper } from './src/work/read.mjs'
+import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
@@ -225,6 +225,11 @@ export function createBoard({
         parsed = JSON.parse(body)
       } catch {
         return refuse(res, 400, 'Not JSON.')
+      }
+      // B412: a work call's request id comes in its header (the Workers mod's X-Work-Request); a body's own is not taken.
+      if (pathname === '/api/bridge/work' && typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        const { request: _ignored, ...rest } = parsed
+        parsed = { ...rest, ...(typeof req.headers['x-work-request'] === 'string' ? { request: req.headers['x-work-request'] } : {}) }
       }
       const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
@@ -603,7 +608,6 @@ async function main(args) {
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
     // B424: the partner's helper refines and checks as the partner does; no step is queued for it.
     if (state.advisorHelper) roles.set(state.advisorHelper.name, 'helper')
-    const items = (await readStore(workDir).catch(() => ({ items: new Map() }))).items
     return {
       // Focus 2: the partner's drafts of the focus (the work tool's vibe-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
@@ -620,7 +624,7 @@ async function main(args) {
       lanes: [...lanes, ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])],
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
-      freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlaps: overlapsIn(items),
+      freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
       viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
@@ -966,8 +970,13 @@ async function main(args) {
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
     file: join(HERE, 'data', 'cpu.json'),
     fallback: isShowOnly ? 'off' : config.cpuLimit,
-    cores: availableParallelism(),
+    // 2026-10-19: the PC's cores, never the board's own, which a chat that started the board may have narrowed; and the
+    // board and its keeper are spared, and given Normal and all cores back at the first pass.
+    cores: logicalCores(),
     sessions: chatSessions,
+    // B440: the parent is the keeper only when there is one (it talks to the board); otherwise it may be a chat.
+    spare: typeof process.send === 'function' ? [process.pid, process.ppid] : [process.pid],
+    log: line => console.log(line),
   })
   if (cpu !== null && cpu.available) {
     const applyCpu = () => cpu.apply().catch(() => {})
@@ -985,6 +994,26 @@ async function main(args) {
     const turn = settingsQueue.then(run, run)
     settingsQueue = turn.catch(() => {})
     return turn
+  }
+  // B412: the answers of the chats' work calls, kept by their request id (see `requestKeeper`).
+  const requests = requestKeeper({ file: isDemo ? null : join(HERE, 'data', 'work-requests.json'), clock })
+  /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
+  const bridgeWorkOnce = async (body, checked) => {
+    const done = await workAction({ ...body, chat: checked.chat })
+    // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
+    if (body?.action === 'partner-answer') await sendWakes(done)
+    // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
+    // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
+    // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
+    const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
+    if (pulled === null || (pulled.wake ?? null) === null) return done
+    readState.reset()
+    const answered = await pullFor({
+      dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
+      newId: () => randomBytes(8).toString('hex'), keep,
+    })
+    if (answered.text !== '') readState.reset()
+    return { ok: true, result: body?.action === 'pull' ? answered : { ...done.result, pull: answered } }
   }
   const server = createBoard({
     token: randomBytes(32).toString('hex'),
@@ -1258,24 +1287,17 @@ async function main(args) {
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
     bridgeWork: async body => {
+      // B412: a call the mod repeats with its request id (its answer was slow or cut off) gets the first answer, before
+      // anything else is looked at: right after a restart the board may not show the chat yet. The id is the session's.
+      const { request, ...asked } = body ?? {}
+      const session = String(body?.session ?? '')
+      const kept = await requests.known(session, request)
+      if (kept !== undefined) return kept
       const state = await readState()
       const checked = checkTake(body, state)
       if (!checked.ok) return checked
-      const done = await workAction({ ...body, chat: checked.chat })
-      // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
-      if (body?.action === 'partner-answer') await sendWakes(done)
-      // B300: a free worker's pull at the end of its turn (with its turn-ended, or alone): its line goes into the outbox
-      // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
-      // that is held by the limit or busy, as the board reads it anew now, or when the line went before.
-      const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
-      if (pulled === null || (pulled.wake ?? null) === null) return done
-      readState.reset()
-      const answered = await pullFor({
-        dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
-        newId: () => randomBytes(8).toString('hex'), keep,
-      })
-      if (answered.text !== '') readState.reset()
-      return { ok: true, result: body?.action === 'pull' ? answered : { ...done.result, pull: answered } }
+      if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
+      return requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
     },
     take: async body => {
       const checked = checkTake(body, await readState())

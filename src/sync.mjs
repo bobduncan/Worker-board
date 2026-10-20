@@ -20,31 +20,36 @@ export const syncHead = about => `Sync check of ${about === SYNC_BOARD ? 'the bo
 /** A note's number ("N12" is 12); 0 for none. */
 const numberOf = id => Number(String(id ?? '').match(/^N(\d+)$/)?.[1] ?? 0)
 
-/** The answers to the checks of `about` among the notes (work/lists.mjs `informationOf`: `{ id, text, since }`). */
-const answersOf = (notes, about) => (notes ?? []).filter(one => String(one.text ?? '').startsWith(syncHead(about)))
+/**
+ * The answers to the checks of `about` among the notes (work/lists.mjs `informationOf`: `{ id, from, to, text, since }`).
+ * B439: only the main chat's notes to the person; one with the same head from a worker, or to the main chat, is not one.
+ */
+const answersOf = (notes, about, main) => (main === null || main === undefined ? []
+  : (notes ?? []).filter(one => one.from === main && one.to === 'you' && String(one.text ?? '').startsWith(syncHead(about))))
 
 /**
  * B438, the review: the number of the newest answer to a check of `about` (0 for none). It is kept on the ask, so an
  * answer written in the same minute as a new ask (the store keeps minutes) does not answer it.
  */
-export const lastSyncAnswer = (notes, about) => Math.max(0, ...answersOf(notes, about).map(one => numberOf(one.id)))
+export const lastSyncAnswer = (notes, about, main) => Math.max(0, ...answersOf(notes, about, main).map(one => numberOf(one.id)))
 
 /**
  * The newest sync check of each name in `abouts` (the workers, and `board`), with the main chat's answer:
  * `{ [about]: { at, state, isOpen, answer: { at, text } | null } }`. `sent` is the board's messages, `notes` the
- * information list. The answer is the newest note that starts with `syncHead(about)`, newer than the one there was when
+ * information list, `main` the main chat's name. The answer is the newest note from the main chat to the person that
+ * starts with `syncHead(about)`, newer than the one there was when
  * the check was asked (`seen`) and written since the minute of the ask. A check is open while it is on its way, and
  * after it arrived (or was copied, for the person to paste) until it is answered, half an hour at most; it is left out
  * an hour after its answer, or after it arrived (or was asked) when none came.
  */
-export function syncChecks(sent, notes, abouts, now) {
+export function syncChecks(sent, notes, abouts, now, main) {
   const checks = {}
   for (const about of abouts) {
     const message = (sent ?? []).findLast(one => one.command === 'sync' && one.about === about)
     if (message === undefined) continue
     const from = Math.floor(message.at / MIN) * MIN
     const seen = Number.isFinite(message.seen) ? message.seen : 0
-    const reply = answersOf(notes, about).filter(one => Number.isFinite(one.since) && one.since >= from && numberOf(one.id) > seen)
+    const reply = answersOf(notes, about, main).filter(one => Number.isFinite(one.since) && one.since >= from && numberOf(one.id) > seen)
       .reduce((newest, one) => (newest === null || one.since > newest.since || (one.since === newest.since && numberOf(one.id) > numberOf(newest.id)) ? one : newest), null)
     const head = syncHead(about)
     const answer = reply === null ? null : { at: reply.since, text: reply.text.slice(head.length).trim() }
