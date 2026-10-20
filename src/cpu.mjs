@@ -219,7 +219,7 @@ export const windowsProcesses = {
  * chosen; the first pass gives them Normal and all cores, whatever the level, since a chat that started the board
  * handed its own on (2026-10-19).
  */
-export function cpuLimiter({ file, fallback = 'off', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [] }) {
+export function cpuLimiter({ file, fallback = 'off', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {} }) {
   const available = platform === 'win32'
   let level = null
   let restore = false
@@ -228,6 +228,13 @@ export function cpuLimiter({ file, fallback = 'off', platform = process.platform
   let fault = null
   let running = null
   let isFreed = false
+  // B440: the last line about the board's own priority; a line is written only when it says something new.
+  let lastLine = null
+  const tell = line => {
+    if (line === lastLine) return
+    lastLine = line
+    log(line)
+  }
 
   const load = async () => {
     if (level === null) level = await readLevel(file, fallback)
@@ -235,10 +242,14 @@ export function cpuLimiter({ file, fallback = 'off', platform = process.platform
   }
 
   async function once() {
+    const triedNow = available && !isFreed
     if (available && !isFreed) {
-      isFreed = true
+      // B440: done only when Windows took every one of them; a slow or failed call (a board at Idle on a busy PC is
+      // slow) is tried again on the next pass.
       const own = boardChanges(spare, cores)
-      if (own.length > 0) await processes.set(own).catch(() => {})
+      const done = own.length === 0 ? [] : await processes.set(own).catch(() => [])
+      isFreed = own.every(one => Array.isArray(done) && done.includes(one.pid))
+      if (own.length > 0) tell(`CPU for the chats: the board's own processes ${isFreed ? 'are at Normal on all cores' : 'could not be set to Normal yet; tried again next pass'}.`)
     }
     const current = await load()
     if (!available || (current === 'off' && !restore)) {
@@ -254,6 +265,14 @@ export function cpuLimiter({ file, fallback = 'off', platform = process.platform
       return
     }
     fault = null
+    // B440: something lowered the board again (another board's limiter, say): it is given Normal and all cores back.
+    // Not in a pass that just tried the first restore: that one is tried again next pass anyway.
+    const lowered = triedNow ? [] : spare.filter(pid => list.some(one => one.pid === pid && Number.isFinite(one.priority) && one.priority < BASE_PRIORITY.Normal))
+    if (lowered.length > 0) {
+      const done = await processes.set(boardChanges(lowered, cores)).catch(() => [])
+      const isBack = lowered.every(pid => Array.isArray(done) && done.includes(pid))
+      tell(`CPU for the chats: the board's process ${lowered.join(', ')} was found lowered; ${isBack ? 'it is back at Normal on all cores' : 'it could not be set back yet'}.`)
+    }
     const chosen = chosenProcesses(list, await sessions(), { spare })
     const { changes, inherited } = changesFor(chosen, current, applied, cores, { all: current === 'off' })
     if (changes.length > 0) {

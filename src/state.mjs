@@ -1537,7 +1537,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     changeAsks: {
       stop: Object.fromEntries(lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => [lane.name, removalAsk(sent.findLast(message => message.command === 'stop' && message.about === lane.name), now)]).filter(([, ask]) => ask !== null)),
       // B438: the newest "Out of sync?" check of each worker and of the board, with the main chat's answer (a note).
-      sync: syncChecks(sent, information, [...lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => lane.name), SYNC_BOARD], now),
+      sync: syncChecks(sent, information, [...lanes.filter(lane => !lane.isLeftover && !lane.isMain).map(lane => lane.name), SYNC_BOARD], now, main === undefined ? null : main.name),
     },
     // Focus 4: the partner's cards marked, for the group "From your partner".
     forYou: markPartner([

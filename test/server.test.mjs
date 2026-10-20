@@ -363,3 +363,12 @@ test('B297: /api/bridge/work needs the key; /api/work needs the token and the or
   assert.equal((await page(good)).status, 200)
   assert.deepEqual(worked, [['mod', { chat: 'Board', action: 'next' }], ['mod', { chat: 'Board', action: 'take', id: 'B1' }], ['page', { action: 'list' }]])
 })
+
+test("B412: a work call's request id comes in its X-Work-Request header; one in the body is not taken", async t => {
+  const { ask, worked } = await board(t)
+  const headers = { 'Content-Type': 'application/json', 'X-Board-Key': KEY }
+  const body = JSON.stringify({ chat: 'Board', action: 'next', request: 'from-the-body-1' })
+  await ask({ method: 'POST', path: '/api/bridge/work', headers: { ...headers, 'X-Work-Request': 'cli-board-7-abc' }, body })
+  await ask({ method: 'POST', path: '/api/bridge/work', headers, body })
+  assert.deepEqual(worked, [['mod', { chat: 'Board', action: 'next', request: 'cli-board-7-abc' }], ['mod', { chat: 'Board', action: 'next' }]])
+})

@@ -201,6 +201,69 @@ test('the limiter spares the board: its first pass gives the board and its keepe
   assert.deepEqual(off.calls.sets, [[{ pid: 203, key: 'board 203', priority: 'Normal', affinity: String(0xFF) }]])
 })
 
+test('B440: the board is set back to Normal again on the next pass when the first call failed or missed one', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const answers = [Promise.reject(new Error('timed out')), Promise.resolve([203]), Promise.resolve([203, 202])]
+  answers[0].catch(() => {})
+  const sets = []
+  const processes = {
+    list: async () => machine(),
+    set: async changes => {
+      sets.push(changes.map(one => one.pid))
+      return changes.some(one => one.key.startsWith('board ')) ? answers.shift() : changes.map(one => one.pid)
+    },
+  }
+  const limiter = cpuLimiter({ file: join(dir, 'cpu.json'), platform: 'win32', cores: 8, sessions: async () => [A], processes, spare: [203, 202] })
+  const boardSets = () => sets.filter(pids => pids.includes(203)).length
+  await limiter.apply()
+  assert.equal(boardSets(), 1)
+  await limiter.apply() // 202 was missed: again
+  assert.equal(boardSets(), 2)
+  await limiter.apply() // both taken
+  assert.equal(boardSets(), 3)
+  await limiter.apply()
+  assert.equal(boardSets(), 3)
+})
+
+test('B440: a board found lowered later is set back to Normal and all cores, with a line in the log', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const state = new Map(machine().map(one => [one.pid, { ...one }]))
+  const windows = fakeWindows(() => [...state.values()])
+  const lines = []
+  const limiter = cpuLimiter({ file: join(dir, 'cpu.json'), fallback: 'strong', platform: 'win32', cores: 8, sessions: async () => [A], processes: windows.processes, spare: [203], log: line => lines.push(line) })
+  state.get(203).priority = 8
+  await limiter.apply()
+  const before = windows.calls.sets.length
+  await limiter.apply()
+  assert.ok(windows.calls.sets.slice(before).every(set => set.every(one => one.pid !== 203)), 'a board at Normal is left alone')
+  state.get(203).priority = 4 // another board's limiter put it at Idle
+  await limiter.apply()
+  assert.ok(windows.calls.sets.some(set => set.length === 1 && set[0].pid === 203 && set[0].priority === 'Normal' && set[0].affinity === String(0xFF)))
+  assert.ok(lines.some(line => line.includes('found lowered') && line.includes('back at Normal')))
+})
+
+test('B440: a board Windows will not set back is tried each pass but logged once, and set once per pass', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const state = new Map(machine().map(one => [one.pid, { ...one }]))
+  state.get(203).priority = 4
+  const sets = []
+  const processes = {
+    list: async () => [...state.values()],
+    set: async changes => {
+      sets.push(changes.map(one => one.pid))
+      return changes.filter(one => one.pid !== 203).map(one => one.pid) // access denied for the board
+    },
+  }
+  const lines = []
+  const limiter = cpuLimiter({ file: join(dir, 'cpu.json'), fallback: 'strong', platform: 'win32', cores: 8, sessions: async () => [A], processes, spare: [203], log: line => lines.push(line) })
+  for (let pass = 0; pass < 4; pass += 1) await limiter.apply()
+  assert.equal(sets.filter(pids => pids.includes(203)).length, 4)
+  assert.equal(lines.length, 1)
+})
+
 test('the limiter: Off does nothing; Gentle and Strong set the chats; back to Off gives Normal and all cores once', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

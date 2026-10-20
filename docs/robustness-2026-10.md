@@ -112,6 +112,12 @@ written as a field by one module and never read back from a sentence.**
   the same answer to a repeat. On a time-out the mod asks again with the same id and says "not known whether
   recorded" instead of falling back. The store is read once per call.
 - **Size:** **5 h**. **Tests:** chatlist.test.ts:1358 covers a board that hangs completely, not "slow, then done".
+- **Done (B412, 2026-10-19):** the mod sends `X-Work-Request` with every work call; the board keeps the answer of a
+  change by session and id (src/work/requests.mjs, data/work-requests.json, a day, 300 at most) and answers a repeat
+  with it before anything else; the work tool asks a cut answer again with the same id and else says "not known whether
+  it was recorded"; a form's ask is never filed a second time after a late answer, and is closed when that answer comes;
+  workCtx no longer reads the store (the overlaps come from the call's own reading). Tests: test/workRequests.test.mjs,
+  the B412 tests in chatlist.test.ts. Still open: the store is read once more after a change, for the view.
 
 ### 5. About 574 tests check the source text, not what it does
 

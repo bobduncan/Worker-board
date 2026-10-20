@@ -31,6 +31,8 @@ import { writeView } from './view.mjs'
 
 // B300: kept here for those who import them from the API.
 export { overlapsIn, sinceMs }
+/** B412: whether an action only reads: its answer is not kept by request (src/work/requests.mjs). */
+export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state'])
 const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers'])
@@ -180,7 +182,8 @@ async function act(body, ctx) {
   const fault = storeFault(store, { backlog: ctx.backlogFile ?? null })
   if (fault !== null) return refuse(503, fault)
   const now = ctx.now ?? Date.now()
-  const w = { ...ctx, store, now, who, role, action }
+  // B412: the store is read once per call: the server's overlaps of Touches come from this reading too.
+  const w = { ...ctx, ...(ctx.overlapsOfStore === true ? { overlaps: overlapsIn(store.items) } : {}), store, now, who, role, action }
   if (action === 'next') return next(body, w)
   if (action === 'list') return list(w)
   if (action === 'pause-state') return { ok: true, result: pauseStateOf(w) }
