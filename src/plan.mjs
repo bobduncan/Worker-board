@@ -127,7 +127,7 @@ export function parsePlan(text) {
   for (const raw of text.split(/\r?\n/)) {
     const head = raw.match(HEAD)
     if (head !== null) {
-      current = { id: head[1], title: head[2].trim(), state: 'open', detail: '', from: null, by: null, at: null, revisit: null, answer: '', points: [], pictures: [], known: '', overturned: [], advice: '', settled: null }
+      current = { id: head[1], title: head[2].trim(), state: 'open', detail: '', from: null, by: null, at: null, revisit: null, answer: '', points: [], pictures: [], known: '', overturned: [], advice: '', settled: null, icons: [] }
       answers.push(current)
       kind = 'answer'
       section = 'answers'
@@ -209,6 +209,12 @@ export function parsePlan(text) {
         // person's "Good enough"): "Settled: (you, 2026-10-20)" or "Settled: yes (you, 2026-10-20)".
         else if (key === 'advice') { current.advice = value.trim(); field = 'advice' }
         else if (key === 'settled') current.settled = /^no\b/i.test(value.trim()) ? null : { by: sourceOf(value).by ?? sourceOf(inside === undefined ? '' : `(${inside})`).by, at: sourceOf(value).at ?? sourceOf(inside === undefined ? '' : `(${inside})`).at }
+        // A card without pictures shows icons instead (2026-10-20): "- Icon: store · Steam, later", a name of the
+        // board's set or "badge:<letters>", with its caption.
+        else if (key === 'icon') {
+          const [name, ...caption] = value.split(' · ')
+          if (name.trim() !== '') current.icons.push({ name: name.trim(), caption: caption.join(' · ').trim() })
+        }
       } else if (kind === 'standard') {
         if (key === 'state') {
           current.state = /^confirmed\b/i.test(value.trim()) ? 'confirmed' : 'proposed'

@@ -8907,6 +8907,8 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
       id: one.id, title: one.title, state: one.state, points,
       shown: isOpen ? points : points.slice(0, 4), folded: isOpen ? 0 : Math.max(0, points.length - 4), isOpen,
       pictures: one.pictures, gallery: one.pictures.map(shown => ({ ...shown, label: '' })), shownPicture: shownOf(one.id, one.pictures),
+      // Without pictures, the card's icons (the user, 2026-10-20: "add visuals for them all").
+      icons: one.icons ?? [],
       source: visionSource(one), revisit: one.revisit, overturned: one.overturned,
       slide: slideOf(one.id), deeper: one.deeper ?? 0, canDeeper: one.state !== 'open',
       // Go deeper sent and not answered yet: the card says so, its button waits.
@@ -9566,6 +9568,61 @@ function visionGallery(id, gallery, shown, missing = 'no picture yet') {
   return box
 }
 
+/**
+ * The board's icons for a vision card without pictures (the user, 2026-10-20: "a simple steam icon in the how people
+ * get it ... typescript and pixijs icons in the built on ... add visuals for them all"): plain line drawings in a
+ * 24-unit box, by name. The partner names them in the plan ("- Icon: store · Steam, later"); "badge:TS" is a lettered
+ * square for a tool or a brand, drawn here rather than its logo.
+ */
+const VISION_ICONS = {
+  gamepad: [['rect', { x: 3, y: 8, width: 18, height: 9, rx: 4 }], ['path', { d: 'M7 12.5h3M8.5 11v3' }], ['circle', { cx: 15.5, cy: 11.5, r: 0.9 }], ['circle', { cx: 18, cy: 13.5, r: 0.9 }]],
+  person: [['circle', { cx: 12, cy: 8, r: 4 }], ['path', { d: 'M4 21a8 8 0 0 1 16 0' }]],
+  spark: [['path', { d: 'M12 3l2.4 6 6.4.5-4.9 4.2 1.5 6.3L12 16.6 6.6 20l1.5-6.3L3.2 9.5l6.4-.5z' }]],
+  layers: [['path', { d: 'M12 3l9 5-9 5-9-5z' }], ['path', { d: 'M3 12l9 5 9-5M3 16l9 5 9-5' }]],
+  map: [['path', { d: 'M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z' }], ['path', { d: 'M9 4v14M15 6v14' }]],
+  store: [['path', { d: 'M4 10l1-6h14l1 6z' }], ['path', { d: 'M5 10v10h14V10' }], ['path', { d: 'M10 20v-6h4v6' }]],
+  browser: [['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }], ['path', { d: 'M3 9h18' }], ['circle', { cx: 6, cy: 6.5, r: 0.7 }], ['circle', { cx: 8.5, cy: 6.5, r: 0.7 }], ['circle', { cx: 11, cy: 6.5, r: 0.7 }]],
+  link: [['path', { d: 'M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1' }], ['path', { d: 'M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1' }]],
+  code: [['path', { d: 'M8 6l-5 6 5 6M16 6l5 6-5 6' }]],
+  flag: [['path', { d: 'M5 21V4' }], ['path', { d: 'M5 4h13l-3 4 3 4H5' }]],
+  check: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M8 12l3 3 5-6' }]],
+  gauge: [['path', { d: 'M4 16a8 8 0 0 1 16 0' }], ['path', { d: 'M12 16l4-5' }], ['circle', { cx: 12, cy: 16, r: 1 }], ['path', { d: 'M3 20h18' }]],
+  sound: [['path', { d: 'M4 10h4l5-4v12l-5-4H4z' }], ['path', { d: 'M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11' }]],
+  brush: [['path', { d: 'M4 20l9-9' }], ['path', { d: 'M12 8l4 4 4-4-4-4z' }]],
+  clock: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7v5l3 2' }]],
+  coins: [['ellipse', { cx: 12, cy: 7, rx: 7, ry: 3 }], ['path', { d: 'M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5' }]],
+}
+const UNKNOWN_ICON = [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7M12 17h.01' }]]
+const BADGE_COLOURS = ['#2f6fcf', '#1d9e75', '#7f57d6', '#c2781d']
+
+/** The icons of a card, each with its caption under it; an unknown name draws as a question mark. */
+function visionIcons(icons) {
+  const row = el('div', 'vision-icons')
+  for (const one of icons.slice(0, 5)) {
+    const box = el('figure', 'vision-icon')
+    const badge = one.name.match(/^badge:(.{1,5})$/)
+    if (badge !== null) {
+      const letters = el('span', 'vision-badge', badge[1])
+      letters.style.background = BADGE_COLOURS[[...badge[1]].reduce((sum, letter) => sum + letter.charCodeAt(0), 0) % BADGE_COLOURS.length]
+      box.append(letters)
+    } else {
+      // Drawn element by element: the page turns no text into markup.
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      svg.setAttribute('viewBox', '0 0 24 24')
+      svg.setAttribute('aria-hidden', 'true')
+      for (const [tag, attributes] of VISION_ICONS[one.name] ?? UNKNOWN_ICON) {
+        const shape = document.createElementNS('http://www.w3.org/2000/svg', tag)
+        for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, String(value))
+        svg.append(shape)
+      }
+      box.append(svg)
+    }
+    if (one.caption !== '') box.append(el('figcaption', '', one.caption))
+    row.append(box)
+  }
+  return row
+}
+
 /** Step 1: the pitch and a card per answer, with Go deeper. */
 function visionPage(view, can, off) {
   const parts = []
@@ -9581,6 +9638,7 @@ function visionPage(view, can, off) {
     box.append(head)
     if (card.gallery.length > 1) box.append(visionGallery(card.id, card.gallery, card.shownPicture))
     else if (card.pictures.length > 0) box.append(visionPictures(card.pictures))
+    else if (card.icons.length > 0) box.append(visionIcons(card.icons))
     if (card.shown.length > 0) box.append(visionPoints(card.shown))
     // Four points show; the rest fold under Details, and open on a click.
     if (card.folded > 0 || card.isOpen && card.points.length > 4) {

@@ -161,10 +161,16 @@ Pitch: Push enemies into lava. Win a fight, grow stronger, until your party fall
 
 - State: open
 - Known: it runs in the browser on a desktop. Not said: where it is put, who may play, free or paid.
+- Icon: link · a link for friends
+- Icon: browser · a desktop browser
+- Icon: store · a store, later
 
 ## P6 · Built on
 
 - State: decided (from architecture.md, 2026-10-11)
+- Icon: badge:TS · TypeScript
+- Icon: badge:Vite · Vite
+- Icon: layers · everything is data
 - Point: **TypeScript and Vite,** in the browser
 - Point: **Everything is data:** units, maps, upgrades
 - Point: **Hard to change later:** stairs-only cliffs

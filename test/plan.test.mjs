@@ -313,6 +313,9 @@ test('parsePlan: the standards per kind, and a card\'s advice and settled lines'
 - Advice: solid; ask again
   after M1.
 - Settled: yes (you, 2026-10-20)
+- Icon: store · Steam, later
+- Icon: badge:TS
+- Icon:
 
 ## P2 · Look
 
@@ -346,6 +349,7 @@ test('parsePlan: the standards per kind, and a card\'s advice and settled lines'
 - Score: not measured
 `)
   assert.deepEqual([answers[0].advice, answers[0].settled, answers[1].advice, answers[1].settled], ['solid; ask again after M1.', { by: 'you', at: '2026-10-20' }, '', null])
+  assert.deepEqual([answers[0].icons, answers[1].icons], [[{ name: 'store', caption: 'Steam, later' }, { name: 'badge:TS', caption: '' }], []])
   assert.deepEqual(standards.map(one => [one.id, one.title, one.state, one.by, one.count, one.kind, one.done, one.bar.length, one.foundation, one.perItem, one.score, one.met, one.total, one.gap]), [
     ['K1', 'Maps', 'confirmed', 'you', '5 per world · from S3', 'map', 'docs/process/done/level.md', 3, "a way from the reference to the game's tiles · about 8 h", 'about 2 h', '0 of 7 meet the bar · your word: clunky', 0, 7, 'every map → "Maps meet the bar"'],
     ['K2', 'Feel', 'proposed', null, '', '', '', 1, '', '', 'not measured', null, null, ''],

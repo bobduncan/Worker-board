@@ -37,6 +37,8 @@ Pitch: A garden you can sit in.
 - Point: **Six** birds
 - Advice: solid; ask again after the first bench.
 - Settled: (you, 2026-10-20)
+- Icon: store · the garden shop
+- Icon: badge:TS · TypeScript
 
 ## P2 · Look
 
@@ -167,6 +169,10 @@ test('a card folds after four points, says when it is settled, and carries the p
   // A card with four points or fewer has nothing to fold; one not settled has no mark and no advice.
   const second = visionView(plan, UI).cards[1]
   assert.deepEqual([second.shown.length, second.folded, second.settled, second.advice], [1, 0, null, ''])
+  // A card without pictures shows its icons: the board's names, or a lettered badge.
+  assert.deepEqual([card.icons, second.icons], [[{ name: 'store', caption: 'the garden shop' }, { name: 'badge:TS', caption: 'TypeScript' }], []])
+  assert.match(script, /else if \(card\.icons\.length > 0\) box\.append\(visionIcons\(card\.icons\)\)/)
+  for (const name of ['gamepad', 'person', 'spark', 'layers', 'map', 'store', 'browser', 'link', 'code', 'flag', 'check', 'gauge', 'sound', 'brush', 'clock', 'coins']) assert.match(script, new RegExp(`\\n  ${name}: \\[\\['`), name)
   assert.match(script, /'Good enough'/)
   assert.match(script, /'Deepen again'/)
 })
