@@ -135,7 +135,7 @@ export function parsePlan(text) {
     }
     const standard = section === 'standards' ? raw.match(/^###\s+(K\d+)\s*[·:-]\s*(.*)$/) : null
     if (standard !== null) {
-      current = { id: standard[1], title: standard[2].trim(), state: 'proposed', by: null, at: null, count: '', kind: '', done: '', reference: null, today: null, bar: [], foundation: '', perItem: '', score: '', met: null, total: null, gap: '' }
+      current = { id: standard[1], title: standard[2].trim(), state: 'proposed', by: null, at: null, count: '', kind: '', done: '', reference: null, today: null, pictures: [], bar: [], barPictures: [], foundation: '', perItem: '', score: '', met: null, total: null, gap: '' }
       standards.push(current)
       kind = 'standard'
       field = null
@@ -203,7 +203,15 @@ export function parsePlan(text) {
         else if (key === 'done') current.done = value.trim()
         else if (key === 'reference') current.reference = pictureOf(value)
         else if (key === 'today') current.today = pictureOf(value)
-        else if (key === 'bar') current.bar.push(value.trim())
+        else if (key === 'bar') {
+          // A bar point may end with its picture, the aspect it names highlighted: "... · <picture folder>/x.png" (2026-10-20).
+          const parts = value.trim().split(' · ')
+          const last = parts.at(-1).trim()
+          if (parts.length > 1 && /\.(png|jpe?g|webp|gif)$/i.test(last)) {
+            current.barPictures.push({ at: current.bar.length, path: last })
+            current.bar.push(parts.slice(0, -1).join(' · ').trim())
+          } else current.bar.push(value.trim())
+        }
         else if (key === 'foundation') { current.foundation = value.trim(); field = 'foundation' }
         else if (key === 'per item') current.perItem = value.trim()
         else if (key === 'score') {

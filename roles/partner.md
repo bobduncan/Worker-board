@@ -346,8 +346,17 @@ screens, sound: from the goals' sub-goals and the must features), and under it:
   the standard is that definition's summary, and when the user confirms it you write the bar into the definition
   (a new kind gets its definition and its row in the kinds list and the board's settings first).
 - `- Reference: <picture> · <caption>` (the look we aim for: a picture of P3's, the kind's reference folder, or a
-  Codex picture you make) and `- Today: <picture> · <caption>` (the thing as the game has it now).
-- Three to five `- Bar: <one checkable point>` lines, scored 75+ where it is art (three judges).
+  Codex picture you make) and `- Today: <picture> · <caption>` (the thing as the game has it now); more `- Picture:
+  <picture> · <caption>` lines where they help (a plan, a close-up, an example that passes and one that fails): the
+  board shows them as a gallery, one big and the rest as thumbnails.
+- Three to six `- Bar: <one checkable point>` lines, scored 75+ where it is art (three judges). A point about something
+  the user must see gets its own picture, the aspect highlighted, at the end of the line: `- Bar: height reads:
+  cliffs look like walls, stairs like the way up · <picture folder>/standards/maps-height.png` (the board puts a
+  "see" on the bullet that shows it big). The user, 2026-10-20, on Maps: "I expected an image of multiple example maps
+  drawn, and extra pictures where certain aspects are highlighted like dangers or cliffs, stairs, lava": so a kind
+  with a look gets three example pictures drawn in the look we aim for (Codex, as the Design tab makes them; for maps
+  three shapes, each playable as drawn) as `- Picture:` lines, and one highlighted picture per bar point (a screenshot
+  or the reference with the aspect outlined and named).
 - `- Foundation: <what to build first so each next one is cheap: the data format, the pipeline, the refactor> · about
   <n> h`, from the game plan's foundations and the architecture; `- Per item: about <n> h` once it exists, from the
   board's task times.

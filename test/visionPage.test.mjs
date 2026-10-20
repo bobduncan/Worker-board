@@ -109,8 +109,9 @@ Pitch: A garden you can sit in.
 - Done: docs/done/bench.md
 - Reference: art-inbox/garden/bench-ref.png · the bench we aim for
 - Today: art-inbox/garden/bench-today.png · the first bench
+- Picture: art-inbox/garden/bench-old.png · the old bench
 - Bar: oak, never metal
-- Bar: a back you can lean on
+- Bar: a back you can lean on · art-inbox/garden/bench-back.png
 - Foundation: one bench drawing all benches are cut from · about 4 h
 - Per item: about 1 h
 - Score: 1 of 2 meet the bar
@@ -179,11 +180,24 @@ test('the standards: a card per kind with the bar beside today, the foundation, 
   assert.deepEqual([view.standards.cards[0].reference, view.standards.cards[0].today, view.standards.cards[0].foundation, view.standards.cards[0].perItem, view.standards.cards[0].score],
     [{ path: 'art-inbox/garden/bench-ref.png', caption: 'the bench we aim for' }, { path: 'art-inbox/garden/bench-today.png', caption: 'the first bench' }, 'one bench drawing all benches are cut from · about 4 h', 'about 1 h', '1 of 2 meet the bar'])
   assert.equal(view.standards.summary, '2 standards · 1 confirmed by you · 1 with a gap')
+  // The pictures as a gallery: the bar, today, then the rest; the first shown until a thumbnail is clicked, clamped.
+  assert.deepEqual(view.standards.cards[0].gallery.map(one => [one.label, one.path, one.caption]), [
+    ['the bar', 'art-inbox/garden/bench-ref.png', 'the bench we aim for'], ['today', 'art-inbox/garden/bench-today.png', 'the first bench'],
+    ['', 'art-inbox/garden/bench-back.png', 'a back you can lean on'], ['', 'art-inbox/garden/bench-old.png', 'the old bench'],
+  ])
+  // The second bar point has its picture: the bullet points at the gallery's third picture.
+  assert.deepEqual([view.standards.cards[0].bar, view.standards.cards[0].barPictureAt], [['oak, never metal', 'a back you can lean on'], [-1, 2]])
+  assert.deepEqual([view.standards.cards[0].shownPicture, view.standards.cards[1].gallery, view.standards.cards[1].shownPicture], [0, [], 0])
+  assert.equal(visionView(plan, { ...UI, gallery: { K1: 2 } }).standards.cards[0].shownPicture, 2)
+  assert.equal(visionView(plan, { ...UI, gallery: { K1: 9 } }).standards.cards[0].shownPicture, 3)
+  assert.deepEqual([view.cards[1].gallery.length, view.cards[1].shownPicture], [1, 0])
+  assert.match(script, /visionGallery\(card\.id, card\.gallery, card\.shownPicture/)
+  assert.match(css, /\.vision-thumb\[aria-pressed="true"\]/)
   const confirming = visionView(plan, { ...UI, standardConfirms: ['K2'] })
   assert.deepEqual([confirming.standards.cards[1].state, confirming.standards.pending, confirming.steps[3].isDone], ['confirming', ['K2'], false])
   // Change on a standard: its slide holds how many, the bar and the foundation, with both pictures.
   const change = visionView(plan, { ...UI, change: 'K1' }).slides.at(-1)
-  assert.deepEqual([change.kind, change.question, change.points.length, change.pictures.length], ['change', 'Change: Benches', 4, 2])
+  assert.deepEqual([change.kind, change.question, change.points.length, change.pictures.length], ['change', 'Change: Benches', 4, 3])
   assert.match(change.points[1], /^\*\*Bar:\*\* oak/)
 })
 

@@ -399,13 +399,21 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-advice { margin: 0; padding: 7px 10px; border-radius: 8px; background: var(--inset); font-size: 13.5px; line-height: 1.45; color: var(--muted); }
 .vision-advice b { color: var(--text); font-weight: 600; }
 /* Standards (2026-10-20): a row per kind: the bar's picture beside today's, the bar, the foundation, the gap. */
-.vision-standard { display: grid; grid-template-columns: 260px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.vision-standard { display: grid; grid-template-columns: 300px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .vision-standard.is-confirmed { border-color: #1d5c3a; }
 .vision-standard.is-confirming { border-color: var(--free); }
-.vision-standard-pictures { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.vision-standard-pictures .picture { display: block; width: 100%; }
-.vision-standard-pictures .picture img { aspect-ratio: 4 / 3; width: 100%; object-fit: contain; border-radius: 8px; background: var(--bg); }
-.vision-standard-pictures .vision-nopicture { aspect-ratio: 4 / 3; }
+/* A gallery (2026-10-20): one big picture, the others as thumbnails under it; the picked one outlined. */
+.vision-gallery { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vision-gallery .vision-picture.is-big .picture { display: block; width: 100%; }
+.vision-gallery .vision-picture.is-big .picture img { aspect-ratio: 16 / 10; width: 100%; object-fit: contain; border-radius: 8px; background: var(--bg); }
+.vision-gallery .vision-nopicture { aspect-ratio: 16 / 10; }
+.vision-thumbs { display: flex; flex-wrap: wrap; gap: 4px; }
+.vision-thumb { width: 60px; height: 42px; padding: 0; border: 2px solid transparent; border-radius: 6px; background: var(--bg); cursor: pointer; overflow: hidden; }
+.vision-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.vision-thumb[aria-pressed="true"] { border-color: var(--free); }
+.vision-thumb:hover, .vision-thumb:focus-visible { border-color: #8fb4ff; outline: none; }
+.vision-see { padding: 0 6px; border: 0; background: none; color: #8fb4ff; font-size: 12.5px; cursor: pointer; }
+.vision-see:hover, .vision-see:focus-visible { color: #c3d6ff; outline: none; filter: none; }
 .vision-standard-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .vision-standard-body h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; font-size: 16px; }
 .vision-gap { align-self: flex-start; font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--waiting); color: var(--waiting); }

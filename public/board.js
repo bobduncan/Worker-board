@@ -8890,10 +8890,13 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   else if (goal !== null) slides.push({ kind: 'change', id: goal.id, title: goal.title, question: `Change: ${goal.title}`, points: [goal.doneWhen === '' ? null : `**Done when:** ${goal.doneWhen}`, ...goal.subs].filter(Boolean), pictures: goal.pictures })
   else {
     const standard = standards.find(one => one.id === ui.change) ?? null
-    if (standard !== null) slides.push({ kind: 'change', id: standard.id, title: standard.title, question: `Change: ${standard.title}`, points: [standard.count === '' ? null : `**How many:** ${standard.count}`, ...standard.bar.map(point => `**Bar:** ${point}`), standard.foundation === '' ? null : `**Foundation first:** ${standard.foundation}`].filter(Boolean), pictures: [standard.reference, standard.today].filter(one => one !== null) })
+    if (standard !== null) slides.push({ kind: 'change', id: standard.id, title: standard.title, question: `Change: ${standard.title}`, points: [standard.count === '' ? null : `**How many:** ${standard.count}`, ...standard.bar.map(point => `**Bar:** ${point}`), standard.foundation === '' ? null : `**Foundation first:** ${standard.foundation}`].filter(Boolean), pictures: [standard.reference, standard.today, ...(standard.pictures ?? [])].filter(one => one !== null) })
   }
   const slideOf = id => slides.findIndex(slide => slide.kind !== 'change' && (slide.id === id || slide.about === id))
   const open = ui.open ?? []
+  // A card's pictures as a gallery: one big, the others as thumbnails under it (the user, 2026-10-20); `shown` is the
+  // one picked, the first until a click.
+  const shownOf = (id, gallery) => Math.min(Math.max(0, (ui.gallery ?? {})[id] ?? 0), Math.max(0, gallery.length - 1))
   const cards = plan.answers.map(one => {
     const points = one.state === 'open' ? [one.known].filter(Boolean) : one.points.length > 0 ? one.points : [one.answer].filter(Boolean)
     // The card shows four points; the rest fold under Details (the user, 2026-10-20: "a lot of text").
@@ -8901,7 +8904,8 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     return {
       id: one.id, title: one.title, state: one.state, points,
       shown: isOpen ? points : points.slice(0, 4), folded: isOpen ? 0 : Math.max(0, points.length - 4), isOpen,
-      pictures: one.pictures, source: visionSource(one), revisit: one.revisit, overturned: one.overturned,
+      pictures: one.pictures, gallery: one.pictures.map(shown => ({ ...shown, label: '' })), shownPicture: shownOf(one.id, one.pictures),
+      source: visionSource(one), revisit: one.revisit, overturned: one.overturned,
       slide: slideOf(one.id), deeper: one.deeper ?? 0, canDeeper: one.state !== 'open',
       // Go deeper sent and not answered yet: the card says so, its button waits.
       deeperWork: workOn('plan-deeper', one.id)?.state ?? null,
@@ -8936,9 +8940,19 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   const allGoals = goalCards.flatMap(one => one.goals)
   // Standards (2026-10-20): per kind of thing the goals need: the bar, the foundation first, today's gap.
   const standardConfirms = ui.standardConfirms ?? []
+  // A standard's gallery: the bar's picture, today's, one per bar point that has one (the aspect highlighted), the rest.
+  const galleryOf = one => [
+    one.reference === null ? null : { ...one.reference, label: 'the bar' },
+    one.today === null ? null : { ...one.today, label: 'today' },
+    ...(one.barPictures ?? []).map(shown => ({ path: shown.path, caption: one.bar[shown.at] ?? '', label: '', bar: shown.at })),
+    ...(one.pictures ?? []).map(shown => ({ ...shown, label: '' })),
+  ].filter(shown => shown !== null)
   const standardCards = standards.map(one => ({
     id: one.id, title: one.title, count: one.count, kind: one.kind, done: one.done, reference: one.reference, today: one.today, bar: one.bar,
     foundation: one.foundation, perItem: one.perItem, score: one.score, met: one.met, total: one.total, gap: one.gap,
+    gallery: galleryOf(one), shownPicture: shownOf(one.id, galleryOf(one)),
+    // Per bar point, where its picture stands in the gallery, or -1: the bullet shows it big on a click.
+    barPictureAt: one.bar.map((point, index) => galleryOf(one).findIndex(shown => shown.bar === index)),
     state: one.state === 'confirmed' ? 'confirmed' : standardConfirms.includes(one.id) ? 'confirming' : 'proposed',
     source: visionSource(one), slide: slideOf(one.id), measureWork: workOn('plan-measure', one.id)?.state ?? null,
   }))
@@ -9360,10 +9374,10 @@ function focusNoteCard(view) {
 // Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page; the board
 // types your moves and answers to it (src/focus.mjs `planWord`, the store's `answer`). Your feature marks and goal
 // confirms wait on the page until you send them, in one word.
-const visionUi = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], words: '', extra: '', busy: false, note: null }
+const visionUi = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null }
 
 function visionData(state) {
-  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.busy, visionUi.note,
+  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note,
     // While the partner prepares something, the minute, for "sent 2 min ago"; and the partner's name.
     (state.plan?.working ?? []).length > 0 ? Math.floor(state.readAt / MIN) : null, state.advisor?.name ?? null]
 }
@@ -9504,6 +9518,43 @@ function visionWorking(working, state, can, off) {
   return box
 }
 
+/**
+ * A card's pictures as a gallery (the user, 2026-10-20): one big, the others as a strip of thumbnails under it, a click
+ * on a thumbnail showing it big. The big one zooms as every picture does. Without pictures, `missing` says so.
+ */
+function visionGallery(id, gallery, shown, missing = 'no picture yet') {
+  const box = el('div', 'vision-gallery')
+  if (gallery.length === 0) {
+    box.append(el('div', 'vision-nopicture', missing))
+    return box
+  }
+  const at = Math.min(Math.max(0, shown), gallery.length - 1)
+  const big = gallery[at]
+  const frame = el('figure', 'vision-picture is-big')
+  frame.append(picture(big.path, big.caption || big.label || ''))
+  const caption = [big.label, big.caption].filter(Boolean).join(': ')
+  if (caption !== '') frame.append(el('figcaption', '', caption))
+  box.append(frame)
+  if (gallery.length > 1) {
+    const strip = el('div', 'vision-thumbs')
+    gallery.forEach((one, index) => {
+      const thumb = el('button', 'vision-thumb')
+      thumb.type = 'button'
+      thumb.dataset.visionAct = 'gallery'
+      thumb.dataset.visionId = `${id}:${index}`
+      thumb.setAttribute('aria-pressed', String(index === at))
+      thumb.title = [one.label, one.caption].filter(Boolean).join(': ') || one.path
+      const image = el('img')
+      image.alt = thumb.title
+      thumb.append(image)
+      pictureUrl(one.path).then(url => { if (url !== null) image.src = url })
+      strip.append(thumb)
+    })
+    box.append(strip)
+  }
+  return box
+}
+
 /** Step 1: the pitch and a card per answer, with Go deeper. */
 function visionPage(view, can, off) {
   const parts = []
@@ -9517,7 +9568,8 @@ function visionPage(view, can, off) {
     if (card.settled !== null) badges.append(el('span', 'vision-state is-settled', 'settled ✓'))
     head.append(el('span', '', card.title), badges)
     box.append(head)
-    if (card.pictures.length > 0) box.append(visionPictures(card.pictures))
+    if (card.gallery.length > 1) box.append(visionGallery(card.id, card.gallery, card.shownPicture))
+    else if (card.pictures.length > 0) box.append(visionPictures(card.pictures))
     if (card.shown.length > 0) box.append(visionPoints(card.shown))
     // Four points show; the rest fold under Details, and open on a click.
     if (card.folded > 0 || card.isOpen && card.points.length > 4) {
@@ -9697,21 +9749,29 @@ function standardsPage(view, can, off) {
   parts.push(el('p', 'vision-check', 'The guard: no second thing of a kind is built before its standard is confirmed and its foundation exists; every step of that kind is checked against the bar.'))
   for (const card of cards) {
     const row = el('div', `vision-standard is-${card.state}`)
-    const pictures = el('div', 'vision-standard-pictures')
-    for (const [shown, label] of [[card.reference, 'the bar'], [card.today, 'today']]) {
-      const frame = el('figure', 'vision-picture')
-      if (shown !== null) frame.append(picture(shown.path, shown.caption || label))
-      else frame.append(el('div', 'vision-nopicture', `no picture of ${label} yet`))
-      frame.append(el('figcaption', '', shown === null ? label : `${label}: ${shown.caption}`))
-      pictures.append(frame)
-    }
+    const pictures = visionGallery(card.id, card.gallery, card.shownPicture, 'no picture of the bar or of today yet')
     const body = el('div', 'vision-standard-body')
     const head = el('h3', '')
     const badge = card.state === 'confirmed' ? 'decided' : card.state === 'confirming' ? 'assumed' : 'open'
     head.append(el('span', '', card.title), el('span', `vision-state is-${badge}`, card.state === 'confirming' ? 'confirm, not sent' : card.state))
     body.append(head)
     if (card.count !== '') body.append(el('p', 'vision-meta muted', `How many: ${card.count}`))
-    if (card.bar.length > 0) body.append(visionPoints(card.bar.map(point => `**Bar:** ${point}`)))
+    if (card.bar.length > 0) {
+      // Each bar point, and where it has a picture of its aspect, a "see" that shows it big in the gallery.
+      const list = el('ul', 'vision-points')
+      card.bar.forEach((point, index) => {
+        const item = el('li')
+        item.append(...boldParts(`**Bar:** ${point}`))
+        if (card.barPictureAt[index] >= 0) {
+          const see = visionButton(card.shownPicture === card.barPictureAt[index] ? '◉ shown' : '◎ see', 'gallery', { id: `${card.id}:${card.barPictureAt[index]}`, className: 'vision-see' })
+          see.disabled = false
+          see.title = 'Show this aspect\'s picture big'
+          item.append(document.createTextNode(' '), see)
+        }
+        list.append(item)
+      })
+      body.append(list)
+    }
     const lines = [card.foundation === '' ? null : `**Foundation first:** ${card.foundation}`, card.perItem === '' ? null : `**Then per item:** ${card.perItem}`, card.score === '' ? null : `**Today:** ${card.score}`].filter(Boolean)
     if (lines.length > 0) body.append(visionPoints(lines))
     if (card.gap !== '') body.append(el('span', 'vision-gap', `gap: ${card.gap}`))
@@ -9884,6 +9944,10 @@ async function visionAct(act, id) {
     visionUi.page = pageOfPart(slide?.id ?? '')
   } else if (act === 'fold') {
     visionUi.open = visionUi.open.includes(id) ? visionUi.open.filter(one => one !== id) : [...visionUi.open, id]
+  } else if (act === 'gallery') {
+    // A thumbnail clicked: that picture big on its card.
+    const [part, index] = String(id).split(':')
+    visionUi.gallery = { ...visionUi.gallery, [part]: Number(index) }
   } else if (act === 'settle') {
     return toPartner({ command: 'plan-settled', id }, `${id} is settled: your partner marks it so.`)
   } else if (act === 'confirm-standard') {

@@ -298,7 +298,8 @@ under **Details · n more**, up to three pictures with captions (Look and sound 
 advice, where it came from, **Go deeper** (or "2 deeper questions →", or **Deepen again** once settled), **Good
 enough**, **Yes, mine** / **Confirm** and **Change**; an open card has **Answer it →**. Standards (2026-10-20): the
 guard on top (no second thing of a kind before its standard is confirmed and its foundation exists), then a row per
-kind of thing the goals need: the bar's picture beside today's, how many, three to five bar points, the foundation
+kind of thing the goals need: its pictures as a gallery (one big: the bar, today, or any other; the rest as thumbnails
+under it, a click showing one big; a vision card with two or more pictures has the same), how many, three to five bar points, the foundation
 to build first with its hours, the hours per item, today's score and a gap chip; **Confirm** (waits in the bar),
 **Change**, **Measure today**; a box for words on all of them, and **Gaps into goals**. Empty, the step has
 **Propose standards**. Features: the architecture check on top
