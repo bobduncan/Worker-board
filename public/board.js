@@ -4080,7 +4080,7 @@ function splitAsk(words) {
   const mark = text.search(/\?(?=\s|$)/)
   // A sentence ends at a full stop before a capital, but not after an abbreviation ("e.g. Yew").
   const ends = [...text.matchAll(/[.!](?=\s+[A-Z0-9"“])/g)].map(found => found.index)
-  const sentence = ends.find(index => !/\b(?:e\.g|i\.e|etc|vs|cf|approx|fig|ca|incl|resp|est)$/i.test(text.slice(0, index))) ?? -1
+  const sentence = ends.find(index => !/\b(?:e\.g|i\.e|etc|vs|cf|approx|fig|ca|incl|resp|est|mr|mrs|ms|dr|st)$/i.test(text.slice(0, index))) ?? -1
   // B452: a question mark past 280 characters makes no title: the first sentence is the title then.
   const at = mark >= 0 && mark <= 280 ? mark : sentence
   if (at < 0 || at > 280) return { question: text, rest: '' }
