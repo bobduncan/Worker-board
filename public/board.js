@@ -4125,7 +4125,7 @@ function splitAsk(words) {
   const mark = text.search(/\?(?=\s|$)/)
   // A sentence ends at a full stop before a capital, but not after an abbreviation ("e.g. Yew").
   const ends = [...text.matchAll(/[.!](?=\s+[A-Z0-9"“])/g)].map(found => found.index)
-  const sentence = ends.find(index => !/\b(?:e\.g|i\.e|etc|vs|cf|approx|fig|ca|incl|resp|est)$/i.test(text.slice(0, index))) ?? -1
+  const sentence = ends.find(index => !/\b(?:e\.g|i\.e|etc|vs|cf|approx|fig|ca|incl|resp|est|mr|mrs|ms|dr|st)$/i.test(text.slice(0, index))) ?? -1
   // B452: a question mark past 280 characters makes no title: the first sentence is the title then.
   const at = mark >= 0 && mark <= 280 ? mark : sentence
   if (at < 0 || at > 280) return { question: text, rest: '' }
@@ -12117,7 +12117,11 @@ function refineQuestions(step, refined, view) {
       button.disabled = view.working !== null
       choices.append(button)
     }
-    line.append(el('span', 'refine-n', String(index + 1)), el('span', 'refine-text', one.text), advice, choices)
+    // B462: the question itself first, its numbers and why muted after it, as an ask's title and context.
+    const { question, rest } = splitAsk(one.text)
+    const text = el('span', 'refine-text', question)
+    if (rest !== '') text.append(' ', el('span', 'muted', rest))
+    line.append(el('span', 'refine-n', String(index + 1)), text, advice, choices)
     // An answer in words of its own, not a yes or a no, shows under its question.
     if (one.answer !== null && !/^(yes|no)$/i.test(one.answer)) line.append(el('p', 'refine-answer', `Your answer: ${one.answer}`))
     box.append(line)
