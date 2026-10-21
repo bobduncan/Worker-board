@@ -392,3 +392,26 @@ test('the standards\' moves: settled, propose, confirm, change, measure, gaps in
   assert.equal((await focusMove({ command: 'plan-settled', id: 'K1' }, ctx)).status, 400)
   assert.equal((await focusMove({ command: 'plan-standards-change', text: '' }, ctx)).status, 400)
 })
+
+test('the new order (2026-10-21): a feature placed in a milestone; the plan check and the next focus as words', async () => {
+  const page = '# P\n\n## Features\n\n### F1 · Benches\n\n- Mark: M1 (you, 2026-10-21)\n- Complex: yes · many parts\n\n### F2 · A pond\n\n- Mark: M3+ (partner, 2026-10-21)\n- Complex: yes · water\n\n## Goals preset\n\n### M1 · A corner\n\n### M2 · The garden\n'
+  const plan = planState(page, [], 'p.md')
+  assert.deepEqual(plan.features.map(one => [one.id, one.mark, one.by]), [['F1', 'M1', 'you'], ['F2', 'M3+', 'partner']])
+  // A complex feature after the road's first milestone means the structure is checked at every milestone.
+  assert.deepEqual([plan.marks.M1, plan.marks['M3+'], plan.architecture.open], [1, 1, ['F2']])
+  const partner = { name: 'Advisor' }
+  const ctx = { canWrite: true, partner, job: 'roles/partner.md' }
+  const check = await focusMove({ command: 'plan-check' }, ctx)
+  assert.deepEqual([check.ok, check.words.text.split('\n')[0]], [true, 'plan: check'])
+  const focus = await focusMove({ command: 'plan-focus', text: 'something for the feel' }, ctx)
+  assert.deepEqual(focus.words.text.split('\n').slice(0, 2), ['plan: focus', 'Words: something for the feel'])
+  assert.equal((await focusMove({ command: 'plan-focus' }, ctx)).words.text.split('\n')[0], 'plan: focus')
+  assert.equal((await focusMove({ command: 'plan-marks', text: 'F1 M2; F2 no' }, ctx)).ok, true)
+  assert.equal((await focusMove({ command: 'plan-marks', text: 'F1 soon' }, ctx)).status, 400)
+})
+
+test('a goal or a standard "agreed" by the person reads as confirmed (the partner writes so once it is in the goal map)', () => {
+  const page = '# P\n\n## Goals preset\n\n### M1 · A corner\n\n#### S1 · Benches\n\n- State: agreed (you, 2026-10-19; in the goal map)\n\n#### S2 · Lamps\n\n- State: proposed\n\n## Standards\n\n### K1 · Benches\n\n- State: agreed (you, 2026-10-21)\n'
+  const { milestones, standards } = parsePlan(page)
+  assert.deepEqual([milestones[0].goals.map(one => one.state), standards[0].state], [['confirmed', 'proposed'], 'confirmed'])
+})

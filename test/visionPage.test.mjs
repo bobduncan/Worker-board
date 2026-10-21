@@ -142,12 +142,13 @@ Nothing says it yet.
 `)
 
 // The partner's questions, filed in another order than the page's: the board puts them in the page's.
-const plan = planState(PAGE, [ask('Q9', 'F2: when should the pond come?'), ask('Q4', 'P5: who should come to the garden?'), ask('Q7', 'P1.2: how big is the garden?'), ask('Q6', 'P1.1: how many benches?')], 'docs/product-plan.md')
+const ITEMS = [ask('Q9', 'F2: when should the pond come?'), ask('Q4', 'P5: who should come to the garden?'), ask('Q7', 'P1.2: how big is the garden?'), ask('Q6', 'P1.1: how many benches?')]
+const plan = planState(PAGE, ITEMS, 'docs/product-plan.md')
 const UI = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [] }
 
 test('the vision: the pitch, a card per answer with its points or its line, pictures, state, source, and its deeper questions', () => {
   const view = visionView(plan, UI)
-  assert.deepEqual([view.pitch, view.path, view.page, view.summary, view.interviewLabel], ['A garden you can sit in.', 'docs/product-plan.md', 'vision', '2 of 5 decided by you · 1 assumed for now · 2 open · 1 settled', 'Interview · 5 to answer'])
+  assert.deepEqual([view.pitch, view.path, view.page, view.summary, view.interviewLabel], ['A garden you can sit in.', 'docs/product-plan.md', 'vision', '2 of 5 decided by you · 1 assumed for now · 2 open · 1 settled', 'Interview · 9 to decide'])
   assert.deepEqual(view.cards.map(card => [card.id, card.state, card.points[0] ?? null, card.source, card.slide, card.deeper, card.canDeeper]), [
     ['P1', 'decided', '**A garden** with benches', 'from vision.md, 2026-10-10', 0, 2, true],
     ['P2', 'decided', 'warm wood', 'you, 2026-10-19', -1, 0, true],
@@ -157,7 +158,11 @@ test('the vision: the pitch, a card per answer with its points or its line, pict
   ])
   assert.deepEqual(view.cards[1].pictures, [{ path: 'art-inbox/garden/today.png', caption: 'today' }])
   assert.equal(view.cards[4].revisit, 'the first bench')
-  assert.deepEqual(view.steps.map(step => [step.id, step.isDone]), [['vision', false], ['features', false], ['goals', false], ['standards', false]])
+  // The new order (the user, 2026-10-21): vision, features, standards, plan, focus.
+  assert.deepEqual(view.steps.map(step => [step.id, step.label, step.isDone]), [['vision', '1 · Vision', false], ['features', '2 · Features', false], ['standards', '3 · Standards', false], ['plan', '4 · Plan', false], ['focus', '5 · Focus', false]])
+  assert.equal(visionView(plan, UI, { id: 'G3', title: 'Two benches', doneWhen: 'sat on both' }).steps[4].isDone, true)
+  // The plan's step was called goals before: a page kept from then opens the plan.
+  assert.equal(visionView(plan, { ...UI, page: 'goals' }).page, 'plan')
   assert.match(view.summary, /1 settled$/)
 })
 
@@ -201,7 +206,7 @@ test('the standards: a card per kind with the bar beside today, the foundation, 
   assert.match(script, /visionGallery\(card\.id, card\.gallery, card\.shownPicture/)
   assert.match(css, /\.vision-thumb\[aria-pressed="true"\]/)
   const confirming = visionView(plan, { ...UI, standardConfirms: ['K2'] })
-  assert.deepEqual([confirming.standards.cards[1].state, confirming.standards.pending, confirming.steps[3].isDone], ['confirming', ['K2'], false])
+  assert.deepEqual([confirming.standards.cards[1].state, confirming.standards.pending, confirming.steps[2].isDone], ['confirming', ['K2'], false])
   // Change on a standard: its slide holds how many and the bar, with both pictures; not the foundation (a standard is
   // not a step: how the things get built is the gap goal's).
   const change = visionView(plan, { ...UI, change: 'K1' }).slides.at(-1)
@@ -217,9 +222,10 @@ test('the standards: a card per kind with the bar beside today, the foundation, 
 
 test('the interview: the questions in the page\'s order, deeper ones under their answer, an open answer not asked yet, your own words last', () => {
   const view = visionView(plan, { ...UI, page: 'interview', picked: { P5: 'B Anyone: an open gate' } })
-  assert.deepEqual(view.slides.map(one => [one.kind, one.id]), [['ask', 'P1.1'], ['ask', 'P1.2'], ['ask', 'P5'], ['open', 'P6'], ['ask', 'F2']])
+  // The guided path (2026-10-21): each step's questions, then the decisions waiting there, in the steps' order.
+  assert.deepEqual(view.slides.map(one => [one.kind, one.id]), [['ask', 'P1.1'], ['ask', 'P1.2'], ['ask', 'P5'], ['open', 'P6'], ['decide', 'P7'], ['ask', 'F2'], ['decide', 'F3'], ['decide', 'K2'], ['decide', 'S1']])
   assert.deepEqual([view.slides[0].isDeeper, view.slides[0].title, view.slides[0].question], [true, 'What it is', 'How many benches?'])
-  assert.deepEqual([view.slides[4].title, view.slides[4].question], ['A pond', 'When should the pond come?'])
+  assert.deepEqual([view.slides[5].title, view.slides[5].question], ['A pond', 'When should the pond come?'])
   const slide = view.slides[2]
   assert.deepEqual([slide.kind, slide.id, slide.askId, slide.question, slide.text, slide.advice], ['ask', 'P5', 'Q4', 'Who should come to the garden?', 'Nothing says it yet.', 'A'])
   assert.deepEqual(slide.options.map(option => [option.key, option.head, option.points, option.picture, option.isAdvised, option.isPicked, option.isOwn === true]), [
@@ -233,7 +239,7 @@ test('the interview: the questions in the page\'s order, deeper ones under their
   assert.deepEqual(view.slides[3], { kind: 'open', id: 'P6', title: 'Where', question: 'Where', text: '', isAsked: false })
   assert.equal(visionView(plan, { ...UI, asked: ['P6'] }).slides[3].isAsked, true)
   // The slide at stays inside the slides.
-  assert.equal(visionView(plan, { ...UI, at: 9 }).at, 4)
+  assert.equal(visionView(plan, { ...UI, at: 12 }).at, 8)
   assert.equal(visionView(plan, { ...UI, at: -3 }).at, 0)
 })
 
@@ -245,17 +251,19 @@ test('Change: an answer, a feature or a goal of the preset gets its slide last, 
   const goal = visionView(plan, { ...UI, change: 'S1' }).slides.at(-1)
   assert.deepEqual([goal.id, goal.question, goal.points], ['S1', 'Change: Two benches by the path', ['**Done when:** two benches stand by the path and you sat on both', 'Draw the bench', 'Place them']])
   // An open answer cannot be changed, only answered.
-  assert.equal(visionView(plan, { ...UI, change: 'P5' }).slides.length, 5)
+  assert.equal(visionView(plan, { ...UI, change: 'P5' }).slides.length, 9)
 })
 
 test('the features: marks with yours not sent yet, complex and built, the counts, and the architecture check', () => {
   const view = visionView(plan, UI)
   assert.deepEqual(view.features.cards.map(card => [card.id, card.name, card.mark, card.isPending, card.isComplex, card.built, card.source, card.slide]), [
     ['F1', 'Benches', 'must', false, false, 'yes', 'from vision.md, 2026-10-10', -1],
-    ['F2', 'A pond', 'later', false, true, 'no', 'package A, 2026-10-19', 4],
+    ['F2', 'A pond', 'later', false, true, 'no', 'package A, 2026-10-19', 5],
     ['F3', 'Lamps', 'unsure', false, false, 'partly', null, -1],
   ])
-  assert.equal(view.features.summary, '3 features · 1 must · 1 later · 0 no · 1 not sure')
+  // The marks are the road's milestones (2026-10-21); must and later from before wait to be placed.
+  assert.equal(view.features.summary, '3 features · M1 0 · 2 not placed in a milestone yet · 0 no · 1 not sure')
+  assert.deepEqual(view.features.markOptions, [['M1', 'M1'], ['no', 'No'], ['unsure', '?']])
   assert.match(view.features.architecture, /^1 complex feature is later or not sure \(A pond\): the structure is checked again at every milestone/)
   assert.deepEqual(view.features.pending, [])
   // Your marks: shown at once, counted, sent in one word; the check follows them.
@@ -264,6 +272,9 @@ test('the features: marks with yours not sent yet, complex and built, the counts
   assert.deepEqual(marked.features.pending, ['F2 must', 'F3 no'])
   assert.match(marked.features.architecture, /^Every complex feature is decided \(A pond\): build for them now/)
   assert.equal(marked.steps[1].isDone, true)
+  // A complex feature in the road's first milestone is decided; in a later one it is checked at every milestone.
+  assert.match(visionView(plan, { ...UI, marks: { F2: 'M1', F3: 'no' } }).features.architecture, /^Every complex feature is decided/)
+  assert.match(visionView(plan, { ...UI, marks: { F2: 'M2', F3: 'no' } }).features.architecture, /^1 complex feature is later or not sure/)
 })
 
 test('the goals: the preset per milestone, Confirm not sent yet, and the state of the step', () => {
@@ -274,7 +285,7 @@ test('the goals: the preset per milestone, Confirm not sent yet, and the state o
   assert.equal(view.goals.summary, '2 goals · 1 confirmed by you')
   const confirming = visionView(plan, { ...UI, confirms: ['S1'] })
   assert.deepEqual([confirming.goals.milestones[0].goals[0].state, confirming.goals.pending], ['confirming', ['S1']])
-  assert.equal(confirming.steps[2].isDone, false)
+  assert.equal(confirming.steps[3].isDone, false)
 })
 
 test('while the partner prepares: Go deeper waits on its card, Get options shows as asked, the sends wait, the lines name the part', () => {
@@ -287,7 +298,7 @@ test('while the partner prepares: Go deeper waits on its card, Get options shows
   const view = visionView(busy, UI)
   assert.deepEqual(view.cards.map(card => [card.id, card.deeperWork]), [['P1', null], ['P2', 'working'], ['P5', null], ['P6', null], ['P7', null]])
   assert.equal(view.slides.find(slide => slide.id === 'P6').isAsked, true)
-  assert.deepEqual(view.busy, { marks: true, featureAdd: false, confirms: false, goalsChange: false, agree: false, standards: false, standardConfirms: false, standardsChange: false, standardsAgree: false })
+  assert.deepEqual(view.busy, { marks: true, featureAdd: false, confirms: false, goalsChange: false, agree: false, standards: false, standardConfirms: false, standardsChange: false, standardsAgree: false, check: false, focus: false })
   assert.deepEqual(view.working.map(one => [one.command, one.title, one.state]), [['plan-deeper', 'Look', 'working'], ['plan-ask', 'Where', 'waiting'], ['plan-marks', null, 'working'], ['plan-goals-agree', null, 'late']])
   assert.match(script, /'Preparing questions…'/)
   assert.match(css, /\.vision-spinner \{/)
@@ -297,7 +308,7 @@ test('no plan: no view; no question: no slides; no features or goals: empty step
   assert.equal(made.visionView(null, UI), null)
   const none = visionView(planState('# Empty\n\n## P1 · What\n\n- State: decided (you, 2026-10-19)\n', [], 'p.md'), UI)
   assert.deepEqual([none.slides, none.interviewLabel, none.summary, none.features.cards, none.features.architecture, none.goals.milestones], [[], 'Interview', '1 of 1 decided by you', [], null, []])
-  assert.deepEqual(none.steps.map(step => step.isDone), [true, false, false, false])
+  assert.deepEqual(none.steps.map(step => step.isDone), [true, false, false, false, false])
   assert.deepEqual([none.standards.cards, none.standards.summary], [[], ''])
 })
 
@@ -325,4 +336,30 @@ test('the Vision tab sits beside Overview, with its view, its address and its st
   assert.match(css, /\.vision-part\.is-bar \{/)
   // The Focus page no longer carries the plan.
   assert.doesNotMatch(script, /planCard\(/)
+})
+
+test('the guided path: a decision per slide with its step, its buttons, sent once; the plan check; the next focus', () => {
+  const view = visionView(plan, UI)
+  const decisions = view.slides.filter(one => one.kind === 'decide')
+  assert.deepEqual(decisions.map(one => [one.id, one.step, one.question, one.actions.map(action => `${action.label}:${action.act}:${action.id}`)]), [
+    ['P7', 'vision', 'Is this your answer for The road?', ['Yes, mine:confirm:P7', 'Change:change:P7']],
+    ['F3', 'features', 'When does Lamps come?', ['M1:mark-now:F3:M1', 'No:mark-now:F3:no']],
+    ['K2', 'standards', 'Is this the bar for Paths?', ['Confirm:confirm-standard-now:K2', 'Change:change:K2']],
+    ['S1', 'plan', 'Is this a goal: Two benches by the path?', ['Confirm:confirm-goal-now:S1', 'Change:change:S1']],
+  ])
+  // A decision sent stays, marked sent, and no longer counts as one to decide.
+  const sent = visionView(plan, { ...UI, sent: ['F3'] })
+  assert.deepEqual([sent.slides.find(one => one.id === 'F3').isSent, sent.interviewLabel], [true, 'Interview · 8 to decide'])
+  // A decision is no card's "your partner asks".
+  assert.equal(view.features.cards.find(card => card.id === 'F3').slide, -1)
+  // The plan check and a goal's why; the next focus proposed, as a decision while it is not your focus.
+  const checked = visionView(planState(`${PAGE}\n## Next focus\n\n- Proposed (partner, 2026-10-21): G3 · Two benches\n- Why: the first corner needs them\n- When: now\n- Or: G7 · Light\n`.replace('## Goals preset\n', '## Goals preset\n\nChecked: (2026-10-21) S3 proposed: F3 had no goal\n').replace('- Goal: G3\n', '- Goal: G3\n- Why: F1 had no goal\n'), ITEMS, 'docs/product-plan.md'), UI)
+  assert.deepEqual(checked.goals.check, { at: '2026-10-21', text: 'S3 proposed: F3 had no goal' })
+  assert.equal(checked.goals.milestones[0].goals[0].why, 'F1 had no goal')
+  assert.deepEqual(checked.focus.proposal, { goal: 'G3', title: 'Two benches', why: 'the first corner needs them', when: 'now', others: [{ goal: 'G7', title: 'Light' }], by: 'partner', at: '2026-10-21', isCurrent: false })
+  assert.deepEqual(checked.slides.at(-1).actions.map(action => action.act), ['focus-accept', 'page'])
+  const focused = visionView(checked.path === undefined ? null : planState(`${PAGE}\n## Next focus\n\n- Proposed: G3 · Two benches\n`, ITEMS, 'p.md'), UI, { id: 'G3', title: 'Two benches', doneWhen: 'sat on both', stage: 'run' })
+  assert.deepEqual([focused.focus.current, focused.focus.proposal.isCurrent, focused.slides.some(one => one.id === 'focus:G3')], [{ id: 'G3', title: 'Two benches', doneWhen: 'sat on both', stage: 'run' }, true, false])
+  assert.match(script, /function focusStepPage\(view, can, off\)/)
+  assert.match(script, /'Check the plan'/)
 })

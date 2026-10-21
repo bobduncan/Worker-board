@@ -219,6 +219,10 @@ export function planWords(command, { to, id, words = null, job }) {
     'plan-standards-change': ['plan: standards change', `Words: ${said}`],
     'plan-standards-agree': ['plan: standards agreed'],
     'plan-measure': [`plan: ${id} measure`],
+    // The new order (2026-10-21): check the whole plan for what is missing; propose the next focus (with the person's
+    // words when they want another).
+    'plan-check': ['plan: check'],
+    'plan-focus': said === '' ? ['plan: focus'] : ['plan: focus', `Words: ${said}`],
   }[command]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, text: [...head, `Your job: ${job}, "The plan interview"`].join('\n') }
 }
