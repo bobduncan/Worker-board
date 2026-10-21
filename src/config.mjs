@@ -3,6 +3,7 @@
 import { constants } from 'node:fs'
 import { access, copyFile, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { parseRoutingPolicy } from './work/routing/policy.mjs'
 
 /**
  * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
@@ -17,6 +18,7 @@ export const ASK_MS = 60 * 60_000
 export const IDLE_HOLD_MS = 5 * 60_000
 
 export const DEFAULTS = {
+  routing: parseRoutingPolicy(),
   /** B129: the project's name, the page's title; by default the project folder's name. */
   name: '',
   project: '',
@@ -288,6 +290,7 @@ export function parseConfig(text, env) {
     const seen = new Set()
     config.kinds = raw.kinds.filter(isKind).map(kindOf).filter(one => !seen.has(one.kind.toLowerCase()) && seen.add(one.kind.toLowerCase()))
   }
+  config.routing = parseRoutingPolicy(raw.routing)
   return config
 }
 
