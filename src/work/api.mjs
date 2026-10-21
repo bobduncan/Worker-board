@@ -1779,9 +1779,12 @@ async function turnEnded(body, w) {
   }
   const open = openOf(chat, w, fresh)
   // B317: the items of the "For you" block the chat's answer ended with, that it filed no ask for: filed now.
-  const asked = body.forYou === undefined || w.role === 'person' || w.role === 'server' ? undefined : await askForYou(body.forYou, since, w)
+  const fromBlock = body.forYou === undefined || w.role === 'person' || w.role === 'server' ? undefined : await askForYou(body.forYou, since, w)
+  const asked = fromBlock?.asked
   const filedLine = asked === undefined || asked.length === 0 ? '' : ` Filed from your "For you" block: ${asked.join(', ')}; close one the person answers in the chat with work answered-in-chat.`
-  const text = `${missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`}${filedLine}`
+  // B474, the review: an item left out as asked already is named, so a chat whose new question looked alike can file it.
+  const leftLine = (fromBlock?.left.length ?? 0) === 0 ? '' : ` Not filed from your "For you" block, as asked already: ${fromBlock.left.join('; ')}. If one is a new question, file it with work ask.`
+  const text = `${missed.length === 0 ? 'No instruction was left open.' : `Left open: ${missed.join(', ')}. Close each with work close <id> --as "what came of it", or say why it stays open.`}${filedLine}${leftLine}`
   // The review of B300: with `pull`, the same call answers the chat's pull (one call at a turn's end).
   const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
   // Pause and resume (spec 2026-10-18): the same call answers the pause state, so the mod needs no call of its own.
@@ -1804,7 +1807,8 @@ const namesOpenAsk = (text, w) => text.some(words => askIdsIn(words).some(id => 
  * `{ kind, text, options, advice, pictures, play, ref }`), filed as asks of that chat `Via: chat`, not blocking,
  * under the one step it holds in progress (none, or more than one: the ask stands alone, as the form's do). An item
  * is left out when it names an ask of the store (`ref`, the work tool's "(Q4, ...)"), or asks what an ask of the chat
- * filed since the turn began (`since`), or one still open, asks already. The ids filed, in order.
+ * filed since the turn began (`since`), or one still open, asks already. B474: `{ asked, left }`, the ids filed in
+ * order and the items left out as asked already in other words (`forYouRepeat`), each its start and why.
  */
 async function askForYou(value, since, w) {
   const items = (Array.isArray(value) ? value : []).filter(one => one !== null && typeof one === 'object' && !Array.isArray(one)).slice(0, 9)
@@ -1823,6 +1827,7 @@ async function askForYou(value, since, w) {
   const held = all.filter(one => kindOf(one) === 'step' && stateOf(one) === 'in progress' && isOwner(one, w.who, w.prefix))
   const of = held.length === 1 ? valueOf(held[0], 'Id') : null
   const asked = []
+  const left = []
   for (const one of items) {
     if (typeof one.ref === 'string' && ASK_REF.test(one.ref) && w.store.items.has(one.ref)) continue
     const kind = one.kind ?? 'decide'
@@ -1833,8 +1838,12 @@ async function askForYou(value, since, w) {
     if (namesOpenAsk(text, w)) continue
     const key = askKey(text[0])
     if (key === '' || known.some(other => sameAsk(other, key))) continue
-    // B474: in other words, or pointing to it.
-    if (forYouRepeat({ text, kind }, repeats) !== null) continue
+    // B474: in other words, or pointing to it; the chat is told which and why (the review).
+    const repeat = forYouRepeat({ text, kind }, repeats)
+    if (repeat !== null) {
+      left.push(`"${line(text[0], 60)}" ${repeat}`)
+      continue
+    }
     const fields = { kind, text, options: one.options, advice: one.advice, pictures: one.pictures, play: one.play, via: 'chat', blocking: false }
     // Under the step when the board takes it there, else on its own.
     let made = of === null ? await ask(fields, w) : await ask({ ...fields, of }, w)
@@ -1842,9 +1851,10 @@ async function askForYou(value, since, w) {
     if (!made.ok) continue
     asked.push(made.result.id)
     known.push(key)
-    repeats.turn.push({ id: made.result.id, words: text.join(' '), of })
+    // The review: two items of one block are one question only when as alike as an open ask.
+    repeats.own.push({ id: made.result.id, words: text.join(' '), of })
   }
-  return asked
+  return { asked, left }
 }
 
 /** A step is dropped, and why. */

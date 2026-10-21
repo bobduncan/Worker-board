@@ -100,9 +100,14 @@ test('a do that sends the person to another chat\'s open questions under a step 
     await advisor({ action: 'ask', of: 'B2', kind: 'decide', title: 'Drop B2, since the pond is dug already?', text: 'Every part of it stands in B1 or is done.' }, NOW)
     const ended = await main({ action: 'turn-ended', since: NOW + MIN, forYou: [item('Answer the Advisor\'s questions on B2. Open it from the Advisor row on the board.', 'do')] }, NOW + 2 * MIN)
     assert.deepEqual(ended.result.asked ?? [], [])
+    // The chat is told what was left out and why.
+    assert.match(ended.result.text, /Not filed from your "For you" block, as asked already: "Answer the Advisor's questions on B2\. .*" points to Q1 under B2/)
+    // A do that names the step for another reason is filed (the review).
+    const restart = await main({ action: 'turn-ended', since: NOW + 2 * MIN + 1, forYou: [item('Restart the board so B2 takes effect.', 'do')] }, NOW + 3 * MIN)
+    assert.deepEqual(restart.result.asked, ['Q2'])
     // A do about a step with no open question of another chat is filed.
-    const other = await main({ action: 'turn-ended', since: NOW + 3 * MIN, forYou: [item('Water the new hedge of B1 once tonight.', 'do')] }, NOW + 4 * MIN)
-    assert.deepEqual(other.result.asked, ['Q2'])
+    const other = await main({ action: 'turn-ended', since: NOW + 3 * MIN + 1, forYou: [item('Water the new hedge of B1 once tonight.', 'do')] }, NOW + 4 * MIN)
+    assert.deepEqual(other.result.asked, ['Q3'])
   } finally {
     await cleanUp(dir)
   }
@@ -166,6 +171,11 @@ test('the measure of alike: one question in other words is alike, two questions 
   // Word forms count as one word: "teaches", "teaching".
   assert.ok(overlapOf('The second bed now teaches watering, then pruning, one tip at a time', 'Does the second bed\'s teaching of watering and pruning work?') >= 0.5)
   assert.equal(forYouRepeat({ text: ['Water the hedge tonight.'], kind: 'do' }, {}), null)
+  // An open ask that went to the partner first is not the person's: an item like it still reaches them (the review).
+  const pond = { id: 'Q7', words: 'Which of the ten pond proposals become steps? The page lists ten weak places of the pond.', of: 'B1' }
+  const item = { text: ['Which pond proposals become steps: the ten weak places of the pond?'], kind: 'decide' }
+  assert.equal(forYouRepeat(item, { others: [pond] }), 'asks what Q7 asks')
+  assert.equal(forYouRepeat(item, { others: [{ ...pond, routed: true }] }), null)
 })
 
 test('the warning "filed no ask" stays away for an item the board left out as asked already by another chat (Q204)', async () => {

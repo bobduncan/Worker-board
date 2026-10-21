@@ -88,9 +88,14 @@ test('B301: a "For you" block in its last answer without an ask is a warning tha
   // An ask filed in that turn and answered since is filed: no warning.
   const answered = build({ advisor: [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, FOR_YOU)], asked: NOW - 13 * MIN })
   assert.equal(advisorNeeds(answered).some(one => one.kind === 'unfiled'), false)
-  // Review: one filed before that turn began does not count for it, also while it is still open.
+  // Review: one filed before that turn began does not count for it, also while it is still open. B474: unless the block
+  // asks that open question again in other words ("Plant the hedge before the pond?" for "Hedge before the pond?"): it
+  // stands on the board already, and the board files no copy of it.
   const earlier = build({ advisor: [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, FOR_YOU)], asked: NOW - 90 * MIN })
-  assert.deepEqual(advisorNeeds(earlier).map(one => one.kind).sort(), ['input', 'unfiled'])
+  assert.deepEqual(advisorNeeds(earlier).map(one => one.kind).sort(), ['input'])
+  const other = FOR_YOU.replace('Plant the hedge before the pond? I advise yes: the pond needs its shade.', 'Shall the gnomes get a shed of larch wood? I advise yes.')
+  const another = build({ advisor: [typed(NOW - 20 * MIN, 'What first?'), answer(NOW - 12 * MIN, other)], asked: NOW - 90 * MIN })
+  assert.deepEqual(advisorNeeds(another).map(one => one.kind).sort(), ['input', 'unfiled'])
 })
 
 test('nothing for the person: an Advisor that is free without a "For you" block, or that works', () => {
