@@ -11,7 +11,6 @@ import test from 'node:test'
 import { workApi } from '../../src/work/api.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-
 import { AGAIN_MS, CHECKS, NOT_TAKEN_MS, OWNER_GONE_MS, applySync, findStuck } from '../../src/work/sync.mjs'
 
 const MIN = 60_000
