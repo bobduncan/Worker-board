@@ -28,6 +28,7 @@ const LEVEL = /^\s*(low|medium|high|xhigh|x-high|extra[\s-]high|max)(?![\w-])/i
 const HOLDS = ['taken', 'in progress', 'waiting on you']
 const LOST = ['expired', 'failed', 'dropped']
 
+const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 const levelOf = word => (/^(?:x-?high|extra[\s-]high)$/i.test(word) ? 'xhigh' : word.toLowerCase())
 const plain = (name, prefix = '') => {
   const words = String(name ?? '').trim()
@@ -65,18 +66,23 @@ export function effortOf(item) {
 
 /**
  * The effort out of a call: its `effort`, else (a chat whose work tool has no field effort yet) a line of `what` or of
- * `questions` that starts with "Effort:", taken out of that list. The call as it is when it gives none.
+ * `questions` (a list, or lines in one text) that starts with "Effort:", taken out of that list. The call as it is when
+ * it gives none.
  */
 export function withEffort(body) {
   if (body.effort !== undefined) return body
   for (const key of ['what', 'questions']) {
-    if (!Array.isArray(body[key])) continue
-    const at = body[key].findIndex(one => /^(?:[-*]\s+)?Effort:\s*\S/i.test(String(one ?? '').trim()))
+    const all = Array.isArray(body[key]) ? body[key] : typeof body[key] === 'string' ? body[key].split('\n') : null
+    if (all === null) continue
+    const at = all.findIndex(one => /^(?:[-*]\s+)?Effort:\s*\S/i.test(String(one ?? '').trim()))
     if (at < 0) continue
-    return { ...body, effort: String(body[key][at]).trim().replace(/^(?:[-*]\s+)?Effort:\s*/i, ''), [key]: body[key].filter((one, index) => index !== at) }
+    return { ...body, effort: String(all[at]).trim().replace(/^(?:[-*]\s+)?Effort:\s*/i, ''), [key]: all.filter((one, index) => index !== at) }
   }
   return body
 }
+
+/** The newest word that set `chat`'s effort, or undefined. */
+export const lastWord = (sent, chat, prefix = '') => sent.findLast(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(chat, prefix))
 
 /**
  * The word that asks the main chat (`to`) to set `chat`'s effort (its app session `session` when the board knows it)
@@ -98,10 +104,11 @@ export function effortWords({ to, chat, session, level, usual, step, why }) {
  *
  * A worker runs at the effort of the step it holds, else of the step it gets next (so a report followed by the next
  * step asks once), else at its usual level once a word of the board changed it. The usual level is the one the chat
- * ran at before the board's first word (kept on each word as `usual`). A word goes when the chat does not run at its
- * level and none for that level went in the last half hour; the line of a step to its worker waits (`held`) while its
- * effort is not set and the word for it went less than HOLD_MS ago. A chat whose effort the app's file does not say
- * gets no word: the board could not see it set.
+ * ran at before the board's first word, kept on each word as `usual`, and kept while the chat does not run at it (a
+ * word back to it not applied yet, or lost, changes nothing; one lost is sent again). A word goes when the chat does not run at its level and
+ * the newest word for the chat is not one for that level of the last half hour; the line of its next step to a worker
+ * waits (`held`, also its own pull) while that step's effort is not set and the word for it went less than HOLD_MS
+ * ago. A chat whose effort the app's file does not say gets no word: the board could not see it set.
  *
  * `{ words: [{ to, chat, session, level, usual, step, why }], held: Set<step id>, runs: Map<chat, run> }`, `run` for the
  * page: `{ level, usual, step, why, isSet, asked: { at, state } | null }`.
@@ -117,27 +124,29 @@ export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now,
     if (lane.isMain || lane.isLeftover || others.has(plain(lane.name, prefix))) continue
     const holding = steps.find(item => owned(item, lane.name) && HOLDS.includes(valueOf(item, 'State')))
     const delivery = deliveries.find(one => one.chat === lane.name)
+    // The step it gets next, in the order its own pull takes them (fix first, then by id).
     const next = holding ?? (delivery === undefined ? undefined : items.get(delivery.id))
-      ?? steps.filter(item => owned(item, lane.name) && valueOf(item, 'State') === 'queued' && blockersOpen(item, { store: { items } }).length === 0).sort(fixFirst)[0]
-    const mine = sent.filter(message => message.command === 'worker-effort' && plain(message.about, prefix) === plain(lane.name, prefix))
-    const last = mine.at(-1)
+      ?? steps.filter(item => owned(item, lane.name) && valueOf(item, 'State') === 'queued' && blockersOpen(item, { store: { items } }).length === 0)
+        .sort((a, b) => fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))[0]
+    const last = lastWord(sent, lane.name, prefix)
     const current = typeof lane.effort === 'string' && EFFORTS.includes(lane.effort) ? lane.effort : null
-    // Back to the usual level only after a word of the board changed it; outside that, what the chat runs at is usual.
-    const isChanged = last !== undefined && last.effort !== last.usual
-    const usual = (isChanged ? last.usual : current ?? last?.usual) ?? USUAL_EFFORT
+    // The usual level of the board's last word holds while the chat does not run at it; else what it runs at is usual.
+    const usual = (last !== undefined && current !== last.usual ? last.usual : current ?? last?.usual) ?? USUAL_EFFORT
     const step = next === undefined ? null : valueOf(next, 'Id')
     const effort = next === undefined ? null : effortOf(next)
     const level = effort?.level ?? usual
-    if (effort === null && !isChanged) continue
+    // Back to the usual level only after a word of the board changed it (its last word was for a step, or the word back
+    // was lost), and only when it does not run at it: a level the person set by hand later is left alone.
+    if (effort === null && (last === undefined || current === null || current === usual || (last.effort === last.usual && !LOST.includes(last.state)))) continue
     const isSet = current === level
-    const asked = mine.findLast(message => message.effort === level && now - message.at < AGAIN_MS) ?? null
+    const asked = last !== undefined && last.effort === level && now - last.at < AGAIN_MS ? last : null
     const why = step === null ? `${lane.name} holds no step now: back to its usual level`
       : `${step} is ${holding === undefined ? `${lane.name}'s next step` : `${lane.name}'s step`}; ${effort.isSet ? `its refine says ${level} (${effort.why})` : `its refine gives no effort, so ${level}`}`
     runs.set(lane.name, { level, usual, step, why: effort?.why ?? null, isSet, asked: asked === null ? null : { at: asked.at, state: asked.state } })
     if (isSet || main === null || current === null) continue
     if (asked === null) words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, usual, step, why })
     const isWaiting = asked === null || (now - asked.at < HOLD_MS && !LOST.includes(asked.state))
-    if (delivery !== undefined && delivery.id === step && isWaiting) held.add(step)
+    if (holding === undefined && step !== null && isWaiting) held.add(step)
   }
   return { words, held, runs }
 }

@@ -125,3 +125,38 @@ test('no word without a main chat, for the main chat, the partner or a leftover,
   assert.deepEqual([unknown.words, [...unknown.held]], [[], []])
   assert.equal(unknown.runs.get('Units').isSet, false)
 })
+
+test('the review: only the newest word counts as asked, so a level asked earlier is asked again after another', () => {
+  const items = itemsOf(step('B12', { Owner: 'Units' }, { Effort: ['medium · a board fix'] }))
+  // Medium at 10:00 for an earlier step, high at 10:12 for the next; now a medium step again.
+  const sent = [word('Units', 'medium', 'xhigh', NOW - 25 * 60_000), word('Units', 'high', 'xhigh', NOW - 13 * 60_000)]
+  const plan = effortPlan({ items, lanes: [lane('Units', { effort: 'high' })], deliveries: [{ id: 'B12', chat: 'Units' }], sent, now: NOW, main: 'Main' })
+  assert.deepEqual(plan.words.map(one => [one.level, one.usual, one.step]), [['medium', 'xhigh', 'B12']])
+  assert.deepEqual([...plan.held], ['B12'])
+})
+
+test('the review: the next step waits also while its worker is busy, so its own pull does not take it before it is set', () => {
+  const items = itemsOf(step('B7', { Owner: 'Units', State: 'review' }, { Effort: ['low · x'] }), step('B13', { Owner: 'Units' }, { Effort: ['high · new art'] }))
+  const plan = effortPlan({ items, lanes: [lane('Units', { effort: 'low' })], deliveries: [], sent: [word('Units', 'low', 'xhigh', NOW - 3_600_000)], now: NOW, main: 'Main' })
+  assert.deepEqual([...plan.held], ['B13'])
+  assert.deepEqual(plan.words.map(one => [one.level, one.usual]), [['high', 'xhigh']])
+})
+
+test('the review: the usual level holds while a word back to it is not applied, and a lost one goes again', () => {
+  const items = itemsOf(step('B14', { Owner: 'Units' }, { Effort: ['low · a text fix'] }))
+  // Back to xhigh asked a minute ago, not applied yet: the next step's word keeps xhigh as usual, not medium.
+  const pending = effortPlan({ items, lanes: [lane('Units', { effort: 'medium' })], sent: [word('Units', 'medium', 'xhigh', NOW - 3_600_000), word('Units', 'xhigh', 'xhigh', NOW - 60_000, 'taken')], now: NOW, main: 'Main' })
+  assert.deepEqual(pending.words.map(one => [one.level, one.usual]), [['low', 'xhigh']])
+  // No step any more and the word back was lost: it goes again once its half hour is over.
+  const none = itemsOf(step('B14', { Owner: 'Units', State: 'done' }, { Effort: ['low · a text fix'] }))
+  const lost = word('Units', 'xhigh', 'xhigh', NOW - 40 * 60_000, 'expired')
+  assert.deepEqual(effortPlan({ items: none, lanes: [lane('Units', { effort: 'medium' })], sent: [word('Units', 'medium', 'xhigh', NOW - 3_600_000), lost], now: NOW, main: 'Main' }).words.map(one => one.level), ['xhigh'])
+  // The word back arrived and the chat runs at another level now: the person's own, left alone.
+  const own = word('Units', 'xhigh', 'xhigh', NOW - 40 * 60_000, 'delivered')
+  assert.deepEqual(effortPlan({ items: none, lanes: [lane('Units', { effort: 'high' })], sent: [own], now: NOW, main: 'Main' }).words, [])
+})
+
+test('the review: an effort line in questions or what given as one text', () => {
+  assert.deepEqual(withEffort({ questions: 'Effort: low: a text fix\nShould it fold? Advised: yes' }), { questions: ['Should it fold? Advised: yes'], effort: 'low: a text fix' })
+  assert.deepEqual(withEffort({ what: 'A field' }), { what: 'A field' })
+})

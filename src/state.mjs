@@ -1537,7 +1537,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
     // server carries out; empty and null while the store cannot be read.
     workFlags: (reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id)), efforts: efforts.words, says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id)), efforts: efforts.words, held: [...efforts.held], says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [] },
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
     // without a store.
     partnerAnswers: !workOk ? null : raw.work.partnerAnswers ?? { on: true },

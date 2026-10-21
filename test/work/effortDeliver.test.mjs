@@ -13,7 +13,7 @@ import { answer, typed } from '../../fixtures/lines.mjs'
 import { parseConfig } from '../../src/config.mjs'
 import { buildState } from '../withStore.mjs'
 import { memoryStore, outboxNow } from '../../src/store.mjs'
-import { deliverWork } from '../../src/work/deliver.mjs'
+import { deliverWork, pullFor } from '../../src/work/deliver.mjs'
 import { HOLD_MS } from '../../src/work/effort.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
@@ -75,6 +75,24 @@ test('the main chat is asked to set the worker to its step\'s level first; the s
     assert.equal(state.chats.find(lane => lane.name === 'Digger').effortRun.isSet, true)
     const sent = await deliver(state, outbox, NOW + 2 * MIN)
     assert.deepEqual(sent.sent.map(one => [one.to, one.text]), [['Digger', 'work: B1 is yours; run work next']])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('the review: a worker\'s own pull at its turn\'s end waits as the reconciler\'s line does', async () => {
+  const { dir, build } = await garden()
+  try {
+    const outbox = memoryStore()
+    const result = { text: 'work: B1 is yours; run work next', id: 'B1', since: '2026-10-21 10:05', wake: { to: 'Digger', id: 'B1' }, changed: false }
+    const pull = state => pullFor({ dir, result, state, outbox, now: NOW, maxChars: 2000, newId: () => 'p1' })
+    let state = await build()
+    assert.deepEqual(state.reconciled.held, ['B1'])
+    assert.equal((await pull(state)).text, '')
+    assert.deepEqual(outbox.outbox(), [])
+    state = await build({ effort: 'low' })
+    assert.equal((await pull(state)).text, 'work: B1 is yours; run work next')
+    assert.deepEqual(outbox.outbox().map(one => one.to), ['Digger'])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

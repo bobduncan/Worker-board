@@ -41,6 +41,21 @@ test('a task keeps its step\'s effort, the effort its answers ran at, and their 
   assert.equal(tokensOf(task.tokens), 5038)
 })
 
+test('the review: a message whose lines say more tokens later counts its largest figures once', () => {
+  const lines = [
+    works(at(0), 'm1', { action: 'take', id: 'B302', branch: 'b' }, usage(10), 'high'),
+    answers(at(1), 'm2', usage(100), 'high', [{ type: 'text', text: 'Part.' }]),
+    answers(at(1), 'm2', usage(300), 'high', [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'ls' } }]),
+    answers(at(1), 'm2', usage(300), 'high', [{ type: 'text', text: 'Again.' }]),
+    works(at(2), 'm3', { action: 'report', id: 'B302', result: 'done' }, usage(20), 'high'),
+  ]
+  const [task] = walk(parseTail(lines.join('\n'), false), freshScan('Units'), id => STEPS[id] ?? null)
+  assert.deepEqual(task.tokens, { input: 6, cacheWrite: 300, cacheRead: 3000, output: 330 })
+  assert.deepEqual([task.effort, task.ranOn], ['high', 'high'])
+  // What the walk keeps between reads stays plain JSON.
+  assert.doesNotThrow(() => JSON.parse(JSON.stringify(task)))
+})
+
 test('the board keeps per effort level how many tasks, their typical time and tokens', () => {
   const task = (step, effort, workMin, output, ranOn = effort) => ({ step, steps: [step], worker: 'Units', area: 'board', estimateMin: 60, startedAt: at(workMin), reportedAt: at(workMin + 100), workMs: workMin * MIN, effort, ranOn, tokens: { input: 0, cacheWrite: 0, cacheRead: output * 10, output } })
   const tasks = [

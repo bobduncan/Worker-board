@@ -32,6 +32,9 @@ test('who runs at the step\'s effort: set, asked and not set yet, or to come', (
   assert.equal(page.effortRunLine(item('queued'), []), 'Units is set to low before the step goes to it.')
   assert.equal(page.effortRunLine(item('waiting on you'), [lane({ level: 'medium', step: 'B9', isSet: true, asked: null })]), 'Units is to run at low while it holds the step.')
   assert.equal(page.effortRunLine(item('review'), []), null)
+  // The Owner written in another case is the same chat.
+  assert.equal(page.effortRunLine({ ...item('in progress'), owner: 'units' }, [lane({ level: 'low', usual: 'xhigh', step: 'B7', isSet: true, asked: null })]),
+    'units runs at low until the step ends, then at its usual level (xhigh).')
   assert.equal(page.effortRunLine({ ...item('queued'), owner: null }, []), null)
 })
 

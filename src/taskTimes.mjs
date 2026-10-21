@@ -108,16 +108,20 @@ export function walk(entries, scan, stepOf = () => null) {
       // that was never reported is left out.
       if (scan.task !== null && scan.task.steps.includes(take.id)) continue
       const step = stepOf(take.id)
-      scan.task = { steps: [take.id], area: step?.area ?? 'game', estimateMin: step?.estimateMin ?? null, effort: step?.effort ?? null, startedAt: entry.at, workMs: 0, countedTo: null, isPaused: false, tokens: noTokens(), ranOn: {}, lastMessage: null }
+      scan.task = { steps: [take.id], area: step?.area ?? 'game', estimateMin: step?.estimateMin ?? null, effort: step?.effort ?? null, startedAt: entry.at, workMs: 0, countedTo: null, isPaused: false, tokens: noTokens(), ranOn: {}, lastMessage: null, lastUsage: null }
       if (scan.turnAt === null) scan.turnAt = entry.at
     }
-    // B468: a message's tokens once (the app writes them on each of its lines), and the effort it ran at.
-    if (scan.task !== null && entry.type === 'assistant' && entry.usage != null && (entry.messageId === null || entry.messageId !== scan.task.lastMessage)) {
+    // B468: a message's tokens once: the app writes them on each of its lines, so a line of the same message adds only
+    // what it says more than the line before (the largest counts); and the effort a message ran at, once.
+    if (scan.task !== null && entry.type === 'assistant' && entry.usage != null) {
       const task = scan.task
+      const isSame = entry.messageId !== null && entry.messageId === task.lastMessage
+      const before = isSame ? task.lastUsage ?? noTokens() : noTokens()
       task.tokens ??= noTokens()
-      for (const key of Object.keys(task.tokens)) task.tokens[key] += entry.usage[key] ?? 0
+      for (const key of Object.keys(task.tokens)) task.tokens[key] += Math.max(0, (entry.usage[key] ?? 0) - before[key])
+      task.lastUsage = Object.fromEntries(Object.keys(before).map(key => [key, Math.max(before[key], entry.usage[key] ?? 0)]))
+      if (!isSame && typeof entry.effort === 'string') task.ranOn = { ...task.ranOn, [entry.effort]: (task.ranOn?.[entry.effort] ?? 0) + 1 }
       task.lastMessage = entry.messageId
-      if (typeof entry.effort === 'string') task.ranOn = { ...task.ranOn, [entry.effort]: (task.ranOn?.[entry.effort] ?? 0) + 1 }
     }
     if (scan.task !== null && entry.type === 'assistant') {
       if (entry.error === 'rate_limit' || sentFirstLines(entry).some(first => PAUSED.test(first))) scan.task.isPaused = true

@@ -4006,7 +4006,7 @@ function effortRunLine(item, lanes = []) {
   const isHeld = EFFORT_HOLDS.includes(item?.state)
   if (owner === null || (!isHeld && item.state !== 'queued')) return null
   const level = item.effort.level
-  const run = lanes.find(lane => lane.name === owner)?.effortRun ?? null
+  const run = lanes.find(lane => String(lane.name).toLowerCase() === String(owner).toLowerCase())?.effortRun ?? null
   if (run !== null && run.step === item.id && run.isSet) {
     return isHeld ? `${owner} runs at ${level} until the step ends, then at its usual level (${run.usual}).` : `${owner} is set to ${level} for it already.`
   }
