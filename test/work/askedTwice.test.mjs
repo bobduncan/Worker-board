@@ -67,6 +67,11 @@ test('B480: an item that asks again what the chat withdrew unanswered is a new a
     await advisor({ action: 'withdraw', id: 'Q1', why: 'I fold the advice in: roses alone' }, since + MIN)
     const ended = await advisor({ action: 'turn-ended', since, forYou: [item('In the garden first pick, should the roses card stand alone? I built in yes; to change it, say so.')] }, since + 2 * MIN)
     assert.deepEqual(ended.result.asked, ['Q2'])
+    // The review: also in the same words as the withdrawn one, filed in the same turn.
+    await advisor({ action: 'ask', kind: 'decide', title: 'Should the pond get lilies?', text: 'Lilies shade the fish.' }, since + 3 * MIN)
+    await advisor({ action: 'withdraw', id: 'Q3', why: 'asked anew in my answer' }, since + 4 * MIN)
+    const same = await advisor({ action: 'turn-ended', since: since + 3 * MIN - 1, forYou: [item('Should the pond get lilies? I advise yes.')] }, since + 5 * MIN)
+    assert.deepEqual(same.result.asked, ['Q4'])
   } finally {
     await cleanUp(dir)
   }

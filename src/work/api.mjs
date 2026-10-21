@@ -1814,7 +1814,8 @@ async function askForYou(value, since, w) {
   const items = (Array.isArray(value) ? value : []).filter(one => one !== null && typeof one === 'object' && !Array.isArray(one)).slice(0, 9)
   const all = [...w.store.items.values()]
   // Warnings (2026-10-19): an ask's time to the millisecond (`Filed`; an older one at the end of its minute).
-  const known = all.filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && (stateOf(one) === 'open' || askFiledMs(one) >= since))
+  // B480: an ask withdrawn unanswered asked nothing, also in the same words.
+  const known = all.filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && (stateOf(one) === 'open' || askFiledMs(one) >= since) && !isWithdrawn(one))
     .map(one => askKey(askWordsOf(one)))
   // B474: the asks an item may repeat in other words: the chat's own filed this turn, its own still open, and the other
   // chats' open ones (Q193 before Q197). B480: a withdrawn ask was never answered, so asking it again is a new question

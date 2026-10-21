@@ -34,7 +34,7 @@ for (const one of facts.filter(f => f.at >= from).sort((a, b) => a.at - b.at)) {
   let now = null
   if (one.via === 'chat') {
     const key = askKey(text[0] ?? '')
-    const known = [...own, ...turn].map(f => askKey((f.item.sections.get('Text') ?? [])[0] ?? valueOf(f.item, 'Title') ?? ''))
+    const known = [...own, ...turn].filter(f => !(f.withdrawn && f.closed <= one.at)).map(f => askKey((f.item.sections.get('Text') ?? [])[0] ?? valueOf(f.item, 'Title') ?? ''))
     if (known.some(k => sameAsk(k, key))) old = 'same words'
     else if (text.some(w => askIdsIn(w).some(id => own.some(f => f.id === id)))) old = 'names its own open ask (B362)'
     now = old ?? forYouRepeat({ text, kind: one.kind }, { turn, own, others: open.filter(f => f.owner !== one.owner) })
