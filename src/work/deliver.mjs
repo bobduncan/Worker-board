@@ -14,6 +14,7 @@ import { sinceMs } from './item.mjs'
 import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 import { isHolding } from './pause.mjs'
 import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
+import { AGAIN_MS, effortWords, lastWord } from './effort.mjs'
 
 export { partnerAskWords }
 
@@ -120,6 +121,8 @@ export async function pullFor({ dir, result, state, outbox, now, maxChars, newId
   const wake = result?.wake ?? null
   const none = { ...result, text: '', wake: null }
   if (wake === null || dir === null || !mayWake(state, wake.to)) return wake === null ? result : none
+  // B468: a step whose effort the worker's chat is not set to yet waits, as the reconciler's line does (effort.mjs).
+  if ((state?.reconciled?.held ?? []).includes(wake.id)) return none
   const sent = await sendOnce({ dir, key: deliveryKey(wake.id, wake.to, result.since), words: workWords(wake.to, wake.id), outbox, state, now, maxChars, newId, fs, keep })
   return sent === null ? none : result
 }
@@ -236,6 +239,19 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })
     if (sent !== null) done.sent.push(sent)
+  }
+  // B468: the words that have the main chat set a worker's effort (effort.mjs, `effortPlan`): not when the newest word for
+  // the chat is one for the same level of the last half hour, also when two refreshes plan it before the state shows it.
+  for (const one of plan.efforts ?? []) {
+    const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '')
+    if ((last !== undefined && last.effort === one.level && now - last.at < AGAIN_MS) || one.to === null) continue
+    const message = { id: newId(), at: now, ...effortWords(one), state: 'waiting' }
+    try {
+      await outbox.say(message)
+      done.sent.push(message)
+    } catch {
+      // Planned again at the next refresh.
+    }
   }
   return done
 }

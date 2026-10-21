@@ -91,6 +91,7 @@ test('a lane on a refined step carries its brief: summary, picture, what we buil
     summary: ['Three new meadows for the zebracorns,', 'each one crossed by the test herd before it ships.'],
     picture: 'art-inbox/meadows/plan.png (the three meadows side by side)',
     what: ['The Clover, the Thistle and the Ring as meadow maps.', 'Not in it: a fourth meadow.'],
+    effort: { level: 'medium', why: null, isSet: false },
     about: ['The herd asked for three meadows.'],
     context: ['The herd asked for three meadows. Requirements: three maps, each crossed.', 'Touches: src/meadows, tests.'],
     touches: ['src/meadows, tests.'],
@@ -114,7 +115,7 @@ test('a refined step: a short title with the whole one on hover, the goal as a c
   assert.equal(view.code, 'B12')
   assert.equal(view.title, 'Build the Clover, the Thistle and the Ring as meadow maps')
   assert.equal(view.fullTitle, 'Build the Clover, the Thistle and the Ring as meadow maps, each crossed by the test herd')
-  assert.deepEqual(view.chips.map(chip => chip.text), ['Working', 'Worker: Units', 'G29 Zebracorn meadows worth walking'])
+  assert.deepEqual(view.chips.map(chip => chip.text), ['Working', 'Worker: Units', 'G29 Zebracorn meadows worth walking', 'Effort: medium'])
   assert.equal(view.chips[2].tone, 'goal')
   assert.deepEqual(view.refined, {
     summary: 'Three new meadows for the zebracorns, each one crossed by the test herd before it ships.',
@@ -133,7 +134,7 @@ test('a step without a refine block: no refined part, the first lines of its con
   assert.equal(view.fullTitle, 'Fence the meadow: a gate on the north side that only the gardener opens, so the herd stays in')
   assert.equal(view.refined, null)
   assert.equal(view.task, 'The herd keeps walking off the north edge. A gate there keeps it in. The gate opens for the gardener only.')
-  assert.deepEqual(view.chips.map(chip => chip.text), ['Working', 'Worker: Units', 'G29 Zebracorn meadows worth walking'])
+  assert.deepEqual(view.chips.map(chip => chip.text), ['Working', 'Worker: Units', 'G29 Zebracorn meadows worth walking', 'Effort: medium'])
 })
 
 test('the details keep the rest: the step with its whole title, its context, what it touches and its history', () => {

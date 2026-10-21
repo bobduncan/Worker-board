@@ -121,7 +121,7 @@ test('the window shows the card\'s task in its head, the task as it was given, i
   const units = lane(working)
   const view = plain(page.laneWindowOf(units, NOW, 'Game - Main'))
   // B299: the lane names its step by the store's title, not the card's short topic.
-  assert.deepEqual([view.code, view.title, view.chips], ['B12', 'The zebracorn\'s walk', [{ text: 'Working', tone: 'kind' }, { text: 'Worker: Units', tone: 'to' }]])
+  assert.deepEqual([view.code, view.title, view.chips], ['B12', 'The zebracorn\'s walk', [{ text: 'Working', tone: 'kind' }, { text: 'Worker: Units', tone: 'to' }, { text: 'Effort: medium', tone: 'plain' }]])
   // B301: the step is the task; no words gave it.
   assert.equal(view.given, null)
   assert.deepEqual(plain(page.laneWindowOf(lane(working, { backlogText: '' }), NOW, 'Game - Main')).given, { from: `Typed by you, ${page.clock(NOW - 50 * MIN)}`, text: HAND_OVER })

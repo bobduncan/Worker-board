@@ -2679,6 +2679,51 @@ the whole text) as the title.
    its role and from the refusal.
 6. Not in it: the options' own length, and the answers.
 
+## A step's effort level (B468)
+
+The person, 2026-10-21 (I52): "in order to save tokens, i need a task, before it's picked up to evaluate what effort
+level it needs. the worker will adjust to this new effort level". Every chat ran at the effort it was started with.
+
+1. The partner gives every step an effort at its refine: `effort` on `work refine`, `work refined` and `work new` from
+   an agreed how, a level of the app's (low, medium, high, xhigh, max) and a reason of one line ("medium: a board fix
+   in one hook, with tests"; `parseEffort`, `src/work/effort.mjs`). The store keeps it as the step's Effort section
+   ("medium · ...") and the refine block's `Effort:` line, after Standard; a later round without one keeps it, a
+   `refined` with one replaces it. The Workers mod sends only the fields it lists (`WORK_FIELDS`), so without the field
+   there it stands as a line of `questions` or `what` that starts with "Effort:" (`withEffort`), as the standard did. A level the board cannot read, or one without
+   a reason, is refused before anything is written. A step without one counts as medium (`effortOf`). A fix step a
+   failed result check makes runs at the effort of the step it fixes. How the partner chooses stands in
+   roles/partner.md; max only with the person's word.
+2. A chat cannot set its own effort (the app refuses that for a chat itself), so the board asks the main chat:
+   `set effort`, "Chat:", "Effort:", "Session:", "Step:" (none when back to the usual level), "Why:" (command
+   `worker-effort`), and the main chat sets the worker's chat with the app's `set_session_effort` (roles/main.md), as
+   for the partner's high effort mode (B352). The app keeps each chat's effort in its own file of the chat
+   (`effort`), so the board reads what a worker runs at (the lane's `effort`) and never guesses.
+3. What a worker should run at (`effortPlan`): the effort of the step it holds (taken, in progress, waiting on you),
+   else of the step it gets next (the reconciler's line to it, or its first queued step whose blockers are done, fix
+   first and then by id, as its own pull takes them), else, only after a word of the board changed it, its usual level:
+   the one it ran at before the board's first word, kept on every word as `usual` and kept while the chat does not run
+   at it (a word back to it not applied yet changes nothing; the outbox keeps the newest word per worker however old,
+   `outboxNow`). So a report followed by the next step asks once. A word goes when the worker does not run at that
+   level and the newest word for it is not one for that level of the last half hour (`AGAIN_MS`, `lastWord`; also
+   checked against the outbox itself when the delivery sends it); a word back that was lost goes again after that, a
+   level the person set by hand after a word back arrived is left alone. None for a chat whose effort the app's file
+   does not say, none without a main chat or the Workers mod, none while the person pauses.
+4. The app applies a new effort from the chat's next turn on, so the line of a worker's next step ("work: B<id> is
+   yours") waits while that step's effort is not set, at most three minutes after the word (`HOLD_MS`); then it goes
+   anyway. The reconciler's line and the worker's own pull at its turn's end both wait (`state.reconciled.held`,
+   `pullFor`).
+5. The step's window shows its effort after the goal: the five levels with its own lit, its reason (or "counts as
+   medium"), who runs at it until the step ends or that the main chat was asked and it is not set yet, and what was
+   kept for that level (`itemPartsOf`, `effortRunLine`, `effortKeptLine`). The worker's window has "Effort: <level>"
+   among its chips, ", not set yet" while asked. A refine block shows its Effort line (`refinedParts`).
+6. The time and tokens per level: each task the board measures (B185) keeps its step's effort at the take, the effort
+   most of its answers ran at (`ranOn`; the app writes it on every answer) and the tokens of its answers from the take
+   to the report, each message once (`usage`, `messageId` in `src/transcript.mjs`). `taskTimesOf` gives per level the
+   tasks, their typical time, typical tokens and output tokens, and how many ran at another level; the list in the
+   board's data folder (`task-times.md`) has the table "Per effort level". The answers of helpers (their own
+   transcripts) are not counted.
+7. Not in it: the partner's own effort (B352) and the result checks' helpers.
+
 ## The last silent catches (B446)
 
 The result check of B404 found four catches left in `server.mjs` that dropped their errors: nothing on the page,

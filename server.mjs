@@ -62,6 +62,7 @@ import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
+import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
@@ -1000,14 +1001,14 @@ async function main(args) {
     if (measuring || typeof config.transcripts !== 'string' || workDir === null) return
     measuring = true
     try {
-      // B301: a step's area and estimate as the store holds them.
+      // B301: a step's area and estimate as the store holds them; B468: and its effort.
       // B467: a store it cannot read fails this measuring (shown and logged); the transcripts are read on next time.
       const items = (await readStore(workDir)).items
       const stepOf = id => {
         const item = items.get(id)
         if (item === undefined) return null
         const words = [item.head.get('Title') ?? '', ...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)].join('\n')
-        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`) }
+        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), effort: effortOf(item).level }
       }
       const added = []
       for (const chat of state.chats) {

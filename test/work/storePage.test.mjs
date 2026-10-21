@@ -52,9 +52,10 @@ test('a step\'s window: Summary, picture, goal, the strip, What we build, Requir
   assert.deepEqual(item, {
     id: 'B1', title: 'Draw the strip', summary: ['One strip per step.'], picture: 'art-inbox/strip/strip.png', goal: 'G4', what: ['the strip', 'its window'],
     requirements: ['readable when small'], touches: ['public/board.js, src/state.mjs'], history: ['2026-10-17 11:05 Board: taken'], queueWhenRefined: null, checked: null, fixOf: null, attempts: 0,
+    effort: { level: 'medium', why: null, isSet: false }, owner: 'Board', state: 'in progress',
   })
   assert.deepEqual(plain(page.itemPartsOf(item, true)).map(part => [part.key, part.isFolded]), [
-    ['summary', false], ['picture', false], ['goal', false], ['flow', false], ['what', false], ['requirements', true], ['touches', true], ['history', false],
+    ['summary', false], ['picture', false], ['goal', false], ['effort', false], ['flow', false], ['what', false], ['requirements', true], ['touches', true], ['history', false],
   ])
   assert.deepEqual(plain(page.itemPartsOf(null, true)), [])
   // A store that cannot be read gives no item.

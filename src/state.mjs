@@ -32,6 +32,7 @@ import { NOTE_LINE, isPartnerAnswered, stepWaitsForPartner } from './work/partne
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
+import { effortPlan } from './work/effort.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
 import { checkedOf } from './work/resultCheck.mjs'
@@ -60,7 +61,7 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|backlog step from the goal map|check sync)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set effort|backlog step from the goal map|check sync)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'waits']
 /** How long a window of the 5-hour limit lasts. */
@@ -282,6 +283,8 @@ function stepBrief(work, id, goalMap) {
   return {
     goal: goalId === null ? null : title === '' || title === goalId ? goalId : title.startsWith(`${goalId} `) ? title : `${goalId} ${title}`,
     summary: item.summary, picture: item.picture, what: item.what,
+    // B468: the effort the worker runs at for it.
+    effort: item.effort,
     about: aboutLines(context), context, touches: item.touches, history: item.history.slice(-BRIEF_HISTORY),
   }
 }
@@ -397,7 +400,8 @@ function finishedWith(waits) {
 function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, briefOf = () => null, waits, notes = new Map(), pauseOver = () => false }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
-  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, removedAt: chat.removedAt ?? null }
+  // B468: `effort` is what the app's file of the chat says it runs at, or null.
+  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, removedAt: chat.removedAt ?? null }
   const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
@@ -1507,6 +1511,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // Partner answers (2026-10-19): the partner's card, for the asks routed to it (woken while free, handed on after 30 min).
   const partner = advisorChat === undefined || advisorCard === null ? null : { name: advisorChat.name, state: advisorCard.state, isRunning: runningOf(advisorChat.name), idle: advisorCard.idle ?? null }
   const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner })
+  // B468: what each worker runs at for its step, the words that have the main chat set it (none without the Workers mod),
+  // and the steps whose line to their worker waits until it is set.
+  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null)
@@ -1525,11 +1532,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
     // B300: each with the reconciler's flags on it.
-    chats: chats.map(lane => ({ ...lane, flags: flagsOf(lane.name) })),
+    // B468: and with what it runs at for its step (`effortRun`, effort.mjs), or null.
+    chats: chats.map(lane => ({ ...lane, flags: flagsOf(lane.name), effortRun: efforts?.runs.get(lane.name) ?? null })),
     // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
     // server carries out; empty and null while the store cannot be read.
     workFlags: (reconciled?.flags ?? []).filter(flag => flag.kind === 'broken').map(flag => flag.text),
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [] },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries.filter(one => !efforts.held.has(one.id)), efforts: efforts.words, held: [...efforts.held], says: reconciled.flags.filter(flag => typeof flag.say === 'string'), notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [] },
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
     // without a store.
     partnerAnswers: !workOk ? null : raw.work.partnerAnswers ?? { on: true },
