@@ -393,12 +393,12 @@ test('the standards\' moves: settled, propose, confirm, change, measure, gaps in
   assert.equal((await focusMove({ command: 'plan-standards-change', text: '' }, ctx)).status, 400)
 })
 
-test('the new order (2026-10-21): a feature placed in a milestone; the plan check and the next focus as words', async () => {
-  const page = '# P\n\n## Features\n\n### F1 · Benches\n\n- Mark: M1 (you, 2026-10-21)\n- Complex: yes · many parts\n\n### F2 · A pond\n\n- Mark: M3+ (partner, 2026-10-21)\n- Complex: yes · water\n\n## Goals preset\n\n### M1 · A corner\n\n### M2 · The garden\n'
+test('a feature marked must or later, placed in a milestone by the plan check; the plan check and the next focus as words', async () => {
+  const page = '# P\n\n## Features\n\n### F1 · Benches\n\n- Mark: must (you, 2026-10-21)\n- Milestone: M1 (partner, 2026-10-21)\n- Complex: yes · many parts\n\n### F2 · A pond\n\n- Mark: M3+ (partner, 2026-10-21)\n- Complex: yes · water\n\n### F3 · Lamps\n\n- Mark: M2 (partner, 2026-10-21)\n- Milestone: M1 (partner, 2026-10-22)\n\n## Goals preset\n\n### M1 · A corner\n\n### M2 · The garden\n'
   const plan = planState(page, [], 'p.md')
-  assert.deepEqual(plan.features.map(one => [one.id, one.mark, one.by]), [['F1', 'M1', 'you'], ['F2', 'M3+', 'partner']])
-  // A complex feature after the road's first milestone means the structure is checked at every milestone.
-  assert.deepEqual([plan.marks.M1, plan.marks['M3+'], plan.architecture.open], [1, 1, ['F2']])
+  // A mark written as a milestone reads as must, or later for the open end, and keeps its milestone; a Milestone line wins.
+  assert.deepEqual(plan.features.map(one => [one.id, one.mark, one.milestone, one.by]), [['F1', 'must', 'M1', 'you'], ['F2', 'later', 'M3+', 'partner'], ['F3', 'must', 'M1', 'partner']])
+  assert.deepEqual([plan.marks.must, plan.marks.later, plan.architecture.open], [2, 1, ['F2']])
   const partner = { name: 'Advisor' }
   const ctx = { canWrite: true, partner, job: 'roles/partner.md' }
   const check = await focusMove({ command: 'plan-check' }, ctx)
@@ -406,7 +406,7 @@ test('the new order (2026-10-21): a feature placed in a milestone; the plan chec
   const focus = await focusMove({ command: 'plan-focus', text: 'something for the feel' }, ctx)
   assert.deepEqual(focus.words.text.split('\n').slice(0, 2), ['plan: focus', 'Words: something for the feel'])
   assert.equal((await focusMove({ command: 'plan-focus' }, ctx)).words.text.split('\n')[0], 'plan: focus')
-  assert.equal((await focusMove({ command: 'plan-marks', text: 'F1 M2; F2 no' }, ctx)).ok, true)
+  assert.equal((await focusMove({ command: 'plan-marks', text: 'F1 must; F2 no' }, ctx)).ok, true)
   assert.equal((await focusMove({ command: 'plan-marks', text: 'F1 soon' }, ctx)).status, 400)
 })
 

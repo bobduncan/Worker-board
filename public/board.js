@@ -8953,6 +8953,8 @@ function goalStepIds(goals, id) {
 // vision:start
 /** The own-words card's label among an ask's options: no option of the partner's is written so. */
 const OWN_WORDS = '\u0000own words'
+/** A feature's marks (the user, 2026-10-21: the milestones do not exist yet on the Features step; the plan places it). */
+const MARK_LABELS = [['must', 'Must'], ['later', 'Later'], ['no', 'No'], ['unsure', '?']]
 
 /** "from game-vision.md, 2026-10-10", "you, 2026-10-19", or null: where an answer, mark or goal came from. */
 function visionSource(one) {
@@ -8999,8 +9001,6 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   // is written anew (`ui.sent`).
   const sent = ui.sent ?? []
   const decide = slide => slides.push({ kind: 'decide', text: '', ...slide, isSent: sent.includes(slide.id) })
-  // The road's milestones, where a feature is placed (the goals preset's, else the three of the road).
-  const road = milestones.length > 0 ? milestones.map(one => one.id) : ['M1', 'M2', 'M3+']
   for (const answer of plan.answers) {
     // An open answer the partner has not asked yet: get its options from the partner, or answer it in your words.
     if (answer.state === 'open' && answer.ask === null) slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isAsked: isBusy(workOn('plan-ask', answer.id)) || (ui.asked ?? []).includes(answer.id) })
@@ -9018,8 +9018,8 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   // Features: the partner's questions, then a feature not placed yet: in which milestone does it come?
   for (const question of questionsOf(about => /^F/.test(about))) slides.push(questionSlide(question, ui, titleOf(question.about)))
   for (const feature of features.filter(one => one.mark === 'unsure')) {
-    decide({ id: feature.id, step: 'features', title: feature.name, question: `When does ${feature.name} come?`, points: feature.points, pictures: feature.pictures,
-      actions: [...road.map(id => ({ label: id, act: 'mark-now', id: `${feature.id}:${id}` })), { label: 'No', act: 'mark-now', id: `${feature.id}:no` }] })
+    decide({ id: feature.id, step: 'features', title: feature.name, question: `Is ${feature.name} in the game?`, points: feature.points, pictures: feature.pictures,
+      actions: MARK_LABELS.filter(([mark]) => mark !== 'unsure').map(([mark, label]) => ({ label, act: 'mark-now', id: `${feature.id}:${mark}` })) })
   }
   // Standards: the partner's questions, then a standard not confirmed yet.
   for (const question of questionsOf(about => /^K/.test(about))) slides.push(questionSlide(question, ui, titleOf(question.about)))
@@ -9080,14 +9080,15 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   const featureCards = features.map(one => ({
     id: one.id, name: one.name, isComplex: one.isComplex, why: one.why, built: one.built, pictures: one.pictures, points: one.points,
     mark: marks[one.id] ?? one.mark, isPending: marks[one.id] !== undefined && marks[one.id] !== one.mark,
+    // The milestone the plan placed it in (2026-10-21), with the milestone's name from the preset.
+    milestone: one.milestone ?? null, milestoneTitle: milestones.find(stone => stone.id === one.milestone)?.title ?? '',
     source: visionSource(one), slide: slideOf(one.id),
   }))
   const pendingMarks = featureCards.filter(card => card.isPending).map(card => `${card.id} ${card.mark}`)
   const count = mark => featureCards.filter(card => card.mark === mark).length
-  // The architecture check, from the marks as they stand with yours: a complex feature after the road's first milestone,
-  // later or unsure means a check of the structure at every milestone.
-  const isLater = mark => mark === 'later' || mark === 'unsure' || (/^M\d+\+?$/.test(mark) && mark !== road[0])
-  const complexOpen = featureCards.filter(card => card.isComplex && isLater(card.mark))
+  // The architecture check, from the marks as they stand with yours: a complex feature later or unsure means a check of
+  // the structure at every milestone.
+  const complexOpen = featureCards.filter(card => card.isComplex && (card.mark === 'later' || card.mark === 'unsure'))
   const complex = featureCards.filter(card => card.isComplex)
   const architecture = featureCards.length === 0 ? null : complexOpen.length > 0
     ? `${complexOpen.length} complex feature${complexOpen.length === 1 ? ' is' : 's are'} later or not sure (${complexOpen.map(card => card.name).join(', ')}): the structure is checked again at every milestone, so a rebuild is a planned step, not a surprise.`
@@ -9131,7 +9132,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   return {
     path: plan.path, pitch: plan.pitch, page, cards, slides, at,
     summary: [`${decided} of ${total} decided by you`, assumed > 0 ? `${assumed} assumed for now` : null, openAnswers > 0 ? `${openAnswers} open` : null, cards.filter(card => card.settled !== null).length > 0 ? `${cards.filter(card => card.settled !== null).length} settled` : null].filter(Boolean).join(' · '),
-    // The new order (the user, 2026-10-21): the road's milestones in the vision; features placed per milestone; the
+    // The new order (the user, 2026-10-21): the road's milestones in the vision; features marked must or later (the plan places them in a milestone); the
     // standards; the plan, where the partner lays every goal and names what is missing; the focus it proposes next.
     steps: [
       { id: 'vision', label: '1 · Vision', isDone: total > 0 && openAnswers === 0 },
@@ -9154,10 +9155,10 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     },
     features: {
       cards: featureCards, architecture, pending: pendingMarks,
-      // The marks: the road's milestones, then no and not sure (a feature marked must or later before stays so until
-      // you, or the partner's plan check, place it).
-      markOptions: [...road.map(id => [id, id]), ['no', 'No'], ['unsure', '?']],
-      summary: featureCards.length === 0 ? '' : [`${featureCards.length} features`, ...road.map(id => `${id} ${count(id)}`), count('must') + count('later') > 0 ? `${count('must') + count('later')} not placed in a milestone yet` : null, `${count('no')} no`, `${count('unsure')} not sure`].filter(Boolean).join(' · '),
+      markOptions: MARK_LABELS,
+      summary: featureCards.length === 0 ? '' : [`${featureCards.length} features`, `${count('must')} must`, `${count('later')} later`, `${count('no')} no`, `${count('unsure')} not sure`].join(' · '),
+      // What keeps the step from its ✓: the features still not sure (the user, 2026-10-21: "there is no clear I'm done").
+      unsure: featureCards.filter(card => card.mark === 'unsure').map(card => ({ id: card.id, name: card.name })),
     },
     goals: {
       milestones: goalCards, pending: allGoals.filter(item => item.state === 'confirming').map(item => item.id),
@@ -9867,6 +9868,14 @@ function featuresPage(view, can, off) {
   const parts = []
   const { cards, architecture, pending } = view.features
   if (cards.length === 0) return [el('p', 'vision-empty', 'No features yet. Type "plan features" to your partner: it lists every feature it sees, each with a picture, for you to mark.')]
+  // What keeps the step from its ✓, named, with a way to them (the user, 2026-10-21).
+  const { unsure } = view.features
+  if (unsure.length > 0) {
+    const left = el('div', 'vision-left')
+    left.append(el('span', '', `${unsure.length} feature${unsure.length === 1 ? ' is' : 's are'} still not sure: ${unsure.map(one => one.name).join(', ')}. Mark ${unsure.length === 1 ? 'it' : 'them'}, and this step gets its ✓.`), el('span', 'grow'),
+      visionButton(unsure.length === 1 ? 'Show it' : 'Show them', 'show-unsure', { id: unsure[0].id }))
+    parts.push(left)
+  }
   const check = el('p', 'vision-check')
   check.append(el('b', '', 'Architecture check: '), document.createTextNode(architecture))
   parts.push(check)
@@ -9879,6 +9888,7 @@ function featuresPage(view, can, off) {
   const grid = el('div', 'vision-grid is-features')
   for (const card of cards) {
     const box = el('section', `vision-card vision-feature is-${card.mark}${card.isPending ? ' is-pending' : ''}`)
+    box.dataset.feature = card.id
     if (card.pictures.length > 0) box.append(visionPictures(card.pictures, 1))
     else box.append(el('div', 'vision-nopicture', card.built === 'no' ? 'no picture yet' : ''))
     const head = el('h3', '')
@@ -9892,20 +9902,19 @@ function featuresPage(view, can, off) {
     tags.append(el('span', `vision-tag is-built-${card.built}`, card.built === 'yes' ? 'in the game' : card.built === 'partly' ? 'partly built' : 'not built'))
     head.append(tags)
     box.append(head)
-    if (card.isComplex && card.why !== '') box.append(el('p', 'vision-why-complex', card.why))
+    if (card.isComplex && card.why !== '') box.append(el('p', 'vision-why-complex', `Why complex: ${card.why}`))
     if (card.points.length > 0) box.append(visionPoints(card.points))
     const foot = el('div', 'vision-foot')
     if (card.source !== null) foot.append(el('p', 'vision-meta muted', `${card.isPending ? 'yours, not sent yet' : card.source}`))
     const chips = el('div', 'vision-marks')
-    // The new order (2026-10-21): in which milestone it comes, or no, or not sure.
-    chips.style.gridTemplateColumns = `repeat(${view.features.markOptions.length}, 1fr)`
     for (const [mark, label] of view.features.markOptions) {
-      const chip = visionButton(label, 'mark', { id: `${card.id}:${mark}`, className: `vision-mark is-${/^M\d/.test(mark) ? 'milestone' : mark}`, isEnabled: can, title: off })
+      const chip = visionButton(label, 'mark', { id: `${card.id}:${mark}`, className: `vision-mark is-${mark}`, isEnabled: can, title: off })
       chip.setAttribute('aria-pressed', String(card.mark === mark))
-      chip.title = mark === 'unsure' ? 'Not sure' : mark === 'no' ? 'Not in the game' : `Comes in ${mark}`
+      chip.title = mark === 'unsure' ? 'Not sure yet: the step waits for a mark' : label
       chips.append(chip)
     }
-    if (card.mark === 'must' || card.mark === 'later') foot.append(el('p', 'vision-meta muted', `Marked ${card.mark} before the milestones: pick one, or Check the plan places it.`))
+    // Where the plan put it (2026-10-21): a must or later feature in a milestone of the road.
+    if (card.milestone !== null && (card.mark === 'must' || card.mark === 'later')) foot.append(el('p', 'vision-meta muted', `The plan puts it in ${card.milestone}${card.milestoneTitle === '' ? '' : ` · ${card.milestoneTitle}`}`))
     foot.append(chips)
     if (card.slide >= 0) foot.append(visionButton('Your partner asks about it →', 'goto', { id: String(card.slide), className: 'is-primary' }))
     box.append(foot)
@@ -10350,6 +10359,15 @@ async function visionAct(act, id) {
     const [command, about] = String(id).split('|')
     if (!['plan-deeper', 'plan-ask', 'plan-goals-agree', 'plan-settled', 'plan-measure', 'plan-standards', 'plan-standards-agree', 'plan-check', 'plan-focus'].includes(command)) return
     return toPartner(['plan-goals-agree', 'plan-standards', 'plan-standards-agree', 'plan-check', 'plan-focus'].includes(command) ? { command } : { command, id: about }, 'Sent again to your partner.')
+  } else if (act === 'show-unsure') {
+    // The first feature still not sure, brought into view and marked for a moment.
+    const card = document.querySelector(`.vision-feature[data-feature="${CSS.escape(String(id))}"]`)
+    if (card !== null) {
+      card.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      card.classList.add('is-flash')
+      setTimeout(() => card.classList.remove('is-flash'), 1600)
+    }
+    return
   } else if (act === 'check-plan') {
     return toPartner({ command: 'plan-check' }, 'Your partner checks the whole plan: what is missing comes on step 4 as proposed goals with their why.')
   } else if (act === 'propose-focus') {

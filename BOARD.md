@@ -312,8 +312,10 @@ under it, a click showing one big; a vision card with two or more pictures has t
 **Change**, **Measure today**; a box for words on all of them (the gaps become goals at the plan's check). Empty, the step has
 **Propose standards**. Features: the architecture check on top
 (a complex feature later or not sure: the structure is checked at every milestone), then a card per feature: its
-picture, name, complex and built tags, points, and its marks: the road's milestones **M1 · M2 · M3+**, **No** and **?**
-(a feature marked must or later before says so until it is placed); the person's marks wait in a
+picture, name, complex and built tags (the why of a complex one in plain grey under them), points, the four marks
+**Must · Later · No · ?** and the milestone the plan check placed it in ("The plan puts it in M1 · The loop is fun");
+above the cards, a bar names the features still not sure, with Show them, since the step's ✓ waits for them; a
+pressed **?** is dashed, no choice; the person's marks wait in a
 blue bar ("2 marks not sent yet") until **Send to your partner**; a box for a feature they miss. Plan: **Check the
 plan** on top (the partner lays every goal per milestone and proposes each missing one with its why: a feature
 without a goal, a standard's gap with its foundation first, an architecture check, a milestone's done when; its last
