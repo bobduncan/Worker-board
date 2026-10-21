@@ -1584,6 +1584,7 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .goal-head:first-child { border-top: 0; }
 .goal-head:hover, .goal-head:focus-visible { background: var(--inset); outline: 0; }
 .goal-head.is-root { background: #121c2c; font-size: 15px; font-weight: 700; }
+.goal-head.is-milestone .goal-title { font-weight: 700; }
 .goal-head.is-none .goal-title { color: var(--waiting); }
 .goal-fold { width: 12px; color: var(--muted); }
 .goal-id { font-weight: 700; color: #7fb0ff; }
