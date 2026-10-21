@@ -48,6 +48,7 @@ export function parseAppChat(fileText) {
     completedTurns: number(raw.completedTurns),
     // B468: the effort the chat runs at, as the app sets it (from its next turn on).
     effort: text(raw.effort),
+    model: text(raw.model),
     summary,
   }
 }
@@ -113,6 +114,7 @@ export function boardChats(appChats, { project, prefix, main }) {
     lastActivityAt: chat.lastActivityAt,
     completedTurns: chat.completedTurns,
     effort: chat.effort ?? null,
+    model: chat.model ?? null,
     summary: chat.summary,
   }))
 
