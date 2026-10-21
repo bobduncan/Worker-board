@@ -155,7 +155,7 @@ export function parsePlan(text) {
     }
     const feature = section === 'features' ? raw.match(/^###\s+(F\d+)\s*[·:-]\s*(.*)$/) : null
     if (feature !== null) {
-      current = { id: feature[1], name: feature[2].trim(), mark: 'unsure', milestone: null, by: null, from: null, at: null, isComplex: false, why: '', built: 'no', pictures: [], points: [] }
+      current = { id: feature[1], name: feature[2].trim(), mark: 'unsure', milestone: null, prepare: null, tradeoff: null, tradeoffAt: null, by: null, from: null, at: null, isComplex: false, why: '', built: 'no', pictures: [], points: [] }
       features.push(current)
       kind = 'feature'
       field = null
@@ -295,6 +295,20 @@ export function parsePlan(text) {
         } else if (key === 'milestone') {
           // The plan check (2026-10-21): the milestone a must or later feature comes in, "- Milestone: M1 (partner, <date>)".
           current.milestone = milestoneOf(value)
+        } else if (key === 'prepare') {
+          // The partner's tradeoff (2026-10-21): "now · <what to build now> · now: <cost> · later: <what a late add
+          // costs>", or "wait · <why adding it later costs about the same>".
+          const [advice = '', ...rest] = value.split(' · ').map(part => part.trim())
+          const of = start => rest.find(part => new RegExp(`^${start}\\s*:`, 'i').test(part))?.replace(/^\w+\s*:\s*/, '') ?? ''
+          current.prepare = {
+            advice: /^now\b/i.test(advice) ? 'now' : /^wait\b/i.test(advice) ? 'wait' : null,
+            what: rest.filter(part => !/^(now|later)\s*:/i.test(part)).join(' · '), now: of('now'), later: of('later'),
+          }
+        } else if (key === 'tradeoff') {
+          // The person's choice: "prepare (you, <date>)" or "wait (you, <date>)".
+          const word = value.trim().split(/[\s(]/)[0].toLowerCase()
+          current.tradeoff = word === 'prepare' || word === 'wait' ? word : null
+          current.tradeoffAt = sourceOf(value).at
         } else if (key === 'complex') {
           current.isComplex = /^yes\b/i.test(value.trim())
           current.why = value.replace(/^\s*(yes|no)\s*[·:-]?\s*/i, '').trim()
@@ -389,6 +403,8 @@ export function planState(text, items, path) {
   const marks = { must: 0, later: 0, no: 0, unsure: 0 }
   for (const feature of features) marks[feature.mark] = (marks[feature.mark] ?? 0) + 1
   const open = features.filter(feature => feature.isComplex && (feature.mark === 'later' || feature.mark === 'unsure'))
+  // Tradeoffs (2026-10-21): every complex feature later or not sure, and those still without the person's choice.
+  const tradeoffs = { total: open.length, open: open.filter(feature => feature.tradeoff === null).map(feature => feature.id) }
   const architecture = features.length === 0 ? null : {
     everyMilestone: open.length > 0,
     complex: features.filter(feature => feature.isComplex).map(feature => feature.id),
@@ -403,7 +419,7 @@ export function planState(text, items, path) {
     bars: { total: standards.length, confirmed: standards.filter(one => one.state === 'confirmed').length, gaps: standards.filter(one => one.gap !== '').length },
     log: { hits: log.hits, gaps: log.gaps, overturned: log.overturned },
     // The new order (2026-10-21): the partner's last plan check, and the next focus it proposes (null: none).
-    check, nextFocus,
+    check, nextFocus, tradeoffs,
   }
 }
 
@@ -416,6 +432,7 @@ const WORK_WORDS = {
   'plan-standards-change': 'the changed standards', 'plan-standards-agree': 'the gaps into goals', 'plan-measure': 'the measure of today',
   // The new order (2026-10-21): the plan check, and a proposed next focus.
   'plan-check': 'the plan check', 'plan-focus': 'a next focus',
+  'plan-tradeoffs': 'the tradeoffs', 'plan-tradeoff': 'your tradeoff',
 }
 /** A word the partner has not answered after this long is late: the tab offers to send it again. */
 export const PLAN_LATE_MS = 30 * 60_000

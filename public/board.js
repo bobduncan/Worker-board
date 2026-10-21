@@ -9017,9 +9017,14 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   const questionsOf = isAbout => questions.filter(one => !plan.answers.some(answer => answer.id === one.about) && isAbout(one.about))
   // Features: the partner's questions, then a feature not placed yet: in which milestone does it come?
   for (const question of questionsOf(about => /^F/.test(about))) slides.push(questionSlide(question, ui, titleOf(question.about)))
-  for (const feature of features.filter(one => one.mark === 'unsure')) {
-    decide({ id: feature.id, step: 'features', title: feature.name, question: `Is ${feature.name} in the game?`, points: feature.points, pictures: feature.pictures,
-      actions: MARK_LABELS.filter(([mark]) => mark !== 'unsure').map(([mark, label]) => ({ label, act: 'mark-now', id: `${feature.id}:${mark}` })) })
+  // A tradeoff (the user, 2026-10-21): a complex feature later or not sure, prepare now or wait; "?" alone is an answer.
+  for (const feature of features.filter(one => one.isComplex && (one.mark === 'later' || one.mark === 'unsure') && one.tradeoff === null)) {
+    decide({ id: feature.id, step: 'features', title: feature.name, question: `${feature.name}: prepare now, or wait?`, points: feature.points, pictures: feature.pictures.slice(0, 1),
+      tradeoff: feature.prepare ?? null,
+      actions: feature.prepare === null || feature.prepare.advice === null
+        ? [{ label: 'Get the tradeoff from your partner', act: 'get-tradeoffs', id: feature.id, isPrimary: true }]
+        : [{ label: 'Prepare now', act: 'tradeoff-now', id: `${feature.id}:prepare`, isPrimary: feature.prepare.advice === 'now' }, { label: 'Wait', act: 'tradeoff-now', id: `${feature.id}:wait`, isPrimary: feature.prepare.advice === 'wait' },
+          { label: 'It is a must', act: 'mark-now', id: `${feature.id}:must` }, { label: 'No', act: 'mark-now', id: `${feature.id}:no` }] })
   }
   // Standards: the partner's questions, then a standard not confirmed yet.
   for (const question of questionsOf(about => /^K/.test(about))) slides.push(questionSlide(question, ui, titleOf(question.about)))
@@ -9082,9 +9087,13 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     mark: marks[one.id] ?? one.mark, isPending: marks[one.id] !== undefined && marks[one.id] !== one.mark,
     // The milestone the plan placed it in (2026-10-21), with the milestone's name from the preset.
     milestone: one.milestone ?? null, milestoneTitle: milestones.find(stone => stone.id === one.milestone)?.title ?? '',
+    prepare: one.prepare ?? null, tradeoff: one.tradeoff ?? null, tradeoffAt: one.tradeoffAt ?? null,
     source: visionSource(one), slide: slideOf(one.id),
   }))
   const pendingMarks = featureCards.filter(card => card.isPending).map(card => `${card.id} ${card.mark}`)
+  const tradeoffCards = featureCards.filter(card => card.isComplex && (card.mark === 'later' || card.mark === 'unsure'))
+    .map(card => ({ id: card.id, name: card.name, picture: card.pictures[0] ?? null, mark: card.mark, prepare: card.prepare, choice: card.tradeoff, at: card.tradeoffAt, isSent: sent.includes(card.id) }))
+  const tradeoffsOpen = tradeoffCards.filter(card => card.choice === null)
   const count = mark => featureCards.filter(card => card.mark === mark).length
   // The architecture check, from the marks as they stand with yours: a complex feature later or unsure means a check of
   // the structure at every milestone.
@@ -9136,7 +9145,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     // standards; the plan, where the partner lays every goal and names what is missing; the focus it proposes next.
     steps: [
       { id: 'vision', label: '1 · Vision', isDone: total > 0 && openAnswers === 0 },
-      { id: 'features', label: '2 · Features', isDone: featureCards.length > 0 && count('unsure') === 0 },
+      { id: 'features', label: '2 · Features', isDone: featureCards.length > 0 && tradeoffsOpen.length === 0 },
       { id: 'standards', label: '3 · Standards', isDone: standardCards.length > 0 && standardCards.every(item => item.state === 'confirmed') },
       { id: 'plan', label: '4 · Plan', isDone: allGoals.length > 0 && allGoals.every(item => item.state === 'confirmed') },
       { id: 'focus', label: '5 · Focus', isDone: focus !== null },
@@ -9147,7 +9156,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
       marks: isBusy(workOn('plan-marks')), featureAdd: isBusy(workOn('plan-feature-add')),
       confirms: isBusy(workOn('plan-goals-confirm')), goalsChange: isBusy(workOn('plan-goals-change')), agree: isBusy(workOn('plan-goals-agree')),
       standards: isBusy(workOn('plan-standards')), standardConfirms: isBusy(workOn('plan-standards-confirm')), standardsChange: isBusy(workOn('plan-standards-change')), standardsAgree: isBusy(workOn('plan-standards-agree')),
-      check: isBusy(workOn('plan-check')), focus: isBusy(workOn('plan-focus')),
+      check: isBusy(workOn('plan-check')), focus: isBusy(workOn('plan-focus')), tradeoffs: isBusy(workOn('plan-tradeoffs')),
     },
     standards: {
       cards: standardCards, pending: standardCards.filter(card => card.state === 'confirming').map(card => card.id),
@@ -9159,6 +9168,9 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
       summary: featureCards.length === 0 ? '' : [`${featureCards.length} features`, `${count('must')} must`, `${count('later')} later`, `${count('no')} no`, `${count('unsure')} not sure`].join(' · '),
       // What keeps the step from its ✓: the features still not sure (the user, 2026-10-21: "there is no clear I'm done").
       unsure: featureCards.filter(card => card.mark === 'unsure').map(card => ({ id: card.id, name: card.name })),
+      // The tradeoffs (2026-10-21): each complex feature later or not sure, the partner's advice and your choice; the
+      // step's ✓ and the plan's check wait for every choice.
+      tradeoffs: tradeoffCards, tradeoffsOpen: tradeoffsOpen.map(card => card.id),
     },
     goals: {
       milestones: goalCards, pending: allGoals.filter(item => item.state === 'confirming').map(item => item.id),
@@ -9868,14 +9880,8 @@ function featuresPage(view, can, off) {
   const parts = []
   const { cards, architecture, pending } = view.features
   if (cards.length === 0) return [el('p', 'vision-empty', 'No features yet. Type "plan features" to your partner: it lists every feature it sees, each with a picture, for you to mark.')]
-  // What keeps the step from its ✓, named, with a way to them (the user, 2026-10-21).
-  const { unsure } = view.features
-  if (unsure.length > 0) {
-    const left = el('div', 'vision-left')
-    left.append(el('span', '', `${unsure.length} feature${unsure.length === 1 ? ' is' : 's are'} still not sure: ${unsure.map(one => one.name).join(', ')}. Mark ${unsure.length === 1 ? 'it' : 'them'}, and this step gets its ✓.`), el('span', 'grow'),
-      visionButton(unsure.length === 1 ? 'Show it' : 'Show them', 'show-unsure', { id: unsure[0].id }))
-    parts.push(left)
-  }
+  // The tradeoffs (the user, 2026-10-21: "clear tradeoffs before we move on"), apart from the overview, on top.
+  if (view.features.tradeoffs.length > 0) parts.push(tradeoffSection(view, can, off))
   const check = el('p', 'vision-check')
   check.append(el('b', '', 'Architecture check: '), document.createTextNode(architecture))
   parts.push(check)
@@ -9913,6 +9919,7 @@ function featuresPage(view, can, off) {
       chip.title = mark === 'unsure' ? 'Not sure yet: the step waits for a mark' : label
       chips.append(chip)
     }
+    if (card.isComplex && (card.mark === 'later' || card.mark === 'unsure')) foot.append(el('p', 'vision-meta muted', card.tradeoff === null ? 'Tradeoff: to decide above' : `Tradeoff: ${card.tradeoff === 'prepare' ? 'prepare now' : 'wait'} (yours)`))
     // Where the plan put it (2026-10-21): a must or later feature in a milestone of the road.
     if (card.milestone !== null && (card.mark === 'must' || card.mark === 'later')) foot.append(el('p', 'vision-meta muted', `The plan puts it in ${card.milestone}${card.milestoneTitle === '' ? '' : ` · ${card.milestoneTitle}`}`))
     foot.append(chips)
@@ -9943,11 +9950,19 @@ function planPage(view, can, off) {
     last.append(el('b', '', `Last check${check.at === null ? '' : ` (${check.at})`}: `), document.createTextNode(check.text))
     checkBox.append(last)
   }
+  const waiting = view.features.tradeoffsOpen
+  if (waiting.length > 0) {
+    // The tradeoffs first (2026-10-21): what to prepare now changes what the plan holds.
+    const first = el('div', 'vision-left')
+    first.append(el('span', '', `First the tradeoffs: ${waiting.length} complex feature${waiting.length === 1 ? '' : 's'} on step 2 wait${waiting.length === 1 ? 's' : ''} for prepare now or wait.`), el('span', 'grow'),
+      visionButton('Decide them', 'page', { id: 'features', className: 'is-primary' }))
+    checkBox.append(first)
+  }
   if (view.busy.check) {
     const busy = visionButton('Your partner is checking the plan…', 'check-plan', { className: 'is-busy', isEnabled: false })
     busy.prepend(visionSpinner())
     checkBox.append(busy)
-  } else checkBox.append(visionButton(check === null ? 'Check the plan' : 'Check it again', 'check-plan', { className: 'is-primary', isEnabled: can, title: off }))
+  } else checkBox.append(visionButton(check === null ? 'Check the plan' : 'Check it again', 'check-plan', { className: waiting.length > 0 ? '' : 'is-primary', isEnabled: can && waiting.length === 0, title: waiting.length > 0 ? 'Decide the tradeoffs on step 2 first.' : off }))
   parts.push(checkBox)
   if (milestones.length === 0) return [...parts, el('p', 'vision-empty', 'No goals yet: Check the plan, and your partner lays them per milestone.')]
   if (pending.length > 0) {
@@ -9995,6 +10010,51 @@ function planPage(view, can, off) {
   extra.append(buttons)
   parts.push(extra)
   return parts
+}
+
+/** The partner's tradeoff for a feature: prepare now (what, the cost now, a late add's cost) or wait (why), or none yet. */
+function tradeoffBox(prepare) {
+  const box = el('div', `vision-tradeoff is-${prepare?.advice ?? 'none'}`)
+  if (prepare === null || prepare.advice === null) box.append(el('b', '', 'Not weighed yet: '), document.createTextNode('your partner says what preparing now costs, and what adding it later costs.'))
+  else if (prepare.advice === 'now') {
+    box.append(el('b', '', 'Your partner advises: prepare now. '), document.createTextNode(prepare.what))
+    if (prepare.now !== '') box.append(el('p', '', `Now: ${prepare.now}`))
+    if (prepare.later !== '') box.append(el('p', '', `Later: ${prepare.later}`))
+  } else box.append(el('b', '', 'Your partner advises: wait. '), document.createTextNode(prepare.what))
+  return box
+}
+
+/**
+ * The tradeoffs on top of Features (the user, 2026-10-21: "I want clear tradeoffs before we move on"): each complex
+ * feature later or not sure, with its picture, the partner's advice, and Prepare now or Wait, sent at once; the step's ✓
+ * and the plan's check wait for every choice.
+ */
+function tradeoffSection(view, can, off) {
+  const { tradeoffs, tradeoffsOpen } = view.features
+  const section = el('section', 'vision-tradeoffs')
+  section.append(el('h2', '', tradeoffsOpen.length > 0 ? `Tradeoffs to decide before the plan: ${tradeoffsOpen.length} of ${tradeoffs.length}` : 'Tradeoffs: all decided'),
+    el('p', 'muted', 'A complex feature later or not sure: preparing for it now can be much cheaper than a rebuild when it comes. Not sure is fine; the choice here is only what to prepare.'))
+  for (const card of tradeoffs) {
+    const row = el('div', `vision-tradeoff-row${card.choice === null ? ' is-open' : ''}`)
+    const shown = el('div', 'vision-goal-picture')
+    if (card.picture !== null) shown.append(picture(card.picture.path, card.picture.caption))
+    const body = el('div', '')
+    body.append(el('h3', '', `${card.name} · ${card.mark === 'unsure' ? 'not sure' : 'later'}`), tradeoffBox(card.prepare))
+    const buttons = el('div', 'vision-goal-buttons')
+    if (card.choice !== null) buttons.append(el('p', 'vision-meta', `Your choice: ${card.choice === 'prepare' ? 'prepare now' : 'wait'}${card.at === null ? '' : ` (${card.at})`}`))
+    if (card.isSent && card.choice === null) buttons.append(el('p', 'vision-meta muted', 'Sent: your partner writes it.'))
+    else if (card.prepare === null || card.prepare.advice === null) buttons.append(visionButton(view.busy.tradeoffs ? 'Your partner is weighing…' : 'Get the tradeoff', 'get-tradeoffs', { id: card.id, isEnabled: can && !view.busy.tradeoffs, title: off }))
+    else {
+      for (const [choice, label] of [['prepare', 'Prepare now'], ['wait', 'Wait']]) {
+        const button = visionButton(label, 'tradeoff-now', { id: `${card.id}:${choice}`, className: card.choice === choice ? 'is-chosen' : (card.choice === null && (choice === 'prepare') === (card.prepare.advice === 'now')) ? 'is-primary' : '', isEnabled: can, title: off })
+        button.setAttribute('aria-pressed', String(card.choice === choice))
+        buttons.append(button)
+      }
+    }
+    row.append(shown, body, buttons)
+    section.append(row)
+  }
+  return section
 }
 
 /**
@@ -10198,6 +10258,7 @@ function visionSlide(view, can, off) {
   } else if (slide.kind === 'decide') {
     // A decision that waits on you (2026-10-21): what it is, its pictures, and the buttons of its step.
     if (slide.pictures.length > 0) stage.append(visionPictures(slide.pictures))
+    if (slide.tradeoff !== undefined) stage.append(tradeoffBox(slide.tradeoff))
     if (slide.points.length > 0) stage.append(visionPoints(slide.points))
   } else if (slide.kind === 'open') {
     // No options yet: the partner prepares them (with pictures where it is about looks), or you answer in your words.
@@ -10368,6 +10429,14 @@ async function visionAct(act, id) {
       setTimeout(() => card.classList.remove('is-flash'), 1600)
     }
     return
+  } else if (act === 'get-tradeoffs') {
+    return toPartner({ command: 'plan-tradeoffs' }, 'Your partner weighs every complex feature later or not sure: prepare now, or wait, with the cost now and later.')
+  } else if (act === 'tradeoff-now') {
+    const [part, choice] = String(id).split(':')
+    if (await toPartner({ command: 'plan-tradeoff', id: part, text: choice }, `${part}: ${choice === 'prepare' ? 'prepare now' : 'wait'}, sent to your partner.`)) {
+      visionUi.sent = [...visionUi.sent, part]
+      if (visionUi.page === 'interview') visionUi.at = Math.min(visionUi.at + 1, Math.max(0, view.slides.length - 1))
+    }
   } else if (act === 'check-plan') {
     return toPartner({ command: 'plan-check' }, 'Your partner checks the whole plan: what is missing comes on step 4 as proposed goals with their why.')
   } else if (act === 'propose-focus') {

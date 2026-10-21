@@ -333,6 +333,20 @@ with its cost; serves P6); with none, only when a complex feature arrives. The u
 `Mark: <mark> (you, <date>)`. A feature they miss comes as `plan: feature add` with `Words:`: add it with the next F
 id, its marks and picture by the same rules. `plan: F<n> change` with `Words:`: rewrite that feature.
 
+**Tradeoffs** (the user, 2026-10-21: "?" is a fine answer, "I don't know yet"; but "if the change is very complex,
+with little overhead if I consider it from the beginning, it's cheaper to include it in the beginning and not use it
+than later"). Every complex feature marked later or not sure gets your tradeoff as the tech lead, one line under its
+Complex line, written with the features and on `plan: tradeoffs` (for each such feature without one):
+
+    - Prepare: now · <what to build now so it can come later, and where (a goal, the running refactor)> · now: <its cost> · later: <what a late add touches and costs>
+    - Prepare: wait · <why adding it later costs about the same as now>
+
+Advise now only for a massive overhaul later (many parts, every unit or map, the tests again) against a small cost
+now; wait for what adds cleanly later (a save file, a screen, one more kind). The board shows the tradeoffs apart, on
+top of Features and first in the Interview; the person's choice comes as `plan: F<n> tradeoff` with `Choice: prepare`
+or `Choice: wait`: write `- Tradeoff: prepare (you, <date>)` or `wait` under the Prepare line. Their Features step and
+the plan check wait for every choice; the feature's mark stays as it was (not sure is fine).
+
 **The plan** (step 4; the user presses **Check the plan**: `plan: check`; or types `plan goals`): a heading `## Goals
 preset`, a `### M<n> · <milestone>` per milestone of P7 (`M3+` for the open end), and under each three to six goals
 `#### S<n> · <an outcome the user sees or plays, five to eight words>`, from the vision, the features placed in that
@@ -343,6 +357,8 @@ missing, in a few words>` ("F7 has no goal", "K1's foundation, before any map", 
 
 - a must or later feature without a `- Milestone:` line: place it in a milestone of the road (the open end `M3+`
   for later); a feature in a milestone without a goal that delivers it;
+- a tradeoff the person chose `prepare`: its preparation as a goal, or as a sub-goal of the architecture goal that
+  runs now (the refactor), never the feature itself; a `wait`: one line in the architecture check of its milestone;
 - a standard's gap: its goal under the milestone its count comes from, its foundation as the first sub-goal (or Measure
   today first when today is not measured), as `plan: standards agreed` did;
 - an architecture check before every milestone not started, when a complex feature comes later or is not sure;

@@ -24,7 +24,9 @@ export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'ho
   // Standards (2026-10-20): a vision card settled by the person; the standards proposed, confirmed, changed, measured, their gaps into goals.
   'plan-settled', 'plan-standards', 'plan-standards-confirm', 'plan-standards-change', 'plan-standards-agree', 'plan-measure',
   // The new order (2026-10-21): the partner checks the whole plan for missing goals; it proposes the next focus.
-  'plan-check', 'plan-focus']
+  'plan-check', 'plan-focus',
+  // Tradeoffs (2026-10-21): the partner weighs every complex feature later or not sure; the person chooses prepare or wait.
+  'plan-tradeoffs', 'plan-tradeoff']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -96,7 +98,7 @@ export function focusMove(body, ctx) {
 
 /** Vision (2026-10-19): the Vision tab's moves, each a word to the partner. */
 const PLAN_MOVES = FOCUS_MOVES.filter(command => command.startsWith('plan-'))
-const PLAN_IDS = { 'plan-confirm': /^P\d+$/, 'plan-ask': /^P\d+$/, 'plan-deeper': /^P\d+$/, 'plan-settled': /^P\d+$/, 'plan-measure': /^K\d+$/, 'plan-change': /^[PFSK]\d+$/ }
+const PLAN_IDS = { 'plan-confirm': /^P\d+$/, 'plan-ask': /^P\d+$/, 'plan-deeper': /^P\d+$/, 'plan-settled': /^P\d+$/, 'plan-measure': /^K\d+$/, 'plan-change': /^[PFSK]\d+$/, 'plan-tradeoff': /^F\d+$/ }
 // The new order (2026-10-21): a feature is placed in a milestone of the road (M1, M2, M3+), or no, or not sure.
 const MARKS_LINE = /^F\d+ (must|later|no|unsure|M\d+\+?)(; F\d+ (must|later|no|unsure|M\d+\+?))*$/
 const GOALS_LINE = /^S\d+(, S\d+)*$/
@@ -117,6 +119,7 @@ function planWord(command, body, ctx) {
   if (command === 'plan-marks' && !MARKS_LINE.test(words)) return refuse(400, 'Give the marks as "F3 M1; F5 no".')
   if (command === 'plan-goals-confirm' && !GOALS_LINE.test(words)) return refuse(400, 'Give the goals as "S1, S2".')
   if (command === 'plan-standards-confirm' && !STANDARDS_LINE.test(words)) return refuse(400, 'Give the standards as "K1, K2".')
+  if (command === 'plan-tradeoff' && !['prepare', 'wait'].includes(words)) return refuse(400, 'Choose prepare or wait.')
   return { ok: true, result: { id: id === '' ? null : id }, words: planWords(command, { to: ctx.partner.name, id, words, job: ctx.job }) }
 }
 
