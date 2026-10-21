@@ -119,7 +119,10 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   many more, and why it has not started). A ⋯ menu per row holds **Remove**, which asks the main chat to close that
   worker (with a warning when it is not free). Under the rows: what is missing (no list of chats, no chat, no
   backlog), "No main chat yet" with the steps to make one, "No workers yet" with **Ask for three workers**, the line
-  about the missing mod, and **+ Add worker**.
+  about the missing mod, and **+ Add worker**. B465: under the panel's head, after **Out of sync?** (or when the
+  board's own check found something), "Out of sync? · the board checked itself at HH:MM": a row per stuck state it
+  found, each with **Fixed**, **Woke**, **Sent** or **For Main**, and a **Fine** row for the checks that found nothing
+  (`art-inbox/worker-board/b465/out-of-sync-answer.png`); it stands for an hour.
 - **The timeline:** from a few hours back to some hours ahead, one row per chat: what it did (green working,
   yellow waiting, blue free, purple suspended, grey not seen), what it expects (hatched) and its queue (striped),
   task changes as marks, and "Now" as a line.

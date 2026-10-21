@@ -2738,6 +2738,47 @@ reads, so all of them were looked at:
    "no goal map"), `test/focusFlow.test.mjs` (the focus word with a held map), `test/work/store.test.mjs` (a held step
    and a held delivered.json), `test/silentCatches.test.mjs` (the rule, and the rule on samples of every form).
 
+## The board finds and fixes stuck states itself (B465)
+
+The person, 2026-10-21 (I50): "i want a structural fix for preventing this it gets stuck, of the out of sync button
+verifies this as well. including that it seems advisor 2 chat is not running. also gets solved." Each way work got
+stuck that day was found by the person. They are now one list in the board, `src/work/sync.mjs`, each with its fix:
+
+| Check | Found when | Fix (status) |
+| --- | --- | --- |
+| `blocked` | a step's `Blocked by` names one in review (merged, its result check open) | unblocked by the board (Fixed) |
+| | ... names one the store lacks, or its `Waits for` names one in review | the main chat (For Main) |
+| `not-taken` | a queued step whose free owner, holding nothing, got its line 10 min ago and did not take it | the line again (Woke); still queued 10 min on: For Main |
+| `owner-gone` | a step queued 30 min for a chat the list no longer shows (not the partner, its helper or a leftover) | requeued to a free worker, a running one with the fewest queued first (Fixed); none free: For Main |
+| | ... taken or in progress for such a chat | For Main: its work may stand on a branch |
+| `refine-drop` | a yes to a refine question that drops the step (`Drop B<n> ...`), which the partner cannot do | a note to the main chat (Sent) |
+| `limit-back` | a worker suspended for the limit whose time has passed (`isBack`), holding a step, no limit full | "the limit is back: go on with B<n> from its checkpoint" (Woke); still suspended 10 min on: For Main |
+| `old-name` | a chat's mod refused in the last 10 min under a name, its session shown under another | a note to the main chat to have it join under the shown name (Sent) |
+| `helper` | the partner's helper not running while refines or result checks the board sent the partner wait | the helper woken, which asks the main chat to start it (Woke); still not running 10 min on: the partner told to do them itself, and the main chat to start it (For Main) |
+| `partner-ask` | an ask routed to the partner open 10 min with no line about it in that time (the partner was busy) | the partner woken, busy or not (Woke) |
+
+- **When**: every 3 minutes (`SYNC_EVERY_MS`, loop `sync`), on a board that writes the store and is no copy beside the
+  person's; and at once on **Out of sync?** (a worker's menu or the panel's head), before the board types `check sync`
+  into the main chat, which gets the list's answer as `Board's own check (HH:MM): ...` and checks what the list does not
+  know (roles/main.md, "Check sync"). One run at a time (`syncRunner`). Nothing that wakes a chat while the person
+  pauses.
+- **How it fixes**: unblock and requeue through the work API as the board (`server` may now do both; the History line
+  ends "(the board's sync check: <why>)"); a wake is a `work` line of kind `sync` sent once per finding
+  (`sendOnce`, key `sync <finding>`), which the board does not withdraw as stale and which carries `syncKey`, so the
+  next run knows it was woken; a chat not running makes the board ask the main chat to start it, as for any line.
+- **The main chat is told once**: what the list cannot fix (For Main) and what it sends (Sent) go in one note per run,
+  `The board's sync check at HH:MM: what it could not fix itself`, a line each, only for findings it was not told
+  before; the keys stand in `data/sync.json` (`noted`, the newest 500). A note that could not be filed is tried at the
+  next run.
+- **The page**: the newest run that was asked or found something stands under the Workers panel's head for an hour
+  (state `syncList`, `syncListOf`, the agreed picture `art-inbox/worker-board/b465/out-of-sync-answer.png`): a row per
+  finding with its status, and "N other checks: nothing stuck".
+- **Old names**: the board keeps the names a chat's mod was refused under (409) with its session, for 10 minutes
+  (`noteRefused`), from takes and work calls.
+- A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
+- Tests: `test/work/sync.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
+  `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).
+
 ## What it does not do
 
 - It does not start, stop or restart chats, and it does not hand out tasks by itself.

@@ -64,7 +64,8 @@ import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
-import { deliverWork, pullFor } from './src/work/deliver.mjs'
+import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
+import { REFUSED_MS, SYNC_EVERY_MS, syncRunner } from './src/work/sync.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
 import { storeKeeper } from './src/work/read.mjs'
@@ -854,6 +855,17 @@ async function main(args) {
 
   // When each chat's mod last asked this board, by the chat's name: who asks runs. The demo has no bridge.
   const seen = bridgeKey === null ? null : { shown: {}, other: {} }
+  // B465: the names a chat's mod was refused under lately, with its session, for the sync check's "old name".
+  const refusedNames = new Map()
+  const noteRefused = (body, checked) => {
+    if (checked.ok || checked.status !== 409 || typeof body?.chat !== 'string' || typeof body?.session !== 'string') return
+    const name = body.chat.trim().slice(0, 80)
+    const session = body.session.trim().slice(0, 120)
+    refusedNames.set(`${name} ${session}`, { name, session, at: clock() })
+    for (const [key, one] of refusedNames) if (clock() - one.at >= REFUSED_MS) refusedNames.delete(key)
+  }
+  // B465: the board's list of stuck states (src/work/sync.mjs), set up with the reconciler on a board that writes.
+  let sync = null
 
   // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
@@ -1099,7 +1111,7 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
+      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, syncList: sync?.shown(clock()) ?? null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
@@ -1208,7 +1220,11 @@ async function main(args) {
       // The person's "Dismiss" on the restart banner's copied word: kept on that word in the outbox.
       if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
       const state = await readState()
-      const checked = checkSay(body, state, config.maxMessageChars)
+      // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page); the main chat's check,
+      // for what the list does not know, gets that answer with the rest.
+      const syncAnswer = body?.command === 'sync' && sync !== null ? await sync.run({ asked: true }).catch(error => { loops.failed('sync', error); return null }) : null
+      if (syncAnswer !== null) readState.reset()
+      const checked = checkSay(body, syncAnswer === null ? state : { ...state, syncList: syncAnswer }, config.maxMessageChars)
       if (!checked.ok) return checked
       // B167: the picture is named to the main chat by where it is, so it has to be there.
       if (typeof checked.message.picture === 'string' && !(await stat(inProject(config.project, checked.message.picture)).then(file => file.isFile(), () => false))) {
@@ -1370,6 +1386,7 @@ async function main(args) {
       if (kept !== undefined) return kept
       const state = await readState()
       const checked = checkTake(body, state)
+      noteRefused(body, checked)
       if (!checked.ok) return checked
       if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
       return requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
@@ -1378,6 +1395,7 @@ async function main(args) {
       const checked = checkTake(body, await readState())
       // Who asks runs, also a chat the board shows another session for.
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
+      noteRefused(body, checked)
       if (!checked.ok) return checked
       // The review of Pause 2: while the person pauses no chat takes what would start a turn; only the board's own
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
@@ -1623,6 +1641,40 @@ async function main(args) {
       }
     }
     setInterval(reconcileNow, Math.max(5, config.refreshSeconds) * 1000)
+
+    // B465: the board's list of stuck states, every few minutes and on "Out of sync?": the safe fixes it makes itself
+    // (through the work API as the board, and its lines once per finding), the rest to the main chat in one note, never
+    // twice for the same thing (data/sync.json keeps what it was told). Not on a copy beside the person's board.
+    if (!isShowOnly) {
+      const SYNC_FILE = join(HERE, 'data', 'sync.json')
+      sync = syncRunner({
+        state: () => readState(),
+        items: async () => (await readStore(workDir)).items,
+        outbox: () => store.outbox(),
+        refused: () => [...refusedNames.values()],
+        apply: async body => {
+          const done = await workAction(body, 'server')
+          if (done.ok && done.result?.changed !== false) {
+            work.reset?.()
+            readState.reset()
+          }
+          return done
+        },
+        wake: async ({ chat, id, text, key }) => sendOnce({
+          dir: workDir, key: `sync ${key}`, words: { ...workWords(chat, id, text), kind: 'sync', syncKey: key }, outbox: store, state: await readState(),
+          now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex'), keep,
+        }),
+        noted: {
+          load: async () => {
+            const value = await kept(SYNC_FILE)
+            return Array.isArray(value?.noted) ? value.noted.filter(key => typeof key === 'string') : []
+          },
+          save: keys => writeAtomic(SYNC_FILE, JSON.stringify({ noted: keys })),
+        },
+        now: clock,
+      })
+      setInterval(() => (isClosing ? null : loops.run('sync', () => sync.run())), SYNC_EVERY_MS)
+    }
   }
 }
 

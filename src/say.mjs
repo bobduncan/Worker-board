@@ -121,6 +121,17 @@ const RUNNING = new Map([[true, 'yes'], [false, 'no']])
  * the limits. The main chat compares it, fixes what it can and answers with a note `Sync check of <name>: ...`
  * (roles/main.md, "Check sync").
  */
+/**
+ * B465: what the board's own list (src/work/sync.mjs) found and did when the button was pressed, for the main chat,
+ * which checks what the list does not know: one line, each finding with its status, at most twelve.
+ */
+const boardCheckWords = list => {
+  if (list === null || list === undefined || !Array.isArray(list.rows)) return []
+  const rows = list.rows.slice(0, 12).map(row => `${row.status}: ${plainLine(row.text)}`)
+  const more = list.rows.length > 12 ? [`and ${list.rows.length - 12} more`] : []
+  return [`Board's own check (${timeOfDay(list.at)}): ${[...rows, ...more].join(' · ') || 'nothing stuck'}; ${list.fine} checks fine`]
+}
+
 const syncWords = (to, lane, state) => {
   const lines = lane !== null ? [
     `check sync ${plainLine(lane.name)}`,
@@ -148,7 +159,7 @@ const syncWords = (to, lane, state) => {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'sync', about,
     // B438, the review: the newest answer there was when it was asked; only a newer one answers this check.
     seen: lastSyncAnswer(state.information, about, state.restart?.main ?? null),
-    text: [...lines, `Limits: ${limitsWords(state.limits)}`, 'Why: the person pressed "Out of sync?" on the worker board'].join('\n'),
+    text: [...lines, `Limits: ${limitsWords(state.limits)}`, ...boardCheckWords(state.syncList), 'Why: the person pressed "Out of sync?" on the worker board'].join('\n'),
   }
 }
 /** Focus 2: the first line of each word of the Focus page to the partner (spec 2026-10-18, section 6). */

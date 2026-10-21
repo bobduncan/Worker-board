@@ -26,6 +26,8 @@ export const LOOP_WORDS = {
   // starts again.
   evaluations: 'reading the evaluations that run',
   'chat-list': 'reading the list of chats for the CPU',
+  // B465: the board's list of stuck states (src/work/sync.mjs).
+  sync: 'the board\'s sync check',
   'app-folder': 'following the app\'s folder',
   'design-kinds': 'reading the kinds of idea',
   history: 'reading the other board\'s task times',

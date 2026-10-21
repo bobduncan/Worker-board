@@ -242,3 +242,36 @@ test('the main chat\'s role and the protocol name the word and the answer\'s for
   for (const word of ['## Check sync', '`check sync <name>`', '`check sync board`', 'Sync check of <name>:', 'work unblock', 'work requeue', 'work withdraw', 'work new']) assert.ok(role.includes(word), `main: ${word}`)
   assert.match(state, /const BOARD_WORDS = \/\^\(\?:[^\n]*\|check sync\)/)
 })
+
+test('B465: the main chat gets the board\'s own list\'s answer with the check, at most twelve findings', () => {
+  const syncList = {
+    at: at(22, 49), asked: true, fine: 6,
+    rows: [{ status: 'Fixed', text: 'B12 waited on B11, which is in review: unblocked' }, { status: 'For Main', text: 'B40 is blocked by B99, which the store does not hold' }],
+  }
+  const words = lines(say({ command: 'sync', chat: 'board' }, { ...board(), syncList }).message)
+  assert.ok(words.includes('Board\'s own check (22:49): Fixed: B12 waited on B11, which is in review: unblocked · For Main: B40 is blocked by B99, which the store does not hold; 6 checks fine'), words.join('\n'))
+  const many = { ...syncList, rows: Array.from({ length: 14 }, (_, i) => ({ status: 'Woke', text: `B${i} waited` })) }
+  assert.match(lines(say({ command: 'sync', chat: 'Worker 1' }, { ...board(), syncList: many }).message).find(line => line.startsWith('Board\'s own check')), /· and 2 more; 6 checks fine$/)
+  // Without the list's answer (the board's own list did not run), no line.
+  assert.ok(!lines(say({ command: 'sync', chat: 'board' }).message).some(line => line.startsWith('Board\'s own check')))
+})
+
+test('B465: the page shows the board\'s own check as in the agreed picture: a row per finding with its status, then the checks that found nothing', async () => {
+  const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
+  const page = { clock: ms => new Date(ms).toTimeString().slice(0, 5) }
+  vm.runInNewContext(`${script.slice(script.indexOf('// syncList:start'), script.indexOf('// syncList:end'))}\nthis.syncListOf = syncListOf`, page)
+  const shown = page.syncListOf({
+    at: at(0, 42), asked: true, fine: 2,
+    rows: [{ status: 'Fixed', text: 'B46 was queued for Ghost, no longer in the list: queued for Worker 1' }, { status: 'Woke', text: 'Worker 2: its queued B55 waited 12 min while it was free' }, { status: 'Sent', text: 'B17: the person\'s yes to dropping it (Q158): to Main as a note' }, { status: 'For Main', text: 'Second is not running: 2 refines and checks wait: its work went to Partner' }],
+  })
+  assert.equal(shown.title, 'Out of sync? · the board checked itself at 00:42')
+  // The page's arrays are of another realm (vm): compared as JSON.
+  assert.equal(JSON.stringify(shown.rows.map(row => [row.status, row.tone])), JSON.stringify([['Fixed', 'done'], ['Woke', 'done'], ['Sent', 'done'], ['For Main', 'main'], ['Fine', 'fine']]))
+  assert.equal(shown.rows.at(-1).text, '2 other checks: nothing stuck')
+  assert.equal(page.syncListOf({ at: at(0, 42), asked: true, fine: 8, rows: [] }).rows[0].text, '8 checks: nothing stuck')
+  assert.equal(page.syncListOf(null), null)
+  // The page has its place under the Workers panel's head, and draws it every refresh.
+  const html = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'index.html'), 'utf8')
+  assert.match(html, /<\/header>\n\s*<section class="sync-list" id="sync-list" aria-label="The board's sync check" hidden><\/section>/)
+  assert.match(script, /drawLanes\(state\)\n\s*drawSyncList\(state\)/)
+})

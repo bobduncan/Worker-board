@@ -298,3 +298,56 @@ export async function applySync(findings, ports, noted = new Set()) {
   }
   return { rows, note, keys, fine: CHECKS.length - new Set(findings.map(one => one.check)).size }
 }
+
+/** How long the answer of a run that was asked, or that found something, stands on the page. */
+export const SYNC_SHOWN_MS = 60 * MIN
+/** The keys the main chat was told of, kept at most this many (the newest). */
+const NOTED_KEPT = 500
+
+/**
+ * The board's runner of the list: one run at a time, in turn (a click while a run goes waits for it, then runs). `ports`:
+ * `state()` the board's state (state.mjs), `items()` the store's items, `outbox()` the board's messages, `refused()` the
+ * names a chat was refused under lately, `apply(body)` the work API as the board, `wake({ chat, id, text, key })` a
+ * line sent once per key (the message, or null), `noted` `{ load(), save(keys) }` the keys the main chat was told of,
+ * `now()`. `run({ asked })` answers `{ at, asked, rows, fine }`; `shown(now)` is what the page shows: the newest run
+ * that was asked or found something, for an hour, else null.
+ */
+export function syncRunner(ports) {
+  let turn = Promise.resolve()
+  let shownRun = null
+  let noted = null
+  async function once(asked) {
+    const now = ports.now()
+    const state = await ports.state()
+    const findings = findStuck({
+      items: await ports.items(), lanes: state.chats ?? [], partner: state.advisor ?? null, helper: state.advisorHelper ?? null,
+      prefix: state.chatPrefix ?? '', now, outbox: ports.outbox(), limits: state.limits ?? {}, pause: state.pause ?? null, refused: ports.refused(),
+    })
+    noted ??= new Set(await ports.noted.load())
+    const done = await applySync(findings, {
+      unblock: (id, on, why) => ports.apply({ action: 'unblock', id, on, why }),
+      requeue: (id, to, why) => ports.apply({ action: 'requeue', id, for: to, why }),
+      wake: ports.wake,
+    }, noted)
+    if (done.note.length > 0) {
+      const sent = await ports.apply({ action: 'note', to: 'main', text: [`The board's sync check at ${clockOf(now)}: what it could not fix itself`, ...done.note.map(line => `- ${line}`)] })
+      // Not filed: told at the next run. Filed: never again for these keys.
+      if (sent?.ok === true) {
+        for (const key of done.keys) noted.add(key)
+        noted = new Set([...noted].slice(-NOTED_KEPT))
+        await ports.noted.save([...noted])
+      }
+    }
+    const answer = { at: now, asked, rows: done.rows, fine: done.fine }
+    if (asked || answer.rows.length > 0) shownRun = answer
+    return answer
+  }
+  return {
+    run: ({ asked = false } = {}) => {
+      const run = turn.then(() => once(asked))
+      turn = run.catch(error => ports.failed?.(error))
+      return run
+    },
+    shown: now => (shownRun !== null && now - shownRun.at < SYNC_SHOWN_MS ? shownRun : null),
+  }
+}

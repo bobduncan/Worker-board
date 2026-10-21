@@ -919,6 +919,17 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .sync-line.is-answer { color: var(--text); }
 .sync-line.is-problem { color: var(--warn); }
 .workers-add .sync-button { margin-right: 0; }
+/* B465: the board's own sync check under the Workers panel's head: each finding with Fixed, Woke, Sent or For Main. */
+.sync-list { margin: 0 18px 12px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
+.sync-title { font-size: 15px; font-weight: 700; }
+.sync-note { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.sync-rows { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; margin-top: 12px; }
+.sync-status { min-width: 84px; padding: 3px 10px; border: 1px solid currentColor; border-radius: 6px; font-size: 12px; text-align: center; }
+.sync-status.is-done { color: var(--working); }
+.sync-status.is-main { color: var(--waiting); }
+.sync-status.is-fine { color: var(--muted); }
+.sync-text { font-size: 13.5px; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .sync-list { margin: 0 10px 10px; padding: 12px; } .sync-rows { gap: 6px 10px; } .sync-status { min-width: 0; } }
 
 .lane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .lane.is-waiting { border-color: #6a531d; }

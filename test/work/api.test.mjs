@@ -476,7 +476,8 @@ test('review 7: a chat asks only under its own step, or one nobody holds; Main a
 test('review: requeue gives a queued step to another chat, unqueue takes it out of its queue; Main and the person only', async () => {
   const { dir, board, main, person } = await fresh()
   try {
-    assert.deepEqual(await board({ action: 'requeue', id: 'B1', for: 'Support' }), { ok: false, status: 403, why: 'Only main or person may requeue.' })
+    // B465: and the board itself, for its sync check (as for rename).
+    assert.deepEqual(await board({ action: 'requeue', id: 'B1', for: 'Support' }), { ok: false, status: 403, why: 'Only main or person or server may requeue.' })
     assert.deepEqual(await board({ action: 'unqueue', id: 'B1' }), { ok: false, status: 403, why: 'Only main or person may unqueue.' })
     const moved = await main({ action: 'requeue', id: 'B1', for: 'Support' })
     assert.equal(moved.ok, true, moved.why)

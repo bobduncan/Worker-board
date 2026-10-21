@@ -11,7 +11,7 @@ import test from 'node:test'
 import { workApi } from '../../src/work/api.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, NOT_TAKEN_MS, OWNER_GONE_MS, applySync, findStuck } from '../../src/work/sync.mjs'
+import { AGAIN_MS, CHECKS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, syncRunner } from '../../src/work/sync.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
@@ -229,4 +229,35 @@ test('the board itself may unblock and requeue a step, and its History says why;
   await lead({ action: 'unblock', id: 'B2', on: 'B1', why: 'ignored' })
   assert.match(await history('B2'), /Lead: no longer blocked by B1$/)
   assert.equal((await board({ action: 'unblock', id: 'B2' })).status, 403)
+})
+
+test('the runner: one run at a time, the main chat told once per key across runs, and the page shows the run asked or that found something', async () => {
+  const applied = []
+  let saved = null
+  const world = items(step('B1', 'review'), step('B2', 'queued', { Owner: 'Painter', 'Blocked by': 'B1' }), step('B4', 'refined', { 'Blocked by': 'B77' }))
+  let clock = NOW
+  const runner = syncRunner({
+    state: async () => ({ chats: [LEAD, lane('Painter', { state: 'working' })], chatPrefix: '', limits: {}, pause: null }),
+    items: async () => world,
+    outbox: () => [],
+    refused: () => [],
+    apply: async body => (applied.push(body), { ok: true }),
+    wake: async () => ({ id: 'w' }),
+    noted: { load: async () => ['blocked B9 B99'], save: async keys => { saved = keys } },
+    now: () => clock,
+  })
+  const [first, second] = await Promise.all([runner.run(), runner.run({ asked: true })])
+  assert.deepEqual(first.rows.map(one => one.status), ['Fixed', 'For Main'])
+  assert.equal(second.asked, true)
+  // B2 unblocked twice over two runs (the fake store does not change); B4 told to the main chat once.
+  assert.deepEqual(applied.filter(one => one.action === 'unblock').map(one => [one.id, one.on]), [['B2', 'B1'], ['B2', 'B1']])
+  const notes = applied.filter(one => one.action === 'note')
+  assert.equal(notes.length, 1)
+  assert.equal(notes[0].to, 'main')
+  assert.match(notes[0].text[0], /^The board's sync check at \d\d:\d\d: what it could not fix itself$/)
+  assert.match(notes[0].text[1], /^- B4 is blocked by B77/)
+  assert.deepEqual(saved, ['blocked B9 B99', 'blocked B4 B77'])
+  assert.equal(runner.shown(clock).asked, true)
+  clock += SYNC_SHOWN_MS
+  assert.equal(runner.shown(clock), null)
 })
