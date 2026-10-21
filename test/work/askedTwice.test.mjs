@@ -8,6 +8,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import { answer, typed } from '../../fixtures/lines.mjs'
+import { parseConfig } from '../../src/config.mjs'
+import { buildState } from '../../src/state.mjs'
 import { forYouRepeat, overlapOf } from '../../src/work/askRepeat.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { valueOf } from '../../src/work/item.mjs'
@@ -163,4 +166,32 @@ test('the measure of alike: one question in other words is alike, two questions 
   // Word forms count as one word: "teaches", "teaching".
   assert.ok(overlapOf('The second bed now teaches watering, then pruning, one tip at a time', 'Does the second bed\'s teaching of watering and pruning work?') >= 0.5)
   assert.equal(forYouRepeat({ text: ['Water the hedge tonight.'], kind: 'do' }, {}), null)
+})
+
+test('the warning "filed no ask" stays away for an item the board left out as asked already by another chat (Q204)', async () => {
+  const { dir, main, board } = await fresh()
+  try {
+    await board({ action: 'take', id: 'B1' }, NOW)
+    await board({ action: 'ask', of: 'B1', kind: 'decide', title: 'Which of the ten pond proposals become steps?', text: 'The page lists ten weak places of the pond, each with its cost.' }, NOW + MIN)
+    const PROJECT = 'C:\\garden'
+    const config = { ...parseConfig('{}', {}), project: PROJECT }
+    const at = NOW + 10 * MIN
+    const build = async said => {
+      const words = `Done.\n\n> **For you**\n> 1. **Answer:** ${said}\n\n---\n\n\`\`\`diff\n  Prompt: x\n  Who:    Team - Main\n+ Done:   yes\n\`\`\``
+      const app = JSON.stringify({ title: 'Team - Main', sessionId: 'local_main', cliSessionId: 'cli-main', cwd: PROJECT, isArchived: false, createdAt: 1, lastActivityAt: at, lastAssistantUuid: 'u-1' })
+      return buildState({
+        listText: '{"prefix":"Team - ","main":"Main","workers":["Board"]}', appChatTexts: [app],
+        tails: { 'cli-main': { text: [typed(at - 2 * MIN, 'Go on'), answer(at - MIN, words)].join('\n'), isCut: false, modifiedAt: at } },
+        planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work: { ok: true, dir, exists: true, ...(await readStore(dir)) },
+      }, { lines: [], outbox: [], runs: [], board: null, seen: null, now: at, config })
+    }
+    const warned = state => state.forYou.filter(one => one.kind === 'unfiled').map(one => one.from)
+    const ended = await main({ action: 'turn-ended', since: at - 2 * MIN, forYou: [item('Q1, which pond proposals become steps: A the top three, B all ten; I advise A.')] }, at)
+    assert.deepEqual(ended.result.asked ?? [], [])
+    assert.deepEqual(warned(await build('Q1, which pond proposals become steps: A the top three, B all ten; I advise A.')), [])
+    // A new question of its own that it filed no ask for still warns.
+    assert.deepEqual(warned(await build('Shall the lilies wait a week? I advise yes.')), ['Main'])
+  } finally {
+    await cleanUp(dir)
+  }
 })

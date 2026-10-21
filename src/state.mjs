@@ -25,6 +25,7 @@ import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { planState, withPlanWork } from './plan.mjs'
 import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
+import { forYouRepeat } from './work/askRepeat.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { informationOf, instructionsOf, notesToMain, partnerDecidedOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
@@ -589,7 +590,7 @@ function unfiledAsk(entries, scan, turn, waits, name, prefix) {
   if (entries === null || turn !== 'ended') return null
   const said = waitingFor(entries)
   if (said === null || !asksAtEnd(said.words)) return null
-  if (blockAsksOpen(said.words, waits.open?.get(name.toLowerCase()) ?? [])) return null
+  if (blockAsksOpen(said.words, waits.open ?? new Map(), name.toLowerCase())) return null
   const opened = turnStart((scan ?? entries).filter(entry => !(entry.at > said.at)), { prefix })?.at ?? null
   if (opened === null) return { at: said.at, words: said.words, isStartUnknown: true }
   const filed = waits.filed.get(name.toLowerCase()) ?? -Infinity
@@ -598,16 +599,21 @@ function unfiledAsk(entries, scan, turn, waits, name, prefix) {
 }
 
 /**
- * Warnings (2026-10-19): whether an item of the "For you" block an answer ends with asks one of the open asks given
- * (`{ id, key }`): it names the ask's id as a word of its own, or asks the same words (`sameAsk`).
+ * Warnings (2026-10-19): whether an item of the "For you" block an answer ends with asks one of the open asks of the
+ * chat `name` (`{ id, key, words, of }`, by chat in `open`): it names the ask's id as a word of its own, or asks the
+ * same words (`sameAsk`). B474: or the board left it out as a question asked already, in other words or of another chat
+ * (`forYouRepeat`), so the chat filed nothing for it and is not warned.
  */
-function blockAsksOpen(words, open) {
-  if (open.length === 0) return false
+function blockAsksOpen(words, open, name) {
+  const own = open.get(name) ?? []
+  const others = [...open].filter(([chat]) => chat !== name).flatMap(([, asks]) => asks)
+  if (own.length === 0 && others.length === 0) return false
   const items = parseHandover(words)?.items ?? []
   return items.some(item => {
     const named = askIdsIn(item.text)
     const key = askKey(item.ask)
-    return open.some(ask => named.includes(ask.id) || (key !== '' && ask.key !== '' && sameAsk(ask.key, key)))
+    return own.some(ask => named.includes(ask.id) || (key !== '' && ask.key !== '' && sameAsk(ask.key, key)))
+      || forYouRepeat({ text: [item.text], kind: item.kind === 'do' ? 'do' : 'decide' }, { own, others }) !== null
   })
 }
 

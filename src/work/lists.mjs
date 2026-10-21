@@ -4,6 +4,7 @@
 
 import { sinceMs } from './api.mjs'
 import { askKey, askPartsOf, askWordsOf } from './askWords.mjs'
+import { repeatFactsOf } from './askRepeat.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
 import { NOTE_LINE, TAKE_BACK_MS, isPartnerAnswered, isRoutedToPartner } from './partnerAnswers.mjs'
@@ -44,8 +45,8 @@ const asksOfStore = work => itemsOf(work).filter(item => valueOf(item, 'Kind') =
  * B299: who waits for the person by the store: the chats (by plain name, lower case) with an open blocking ask, and
  * those with an open ask of the app's question form. B301: `filed`, per chat when it last filed an ask of its own
  * (Warnings, 2026-10-19: `askFiledMs`, to the millisecond; an older ask at the end of its minute): a chat that wrote
- * questions in its chat after that filed none. Warnings: `open`, per chat its open asks of its own (`{ id, key }`, the
- * key its words as `askKey` compares them), for the items of a "For you" block that ask one of them. Empty when the
+ * questions in its chat after that filed none. Warnings: `open`, per chat its open asks of its own (`{ id, key, words, of }`,
+ * the key its words as `askKey` compares them; B474: words and of as `forYouRepeat` compares them), for the items of a "For you" block that ask one of them. Empty when the
  * store cannot be read: no chat waits by a chat's words instead.
  */
 export function storeWaits(work, prefix = '') {
@@ -60,7 +61,7 @@ export function storeWaits(work, prefix = '') {
   const openOf = new Map()
   for (const item of open) {
     const name = plainName(valueOf(item, 'Owner'), prefix)
-    openOf.set(name, [...(openOf.get(name) ?? []), { id: valueOf(item, 'Id'), key: askKey(askWordsOf(item)) }])
+    openOf.set(name, [...(openOf.get(name) ?? []), { ...repeatFactsOf(item), key: askKey(askWordsOf(item)) }])
   }
   // Partner answers, the review's findings: a blocking ask routed to the partner holds its chat for the partner, not for
   // the person (`partner`: per chat the ids of such asks).
