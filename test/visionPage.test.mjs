@@ -383,3 +383,17 @@ test('the tradeoffs: a complex feature later or not sure, the partner\'s advice,
   assert.match(script, /function tradeoffSection\(view, can, off\)/)
   assert.match(script, /'Decide the tradeoffs on step 2 first\.'/)
 })
+
+test('the Interview as the way through (2026-10-21): how many wait and where the first is; own words on a decision; all decided', () => {
+  const view = visionView(plan, UI)
+  assert.deepEqual([view.waiting, view.firstWaiting], [9, 0])
+  // Every slide before the last decision sent: the first waiting one is the last.
+  const sent = visionView(plan, { ...UI, sent: ['P7', 'F2', 'K2'] })
+  assert.equal(sent.waiting, 6)
+  const decidedOnly = visionView(planState(PAGE, [], 'p.md'), { ...UI, sent: ['P7', 'F2', 'K2', 'S1'] })
+  assert.deepEqual([decidedOnly.waiting, decidedOnly.slides.filter(one => one.kind === 'open').length], [decidedOnly.slides.filter(one => one.kind === 'open').length, decidedOnly.waiting])
+  assert.match(script, /'Send my words', 'decide-words'/)
+  assert.match(script, /\{ command: 'plan-change', id: slide\.id, text: words \}/)
+  assert.match(script, /function visionAllDecided\(view\)/)
+  assert.match(script, /visionButton\('Start', 'start-interview'/)
+})

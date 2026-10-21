@@ -9151,6 +9151,8 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
       { id: 'focus', label: '5 · Focus', isDone: focus !== null },
     ],
     interviewLabel: asks > 0 ? `Interview · ${asks} to decide` : 'Interview',
+    // What waits on you (2026-10-21): how many, and the first slide that does, for the bar's Start.
+    waiting: asks, firstWaiting: Math.max(0, slides.findIndex(slide => slide.kind === 'ask' || slide.kind === 'open' || (slide.kind === 'decide' && !slide.isSent))),
     working: working.map(one => ({ ...one, title: titleOfPart(one.about) })),
     busy: {
       marks: isBusy(workOn('plan-marks')), featureAdd: isBusy(workOn('plan-feature-add')),
@@ -9662,13 +9664,21 @@ function drawVision(state) {
   if (view !== null && !can) main.append(el('p', 'vision-note', `The buttons are off here. ${off}`))
   if (visionUi.note !== null) main.append(el('p', `vision-note${visionUi.note.isProblem ? ' is-problem' : ''}`, visionUi.note.text))
   if (view !== null && view.working.length > 0) main.append(visionWorking(view.working, state, can, off))
+  // Decisions waiting (the user, 2026-10-21: "when in the flow is this supposed to happen"): a bar on every step.
+  if (view !== null && view.page !== 'interview' && view.waiting > 0) {
+    const bar = el('div', 'vision-waiting')
+    bar.append(el('b', '', `${view.waiting} decision${view.waiting === 1 ? '' : 's'} wait${view.waiting === 1 ? 's' : ''} for you`),
+      el('span', 'muted', ' · one per slide, in the steps\' order'), el('span', 'grow'),
+      visionButton('Start', 'start-interview', { className: 'is-primary' }))
+    main.append(bar)
+  }
   if (view === null) main.append(el('p', 'vision-empty', 'No product plan yet. Type "plan interview" to your partner: the answers every goal falls back to appear here, and the questions it asks you come one per slide.'))
   else if (view.page === 'vision') main.append(...visionPage(view, can, off))
   else if (view.page === 'features') main.append(...featuresPage(view, can, off))
   else if (view.page === 'plan') main.append(...planPage(view, can, off))
   else if (view.page === 'standards') main.append(...standardsPage(view, can, off))
   else if (view.page === 'focus') main.append(...focusStepPage(view, can, off))
-  else if (view.slides.length === 0) main.append(el('p', 'vision-empty', 'Nothing waits on you now. Press Go deeper on a vision card, Check the plan on step 4, or Change on anything.'))
+  else if (view.slides.length === 0 || (view.waiting === 0 && !view.slides.some(slide => slide.kind === 'change'))) main.append(visionAllDecided(view))
   else main.append(visionSlide(view, can, off))
   if (view !== null) {
     const file = el('button', 'vision-file', `The whole page: ${view.path}`)
@@ -9678,6 +9688,15 @@ function drawVision(state) {
   }
   $('view-vision').replaceChildren(main)
   if (scrolled > 0) main.scrollTop = scrolled
+}
+
+/** The Interview with nothing waiting (2026-10-21): all decided, and where to go from here. */
+function visionAllDecided(view) {
+  const box = el('section', 'vision-extra vision-all-decided')
+  box.append(el('h3', '', 'All decided'),
+    el('p', 'muted', view.slides.length > 0 ? 'Your answers went to your partner; the steps show them once it writes the page.' : 'Nothing waits on you now. Go deeper on a vision card, Check the plan on step 4, or Change anything.'),
+    visionButton('Back to the steps', 'page', { id: 'vision' }))
+  return box
 }
 
 /** A small turning circle: something is being prepared. */
@@ -10260,6 +10279,13 @@ function visionSlide(view, can, off) {
     if (slide.pictures.length > 0) stage.append(visionPictures(slide.pictures))
     if (slide.tradeoff !== undefined) stage.append(tradeoffBox(slide.tradeoff))
     if (slide.points.length > 0) stage.append(visionPoints(slide.points))
+    // Your own words on this one (the user, 2026-10-21: "sometimes I don't have the option to answer its question"):
+    // they go to this item, never through the box for a feature you miss.
+    if (!slide.isSent) {
+      const form = el('form', 'vision-change')
+      form.append(visionBox('vision-change-words', 'Or in your own words: what you think, a condition, a doubt... It goes to your partner about this one.', 2, can))
+      stage.append(form)
+    }
   } else if (slide.kind === 'open') {
     // No options yet: the partner prepares them (with pictures where it is about looks), or you answer in your words.
     const ask = el('div', 'vision-open')
@@ -10309,7 +10335,10 @@ function visionSlide(view, can, off) {
     buttons.append(visionButton(slide.picked === null ? 'Pick an option' : `Answer: ${slide.picked.key || slide.picked.head}`, 'answer', { id: slide.askId, className: 'is-primary', isEnabled: can && slide.picked !== null, title: slide.picked === null ? 'Pick an option first.' : off }))
   } else if (slide.kind === 'decide') {
     if (slide.isSent) buttons.append(el('span', 'muted', 'Sent: your partner writes it.'))
-    else for (const action of slide.actions) buttons.append(visionButton(action.label, action.act, { id: action.id, className: action.isPrimary ? 'is-primary' : '', isEnabled: can || action.act === 'page', title: off }))
+    else {
+      for (const action of slide.actions) buttons.append(visionButton(action.label, action.act, { id: action.id, className: action.isPrimary ? 'is-primary' : '', isEnabled: can || action.act === 'page', title: off }))
+      buttons.append(visionButton('Send my words', 'decide-words', { id: slide.id, isEnabled: can, title: off }))
+    }
   } else if (slide.kind === 'open') {
     buttons.append(visionButton('Send my answer', 'send-open', { id: slide.id, isEnabled: can, title: off }))
   } else {
@@ -10429,6 +10458,22 @@ async function visionAct(act, id) {
       setTimeout(() => card.classList.remove('is-flash'), 1600)
     }
     return
+  } else if (act === 'start-interview') {
+    visionUi.words = ''
+    visionUi.page = 'interview'
+    visionUi.at = view.firstWaiting
+  } else if (act === 'decide-words' && slide?.kind === 'decide') {
+    // Your own words on a decision: a change of that item (a focus proposal: a new proposal from your words).
+    const words = visionUi.words.trim()
+    if (words === '') visionUi.note = { isProblem: true, text: 'Write your words in the box first.' }
+    else {
+      const body = slide.step === 'focus' ? { command: 'plan-focus', text: words } : { command: 'plan-change', id: slide.id, text: words }
+      if (await toPartner(body, `${slide.title}: your words went to your partner.`)) {
+        visionUi.words = ''
+        visionUi.sent = [...visionUi.sent, slide.id]
+        visionUi.at = Math.min(visionUi.at + 1, Math.max(0, view.slides.length - 1))
+      }
+    }
   } else if (act === 'get-tradeoffs') {
     return toPartner({ command: 'plan-tradeoffs' }, 'Your partner weighs every complex feature later or not sure: prepare now, or wait, with the cost now and later.')
   } else if (act === 'tradeoff-now') {
