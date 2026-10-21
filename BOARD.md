@@ -296,7 +296,10 @@ The product plan (`productPlan`, the game's `docs/product-plan.md`, written by t
 step falls back to. Five steps, broad to narrow, **1 · Vision → 2 · Features → 3 · Standards → 4 · Plan → 5 · Focus**
 (the new order of 2026-10-21; a ✓ on a step that is settled), and an **Interview**, the guided path: the partner's
 questions and every decision that waits on the person across the five steps, one per slide, each decision with the
-buttons of its step (Yes, mine; a milestone; Confirm; Change; Make it my focus), sent at once and marked sent. The vision: the page's pitch in large type, then a
+buttons of its step (Yes, mine; Prepare now or Wait; Confirm; Change; Make it my focus) and a box for the person's
+own words about that one (Send my words: a change of it, or a new focus proposal), sent at once and marked sent;
+while decisions wait, every step shows a bar "n decisions wait for you" with **Start**, and once none waits the
+Interview says **All decided**. The vision: the page's pitch in large type, then a
 card per answer: its title, its state (decided green, assumed blue, open amber; **settled ✓** in teal once a deeper
 round is answered or the person pressed **Good enough**), its first four points with bold lead words and the rest
 under **Details · n more**, up to three pictures with captions (Look and sound always; every other card gets one
