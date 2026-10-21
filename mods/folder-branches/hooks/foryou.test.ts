@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { ITEMS_CHARS, blockAsksLine, forYouItems } from './foryou'
+import { ITEMS_CHARS, blockAsksLine, forYouItems, leftOutLine } from './foryou'
 
 const CLOSING = ['', '---', '', '```diff', '  Prompt: the strip', '  Who:    Game - Units', '- Done:   partly, waiting for your answer', '```']
 const answer = (...block: string[]): string => ['The strip is drawn.', '', ...block, ...CLOSING].join('\n')
@@ -75,5 +75,8 @@ describe('B317: the "For you" block at the end of an answer, as asks to file', (
   test('the line beside the next prompt names the asks filed from the block, so the chat can close one answered in the chat', () => {
     expect(blockAsksLine(['Q7', 'x', 8, 'Q9'])).toBe('Filed on the worker board from your last "For you" block: Q7, Q9. The person answers there; if they answer one here in the chat instead, close it with work answered-in-chat <id> and their words.')
     expect(blockAsksLine([])).toBe(null)
+    // B480: the items the board left out as asked already are named, so a new question that only looked alike is filed.
+    expect(leftOutLine(['"Keep the golem?" asks what Q7 asks', 3, ''])).toBe('Not filed on the worker board from your last "For you" block, as asked already: "Keep the golem?" asks what Q7 asks. If one of them is a new question after all, file it with work ask.')
+    expect(leftOutLine([])).toBe(null)
   })
 })

@@ -1789,7 +1789,7 @@ async function turnEnded(body, w) {
   const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
   // Pause and resume (spec 2026-10-18): the same call answers the pause state, so the mod needs no call of its own.
   const { text: _words, ...pause } = pauseStateOf({ ...w, who: chat })
-  return { ok: true, result: { text, missed, open, changed: missed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...(pulled === undefined ? {} : { pull: pulled }), pause } }
+  return { ok: true, result: { text, missed, open, changed: missed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...((fromBlock?.left.length ?? 0) === 0 ? {} : { left: fromBlock.left }), ...(pulled === undefined ? {} : { pull: pulled }), pause } }
 }
 
 const ASK_REF = /^Q\d+$/
@@ -1816,11 +1816,12 @@ async function askForYou(value, since, w) {
   // Warnings (2026-10-19): an ask's time to the millisecond (`Filed`; an older one at the end of its minute).
   const known = all.filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && (stateOf(one) === 'open' || askFiledMs(one) >= since))
     .map(one => askKey(askWordsOf(one)))
-  // B474: the asks an item may repeat in other words: the chat's own of this turn (filed, or withdrawn in it, as Q264
-  // before Q274; History holds the minute only), its own still open, and the other chats' open ones (Q193 before Q197).
+  // B474: the asks an item may repeat in other words: the chat's own filed this turn, its own still open, and the other
+  // chats' open ones (Q193 before Q197). B480: a withdrawn ask was never answered, so asking it again is a new question
+  // (Q83 then Q85, Q134 then Q135, Q264 then Q274).
   const asks = all.filter(one => kindOf(one) === 'ask')
   const repeats = {
-    turn: asks.filter(one => isOwner(one, w.who, w.prefix) && (askFiledMs(one) >= since || (isWithdrawn(one) && closedMsOf(one) >= since - 60_000))).map(repeatFactsOf),
+    turn: asks.filter(one => isOwner(one, w.who, w.prefix) && askFiledMs(one) >= since && !isWithdrawn(one)).map(repeatFactsOf),
     own: asks.filter(one => isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
     others: asks.filter(one => !isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
   }
@@ -1841,7 +1842,7 @@ async function askForYou(value, since, w) {
     // B474: in other words, or pointing to it; the chat is told which and why (the review).
     const repeat = forYouRepeat({ text, kind }, repeats)
     if (repeat !== null) {
-      left.push(`"${line(text[0], 60)}" ${repeat}`)
+      left.push(`"${line(text[0], 100)}" ${repeat}`)
       continue
     }
     const fields = { kind, text, options: one.options, advice: one.advice, pictures: one.pictures, play: one.play, via: 'chat', blocking: false }

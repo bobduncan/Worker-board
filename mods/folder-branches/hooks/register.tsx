@@ -15,7 +15,7 @@ import {
   withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
-import { blockAsksLine, forYouItems } from './foryou'
+import { blockAsksLine, forYouItems, leftOutLine } from './foryou'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
 } from './folders'
@@ -100,6 +100,8 @@ let turnStartedAt: number | null = null
 let isTurnEndTold = true
 /** B317: the asks the board filed from the chat's last "For you" block, named beside its next prompt once. */
 let blockAsks: string[] = []
+/** B480: the items of the last "For you" block the board left out as asked already, as it named them. */
+let blockLeft: string[] = []
 /** Review of B298: true once the board named this chat's open instructions in this process. */
 let isOpenKnown = false
 /** B298: this chat's open instructions, as the board last answered them. */
@@ -1235,6 +1237,9 @@ export const register: Register = on => {
       const asked = blockAsksLine(blockAsks)
       blockAsks = []
       if (asked !== null) context.push(asked)
+      const left = leftOutLine(blockLeft)
+      blockLeft = []
+      if (left !== null) context.push(left)
       context.push(...await paused)
     }
 
@@ -1321,6 +1326,8 @@ export const register: Register = on => {
             if (ended !== null) pauseRead = { pause: parsePause(ended.pause), at: await $.clock.now() }
             const filed = ended?.asked
             if (Array.isArray(filed)) blockAsks = filed.filter((id): id is string => typeof id === 'string')
+            const left = ended?.left
+            blockLeft = Array.isArray(left) ? left.filter((one): one is string => typeof one === 'string') : []
             const line = (ended?.pull as { text?: unknown } | undefined)?.text
             if (typeof line === 'string' && line !== '') await takeFromBoard($)
           })())

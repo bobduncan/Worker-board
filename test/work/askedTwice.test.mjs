@@ -59,17 +59,14 @@ test('two items of one block in other words file one ask (Q174 and Q175)', async
   }
 })
 
-test('an item that asks again what the chat withdrew this turn files nothing (Q264 withdrawn, then Q274)', async () => {
+test('B480: an item that asks again what the chat withdrew unanswered is a new ask (Q264 withdrawn, then Q274)', async () => {
   const { dir, advisor } = await fresh()
   try {
     await advisor({ action: 'ask', kind: 'decide', title: 'Should the garden first pick hold only the roses card?', text: 'Its tip: a flower joins your garden; the herbs come at the second pick.' }, NOW)
     const since = NOW + 30 * MIN
     await advisor({ action: 'withdraw', id: 'Q1', why: 'I fold the advice in: roses alone' }, since + MIN)
     const ended = await advisor({ action: 'turn-ended', since, forYou: [item('In the garden first pick, should the roses card stand alone? I built in yes; to change it, say so.')] }, since + 2 * MIN)
-    assert.deepEqual(ended.result.asked ?? [], [])
-    // A withdrawn ask of an earlier turn holds a new question back no more.
-    const later = await advisor({ action: 'turn-ended', since: since + 60 * MIN, forYou: [item('In the garden first pick, should the roses card stand alone? I built in yes; to change it, say so.')] }, since + 61 * MIN)
-    assert.deepEqual(later.result.asked, ['Q2'])
+    assert.deepEqual(ended.result.asked, ['Q2'])
   } finally {
     await cleanUp(dir)
   }
@@ -102,6 +99,8 @@ test('a do that sends the person to another chat\'s open questions under a step 
     assert.deepEqual(ended.result.asked ?? [], [])
     // The chat is told what was left out and why.
     assert.match(ended.result.text, /Not filed from your "For you" block, as asked already: "Answer the Advisor's questions on B2\. .*" points to Q1 under B2/)
+    // B480: the answer names it apart too, for the Workers mod to tell the chat at its next prompt.
+    assert.deepEqual(ended.result.left, [`"Answer the Advisor's questions on B2. Open it from the Advisor row on the board." points to Q1 under B2`])
     // A do that names the step for another reason is filed (the review).
     const restart = await main({ action: 'turn-ended', since: NOW + 2 * MIN + 1, forYou: [item('Restart the board so B2 takes effect.', 'do')] }, NOW + 3 * MIN)
     assert.deepEqual(restart.result.asked, ['Q2'])
@@ -113,14 +112,28 @@ test('a do that sends the person to another chat\'s open questions under a step 
   }
 })
 
-test('a different question on the same subject is still filed (Q232 and Q233)', async () => {
+test('a different question on the same subject is still filed, also beside an ask of the same turn (Q232 and Q233)', async () => {
   const { dir, main } = await fresh()
   try {
-    await main({ action: 'turn-ended', since: NOW, forYou: [item('With 2% of the water left before the stop, shall the idle gardeners stay idle until Thursday\'s refill? I advise yes.')] }, NOW + MIN)
-    const next = await main({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [item('Should the stop rule move from 85% to about 99% of the weekly water, so the 16% left can be used? I advise yes.')] }, NOW + 3 * MIN)
+    const water = 'With 2% of the water left before the stop, shall the idle gardeners stay idle until the Thursday refill? I advise yes.'
+    const rule = 'Should the stop rule move from 85% to about 99% of the weekly water, so the 16% left can be used? I advise yes.'
+    await main({ action: 'turn-ended', since: NOW, forYou: [item(water)] }, NOW + MIN)
+    const next = await main({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [item(rule)] }, NOW + 3 * MIN)
     assert.deepEqual(next.result.asked, ['Q2'])
   } finally {
     await cleanUp(dir)
+  }
+  // B480: the first filed with work ask in the same turn holds the second back no more (they share half their words).
+  const other = await fresh()
+  try {
+    const water = 'With 2% of the water left before the stop, shall the idle gardeners stay idle until the Thursday refill? I advise yes.'
+    await other.main({ action: 'ask', kind: 'decide', title: 'Shall the idle gardeners stay idle until the Thursday refill?', text: water }, NOW + MIN)
+    const rule = 'Should the stop rule move later, with the water left?'
+    assert.equal(overlapOf(`Shall the idle gardeners stay idle until the Thursday refill? ${water}`, rule), 0.5)
+    const same = await other.main({ action: 'turn-ended', since: NOW, forYou: [item(rule)] }, NOW + 2 * MIN)
+    assert.deepEqual(same.result.asked, ['Q2'])
+  } finally {
+    await cleanUp(other.dir)
   }
 })
 

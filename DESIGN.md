@@ -2092,7 +2092,16 @@ ask`; the board then showed only the warning "<chat> wrote questions in its chat
 - **Answered in the chat instead**: beside the chat's next prompt, once, the mod names what was filed ("Filed on the
   worker board from your last "For you" block: Q20. ... close it with work answered-in-chat <id> and their words"); the
   job texts say so too (`roles/worker.md`, `main.md`, `partner.md`).
-- Tests: `test/work/forYouAsks.test.mjs`; in the mod, `hooks/foryou.test.ts` and `hooks/chatlist.test.ts` (B317).
+- **Asked twice in other words** (B474, B480; `src/work/askRepeat.mjs`): an item is also left out when it shares six
+  in ten of its first meaningful words (`overlapOf`, three at least) with an ask the chat filed this turn, holds open,
+  or another chat holds open; when it leads with an open ask's id; or when it is a do that sends the person to answer
+  or open another chat's open questions under a step it names. An ask withdrawn unanswered, or routed to the partner,
+  counts for nothing. `work ask` refuses a question of the chat that stands open under the same step or goal, or that
+  the person answered within 2 minutes, at seven in ten alike, naming it. What was left out goes back in the answer
+  (`left`), and the mod 0.13.18 names it beside the chat's next prompt, once, so a new question that only looked alike
+  is filed with `work ask`. `tools/replay-asks.mjs` replays a period of the store through these checks.
+- Tests: `test/work/forYouAsks.test.mjs`, `test/work/askedTwice.test.mjs`; in the mod, `hooks/foryou.test.ts` and
+  `hooks/chatlist.test.ts` (B317, B480).
 
 ## Install with one command (B321)
 

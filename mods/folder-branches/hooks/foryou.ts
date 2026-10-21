@@ -190,3 +190,17 @@ export function blockAsksLine(ids: readonly unknown[]): string | null {
   if (own.length === 0) return null
   return `Filed on the worker board from your last "For you" block: ${own.join(', ')}. The person answers there; if they answer one here in the chat instead, close it with work answered-in-chat <id> and their words.`
 }
+
+/** B480: the most items of a block the line names as left out, each cut to its board's words. */
+const LEFT_SHOWN = 9
+
+/**
+ * B480: the line beside the chat's next prompt, once, naming the items of its last "For you" block that the board left
+ * out as asked already (each its start and why, as the board says it), so a chat whose new question only looked alike
+ * files it with the work tool; null when there are none.
+ */
+export function leftOutLine(left: readonly unknown[]): string | null {
+  const said = left.filter((one): one is string => typeof one === 'string' && one.trim() !== '').slice(0, LEFT_SHOWN)
+  if (said.length === 0) return null
+  return `Not filed on the worker board from your last "For you" block, as asked already: ${said.join('; ')}. If one of them is a new question after all, file it with work ask.`
+}

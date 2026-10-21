@@ -1552,12 +1552,14 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
     await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Main' })
     await $.turn.start({ text: 'go', turnId: 't1' })
     const words = 'Closed B277.\n\n> **For you**\n> 1. **Answer:** Keep the golem as it is? I advise yes.\n\n---\n\n```diff\n  Prompt: x\n  Who:    Game - Main\n- Done:   partly\n```'
-    w.workAnswer = { status: 200, text: JSON.stringify({ missed: [], open: [], asked: ['Q7'] }) }
+    w.workAnswer = { status: 200, text: JSON.stringify({ missed: [], open: [], asked: ['Q7'], left: ['"Plant the hedge?" asks what Q5 asks'] }) }
     await $.turn.complete({ ...ENDED, answer: words, turnId: 't1' })
     // The next prompt names what was filed, once, so the chat can close one the person answers in the chat.
     await $.prompt.submit({ text: 'yes, keep it', ...ASKED } as never)
     await $.prompt.submit({ text: 'and go on', ...ASKED } as never)
     expect(w.contexts.map(one => one.join(' ').includes('from your last "For you" block: Q7'))).toEqual([true, false])
+    // B480: and, once, what the board left out as asked already.
+    expect(w.contexts.map(one => one.join(' ').includes('as asked already: "Plant the hedge?" asks what Q5 asks'))).toEqual([true, false])
     await $.turn.start({ text: 'go', turnId: 't2' })
     // A subagent's answer with such a block is not the chat's.
     await $.turn.complete({ ...ENDED, answer: words, turnId: 's1', agentId: 'a1' })

@@ -28,7 +28,7 @@ for (const one of facts.filter(f => f.at >= from).sort((a, b) => a.at - b.at)) {
   const open = before.filter(f => f.closed >= one.at)
   const own = open.filter(f => f.owner === one.owner)
   // An ask filed from a "For you" block came at the end of an earlier turn.
-  const turn = before.filter(f => f.owner === one.owner && f.via !== 'chat' && (f.at >= one.at - TURN_MS || (f.withdrawn && f.closed >= one.at - TURN_MS && f.closed <= one.at)))
+  const turn = before.filter(f => f.owner === one.owner && f.via !== 'chat' && f.at >= one.at - TURN_MS && !(f.withdrawn && f.closed <= one.at))
   const text = one.item.sections.get('Text') ?? []
   let old = null
   let now = null

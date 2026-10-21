@@ -1,9 +1,9 @@
 // B474 (I57, 2026-10-21): "I still often get asked the same thing twice, via different need your attentions." Whether
 // a question asks what an ask of the store already asks, in other words. The board leaves out such an item of a chat's
 // "For you" block (api.mjs, `askForYou`), and refuses a chat's second `work ask` of a question it holds open (api.mjs,
-// `ask`). The thresholds come from the store's asks of 2026-10-18 to 2026-10-21: every pair of one question asked
-// twice there scored 0.5 or more against the ask filed in the same turn, and no two different questions of one chat
-// scored above 0.57 (B474, tools/replay-asks.mjs). PURE.
+// `ask`). The thresholds come from the store's asks of 2026-10-18 to 2026-10-21 (tools/replay-asks.mjs): most pairs of
+// one question asked twice there scored 0.6 or more, and two different questions of one chat scored up to 0.57; the
+// few repeats between those are let through, since a real question dropped costs more than a copy (B480). PURE.
 
 import { askKey, sameAsk } from './askWords.mjs'
 import { sinceMs, valueOf } from './item.mjs'
@@ -41,8 +41,10 @@ export function overlapOf(a, b) {
   return shared < FEWEST_SHARED ? 0 : shared / Math.min(one.size, two.size)
 }
 
-/** Another question in other words: against an ask filed or withdrawn this turn, and against one still open. */
-export const SAME_TURN = 0.5
+/**
+ * Another question in other words, against an ask filed this turn or one still open. B480: one measure for both; 0.5
+ * for this turn's asks dropped real new questions that scored exactly that (Q232 and Q233, Q160 and Q163).
+ */
 export const STILL_OPEN = 0.6
 /** The review: `work ask` refuses only a near copy (the P3 questions came word for word, Q160 and Q162 0.92 alike). */
 export const ASKED_AGAIN = 0.7
@@ -74,7 +76,7 @@ const POINTER = /^\W*(?:answer|reply|open|look at|go to)\b/i
 
 /**
  * B474: why an item of a chat's "For you" block (`text`, its lines; `kind`) asks again what an ask already asks, or null.
- * `turn`: the chat's asks filed or withdrawn since its turn began; `own`: its asks still open; `others`: the open asks
+ * `turn`: the chat's asks filed since its turn began, not withdrawn; `own`: its asks still open; `others`: the open asks
  * of the other chats. Each is `{ id, words, of }`. The reason names the ask it repeats.
  */
 export function forYouRepeat({ text, kind }, asks) {
@@ -84,7 +86,7 @@ export function forYouRepeat({ text, kind }, asks) {
   const lead = /^\W*(Q\d{1,6})\b/.exec(words)?.[1]
   const pointed = [...own, ...others].find(one => one.id === lead)
   if (pointed !== undefined) return `points to ${pointed.id}`
-  const said = turn.find(one => isSame(words, one.words, SAME_TURN)) ?? own.find(one => isSame(words, one.words, STILL_OPEN))
+  const said = turn.find(one => isSame(words, one.words, STILL_OPEN)) ?? own.find(one => isSame(words, one.words, STILL_OPEN))
     ?? others.find(one => isSame(words, one.words, STILL_OPEN))
   if (said !== undefined) return `asks what ${said.id} asks`
   // The item names a step or goal under which another chat's question stands open ("Answer the Advisor's questions on
