@@ -6090,6 +6090,7 @@ function tabOfAddress(hash) {
   if (hash === '#backlog' || hash === '#coordinate') return 'coordinate'
   if (hash === '#design') return 'design'
   if (hash === '#vision') return 'vision'
+  if (hash === '#spending') return 'spending'
   return null
 }
 
@@ -13450,6 +13451,7 @@ function show(tab) {
   $('view-coordinate').hidden = tab !== 'coordinate'
   $('view-design').hidden = tab !== 'design'
   $('view-vision').hidden = tab !== 'vision'
+  if ($('view-spending')) $('view-spending').hidden = tab !== 'spending'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
   if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) {
@@ -13474,6 +13476,7 @@ $('phone-more').addEventListener('click', () => {
 
 function draw(state) {
   board = state
+  window.BoardSpending?.draw(state)
   drawTop(state)
   drawUpdate(state)
   drawAppNote(state)

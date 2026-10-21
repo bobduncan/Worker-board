@@ -11,6 +11,7 @@ const prices={
 const tokenKeys=['input','cacheWrite','cacheRead','output']
 const number=n=>Number.isFinite(n)&&n>=0?n:null
 export function estimateUsage(event){
+  if(event.conflictingAttribution)return {known:false,low:null,high:null}
   const tokens=tokenKeys.map(k=>number(event[k]))
   if(tokens.some(n=>n===null))return {known:false,low:null,high:null}
   let price=prices[event.actualModel]
@@ -36,8 +37,10 @@ export function attributeUsage({entries,assignments=[],sourceSessionId,chat=sour
     if(before){
       // Message IDs are global. A fork's copied old lines are not newly generated answers.
       const merged={...before}
+      if(before.actualModel&&next.actualModel&&before.actualModel!==next.actualModel)merged.conflictingAttribution=true
       for(const k of tokenKeys)merged[k]=before[k]===null||next[k]===null?before[k]??next[k]:Math.max(before[k],next[k])
       if(!merged.actualModel&&next.actualModel)merged.actualModel=next.actualModel
+      if(before.sourceSessionId===sourceSessionId&&!merged.taskId&&next.taskId){merged.taskId=next.taskId;merged.phase=next.phase;merged.attribution=next.attribution}
       events.set(entry.messageId,merged)
     }else events.set(entry.messageId,next)
     if(actions.some(a=>a.action==='report'&&a.id===taskId)&&!entry.isSidechain)taskId=null
@@ -64,7 +67,7 @@ export function routingSummary({events=[],outcomes=[],now=Date.now(),days=7,cove
   if(total.unknown||selected.some(e=>!e.taskId))suggestions.push({kind:'coverage',text:'Some spending cannot be priced or linked to a task. Improve coverage before claiming savings.'})
   if(relevant.some(o=>(o.attempts??0)>1))suggestions.push({kind:'quality',text:'Compare repair costs by task class before expanding cheaper model assignments.'})
   if(!selected.length)suggestions.push({kind:'coverage',text:'No reported usage in this period yet. The collector reads local transcripts without making model calls.'})
-  return {days,from:Number.isFinite(from)?from:null,until:now,priceBasis:PRICE_BASIS,knownCost:{low:round(total.low),high:round(total.high)},messages:selected.length,unknownCostMessages:total.unknown,tokens:Object.fromEntries(tokenKeys.map(k=>[k,total[k]])),attributedMessages:attributed.length,attributionPercent:selected.length?Math.round(100*attributed.length/selected.length):null,accepted:accepted.length,qualitySample:measured.length,firstPassPercent:measured.length?Math.round(100*measured.filter(o=>o.attempts===1).length/measured.length):null,attributedCostPerAccepted:accepted.length?{low:round(a.low/accepted.length),high:round(a.high/accepted.length)}:null,models,efforts:grouped(selected,e=>e.actualEffort),chats:grouped(selected,e=>e.chat),phases,tasks,daily:grouped(selected,e=>new Date(e.sourceAt).toISOString().slice(0,10)).sort((a,b)=>a.key.localeCompare(b.key)),suggestions,comparison:{savingsPercent:null,why:'A matched baseline and completed quality trials are required.'},coverage:{...coverage,earliestMessage:selected.length?Math.min(...selected.map(e=>e.sourceAt)):null,includesUnfinishedAndFailedWork:true}}
+  return {days,from:Number.isFinite(from)?from:null,until:now,priceBasis:PRICE_BASIS,knownCost:{low:round(total.low),high:round(total.high)},messages:selected.length,unknownCostMessages:total.unknown,tokens:Object.fromEntries(tokenKeys.map(k=>[k,selected.length&&!selected.some(e=>number(e[k])!==null)?null:total[k]])),attributedMessages:attributed.length,attributionPercent:selected.length?Math.round(100*attributed.length/selected.length):null,accepted:accepted.length,qualitySample:measured.length,firstPassPercent:measured.length?Math.round(100*measured.filter(o=>o.attempts===1).length/measured.length):null,attributedCostPerAccepted:accepted.length?{low:round(a.low/accepted.length),high:round(a.high/accepted.length)}:null,models,efforts:grouped(selected,e=>e.actualEffort),chats:grouped(selected,e=>e.chat),phases,tasks,daily:grouped(selected,e=>new Date(e.sourceAt).toISOString().slice(0,10)).sort((a,b)=>a.key.localeCompare(b.key)),suggestions,comparison:{savingsPercent:null,why:'A matched baseline and completed quality trials are required.'},coverage:{...coverage,earliestMessage:selected.length?Math.min(...selected.map(e=>e.sourceAt)):null,includesUnfinishedAndFailedWork:true}}
 }
 export function spendingCsv(summary){
   const cell=v=>{const text=String(v??'');return `"${text.match(/^[=+@\-\t\r]/)?"'":''}${text.replaceAll('"','""')}"`}

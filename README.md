@@ -31,6 +31,12 @@ Get-Content -Raw "$HOME\worker-board\tools\install.ps1" | iex
 
 ## What the board is
 
+The Spending tab shows reported project usage by model, effort, chat, phase and task, with a daily chart and CSV
+export. Its dollar ranges estimate equivalent API costs; subscription allowances are shown separately. Unknown
+usage and incomplete history are disclosed. The initial model-routing release supports Off and Observe only:
+automatic model changes remain disabled until the bridge proves the execution safeguards. See
+[`docs/model-routing.md`](docs/model-routing.md) for the policy, limitations and tuning workflow.
+
 The Overview shows a lane per chat (working, waiting for you, free; its task, step and time left; its queue), what
 waits for you with a form to answer it, and the day's timeline; your answer is typed into the chat it is for. Further
 tabs: Focus (the goal you work towards, its vibe and how, with a partner chat, the Advisor), Backlog (the whole work,

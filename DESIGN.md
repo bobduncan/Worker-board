@@ -1,5 +1,14 @@
 # Worker board: design
 
+## Quality and Spending (2026-10-21)
+
+Spending adds local usage estimates, coverage and quality measurements without making model calls. Costs include
+failed work, planning and review. API-equivalent prices and account-wide subscription allowance remain separate.
+The initial rollout is observe-only: no automatic model changes until native route confirmation, complete tool
+coverage and child controls are verified. Contracts, conservative model floors and candidate/validation helpers
+are foundations for that later guarded workflow. See `docs/model-routing.md` and `docs/model-routing-pilot.md` for
+the implemented boundary and remaining prerequisites. A missing prerequisite never relaxes a quality gate.
+
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
 > settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on any tie; its list of

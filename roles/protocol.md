@@ -7,6 +7,10 @@ time. Every name, path and word of a project comes from its settings or its own 
 
 ## What a chat writes, and the board reads
 
+Quality routing is initially observe-only (`../docs/model-routing.md`). Existing mod commands remain the supported
+chat workflow. New managed server commands fail closed without capability proof; they are not exposed by older
+mods. A note or requested model is not a native setting acknowledgement or a candidate approval.
+
 B301: the board reads no task, no end of a task and no question from a chat's words. A step comes from the work store
 and ends with `work report`; what the person must answer is an ask of the store (`work ask`). The few words below are
 read only for what the store does not hold.

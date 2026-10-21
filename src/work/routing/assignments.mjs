@@ -1,5 +1,7 @@
 import {randomUUID} from 'node:crypto'
 import {resolveRoute,meetsRoute,policyHash} from './policy.mjs'
+import {readRoutingRecord} from './records.mjs'
+import {enforcementReadiness} from './capabilities.mjs'
 
 export function planAssignment({task,phase='implement',policy,lane,previous,now}){
   if(!lane?.sessionId||!lane.controllerSessionId||lane.sessionId===lane.controllerSessionId)throw Error('A different session must set the target model.')
@@ -26,3 +28,15 @@ export function assignmentGuard({record,sessionId,operation,snapshot,policy}){
   return {ok:true,assignment:a}
 }
 export function controllerRequest(a){return {to:a.controllerSessionId,command:'model-route',about:a.taskId,key:`route ${a.id}`,text:['set route',`Assignment: ${a.id}`,`Session: ${a.ownerSessionId}`,`Model: ${a.required?.model??'unknown'}`,`Effort: ${a.required?.effort??'unknown'}`,`Why: ${a.reason}`].join('\n')}}
+export function routingHolds(items,parsed,capabilities=null){
+  const held=new Set()
+  for(const item of items){
+    if(item.head.get('Kind')!=='step'||['done','dropped'].includes(item.head.get('State')))continue
+    const read=readRoutingRecord(item),managed=read.ok&&read.record.managed
+    if(!read.ok||parsed?.ok===false||managed||parsed?.policy?.mode==='enforce'){
+      const assignment=read.ok?read.record.assignments.at(-1):null
+      if(!enforcementReadiness(capabilities).ok||!assignment||!['ready','running'].includes(assignment.status))held.add(item.head.get('Id'))
+    }
+  }
+  return held
+}

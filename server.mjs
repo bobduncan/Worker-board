@@ -47,6 +47,9 @@ import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
+import { createSpendingCollector } from './src/work/routing/collector.mjs'
+import { readRoutingRecord } from './src/work/routing/records.mjs'
+import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { findPicture, shownRoots } from './src/pictures.mjs'
 import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
@@ -93,6 +96,7 @@ const HISTORY_BYTES = 8 * 1024 * 1024
 const FILES = {
   '/board.css': ['board.css', 'text/css; charset=utf-8'],
   '/board.js': ['board.js', 'text/javascript; charset=utf-8'],
+  '/spending.js': ['spending.js', 'text/javascript; charset=utf-8'],
 }
 // B348: the help tour's six pictures, by name only. B375: drawings of the board (tools/help-pictures.mjs), as SVG.
 for (const name of ['1-install', '2-initialise', '3-talk', '4-go', '5-workers', '6-check']) {
@@ -656,6 +660,12 @@ async function main(args) {
         return done
       },
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
+      routingPolicy: config.routing,
+      routingCapabilities: null,
+      sessionOf: name => {
+        const subject = (state.spendingSubjects ?? []).find(one => one.name === name)
+        return subject ? { sessionId: subject.session, appSessionId: subject.appSession, model: subject.model, effort: subject.effort, sampledAt: state.readAt } : null
+      },
       // Pause and resume (spec 2026-10-18): the lanes' facts, for pause-state's list of whom the main chat wakes.
       lanes: [...lanes, ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])],
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
@@ -711,7 +721,7 @@ async function main(args) {
     readState.reset()
     return opened
   }
-  const workReads = new Set(['next', 'list', 'pause-state'])
+  const workReads = new Set(['next', 'list', 'pause-state', 'route-state'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
@@ -790,6 +800,8 @@ async function main(args) {
   // and measures in memory only.
   const TASK_TIMES_FILE = join(HERE, 'data', 'task-times.json')
   const TASK_LIST_FILE = join(HERE, 'data', 'task-times.md')
+  const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, clock })
+  await spending.load()
   let taskTimes = { scans: {}, tasks: [] }
   if (isDemo) {
     const { demoSources, ROOTS } = await import('./fixtures/demo.mjs')
@@ -992,7 +1004,7 @@ async function main(args) {
     // (the person deletes it once read).
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
-    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside }
+    return { ...state, spending: { periods: Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])) }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside }
   }, STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
@@ -1013,6 +1025,11 @@ async function main(args) {
         return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), effort: effortOf(item).level }
       }
       const added = []
+      const routingRecords = [...items.values()].map(item => ({ item, read: readRoutingRecord(item) }))
+      await spending.scan(state.spendingSubjects ?? [], {
+        assignments: routingRecords.filter(one => one.read.ok).flatMap(one => one.read.record.assignments),
+        results: routingRecords.filter(one => one.item.head.get('Kind') === 'step').map(({ item, read }) => ({ id: item.head.get('Id'), title: item.head.get('Title'), accepted: item.head.get('State') === 'done', attempts: read.ok ? read.record.repair?.lifetimeAttempts ?? null : null, risk: read.ok ? read.record.contract?.risk?.class ?? null : null })),
+      })
       for (const chat of state.chats) {
         if (chat.isMain || chat.isLeftover || typeof chat.session !== 'string' || !/^[\w-]+$/.test(chat.session)) continue
         const scan = taskTimes.scans[chat.session] ?? freshScan(chat.name)
@@ -1157,7 +1174,8 @@ async function main(args) {
           return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
         }
       }
-      config[checked.key] = checked.value
+      if (checked.key === 'routingMode') config.routing = parseRoutingPolicy({ ...(config.routing?.policy ?? {}), mode: checked.value })
+      else config[checked.key] = checked.value
       readState.reset()
       return { ok: true, result: boardSettingsNow() }
     }),

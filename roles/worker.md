@@ -10,6 +10,10 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 
 ## Who you are
 
+- The Spending tab measures reported usage without changing your model. Read `../docs/model-routing.md` for the
+  observe-only rollout. Keep existing task checks; a recommendation is not an approved cheaper assignment. A
+  managed hold requires the verified bridge/controller workflow, never a direct merge or self-confirmation.
+
 - Put yourself in the list of chats once, when the main chat's first message tells you your name: the Workers mod's
   chat tool with action "join", that name, role "worker". Keep your card as that tool says: the worker board shows it.
 - Without the Workers mod (B210): your title starting with the project's prefix puts you on the board, and you

@@ -29,6 +29,7 @@ import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
 import { NOTE_LINE, isPartnerAnswered, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
+import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
 import { writeView } from './view.mjs'
 
 // B300: kept here for those who import them from the API.
@@ -36,7 +37,7 @@ export { overlapsIn, sinceMs }
 /** B412: whether an action only reads: its answer is not kept by request (src/work/requests.mjs). */
 export const isReadAction = action => READS.has(action)
 
-const READS = new Set(['next', 'list', 'pause-state'])
+const READS = new Set(['next', 'list', 'pause-state', ...ROUTING_READS])
 const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
@@ -47,7 +48,7 @@ const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'recheck-stuck'])
 /** What only the person does, on the board's page; and what only the server does. */
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers'])
-const SERVER = new Set(['check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck'])
+const SERVER = new Set(['check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'route-confirm', 'quality-job-result'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -73,6 +74,8 @@ const ROLES = {
  * goal is the partner's alone (its re-check and its asks). In everything else it is a worker, that no step is queued for.
  */
 const HELPS = new Set(['refine', 'refined', 'checked', 'ask'])
+for (const action of ['contract', 'candidate-review']) HELPS.add(action)
+for (const action of ROUTING_ACTIONS) CHANGES.add(action)
 const helps = body => HELPS.has(body.action) && !/^G\d+$/.test(String(body.action === 'ask' ? body.of ?? '' : body.id ?? '').trim())
 /** The order of a chat's own steps in `next`: what it works on first. */
 const MINE = ['in progress', 'waiting on you', 'taken', 'review', 'queued']
@@ -187,6 +190,8 @@ async function act(body, ctx) {
   const now = ctx.now ?? Date.now()
   // B412: the store is read once per call: the server's overlaps of Touches come from this reading too.
   const w = { ...ctx, ...(ctx.overlapsOfStore === true ? { overlaps: overlapsIn(store.items) } : {}), store, now, who, role, action }
+  const routed = await routingAction(body, w)
+  if (routed !== null) return routed
   if (action === 'next') return next(body, w)
   if (action === 'list') return list(w)
   if (action === 'pause-state') return { ok: true, result: pauseStateOf(w) }

@@ -18,13 +18,19 @@ test('small protected changes and effort cannot evade model floors', () => {
   assert.equal(meetsRoute({model:'claude-opus-5-5',effort:'high'}, {family:'sonnet',model:'claude-sonnet-5-5',effort:'medium'},registry),true)
 })
 test('cheap execution requires its canary and exact verified model support', () => {
-  const contract={risk:{class:'R1',factors:[]},implementationFiles:2}
+  const contract={risk:{class:'R1',factors:[]},implementationFiles:2,patternReference:'public/existing.js',allowedPaths:{board:['public/label.js','public/label.css','test/**']}}
   assert.equal(resolveRoute({policy:policy(),role:'worker',contract}).route.family,'sonnet')
   assert.equal(resolveRoute({policy:policy({r1Canary:true}),role:'worker',contract}).route.family,'haiku')
   assert.equal(resolveRoute({policy:policy({r1Canary:true}),role:'worker',contract:{...contract,implementationFiles:4}}).route.family,'sonnet')
   assert.equal(resolveRoute({policy:parseRoutingPolicy().policy,role:'main',phase:'coordinate'}).ok,false)
   assert.equal(parseRoutingPolicy({mode:'bad'}).ok,false)
   assert.equal(parseRoutingPolicy({registry:{haiku:{model:'x',efforts:['fiction'],verified:true}}}).ok,false)
+})
+test('a mechanical label cannot conceal executable scope or unexplained risk',()=>{
+  const p=policy({r0Canary:true,r1Canary:true})
+  assert.notEqual(resolveRoute({policy:p,contract:{risk:{class:'R0',factors:[]},allowedPaths:{board:['src/rule.mjs']}}}).route.family,'haiku')
+  assert.notEqual(resolveRoute({policy:p,contract:{risk:{class:'R1',factors:['unknown-risk']},implementationFiles:1}}).route.family,'haiku')
+  assert.notEqual(resolveRoute({policy:p,contract:{risk:{class:'R1',factors:[]},implementationFiles:1,patternReference:'public/old.js',allowedPaths:{board:['public/**']}}}).route.family,'haiku')
 })
 test('review is independent of cheap author floors and an escalation never lowers', () => {
   const contract={risk:{class:'R0',factors:[]}}

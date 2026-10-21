@@ -36,3 +36,11 @@ test('task phase can come from an actual work call and absent IDs remain unknown
   assert.equal(found.events[0].phase,'review')
   assert.equal(found.unknown,1)
 })
+test('later streaming lines can complete task attribution, and wholly unknown tokens stay unknown',()=>{
+  const initial=entry('stream',{input:null,cacheRead:null,cacheWrite:null,output:null})
+  const complete={...initial,blocks:[{type:'tool_use',name:'mcp__folder-branches__work',input:{action:'checked',id:'B8'}}]}
+  const found=attributeUsage({entries:[initial,complete],sourceSessionId:'s',chat:'Advisor',role:'advisor'})
+  assert.equal(found.events[0].taskId,'B8')
+  const summary=routingSummary({events:found.events,now:at+1})
+  assert.equal(summary.tokens.input,null)
+})

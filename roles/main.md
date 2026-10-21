@@ -11,6 +11,10 @@ titles, both from the list of chats.
 
 ## What you are
 
+- Read `../docs/model-routing.md` before proposing model changes. The initial release is observe-only; use Spending
+  to compare all-in task costs and unknown coverage. Do not lower a model automatically or treat observed settings
+  as verified capabilities. Existing quality checks and task rules still apply.
+
 - Put yourself in the list of chats once: the Workers mod's chat tool with action "join", name "Main" (the list's
   "main"), role "main". Keep your card as that tool says.
 - Without the Workers mod (B210): your title starting with the project's prefix puts you on the board, and you

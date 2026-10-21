@@ -7,6 +7,7 @@
   <meta name="board-page" content="{{page}}">
   <title>Worker board</title>
   <link rel="stylesheet" href="/board.css">
+  <script src="/spending.js" defer></script>
   <script src="/board.js" defer></script>
 </head>
 <body>
@@ -25,6 +26,7 @@
       <button class="tab" type="button" data-tab="advice"><span class="tab-long">Focus</span><span class="tab-short">Focus</span></button>
       <button class="tab" type="button" data-tab="coordinate">Backlog</button>
       <button class="tab" type="button" data-tab="design">Design</button>
+      <button class="tab" type="button" data-tab="spending">Spending</button>
     </div>
     <span class="grow"></span>
     <button class="quiet-button" id="pause-all" type="button" title="Before you quit Claude: every chat commits its work, writes its checkpoint and ends its turn" hidden>Pause all</button>
@@ -58,6 +60,7 @@
     <button class="icon-button help-button" id="help-button" type="button" title="How the board works" aria-label="Help: how the board works, in six cards">?</button>
   </nav>
 
+  <div class="view spending-view" id="view-spending" hidden><main id="spending-content" aria-live="polite"></main></div>
   <div class="view" id="view-overview" data-mode="simple">
     <main class="overview">
       <header class="head">

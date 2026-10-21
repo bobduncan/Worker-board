@@ -84,7 +84,11 @@ test('the page\'s wiring: the address is kept before anything rewrites it, the f
   const kept = script.indexOf('const helpStartHash = location.hash')
   assert.ok(kept > 0 && kept < script.indexOf('show(tabOfAddress(location.hash) ?? \'overview\')'))
   // The first state drawn, then the tour looks whether to open.
-  assert.match(script, /const state = await answer\.json\(\)\s+draw\(state\)\s+awaySince = null\s+helpAtStart\(state\)/)
+  const loaded = script.indexOf('const state = await answer.json()')
+  const drawn = script.indexOf('draw(state)', loaded)
+  const cleared = script.indexOf('awaySince = null', drawn)
+  const tour = script.indexOf('helpAtStart(state)', cleared)
+  assert.ok(loaded > 0 && drawn > loaded && cleared > drawn && tour > cleared)
   assert.match(script, /\$\('help'\)\.addEventListener\('close', \(\) => \{\s+try \{ localStorage\.setItem\('help-seen', 'yes'\) \}/)
   // Review: the arrow keys are heard wherever the focus is while the tour is open, and are the browser's with Alt.
   assert.match(script, /document\.addEventListener\('keydown', event => \{\s+if \(!\$\('help'\)\.open \|\| event\.altKey \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return/)

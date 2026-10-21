@@ -34,6 +34,8 @@ import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { effortPlan } from './work/effort.mjs'
+import { enforcementReadiness } from './work/routing/capabilities.mjs'
+import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
 import { checkedOf } from './work/resultCheck.mjs'
@@ -402,7 +404,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
-  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, removedAt: chat.removedAt ?? null }
+  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
   const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
@@ -1520,12 +1522,15 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // B468: what each worker runs at for its step, the words that have the main chat set it (none without the Workers mod),
   // and the steps whose line to their worker waits until it is set.
   const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
+  if (efforts) for (const id of routingHolds(itemsOf(raw.work), config.routing)) efforts.held.add(id)
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null)
 
   return {
     readAt: now,
+    spendingSubjects: found.filter(chat => !chat.isLeftover).map(chat => ({ session: chat.cliSessionId, appSession: chat.appSessionId, name: chat.name, model: chat.model, effort: chat.effort, role: chat.isMain ? 'main' : isAdvisor(chat) ? 'advisor' : isHelper(chat) ? 'helper' : 'worker' })),
+    routing: { mode: config.routing?.ok === false ? 'invalid' : config.routing?.policy?.mode ?? 'off', problem: config.routing?.why ?? null, readiness: enforcementReadiness(null) },
     refreshSeconds: config.refreshSeconds,
     estimateOldMs: config.estimateOldMinutes * MIN,
     maxMessageChars: config.maxMessageChars,
