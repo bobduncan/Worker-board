@@ -8,7 +8,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import { memoryStore } from '../../src/store.mjs'
+import { workWords } from '../../src/say.mjs'
 import { workApi } from '../../src/work/api.mjs'
+import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 import { AGAIN_MS, CHECKS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, syncRunner } from '../../src/work/sync.mjs'
@@ -25,6 +28,7 @@ const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, sta
 const LEAD = lane('Lead', { isMain: true, state: 'working' })
 const base = more => ({ items: new Map(), lanes: [LEAD], partner: null, helper: null, prefix: '', now: NOW, outbox: [], limits: {}, pause: null, refused: [], ...more })
 const of = (found, check) => found.filter(one => one.check === check)
+const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
   assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask'])
@@ -34,7 +38,7 @@ test('the list names every check once, with its words', () => {
 test('blocked: a step blocked by one in review is unblocked; one done holds nothing; one the store lacks, or a Waits for, is for Main', () => {
   const found = findStuck(base({
     items: items(
-      step('B1', 'review'), step('B9', 'done'),
+      step('B1', 'review', {}, { History: [`- ${stamp(ago(30))} server: check passed: merged`] }), step('B9', 'done'),
       step('B2', 'queued', { Owner: 'Painter', 'Blocked by': 'B1' }),
       step('B3', 'queued', { Owner: 'Painter', 'Blocked by': 'B9' }),
       step('B4', 'refined', { 'Blocked by': 'B77' }),
@@ -83,13 +87,15 @@ test('owner gone: a queued step whose chat left the list goes to a free worker; 
   const world = (more = {}) => base({
     items: items(step('B3', 'queued', { Owner: 'Ghost', Since: stamp(NOW - OWNER_GONE_MS - MIN) })),
     lanes: [LEAD, lane('Painter'), lane('Mason', { state: 'working' })],
+    // The runner has missed it for longer than OWNER_GONE_MS (the review: watched, not read from the step's Since).
+    seen: new Map([['missing ghost', NOW - OWNER_GONE_MS - MIN]]),
     ...more,
   })
   const moved = of(findStuck(world()), 'owner-gone')
   assert.deepEqual(moved.map(one => [one.fix.do, one.fix.id, one.fix.to]), [['requeue', 'B3', 'Painter']])
   assert.match(moved[0].text, /^B3 was queued for Ghost, no longer in the list$/)
-  // A chat about to join: queued for it a moment ago.
-  assert.equal(of(findStuck(world({ items: items(step('B3', 'queued', { Owner: 'Ghost', Since: stamp(ago(5)) })) })), 'owner-gone').length, 0)
+  // Missed only a moment ago (a chat about to join, or one read without its file).
+  assert.equal(of(findStuck(world({ seen: new Map([['missing ghost', ago(5)]]) })), 'owner-gone').length, 0)
   // In progress for a chat that left: its work may stand on a branch, so Main decides.
   assert.equal(of(findStuck(world({ items: items(step('B3', 'in progress', { Owner: 'Ghost', Since: stamp(ago(90)) })) })), 'owner-gone')[0].fix.do, 'main')
   // No free worker to give it to.
@@ -129,13 +135,13 @@ test('limit back: a worker paused for the limit whose time has passed is woken, 
 })
 
 test('old name: a chat refused under an old name is for Main to ask it to join under the name the board shows', () => {
-  const world = at => base({ lanes: [LEAD, lane('Painter', { session: 's-2' })], refused: [{ name: 'Builder', session: 's-2', at }] })
+  const world = at => base({ lanes: [LEAD, lane('Painter', { session: 's-2' })], refused: [{ name: 'Builder', session: 's-2', first: at - 5 * MIN, at }] })
   const sent = of(findStuck(world(ago(2))), 'old-name')
   assert.deepEqual(sent.map(one => [one.key, one.fix.do]), [['old-name Builder Painter', 'send']])
   assert.match(sent[0].fix.text, /Painter asks under its old name Builder: ask it to join as "Painter"/)
   assert.equal(of(findStuck(world(ago(30))), 'old-name').length, 0)
   // A refusal of a session the board does not show under another name is no rename.
-  assert.equal(of(findStuck(base({ lanes: [LEAD], refused: [{ name: 'Builder', session: 's-9', at: ago(2) }] })), 'old-name').length, 0)
+  assert.equal(of(findStuck(base({ lanes: [LEAD], refused: [{ name: 'Builder', session: 's-9', first: ago(9), at: ago(2) }] })), 'old-name').length, 0)
 })
 
 test('helper: not running while refines or result checks wait, it is woken; still not running later, its work goes to the partner', () => {
@@ -143,7 +149,7 @@ test('helper: not running while refines or result checks wait, it is woken; stil
   const helper = { name: 'Second', state: 'off', isRunning: false }
   const world = (more = {}) => base({
     partner, helper,
-    items: items(step('B8', 'new', { Refined: 'open' }), step('B9', 'review')),
+    items: items(step('B8', 'new'), step('B9', 'review')),
     outbox: [
       { id: 'r1', command: 'refine', about: 'B8', to: 'Partner', at: ago(20), state: 'delivered' },
       { id: 'c1', command: 'result-check', about: 'B9', to: 'Partner', at: ago(20), state: 'delivered' },
@@ -196,8 +202,9 @@ test('the fixes: each carried out through its port, with its row; what cannot be
   assert.match(first.rows[1].text, /queued for Painter/)
   assert.match(first.rows[5].text, /B6 changed in the meantime/)
   // One note, with only what Main was not told before (the drop was).
-  assert.deepEqual(first.keys, ['blocked B4 B77', 'blocked B6 B1', 'helper Second'])
-  assert.equal(first.note.length, 3)
+  // B6's file changed meanwhile: the next run tries again, nothing for the main chat.
+  assert.deepEqual(first.keys, ['blocked B4 B77', 'helper Second'])
+  assert.equal(first.note.length, 2)
   assert.match(first.note[0], /B4 is blocked by B77/)
   assert.equal(first.fine, CHECKS.length - 5)
   // Nothing found: no note, every check fine.
@@ -234,7 +241,7 @@ test('the board itself may unblock and requeue a step, and its History says why;
 test('the runner: one run at a time, the main chat told once per key across runs, and the page shows the run asked or that found something', async () => {
   const applied = []
   let saved = null
-  const world = items(step('B1', 'review'), step('B2', 'queued', { Owner: 'Painter', 'Blocked by': 'B1' }), step('B4', 'refined', { 'Blocked by': 'B77' }))
+  const world = items(step('B1', 'review', {}, checkedPass), step('B2', 'queued', { Owner: 'Painter', 'Blocked by': 'B1' }), step('B4', 'refined', { 'Blocked by': 'B77' }))
   let clock = NOW
   const runner = syncRunner({
     state: async () => ({ chats: [LEAD, lane('Painter', { state: 'working' })], chatPrefix: '', limits: {}, pause: null }),
@@ -260,4 +267,96 @@ test('the runner: one run at a time, the main chat told once per key across runs
   assert.equal(runner.shown(clock).asked, true)
   clock += SYNC_SHOWN_MS
   assert.equal(runner.shown(clock), null)
+})
+
+// The review of B465.
+
+test('the review: a blocker in review counts as merged only when the board\'s check passed; pending or failed holds the step', () => {
+  const world = history => base({ items: items(step('B10', 'review', {}, { History: history }), step('B11', 'queued', { Owner: 'Painter', 'Blocked by': 'B10' })), lanes: [LEAD, lane('Painter', { state: 'working' })] })
+  assert.equal(of(findStuck(world(checkedPass.History)), 'blocked')[0].fix.do, 'unblock')
+  assert.equal(of(findStuck(world([`- ${stamp(ago(30))} server: check failed: the branch b10 is still there`])), 'blocked').length, 0)
+  assert.equal(of(findStuck(world([`- ${stamp(ago(30))} server: check pending`])), 'blocked').length, 0)
+})
+
+test('the review: an owner counts as gone only once the runner has missed it for OWNER_GONE_MS, never while the person pauses', () => {
+  const world = more => base({ items: items(step('B3', 'queued', { Owner: 'Ghost', Since: stamp(ago(600)) })), lanes: [LEAD, lane('Painter')], ...more })
+  // First missed now (one read without its file): watched, nothing moved.
+  const observed = []
+  assert.equal(of(findStuck(world({ observed })), 'owner-gone').length, 0)
+  assert.deepEqual(observed, ['missing ghost'])
+  assert.equal(of(findStuck(world({ seen: new Map([['missing ghost', NOW - OWNER_GONE_MS + MIN]]) })), 'owner-gone').length, 0)
+  assert.equal(of(findStuck(world({ seen: new Map([['missing ghost', NOW - OWNER_GONE_MS]]) })), 'owner-gone')[0].fix.do, 'requeue')
+  assert.equal(of(findStuck(world({ seen: new Map([['missing ghost', ago(600)]]), pause: { state: 'pausing' } })), 'owner-gone').length, 0)
+})
+
+test('the review: the helper counts no refine that waits for the person, and keeps one key while it stays off', () => {
+  const partner = { name: 'Partner', state: 'working', isRunning: true }
+  const helper = { name: 'Second', state: 'off', isRunning: false }
+  const lines = ids => ids.map(id => ({ id: `r${id}`, command: 'refine', about: id, to: 'Partner', at: ago(20), state: 'delivered' }))
+  const world = (stepsNow, ids, more = {}) => base({ partner, helper, items: items(...stepsNow), outbox: lines(ids), seen: new Map([['helper off second', ago(7)]]), ...more })
+  assert.equal(of(findStuck(world([step('B8', 'new', { Refined: 'open' })], ['B8'])), 'helper').length, 0)
+  const one = of(findStuck(world([step('B8', 'new'), step('B9', 'new')], ['B8'])), 'helper')[0]
+  const two = of(findStuck(world([step('B8', 'new'), step('B9', 'new')], ['B8', 'B9'])), 'helper')[0]
+  assert.equal(one.key, two.key)
+  assert.match(two.text, /2 refines and checks wait/)
+})
+
+test('the review: one refusal the mod follows is no old name; refusals over two minutes are', () => {
+  const world = first => base({ lanes: [LEAD, lane('Painter', { session: 's-2' })], refused: [{ name: 'Builder', session: 's-2', first, at: ago(1) }] })
+  assert.equal(of(findStuck(world(ago(1))), 'old-name').length, 0)
+  assert.equal(of(findStuck(world(ago(4))), 'old-name').length, 1)
+})
+
+test('the review: a fix whose file changed meanwhile, or a wake that throws, is one row; only what will not right itself goes to Main', async () => {
+  const findings = [
+    { check: 'blocked', key: 'blocked B2 B1', text: 'B2 waited on B1, which is in review', fix: { do: 'unblock', id: 'B2', on: 'B1' } },
+    { check: 'not-taken', key: 'not-taken B5 Painter', text: 'Painter: its queued B5 waited 12 min while it was free', fix: { do: 'wake', chat: 'Painter', id: 'B5', text: 'work: B5 is yours; run work next' } },
+    { check: 'limit-back', key: 'limit-back Mason', text: 'Mason: paused for the limit, the limit is back', fix: { do: 'wake', chat: 'Mason', id: 'B6', text: 'work: the limit is back' } },
+  ]
+  const ports = {
+    unblock: async () => ({ ok: false, why: 'B2.md changed in the meantime' }),
+    requeue: async () => ({ ok: true }),
+    wake: async one => { if (one.chat === 'Painter') throw new Error('EBUSY: delivered.json'); return { id: 'w' } },
+  }
+  const done = await applySync(findings, ports, new Set())
+  assert.deepEqual(done.rows.map(one => one.status), ['For Main', 'For Main', 'Woke'])
+  assert.match(done.rows[1].text, /not woken \(EBUSY: delivered\.json\)/)
+  assert.deepEqual(done.keys, ['not-taken B5 Painter'])
+})
+
+test('the review: the runner keeps since when it misses an owner, and a later run that finds nothing clears what it found by itself', async () => {
+  let clock = NOW
+  let world = items(step('B3', 'queued', { Owner: 'Ghost' }))
+  const applied = []
+  const runner = syncRunner({
+    state: async () => ({ chats: [LEAD, lane('Painter')], chatPrefix: '', limits: {}, pause: null }),
+    items: async () => world, outbox: () => [], refused: () => [],
+    apply: async body => (applied.push(body), { ok: true }), wake: async () => ({ id: 'w' }),
+    noted: { load: async () => [], save: async () => {} }, now: () => clock,
+  })
+  assert.deepEqual((await runner.run()).rows, [])
+  clock += OWNER_GONE_MS
+  const moved = await runner.run()
+  assert.deepEqual(moved.rows.map(one => one.status), ['Fixed'])
+  assert.deepEqual(applied.map(one => [one.action, one.id, one.for]), [['requeue', 'B3', 'Painter']])
+  assert.equal(runner.shown(clock).rows.length, 1)
+  world = items(step('B3', 'queued', { Owner: 'Painter' }))
+  clock += MIN
+  await runner.run()
+  assert.equal(runner.shown(clock), null)
+})
+
+test('the review: a line of the sync check is withdrawn once its step is done or another chat\'s, or after half an hour; otherwise it holds', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'sync-lines-'))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B1 Draw (for Painter)\n- [ ] B2 Paint (for Mason)\n- [ ] B3 Hang (for Painter)\n', { now: ago(120) }), undefined, { now: ago(120) })
+  const outbox = memoryStore()
+  const line = (id, to, at, key) => outbox.say({ id: `${id}-${to}`, at, ...workWords(to, id, `work: ${id} is yours; run work next`), kind: 'sync', syncKey: key, state: 'waiting' })
+  await line('B1', 'Painter', ago(5), 'not-taken B1 Painter')
+  await line('B2', 'Painter', ago(5), 'not-taken B2 Painter')
+  await line('B3', 'Painter', ago(40), 'not-taken B3 Painter')
+  await line('B3', 'Helper', ago(5), 'helper Helper x')
+  const state = { restart: { main: 'Lead' }, chatPrefix: '', chats: [], reconciled: { moves: [], deliveries: [], says: [] } }
+  await deliverWork({ state, dir, outbox, apply: async () => null, now: NOW, maxChars: 2000, newId: () => 'n', keep: { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN } })
+  assert.deepEqual(outbox.outbox().map(one => [one.about, one.to, one.state]), [['B1', 'Painter', 'waiting'], ['B2', 'Painter', 'dropped'], ['B3', 'Painter', 'dropped'], ['B3', 'Helper', 'waiting']])
 })

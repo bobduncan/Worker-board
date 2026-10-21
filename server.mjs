@@ -861,7 +861,9 @@ async function main(args) {
     if (checked.ok || checked.status !== 409 || typeof body?.chat !== 'string' || typeof body?.session !== 'string') return
     const name = body.chat.trim().slice(0, 80)
     const session = body.session.trim().slice(0, 120)
-    refusedNames.set(`${name} ${session}`, { name, session, at: clock() })
+    // The review: since when it asks under that name, so one refusal the mod then follows is no case (sync.mjs).
+    const before = refusedNames.get(`${name} ${session}`)
+    refusedNames.set(`${name} ${session}`, { name, session, first: before?.first ?? clock(), at: clock() })
     for (const [key, one] of refusedNames) if (clock() - one.at >= REFUSED_MS) refusedNames.delete(key)
   }
   // B465: the board's list of stuck states (src/work/sync.mjs), set up with the reconciler on a board that writes.
@@ -1219,11 +1221,11 @@ async function main(args) {
       if (isShowOnly && !isOwnTalk) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
       // The person's "Dismiss" on the restart banner's copied word: kept on that word in the outbox.
       if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
-      const state = await readState()
       // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page); the main chat's check,
-      // for what the list does not know, gets that answer with the rest.
+      // for what the list does not know, gets that answer with the rest, and the board as it stands after the fixes.
       const syncAnswer = body?.command === 'sync' && sync !== null ? await sync.run({ asked: true }).catch(error => { loops.failed('sync', error); return null }) : null
       if (syncAnswer !== null) readState.reset()
+      const state = await readState()
       const checked = checkSay(body, syncAnswer === null ? state : { ...state, syncList: syncAnswer }, config.maxMessageChars)
       if (!checked.ok) return checked
       // B167: the picture is named to the main chat by where it is, so it has to be there.

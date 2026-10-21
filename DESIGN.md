@@ -2746,15 +2746,15 @@ stuck that day was found by the person. They are now one list in the board, `src
 
 | Check | Found when | Fix (status) |
 | --- | --- | --- |
-| `blocked` | a step's `Blocked by` names one in review (merged, its result check open) | unblocked by the board (Fixed) |
+| `blocked` | a step's `Blocked by` names one in review whose board check passed (merged, its result check open) | unblocked by the board (Fixed) |
 | | ... names one the store lacks, or its `Waits for` names one in review | the main chat (For Main) |
 | `not-taken` | a queued step whose free owner, holding nothing, got its line 10 min ago and did not take it | the line again (Woke); still queued 10 min on: For Main |
-| `owner-gone` | a step queued 30 min for a chat the list no longer shows (not the partner, its helper or a leftover) | requeued to a free worker, a running one with the fewest queued first (Fixed); none free: For Main |
+| `owner-gone` | a step queued for a chat the list has not shown for 30 min by the runner's own watch (not the partner, its helper or a leftover) | requeued to a free worker, a running one with the fewest queued first (Fixed); none free: For Main |
 | | ... taken or in progress for such a chat | For Main: its work may stand on a branch |
 | `refine-drop` | a yes to a refine question that drops the step (`Drop B<n> ...`), which the partner cannot do | a note to the main chat (Sent) |
 | `limit-back` | a worker suspended for the limit whose time has passed (`isBack`), holding a step, no limit full | "the limit is back: go on with B<n> from its checkpoint" (Woke); still suspended 10 min on: For Main |
-| `old-name` | a chat's mod refused in the last 10 min under a name, its session shown under another | a note to the main chat to have it join under the shown name (Sent) |
-| `helper` | the partner's helper not running while refines or result checks the board sent the partner wait | the helper woken, which asks the main chat to start it (Woke); still not running 10 min on: the partner told to do them itself, and the main chat to start it (For Main) |
+| `old-name` | a chat's mod refused under a name for over 2 min (one that follows the shown name, B463, joins at once), its session shown under another | a note to the main chat to have it join under the shown name (Sent) |
+| `helper` | the partner's helper not running while refines (not yet refined, not waiting for the person) or result checks the board sent the partner wait | the helper woken, which asks the main chat to start it (Woke); still not running 10 min on: the partner told to do them itself, and the main chat to start it (For Main) |
 | `partner-ask` | an ask routed to the partner open 10 min with no line about it in that time (the partner was busy) | the partner woken, busy or not (Woke) |
 
 - **When**: every 3 minutes (`SYNC_EVERY_MS`, loop `sync`), on a board that writes the store and is no copy beside the
@@ -2775,6 +2775,13 @@ stuck that day was found by the person. They are now one list in the board, `src
   finding with its status, and "N other checks: nothing stuck".
 - **Old names**: the board keeps the names a chat's mod was refused under (409) with its session, for 10 minutes
   (`noteRefused`), from takes and work calls.
+- **The review** made it wait where a moment's view misleads: an owner counts as gone only after the runner has missed
+  it for 30 minutes (`seen`, `observed`: a chat file the app rewrites is skipped for one read, an account switch drops
+  chats for a while), and a blocker in review only once its board check passed. The helper has one key per time it
+  stops running, so the main chat is told once. A sync line is withdrawn once what it is about closed, once the step is
+  another chat's, or after 30 minutes (`SYNC_LINE_MS`). A fix whose file changed meanwhile is tried at the next run, not
+  told; a wake that throws is one row. A later run that finds nothing clears what the board found by itself.
+- Not in it: the limits beyond "full". A worker woken at a stop point of its own (a weekly share it keeps) pauses again.
 - A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
 - Tests: `test/work/sync.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
   `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).

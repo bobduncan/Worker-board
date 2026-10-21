@@ -99,6 +99,9 @@ async function changeDelivered(dir, fs, change) {
   return done
 }
 
+/** B465, the review: a line of the board's sync check holds at most this long; the check decides anew after it. */
+export const SYNC_LINE_MS = 30 * 60_000
+
 /** Whether a line may go to `chat` now: a chat on the board (not a leftover) that is free, not busy nor held by the limit. */
 export function mayWake(state, chat) {
   // The review of Pause 2: while the person pauses nothing starts a turn (2026-10-19: pausing only; while resuming
@@ -135,7 +138,7 @@ const value = (item, key) => {
  * left review) are withdrawn, and the start they asked of the main chat when it still waits and nothing else waits for
  * that chat.
  */
-async function withdrawStale({ dir, outbox, prefix, fs }) {
+async function withdrawStale({ dir, outbox, prefix, fs, now = Date.now() }) {
   const waiting = outbox.outbox().filter(message => message.command === 'work' && message.state === 'waiting')
   if (waiting.length === 0) return []
   const items = (await readStore(dir, fs)).items
@@ -147,9 +150,14 @@ async function withdrawStale({ dir, outbox, prefix, fs }) {
     if (message.kind === 'note') {
       if ((message.notes ?? [message.about]).some(id => items.get(id) !== undefined && value(items.get(id), 'Main read') === null)) continue
     } else if (message.kind === 'sync') {
-      // B465: the board's sync check woke a chat about something (a step, its helper's work, the limit): its line holds
-      // until it is taken or expires; the check itself looks again a few minutes on.
-      continue
+      // B465: the board's sync check woke a chat about something (a step, its helper's work, an ask, the limit). The
+      // review: its line holds while what it is about is still open, for its owner's lines while the step is still that
+      // chat's, and at most SYNC_LINE_MS: the check looks again every few minutes and decides anew.
+      const isStep = value(item, 'Kind') === 'step'
+      const isOpen = item !== undefined && (isStep ? !['done', 'dropped'].includes(state) : state === 'open')
+      const isOwnersLine = /^(?:not-taken|limit-back) /.test(String(message.syncKey ?? ''))
+      const isStill = !isOwnersLine || (value(item, 'Owner') !== null && plain(value(item, 'Owner'), prefix) === plain(message.to, prefix))
+      if (isOpen && isStill && now - (message.at ?? 0) < SYNC_LINE_MS) continue
     } else if (message.kind === 'partner-ask') {
       // Partner answers (2026-10-19): the partner's line holds while its ask still waits for its answer.
       if (state === 'open' && value(item, 'Route') === 'partner') continue
@@ -208,7 +216,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const handed = await apply({ action: 'escalate', id: one.id, why: one.why }).catch(() => null)
     if (handed?.ok === true) done.moved.push(one.id)
   }
-  done.withdrawn = await withdrawStale({ dir, outbox, prefix: state.chatPrefix ?? '', fs })
+  done.withdrawn = await withdrawStale({ dir, outbox, prefix: state.chatPrefix ?? '', fs, now })
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only) no line goes out that starts a turn: no
   // step delivered, no check's word, no note-wake to the main chat. They go at Resume all, as when running.
   if (isHolding(state?.pause)) return done
@@ -220,7 +228,8 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     // more when it is still open ten minutes on, but never beside a line about it that still waits to be taken, nor
     // within ten minutes of the last one (a partner busy until then was just woken).
     ...(plan.partnerAsks ?? [])
-      .filter(one => one.again !== true || !outbox.outbox().some(message => message.kind === 'partner-ask' && message.about === one.id
+      // B465, the review: the board's sync check's line about the ask counts too.
+      .filter(one => one.again !== true || !outbox.outbox().some(message => (message.kind === 'partner-ask' || String(message.syncKey ?? '').startsWith('partner-ask ')) && message.about === one.id
         && (message.state === 'waiting' || now - (message.at ?? 0) < PARTNER_AGAIN_MS)))
       .map(one => ({ key: partnerAskKey(one.id, one.chat, one.again === true), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id)), kind: 'partner-ask' } })),
   ]
