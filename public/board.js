@@ -13547,6 +13547,8 @@ async function read() {
     }
     if (!answer.ok) throw new Error(String(answer.status))
     const state = await answer.json()
+    // I66: a card the server sends without an answer (the hand-out card of a goal) broke every redraw, so every Send.
+    if (Array.isArray(state.forYou)) state.forYou = state.forYou.map(need => (need.answer === undefined ? { ...need, answer: null } : need))
     draw(state)
     awaySince = null
     helpAtStart(state)
