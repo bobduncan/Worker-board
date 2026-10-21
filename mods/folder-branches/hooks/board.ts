@@ -100,7 +100,9 @@ export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 
   // B354: a step's standard on refine, refined and new: "<kind> · <reference picture> · target <score>", or "none (<why>)".
   'standard',
   // B356: the partner's result check of a step: the evidence picture, every agreed point and the score.
-  'evidence', 'points', 'score']
+  'evidence', 'points', 'score',
+  // B468: a step's effort on refine, refined and new: "<level>: <why>", the level the worker runs the step at.
+  'effort']
 
 /** What every chat in the list is told about the board, in the same words at every request. */
 export const BOARD_NOTE = ' The person also answers on their worker board, a page on this machine. What they answer or '

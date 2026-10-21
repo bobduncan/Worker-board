@@ -2688,9 +2688,11 @@ level it needs. the worker will adjust to this new effort level". Every chat ran
    an agreed how, a level of the app's (low, medium, high, xhigh, max) and a reason of one line ("medium: a board fix
    in one hook, with tests"; `parseEffort`, `src/work/effort.mjs`). The store keeps it as the step's Effort section
    ("medium · ...") and the refine block's `Effort:` line, after Standard; a later round without one keeps it, a
-   `refined` with one replaces it. The Workers mod sends only the fields it lists (`WORK_FIELDS`), so without the field
-   there it stands as a line of `questions` or `what` that starts with "Effort:" (`withEffort`), as the standard did. A level the board cannot read, or one without
-   a reason, is refused before anything is written. A step without one counts as medium (`effortOf`). A fix step a
+   `refined` with one replaces it. The Workers mod sends only the fields it lists (`WORK_FIELDS`); it lists `effort`
+   since its version 0.13.17 (the person's yes on Q279), and a chat started before that gives it as a line of
+   `questions` or `what` that starts with "Effort:" (`withEffort`), as the standard did. A level the board cannot
+   read, or one without a reason, is refused before anything is written. A step without one counts as medium
+   (`effortOf`). A fix step a
    failed result check makes runs at the effort of the step it fixes. How the partner chooses stands in
    roles/partner.md; max only with the person's word.
 2. A chat cannot set its own effort (the app refuses that for a chat itself), so the board asks the main chat:
