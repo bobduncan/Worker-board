@@ -287,7 +287,7 @@ The rules:
 The Vision tab has five steps, broad to narrow, because each cuts the questions of the next (the user, 2026-10-21, a
 new order: "first high-over goals, then features, standards, then one step where AI analyses and proposes all missing
 goals, then after verifying it creates the steps"): **1 Vision** (above; its road, P7, holds the milestones, the
-high-over goals), **2 Features** (each placed in a milestone), **3 Standards**, **4 Plan** (your check lays every goal
+high-over goals), **2 Features** (must, later, no, not sure), **3 Standards**, **4 Plan** (your check lays every goal
 and names what is missing), **5 Focus** (you propose the next focus; the user makes it theirs), and the **Interview**:
 the guided path, every question and every decision that waits on the user across the five steps, one per slide. Feature
 answers breed more questions; ask few, and still let the user steer:
@@ -314,9 +314,10 @@ and `Advice:` lines (rule 7).
 **Features** (the user types `plan features`, or after the first deeper round): a heading `## Features` in the
 product plan, one feature per `### F<n> · <name>` (two to four words), under it:
 
-- `- Mark: M<n>|no|unsure (<source>, <date>)`: the milestone of the road (P7, and the goals preset's `### M<n>`) the
-  feature comes in: `M1`, `M2`, `M3+`; from the documents, a package or the user, never your guess alone (that is
-  `unsure`). An older `must` or `later` is placed in a milestone at the next plan check, as `M<n> (partner, <date>)`.
+- `- Mark: must|later|no|unsure (<source>, <date>)`: must is version 1; from the documents, a package or the user,
+  never your guess alone (that is `unsure`). The milestones do not exist yet on this step (the user, 2026-10-21: "in a
+  new version these weren't defined yet"): the plan check places each must or later feature in a milestone of the
+  road with a line `- Milestone: M<n> (partner, <date>)` under its mark; never write a milestone into the mark.
 - `- Complex: yes · <why in a line>` or `no`: as the tech lead, yes when it changes how the game is built underneath
   (many parts depend on it, costly to add late).
 - `- Built: yes|partly|no`, as the game is now.
@@ -328,7 +329,7 @@ Ask only about the unsure ones and the complex ones not must or no (`F<n>: ...`,
 architecture check from the marks: a complex feature later or unsure means the structure is checked again at every
 milestone, so every milestone not started yet begins with a goal "Architecture check before <the milestone>" (Done
 when: the structure is checked against the later features, and what to prepare now is named, or a rebuild planned
-with its cost; serves P6); with none, only when a complex feature arrives. The user's marks come as `plan: features marked` with `Marks: F3 M1; F5 no`: write each
+with its cost; serves P6); with none, only when a complex feature arrives. The user's marks come as `plan: features marked` with `Marks: F3 later; F5 must`: write each
 `Mark: <mark> (you, <date>)`. A feature they miss comes as `plan: feature add` with `Words:`: add it with the next F
 id, its marks and picture by the same rules. `plan: F<n> change` with `Words:`: rewrite that feature.
 
@@ -340,7 +341,8 @@ user, 2026-10-21): read the road, every feature and its milestone, every standar
 yet, its state), the preset and the goal map, then propose every goal that is missing, each with `- Why: <what was
 missing, in a few words>` ("F7 has no goal", "K1's foundation, before any map", "M2 has no checkable done when"):
 
-- a feature placed in a milestone without a goal that delivers it; place an older `must`/`later` feature first;
+- a must or later feature without a `- Milestone:` line: place it in a milestone of the road (the open end `M3+`
+  for later); a feature in a milestone without a goal that delivers it;
 - a standard's gap: its goal under the milestone its count comes from, its foundation as the first sub-goal (or Measure
   today first when today is not measured), as `plan: standards agreed` did;
 - an architecture check before every milestone not started, when a complex feature comes later or is not sure;

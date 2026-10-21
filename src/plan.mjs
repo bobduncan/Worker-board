@@ -82,21 +82,16 @@ const MARKS = ['must', 'later', 'no', 'unsure']
 function markOf(value) {
   const text = String(value ?? '').trim()
   if (text.startsWith('?') || /^not\s+sure/i.test(text)) return 'unsure'
-  // The new order (the user, 2026-10-21): a feature is placed in a milestone of the road, "M1", "M2", "M3+".
+  // A mark written as a milestone ("M2", "M3+"; the plan check of 2026-10-21 wrote so for a while): the open end is
+  // later, any other milestone is must (the milestone itself is the feature's Milestone).
   const milestone = text.match(/^(M\d+\+?)(?=[\s(·]|$)/i)
-  if (milestone !== null) return milestone[1].toUpperCase()
+  if (milestone !== null) return milestone[1].endsWith('+') ? 'later' : 'must'
   const word = text.split(/[\s(·]/)[0].toLowerCase()
   return MARKS.includes(word) ? word : 'unsure'
 }
 
-/** A feature's mark that is a milestone ("M1", "M3+"). */
-export const isMilestoneMark = mark => /^M\d+\+?$/.test(String(mark))
-
-/**
- * Whether a feature's mark puts it after the next milestone: later, not sure, or a milestone after `first` (the road's
- * first milestone). A complex feature so marked means the structure is checked again at every milestone.
- */
-export const isLaterMark = (mark, first) => mark === 'later' || mark === 'unsure' || (isMilestoneMark(mark) && mark !== first)
+/** The milestone of the road a mark or a Milestone line names ("M1", "M3+"), or null. */
+const milestoneOf = value => String(value ?? '').trim().match(/^(M\d+\+?)(?=[\s(·]|$)/i)?.[1].toUpperCase() ?? null
 
 /**
  * More words onto a standard's last bar point. A bar point may end with its picture, the aspect it names highlighted:
@@ -160,7 +155,7 @@ export function parsePlan(text) {
     }
     const feature = section === 'features' ? raw.match(/^###\s+(F\d+)\s*[·:-]\s*(.*)$/) : null
     if (feature !== null) {
-      current = { id: feature[1], name: feature[2].trim(), mark: 'unsure', by: null, from: null, at: null, isComplex: false, why: '', built: 'no', pictures: [], points: [] }
+      current = { id: feature[1], name: feature[2].trim(), mark: 'unsure', milestone: null, by: null, from: null, at: null, isComplex: false, why: '', built: 'no', pictures: [], points: [] }
       features.push(current)
       kind = 'feature'
       field = null
@@ -293,8 +288,13 @@ export function parsePlan(text) {
       } else if (kind === 'feature') {
         if (key === 'mark') {
           current.mark = markOf(value)
+          // An older mark written as a milestone keeps that milestone, unless a Milestone line says otherwise.
+          current.milestone ??= milestoneOf(value)
           const { from, by, at } = sourceOf(value)
           Object.assign(current, { from, by, at })
+        } else if (key === 'milestone') {
+          // The plan check (2026-10-21): the milestone a must or later feature comes in, "- Milestone: M1 (partner, <date>)".
+          current.milestone = milestoneOf(value)
         } else if (key === 'complex') {
           current.isComplex = /^yes\b/i.test(value.trim())
           current.why = value.replace(/^\s*(yes|no)\s*[·:-]?\s*/i, '').trim()
@@ -388,9 +388,7 @@ export function planState(text, items, path) {
   }
   const marks = { must: 0, later: 0, no: 0, unsure: 0 }
   for (const feature of features) marks[feature.mark] = (marks[feature.mark] ?? 0) + 1
-  // The road's first milestone: a complex feature placed after it (or later, or not sure) is checked at every milestone.
-  const first = milestones[0]?.id ?? 'M1'
-  const open = features.filter(feature => feature.isComplex && isLaterMark(feature.mark, first))
+  const open = features.filter(feature => feature.isComplex && (feature.mark === 'later' || feature.mark === 'unsure'))
   const architecture = features.length === 0 ? null : {
     everyMilestone: open.length > 0,
     complex: features.filter(feature => feature.isComplex).map(feature => feature.id),

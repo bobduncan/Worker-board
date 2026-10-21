@@ -261,9 +261,13 @@ test('the features: marks with yours not sent yet, complex and built, the counts
     ['F2', 'A pond', 'later', false, true, 'no', 'package A, 2026-10-19', 5],
     ['F3', 'Lamps', 'unsure', false, false, 'partly', null, -1],
   ])
-  // The marks are the road's milestones (2026-10-21); must and later from before wait to be placed.
-  assert.equal(view.features.summary, '3 features · M1 0 · 2 not placed in a milestone yet · 0 no · 1 not sure')
-  assert.deepEqual(view.features.markOptions, [['M1', 'M1'], ['no', 'No'], ['unsure', '?']])
+  // Must, Later, No, ? (the user, 2026-10-21: the milestones do not exist yet on this step); what keeps the ✓ is named.
+  assert.equal(view.features.summary, '3 features · 1 must · 1 later · 0 no · 1 not sure')
+  assert.deepEqual(view.features.markOptions, [['must', 'Must'], ['later', 'Later'], ['no', 'No'], ['unsure', '?']])
+  assert.deepEqual(view.features.unsure, [{ id: 'F3', name: 'Lamps' }])
+  assert.deepEqual(view.features.cards.map(card => [card.milestone, card.milestoneTitle]), [[null, ''], [null, ''], [null, '']])
+  const placed = visionView(planState(PAGE.replace('- Mark: must (from vision.md, 2026-10-10)\n', '- Mark: must (from vision.md, 2026-10-10)\n- Milestone: M1 (partner, 2026-10-21)\n'), ITEMS, 'p.md'), UI)
+  assert.deepEqual([placed.features.cards[0].milestone, placed.features.cards[0].milestoneTitle], ['M1', 'A first corner'])
   assert.match(view.features.architecture, /^1 complex feature is later or not sure \(A pond\): the structure is checked again at every milestone/)
   assert.deepEqual(view.features.pending, [])
   // Your marks: shown at once, counted, sent in one word; the check follows them.
@@ -272,9 +276,6 @@ test('the features: marks with yours not sent yet, complex and built, the counts
   assert.deepEqual(marked.features.pending, ['F2 must', 'F3 no'])
   assert.match(marked.features.architecture, /^Every complex feature is decided \(A pond\): build for them now/)
   assert.equal(marked.steps[1].isDone, true)
-  // A complex feature in the road's first milestone is decided; in a later one it is checked at every milestone.
-  assert.match(visionView(plan, { ...UI, marks: { F2: 'M1', F3: 'no' } }).features.architecture, /^Every complex feature is decided/)
-  assert.match(visionView(plan, { ...UI, marks: { F2: 'M2', F3: 'no' } }).features.architecture, /^1 complex feature is later or not sure/)
 })
 
 test('the goals: the preset per milestone, Confirm not sent yet, and the state of the step', () => {
@@ -343,7 +344,7 @@ test('the guided path: a decision per slide with its step, its buttons, sent onc
   const decisions = view.slides.filter(one => one.kind === 'decide')
   assert.deepEqual(decisions.map(one => [one.id, one.step, one.question, one.actions.map(action => `${action.label}:${action.act}:${action.id}`)]), [
     ['P7', 'vision', 'Is this your answer for The road?', ['Yes, mine:confirm:P7', 'Change:change:P7']],
-    ['F3', 'features', 'When does Lamps come?', ['M1:mark-now:F3:M1', 'No:mark-now:F3:no']],
+    ['F3', 'features', 'Is Lamps in the game?', ['Must:mark-now:F3:must', 'Later:mark-now:F3:later', 'No:mark-now:F3:no']],
     ['K2', 'standards', 'Is this the bar for Paths?', ['Confirm:confirm-standard-now:K2', 'Change:change:K2']],
     ['S1', 'plan', 'Is this a goal: Two benches by the path?', ['Confirm:confirm-goal-now:S1', 'Change:change:S1']],
   ])
