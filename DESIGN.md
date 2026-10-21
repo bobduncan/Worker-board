@@ -2838,6 +2838,12 @@ stuck that day was found by the person. They are now one list in the board, `src
   another chat's, or after 30 minutes (`SYNC_LINE_MS`). A fix whose file changed meanwhile is tried at the next run, not
   told; a wake that throws is one row. A later run that finds nothing clears what the board found by itself.
 - Not in it: the limits beyond "full". A worker woken at a stop point of its own (a weekly share it keeps) pauses again.
+- **B482** (the result check of B465): a blocker in review holds its step until its result check passed too, when it
+  needs one (a pending, missing or failed one may still bring a fix); what the main chat was told and since when a
+  wait was seen (`seen`) stand in `data/sync.json`, so a restart neither tells Main again nor wakes or hands on anew;
+  one loop per project: `<project>/.claude/sync-loop.json` names the board process that runs the list (`mayRunLoop`),
+  a second one on the project (another `--port`) leaves it, and its "Out of sync?" asks the main chat only; a lock
+  whose owner has not run for two rounds is taken over.
 - A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
 - Tests: `test/work/sync.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
   `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).

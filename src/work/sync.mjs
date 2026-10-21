@@ -13,7 +13,7 @@ import { stamp } from './migrate.mjs'
 import { waitIds } from './guards.mjs'
 import { PARTNER_AGAIN_MS, isRoutedToPartner, partnerAskWords } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
-import { gitCheckPassed, resultCheckOf } from './resultCheck.mjs'
+import { gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
 import { asksOfStep } from './stepAsks.mjs'
 
 const MIN = 60_000
@@ -77,6 +77,24 @@ const answerOf = ask => (ask.sections?.get('Answer') ?? []).join(' ').trim()
  * runner has seen what only counts once it has lasted (an owner missing from the list, the helper not running); what
  * is seen now is added to `observed` (an array), so the runner keeps it and forgets the rest.
  */
+/**
+ * B482: a step in review that no longer holds what waits on it: the board's check passed, and so did its result check
+ * when it needs one (a pending, missing or failed one holds it, as a fix may follow).
+ */
+const isMergedAndChecked = item => stateOf(item) === 'review' && gitCheckPassed(item) && (!needsResultCheck(item) || resultCheckOf(item) === 'passed')
+
+/** B482: how long the loop's lock (`mayRunLoop`) holds without a run of its owner. */
+export const LOOP_LOCK_MS = 2 * SYNC_EVERY_MS + MIN
+
+/**
+ * B482: one loop per project. `lock` is what the project's lock file holds (`{ pid, port, at }`, or null): this board
+ * process (`me`) may run the list when there is none, it is its own, or its owner has not run for LOOP_LOCK_MS (gone).
+ */
+export function mayRunLoop(lock, me, now) {
+  if (lock === null || typeof lock !== 'object' || !Number.isFinite(lock.at)) return true
+  return lock.pid === me || now - lock.at > LOOP_LOCK_MS
+}
+
 export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], seen = new Map(), observed = [] }) {
   const all = [...items.values()]
   const steps = all.filter(item => kindOf(item) === 'step' && typeof idOf(item) === 'string').sort(byId)
@@ -103,14 +121,14 @@ export function findStuck({ items = new Map(), lanes = [], partner = null, helpe
       if (other === undefined) {
         const text = `${id} is blocked by ${on}, which the store does not hold`
         found.push({ check: 'blocked', key: `blocked ${id} ${on}`, text, fix: { do: 'main', text: `${text}: unblock it or make ${on}` } })
-      } else if (stateOf(other) === 'review' && gitCheckPassed(other)) {
+      } else if (isMergedAndChecked(other)) {
         found.push({ check: 'blocked', key: `blocked ${id} ${on}`, text: `${id} waited on ${on}, which is in review`, fix: { do: 'unblock', id, on } })
       }
     }
     // A `Waits for` is the main chat's or the person's to clear: the board says so.
     for (const on of waitIds(item).filter(one => /^B\d+$/.test(one))) {
       const other = items.get(on)
-      if (other !== undefined && !(stateOf(other) === 'review' && gitCheckPassed(other))) continue
+      if (other !== undefined && !isMergedAndChecked(other)) continue
       const what = other === undefined ? 'which the store does not hold' : 'in review'
       const text = `${id} waits for ${on} (${what}) in its Waits for words`
       found.push({ check: 'blocked', key: `blocked ${id} ${on}`, text, fix: { do: 'main', text: `${text}: clear it (work unblock ${id})` } })
@@ -344,14 +362,24 @@ export function syncRunner(ports) {
   async function once(asked) {
     const now = ports.now()
     const state = await ports.state()
+    // B482: what was noted and seen is kept in the board's data (data/sync.json), so a restart neither tells the main
+    // chat again nor starts a wait anew
+    if (noted === null) {
+      const kept = await ports.noted.load()
+      noted = new Set(Array.isArray(kept) ? kept : kept?.noted ?? [])
+      if (!Array.isArray(kept) && kept?.seen !== null && typeof kept?.seen === 'object') {
+        seen = new Map(Object.entries(kept.seen).filter(([, at]) => Number.isFinite(at)))
+      }
+    }
     const observed = []
     const findings = findStuck({
       items: await ports.items(), lanes: state.chats ?? [], partner: state.advisor ?? null, helper: state.advisorHelper ?? null,
       prefix: state.chatPrefix ?? '', now, outbox: ports.outbox(), limits: state.limits ?? {}, pause: state.pause ?? null, refused: ports.refused(),
       seen, observed,
     })
+    const seenBefore = JSON.stringify([...seen])
     seen = new Map(observed.map(key => [key, seen.get(key) ?? now]))
-    noted ??= new Set(await ports.noted.load())
+    let changed = JSON.stringify([...seen]) !== seenBefore
     const done = await applySync(findings, {
       unblock: (id, on, why) => ports.apply({ action: 'unblock', id, on, why }),
       requeue: (id, to, why) => ports.apply({ action: 'requeue', id, for: to, why }),
@@ -363,9 +391,10 @@ export function syncRunner(ports) {
       if (sent?.ok === true) {
         for (const key of done.keys) noted.add(key)
         noted = new Set([...noted].slice(-NOTED_KEPT))
-        await ports.noted.save([...noted])
+        changed = true
       }
     }
+    if (changed) await ports.noted.save({ noted: [...noted], seen: Object.fromEntries(seen) })
     const answer = { at: now, asked, rows: done.rows, fine: done.fine }
     // The review: a later run that finds nothing clears what the board found by itself; the button's answer stays.
     if (asked || answer.rows.length > 0) shownRun = answer

@@ -66,7 +66,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, SYNC_EVERY_MS, syncRunner } from './src/work/sync.mjs'
+import { REFUSED_MS, SYNC_EVERY_MS, mayRunLoop, syncRunner } from './src/work/sync.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
 import { storeKeeper } from './src/work/read.mjs'
@@ -869,6 +869,8 @@ async function main(args) {
   }
   // B465: the board's list of stuck states (src/work/sync.mjs), set up with the reconciler on a board that writes.
   let sync = null
+  // B482: whether this board process runs the list for its project (one loop per project); null: it never does
+  let syncOwned = null
 
   // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
@@ -1224,7 +1226,9 @@ async function main(args) {
       if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
       // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page); the main chat's check,
       // for what the list does not know, gets that answer with the rest, and the board as it stands after the fixes.
-      const syncAnswer = body?.command === 'sync' && sync !== null ? await sync.run({ asked: true }).catch(error => { loops.failed('sync', error); return null }) : null
+      const mayAsk = body?.command === 'sync' && sync !== null && syncOwned !== null
+        && await syncOwned().catch(error => { loops.failed('sync', error); return false })
+      const syncAnswer = mayAsk ? await sync.run({ asked: true }).catch(error => { loops.failed('sync', error); return null }) : null
       if (syncAnswer !== null) readState.reset()
       const state = await readState()
       const checked = checkSay(body, syncAnswer === null ? state : { ...state, syncList: syncAnswer }, config.maxMessageChars)
@@ -1667,16 +1671,40 @@ async function main(args) {
           dir: workDir, key: `sync ${key}`, words: { ...workWords(chat, id, text), kind: 'sync', syncKey: key }, outbox: store, state: await readState(),
           now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex'), keep,
         }),
+        // B482: what the main chat was told and since when a wait was seen, kept over a restart
         noted: {
           load: async () => {
             const value = await kept(SYNC_FILE)
-            return Array.isArray(value?.noted) ? value.noted.filter(key => typeof key === 'string') : []
+            return {
+              noted: Array.isArray(value?.noted) ? value.noted.filter(key => typeof key === 'string') : [],
+              seen: value?.seen !== null && typeof value?.seen === 'object' ? value.seen : {},
+            }
           },
-          save: keys => writeAtomic(SYNC_FILE, JSON.stringify({ noted: keys })),
+          save: state => writeAtomic(SYNC_FILE, JSON.stringify(state)),
         },
         now: clock,
       })
-      setInterval(() => (isClosing ? null : loops.run('sync', () => sync.run())), SYNC_EVERY_MS)
+      // B482: one loop per project: a second board process on it (another --port) leaves the list to the first
+      const LOOP_LOCK = join(config.project, '.claude', 'sync-loop.json')
+      const ownLoop = async () => {
+        const lock = await readFile(LOOP_LOCK, 'utf8').then(text => JSON.parse(text), error => {
+          if (error?.code === 'ENOENT') return null
+          throw error
+        })
+        if (!mayRunLoop(lock, process.pid, clock())) return false
+        await mkdir(dirname(LOOP_LOCK), { recursive: true })
+        await writeAtomic(LOOP_LOCK, JSON.stringify({ pid: process.pid, port: config.port, at: clock() }))
+        return true
+      }
+      syncOwned = ownLoop
+      process.on('exit', () => {
+        try {
+          if (JSON.parse(readFileSync(LOOP_LOCK, 'utf8')).pid === process.pid) rmSync(LOOP_LOCK)
+        } catch {
+          // not there, or another board's by now
+        }
+      })
+      setInterval(() => (isClosing ? null : loops.run('sync', async () => (await ownLoop() ? sync.run() : null))), SYNC_EVERY_MS)
     }
   }
 }
