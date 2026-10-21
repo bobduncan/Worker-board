@@ -13,6 +13,7 @@ import { mayMove } from './flow.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
+import { JUST_ANSWERED_MS, closedMsOf, forYouRepeat, isWithdrawn, openRepeat, repeatFactsOf } from './askRepeat.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
@@ -574,6 +575,18 @@ async function ask(body, w) {
   if (text.length === 0) return refuse(400, 'Say what you ask in "title", the question itself, and its context in "text".')
   const problem = via === null && w.role !== 'person' ? titleProblem(line(text[0], TEXT_CHARS)) : null
   if (problem !== null) return refuse(400, given === '' ? `An ask leads with its "title"; without one, the first line of "text" is the title. ${problem}` : problem)
+  // B474: the chat asked this already, under the same step or goal, and it stands open or was answered a moment ago
+  // (the P3 questions filed four times each, Q236 to Q248; Q160 and Q162): the person is not asked it twice.
+  if (via === null && w.role !== 'person') {
+    const mine = [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix)
+      && (stateOf(one) === 'open' || (stateOf(one) === 'answered' && w.now - closedMsOf(one) <= JUST_ANSWERED_MS)))
+    const same = openRepeat(text.join(' '), isAlone ? goal : valueOf(of.item, 'Id'), mine.map(repeatFactsOf))
+    if (same !== undefined) {
+      const found = w.store.items.get(same.id)
+      const answered = stateOf(found) === 'answered' ? ` and the person answered it: ${(found.sections.get('Answer') ?? []).join(' ').slice(0, 200)}` : ' and it stands open'
+      return refuse(409, `${same.id} asks this already${answered}. Wait for its answer or use it; to ask it anew, withdraw ${same.id} first.`)
+    }
+  }
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
   const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
   const play = line(body.play, 300)
@@ -1799,6 +1812,14 @@ async function askForYou(value, since, w) {
   // Warnings (2026-10-19): an ask's time to the millisecond (`Filed`; an older one at the end of its minute).
   const known = all.filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && (stateOf(one) === 'open' || askFiledMs(one) >= since))
     .map(one => askKey(askWordsOf(one)))
+  // B474: the asks an item may repeat in other words: the chat's own of this turn (filed, or withdrawn in it, as Q264
+  // before Q274; History holds the minute only), its own still open, and the other chats' open ones (Q193 before Q197).
+  const asks = all.filter(one => kindOf(one) === 'ask')
+  const repeats = {
+    turn: asks.filter(one => isOwner(one, w.who, w.prefix) && (askFiledMs(one) >= since || (isWithdrawn(one) && closedMsOf(one) >= since - 60_000))).map(repeatFactsOf),
+    own: asks.filter(one => isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
+    others: asks.filter(one => !isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
+  }
   const held = all.filter(one => kindOf(one) === 'step' && stateOf(one) === 'in progress' && isOwner(one, w.who, w.prefix))
   const of = held.length === 1 ? valueOf(held[0], 'Id') : null
   const asked = []
@@ -1812,6 +1833,8 @@ async function askForYou(value, since, w) {
     if (namesOpenAsk(text, w)) continue
     const key = askKey(text[0])
     if (key === '' || known.some(other => sameAsk(other, key))) continue
+    // B474: in other words, or pointing to it.
+    if (forYouRepeat({ text, kind }, repeats) !== null) continue
     const fields = { kind, text, options: one.options, advice: one.advice, pictures: one.pictures, play: one.play, via: 'chat', blocking: false }
     // Under the step when the board takes it there, else on its own.
     let made = of === null ? await ask(fields, w) : await ask({ ...fields, of }, w)
@@ -1819,6 +1842,7 @@ async function askForYou(value, since, w) {
     if (!made.ok) continue
     asked.push(made.result.id)
     known.push(key)
+    repeats.turn.push({ id: made.result.id, words: text.join(' '), of })
   }
   return asked
 }
