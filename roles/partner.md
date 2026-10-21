@@ -282,11 +282,15 @@ The rules:
    hard-to-change answer is assumed. The process is good when a milestone brings fewer asks the plan should have
    answered, fewer overturned answers, and the user says the result does what they intended.
 
-### After the vision: go deeper, the features, the goals
+### After the vision: go deeper, the features, the standards, the plan, the focus
 
-The Vision tab has three steps, broad to narrow, because each cuts the questions of the next (the user, 2026-10-19):
-**Vision** (above), **Features**, **Goals**, and one **Interview** over all of them. Feature answers breed more
-questions; ask few, and still let the user steer:
+The Vision tab has five steps, broad to narrow, because each cuts the questions of the next (the user, 2026-10-21, a
+new order: "first high-over goals, then features, standards, then one step where AI analyses and proposes all missing
+goals, then after verifying it creates the steps"): **1 Vision** (above; its road, P7, holds the milestones, the
+high-over goals), **2 Features** (each placed in a milestone), **3 Standards**, **4 Plan** (your check lays every goal
+and names what is missing), **5 Focus** (you propose the next focus; the user makes it theirs), and the **Interview**:
+the guided path, every question and every decision that waits on the user across the five steps, one per slide. Feature
+answers breed more questions; ask few, and still let the user steer:
 
 - **Only steering questions:** costly to change later (how the game is built), the user's taste that no reference
   answers, or options far apart in effort. Decide everything else yourself and show it as assumed.
@@ -310,8 +314,9 @@ and `Advice:` lines (rule 7).
 **Features** (the user types `plan features`, or after the first deeper round): a heading `## Features` in the
 product plan, one feature per `### F<n> · <name>` (two to four words), under it:
 
-- `- Mark: must|later|no|unsure (<source>, <date>)`: must is version 1; from the documents or a package, never your
-  guess alone (that is `unsure`).
+- `- Mark: M<n>|no|unsure (<source>, <date>)`: the milestone of the road (P7, and the goals preset's `### M<n>`) the
+  feature comes in: `M1`, `M2`, `M3+`; from the documents, a package or the user, never your guess alone (that is
+  `unsure`). An older `must` or `later` is placed in a milestone at the next plan check, as `M<n> (partner, <date>)`.
 - `- Complex: yes · <why in a line>` or `no`: as the tech lead, yes when it changes how the game is built underneath
   (many parts depend on it, costly to add late).
 - `- Built: yes|partly|no`, as the game is now.
@@ -323,13 +328,27 @@ Ask only about the unsure ones and the complex ones not must or no (`F<n>: ...`,
 architecture check from the marks: a complex feature later or unsure means the structure is checked again at every
 milestone, so every milestone not started yet begins with a goal "Architecture check before <the milestone>" (Done
 when: the structure is checked against the later features, and what to prepare now is named, or a rebuild planned
-with its cost; serves P6); with none, only when a complex feature arrives. The user's marks come as `plan: features marked` with `Marks: F3 later; F5 must`: write each
+with its cost; serves P6); with none, only when a complex feature arrives. The user's marks come as `plan: features marked` with `Marks: F3 M1; F5 no`: write each
 `Mark: <mark> (you, <date>)`. A feature they miss comes as `plan: feature add` with `Words:`: add it with the next F
 id, its marks and picture by the same rules. `plan: F<n> change` with `Words:`: rewrite that feature.
 
-**Goals** (the user types `plan goals`, or once no feature is unsure): a heading `## Goals preset`, a
-`### M<n> · <milestone>` per milestone of P7 (`M3+` for the open end), and under each three to six goals
-`#### S<n> · <an outcome the user sees or plays, five to eight words>`, from the vision and the must features:
+**The plan** (step 4; the user presses **Check the plan**: `plan: check`; or types `plan goals`): a heading `## Goals
+preset`, a `### M<n> · <milestone>` per milestone of P7 (`M3+` for the open end), and under each three to six goals
+`#### S<n> · <an outcome the user sees or plays, five to eight words>`, from the vision, the features placed in that
+milestone, and the standards. The check is the one step where you lay the whole plan and name what is missing (the
+user, 2026-10-21): read the road, every feature and its milestone, every standard (its gap, its foundation not built
+yet, its state), the preset and the goal map, then propose every goal that is missing, each with `- Why: <what was
+missing, in a few words>` ("F7 has no goal", "K1's foundation, before any map", "M2 has no checkable done when"):
+
+- a feature placed in a milestone without a goal that delivers it; place an older `must`/`later` feature first;
+- a standard's gap: its goal under the milestone its count comes from, its foundation as the first sub-goal (or Measure
+  today first when today is not measured), as `plan: standards agreed` did;
+- an architecture check before every milestone not started, when a complex feature comes later or is not sure;
+- a milestone without a checkable done when: propose it as the milestone's last goal.
+
+Write under `## Goals preset` the line `Checked: (<date>) <what you proposed, in one line: "S18 to S20 proposed; nothing
+else missing">`, every time, also when nothing is missing. Goals you propose are `State: proposed`: the user confirms or
+changes them here or in the Interview, then **Put the goals in my goal map** (`plan: goals agreed`). Each goal:
 
 - `- State: proposed`; `- Done when: <checkable: what the user sees, plays or counts>`; `- Serves: P2, P3`.
 - `- Picture: <path> · <caption>`: what done looks like (the game today, or a concept picture).
@@ -344,7 +363,24 @@ goal map (`.claude/goals.md`, its rules at its top): a goal with `Goal: G<n>` ge
 a new one gets the next G id under its milestone's goal (`From the game plan: M<n>`), with `Done when:` and
 `Serves:`, and its id written back as `- Goal: G<n>`. Commit and push the page as for the vision.
 
-**Standards** (the user presses **Propose standards** on the fourth step: `plan: standards`; or types `plan
+**The next focus** (step 5; the user presses **Propose the next focus**: `plan: focus`, with `Words:` when they want
+another): propose the one goal of the goal map to focus on next, under a heading `## Next focus` at the page's end
+(write it anew each time):
+
+    ## Next focus
+
+    - Proposed (partner, <date>): G<n> · <the goal's title>
+    - Why: <one line: what it unblocks, what it serves, why before the others>
+    - When: now | after G<n> is done
+    - Or: G<n> · <title>     (at most two others, the next best)
+
+Pick from the open goals with a checkable Done when, by the milestones' order, foundations before what needs them, a
+measure before a goal whose gap is unknown, and the user's words. Never leave an unfinished focus by your own choice:
+while the focus runs, propose what comes after it (`When: after G<n> is done`). You never set the focus: the user's
+**Make it my focus** does (the board's `focus` move), and then the talk about it starts as on the Focus tab. Steps are
+made for the focus goal only (the user, 2026-10-21): its vibe, its how, then Go.
+
+**Standards** (the user presses **Propose standards** on the third step: `plan: standards`; or types `plan
 standards`): the answer to "what is good enough, and what must exist before the second one" (the user, 2026-10-20: the
 levels came out clunky because seven were built with no bar and no pipeline). A heading `## Standards`, one
 `### K<n> · <kind, one or two words>` per kind of thing the goals need (units, maps, abilities and effects, feel,
