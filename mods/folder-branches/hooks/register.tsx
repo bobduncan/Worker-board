@@ -1029,10 +1029,10 @@ const WORK_TOOL = {
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
     + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question; the partner\'s daily note on the focus goal is a note to you with "of" G<n>, "decided" and "needs". "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
-    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority", "standard"): a new step. "queue" ("id", '
+    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority", "standard", "effort"): a new step. "queue" ("id", '
     + '"for", "after", "about", "priority"; "priority" fix: a fix for the worker board, first in its worker\'s queue), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
     + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
-    + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "questions") and "refined" ("id", "what", "standard"): '
+    + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "effort", "questions") and "refined" ("id", "what", "standard", "effort"): '
     + 'the Advisor. "checked" ("id", "evidence", "points", "score"): the partner files the result check of a step in review, by a helper that did not build it. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
     + 'the partner (the Advisor) keeps its draft of the focus goal\'s vibe and how on the board; each call takes the place '
     + 'of the draft the goal had. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old '
@@ -1075,6 +1075,7 @@ const WORK_TOOL = {
       picture: { type: 'string', description: 'refine: the picture of what it makes; vibe-draft: the vibe\'s picture.' },
       size: { type: 'string', description: 'refine, and new from an agreed how: how long it takes, roughly.' },
       standard: { type: 'string', description: 'refine, refined and new: what the step\'s result is checked against, "<kind> · <reference picture> · target <score>" (a kind of the project\'s settings), or "none (<why>)".' },
+      effort: { type: 'string', description: 'refine, refined and new: the effort level the worker runs the step at, "<low, medium, high, xhigh or max>: <why, in one line>"; a step without one runs at medium.' },
       evidence: { type: 'string', description: 'checked: the evidence picture\'s path in the project (the result beside its reference, the points ticked), or "none (<why>)".' },
       points: { type: 'array', items: { type: 'string' }, description: 'checked: every agreed point of the step, each "pass: <point>", "fail: <point>" or "ask: <point>" (a point only the person can judge).' },
       score: { type: 'string', description: 'checked: the score beside its target, "82 of 75", where the kind\'s definition of done has a rubric.' },

@@ -1999,3 +1999,22 @@ describe('B463: a chat renamed while it runs', () => {
     expect(fileOf(w)).toBeNull()
   })
 })
+
+describe('B468: the Advisor gives a step its effort with the work tool', () => {
+  const advisor = (): Record<string, string> => ({ ...listed({ advisor: { name: 'Advisor', role: 'worker', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
+  const sent = (w: World): Record<string, unknown>[] => w.worked.map(body => JSON.parse(body) as Record<string, unknown>)
+
+  test('the description names effort on refine, refined and new, and the effort reaches the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('advisor', advisor())
+    stand(on, w)
+    await $.session.start(START)
+    expect(w.descriptions.work).toContain('"standard", "effort", "questions"')
+    expect(w.descriptions.work).toContain('"refined" ("id", "what", "standard", "effort")')
+    expect(w.descriptions.work).toContain('"priority", "standard", "effort"): a new step')
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', text: 'B12: refined, round 1.' }) }
+    await $.tool.call({ tool: WORK, action: 'refine', id: 'B12', summary: 'A fix.', effort: 'low: a text fix' } as never)
+    expect(sent(w).filter(one => one.action === 'refine')).toEqual([{ action: 'refine', id: 'B12', summary: 'A fix.', effort: 'low: a text fix', chat: 'Advisor', session: 'advisor' }])
+  })
+})
