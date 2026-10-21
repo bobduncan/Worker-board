@@ -7,7 +7,7 @@ import { appendFile, open, readdir, readFile, rename, rm, writeFile } from 'node
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { again, appendLines, readKept, writeAtomic } from '../src/write.mjs'
+import { absentAs, again, appendLines, readKept, writeAtomic } from '../src/write.mjs'
 import { tempDir } from './tempDir.mjs'
 
 const real = { open, writeFile, rename, rm, readFile, appendFile }
@@ -121,4 +121,11 @@ test('writeAtomic flushes the new file to disk before it puts it in place', asyn
   }
   await writeAtomic(join(dir, 'emus.json'), '{}', watched)
   assert.deepEqual(steps, ['write', 'sync', 'close', 'rename'])
+})
+
+test('B467: absentAs gives its value for a file or folder that is not there, and lets every other error go on', async () => {
+  assert.deepEqual(await Promise.reject(busy('ENOENT')).catch(absentAs([])), [])
+  assert.equal(await Promise.reject(busy('ENOENT')).catch(absentAs(null)), null)
+  await assert.rejects(Promise.reject(busy('EBUSY')).catch(absentAs([])), /EBUSY/)
+  await assert.rejects(Promise.reject(new SyntaxError('Unexpected end of JSON input')).catch(absentAs('')), SyntaxError)
 })

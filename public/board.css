@@ -431,6 +431,7 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-part { display: flex; flex-direction: column; gap: 4px; }
 .vision-subpoints { margin: 4px 0 2px; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; list-style: circle; }
 .vision-subpoints li { display: list-item; font-size: 14px; }
+.vision-hold { margin: 4px 0 0; font-size: 13px; color: var(--warn, #e0a040); }
 .vision-part-label { margin: 2px 0 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .vision-part.is-bar { padding: 8px 12px 10px; border-left: 3px solid var(--advisor); border-radius: 0 8px 8px 0; background: var(--inset); }
 .vision-part.is-bar .vision-part-label { color: var(--advisor); }

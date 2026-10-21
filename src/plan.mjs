@@ -151,7 +151,7 @@ export function parsePlan(text) {
     }
     const standard = section === 'standards' ? raw.match(/^###\s+(K\d+)\s*[·:-]\s*(.*)$/) : null
     if (standard !== null) {
-      current = { id: standard[1], title: standard[2].trim(), state: 'proposed', by: null, at: null, count: '', kind: '', done: '', reference: null, today: null, pictures: [], bar: [], barLevels: [], barPictures: [], foundation: '', perItem: '', score: '', met: null, total: null, gap: '' }
+      current = { id: standard[1], title: standard[2].trim(), state: 'proposed', by: null, at: null, count: '', kind: '', done: '', reference: null, today: null, pictures: [], bar: [], barLevels: [], barPictures: [], foundation: '', foundationBuilt: false, perItem: '', score: '', met: null, total: null, gap: '' }
       standards.push(current)
       kind = 'standard'
       field = null
@@ -232,6 +232,8 @@ export function parsePlan(text) {
           field = 'bar'
         }
         else if (key === 'foundation') { current.foundation = value.trim(); field = 'foundation' }
+        // The guard (2026-10-21): "- Foundation built: yes (<step>, <date>)" once the foundation exists.
+        else if (key === 'foundation built') current.foundationBuilt = /^yes\b/i.test(value.trim())
         else if (key === 'per item') current.perItem = value.trim()
         else if (key === 'score') {
           current.score = value.trim()

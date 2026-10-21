@@ -10,6 +10,7 @@ import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
 import { evaluateWords, goalAttempts, needsEvaluation } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords, planWords } from './say.mjs'
+import { absentAs, again } from './write.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
 
@@ -47,7 +48,10 @@ const WHY = {
 const failed = why => refuse(...(WHY[why] ?? WHY.write))
 
 /** The goal map as it is now, UTF-8, or null when it is not there. */
-const readMap = (fs, file) => fs.readFile(file).then(bytes => bytes.toString('utf8'), () => null)
+// B467: `fallback` only for a file that is not there; one Windows holds is tried again, and one that stays held or
+// cannot be read is an error, never "no goal map" or "no thread".
+const readText = (fs, file, fallback) => again(() => fs.readFile(file)).then(bytes => bytes.toString('utf8'), absentAs(fallback))
+const readMap = (fs, file) => readText(fs, file, null)
 
 /**
  * The threads about a goal that are not over (running, or wrapping up), newest first: `{ path, file, thread }`, the path
@@ -55,10 +59,10 @@ const readMap = (fs, file) => fs.readFile(file).then(bytes => bytes.toString('ut
  */
 async function liveThreads(goal, { brainstormDir, brainstormFolder, fs }) {
   const base = String(brainstormDir).replace(/[\\/]+$/, '')
-  const names = (await fs.readdir(base).catch(() => [])).filter(name => /^[a-z0-9][a-z0-9-]*\.md$/.test(name)).sort().reverse()
+  const names = (await fs.readdir(base).catch(absentAs([]))).filter(name => /^[a-z0-9][a-z0-9-]*\.md$/.test(name)).sort().reverse()
   const found = []
   for (const name of names) {
-    const thread = parseThread(await fs.readFile(`${base}/${name}`).then(bytes => bytes.toString('utf8'), () => ''))
+    const thread = parseThread(await readText(fs, `${base}/${name}`, ''))
     if (thread.goal?.id === goal && (thread.state === 'running' || thread.state === 'wrapping up')) found.push({ path: `${brainstormFolder}/${name}`, file: `${base}/${name}`, thread })
   }
   return found
@@ -210,7 +214,9 @@ async function talkFor(id, node, opening, ctx, goalsAt) {
   }
   // The goal's Brainstorm line names the talk the page answers in, also when the line named one that is over.
   if (isNewThread && node.brainstorm?.path !== thread) {
-    await changeGoalsFile(text => (parseGoals(text).byId.has(id) ? setGoalLine(text, id, 'Brainstorm', `${thread} (running)`) : { ok: true, text }), goalsAt).catch(() => null)
+    // B467: not written is no reason to fail the move: the talk runs, and runningThread finds it by its goal.
+    await changeGoalsFile(text => (parseGoals(text).byId.has(id) ? setGoalLine(text, id, 'Brainstorm', `${thread} (running)`) : { ok: true, text }), goalsAt)
+      .catch(error => console.error(`The Brainstorm line of ${id} could not be written: ${error.message}`))
   }
   return { ok: true, thread, isNewThread, isStarted }
 }
@@ -231,7 +237,7 @@ async function talkBar(node, words, ctx, goalsAt) {
   if (talk.isStarted) return { ok: true, result, words: word('brainstorm', `brainstorm\nThread: ${talk.thread}\nGoal: ${about}\nOpening: ${words}`) }
   const base = String(ctx.brainstormDir).replace(/[\\/]+$/, '')
   const file = `${base}/${talk.thread.split('/').pop()}`
-  const thread = parseThread(await ctx.fs.readFile(file).then(bytes => bytes.toString('utf8'), () => ''))
+  const thread = parseThread(await readText(ctx.fs, file, ''))
   const latest = thread.questions.at(-1)
   if (latest !== undefined && latest.answer === null) {
     const answered = await editThread({ command: 'answer', path: talk.thread, n: latest.n, key: 'Other', words }, {
@@ -290,7 +296,10 @@ async function pick(body, before, ctx, goalsAt) {
   const { thread, isNewThread } = talk
   const result = { id, thread }
   if (!moved && !isNewThread) return { ok: true, result: { ...result, unchanged: true }, words: null }
-  const stage = focusStage(parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id) ?? node)
+  // B467, the review: the map and the thread are written by now. A map that cannot be read again here still lets the
+  // word go out, with the stage of the goal as read before: a click again would find nothing changed and send none.
+  const after = await readMap(ctx.fs, ctx.goalsFile).catch(error => (console.error(`The goal map could not be read again after ${id} became the focus: ${error.message}`), null))
+  const stage = focusStage((after === null ? undefined : parseGoals(after).byId.get(id)) ?? node)
   return { ok: true, result, words: focusWords('focus', { to: ctx.partner.name, goal: node, thread, stage: STAGE_WORDS[stage], job: ctx.job }) }
 }
 
@@ -454,6 +463,7 @@ export function guardGoal(id, ctx) {
  * one runs, the partner stays on high effort.
  */
 export async function evaluationsRunning(ctx) {
+  // B467: no map is none running; a map it cannot read is not, and goes to the caller (which then keeps the effort).
   const text = await readMap(ctx.fs ?? files, ctx.goalsFile)
   if (text === null) return []
   return parseGoals(text).nodes.filter(node => node.state !== 'done' && (node.evaluationAsked ?? null) !== null).map(node => node.id)
@@ -611,7 +621,8 @@ async function undoOnce({ note, line }, { work, type, tell = async () => null })
     const taken = await work({ action: 'undo', id: note, line })
     if (!taken.ok) return taken
     if (taken.result.changed === false) return { ok: true, result: { id: checked.result.id, unchanged: true } }
-    if (taken.result.wake) await Promise.resolve().then(() => tell(taken.result.wake)).catch(() => null)
+    // B467: the answer is taken back by now; a chat not told is said on the console, never a reason to fail the Undo.
+    if (taken.result.wake) await Promise.resolve().then(() => tell(taken.result.wake)).catch(error => console.error(`The asking chat could not be told of the Undo: ${error.message}`))
     return { ok: true, result: { id: taken.result.id, ask: checked.result.undo.ask } }
   }
   let typed = null

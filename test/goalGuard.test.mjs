@@ -226,3 +226,11 @@ test('B382: the evaluations that run, the focus or not, keep the partner on high
   assert.deepEqual(await evaluationsRunning({ fs: fakeFs({ [FILE]: latin(MAP) }), goalsFile: FILE }), [])
   assert.deepEqual(await evaluationsRunning({ fs: fakeFs({}), goalsFile: FILE }), [])
 })
+
+test('B467: a goal map that cannot be read is not "none running": the error goes to the caller', async () => {
+  const busy = { readFile: async () => { throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' }) } }
+  await assert.rejects(evaluationsRunning({ fs: busy, goalsFile: FILE }), /EBUSY/)
+  // A move on the Focus page is not told "there is no goal map" either: the error goes on (the page gets an error).
+  await assert.rejects(focusMove({ command: 'vibe-draft', id: 'G2', lines: ['a', 'b', 'c'] }, ctx(busy)), /EBUSY/)
+  assert.equal((await focusMove({ command: 'vibe-draft', id: 'G2', lines: ['a', 'b', 'c'] }, ctx(fakeFs({})))).why, 'There is no goal map to write into.')
+})

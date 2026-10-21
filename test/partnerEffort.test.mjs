@@ -189,7 +189,7 @@ test('the wiring: the state names the partner\'s mode; the server switches it ba
   // After the move was written (its word to the partner is on its way), and not for the talk about the same goal again.
   const focusNow = server.slice(server.indexOf('const focusNow = async body => {'), server.indexOf('const toPartner = async'))
   // B354: and something new that waits for its Done when (no focus changed).
-  assert.match(focusNow, /if \(!done\.ok \|\| done\.words === null\) return[^\n]*\n[\s\S]*const isSameFocus = body\.command === 'focus' && \(body\.id === state\.focus\?\.id \|\| done\.result\?\.isFocus === false\)\n\s*const back = isSameFocus \|\| running\.length > 0 \? null : effortBack\(body\.command, state\.advisor\?\.effort\)/)
+  assert.match(focusNow, /if \(!done\.ok \|\| done\.words === null\) return[^\n]*\n[\s\S]*const isSameFocus = body\.command === 'focus' && \(body\.id === state\.focus\?\.id \|\| done\.result\?\.isFocus === false\)\n\s*const back = isSameFocus \|\| !isKnown \|\| running\.length > 0 \? null : effortBack\(body\.command, state\.advisor\?\.effort\)/)
   assert.match(focusNow, /partnerEffortWords\(\{ to: main, partner: state\.advisor\.name, session: state\.advisor\.appSession \?\? null, mode: 'usual', why: back \}\)/)
 })
 
