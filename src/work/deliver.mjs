@@ -146,6 +146,10 @@ async function withdrawStale({ dir, outbox, prefix, fs }) {
     // Focus 4: a notes line holds while one of its notes is not read by the main chat.
     if (message.kind === 'note') {
       if ((message.notes ?? [message.about]).some(id => items.get(id) !== undefined && value(items.get(id), 'Main read') === null)) continue
+    } else if (message.kind === 'sync') {
+      // B465: the board's sync check woke a chat about something (a step, its helper's work, the limit): its line holds
+      // until it is taken or expires; the check itself looks again a few minutes on.
+      continue
     } else if (message.kind === 'partner-ask') {
       // Partner answers (2026-10-19): the partner's line holds while its ask still waits for its answer.
       if (state === 'open' && value(item, 'Route') === 'partner') continue

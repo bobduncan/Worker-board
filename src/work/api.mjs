@@ -49,14 +49,15 @@ const SERVER = new Set(['check', 'advance', 'resumed', 'approve-recaps', 'rechec
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
-  unblock: ['main', 'worker', 'person'],
+  // B465: the board's sync check unblocks a step whose blocker is in review, and requeues one whose chat left the list.
+  unblock: ['main', 'worker', 'person', 'server'],
   new: ['main', 'worker', 'advisor', 'person'],
   refine: ['advisor', 'main'],
   // B356: the result check, by a helper the partner runs.
   checked: ['advisor'],
   'vibe-draft': ['advisor'],
   'how-draft': ['advisor'],
-  requeue: ['main', 'person'],
+  requeue: ['main', 'person', 'server'],
   unqueue: ['main', 'person'],
   rename: ['main', 'person', 'server'],
   // Partner answers (2026-10-19): the partner answers an ask routed to it, or hands it to the person; so does the board
@@ -1410,6 +1411,9 @@ async function closeFixed(item, w) {
 }
 
 /** Blocked by: one more step, or one less. B306: unblock without "on" clears what the step waits for (`Waits for`). */
+/** B465: why the board itself made a change (its sync check), for the History line; '' for anyone else. */
+const serverWhy = (body, w) => (w.role === 'server' && line(body.why, 200) !== '' ? ` (the board's sync check: ${line(body.why, 200)})` : '')
+
 async function blockOn(body, w, isBlock) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
@@ -1422,7 +1426,7 @@ async function blockOn(body, w, isBlock) {
   const before = idsIn(valueOf(found.item, 'Blocked by'))
   const after = isBlock ? [...new Set([...before, on])] : before.filter(one => one !== on)
   if (after.length === before.length && after.every((one, index) => one === before[index])) return { ok: true, result: { id, text: serializeItem(found.item), changed: false } }
-  const item = said(put(copy(found.item), 'Blocked by', after.join(' and ')), w, `${isBlock ? 'blocked by' : 'no longer blocked by'} ${on}`)
+  const item = said(put(copy(found.item), 'Blocked by', after.join(' and ')), w, `${isBlock ? 'blocked by' : 'no longer blocked by'} ${on}${serverWhy(body, w)}`)
   const done = await save(ordered(item), found.text, w)
   return done.ok ? changed(ordered(item)) : done
 }
@@ -1660,7 +1664,7 @@ async function requeueStep(body, w) {
   const was = valueOf(found.item, 'Owner')
   if (was !== null && plain(was, w.prefix) === plain(owner, w.prefix)) return refuse(409, `${id} is queued for ${was} already.`)
   const item = put(put(copy(found.item), 'Owner', owner), 'Since', stamp(w.now))
-  const next = ordered(said(item, w, `requeued for ${owner}${was === null ? '' : ` (was ${was})`}`))
+  const next = ordered(said(item, w, `requeued for ${owner}${was === null ? '' : ` (was ${was})`}${serverWhy(body, w)}`))
   const done = await save(next, found.text, w)
   return done.ok ? changed(next) : done
 }
