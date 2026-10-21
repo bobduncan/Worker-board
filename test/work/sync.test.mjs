@@ -250,7 +250,8 @@ test('the runner: one run at a time, the main chat told once per key across runs
     refused: () => [],
     apply: async body => (applied.push(body), { ok: true }),
     wake: async () => ({ id: 'w' }),
-    noted: { load: async () => ['blocked B9 B99'], save: async keys => { saved = keys } },
+    // what is saved is what the next run reads (B482: read at every run)
+    noted: { load: async () => saved ?? ['blocked B9 B99'], save: async keys => { saved = keys } },
     now: () => clock,
   })
   const [first, second] = await Promise.all([runner.run(), runner.run({ asked: true })])

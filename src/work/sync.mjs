@@ -81,6 +81,8 @@ const answerOf = ask => (ask.sections?.get('Answer') ?? []).join(' ').trim()
  * B482: a step in review that no longer holds what waits on it: the board's check passed, and so did its result check
  * when it needs one (a pending, missing or failed one holds it, as a fix may follow).
  */
+// (A failed result check holds it until the step is checked again, also when its fix is done: the fix's own report
+// asks the check anew.)
 const isMergedAndChecked = item => stateOf(item) === 'review' && gitCheckPassed(item) && (!needsResultCheck(item) || resultCheckOf(item) === 'passed')
 
 /** B482: how long the loop's lock (`mayRunLoop`) holds without a run of its owner. */
@@ -362,14 +364,12 @@ export function syncRunner(ports) {
   async function once(asked) {
     const now = ports.now()
     const state = await ports.state()
-    // B482: what was noted and seen is kept in the board's data (data/sync.json), so a restart neither tells the main
-    // chat again nor starts a wait anew
-    if (noted === null) {
-      const kept = await ports.noted.load()
-      noted = new Set(Array.isArray(kept) ? kept : kept?.noted ?? [])
-      if (!Array.isArray(kept) && kept?.seen !== null && typeof kept?.seen === 'object') {
-        seen = new Map(Object.entries(kept.seen).filter(([, at]) => Number.isFinite(at)))
-      }
+    // B482: what was noted and seen is kept with the project (sync.json) and read at every run, so a restart, or a
+    // board that takes the loop over from another, neither tells the main chat again nor starts a wait anew
+    const kept = await ports.noted.load()
+    noted = new Set(Array.isArray(kept) ? kept : kept?.noted ?? [])
+    if (!Array.isArray(kept) && kept?.seen !== null && typeof kept?.seen === 'object') {
+      seen = new Map(Object.entries(kept.seen).filter(([, at]) => Number.isFinite(at)))
     }
     const observed = []
     const findings = findStuck({

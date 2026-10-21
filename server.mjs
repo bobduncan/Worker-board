@@ -1653,7 +1653,8 @@ async function main(args) {
     // (through the work API as the board, and its lines once per finding), the rest to the main chat in one note, never
     // twice for the same thing (data/sync.json keeps what it was told). Not on a copy beside the person's board.
     if (!isShowOnly) {
-      const SYNC_FILE = join(HERE, 'data', 'sync.json')
+      // B482, the review: kept with the project, beside the loop's lock, so every board of it reads the same
+      const SYNC_FILE = join(config.project, '.claude', 'sync.json')
       sync = syncRunner({
         state: () => readState(),
         items: async () => (await readStore(workDir)).items,
@@ -1674,7 +1675,8 @@ async function main(args) {
         // B482: what the main chat was told and since when a wait was seen, kept over a restart
         noted: {
           load: async () => {
-            const value = await kept(SYNC_FILE)
+            // (the board's own data/sync.json, from before B482's review, until the project's is written)
+            const value = (await kept(SYNC_FILE)) ?? (await kept(join(HERE, 'data', 'sync.json')))
             return {
               noted: Array.isArray(value?.noted) ? value.noted.filter(key => typeof key === 'string') : [],
               seen: value?.seen !== null && typeof value?.seen === 'object' ? value.seen : {},
@@ -1687,10 +1689,20 @@ async function main(args) {
       // B482: one loop per project: a second board process on it (another --port) leaves the list to the first
       const LOOP_LOCK = join(config.project, '.claude', 'sync-loop.json')
       const ownLoop = async () => {
-        const lock = await readFile(LOOP_LOCK, 'utf8').then(text => JSON.parse(text), error => {
-          if (error?.code === 'ENOENT') return null
+        const read = await readFile(LOOP_LOCK, 'utf8').then(text => JSON.parse(text), error => {
+          if (error?.code === 'ENOENT' || error instanceof SyntaxError) return null   // none, or one cut off: taken over
           throw error
         })
+        // the review: a lock whose process is gone (a board killed without its exit) is taken over at once
+        const alive = pid => {
+          try {
+            process.kill(pid, 0)
+            return true
+          } catch (error) {
+            return error?.code === 'EPERM'
+          }
+        }
+        const lock = read !== null && Number.isInteger(read.pid) && read.pid !== process.pid && !alive(read.pid) ? null : read
         if (!mayRunLoop(lock, process.pid, clock())) return false
         await mkdir(dirname(LOOP_LOCK), { recursive: true })
         await writeAtomic(LOOP_LOCK, JSON.stringify({ pid: process.pid, port: config.port, at: clock() }))

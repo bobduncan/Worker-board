@@ -2824,7 +2824,7 @@ stuck that day was found by the person. They are now one list in the board, `src
   next run knows it was woken; a chat not running makes the board ask the main chat to start it, as for any line.
 - **The main chat is told once**: what the list cannot fix (For Main) and what it sends (Sent) go in one note per run,
   `The board's sync check at HH:MM: what it could not fix itself`, a line each, only for findings it was not told
-  before; the keys stand in `data/sync.json` (`noted`, the newest 500). A note that could not be filed is tried at the
+  before; the keys stand in `<project>/.claude/sync.json` (`noted`, the newest 500; B482). A note that could not be filed is tried at the
   next run.
 - **The page**: the newest run that was asked or found something stands under the Workers panel's head for an hour
   (state `syncList`, `syncListOf`, the agreed picture `art-inbox/worker-board/b465/out-of-sync-answer.png`): a row per
@@ -2840,7 +2840,9 @@ stuck that day was found by the person. They are now one list in the board, `src
 - Not in it: the limits beyond "full". A worker woken at a stop point of its own (a weekly share it keeps) pauses again.
 - **B482** (the result check of B465): a blocker in review holds its step until its result check passed too, when it
   needs one (a pending, missing or failed one may still bring a fix); what the main chat was told and since when a
-  wait was seen (`seen`) stand in `data/sync.json`, so a restart neither tells Main again nor wakes or hands on anew;
+  wait was seen (`seen`) stand in the project's `.claude/sync.json`, read at every run, so a restart or a board that
+  takes the loop over neither tells Main again nor wakes or hands on anew (a lock whose process is gone, or cut off, is
+  taken over at once);
   one loop per project: `<project>/.claude/sync-loop.json` names the board process that runs the list (`mayRunLoop`),
   a second one on the project (another `--port`) leaves it, and its "Out of sync?" asks the main chat only; a lock
   whose owner has not run for two rounds is taken over.
