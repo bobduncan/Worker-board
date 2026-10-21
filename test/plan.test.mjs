@@ -409,3 +409,9 @@ test('the new order (2026-10-21): a feature placed in a milestone; the plan chec
   assert.equal((await focusMove({ command: 'plan-marks', text: 'F1 M2; F2 no' }, ctx)).ok, true)
   assert.equal((await focusMove({ command: 'plan-marks', text: 'F1 soon' }, ctx)).status, 400)
 })
+
+test('a goal or a standard "agreed" by the person reads as confirmed (the partner writes so once it is in the goal map)', () => {
+  const page = '# P\n\n## Goals preset\n\n### M1 · A corner\n\n#### S1 · Benches\n\n- State: agreed (you, 2026-10-19; in the goal map)\n\n#### S2 · Lamps\n\n- State: proposed\n\n## Standards\n\n### K1 · Benches\n\n- State: agreed (you, 2026-10-21)\n'
+  const { milestones, standards } = parsePlan(page)
+  assert.deepEqual([milestones[0].goals.map(one => one.state), standards[0].state], [['confirmed', 'proposed'], 'confirmed'])
+})

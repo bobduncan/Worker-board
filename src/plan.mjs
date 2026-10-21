@@ -265,7 +265,7 @@ export function parsePlan(text) {
         }
       } else if (kind === 'standard') {
         if (key === 'state') {
-          current.state = /^confirmed\b/i.test(value.trim()) ? 'confirmed' : 'proposed'
+          current.state = /^(confirmed|agreed)\b/i.test(value.trim()) ? 'confirmed' : 'proposed'
           const { by, at } = sourceOf(value)
           Object.assign(current, { by, at })
         } else if (key === 'count') { current.count = value.trim(); field = 'count' }
@@ -304,7 +304,8 @@ export function parsePlan(text) {
         } else if (key === 'point') current.points.push(value.trim())
       } else if (kind === 'goal') {
         if (key === 'state') {
-          current.state = /^confirmed\b/i.test(value.trim()) ? 'confirmed' : 'proposed'
+          // "agreed (you, <date>; in the goal map)" is the partner's word for a goal confirmed and put in the map.
+          current.state = /^(confirmed|agreed)\b/i.test(value.trim()) ? 'confirmed' : 'proposed'
           const { by, at } = sourceOf(value)
           Object.assign(current, { by, at })
         } else if (key === 'done when') { current.doneWhen = value.trim(); field = 'doneWhen' }
