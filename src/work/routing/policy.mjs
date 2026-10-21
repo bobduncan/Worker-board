@@ -22,7 +22,12 @@ export function parseRoutingPolicy(raw) {
 }
 const route=(family,effort,policy)=>({family,model:policy.registry[family].model,effort})
 const stronger=(a,b)=>!b?a:FAMILIES.indexOf(b.family)>FAMILIES.indexOf(a.family)?b:FAMILIES.indexOf(b.family)===FAMILIES.indexOf(a.family)&&EFFORTS.indexOf(b.effort)>EFFORTS.indexOf(a.effort)?b:a
-const protectedMatch=(path,pattern)=>{path=path.replaceAll('\\','/').toLowerCase();pattern=pattern.toLowerCase();return pattern.endsWith('/**')?(path===pattern.slice(0,-3)||path.startsWith(pattern.slice(0,-2))):path===pattern}
+const protectedMatch=(path,pattern)=>{
+  path=path.replaceAll('\\','/').toLowerCase();pattern=pattern.replaceAll('\\','/').toLowerCase()
+  const scopeDirectory=path.endsWith('/**'),protectedDirectory=pattern.endsWith('/**')
+  const scope=scopeDirectory?path.slice(0,-3):path,guard=protectedDirectory?pattern.slice(0,-3):pattern
+  return scope===guard||(scopeDirectory&&guard.startsWith(scope+'/'))||(protectedDirectory&&scope.startsWith(guard+'/'))
+}
 export function meetsRoute(actual,required,models=registry){
   if(!actual||!required)return false
   const family=FAMILIES.find(one=>models[one]?.model===actual.model)

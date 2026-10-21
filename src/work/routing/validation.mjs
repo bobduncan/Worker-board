@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process'
 import {realpath} from 'node:fs/promises'
 import {isAbsolute} from 'node:path'
+import {candidateEvidenceBinding} from './candidates.mjs'
 
 export function runCommand({executable,args,cwd,signal,timeoutMs=900000}){
   return new Promise(resolve=>{
@@ -18,7 +19,7 @@ export function runCommand({executable,args,cwd,signal,timeoutMs=900000}){
 }
 export function createValidationQueue(run){let tail=Promise.resolve();return value=>{const result=tail.then(()=>run(value));tail=result.catch(()=>{});return result}}
 export async function runValidation({candidate,profile,runner=runCommand,signal}){
-  const base={candidateId:candidate?.id,fingerprint:candidate?.fingerprint,profileHash:candidate?.profileHash,at:Date.now()}
+  const base={...(candidate?candidateEvidenceBinding(candidate):{}),at:Date.now()}
   const fail=why=>({...base,passed:false,checks:[],why})
   if(!candidate||!profile||profile.hash!==candidate.profileHash)return fail('Validation profile changed or is unavailable.')
   if(!isAbsolute(profile.cwd??'')||!Array.isArray(profile.commands)||!profile.commands.length)return fail('A configured candidate worktree and validation commands are required.')

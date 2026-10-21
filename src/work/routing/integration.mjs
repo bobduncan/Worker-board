@@ -1,11 +1,12 @@
 import {realpath} from 'node:fs/promises'
 import {runCommand} from './validation.mjs'
+import {candidateEvidenceMatches} from './candidates.mjs'
 
 const locks=new Set()
 async function git(root,args,runner){const result=await runner({executable:'git',args:['-C',root,...args],cwd:root,timeoutMs:120000});if(result.exitCode!==0||result.timedOut||result.error)throw Error('Git operation failed or its outcome is unknown.');return result.stdout.trim()}
 export async function integrateCandidate({candidate,repositories,journal,runner=runCommand,signal}){
   const state={candidateId:candidate?.id,status:'held',components:[],reason:null}
-  if(!candidate?.checks?.passed||!candidate?.review?.approved||!candidate.components?.length)return {...state,reason:'Required checks/review are not approved.'}
+  if(!candidate?.checks?.passed||!candidate?.review?.approved||!candidateEvidenceMatches(candidate,candidate.checks)||!candidateEvidenceMatches(candidate,candidate.review)||!candidate.components?.length)return {...state,reason:'Required exact-candidate checks/review are not approved.'}
   if(typeof journal?.save!=='function')return {...state,reason:'A durable integration journal is required.'}
   const held=[]
   try{
@@ -13,6 +14,8 @@ export async function integrateCandidate({candidate,repositories,journal,runner=
       const configured=repositories?.[component.repoKey]
       if(!configured?.root||!/^[-\w./]+$/.test(configured.base??''))throw Error('A configured target repository and branch are required.')
       const root=await realpath(configured.root)
+      const identity=path=>process.platform==='win32'?String(path).replaceAll('\\','/').toLowerCase():path
+      if(component.targetBranch!==configured.base||identity(component.repositoryId)!==identity(root))throw Error('Approved target branch or repository identity changed; resubmit.')
       const common=await git(root,['rev-parse','--path-format=absolute','--git-common-dir'],runner)
       const lock=common.toLowerCase();if(locks.has(lock))throw Error('Another integration holds this repository.')
       locks.add(lock);held.push(lock)

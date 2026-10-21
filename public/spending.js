@@ -4,7 +4,7 @@
   let selected='7',lastState=null,lastKey='',message=''
   const dollars=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2}).format(n)
   const count=n=>n===null||n===undefined?'Unknown':new Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(n)
-  function costLabel(summary){const {low=0,high=0}=summary?.knownCost??{};return !low&&!high&&summary?.unknownCostMessages?'Unknown':Math.abs(high-low)<.005?dollars(low):`${dollars(low)}–${dollars(high)}`}
+  function costLabel(summary){if(summary?.coverage?.unavailable)return 'Unavailable';const {low=0,high=0}=summary?.knownCost??{};return !low&&!high&&summary?.unknownCostMessages?'Unknown':Math.abs(high-low)<.005?dollars(low):`${dollars(low)}–${dollars(high)}`}
   function qualityLabel(summary){return summary?.qualitySample>0?`${summary.firstPassPercent}%`:'Not measured'}
   function node(tag,className,text){const n=document.createElement(tag);if(className)n.className=className;if(text!==undefined)n.textContent=String(text);return n}
   const add=(parent,...children)=>{for(const child of children)parent.append(child);return parent}
@@ -27,6 +27,7 @@
   function download(summary){
     const cell=value=>{const t=String(value??'');return `"${/^[=+@\-\t\r]/.test(t)?"'":''}${t.replaceAll('"','""')}"`}
     const rows=[['Category','Name','Messages','Estimated cost low USD','Estimated cost high USD','Unknown-cost messages']]
+    for(const key of ['scope','pendingFiles','pendingBytes','childTranscripts','unavailableTranscripts','unknownMessages','skippedLongLines','discoveryLimited','retentionLimited','unavailable','problem'])if(summary.coverage?.[key]!==undefined)rows.push(['coverage',`${key}: ${summary.coverage[key]}`])
     for(const category of ['models','efforts','chats','phases','tasks','daily'])for(const r of summary[category]??[])rows.push([category,r.key,r.messages,r.low,r.high,r.unknown])
     const blob=new Blob(['\uFEFF'+rows.map(r=>r.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'})
     const url=URL.createObjectURL(blob),link=node('a');link.href=url;link.download=`worker-board-spending-${selected}-days.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
@@ -56,6 +57,9 @@
     if(!summary){root.append(node('p','spending-notice','Spending collection starts after the board reads its local transcripts. No model calls are needed.'));return}
     if(state.isDemo)root.append(node('p','spending-notice','Demo board — sample figures for previewing the view, not your account spending.'))
     root.append(node('p','spending-notice','API-equivalent estimates for comparing work. These are not extra charges, your subscription bill, or an exact conversion of your weekly allowance.'))
+    const gaps=summary.coverage??{}
+    if(gaps.unavailable)root.append(node('p','spending-notice',gaps.problem??'Spending is unavailable; local history is preserved.'))
+    else if(gaps.pendingFiles||gaps.pendingBytes||gaps.unavailableTranscripts||gaps.discoveryLimited)root.append(node('p','spending-notice',`Incomplete coverage: ${count(gaps.pendingFiles??0)} files await scanning, ${count(gaps.pendingBytes??0)} known bytes remain, ${count(gaps.unavailableTranscripts??0)} transcripts unavailable.${gaps.discoveryLimited?' Some child files could not be discovered.':''} Costs will change as collection catches up.`))
     const cards=node('div','spending-metrics')
     add(cards,metric('Estimated usage cost',costLabel(summary),summary.unknownCostMessages?`${count(summary.unknownCostMessages)} messages have unknown costs; known costs only.`:'Includes cached tokens and all observed work.'),metric('Finished tasks',count(summary.accepted),'Unfinished and rejected work still contributes to spending.'),metric('Linked to a task',summary.attributionPercent===null?'Not measured':`${summary.attributionPercent}%`,'Unassigned coordination and review remain visible.'),metric('First-pass results',qualityLabel(summary),summary.qualitySample?`Based on ${summary.qualitySample} tasks with measured attempts.`:'Needs attempt history; no quality claim yet.'))
     root.append(cards)
@@ -77,6 +81,7 @@
     const coverage=add(node('details','spending-panel'),node('summary','','Sources, coverage and observed tokens'));coverage.dataset.spendingDetail='coverage';coverage.open=opened.get('coverage')??false
     for(const [name,value]of Object.entries(summary.tokens))coverage.append(node('p','spending-muted',`${name}: ${count(value)} reported tokens`))
     coverage.append(node('p','spending-muted',`${summary.coverage.scope} ${summary.coverage.lastScanAt?`Last scan: ${new Date(summary.coverage.lastScanAt).toLocaleString()}.`:''}`))
+    coverage.append(node('p','spending-muted',`${count(summary.coverage.childTranscripts??0)} native child transcripts discovered; their reported costs are included as scanned. Child usage without an explicit task link remains unattributed.`))
     if(summary.coverage.problem)coverage.append(node('p','spending-notice',summary.coverage.problem))
     if(summary.coverage.retentionLimited)coverage.append(node('p','spending-notice','History is limited to the latest 50,000 recorded messages. All recorded means retained history.'))
     if(summary.coverage.pendingBytes)coverage.append(node('p','spending-muted',`${count(summary.coverage.pendingBytes)} bytes of historical transcripts remain to be scanned. Figures are incomplete while this catches up.`))

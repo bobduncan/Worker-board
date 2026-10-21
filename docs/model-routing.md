@@ -6,7 +6,7 @@ Spending collects reported usage from local project transcripts, including Main 
 
 API-equivalent cost ranges are not the subscription bill or a conversion to weekly quota. Cached reads and writes have separate prices; unknown write duration produces a range. Unpriced models and incomplete token data remain unknown. Account-wide allowance figures have their own timestamps and include other projects.
 
-The ledger retains the latest 50,000 messages and discloses limited coverage. Initial history is scanned in bounded chunks over multiple refreshes. Oversized lines and unavailable transcripts are gaps. Copied fork history and streamed duplicates count once. First-pass quality and savings remain unmeasured without actual attempt histories and a comparable baseline.
+The ledger retains the latest 50,000 messages and discloses limited coverage. Initial history, including discovered native subagent files, is scanned in bounded chunks over multiple refreshes (at most 32 files / 16 MB per pass). Pending files/bytes, unavailable transcripts and discovery limits are disclosed on the page and CSV. Child usage retains parent identity without inventing a task link. Oversized lines and unavailable transcripts are gaps. Copied fork history and streamed duplicates count once. Missing token categories remain unknown; later records may fill them. Corrupt history is preserved and collection pauses until it is repaired or moved aside. First-pass quality and savings remain unmeasured without actual attempt histories and a comparable baseline.
 
 ## Initial release is observe-only
 

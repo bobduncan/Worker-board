@@ -17,6 +17,12 @@ test('small protected changes and effort cannot evade model floors', () => {
   assert.equal(meetsRoute({model:'claude-haiku-5-5',effort:'max'}, {family:'sonnet',model:'claude-sonnet-5-5',effort:'medium'},registry),false)
   assert.equal(meetsRoute({model:'claude-opus-5-5',effort:'high'}, {family:'sonnet',model:'claude-sonnet-5-5',effort:'medium'},registry),true)
 })
+
+test('broad scopes overlapping protected files inherit the protected floor',()=>{
+  const found=resolveRoute({policy:policy(),contract:{risk:{class:'R1',factors:[]},allowedPaths:{board:['src/**']}}})
+  assert.equal(found.risk.class,'R3')
+  assert.equal(found.route.family,'opus')
+})
 test('cheap execution requires its canary and exact verified model support', () => {
   const contract={risk:{class:'R1',factors:[]},implementationFiles:2,patternReference:'public/existing.js',allowedPaths:{board:['public/label.js','public/label.css','test/**']}}
   assert.equal(resolveRoute({policy:policy(),role:'worker',contract}).route.family,'sonnet')

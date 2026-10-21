@@ -96,9 +96,10 @@ function blocksOf(content) {
 
 const count = value => (Number.isFinite(value) && value > 0 ? value : 0)
 /** B468: an answer's tokens as the app writes them: `{ input, cacheWrite, cacheRead, output }`, or null without any. */
-function usageOf(usage) {
+function usageOf(usage, strict = false) {
   if (usage === null || typeof usage !== 'object') return null
-  return { input: count(usage.input_tokens), cacheWrite: count(usage.cache_creation_input_tokens), cacheRead: count(usage.cache_read_input_tokens), output: count(usage.output_tokens) }
+  const read = strict ? value => Number.isFinite(value) && value >= 0 ? value : null : count
+  return { input: read(usage.input_tokens), cacheWrite: read(usage.cache_creation_input_tokens), cacheRead: read(usage.cache_read_input_tokens), output: read(usage.output_tokens) }
 }
 
 /**
@@ -106,7 +107,7 @@ function usageOf(usage) {
  * middle of a turn (`type: 'queued'`), and B262 the app's marks of a compaction (`type: 'compaction'`, with its
  * `trigger`: `manual` for a /compact, `auto` when the app compacted by itself). Lines that do not parse are skipped.
  */
-export function parseTail(text, isCut) {
+export function parseTail(text, isCut, strictUsage = false) {
   const lines = text.split('\n')
   if (isCut) lines.shift()
   const entries = []
@@ -159,7 +160,7 @@ export function parseTail(text, isCut) {
       effort: entry.type === 'assistant' && typeof entry.effort === 'string' ? entry.effort : null,
       // B468: what an answer cost, and its message's id: the app writes a message's tokens on each of its lines.
       messageId: entry.type === 'assistant' && typeof message.id === 'string' ? message.id : null,
-      usage: entry.type === 'assistant' ? usageOf(message.usage) : null,
+      usage: entry.type === 'assistant' ? usageOf(message.usage, strictUsage) : null,
       blocks: blocksOf(message.content),
     })
   }

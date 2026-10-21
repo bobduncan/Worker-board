@@ -22,17 +22,17 @@ export function estimateUsage(event){
 }
 const calls=entry=>(entry.blocks??[]).filter(b=>b.type==='tool_use'&&/(?:^|__)work$/.test(b.name??'')).map(b=>b.input??{})
 const phaseOf=action=>['refine','refined','contract','new'].includes(action)?'spec':['checked','candidate-review'].includes(action)?'review':['route-raise'].includes(action)?'evaluate':null
-export function attributeUsage({entries,assignments=[],sourceSessionId,chat=sourceSessionId,role,previous=[],cursor={}}){
+export function attributeUsage({entries,assignments=[],sourceSessionId,parentSessionId=null,chat=sourceSessionId,role,previous=[],cursor={}}){
   const events=new Map(previous.map(e=>[e.messageId,e]));let unknown=0,taskId=cursor.taskId??null
   for(const entry of entries){
     if(entry.type!=='assistant')continue
+    const child=parentSessionId!==null||entry.isSidechain===true
     const actions=calls(entry),take=actions.find(a=>a.action==='take'&&/^B\d+$/.test(a.id??''))
-    if(take&&!entry.isSidechain)taskId=take.id
+    if(take&&!child)taskId=take.id
     if(!entry.messageId||!Number.isFinite(entry.at)){unknown++;continue}
-    if(!entry.usage)continue
     const assignment=assignments.filter(a=>a.ownerSessionId===sourceSessionId&&entry.at>=a.createdAt&&(a.completedAt==null||entry.at<=a.completedAt)).sort((a,b)=>b.createdAt-a.createdAt)[0]
     const tagged=actions.find(a=>/^B\d+$/.test(a.id??'')&&phaseOf(a.action))
-    const next={messageId:entry.messageId,sourceSessionId,chat,role:role??'unknown',sourceAt:entry.at,actualModel:entry.model??null,actualEffort:entry.effort??null,taskId:assignment?.taskId??tagged?.id??(entry.isSidechain?null:taskId),rootTaskId:assignment?.rootTaskId??null,attemptId:assignment?.attemptId??null,phase:assignment?.phase??phaseOf(tagged?.action)??(role==='main'?'coordinate':taskId&&!entry.isSidechain?'implement':'unattributed'),attribution:assignment?'assignment':tagged?'work-call':taskId&&!entry.isSidechain?'active-task':'unattributed',isChild:entry.isSidechain===true,...Object.fromEntries(tokenKeys.map(k=>[k,number(entry.usage[k])]))}
+    const next={messageId:entry.messageId,sourceSessionId,parentSessionId,chat,role:role??'unknown',sourceAt:entry.at,actualModel:entry.model??null,actualEffort:entry.effort??null,taskId:assignment?.taskId??tagged?.id??(child?null:taskId),rootTaskId:assignment?.rootTaskId??null,attemptId:assignment?.attemptId??null,phase:assignment?.phase??phaseOf(tagged?.action)??(!child&&role==='main'?'coordinate':taskId&&!child?'implement':'unattributed'),attribution:assignment?'assignment':tagged?'work-call':taskId&&!child?'active-task':'unattributed',isChild:child,...Object.fromEntries(tokenKeys.map(k=>[k,number(entry.usage?.[k])]))}
     const before=events.get(entry.messageId)
     if(before){
       // Message IDs are global. A fork's copied old lines are not newly generated answers.
@@ -43,7 +43,7 @@ export function attributeUsage({entries,assignments=[],sourceSessionId,chat=sour
       if(before.sourceSessionId===sourceSessionId&&!merged.taskId&&next.taskId){merged.taskId=next.taskId;merged.phase=next.phase;merged.attribution=next.attribution}
       events.set(entry.messageId,merged)
     }else events.set(entry.messageId,next)
-    if(actions.some(a=>a.action==='report'&&a.id===taskId)&&!entry.isSidechain)taskId=null
+    if(actions.some(a=>a.action==='report'&&a.id===taskId)&&!child)taskId=null
   }
   return {events:[...events.values()],cursor:{taskId},unknown}
 }
@@ -72,6 +72,7 @@ export function routingSummary({events=[],outcomes=[],now=Date.now(),days=7,cove
 export function spendingCsv(summary){
   const cell=v=>{const text=String(v??'');return `"${text.match(/^[=+@\-\t\r]/)?"'":''}${text.replaceAll('"','""')}"`}
   const rows=[['Category','Name','Messages','Estimated cost low USD','Estimated cost high USD','Messages with unknown cost']]
+  for(const key of ['scope','pendingFiles','pendingBytes','childTranscripts','unavailableTranscripts','unknownMessages','skippedLongLines','discoveryLimited','retentionLimited','unavailable','problem'])if(summary.coverage?.[key]!==undefined)rows.push(['coverage',`${key}: ${summary.coverage[key]}`])
   for(const category of ['models','efforts','chats','phases','tasks','daily'])for(const r of summary[category]??[])rows.push([category,r.key,r.messages,r.low,r.high,r.unknown])
   return '\uFEFF'+rows.map(row=>row.map(cell).join(',')).join('\r\n')+'\r\n'
 }

@@ -91,7 +91,7 @@ export async function routingAction(body,w){
   if(body.action==='submit'){
     if(!isOwner)return refuse(403,'Only the owner submits a candidate.')
     const guard=assignmentGuard({record,sessionId:snapshot?.sessionId,operation:'submit',snapshot,policy});if(!guard.ok)return refuse(409,guard.why)
-    const made=candidateOfSubmission({body,contract:current.contract,assignment:guard.assignment,gitFacts:w.candidateFacts,authorSessions:w.implementationSessions??[snapshot.sessionId]});if(!made.ok)return refuse(409,made.why)
+    const made=candidateOfSubmission({body,contract:current.contract,assignment:guard.assignment,gitFacts:w.candidateFacts,authorSessions:w.implementationSessions??[snapshot.sessionId],policy});if(!made.ok)return refuse(409,made.why)
     record.candidates.push(made.candidate);return save('Candidate submitted; validation and independent review required.')
   }
   const candidate=record.candidates.at(-1);if(!candidate)return refuse(409,'No candidate has been submitted.')
