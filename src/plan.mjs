@@ -82,9 +82,21 @@ const MARKS = ['must', 'later', 'no', 'unsure']
 function markOf(value) {
   const text = String(value ?? '').trim()
   if (text.startsWith('?') || /^not\s+sure/i.test(text)) return 'unsure'
+  // The new order (the user, 2026-10-21): a feature is placed in a milestone of the road, "M1", "M2", "M3+".
+  const milestone = text.match(/^(M\d+\+?)(?=[\s(·]|$)/i)
+  if (milestone !== null) return milestone[1].toUpperCase()
   const word = text.split(/[\s(·]/)[0].toLowerCase()
   return MARKS.includes(word) ? word : 'unsure'
 }
+
+/** A feature's mark that is a milestone ("M1", "M3+"). */
+export const isMilestoneMark = mark => /^M\d+\+?$/.test(String(mark))
+
+/**
+ * Whether a feature's mark puts it after the next milestone: later, not sure, or a milestone after `first` (the road's
+ * first milestone). A complex feature so marked means the structure is checked again at every milestone.
+ */
+export const isLaterMark = (mark, first) => mark === 'later' || mark === 'unsure' || (isMilestoneMark(mark) && mark !== first)
 
 /**
  * More words onto a standard's last bar point. A bar point may end with its picture, the aspect it names highlighted:
@@ -119,7 +131,11 @@ export function parsePlan(text) {
   const standards = []
   const log = { hits: 0, gaps: 0, overturned: 0, lines: [] }
   let pitch = ''
-  if (typeof text !== 'string') return { pitch, answers, features, milestones, standards, log }
+  // The new order (2026-10-21): the partner's plan check ("Checked: ..." under the goals preset) and its proposed next
+  // focus ("## Next focus").
+  let check = null
+  let nextFocus = null
+  if (typeof text !== 'string') return { pitch, answers, features, milestones, standards, log, check, nextFocus }
   let current = null
   let kind = null
   let section = 'top'
@@ -135,7 +151,8 @@ export function parsePlan(text) {
       continue
     }
     if (/^##\s+[^#]/.test(raw)) {
-      section = /^##\s+the log\b/i.test(raw) ? 'log' : /^##\s+features\b/i.test(raw) ? 'features' : /^##\s+goals preset\b/i.test(raw) ? 'preset' : /^##\s+standards\b/i.test(raw) ? 'standards' : 'other'
+      section = /^##\s+the log\b/i.test(raw) ? 'log' : /^##\s+features\b/i.test(raw) ? 'features' : /^##\s+goals preset\b/i.test(raw) ? 'preset' : /^##\s+standards\b/i.test(raw) ? 'standards'
+        : /^##\s+next focus\b/i.test(raw) ? 'next' : 'other'
       current = null
       kind = null
       field = null
@@ -167,7 +184,7 @@ export function parsePlan(text) {
     }
     const goal = section === 'preset' && milestones.length > 0 ? raw.match(/^####\s+(S\d+)\s*[·:-]\s*(.*)$/) : null
     if (goal !== null) {
-      current = { id: goal[1], title: goal[2].trim(), state: 'proposed', by: null, at: null, doneWhen: '', serves: [], pictures: [], subs: [], goal: null }
+      current = { id: goal[1], title: goal[2].trim(), state: 'proposed', by: null, at: null, doneWhen: '', serves: [], pictures: [], subs: [], goal: null, why: '' }
       milestones.at(-1).goals.push(current)
       kind = 'goal'
       field = null
@@ -186,6 +203,37 @@ export function parsePlan(text) {
       else if (word === 'gap') log.gaps += 1
       else log.overturned += 1
       log.lines.push({ kind: word, id: entry[2] ?? null, text: entry[3].trim() })
+      continue
+    }
+    // The plan check (2026-10-21): "Checked: (<date>) <what the partner proposed, or nothing missing>".
+    const checked = section === 'preset' ? raw.match(/^Checked:\s*(.+)$/) : null
+    if (checked !== null) {
+      const { at } = sourceOf(checked[1])
+      check = { at, text: checked[1].replace(/^\s*\([^)]*\)\s*/, '').trim() }
+      continue
+    }
+    // The proposed next focus (2026-10-21): "- Proposed (<who>, <date>): G42 · <title>", "- Why: ...", "- When: ...",
+    // "- Or: G44 · <title>" (at most two).
+    if (section === 'next') {
+      const said = raw.match(LINE)
+      if (said === null) continue
+      const [, name, inside, value] = said
+      const key = name.trim().toLowerCase()
+      nextFocus ??= { goal: null, title: '', why: '', when: '', others: [], by: null, at: null }
+      const goalOf = words => {
+        const [id, ...title] = String(words).split(' · ')
+        return /^G\d+$/.test(id.trim()) ? { goal: id.trim(), title: title.join(' · ').trim() } : null
+      }
+      if (key === 'proposed') {
+        Object.assign(nextFocus, goalOf(value) ?? { goal: null, title: value.trim() })
+        const { by, at } = sourceOf(inside === undefined ? '' : `(${inside})`)
+        Object.assign(nextFocus, { by, at })
+      } else if (key === 'why') nextFocus.why = value.trim()
+      else if (key === 'when') nextFocus.when = value.trim()
+      else if (key === 'or') {
+        const other = goalOf(value)
+        if (other !== null && nextFocus.others.length < 2) nextFocus.others.push(other)
+      }
       continue
     }
     if (current === null) continue
@@ -262,6 +310,8 @@ export function parsePlan(text) {
         } else if (key === 'done when') { current.doneWhen = value.trim(); field = 'doneWhen' }
         else if (key === 'serves') current.serves = value.split(',').map(one => one.trim()).filter(one => /^P\d+$/.test(one))
         else if (key === 'sub') current.subs.push(value.trim())
+        // The plan check (2026-10-21): why the partner proposed this goal ("F7 had no goal").
+        else if (key === 'why') current.why = value.trim()
         else if (key === 'goal') current.goal = /^G\d+$/.test(value.trim()) ? value.trim() : null
       }
       continue
@@ -277,7 +327,7 @@ export function parsePlan(text) {
     } else if (field === 'bar' && /^\s+\S/.test(raw)) setBar(current, raw.trim())
     else if (field !== null && /^\s+\S/.test(raw)) current[field] = `${current[field]} ${raw.trim()}`.trim()
   }
-  return { pitch, answers, features, milestones, standards, log }
+  return { pitch, answers, features, milestones, standards, log, check, nextFocus }
 }
 
 /** An ask's title that names a part of the plan: "P5: ...", a deeper "P1.2: ...", a feature "F7: ...", a goal "S3: ...", a standard "K2: ...". */
@@ -319,7 +369,7 @@ function questionOf(ask) {
  */
 export function planState(text, items, path) {
   if (typeof text !== 'string' || text.trim() === '') return null
-  const { pitch, answers, features, milestones, standards, log } = parsePlan(text)
+  const { pitch, answers, features, milestones, standards, log, check, nextFocus } = parsePlan(text)
   const asked = (items ?? [])
     .filter(item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'open' && QUESTION.test(String(valueOf(item, 'Title') ?? '')))
     .map(questionOf)
@@ -336,8 +386,10 @@ export function planState(text, items, path) {
     answer.deeper = questions.filter(question => question.about === answer.id && question.isDeeper).length
   }
   const marks = { must: 0, later: 0, no: 0, unsure: 0 }
-  for (const feature of features) marks[feature.mark] += 1
-  const open = features.filter(feature => feature.isComplex && (feature.mark === 'later' || feature.mark === 'unsure'))
+  for (const feature of features) marks[feature.mark] = (marks[feature.mark] ?? 0) + 1
+  // The road's first milestone: a complex feature placed after it (or later, or not sure) is checked at every milestone.
+  const first = milestones[0]?.id ?? 'M1'
+  const open = features.filter(feature => feature.isComplex && isLaterMark(feature.mark, first))
   const architecture = features.length === 0 ? null : {
     everyMilestone: open.length > 0,
     complex: features.filter(feature => feature.isComplex).map(feature => feature.id),
@@ -351,6 +403,8 @@ export function planState(text, items, path) {
     standards,
     bars: { total: standards.length, confirmed: standards.filter(one => one.state === 'confirmed').length, gaps: standards.filter(one => one.gap !== '').length },
     log: { hits: log.hits, gaps: log.gaps, overturned: log.overturned },
+    // The new order (2026-10-21): the partner's last plan check, and the next focus it proposes (null: none).
+    check, nextFocus,
   }
 }
 
@@ -359,6 +413,10 @@ const WORK_WORDS = {
   'plan-deeper': 'deeper questions', 'plan-ask': 'the options', 'plan-marks': 'your marks', 'plan-feature-add': 'your new feature',
   'plan-goals-confirm': 'your confirmed goals', 'plan-goals-change': 'a changed preset', 'plan-goals-agree': 'the goals into your goal map',
   'plan-change': 'your change', 'plan-confirm': 'your confirm',
+  'plan-settled': 'your good enough', 'plan-standards': 'the standards', 'plan-standards-confirm': 'your confirmed standards',
+  'plan-standards-change': 'the changed standards', 'plan-standards-agree': 'the gaps into goals', 'plan-measure': 'the measure of today',
+  // The new order (2026-10-21): the plan check, and a proposed next focus.
+  'plan-check': 'the plan check', 'plan-focus': 'a next focus',
 }
 /** A word the partner has not answered after this long is late: the tab offers to send it again. */
 export const PLAN_LATE_MS = 30 * 60_000

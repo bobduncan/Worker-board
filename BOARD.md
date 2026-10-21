@@ -290,8 +290,10 @@ come), **Refine** (the steps by where their refine stands) and **Chat** (a chat 
 ## Vision (2026-10-19)
 
 The product plan (`productPlan`, the game's `docs/product-plan.md`, written by the partner): the answers every goal and
-step falls back to. Four steps, broad to narrow, **1 · Vision → 2 · Features → 3 · Goals → 4 · Standards** (a ✓ on
-a step that is settled), and an **Interview** over all of them. The vision: the page's pitch in large type, then a
+step falls back to. Five steps, broad to narrow, **1 · Vision → 2 · Features → 3 · Standards → 4 · Plan → 5 · Focus**
+(the new order of 2026-10-21; a ✓ on a step that is settled), and an **Interview**, the guided path: the partner's
+questions and every decision that waits on the person across the five steps, one per slide, each decision with the
+buttons of its step (Yes, mine; a milestone; Confirm; Change; Make it my focus), sent at once and marked sent. The vision: the page's pitch in large type, then a
 card per answer: its title, its state (decided green, assumed blue, open amber; **settled ✓** in teal once a deeper
 round is answered or the person pressed **Good enough**), its first four points with bold lead words and the rest
 under **Details · n more**, up to three pictures with captions (Look and sound always; every other card gets one
@@ -304,14 +306,19 @@ queue only once that standard is confirmed and its `Foundation built: yes`; a st
 its Standard line in " · foundation" and goes first; each card says what it holds back), then a row per
 kind of thing the goals need: its pictures as a gallery (one big: the bar, today, or any other; the rest as thumbnails
 under it, a click showing one big; a vision card with two or more pictures has the same), what the goals need as a muted line, then two parts set apart: **the bar** (three to eight points, each with sub-points where the page indents them under it, and a "see" where a point has a picture) and **today** (the score and a gap chip); how the things get built (the foundation, the hours) stays on the page for the gap goal, since a standard says what each thing must meet, not how it gets built; **Confirm** (waits in the bar),
-**Change**, **Measure today**; a box for words on all of them, and **Gaps into goals**. Empty, the step has
+**Change**, **Measure today**; a box for words on all of them (the gaps become goals at the plan's check). Empty, the step has
 **Propose standards**. Features: the architecture check on top
 (a complex feature later or not sure: the structure is checked at every milestone), then a card per feature: its
-picture, name, complex and built tags, points, and four marks **Must · Later · No · ?**; the person's marks wait in a
-blue bar ("2 marks not sent yet") until **Send to your partner**; a box for a feature they miss. Goals: the partner's
-preset per milestone, a row per goal with its picture, Done when, sub-goals, what it serves and whether it is a goal
+picture, name, complex and built tags, points, and its marks: the road's milestones **M1 · M2 · M3+**, **No** and **?**
+(a feature marked must or later before says so until it is placed); the person's marks wait in a
+blue bar ("2 marks not sent yet") until **Send to your partner**; a box for a feature they miss. Plan: **Check the
+plan** on top (the partner lays every goal per milestone and proposes each missing one with its why: a feature
+without a goal, a standard's gap with its foundation first, an architecture check, a milestone's done when; its last
+check's line), then the preset per milestone, a row per goal with its picture, Done when, sub-goals, what it serves and whether it is a goal
 of the map, **Confirm** (waits in the bar) and **Change**; a box for words on the whole preset, and **Put the goals in
-my goal map**. The interview: one slide per question, in the page's order (deeper ones under their card, then the
+my goal map**. Focus: your focus now with its done when (its steps are made on the Focus tab: vibe, how, Go), and the
+next focus the partner proposes on **Propose the next focus** (its why, when and up to two others), with **Make it
+my focus**: only the person's click sets it. The interview: one slide per question, in the page's order (deeper ones under their card, then the
 features', then the goals'), as the help tour's cards: the options as picture cards (the advised one marked), the
 person's own words as the last card, the question, why it is asked, a dot per slide, **Back**, **Don't know**,
 **Answer: A**, **Next**; Change adds a slide with the part as it is and a box for the person's words. Nothing is

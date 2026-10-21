@@ -387,6 +387,8 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-mark[aria-pressed="true"].is-later { border-color: var(--free); background: #16294a; color: #8fb4ff; font-weight: 600; }
 .vision-mark[aria-pressed="true"].is-no { border-color: var(--muted); background: var(--bg); color: var(--muted); font-weight: 600; }
 .vision-mark[aria-pressed="true"].is-unsure { border-color: var(--waiting); background: #3a2a10; color: var(--waiting); font-weight: 600; }
+.vision-mark[aria-pressed="true"].is-milestone { border-color: var(--advisor); background: var(--inset); color: var(--advisor); font-weight: 600; }
+.vision-plan-check { margin-bottom: 14px; }
 .vision-extra { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px dashed var(--line); border-radius: 12px; }
 .vision-extra h3 { margin: 0; font-size: 15px; }
 .vision-box { width: 100%; padding: 8px 10px; border: 1px solid #2a3850; border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; font-size: 14px; resize: none; }
