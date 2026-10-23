@@ -5,6 +5,7 @@ import {
   LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
   withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, recordedLine,
+  clearWhy, clearedStart, movedText, roleFrom, unfiledAsk,
 } from './chats'
 
 const MIN = 60000
@@ -159,14 +160,14 @@ describe('what a chat writes into its file', () => {
 describe('which chats are in the list', () => {
   test('a chat joins by its title when the project says which titles are its chats', () => {
     const list = parseList('{ "prefix": "Game - ", "main": "Main" }')
-    expect(list).toEqual({ prefix: 'Game - ', main: 'Main', compactAbove: 250000 })
+    expect(list).toEqual({ prefix: 'Game - ', main: 'Main', compactAbove: 250000, afterStep: 'compact' })
     if (list === null) return
     expect(nameFromTitle('Game - Units', list)).toEqual({ name: 'Units', role: 'worker' })
     expect(nameFromTitle('Game - Levels / Environment', list)).toEqual({ name: 'Levels / Environment', role: 'worker' })
     expect(nameFromTitle('game - main', list)).toEqual({ name: 'main', role: 'main' })
     expect(nameFromTitle('Web folder organization', list)).toBeNull()
     expect(nameFromTitle('Game - ', list)).toBeNull()
-    expect(parseList('{ "prefix": "Game - " }')).toEqual({ prefix: 'Game - ', main: 'Main', compactAbove: 250000 })
+    expect(parseList('{ "prefix": "Game - " }')).toEqual({ prefix: 'Game - ', main: 'Main', compactAbove: 250000, afterStep: 'compact' })
     for (const text of ['', '{}', '{ "prefix": "" }', 'nope']) expect(parseList(text)).toBeNull()
   })
 
@@ -341,8 +342,96 @@ describe('a large chat is compacted after it reported its task', () => {
     expect(compactWhy(chat('Units', 'waiting'), { ...at, tokens: null })).toContain('size')
     // Its last task is not reported: it is in the middle of something. (B227: a question to the person does not count.)
     expect(compactWhy(chat('Units', 'waiting', task('Archer', 2, 3, 10)), at)).toContain('task')
-    // The main chat hands out and is not compacted this way.
-    expect(compactWhy(chat('Main', 'waiting', null, 'main'), at)).toContain('main')
+    // Clear after each step: the main chat and the partners are compacted at rest above the threshold, whatever their card
+    // says of a task; never below it, nor when the list switches it off.
+    expect(compactWhy(chat('Main', 'waiting', task('Hand out the week', 1, 3, 10), 'main'), { ...at, moreFollows: true })).toBeNull()
+    expect(compactWhy(chat('Main', 'waiting', null, 'main'), { ...at, tokens: 140_000, above: 150_000 })).toContain('small')
+    expect(compactWhy(chat('Main', 'waiting', null, 'main'), { ...at, above: 0 })).toContain('off')
+    expect(compactWhy(chat('Advisor', 'waiting', task('B480 passed', 1, 2, 10)), { ...at, role: 'advisor' })).toBeNull()
+    expect(compactWhy(chat('Advisor 2', 'waiting', task('Refine B9', 1, 2, 10)), { ...at, role: 'helper' })).toBeNull()
+    // A worker the list says to leave alone after its step.
+    expect(compactWhy(chat('Units', 'waiting'), { ...at, afterStep: 'off' })).toContain('off')
+  })
+
+  test('the list says what becomes of a worker after its step: clear, compact (the default) or off', () => {
+    expect(parseList('{"prefix":"Game - ","main":"Main","afterStep":"clear"}')?.afterStep).toBe('clear')
+    expect(parseList('{"prefix":"Game - ","main":"Main","afterStep":"off"}')?.afterStep).toBe('off')
+    for (const value of ['"compact"', '"Clear"', '1', 'null']) expect(parseList(`{"prefix":"Game - ","main":"Main","afterStep":${value}}`)?.afterStep).toBe('compact')
+  })
+
+  test('the main chat and the partners are told to keep what their roles need, a worker what its next step needs', () => {
+    const worker = compactKeep('Game - Units', 'Game - Main')
+    expect(worker).toBe(compactKeep('Game - Units', 'Game - Main', 'worker'))
+    const main = compactKeep('Game - Main', 'Game - Main', 'main')
+    expect(main).toContain('the main chat of a project')
+    expect(main).toContain('every worker by name')
+    expect(main).toContain('"1 yes, 2 no"')
+    const partner = compactKeep('Game - Advisor', 'Game - Main', 'advisor')
+    expect(partner).toContain('the focus goal')
+    expect(partner).toContain('roles/partner.md')
+    const helper = compactKeep('Game - Advisor 2', 'Game - Main', 'helper')
+    expect(helper).toContain('only on the tasks the Advisor sends it')
+    for (const text of [main, partner, helper]) expect(text).not.toContain('Its step is reported')
+  })
+})
+
+describe('clear after each step', () => {
+  const facts = { role: 'worker' as const, isReported: true, isPaused: false, isUnfiled: false, busy: null }
+
+  test('a worker is cleared after its reported step; anything else keeps the conversation and says why', () => {
+    expect(clearWhy(facts)).toBeNull()
+    expect(clearWhy({ ...facts, role: null })).toContain('did not say this chat is a worker')
+    expect(clearWhy({ ...facts, role: 'main' })).toBe('the main chat is never cleared')
+    expect(clearWhy({ ...facts, role: 'advisor' })).toBe('the partner is never cleared')
+    expect(clearWhy({ ...facts, role: 'helper' })).toBe('the partner\'s helper is never cleared')
+    expect(clearWhy({ ...facts, isReported: false })).toContain('not reported')
+    expect(clearWhy({ ...facts, isPaused: true })).toContain('pauses')
+    expect(clearWhy({ ...facts, isUnfiled: true })).toContain('did not file')
+    expect(clearWhy({ ...facts, busy: 'a subagent it started still runs (1)' })).toBe('a subagent it started still runs (1)')
+  })
+
+  test('a question to the person stops a clear only when the board did not file it as an ask', () => {
+    const asks = 'The knight is in.\n\n> **For you**\n> 1. **Answer:** sheet A or B? I advise A.'
+    expect(unfiledAsk('The knight is in.', null, 0)).toBe(false)
+    expect(unfiledAsk(asks, { asked: ['Q4'] }, 1)).toBe(false)
+    expect(unfiledAsk(asks, { left: ['asked already'] }, 1)).toBe(false)
+    expect(unfiledAsk(asks, null, 1)).toBe(true)
+    expect(unfiledAsk(asks, { unfiled: 1 }, 1)).toBe(true)
+    // A quoted question the mod could not read as the block at the end of the answer.
+    expect(unfiledAsk(`${asks}\n\nAnd more words after it.`, { asked: [] }, 0)).toBe(true)
+  })
+
+  test('the board\'s word on the role: only the four roles count', () => {
+    expect(roleFrom({ role: 'worker' })).toBe('worker')
+    expect(roleFrom({ role: 'helper' })).toBe('helper')
+    for (const value of [null, {}, { role: 'person' }, 'worker']) expect(roleFrom(value)).toBeNull()
+  })
+
+  test('a card keeps the clear, the reason it did not run and its mark; the old session\'s file names the new one and no chat', () => {
+    const cleared = { ...chat('Units', 'waiting'), cleared: { at: NOW, step: 'B482', log: '.claude/chat-logs/Units/2026-10-23 1405 B482.txt' }, clearNote: { at: NOW - 5, why: 'the person pauses the chats' }, clearing: { at: NOW - 9, step: 'B481', log: null } }
+    expect(parseChat(chatText(cleared))).toEqual(cleared)
+    expect(parseChat(JSON.stringify({ ...chat('Units', 'waiting'), cleared: { at: 'x' }, clearing: { at: NOW, step: 'not an id', log: 3 } }))).toEqual({ ...chat('Units', 'waiting'), clearing: { at: NOW, step: null, log: null } })
+    const moved = movedText('s2', NOW)
+    expect(JSON.parse(moved)).toEqual({ movedTo: 's2', at: NOW })
+    expect(parseChat(moved)).toBeNull()
+    expect(hasLeft(moved)).toBe(false)
+  })
+
+  test('the conversation after a clear starts with who it is, its rules, its old log, its open instructions and work next', () => {
+    const open = openFrom({ open: [{ id: 'I17', turns: 2, text: 'Make the strip   blue' }, { id: 'I18', turns: 0 }] }) ?? []
+    expect(open).toEqual([{ id: 'I17', turns: 2, text: 'Make the strip   blue' }, { id: 'I18', turns: 0 }])
+    const text = clearedStart({ name: 'Units', title: 'Game - Units', role: 'worker', main: 'Game - Main', step: 'B482', log: 'D:/p/.claude/chat-logs/Units/2026-10-23 1405 B482.txt', open }, 'mcp__folder-branches__chat')
+    expect(text).toContain('This chat is "Game - Units", a worker in the person\'s list of chats, listed as "Units"; "Game - Main" is the main chat.')
+    expect(text).toContain('cleared by the Workers mod after your step B482 was reported')
+    expect(text).toContain('kept word for word in D:/p/.claude/chat-logs/Units/2026-10-23 1405 B482.txt')
+    expect(text).toContain('CLAUDE.md and .claude/worker-briefing.md')
+    expect(text).toContain('run mcp__folder-branches__work with action "next" now')
+    expect(text).toContain('I17 (missed 2 turns): "Make the strip blue"; I18.')
+    // A /clear the person ran: no step, no log; nothing open, no line about it.
+    const plain = clearedStart({ name: 'Units', title: 'Game - Units', role: 'worker', main: 'Game - Main', step: null, log: null, open: [] }, 'mcp__folder-branches__chat')
+    expect(plain).not.toContain('kept word for word')
+    expect(plain).not.toContain('instructions')
+    expect(plain).toContain('Your earlier conversation was cleared, so this conversation starts empty.')
   })
 
   test('an answer leaves a question with the person when its quote block holds an item "Answer:"', () => {

@@ -63,6 +63,15 @@ export type ChatFile = {
   compacted?: { at: number; before: number; after: number }
   /** B227: why the last report was not followed by a compaction, and when; gone once one is. */
   compactNote?: { at: number; why: string }
+  /**
+   * Clear after each step: the mod cleared this chat after its reported step: when, the step, and where the board
+   * keeps the conversation before (`.claude/chat-logs/...txt`, in the project's folder).
+   */
+  cleared?: { at: number; step: string | null; log: string | null }
+  /** Clear after each step: why the mod did not clear this chat after its last report, and compacted it instead. */
+  clearNote?: { at: number; why: string }
+  /** Clear after each step: the clear the mod is about to run (its mark, written just before /clear). */
+  clearing?: { at: number; step: string | null; log: string | null }
 }
 
 /** A chat of the list with the id of its session. */
@@ -74,9 +83,23 @@ export type ChatList = {
   prefix: string
   /** The name of the main chat, the one that hands the work out. */
   main: string
-  /** A worker larger than this many tokens is compacted before a task of the main chat starts; 0 for never. */
+  /**
+   * A chat larger than this many tokens is compacted: a worker after its reported step, the main chat and the partners
+   * at rest; 0 for never.
+   */
   compactAbove?: number
+  /**
+   * Clear after each step: what becomes of a worker after its reported step: "clear" (its conversation is kept as a
+   * log and cleared), "compact" (above `compactAbove`, the default) or "off".
+   */
+  afterStep?: AfterStep
 }
+
+/** Clear after each step: what the mod does with a worker's conversation after its reported step. */
+export type AfterStep = 'clear' | 'compact' | 'off'
+
+/** The role the worker board gives a chat of its list. */
+export type BoardRole = 'main' | 'worker' | 'advisor' | 'helper'
 
 /** The chats as last read. */
 export type ChatsView = {

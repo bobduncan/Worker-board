@@ -43,6 +43,13 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 - A step ends with `work report` and nothing else: no message to the main chat ends it (B301). Information for the
   main chat goes with `work note`; a message to it, when you need one, starts "Note from <your title>: ..." or
   "Question from <your title>: ...", and your card then says you wait for its answer.
+- Your conversation may be cleared after the turn in which you report (clear after each step, 2026-10-23: the list
+  of chats says `"afterStep": "clear"`). The Workers mod has the board keep it word for word as a log, then runs
+  /clear; your next step starts with an empty conversation that is told who you are, where your rules and the log
+  are, and your open instructions, and runs `work next`. So before you report, everything your next step needs stands
+  in the store: your checkpoint (`work step` with `commit` and `next`), the report itself (what the user gets now,
+  where the work is), and every question for the user as an ask (`work ask`). A question left only in your answer's
+  words keeps you from being cleared, and so does a subagent or background command still running when your turn ends.
 - Write to the user as the project's `CLAUDE.md` says, when it has one, else as the board's `examples/CLAUDE.md` says (a
   new project gets it as its own, B320). The board reads your answer's closing block
   ("+ Done:   yes": you are free, see `protocol.md`), never its "For you" block as questions.

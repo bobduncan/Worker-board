@@ -256,10 +256,22 @@ run is flagged on its lane after ten minutes with a button "Start <worker>" (the
 check and a card that names another step, and a file of the store the board cannot read stands on the top line.
 
 `<project>\.claude\chats\list.json`: `prefix` and `main` (the main chat's title is the two together), `boards` (the
-launch entries the mod keeps running) and `compactAbove` (a worker larger than this many tokens is compacted after
-it reports; 250000 unless set, 0 for never). An empty `boards` list switches the automatic start off. `helper` names
-the partner's helper (B424): a chat shown under the Advisor and never given a queue, whose refines and result checks
-the work tool takes as the partner's.
+launch entries the mod keeps running) and `compactAbove` (a chat larger than this many tokens is compacted: a worker
+after it reports, the main chat and the partners while they rest; 250000 unless set, 0 for never). An empty `boards`
+list switches the automatic start off. `helper` names the partner's helper (B424): a chat shown under the Advisor and
+never given a queue, whose refines and result checks the work tool takes as the partner's. `afterStep` says what
+becomes of a worker after its reported step: `"compact"` (unless set: above `compactAbove`, and not while more of the
+same work follows), `"clear"` or `"off"`.
+
+**Clear after each step** (`"afterStep": "clear"`, the Workers mod 0.14.0): after the turn in which a worker reported
+its step, the mod has the board keep the conversation, then runs /clear, also when more work follows, so every step
+starts with an empty history (re-reading long histories was most of the chats' usage). The board writes the log, at
+no token cost: `<project>\.claude\chat-logs\<chat>\<YYYY-MM-DD HHmm> <step>.txt`, each message with its time and
+speaker and every tool call and result in full, with an exact copy of the transcript beside it (`.jsonl`); a log not
+finished when the board stops is finished at its next start (`data\chat-logs.json`). The chat's card moves to its new
+session id and the board follows it, so its lane, steps, asks and instructions stay the same chat's; the lane says
+"cleared after B482 · log", and "log" opens the text in the board. A worker that may not be cleared then (the person
+pauses, a question not filed as an ask, something of it still running, no log) is compacted as before.
 
 The backlog's form, as the board writes its view and as `--make-store` reads it: an activity is a `## ` heading (`#focus` after it marks your main
 focus); a step is `- [ ] B<number> ...`, ticked `- [x]`; `@you` at its end is a step for you, starting with

@@ -1508,7 +1508,11 @@ function drawMore(lane, state) {
   const free = freeLine(lane, clock)
   if (free !== null) list.append(el('li', '', free))
   const compacted = compactionLine(lane.compaction ?? null, clock)
-  if (compacted !== null) list.append(el('li', 'muted', compacted.title))
+  if (compacted !== null && compacted.log !== undefined) {
+    const item = el('li', 'muted', `${compacted.title} `)
+    item.append(clearedNote(compacted))
+    list.append(item)
+  } else if (compacted !== null) list.append(el('li', 'muted', compacted.title))
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
   for (const folder of lane.folders) list.append(el('li', '', folderLine(folder, now)))
   if (lane.lastActivityAt !== null) list.append(el('li', 'muted', `Last activity ${ago(lane.lastActivityAt, now)}`))
@@ -1587,7 +1591,8 @@ function drawLane(lane, state) {
     const note = el('small', 'compaction is-warning', compacted.text)
     note.title = compacted.title
     names.append(note)
-  } else if (compacted !== null) names.title = compacted.title
+  } else if (compacted !== null && compacted.log !== undefined) names.append(clearedNote(compacted))
+  else if (compacted !== null) names.title = compacted.title
   // B143: a worker can be removed; the main chat cannot. The board asks the main chat, which closes the worker.
   const main = state.workers?.mainTitle ?? 'the main chat'
   const removal = removalView(lane, main, state.readAt)
@@ -4580,14 +4585,42 @@ const NOT_COMPACTED = [
  */
 function compactionLine(compaction, clockOf) {
   if (compaction === null || compaction === undefined) return null
+  // Clear after each step: the mod cleared the worker after its reported step; its conversation is kept as a log.
+  if (compaction.kind === 'cleared') {
+    const text = `cleared after ${compaction.step ?? 'its step'}`
+    const kept = (compaction.log ?? null) === null ? 'its log was not named' : `the conversation before is kept in ${compaction.log}`
+    return { text, title: `Workers mod at ${clockOf(compaction.at)}: ${text}; ${kept}`, isWarning: false, log: compaction.log ?? null }
+  }
+  // Clear after each step: why the mod did not clear the worker, and compacted it instead.
+  const notCleared = (compaction.notCleared ?? null) === null ? '' : ` Not cleared at ${clockOf(compaction.notCleared.at)}: ${compaction.notCleared.why}.`
   if (compaction.kind === 'skipped') {
     const [, words, isWarning] = NOT_COMPACTED.find(([pattern]) => pattern.test(compaction.why))
-    return words === null ? null : { text: words, title: `Workers mod at ${clockOf(compaction.at)}: ${compaction.why}`, isWarning }
+    return words === null ? null : { text: words, title: `Workers mod at ${clockOf(compaction.at)}: ${compaction.why}${notCleared}`, isWarning }
   }
   // B247: an after of 0 is not known yet (the mod writes it before the size is known): only the size before is said.
   const [before, after] = [tokensOf(compaction.before), compaction.after > 0 ? tokensOf(compaction.after) : null]
   const text = `compacted at ${clockOf(compaction.at)}${before === null ? '' : `, from ${before}${after === null ? '' : ` to ${after}`} tokens`}`
-  return { text, title: text, isWarning: false }
+  return { text, title: `${text}${notCleared}`, isWarning: false }
+}
+
+/**
+ * Clear after each step: the line "cleared after B482 · log" under a worker's name; "log" opens the conversation the
+ * mod cleared in the board's file viewer (B218).
+ */
+function clearedNote(line) {
+  const note = el('small', 'compaction is-cleared', `${line.text} · `)
+  note.title = line.title
+  if (line.log === null) {
+    note.append('no log')
+    return note
+  }
+  const open = el('button', 'ask-link', 'log')
+  open.type = 'button'
+  open.dataset.gameFile = line.log
+  open.dataset.projectFile = line.log
+  open.title = `Open ${line.log}`
+  note.append(open)
+  return note
 }
 
 const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off', off: 'Not running' }

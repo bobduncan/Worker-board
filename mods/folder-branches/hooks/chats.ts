@@ -1,6 +1,6 @@
 // The parts of the chat list that need no engine: a chat's file, what a chat writes into it as it works, and what a
 // chat is shown as.
-import type { ChatFile, ChatList, ChatRole, ChatRow, ChatTask } from '../types'
+import type { AfterStep, BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatTask } from '../types'
 
 /** Where the chats of a project keep their files: one `<session id>.json` each. */
 export const CHATS_DIR = '.claude/chats'
@@ -44,8 +44,18 @@ export function sessionOf(name: string): string | null {
 
 /** A chat's file as text. */
 export function chatText(chat: ChatFile): string {
-  const { name, role, state, task, at, compacted, compactNote } = chat
-  return `${JSON.stringify({ name, role, state, task, at, ...(compacted === undefined ? {} : { compacted }), ...(compactNote === undefined ? {} : { compactNote }) }, null, 2)}\n`
+  const { name, role, state, task, at, compacted, compactNote, cleared, clearNote, clearing } = chat
+  const kept = { compacted, compactNote, cleared, clearNote, clearing }
+  const notes = Object.fromEntries(Object.entries(kept).filter(([, value]) => value !== undefined))
+  return `${JSON.stringify({ name, role, state, task, at, ...notes }, null, 2)}\n`
+}
+
+/**
+ * Clear after each step: what the file of a session that a /clear ended holds: the session its chat goes on under.
+ * It describes no chat (no name); the board follows it to the chat's new card and transcript.
+ */
+export function movedText(to: string, at: number): string {
+  return `${JSON.stringify({ movedTo: to, at })}\n`
 }
 
 /** What the file of a chat that left the list holds: it describes no chat, and the chat does not join by its title. */
@@ -97,6 +107,14 @@ function isNote(value: unknown): value is { at: number; why: string } {
   return typeof c.at === 'number' && Number.isFinite(c.at) && typeof c.why === 'string' && c.why !== ''
 }
 
+/** Clear after each step: a clear the card names (done, or on its way): when, the step, the log. */
+function clearOf(value: unknown): { at: number; step: string | null; log: string | null } | null {
+  if (value === null || typeof value !== 'object') return null
+  const c = value as Record<string, unknown>
+  if (typeof c.at !== 'number' || !Number.isFinite(c.at)) return null
+  return { at: c.at, step: typeof c.step === 'string' && /^[A-Z]\d{1,6}$/.test(c.step) ? c.step : null, log: typeof c.log === 'string' && c.log !== '' ? c.log.slice(0, 300) : null }
+}
+
 function isCompacted(value: unknown): value is { at: number; before: number; after: number } {
   if (value === null || typeof value !== 'object') return false
   const c = value as Record<string, unknown>
@@ -114,6 +132,8 @@ export function parseChat(text: string): ChatFile | null {
   if (data === null || typeof data !== 'object') return null
   const c = data as Record<string, unknown>
   if (typeof c.name !== 'string' || c.name.trim() === '') return null
+  const cleared = clearOf(c.cleared)
+  const clearing = clearOf(c.clearing)
 
   return {
     name: c.name.trim(),
@@ -123,6 +143,9 @@ export function parseChat(text: string): ChatFile | null {
     at: typeof c.at === 'number' && Number.isFinite(c.at) ? c.at : 0,
     ...(isCompacted(c.compacted) ? { compacted: { at: c.compacted.at, before: c.compacted.before, after: c.compacted.after } } : {}),
     ...(isNote(c.compactNote) ? { compactNote: { at: c.compactNote.at, why: c.compactNote.why.slice(0, 200) } } : {}),
+    ...(cleared === null ? {} : { cleared }),
+    ...(isNote(c.clearNote) ? { clearNote: { at: c.clearNote.at, why: c.clearNote.why.slice(0, 200) } } : {}),
+    ...(clearing === null ? {} : { clearing }),
   }
 }
 
@@ -142,6 +165,8 @@ export function parseList(text: string): ChatList | null {
     prefix: l.prefix,
     main: typeof l.main === 'string' && l.main.trim() !== '' ? l.main.trim() : 'Main',
     compactAbove: typeof l.compactAbove === 'number' && Number.isFinite(l.compactAbove) && l.compactAbove >= 0 ? l.compactAbove : COMPACT_ABOVE,
+    // Clear after each step: "compact" unless the list says "clear" or "off", so every other project stays as it was.
+    afterStep: l.afterStep === 'clear' || l.afterStep === 'off' ? l.afterStep : 'compact',
   }
 }
 
@@ -421,12 +446,13 @@ export function chatNote(me: ChatFile, tool: string): string {
   if (me.role === 'main') {
     return `${shared}Your card clears when you call "done" together with the last tool call of the request, or when `
       + `you record the next request. You hand a step to a worker with ${work} action "queue": the board delivers it; no `
-      + 'message carries a task. A worker that has grown large is compacted by itself when the turn in which it reported '
-      + 'a step ends, unless another step is queued for it.'
+      + 'message carries a task. When the turn in which a worker reported a step ends, the worker is cleared or compacted '
+      + 'by itself, as the list of chats says; a large main chat is compacted while it rests.'
   }
   return `${shared}Your card clears by itself when you report your step with ${work} action "report" and your turn `
     + 'ends; no message to another chat clears it or ends a step. When you worked on no step, call "done" together with '
-    + 'your last tool call.'
+    + 'your last tool call. After the turn in which you reported a step your conversation may be cleared, so before you '
+    + `report, everything your next step needs stands in the store: checkpoints (${work} step), the report, and asks.`
 }
 
 /**
@@ -437,14 +463,52 @@ export function chatNote(me: ChatFile, tool: string): string {
  * keeps open questions word for word (`compactKeep`). The engine allows a compaction only between turns,
  * so this is the moment before the next task.
  */
-export function compactWhy(chat: ChatFile, at: { tokens: number | null; above: number; moreFollows: boolean }): string | null {
-  if (chat.role === 'main') return 'the main chat is not compacted this way'
+export function compactWhy(chat: ChatFile, at: { tokens: number | null; above: number; moreFollows: boolean; role?: BoardRole | null; afterStep?: AfterStep }): string | null {
+  // Clear after each step: the main chat and the partners are compacted at rest above the threshold (never cleared).
+  const role = at.role ?? chat.role
   if (at.above <= 0) return 'switched off in the list of chats'
-  if (chat.task !== null && !chat.task.isReported) return 'its last task is not reported yet'
-  if (at.moreFollows) return 'more of the same work follows'
+  if (role === 'worker') {
+    if (at.afterStep === 'off') return 'switched off in the list of chats'
+    if (chat.task !== null && !chat.task.isReported) return 'its last task is not reported yet'
+    if (at.moreFollows) return 'more of the same work follows'
+  }
   if (at.tokens === null) return 'its size is not known'
 
   return at.tokens > at.above ? null : 'it is small enough'
+}
+
+/** Clear after each step: the role the board's answer to a turn's end names; null when it names none. */
+export function roleFrom(answer: unknown): BoardRole | null {
+  const role = typeof answer === 'object' && answer !== null ? (answer as { role?: unknown }).role : undefined
+  return role === 'main' || role === 'worker' || role === 'advisor' || role === 'helper' ? role : null
+}
+
+/**
+ * Clear after each step: true when a chat's last answer asks the person something the board did not file as an ask: a
+ * question ("Answer:" in a quote block) when the board took no turn's end, when no "For you" block at its end holds it
+ * (`items`, the block's questions as the mod read them), or when the board says it could not file some (`unfiled`).
+ */
+export function unfiledAsk(answer: string, ended: Record<string, unknown> | null, items: number): boolean {
+  if (!asksPerson(answer)) return false
+  if (ended === null || items === 0) return true
+  return typeof ended.unfiled === 'number' && ended.unfiled > 0
+}
+
+/** Clear after each step: the facts that decide whether a worker is cleared after the turn in which it reported. */
+export type ClearFacts = { role: BoardRole | null; isReported: boolean; isPaused: boolean; isUnfiled: boolean; busy: string | null }
+
+/**
+ * Clear after each step: why a worker is NOT cleared after the turn in which it reported its step (it is compacted
+ * instead), in a few words; null when it is cleared. Only a worker the board names so, with its step reported, while
+ * the person does not pause, with no question left unfiled and nothing of it still running.
+ */
+export function clearWhy(f: ClearFacts): string | null {
+  if (f.role === null) return 'the board did not say this chat is a worker'
+  if (f.role !== 'worker') return `the ${f.role === 'main' ? 'main chat' : f.role === 'advisor' ? 'partner' : 'partner\'s helper'} is never cleared`
+  if (!f.isReported) return 'its step is not reported'
+  if (f.isPaused) return 'the person pauses the chats'
+  if (f.isUnfiled) return 'its last answer asks the person something the board did not file as an ask'
+  return f.busy
 }
 
 /**
@@ -455,8 +519,13 @@ export function asksPerson(answer: string): boolean {
   return /^\s*>.*\bAnswer:/im.test(answer)
 }
 
-/** What the compaction after a reported task is told to keep, for the chat of that name. */
-export function compactKeep(name: string, main: string): string {
+/**
+ * What a compaction is told to keep, for the chat of that name and role: a worker after its reported step; the main
+ * chat and the partners (the Advisor and its helper) at rest, each with what its role needs next.
+ */
+export function compactKeep(name: string, main: string, role: BoardRole = 'worker'): string {
+  if (role === 'main') return keepMain(name)
+  if (role === 'advisor' || role === 'helper') return keepPartner(name, main, role)
   return `This chat is "${name}", a worker in a project where the main chat "${main}" queues the steps in the worker board's store and the board delivers them. `
     + 'Its step is reported (work report) and the next one comes later, so keep what the next step needs and drop the step by step of finished ones. Keep, in this order: '
     + `(1) who this chat is: its name ${name}, its role, and that it reports to ${main}; `
@@ -467,6 +536,61 @@ export function compactKeep(name: string, main: string): string {
     + '(6) its open work: branches, folders, servers it started, and what its last report named as still open; '
     + '(7) one line for each task it finished: what it was, where the work is (folder, branch, commit) and how it was checked; '
     + '(8) what it learned the hard way about this machine, the tools and the other chats.'
+}
+
+/** What the main chat's compaction at rest keeps: the project's state of work as the person and the workers left it. */
+function keepMain(name: string): string {
+  return `This chat is "${name}", the main chat of a project: it hands the steps out through the worker board's store (work queue) and tells the person what came of them; the board delivers the steps and wakes the workers. `
+    + 'It is compacted while it rests, so keep what its next request needs and drop the step by step of finished work. Keep, in this order: '
+    + `(1) who this chat is: its name ${name}, that it is the main chat, and that its job is in .claude/main-briefing.md and the board's roles/main.md; `
+    + '(2) the rules it works by: the working agreement, how answers to the person are written, and the rules of the work store (ids, queue, report, asks, notes); '
+    + '(3) every worker by name and what it holds, waits for or has queued, by step id; '
+    + '(4) what the person decided or asked for that is not done yet, in their own words, with the date, and the instructions still open (I<n>); '
+    + '(5) every question or action it put to the person that is still open, word for word and with its number, so that an answer like "1 yes, 2 no" can still be read; '
+    + '(6) what it promised the person or a worker to do next; '
+    + '(7) what it learned the hard way about this machine, the tools and the other chats.'
+}
+
+/** What the partner's (the Advisor's) or its helper's compaction at rest keeps. */
+function keepPartner(name: string, main: string, role: 'advisor' | 'helper'): string {
+  const who = role === 'advisor'
+    ? 'the person\'s partner on the worker board (the Advisor): it keeps the focus goal\'s vibe and how, refines steps, answers the asks routed to it and checks results; its job is in the board\'s roles/partner.md'
+    : 'the helper of the person\'s partner (the Advisor): it acts only on the tasks the Advisor sends it, one at a time, with their ids'
+  return `This chat is "${name}", ${who}; "${main}" is the main chat that queues the steps. `
+    + 'It is compacted while it rests, so keep what its next request needs and drop the step by step of finished work. Keep, in this order: '
+    + `(1) who this chat is: its name ${name} and its role, and where its job is written; `
+    + '(2) the rules it works by: the working agreement, how answers to the person are written, and the work tool\'s actions it uses; '
+    + (role === 'advisor'
+      ? '(3) the focus goal: its id, its vibe and how as agreed or drafted, and what is decided on it; '
+        + '(4) every step it is refining or checking, every ask routed to it and every task it sent its helper, by id; '
+      : '(3) the task the Advisor sent it now, with its ids, and what it sent back so far; '
+        + '(4) the ids of the steps, asks and goals its tasks name; ')
+    + '(5) what the person decided or asked for that is not built yet, in their own words, with the date; '
+    + '(6) every question it put to the person that is still open, word for word and with its number; '
+    + '(7) what it learned the hard way about this machine, the tools and the other chats.'
+}
+
+/**
+ * Clear after each step: what the conversation that starts after a /clear is told first: who the chat is, where its
+ * rules are, that its earlier conversation was cleared (and where it is kept), the person's instructions still open
+ * (as work next lists them, so its first turn can close them), and to run work next.
+ */
+export function clearedStart(at: { name: string; title: string; role: ChatRole; main: string; step: string | null; log: string | null; open: readonly OpenInstruction[] }, tool: string): string {
+  const work = tool.replace(/chat$/, 'work')
+  const kept = at.log === null ? '' : ` It is kept word for word in ${at.log}: read from it only when you need something it holds.`
+  const after = at.step === null ? '' : ` by the Workers mod after your step ${at.step} was reported`
+  const briefing = at.role === 'main' ? '.claude/main-briefing.md' : '.claude/worker-briefing.md'
+  const lines = [
+    `This chat is "${at.title}", ${at.role === 'main' ? 'the main chat' : 'a worker'} in the person's list of chats, listed as "${at.name}"; "${at.main}" is the main chat. `
+      + `Your earlier conversation was cleared${after}, so this conversation starts empty.${kept} `
+      + `Your rules are in CLAUDE.md and ${briefing}: read them before your first step. `
+      + `Everything for your next step stands in the worker board's store: run ${work} with action "next" now, and go on from what it lists.`,
+  ]
+  if (at.open.length > 0) {
+    const each = at.open.map(one => `${one.id}${one.turns > 0 ? ` (missed ${one.turns} turn${one.turns === 1 ? '' : 's'})` : ''}${typeof one.text === 'string' && one.text !== '' ? `: "${one.text.replace(/\s+/g, ' ').slice(0, 300)}"` : ''}`)
+    lines.push(`The person's instructions to you that are still open, as work next lists them: ${each.join('; ')}. Close each with ${work} action "close", "id" and "as" (what came of it), once it is done.`)
+  }
+  return lines.join('\n')
 }
 
 /** B297: what the work tool's call gives the card: the step's id and title, the plan's steps and times. */
@@ -490,8 +614,8 @@ export function workCard(chat: ChatFile, action: string, input: WorkCardInput): 
   return withStep(planned.chat, { step: input.step })
 }
 
-/** B298: an instruction of the person's that is still open, as the worker board answers it: its id and the turns it missed. */
-export type OpenInstruction = { id: string; turns: number }
+/** B298: an instruction of the person's that is still open, as the worker board answers it: its id, the turns it missed, its words. */
+export type OpenInstruction = { id: string; turns: number; text?: string }
 
 /**
  * B298: where the person's own typing comes from: this chat's box (`composer`), Remote Control on a phone or the web
@@ -514,8 +638,8 @@ export function isFiled(text: unknown, origin: { kind?: string } | undefined): b
 export function openFrom(answer: unknown): OpenInstruction[] | null {
   if (typeof answer !== 'object' || answer === null || !Array.isArray((answer as { open?: unknown }).open)) return null
   return ((answer as { open: unknown[] }).open)
-    .filter((one): one is { id: string; turns?: unknown } => typeof one === 'object' && one !== null && typeof (one as { id?: unknown }).id === 'string')
-    .map(one => ({ id: one.id, turns: typeof one.turns === 'number' && one.turns > 0 ? Math.floor(one.turns) : 0 }))
+    .filter((one): one is { id: string; turns?: unknown; text?: unknown } => typeof one === 'object' && one !== null && typeof (one as { id?: unknown }).id === 'string')
+    .map(one => ({ id: one.id, turns: typeof one.turns === 'number' && one.turns > 0 ? Math.floor(one.turns) : 0, ...(typeof one.text === 'string' && one.text !== '' ? { text: one.text } : {}) }))
 }
 
 const andList = (ids: readonly string[]): string => (ids.length <= 1 ? ids.join('') : `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`)

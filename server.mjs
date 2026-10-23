@@ -30,7 +30,8 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
+import { bridgeNote, checkTake, checkTyped, clearRefusal, isUnknownSession, messageText } from './src/bridge.mjs'
+import { chatLogKeeper } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
@@ -63,6 +64,7 @@ import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsRunning, focusMove, goalChecked, 
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
+import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
@@ -88,6 +90,8 @@ const BODY_BYTES = 16 * 1024
 const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
 const STATE_MS = 2_000
+/** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
+const FRESH_MS = 30_000
 const TICK_MS = 60_000
 /** B142: how long the board's look at its folder's version is kept. */
 const VERSION_MS = 30_000
@@ -1094,6 +1098,40 @@ async function main(args) {
   }
   // B412: the answers of the chats' work calls, kept by their request id (see `requestKeeper`).
   const requests = requestKeeper({ file: isDemo ? null : join(HERE, 'data', 'work-requests.json'), clock })
+  // Clear after each step: the logs of the conversations the Workers mod clears, written by the board (src/chatLogs.mjs).
+  // A log the board did not finish before it stopped is finished now.
+  const chatLogs = isDemo || isShowOnly || config.project === '' ? null : chatLogKeeper({
+    file: join(HERE, 'data', 'chat-logs.json'), project: config.project, transcripts: config.transcripts, clock,
+    failed: job => console.error(`A chat log was given up: ${job.log} (${job.why ?? 'unknown'}).`),
+  })
+  void chatLogs?.resume().catch(error => loops.failed('chat-logs', error))
+  /** Clear after each step: the mod asks to keep the conversation before it clears a worker (`save-log`, `stepId`). */
+  const saveLog = async (body, checked, state) => {
+    if (chatLogs === null) return { ok: false, status: 503, why: 'This board keeps no chat logs.' }
+    const session = String(body.session ?? '').trim()
+    const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
+    const refused = clearRefusal(state, checked.chat, tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut)))
+    if (refused !== null) return refused
+    return chatLogs.save({ chat: checked.chat, session, step: body.stepId })
+  }
+  /**
+   * Clear after each step: a session the state shows under no name may be a chat that went on under a new id a moment
+   * ago (its card moved): the state is read anew once before the bridge refuses it.
+   */
+  const freshFor = new Map()
+  const checkFresh = async body => {
+    const state = await readState()
+    const checked = checkTake(body, state)
+    if (checked.ok || checked.status !== 409 || !isUnknownSession(body, state)) return { checked, state }
+    // Once in a while per session: a chat the board never shows asks every few seconds, and is not read anew each time.
+    const session = String(body.session)
+    if (clock() - (freshFor.get(session) ?? -Infinity) < FRESH_MS) return { checked, state }
+    freshFor.set(session, clock())
+    for (const [one, at] of freshFor) if (clock() - at >= FRESH_MS) freshFor.delete(one)
+    readState.reset()
+    const fresh = await readState()
+    return { checked: checkTake(body, fresh), state: fresh }
+  }
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
   const bridgeWorkOnce = async (body, checked) => {
     const done = await workAction({ ...body, chat: checked.chat })
@@ -1409,15 +1447,15 @@ async function main(args) {
       const session = String(body?.session ?? '')
       const kept = await requests.known(session, request)
       if (kept !== undefined) return kept
-      const state = await readState()
-      const checked = checkTake(body, state)
+      const { checked, state } = await checkFresh(body)
       noteRefused(body, checked)
       if (!checked.ok) return checked
+      if (asked.action === 'save-log') return requests.answer(session, request, () => saveLog(asked, checked, state))
       if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
       return requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
     },
     take: async body => {
-      const checked = checkTake(body, await readState())
+      const { checked } = await checkFresh(body)
       // Who asks runs, also a chat the board shows another session for.
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
       noteRefused(body, checked)

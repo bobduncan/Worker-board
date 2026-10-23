@@ -646,7 +646,7 @@ never from outside them, only text files and pictures of at most 1 MB; a picture
 a chat's words stay words. The Advisor keeps no open questions in the plan (`roles/partner.md`). Pictures:
 `art-inbox/worker-board/b218/`.
 
-**Whether a worker was compacted (B235).** The Workers mod 0.9.0 compacts a large worker after its report and writes `compacted: { at, before, after }` on its card, or writes `compactNote: { at, why }` when it does not. The board reads the newer of the two and shows one small line under the worker's name: "compacted at 16:40, from 820k to 95k tokens" in grey, or "not compacted at 16:40: <why>" in yellow; the whole line as its tooltip. Without the mod there is no such line. The picture: `art-inbox/worker-board/b235/`.
+**Whether a worker was compacted (B235).** The Workers mod 0.9.0 compacts a large worker after its report and writes `compacted: { at, before, after }` on its card, or writes `compactNote: { at, why }` when it does not. The board reads the newer of the two and shows one small line under the worker's name: "compacted at 16:40, from 820k to 95k tokens" in grey, or "not compacted at 16:40: <why>" in yellow; the whole line as its tooltip. Without the mod there is no such line. The picture: `art-inbox/worker-board/b235/`. Since clear after each step (2026-10-23, below) the same place says "cleared after B482 · log" when the mod cleared the worker (`cleared` newer than both), and a compaction's tooltip says why it was not cleared (`clearNote`).
 
 **A picture in Talk to Main (B167).** The person, 2026-10-14: "i need a change so that i can post pictures in the 'talk
 to main' chat in the worker board, from my clipboard". Ctrl+V in the talk takes the picture on the clipboard (PNG,
@@ -2858,6 +2858,60 @@ stuck that day was found by the person. They are now one list in the board, `src
 - A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
 - Tests: `test/work/sync.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
   `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).
+
+## Clear after each step (2026-10-23)
+
+Measured on 2026-10-23: 73% of all the project chats' usage was the model reading long histories again (300k to 700k
+tokens of history sent on every call; the answers were 5%). The mod compacted a worker only after a reported step,
+above 250k, and never when the next step was queued already, so a busy worker was never reset, and the main chat and
+the partner's helper never at all. The person chose (2026-10-23, "Worker board task reliability"): workers are cleared
+with the Workers mod running /clear itself, as it runs /compact ("1 C. i like the clear, its cheaper"), and every
+conversation is kept as a text file without the worker spending tokens on it ("disk space is not a concern. token
+usage is"). A chat calling the app's clear_session tool on itself was refused by auto mode's safety check, so the mod
+runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is idle, the way /compact runs).
+
+- **The setting.** `list.json` `"afterStep"`: `"clear"`, `"compact"` (the default, so every other project stays as it
+  was) or `"off"`. The main chat and the partners are never cleared: they are compacted while they rest (a turn of
+  theirs ended, nothing of theirs runs on) above `compactAbove`, once per turn, told to keep what their role needs
+  (`compactKeep`: the main chat its workers, queues and the person's open words; the partner its focus goal, refines,
+  checks and routed asks; the helper its task from the Advisor).
+- **When a worker is cleared** (`clearAfter` in `register.tsx`, `clearWhy` in `chats.ts`): when the turn in which it
+  reported its step has ended (where the compaction ran), also when more work follows. Not, and compacted instead with
+  the reason on its card (`clearNote`), when the board's answer to the turn's end does not name it a worker (`role`), the
+  person pauses, its answer asks the person something the board did not file (`unfiled`, or a question outside the
+  block the mod reads), a subagent of it still runs, a prompt came in, or the log could not be saved.
+- **The log, at no token cost** (`src/chatLogs.mjs`). The mod asks the board through the bridge (`/api/bridge/work`,
+  `save-log` with `stepId`, the mod's own call: the work tool refuses it from the model, the board refuses it for any
+  chat but a worker, and for one whose transcript shows background work running). The board puts the log in its
+  journal (`data/chat-logs.json`) and answers at once; then the system copies the transcript beside the log as
+  `.jsonl` (never read whole), and the text is written from that copy line by line: each message with its time and
+  speaker (the person, the person on the worker board, the worker board, a message from another chat, a background
+  notice, the chat, its thinking, each tool call with its full input, each tool result in full, a compaction, a slash
+  command), the app's own bookkeeping left out, a line that is no JSON (the last one cut off while it was written)
+  named as such. The old transcript stays on disk after a /clear, so the copy may finish after the clear; a log not
+  finished when the board stops is finished at its next start, and once copied nothing needs the app to keep the old
+  transcript. Logs go to `<project>/.claude/chat-logs/<chat>/<YYYY-MM-DD HHmm> <step>.txt`.
+- **The clear.** The mod marks the card (`clearing: { at, step, log }`), then queues /clear; its own `command.run` hook
+  lets the /clear run only while no prompt or turn came in since it was decided. Nothing is typed into the chat while
+  the clear is on its way (a line the board put out waits for the conversation after it). /clear ends the conversation
+  (`session.end`, reason `clear`) and the process goes on under a new session id.
+- **The same chat after it.** At the new conversation's start (`classic.SessionStart`, source `clear`; else the first
+  prompt or turn) the mod moves the card to the new session id, the old file holding only `{ "movedTo": "<new id>" }`
+  (a mod that lost its word of the clear in a reload finds the card by its mark). The board follows `movedTo` (in
+  `sources.mjs` and the state), so the lane, its card, its transcript, its steps, asks and open instructions (kept under
+  the chat's name) stay the one chat's, whether or not the app's file names the new session yet; a session the board
+  shows under no name is read anew once (at most every 30 s) before the bridge refuses it, so the first work call of
+  the new conversation is not "not the chat the board shows". The fresh conversation is told as its start's context
+  who it is, that its rules are in `CLAUDE.md` and `.claude/worker-briefing.md`, that its earlier conversation was
+  cleared and where the log is, the person's instructions still open (as `work next` lists them; the mod asks `next`
+  as a chat started anew does, B298), and to run `work next`.
+- **No false signals.** Neither the /clear nor the start after it is a turn: no `turn-ended` goes to the board for
+  them, so no instruction is marked missed for them; the fresh conversation's first turn that ends without closing
+  one counts as any turn does.
+- **The board shows it**: "cleared after B482 · log" where B235's line stands; "log" opens the text in the board's file
+  viewer, which shows a log larger than 1 MB by its last 2 MB under a line naming the whole file.
+- **Rollout** (the person's, once the mod is installed and the app started anew): `"afterStep": "clear"` and
+  `"compactAbove": 150000` in the project's `list.json`.
 
 ## What it does not do
 

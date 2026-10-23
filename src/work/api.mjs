@@ -1794,7 +1794,10 @@ async function turnEnded(body, w) {
   const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
   // Pause and resume (spec 2026-10-18): the same call answers the pause state, so the mod needs no call of its own.
   const { text: _words, ...pause } = pauseStateOf({ ...w, who: chat })
-  return { ok: true, result: { text, missed, open, changed: missed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...((fromBlock?.left.length ?? 0) === 0 ? {} : { left: fromBlock.left }), ...(pulled === undefined ? {} : { pull: pulled }), pause } }
+  // Clear after each step: the chat's role as the board knows it (the Workers mod clears a worker only, and compacts the
+  // main chat and the partners at rest), and how many items of its "For you" block the board could not file.
+  const role = w.roleOf?.(chat) ?? null
+  return { ok: true, result: { text, missed, open, changed: missed.length > 0 || (asked?.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...((fromBlock?.left.length ?? 0) === 0 ? {} : { left: fromBlock.left }), ...((fromBlock?.unfiled ?? 0) === 0 ? {} : { unfiled: fromBlock.unfiled }), ...(pulled === undefined ? {} : { pull: pulled }), pause, ...(role === null ? {} : { role }) } }
 }
 
 const ASK_REF = /^Q\d+$/
@@ -1835,6 +1838,7 @@ async function askForYou(value, since, w) {
   const of = held.length === 1 ? valueOf(held[0], 'Id') : null
   const asked = []
   const left = []
+  let unfiled = 0
   for (const one of items) {
     if (typeof one.ref === 'string' && ASK_REF.test(one.ref) && w.store.items.has(one.ref)) continue
     const kind = one.kind ?? 'decide'
@@ -1855,13 +1859,18 @@ async function askForYou(value, since, w) {
     // Under the step when the board takes it there, else on its own.
     let made = of === null ? await ask(fields, w) : await ask({ ...fields, of }, w)
     if (!made.ok && of !== null) made = await ask(fields, w)
-    if (!made.ok) continue
+    // Clear after each step: an item the board could not file stays the chat's question only: the Workers mod then
+    // does not clear the chat.
+    if (!made.ok) {
+      unfiled += 1
+      continue
+    }
     asked.push(made.result.id)
     known.push(key)
     // The review: two items of one block are one question only when as alike as an open ask.
     repeats.own.push({ id: made.result.id, words: text.join(' '), of })
   }
-  return { asked, left }
+  return { asked, left, unfiled }
 }
 
 /** A step is dropped, and why. */

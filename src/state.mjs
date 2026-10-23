@@ -1093,9 +1093,12 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const list = parseList(textOr(raw.listText, ''))
   // The start of the project's chat titles, for reading their words; '' while the list of chats is not right.
   const prefix = list.prefix ?? ''
+  // Clear after each step: a chat the Workers mod cleared is read under the session its card moved it to (sources.mjs).
+  const moved = new Map((Array.isArray(raw.moved) ? raw.moved : []).filter(pair => Array.isArray(pair) && pair.length === 2 && pair.every(id => typeof id === 'string')))
   const apps = (Array.isArray(raw.appChatTexts) ? raw.appChatTexts : [])
     .map(text => parseAppChat(textOr(text, '')))
     .filter(chat => chat !== null)
+    .map(chat => (moved.has(chat.cliSessionId) ? { ...chat, cliSessionId: moved.get(chat.cliSessionId) } : chat))
   // B152: a chat whose card says it left the list of chats ("left": true) gets no lane, also while its chat stays
   // open in the app (one with Remote Control on cannot be closed). For two minutes after the card said so, its lane
   // stays and says it was removed; a card the board cannot date goes at once. A chat that joins again writes a new
