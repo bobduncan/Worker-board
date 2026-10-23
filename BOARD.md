@@ -168,7 +168,11 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   details.
 - **A worker's answer:** its "Task" and "What I did" lines and the rest of its answer, as its words; its "For you"
   items are no questions to answer here (B301).
-- **A step of the backlog:** its words, its notes in sections, its branch, its pictures, and **Add to queue**.
+- **A step of the backlog:** its words, its notes in sections, its branch, its pictures, and **Add to queue**. Its
+  **Model and effort** (B468, model per step): Sonnet or Opus and the five effort levels, the step's lit, each with its
+  reason, and who runs at it ("Units runs at Sonnet · low until the step ends, then at its usual setting (Sonnet ·
+  medium)", or that the main chat was asked and it is not set yet). A worker's task window shows the same as a chip,
+  "Sonnet · low".
 - **A picture** (`04-picture-popup.png`, a click on any picture or `#picture=<path>`): the picture large with its
   path; a click closes it.
 - **A game** (`#play=<branch>&<settings>`): the branch's game started and this tab turned into it.

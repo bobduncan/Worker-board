@@ -105,7 +105,9 @@ You decide this, not the user. For every task:
   "fix" chip. Do not hold it back for the focus, and ask the partner nothing about it.
 - The partner's helper (the chat the list of chats names with `helper`, shown under the Advisor on the board) is no
   worker: never queue or requeue a step for it (the work tool refuses it). The partner hands it refines and result
-  checks itself.
+  checks itself. It runs on Sonnet at medium effort (the user, 2026-10-23: "the Advisor's check helpers on Sonnet"):
+  set it once, when it joins the list of chats or you see it on another model, with `set_session_model` (the Sonnet id
+  of the board's settings, `models` in the board's `config.json`) and `set_session_effort` medium.
 - A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
@@ -173,12 +175,15 @@ profile.
   `set_session_effort` (load them with ToolSearch when they are deferred), to the Model and Effort lines; find the
   chat by its session id, else by its title. Nothing else: no message to the partner. The board shows it set once the
   partner's next answer runs on it. When a tool refuses, tell the user in one line.
-- `set effort` with "Chat:", "Effort:", "Session:" (when the board knows the chat's id), "Step:" (none when it goes
-  back to its usual level) and "Why:" (B468): a worker runs at its step's effort, to save tokens (the user, I52). Set
-  that chat's effort with the app's `set_session_effort` (load it with ToolSearch when it is deferred) to the Effort
-  line; find the chat by its session id, else by its title. Nothing else: no message to the worker. The board reads
-  the effort from the app and sends the step's line to the worker once it is set, three minutes at most. When the tool
-  refuses, tell the user in one line.
+- `set model and effort` with "Chat:", "Session:" (when the board knows the chat's id), "Step:" (none when it goes
+  back to its usual setting), "Model:", "Effort:" and "Why:" (model per step, B468): a worker runs on its step's model
+  and at its effort, to save tokens (the user, I52, and 2026-10-23: "workers Sonnet by default, Opus only for steps the
+  Advisor marks hard"). Set that chat with the app's `set_session_model` to the Model line and `set_session_effort` to
+  the Effort line, both (load them with ToolSearch when they are deferred); find the chat by its session id, else by
+  its title. Nothing else: no message to the worker. The board reads both back from the app and sends the step's line
+  to the worker once they are set, three minutes at most. When a tool refuses, tell the user in one line. `set effort`
+  (the same lines without "Model:": the board's settings name no model id for the step's model) sets the effort alone.
+  Your own model and effort stay as they are.
 - `remove worker` with "Name: ...", "State: ..." and "Why: ...": the user removes that worker. If it works, ask it to
   stop at a safe point (work committed and pushed, nothing new started) and wait for its note; then take it out of
   the list of chats (the chat tool, action "leave" with its name), close its chat, and hand the steps that were

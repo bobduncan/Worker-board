@@ -33,7 +33,7 @@ import { NOTE_LINE, isPartnerAnswered, stepWaitsForPartner } from './work/partne
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
-import { effortPlan } from './work/effort.mjs'
+import { effortPlan, runSettings } from './work/effort.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
@@ -64,7 +64,7 @@ const BOARD_CLOSE = /\s*(?:Tick this step in the backlog\.|Close this request\.)
 /** B281: how much of the person's feedback a task window gets: one line. */
 const FEEDBACK_CHARS = 300
 /** B161: the first lines of what the board types into the main chat for itself (say.mjs, design.mjs): not the person's talk. */
-const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set effort|backlog step from the goal map|check sync)\b/
+const BOARD_WORDS = /^(?:spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set model and effort|set effort|backlog step from the goal map|check sync)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 const LANE_FLAGS = ['stuck', 'not taken', 'check failed', 'card', 'waits']
 /** How long a window of the 5-hour limit lasts. */
@@ -286,8 +286,9 @@ function stepBrief(work, id, goalMap) {
   return {
     goal: goalId === null ? null : title === '' || title === goalId ? goalId : title.startsWith(`${goalId} `) ? title : `${goalId} ${title}`,
     summary: item.summary, picture: item.picture, what: item.what,
-    // B468: the effort the worker runs at for it.
+    // B468: the effort the worker runs at for it; model per step: and the model.
     effort: item.effort,
+    model: item.model,
     about: aboutLines(context), context, touches: item.touches, history: item.history.slice(-BRIEF_HISTORY),
   }
 }
@@ -405,7 +406,7 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
-  const none = { quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
+  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt }
 
   const tail = raw.tails?.[chat.cliSessionId] ?? null
@@ -504,6 +505,9 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
   return {
     ...base,
     state,
+    // Model per step: the model its last answer ran on and when, as its transcript names it (the app's own lines carry
+    // no model of Claude's, a helper's lines are not its own), or null.
+    lastAnswer: lastAnswerModel(entries),
     quietMs,
     isQuiet: quietMs !== null && quietMs > config.quietMinutes * MIN,
     // It asked with the app's own question form: that can only be answered in its chat.
@@ -559,6 +563,12 @@ function card(chat, raw, { now, config, last, lines, main, prefix, stepOf = () =
     // names a worker that holds a step so, without an open ask, as one that may wait for the person.
     resting: restingOf({ entries, turn, idle, isRunningOn: background > 0 && !isDone, isStopped: wasCutOff || paused !== null }),
   }
+}
+
+/** Model per step: the model of a chat's last answer and when, `{ model, at }`, as B352 reads the partner's; or null. */
+function lastAnswerModel(entries) {
+  const answer = (entries ?? []).findLast(entry => entry.type === 'assistant' && !entry.isSidechain && typeof entry.model === 'string' && entry.model.startsWith('claude-'))
+  return answer === undefined || !Number.isFinite(answer.at) ? null : { model: answer.model, at: answer.at }
 }
 
 /**
@@ -1524,8 +1534,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const partner = advisorChat === undefined || advisorCard === null ? null : { name: advisorChat.name, state: advisorCard.state, isRunning: runningOf(advisorChat.name), idle: advisorCard.idle ?? null }
   const reconciled = !workOk ? null : reconcile({ store: raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner })
   // B468: what each worker runs at for its step, the words that have the main chat set it (none without the Workers mod),
-  // and the steps whose line to their worker waits until it is set.
-  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
+  // and the steps whose line to their worker waits until it is set. Model per step: its model too, by the settings'
+  // model ids, and the usual setting between steps from the settings.
+  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, deliveries: reconciled.deliveries, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, ...runSettings(config) })
   if (efforts) for (const id of routingHolds(itemsOf(raw.work), config.routing)) efforts.held.add(id)
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
@@ -1549,7 +1560,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
     // B300: each with the reconciler's flags on it.
-    // B468: and with what it runs at for its step (`effortRun`, effort.mjs), or null.
+    // B468: and with what it runs at for its step (`effortRun`, effort.mjs), or null; model per step: its model too.
     chats: chats.map(lane => ({ ...lane, flags: flagsOf(lane.name), effortRun: efforts?.runs.get(lane.name) ?? null })),
     // B300: the reconciler's lines on top (a broken file, an id twice, a state the flow does not know), and what the
     // server carries out; empty and null while the store cannot be read.

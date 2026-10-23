@@ -23,7 +23,7 @@ import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } fr
 import { checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
-import { effortOf, parseEffort, withEffort } from './effort.mjs'
+import { effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
@@ -1350,7 +1350,7 @@ async function undoFix(id, w) {
 /**
  * B356: the fix step a failed result check makes: "Fix: <the failed points>", refined from them at once (ready, "from
  * the result check of B<id>"), with the step's activity, goal and standard, queued for the same worker. Answers
- * `{ ok, id }`. B468: it runs at the effort of the step it fixes.
+ * `{ ok, id }`. B468: it runs at the effort of the step it fixes; model per step: and on its model.
  */
 async function fixStep(origin, failed, w) {
   const originId = valueOf(origin, 'Id')
@@ -1359,6 +1359,7 @@ async function fixStep(origin, failed, w) {
   const goal = valueOf(origin, 'Goal')
   const standard = standardOf(origin)
   const effort = effortLineOf(origin)
+  const model = modelLineOf(origin)
   const what = failed.map(one => `- ${one.text}`)
   const summary = `Fix what the result check of ${originId} found: ${failed.map(one => one.text).join('; ')}`.slice(0, 600)
   const block = [
@@ -1366,6 +1367,7 @@ async function fixStep(origin, failed, w) {
     `Summary: ${summary}`,
     ...(goal === null ? [] : [`Part of: ${goal}`]),
     ...(standard === null ? [] : [`Standard: ${standard}`]),
+    ...(model === null ? [] : [`Model: ${model}`]),
     ...(effort === null ? [] : [`Effort: ${effort}`]),
     'What we build:',
     ...what,
@@ -1380,6 +1382,7 @@ async function fixStep(origin, failed, w) {
       ['Context', [`  Fix of ${originId}: the result check by ${w.who} failed on ${failed.length === 1 ? 'one point' : `${failed.length} points`}.`, ...what.map(one => `  ${one}`), REFINED_MARK]],
       ['Summary', [summary]],
       ...(standard === null ? [] : [['Standard', [standard]]]),
+      ...(model === null ? [] : [['Model', [model]]]),
       ...(effort === null ? [] : [['Effort', [effort]]]),
       ['What we build', what],
       ['Refined', block],
@@ -1470,7 +1473,7 @@ async function clearWaits(found, w) {
  * and marked "from the how of G<n> by <partner>", so the board's refine gate sends no second round for it.
  */
 async function make(call, w) {
-  const body = withEffort(withStandard(call))
+  const body = withModel(withEffort(withStandard(call)))
   if ((body.kind ?? 'step') !== 'step') return refuse(400, 'Only a step is made with "new"; an ask with "ask", a note with "note".')
   const title = line(body.title, 200)
   if (title === '') return refuse(400, 'Give the step a title.')
@@ -1486,7 +1489,10 @@ async function make(call, w) {
   // B468: so is an effort given: the worker that takes the step runs at it.
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
-  const fromHow = body.what === undefined ? null : howBlock(body, goal, w, standard?.line ?? null, effort?.line ?? null)
+  // Model per step: and so is a model given.
+  const model = parseModel(body.model)
+  if (model !== null && !model.ok) return refuse(400, model.why)
+  const fromHow = body.what === undefined ? null : howBlock(body, goal, w, standard?.line ?? null, effort?.line ?? null, model?.line ?? null)
   if (fromHow !== null && !fromHow.ok) return fromHow
   const named = fromHow === null || standard !== null ? [] : kindsNamed(`${title}\n${lines(body.text).join('\n')}`, w.kinds)
   if (named.length > 0) return refuse(409, standardWanted('This step', named))
@@ -1505,6 +1511,7 @@ async function make(call, w) {
   }), w, 'made')
   if (priority.fix) item = ordered(markedFix(item, w))
   if (standard !== null) item.sections.set('Standard', [standard.line])
+  if (model !== null) item.sections.set('Model', [model.line])
   if (effort !== null) item.sections.set('Effort', [effort.line])
   if (fromHow !== null) {
     const ready = copy(item)
@@ -1895,6 +1902,11 @@ const effortLineOf = item => {
   const effort = effortOf(item)
   return effort.isSet ? `${effort.level} · ${effort.why}` : null
 }
+/** Model per step: the model a step was given, as the store keeps it ("opus · a guard"), or null when it has none. */
+const modelLineOf = item => {
+  const model = modelOf(item)
+  return model.isSet ? `${model.family} · ${model.why}` : null
+}
 /** The Context with the mark where the refine block stands: where it stood, else at the end. */
 const withMark = item => {
   const context = item.sections.get('Context') ?? []
@@ -1903,9 +1915,10 @@ const withMark = item => {
 
 /**
  * Focus 2: the ready refine block of a step made from an agreed how, by its sections; refused when it cannot be one.
- * B354: with its Standard line (`standard`) after the size. B468: and its Effort line (`effort`) after that.
+ * B354: with its Standard line (`standard`) after the size. B468: and its Effort line (`effort`) after that; model per
+ * step: its Model line (`model`) right before it.
  */
-function howBlock(body, goal, w, standard = null, effort = null) {
+function howBlock(body, goal, w, standard = null, effort = null, model = null) {
   if (w.role !== 'advisor') return refuse(403, 'Only the partner makes a step refined at once, from the how the person agreed.')
   if (goal === '') return refuse(400, 'A step from the agreed how names its goal in "goal" (G17).')
   const summary = line(body.summary, 600)
@@ -1921,6 +1934,7 @@ function howBlock(body, goal, w, standard = null, effort = null) {
     `Part of: ${goal}`,
     ...(size === '' ? [] : [`Size: about ${size}`]),
     ...(standard === null ? [] : [`Standard: ${standard}`]),
+    ...(model === null ? [] : [`Model: ${model}`]),
     ...(effort === null ? [] : [`Effort: ${effort}`]),
     'What we build:',
     ...what,
@@ -1930,10 +1944,10 @@ function howBlock(body, goal, w, standard = null, effort = null) {
 
 /**
  * The Advisor's refine: the block in today's form (round, summary, picture, goal, size, questions); Refined: open. B468:
- * with its effort, given now or in an earlier round.
+ * with its effort, given now or in an earlier round; model per step: and its model.
  */
 async function refine(call, w) {
-  const body = withEffort(call)
+  const body = withModel(withEffort(call))
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const summary = line(body.summary, 600)
@@ -1953,6 +1967,9 @@ async function refine(call, w) {
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
   const effortLine = effort?.line ?? effortLineOf(found.item)
+  const model = parseModel(body.model)
+  if (model !== null && !model.ok) return refuse(400, model.why)
+  const modelLine = model?.line ?? modelLineOf(found.item)
   const round = roundOf(found.item) + 1
   const block = [
     `Refined (round ${round}, by ${w.who}, ${stamp(w.now)}):`,
@@ -1961,11 +1978,13 @@ async function refine(call, w) {
     ...(goal === '' ? [] : [`Part of: ${goal}`]),
     ...(size === '' ? [] : [`Size: about ${size}`]),
     ...(standard === null ? [] : [`Standard: ${standard}`]),
+    ...(modelLine === null ? [] : [`Model: ${modelLine}`]),
     ...(effortLine === null ? [] : [`Effort: ${effortLine}`]),
     ...(questions.length === 0 ? [] : ['Questions:', ...questions.map(one => `- ${one}`)]),
   ].map(one => `  ${one}`)
   const item = copy(found.item)
   if (standard !== null) item.sections.set('Standard', [standard])
+  if (modelLine !== null) item.sections.set('Model', [modelLine])
   if (effortLine !== null) item.sections.set('Effort', [effortLine])
   item.sections.set('Summary', [summary])
   if (picture === '') item.sections.delete('Picture')
@@ -2059,7 +2078,7 @@ function questionIndex(questions, ask, w) {
 
 /** The Advisor folded every answer in: the block says "ready", What we build is written, and the step is refined. */
 async function refined(call, w) {
-  const body = withEffort(withStandard(call))
+  const body = withModel(withEffort(withStandard(call)))
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
@@ -2081,6 +2100,10 @@ async function refined(call, w) {
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
   const effortLine = effort?.line ?? effortLineOf(found.item)
+  // Model per step: the model given now, else the one the step had.
+  const model = parseModel(body.model)
+  if (model !== null && !model.ok) return refuse(400, model.why)
+  const modelLine = model?.line ?? modelLineOf(found.item)
   const head = block[0].match(/^(\s*)Refined\s*(?:\(([^)]*)\))?\s*:\s*$/)
   if (head === null) return refuse(409, `${id}: its refine block does not start with "Refined (...):"; fix it by hand first.`)
   const inside = (head[2] ?? '').split(';').map(one => one.trim()).filter(one => one !== '' && !/^ready$/i.test(one))
@@ -2091,16 +2114,19 @@ async function refined(call, w) {
   let isDropped = false
   for (const one of block.slice(1)) {
     const named = one.trim().match(/^([A-Z][A-Za-z /]{1,28}):/)
-    // B354: the Standard line is written anew after the rest, before What we build; B468: the Effort line after it.
-    if (named !== null) isDropped = ['Questions', 'Feedback', 'What we build', 'Problem', 'Goal', 'Standard', 'Effort'].includes(named[1])
+    // B354: the Standard line is written anew after the rest, before What we build; B468: the Effort line after it, and
+    // model per step the Model line before that.
+    if (named !== null) isDropped = ['Questions', 'Feedback', 'What we build', 'Problem', 'Goal', 'Standard', 'Model', 'Effort'].includes(named[1])
     if (!isDropped) kept.push(one)
   }
   const item = copy(found.item)
   const standardLine = standard === null ? [] : [`${indent}Standard: ${standard}`]
   if (standard !== null) item.sections.set('Standard', [standard])
+  const modelLines = modelLine === null ? [] : [`${indent}Model: ${modelLine}`]
+  if (modelLine !== null) item.sections.set('Model', [modelLine])
   const effortLines = effortLine === null ? [] : [`${indent}Effort: ${effortLine}`]
   if (effortLine !== null) item.sections.set('Effort', [effortLine])
-  item.sections.set('Refined', [`${indent}Refined (${[...inside, 'ready'].join('; ')}):`, ...kept, ...standardLine, ...effortLines, `${indent}What we build:`, ...what.map(one => `${indent}${one}`)])
+  item.sections.set('Refined', [`${indent}Refined (${[...inside, 'ready'].join('; ')}):`, ...kept, ...standardLine, ...modelLines, ...effortLines, `${indent}What we build:`, ...what.map(one => `${indent}${one}`)])
   item.sections.set('What we build', what)
   item.sections.set('Context', withMark(found.item))
   put(item, 'Refined', 'ready')

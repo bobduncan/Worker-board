@@ -4028,6 +4028,11 @@ function flowStripOf(flow) {
 // item:start
 /** B468: the levels of a step's effort, lowest first, as the app names them. */
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+/** Model per step: the model families a step may name, cheapest first, and the words the page says them with. */
+const MODEL_FAMILIES = ['sonnet', 'opus']
+const MODEL_NAMES = { sonnet: 'Sonnet', opus: 'Opus' }
+/** Model per step: a model family and an effort level as the page says them, "Sonnet · medium" (the level alone without a family). */
+const runWords = (family, level) => (typeof family === 'string' && family !== '' ? `${MODEL_NAMES[family] ?? family} · ${level}` : level)
 const EFFORT_HOLDS = ['taken', 'in progress', 'waiting on you']
 const effortClock = ms => { const at = new Date(ms); return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` }
 const effortMinutes = minutes => (minutes < 60 ? `${minutes} min` : minutes % 60 === 0 ? `${minutes / 60} h` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`)
@@ -4037,18 +4042,19 @@ const effortTokens = tokens => (tokens < 1000 ? String(tokens) : tokens < 1_000_
  * B468: what a step's window says under its effort, from its worker's lane (`lanes`, the state's chats with their
  * `effortRun`, src/work/effort.mjs): that the worker runs at it until the step ends, or that the main chat was asked to
  * set it and it is not set yet; for a step queued for a worker, that it will. Null for a step nobody holds or will take.
+ * Model per step: the step's model beside its effort ("Sonnet · low"), and the usual setting after it.
  */
 function effortRunLine(item, lanes = []) {
   const owner = item?.owner ?? null
   const isHeld = EFFORT_HOLDS.includes(item?.state)
   if (owner === null || (!isHeld && item.state !== 'queued')) return null
-  const level = item.effort.level
+  const setting = runWords(item.model?.family, item.effort.level)
   const run = lanes.find(lane => String(lane.name).toLowerCase() === String(owner).toLowerCase())?.effortRun ?? null
   if (run !== null && run.step === item.id && run.isSet) {
-    return isHeld ? `${owner} runs at ${level} until the step ends, then at its usual level (${run.usual}).` : `${owner} is set to ${level} for it already.`
+    return isHeld ? `${owner} runs at ${setting} until the step ends, then at its usual setting (${runWords(run.usualModel, run.usual)}).` : `${owner} is set to ${setting} for it already.`
   }
-  if (run !== null && run.step === item.id && run.asked !== null) return `The main chat was asked at ${effortClock(run.asked.at)} to set ${owner} to ${level}; not set yet.`
-  return isHeld ? `${owner} is to run at ${level} while it holds the step.` : `${owner} is set to ${level} before the step goes to it.`
+  if (run !== null && run.step === item.id && run.asked !== null) return `The main chat was asked at ${effortClock(run.asked.at)} to set ${owner} to ${setting}; not set yet.`
+  return isHeld ? `${owner} is to run at ${setting} while it holds the step.` : `${owner} is set to ${setting} before the step goes to it.`
 }
 
 /** B468: what the board kept for a level (`efforts`, the state's taskTimes.efforts): its steps, their typical time and tokens. */
@@ -4070,7 +4076,8 @@ function itemPartsOf(item, hasFlow, { lanes = [], efforts = [] } = {}) {
     item.summary.length > 0 ? { key: 'summary', title: 'Summary', lines: item.summary, isFolded: false } : null,
     item.picture !== null ? { key: 'picture', title: 'Picture', lines: [item.picture], isFolded: false } : null,
     item.goal !== null ? { key: 'goal', title: 'Goal', lines: [item.goal], isFolded: false } : null,
-    (item.effort ?? null) !== null ? { key: 'effort', title: 'Effort', lines: [], isFolded: false, effort: item.effort, run: effortRunLine(item, lanes), kept: effortKeptLine(item.effort.level, efforts) } : null,
+    // Model per step: its model with it.
+    (item.effort ?? null) !== null ? { key: 'effort', title: 'Model and effort', lines: [], isFolded: false, effort: item.effort, model: item.model ?? null, run: effortRunLine(item, lanes), kept: effortKeptLine(item.effort.level, efforts) } : null,
     hasFlow ? { key: 'flow', title: 'Flow', lines: [], isFolded: false } : null,
     item.what.length > 0 ? { key: 'what', title: 'What we build', lines: item.what, isFolded: false } : null,
     // B356: the result check by a helper that did not build it: the ticks, the score and the evidence picture.
@@ -4556,6 +4563,8 @@ function drawReferences(shown) {
 
 
 // lanewindow:start
+/** Model per step: the words a lane's chip says a model family with ("Sonnet · low"). */
+const LANE_MODELS = { sonnet: 'Sonnet', opus: 'Opus' }
 /** B235: a size in tokens, short: 820000 is "820k". */
 const tokensOf = count => (Number.isFinite(count) ? (count >= 1000 ? `${Math.round(count / 1000)}k` : String(count)) : null)
 
@@ -4791,7 +4800,8 @@ function laneWindowOf(lane, now, mainTitle) {
     fullTitle,
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }, ...((brief?.goal ?? null) === null ? [] : [{ text: brief.goal, tone: 'goal' }]),
       // B468: the effort it runs at for the step, and "not set yet" while the main chat was asked and the app has not.
-      ...((brief?.effort ?? null) === null ? [] : [{ text: `Effort: ${brief.effort.level}${lane.effortRun?.step === step.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
+      // Model per step: with its model, "Sonnet · low".
+      ...((brief?.effort ?? null) === null ? [] : [{ text: `${(brief.model ?? null) === null ? 'Effort: ' : `${LANE_MODELS[brief.model.family] ?? brief.model.family} · `}${brief.effort.level}${lane.effortRun?.step === step.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
     // B301: only the person's words give a task; the main chat's messages give none.
     given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
     step,
@@ -5501,12 +5511,16 @@ function itemPart(part, strip) {
   if (part.key === 'flow') return flowPart(strip)
   if (part.key === 'picture') return pictureSection(pictureOfLine(part.lines[0]))
   if (part.key === 'goal') return el('p', 'chip is-goal', `Goal: ${part.lines[0]}`)
-  // B468: the five levels with the step's lit, its reason, who runs at it, and what the board kept for that level.
+  // B468: the five levels with the step's lit, its reason, who runs at it, and what the board kept for that level. Model
+  // per step: the model families above them, the step's lit, with its reason.
   if (part.key === 'effort') {
+    const models = el('div', 'effort-levels')
+    for (const family of MODEL_FAMILIES) models.append(el('span', `effort-level${family === part.model?.family ? ' is-on' : ''}`, MODEL_NAMES[family]))
+    const modelWhy = el('p', 'muted', part.model?.isSet ? part.model.why : 'Its refine gave no model: it counts as Sonnet.')
     const levels = el('div', 'effort-levels')
     for (const level of EFFORT_LEVELS) levels.append(el('span', `effort-level${level === part.effort.level ? ' is-on' : ''}`, level))
     const why = el('p', 'muted', part.effort.isSet ? part.effort.why : 'Its refine gave no effort: it counts as medium.')
-    return section('Effort', [levels, why, ...(part.run === null ? [] : [el('p', 'effort-run', part.run)]), el('p', 'muted effort-kept', part.kept)])
+    return section(part.title, [...((part.model ?? null) === null ? [] : [models, modelWhy]), levels, why, ...(part.run === null ? [] : [el('p', 'effort-run', part.run)]), el('p', 'muted effort-kept', part.kept)])
   }
   if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
   // B293: what we build as the refine shows it, "Not in it" greyed.
@@ -12464,6 +12478,8 @@ function refinedParts(refined) {
   if (refined.build.length > 0) {
     parts.push(holding('div', '', el('span', 'refine-tag', 'What we build'), buildList(refined.build)))
   }
+  // Model per step: the model its worker runs on, "<sonnet or opus> · <reason>".
+  if ((refined.model ?? '') !== '') parts.push(holding('div', 'refined-effort', el('span', 'refine-tag', 'Model'), el('p', '', refined.model)))
   // B468: the effort its worker runs at, "<level> · <reason>".
   if ((refined.effort ?? '') !== '') parts.push(holding('div', 'refined-effort', el('span', 'refine-tag', 'Effort'), el('p', '', refined.effort)))
   return parts

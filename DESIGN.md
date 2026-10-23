@@ -2744,6 +2744,48 @@ level it needs. the worker will adjust to this new effort level". Every chat ran
    transcripts) are not counted.
 7. Not in it: the partner's own effort (B352) and the result checks' helpers.
 
+## A step's model (model per step, the token-saving plan's step 2)
+
+Measured on 2026-10-23: 96% of the project chats' usage ran on Opus. The person approved the same day: "workers Sonnet
+by default, Opus only for steps the Advisor marks hard (architecture, the board's core, unclear bugs)", plus "the
+Advisor's check helpers on Sonnet". It builds on B468: the same word to the main chat, the same hold.
+
+1. The partner names every step's model at its refine, with its effort: `model` on `work refine`, `work refined` and
+   `work new`, a family (sonnet or opus) and a reason of one line ("opus: a guard of the work store"; `parseModel`,
+   `src/work/effort.mjs`). The store keeps it as the step's Model section ("opus · ...") and the refine block's
+   `Model:` line, right before `Effort:`; a later round without one keeps it, a `refined` with one replaces it, a fix
+   step runs on the model of the step it fixes. The Workers mod lists `model` in `WORK_FIELDS` since its version
+   0.15.0; a chat started before gives it as a line of `questions` or `what` that starts with "Model:" and a family
+   (`withModel`). A step without one counts as sonnet (`modelOf`). When the partner marks opus stands in
+   roles/partner.md: architecture or design decisions, the board's core, unclear or repeated bugs, art direction or
+   judging; everything else sonnet, and medium the usual effort (effort barely changes the cost: output is about 5%
+   of the usage).
+2. The app's model ids come from the settings, never from the code: `models` (`{ "sonnet": "<id>", "opus": "<id>" }`,
+   as the app's model picker lists them; none unless set). For a family without an id the board sets the effort
+   alone, B468's word, as before.
+3. One word to the main chat sets both (`effortWords`, command `worker-effort` as before): `set model and effort`,
+   "Chat:", "Session:", "Step:" (none when back to the usual setting), "Model:" (the id), "Effort:", "Why:". The main
+   chat runs `set_session_model` and `set_session_effort` (roles/main.md); its own model stays. A word counts as asked
+   for a setting when both its effort and its model are that setting's (`sameTarget`), also in the delivery's check.
+4. The step's line to its worker waits until both are read back (`isSet`): the effort from the app's file of the chat,
+   the model from the same file (`model`) or, when the file names none or names another, from the chat's answer after
+   the word (its transcript names the model of each answer, as B352 reads the partner's; the lane's `lastAnswer`). B468's
+   hold stands: three minutes at most after the word (`HOLD_MS`), a lost word frees the line, a word goes again only
+   after half an hour.
+5. Between steps a worker runs at its usual setting from the settings, `usualModel` and `usualEffort` (sonnet and
+   medium unless set; `runSettings`), never at what it ran at before the board's first word (B468 kept that one, extra
+   high on Opus for every worker). The board moves a worker back only after one of its words changed it, as in B468; a
+   word of before (another level, or no model) is no word back to the usual setting, so such a worker is moved to it,
+   and a setting the person chose by hand after a word back arrived is left alone.
+6. The page says the model beside the effort: the step's window has **Model and effort** (the two families and the
+   five levels, each with the step's lit and its reason), who runs at "Sonnet · low" until the step ends and then at
+   its usual setting; the worker's window has "Sonnet · low" among its chips (", not set yet" while asked); a refine
+   block shows its Model line. No new page.
+7. The partner's helpers: every helper the partner starts for a check, a re-check, a review or facts runs on Sonnet
+   (`model: "sonnet"`), and its helper chat (Advisor 2) runs on Sonnet at medium as its own setting, which the main
+   chat sets once (roles/partner.md, roles/main.md). The board does not set the helper chat itself.
+8. Not in it: the main chat's model, and the partner's (B352).
+
 ## The last silent catches (B446)
 
 The result check of B404 found four catches left in `server.mjs` that dropped their errors: nothing on the page,

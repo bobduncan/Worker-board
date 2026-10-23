@@ -2044,13 +2044,28 @@ describe('B468: the Advisor gives a step its effort with the work tool', () => {
     const w = world('advisor', advisor())
     stand(on, w)
     await $.session.start(START)
-    expect(w.descriptions.work).toContain('"standard", "effort", "questions"')
-    expect(w.descriptions.work).toContain('"refined" ("id", "what", "standard", "effort")')
-    expect(w.descriptions.work).toContain('"priority", "standard", "effort"): a new step')
+    expect(w.descriptions.work).toContain('"standard", "model", "effort", "questions"')
+    expect(w.descriptions.work).toContain('"refined" ("id", "what", "standard", "model", "effort")')
+    expect(w.descriptions.work).toContain('"priority", "standard", "model", "effort"): a new step')
     await $.turn.start({ text: 'go', turnId: 't1' })
     w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', text: 'B12: refined, round 1.' }) }
     await $.tool.call({ tool: WORK, action: 'refine', id: 'B12', summary: 'A fix.', effort: 'low: a text fix' } as never)
     expect(sent(w).filter(one => one.action === 'refine')).toEqual([{ action: 'refine', id: 'B12', summary: 'A fix.', effort: 'low: a text fix', chat: 'Advisor', session: 'advisor' }])
+  })
+
+  test('model per step: the model goes with the effort on refine, refined and new, and reaches the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('advisor', advisor())
+    stand(on, w)
+    await $.session.start(START)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'B12', text: 'B12: refined, round 1.' }) }
+    await $.tool.call({ tool: WORK, action: 'refine', id: 'B12', summary: 'A fix.', model: 'opus: a guard of the work store', effort: 'medium: one rule' } as never)
+    await $.tool.call({ tool: WORK, action: 'refined', id: 'B12', what: ['A guard'], model: 'opus: a guard of the work store' } as never)
+    await $.tool.call({ tool: WORK, action: 'new', title: 'Fix the gate words', activity: 'Board', model: 'sonnet: a text fix' } as never)
+    expect(sent(w).filter(one => ['refine', 'refined', 'new'].includes(String(one.action))).map(one => [one.action, one.model])).toEqual([
+      ['refine', 'opus: a guard of the work store'], ['refined', 'opus: a guard of the work store'], ['new', 'sonnet: a text fix'],
+    ])
   })
 })
 
