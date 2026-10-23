@@ -238,6 +238,9 @@ function stand(on: On, w: World): void {
       const own = w.byAction[action]
       if (own !== undefined) {
         w.worked.push(e.init?.body ?? '')
+        w.requests.push(e.init?.headers?.['X-Work-Request'] ?? '')
+        const cut = w.cuts.shift()
+        if (cut !== undefined) return { deny: cut }
         const value = { status: own.status, ok: own.status === 200, headers: {}, text: own.text }
         const hold = w.holdAction?.action === action ? w.holdAction.until : null
         return hold === null ? { value } : hold.then(() => ({ value }))
@@ -2342,6 +2345,77 @@ describe('clear after each step', () => {
     expect(fileOf(w, 'units-2')?.cleared).toBeUndefined()
     expect(context[0]).toContain('Your earlier conversation was cleared, so this conversation starts empty.')
     expect(context[0]).not.toContain('kept word for word')
+  })
+
+  /** The report's turn's end, as the board answers it late: the turn's end is not held past a moment and a half. */
+  async function endsSlowly($: Engine, clock: { advance: (ms: number) => Promise<void> }, w: World): Promise<() => void> {
+    let release = (): void => {}
+    w.holdAction = { action: 'turn-ended', until: new Promise<void>(done => { release = done }) }
+    const ending = $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    await clock.advance(1500)
+    await ending
+    return release
+  }
+  const turnEnds = (w: World): number => w.sequence.filter(one => one === 'turn-ended').length
+
+  test('slow answer: the board answers the report\'s turn\'s end after the turn\'s end: the decision waits for it, and the worker is cleared', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await worker($, on)
+    const release = await endsSlowly($, clock, w)
+    expect([w.commanded, fileOf(w)?.clearNote]).toEqual([[], undefined])
+    // Meanwhile nothing is typed in: the line the board put out waits.
+    w.waiting = [{ id: 'w1', text: 'work: B13 is yours; run work next' }]
+    await clock.advance(1000)
+    await settle()
+    expect(w.typedIn).toEqual([])
+    // The board answers (its report check took a few seconds).
+    release()
+    for (let i = 0; i < 50 && w.commanded.length === 0; i++) await settle()
+    expect(w.sequence).toEqual(['report', 'turn-ended', 'save-log', '/clear'])
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.typedIn).toEqual([])
+  })
+
+  test('slow answer: the first call cut off, the second ask with the same request id answers: the worker is cleared', async ($, on) => {
+    mock.clock(on)
+    const w = await worker($, on)
+    w.cuts = ['socket hang up']
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    for (let i = 0; i < 50 && w.commanded.length === 0; i++) await settle()
+    expect(w.sequence).toEqual(['report', 'turn-ended', 'turn-ended', 'save-log', '/clear'])
+    const ids = w.requests.slice(-3, -1)
+    expect(ids[0]).toBe(ids[1])
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+  })
+
+  test('slow answer: no answer at all within the 15 s: compacted as before, the card saying why', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await worker($, on, null)
+    w.cuts = Array.from({ length: 30 }, () => 'socket hang up')
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    for (let i = 0; i < 20 && w.compactions.length === 0; i++) {
+      await clock.advance(1000)
+      await settle()
+    }
+    expect(w.compactions.length).toBe(1)
+    expect(fileOf(w)?.clearNote?.why).toBe('the board did not say this chat is a worker')
+    expect(w.commanded).toEqual([])
+    // Asked a few times in the 15 s, always under the same request id.
+    expect(turnEnds(w)).toBeGreaterThan(2)
+    expect(turnEnds(w)).toBeLessThan(10)
+    expect(new Set(w.requests.slice(-turnEnds(w))).size).toBe(1)
+  })
+
+  test('slow answer: a prompt that comes in while the decision waits means no clear, and no compaction', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await worker($, on, null)
+    const release = await endsSlowly($, clock, w)
+    await $.prompt.submit({ text: 'one more thing', origin: { kind: 'composer' } } as never)
+    release()
+    for (let i = 0; i < 50 && fileOf(w)?.clearNote === undefined; i++) await settle()
+    expect(fileOf(w)?.clearNote?.why).toBe('a new prompt came in before the clear')
+    expect([w.commanded, w.compactions, w.sequence.includes('save-log')]).toEqual([[], [], false])
   })
 
   test('review 4: the person\'s own /clear of a partner moves its card and tells it nothing of a worker', async ($, on) => {

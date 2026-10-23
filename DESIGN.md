@@ -2882,7 +2882,11 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   person pauses, its answer asks the person something the board did not file (`unfiled`, a question outside the
   block the mod reads, or more items than the board is handed), it sent another chat a message in that turn (the
   answer would come into a cleared conversation), a subagent of it still runs, a prompt came in, or the log could not
-  be saved.
+  be saved. A board slow to answer the report's turn's end (it checks the report then; 3.8 s seen live on 2026-10-23)
+  does not hold the turn's end past its moment and a half: the decision waits for the answer apart, up to 15 s (the
+  first call's, else a repeat with the same request id, B412), nothing typed in meanwhile, and decides then with every
+  guard of that moment; a prompt that came in meanwhile means no clear (and no compaction); no answer at all falls
+  back as before.
 - **The log, at no token cost** (`src/chatLogs.mjs`). The mod asks the board through the bridge (`/api/bridge/work`,
   `save-log` with `stepId`, the mod's own call: the work tool refuses it from the model, the board refuses it for any
   chat but a worker, and for one whose transcript shows background work running). The board puts the log in its
