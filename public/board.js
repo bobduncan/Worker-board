@@ -1559,7 +1559,8 @@ function laneFlags(lane, restart = null) {
   const isAsked = (restart?.starting ?? []).some(one => one.chat === lane.name && one.state !== 'expired' && one.state !== 'failed')
   return (lane.flags ?? []).map(flag => ({
     text: flag.text,
-    tone: flag.kind === 'card' ? 'warn' : 'problem',
+    // Model per step: a step that waits for its worker to run on Opus is a wait, no fault.
+    tone: flag.kind === 'card' || flag.kind === 'model' ? 'warn' : 'problem',
     // B304: a failed check is the person's to run again ("Check again", `data-recheck`: the work API's `recheck`).
     button: flag.kind === 'check failed' ? { label: 'Check again', recheck: flag.id }
       : flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
@@ -4076,8 +4077,8 @@ function itemPartsOf(item, hasFlow, { lanes = [], efforts = [] } = {}) {
     item.summary.length > 0 ? { key: 'summary', title: 'Summary', lines: item.summary, isFolded: false } : null,
     item.picture !== null ? { key: 'picture', title: 'Picture', lines: [item.picture], isFolded: false } : null,
     item.goal !== null ? { key: 'goal', title: 'Goal', lines: [item.goal], isFolded: false } : null,
-    // Model per step: its model with it.
-    (item.effort ?? null) !== null ? { key: 'effort', title: 'Model and effort', lines: [], isFolded: false, effort: item.effort, model: item.model ?? null, run: effortRunLine(item, lanes), kept: effortKeptLine(item.effort.level, efforts) } : null,
+    // Model per step: its model with it, where the board sets one (the settings name the model ids; else none).
+    (item.effort ?? null) !== null ? { key: 'effort', title: (item.model ?? null) === null ? 'Effort' : 'Model and effort', lines: [], isFolded: false, effort: item.effort, model: item.model ?? null, run: effortRunLine(item, lanes), kept: effortKeptLine(item.effort.level, efforts) } : null,
     hasFlow ? { key: 'flow', title: 'Flow', lines: [], isFolded: false } : null,
     item.what.length > 0 ? { key: 'what', title: 'What we build', lines: item.what, isFolded: false } : null,
     // B356: the result check by a helper that did not build it: the ticks, the score and the evidence picture.

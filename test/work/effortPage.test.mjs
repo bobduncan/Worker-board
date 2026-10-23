@@ -61,4 +61,9 @@ test('the model and effort part stands after the goal, with its run and kept lin
   })
   const { effort, ...without } = item('queued')
   assert.deepEqual(plain(page.itemPartsOf(without, false)).map(part => part.key), [])
+  // The review: without the model ids in the settings the state gives no model: the part is the effort alone.
+  const effortOnly = plain(page.itemPartsOf(item('queued', undefined, null), false))
+  assert.deepEqual([effortOnly[0].title, effortOnly[0].model, effortOnly[0].run], ['Effort', null, 'Units is set to low before the step goes to it.'])
+  assert.equal(page.effortRunLine(item('in progress', undefined, null), [lane({ level: 'low', model: null, usual: 'medium', usualModel: null, step: 'B7', isSet: true, asked: null })]),
+    'Units runs at low until the step ends, then at its usual setting (medium).')
 })

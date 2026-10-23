@@ -3,7 +3,7 @@
 import { constants } from 'node:fs'
 import { access, copyFile, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
-import { EFFORTS, MODELS } from './work/effort.mjs'
+import { EFFORTS, MODELS, modelIds } from './work/effort.mjs'
 import { parseRoutingPolicy } from './work/routing/policy.mjs'
 
 /**
@@ -120,21 +120,17 @@ export const DEFAULTS = {
    */
   kinds: [],
   /**
-   * Model per step (the token-saving plan, step 2): the app's model id of each model family a step may name, as the
-   * app's model picker lists it, `{ "sonnet": "<id>", "opus": "<id>" }`. None by default: for a family without an id
-   * the board has the main chat set a worker's effort only (B468).
+   * Model per step (the token-saving plan, step 2): the app's model id of both model families a step may name, as the
+   * app's model picker lists them, `{ "sonnet": "claude-...", "opus": "claude-..." }`. None by default: without both the
+   * board has the main chat set a worker's effort only (B468), and says so on top (`modelsProblem`) when they are
+   * given otherwise.
    */
   models: {},
+  modelsProblem: null,
   /** Model per step: what a worker runs at between steps, a family of `models` and an effort level of the app's. */
   usualModel: 'sonnet',
   usualEffort: 'medium',
 }
-
-/** Model per step: an id of the app's model picker, plainly ("claude-sonnet-5-5", "claude-opus-5-5[1m]"). */
-const MODEL_ID = /^[\w.:-]{1,80}(?:\[[\w.-]{1,20}\])?$/
-/** Model per step: `models` as the settings may give it: an object of families, each with an id. */
-const isModels = value => value !== null && typeof value === 'object' && !Array.isArray(value)
-  && Object.entries(value).every(([family, id]) => MODELS.includes(family) && typeof id === 'string' && MODEL_ID.test(id.trim()))
 
 /** B354: one kind of work of the settings, its paths inside the project. */
 const isKind = one => one !== null && typeof one === 'object' && !Array.isArray(one)
@@ -306,8 +302,11 @@ export function parseConfig(text, env) {
     const seen = new Set()
     config.kinds = raw.kinds.filter(isKind).map(kindOf).filter(one => !seen.has(one.kind.toLowerCase()) && seen.add(one.kind.toLowerCase()))
   }
-  // Model per step: the model ids of the app's picker, and the workers' usual setting between steps.
-  if (isModels(raw.models)) config.models = Object.fromEntries(Object.entries(raw.models).map(([family, id]) => [family, id.trim()]))
+  // Model per step: the model ids of the app's picker (both, or the effort alone with a warning on top), and the
+  // workers' usual setting between steps.
+  const ids = modelIds(raw.models)
+  config.models = ids.models
+  config.modelsProblem = ids.problem
   if (typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase())) config.usualModel = raw.usualModel.trim().toLowerCase()
   if (typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase())) config.usualEffort = raw.usualEffort.trim().toLowerCase()
   config.routing = parseRoutingPolicy(raw.routing)
@@ -352,7 +351,6 @@ export function configProblem(fileText) {
   if (has('advisorParts') && !(isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0)) return wrong('advisorParts', `a list of one or more of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
   if (has('cpuLimit') && !(typeof raw.cpuLimit === 'string' && CPU_LEVELS.includes(raw.cpuLimit.trim().toLowerCase()))) return wrong('cpuLimit', '"off", "gentle" or "strong"')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
-  if (has('models') && !isModels(raw.models)) return wrong('models', `an object of the model families ${MODELS.join(' and ')}, each with the app's model id ("claude-...")`)
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
   if (has('kinds') && !isKinds(raw.kinds)) return wrong('kinds', 'a list of { "kind", "done", "reference" }: a kind\'s name, its definition of done and its reference folder, paths inside the project written with /, each kind once')

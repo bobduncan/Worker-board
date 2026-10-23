@@ -67,7 +67,7 @@ test('a worker given a step asks the main chat for its level, and the line of th
   // Without model ids in the settings, the word sets the effort alone (model per step).
   assert.deepEqual(plan.words, [{ to: 'Main', chat: 'Units', session: 'local_units', level: 'low', model: null, usual: 'medium', usualModel: null, step: 'B7', why: "B7 is Units's next step; its refine says low (a text fix)" }])
   assert.deepEqual([...plan.held], ['B7'])
-  assert.deepEqual(plan.runs.get('Units'), { level: 'low', model: 'sonnet', usual: 'medium', usualModel: 'sonnet', step: 'B7', why: 'a text fix', modelWhy: null, isSet: false, asked: null })
+  assert.deepEqual(plan.runs.get('Units'), { level: 'low', model: null, usual: 'medium', usualModel: null, step: 'B7', why: 'a text fix', modelWhy: null, isSet: false, asked: null, waitsFor: null })
   // Asked a minute ago: no second word, the line still waits.
   const asked = effortPlan({ items, lanes: [lane('Units')], deliveries, sent: [word('Units', 'low', 'xhigh', NOW - 60_000, 'taken')], now: NOW, main: 'Main' })
   assert.deepEqual(asked.words, [])

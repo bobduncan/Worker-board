@@ -415,6 +415,9 @@ async function take(body, w) {
   }
   if (state === 'queued') {
     if (owner === null || !isOwner(item, w.who, w.prefix)) return refuse(409, `${id} is queued for ${owner ?? 'nobody'}, not for ${w.who}.`)
+    // Model per step: a step whose line waits for its worker's model or effort is not taken before the board sends it.
+    const hold = w.stepHold?.(id) ?? null
+    if (hold !== null) return refuse(409, `${hold} Take it once the board sends it.`)
     // B305: the chat takes its own queued step once what blocks it is resolved (the flow's move by the worker), also
     // while it still holds another. A flow.json without that move: the board's move, the chat taking it counted free.
     const byChat = (w.store.flow.step?.moves ?? []).some(one => one.from === 'queued' && one.to === 'taken' && (Array.isArray(one.by) ? one.by : [one.by]).includes(w.role))

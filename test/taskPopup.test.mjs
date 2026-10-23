@@ -60,7 +60,7 @@ const card = JSON.stringify({
 })
 const LINES = [fromChat(NOW - 40 * MIN, 'Game - Main', 'work: B12 is yours'), step(NOW - 2 * MIN, 'Draw'), toolResult(NOW - MIN)]
 
-function lane(backlogText, goalsText = GOALS) {
+function lane(backlogText, goalsText = GOALS, settings = config) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: [app('Main'), app('Units')],
@@ -68,7 +68,7 @@ function lane(backlogText, goalsText = GOALS) {
     planLineTexts: { 'cli-Units': card },
     backlogText, goalsText, adviceText: null, folders: null, askTexts: [], pictureLists: {},
   }
-  return buildState(raw, { lines: [], outbox: [], runs: [], now: NOW, config }).chats.find(chat => chat.name === 'Units')
+  return buildState(raw, { lines: [], outbox: [], runs: [], now: NOW, config: settings }).chats.find(chat => chat.name === 'Units')
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -92,7 +92,8 @@ test('a lane on a refined step carries its brief: summary, picture, what we buil
     picture: 'art-inbox/meadows/plan.png (the three meadows side by side)',
     what: ['The Clover, the Thistle and the Ring as meadow maps.', 'Not in it: a fourth meadow.'],
     effort: { level: 'medium', why: null, isSet: false },
-    model: { family: 'sonnet', why: null, isSet: false },
+    // Model per step: no model ids in the settings, so no model the board did not set.
+    model: null,
     about: ['The herd asked for three meadows.'],
     context: ['The herd asked for three meadows. Requirements: three maps, each crossed.', 'Touches: src/meadows, tests.'],
     touches: ['src/meadows, tests.'],
@@ -116,7 +117,7 @@ test('a refined step: a short title with the whole one on hover, the goal as a c
   assert.equal(view.code, 'B12')
   assert.equal(view.title, 'Build the Clover, the Thistle and the Ring as meadow maps')
   assert.equal(view.fullTitle, 'Build the Clover, the Thistle and the Ring as meadow maps, each crossed by the test herd')
-  assert.deepEqual(view.chips.map(chip => chip.text), ['Working', 'Worker: Units', 'G29 Zebracorn meadows worth walking', 'Sonnet · medium'])
+  assert.deepEqual(view.chips.map(chip => chip.text), ['Working', 'Worker: Units', 'G29 Zebracorn meadows worth walking', 'Effort: medium'])
   assert.equal(view.chips[2].tone, 'goal')
   assert.deepEqual(view.refined, {
     summary: 'Three new meadows for the zebracorns, each one crossed by the test herd before it ships.',
@@ -128,6 +129,14 @@ test('a refined step: a short title with the whole one on hover, the goal as a c
   assert.ok(!JSON.stringify(view).includes('[store]'))
 })
 
+test('the review: with the model ids in the settings the chip names the model beside the effort; without, the effort alone', () => {
+  const withIds = { ...parseConfig(JSON.stringify({ models: { sonnet: 'claude-sonnet-test', opus: 'claude-opus-test' } }), {}), project: PROJECT }
+  const units = lane(REFINED, GOALS, withIds)
+  assert.deepEqual(plain(units.givenTask.step.brief.model), { family: 'sonnet', why: null, isSet: false })
+  assert.equal(plain(page.laneWindowOf(units, NOW, 'Game - Main')).chips.at(-1).text, 'Sonnet · medium')
+  assert.equal(plain(page.laneWindowOf(lane(REFINED), NOW, 'Game - Main')).chips.at(-1).text, 'Effort: medium')
+})
+
 test('a step without a refine block: no refined part, the first lines of its context instead', () => {
   const view = plain(page.laneWindowOf(lane(PLAIN), NOW, 'Game - Main'))
   // The first clause is too short to say anything ("Fence the meadow"): up to the next one.
@@ -135,7 +144,7 @@ test('a step without a refine block: no refined part, the first lines of its con
   assert.equal(view.fullTitle, 'Fence the meadow: a gate on the north side that only the gardener opens, so the herd stays in')
   assert.equal(view.refined, null)
   assert.equal(view.task, 'The herd keeps walking off the north edge. A gate there keeps it in. The gate opens for the gardener only.')
-  assert.deepEqual(view.chips.map(chip => chip.text), ['Working', 'Worker: Units', 'G29 Zebracorn meadows worth walking', 'Sonnet · medium'])
+  assert.deepEqual(view.chips.map(chip => chip.text), ['Working', 'Worker: Units', 'G29 Zebracorn meadows worth walking', 'Effort: medium'])
 })
 
 test('the details keep the rest: the step with its whole title, its context, what it touches and its history', () => {

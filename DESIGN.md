@@ -2760,18 +2760,30 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
    roles/partner.md: architecture or design decisions, the board's core, unclear or repeated bugs, art direction or
    judging; everything else sonnet, and medium the usual effort (effort barely changes the cost: output is about 5%
    of the usage).
-2. The app's model ids come from the settings, never from the code: `models` (`{ "sonnet": "<id>", "opus": "<id>" }`,
-   as the app's model picker lists them; none unless set). For a family without an id the board sets the effort
-   alone, B468's word, as before.
+2. The app's model ids come from the settings, never from the code: `models` (`{ "sonnet": "claude-...", "opus":
+   "claude-..." }`, as the app's model picker lists them; none unless set). They count only as both, each starting
+   with `claude-` (`modelIds`); given otherwise the board says so on top ("Settings: ...", `modelsProblem`) and sets
+   the effort alone, B468's word, as without them. The page then shows no model either: a model the board did not set
+   is not shown (the state's `model` of a step is null).
 3. One word to the main chat sets both (`effortWords`, command `worker-effort` as before): `set model and effort`,
    "Chat:", "Session:", "Step:" (none when back to the usual setting), "Model:" (the id), "Effort:", "Why:". The main
    chat runs `set_session_model` and `set_session_effort` (roles/main.md); its own model stays. A word counts as asked
    for a setting when both its effort and its model are that setting's (`sameTarget`), also in the delivery's check.
-4. The step's line to its worker waits until both are read back (`isSet`): the effort from the app's file of the chat,
-   the model from the same file (`model`) or, when the file names none or names another, from the chat's answer after
-   the word (its transcript names the model of each answer, as B352 reads the partner's; the lane's `lastAnswer`). B468's
-   hold stands: three minutes at most after the word (`HOLD_MS`), a lost word frees the line, a word goes again only
-   after half an hour.
+4. The step's line to its worker waits until both are read back (`isSet`), from the app's file of the chat: the app
+   writes the session's record there on every change of the model (Claude 3.1623: `setModel` → `commitSessionModel`,
+   which sets the record's `model` and saves the session; for an idle chat once its process took the model), so an
+   idle worker is confirmed from the file. Only a file that names no model lets the chat's last answer count (its
+   transcript names its model, as B352 reads the partner's; the lane's `lastAnswer`), and only an answer after the
+   newest word (not lost) that set another model. A word for another setting still on its way (the newest word, not
+   lost, of the last half hour, whose setting the file does not show yet: a word back to Sonnet still in the main
+   chat's queue) changes the chat after any reading now, so while it is, the step is not set.
+   The review (2026-10-24): **an opus step waits until its worker runs on Opus**, however long: no release after three
+   minutes, for a lost word, without a main chat or with a file that names no effort. Its word goes only once a word
+   for another model on its way was applied (the main chat sets them in their order, so the reading that frees it
+   comes after both), and again each half hour (`AGAIN_MS`). The lane says so, "B<id> waits for Opus since HH:MM: <why>"
+   (a flag of kind `model`, amber), and `work take` refuses the step while it waits, with that line (`stepHold`, the
+   state's `reconciled.holds`). Any other step keeps B468's hold: three minutes at most after its word (`HOLD_MS`), a
+   lost word frees the line; running a sonnet step on Opus costs tokens at worst.
 5. Between steps a worker runs at its usual setting from the settings, `usualModel` and `usualEffort` (sonnet and
    medium unless set; `runSettings`), never at what it ran at before the board's first word (B468 kept that one, extra
    high on Opus for every worker). The board moves a worker back only after one of its words changed it, as in B468; a
@@ -2784,7 +2796,9 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
 7. The partner's helpers: every helper the partner starts for a check, a re-check, a review or facts runs on Sonnet
    (`model: "sonnet"`), and its helper chat (Advisor 2) runs on Sonnet at medium as its own setting, which the main
    chat sets once (roles/partner.md, roles/main.md). The board does not set the helper chat itself.
-8. Not in it: the main chat's model, and the partner's (B352).
+8. The partner and its helper are never set by this plan (`skip`): their own setting (B352, and the helper's once)
+   stays.
+9. Not in it: the main chat's model, and the partner's (B352).
 
 ## The last silent catches (B446)
 
