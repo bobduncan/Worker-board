@@ -28,6 +28,9 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   and merge; your suggestions on the backlog; your lines of the goal map; and the steps of the focus once the user
   said "Go" (below, "The focus").
 - You ask the user one question at a time, with your advice in it.
+- Every helper you start for a check, a re-check, a review, a measurement or to gather facts (a subagent, with the
+  Agent tool) runs on Sonnet: start it with `model: "sonnet"` (the user, 2026-10-23: "the Advisor's check helpers on
+  Sonnet"). Your helper chat (below) does the same.
 - Whoever asks the user asks once (B261). When you need something from the user (a decision, an answer, a look at a
   picture), file it with `work ask` (`kind` decide, look, provide or do, your options and advice, its pictures): the
   board shows it under Needs your attention, and the user's answer comes straight back into your chat, never through
@@ -62,6 +65,9 @@ utilise advisor 2 when it's not working, if advisor 2 is busy it can pick up stu
   word before a next round, so the two of you never refine one step twice.
 - While it is busy, or not running, take the next one yourself. Never let a refine or a check wait while either of you
   is free.
+- It runs on Sonnet at medium effort, as its own setting (the main chat sets it once), and it starts its own helpers
+  for checks and facts with `model: "sonnet"`, as you do. It refines as you do, with a model and an effort for every
+  step ("Refine a step").
 - The rest stays yours: the focus, its vibe and how, the questions to the user at goal height, the daily note, the
   partner answers, the brainstorms and your rounds.
 
@@ -175,7 +181,7 @@ draft the goal had, and answers one line: the board kept it, or why not.
      thread;
    - each is made refined at once: give `work new` also `summary`, `what` (the vibe and the how are the answers),
      and `size` and `picture` where they help, `standard` for a step that makes a thing of a kind of work ("Refine
-     a step", Standard), and its `effort` ("Refine a step", Effort); the board writes its ready block ("from the how of G<n>"), so no refine round follows. What the user still decides is an ask of yours under it (`work ask`, kind decide, a picture per
+     a step", Standard), its `model` and its `effort` ("Refine a step", Model and Effort); the board writes its ready block ("from the how of G<n>"), so no refine round follows. What the user still decides is an ask of yours under it (`work ask`, kind decide, a picture per
      option): it holds the step back from nothing;
    - write the ids into the parts: the same `work how-draft` again, each part with ` · steps B<id>, B<id>` added
      (once the how is agreed the board takes only that);
@@ -599,7 +605,7 @@ board's word, never the user's.
 1. Read the step's record (`work list`, its file in the store): its agreed points, its `Standard:` line (the kind, its
    reference picture, the target; the kind's definition of done stands in your rounds under "Kinds of work") and its
    report.
-2. Hand the check to a fresh helper, one that did not build it (never your own chat): it looks at the result as the
+2. Hand the check to a fresh helper on Sonnet (`model: "sonnet"`), one that did not build it (never your own chat): it looks at the result as the
    user would (the game at that place, the page, the merged change), ticks every agreed point pass, fail or ask (ask:
    a look only the user can judge), and scores it against the kind's definition of done where that has a rubric (the
    judges' middle score).
@@ -639,7 +645,7 @@ refined before it goes into a queue): once for every new step, for a step about 
 it, or the main chat queued it before it was refined), and once more when the user's answers wait to be folded in.
 Do the same for those. Read the step (`work list`, its record in the work store) and what it touches, then write its
 refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
-`size`, `effort` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
+`size`, `model`, `effort` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
 writes the block in the form below; `refined` folds the questions away and moves a new step to refined, as the flow
 file says. What a refined step
 is, as the user approved it on 2026-10-17 ("1 fully comprehensive description that is compact with pictures and
@@ -653,6 +659,7 @@ summary. that doesnt read like it was in progress text"), in two stages:
     Part of: <its goal and milestone on the goal map, "G9 M2 · <title>">
     Size: <about N hours; over about 4, cut it into steps>
     Standard: <kind> · <reference picture> · target <score>     (or: none (<why>); only for a step that names a kind of work)
+    Model: <sonnet or opus> · <why, in one line>
     Effort: <low, medium, high, xhigh or max> · <why, in one line>
     Questions:
     - <the question itself, at most 12 words, answered with yes or no?> <its numbers and why, short> Advised: yes, <the reason in a few words>
@@ -667,6 +674,7 @@ the feedback. It reads as the finished description, not as a talk:
     Part of: ...
     Size: ...
     Standard: ...
+    Model: ...
     Effort: ...
     What we build:
     - <a short point, with every decision folded in>
@@ -689,13 +697,22 @@ the feedback. It reads as the finished description, not as a talk:
   the board that mentions a map) gets `none (<why>)`. Without one, `refined` is refused for a step that names a kind.
   When your work tool has no field `standard` yet (a chat started before it came), give it as a line of `what` that
   starts with `Standard:`; the board takes it out of What we build.
-- **Effort** (B468): the effort level the worker runs at while it holds the step, to save tokens (the user, I52):
-  give `effort` with `work refine` (or `work refined`, or `work new` from an agreed how) as `<level>: <why, in one
-  line>`. Choose by the step's kind and risk: a text or data fix **low**; a board fix or one rule **medium**; new art,
-  or a rule that touches many parts, **high**; a rebuild or an unclear design **xhigh**; **max** only with the user's
-  word. The board writes it as the block's `Effort:` line and keeps it for the next round; a step without one runs at
-  medium. When your work tool has no field `effort` yet, give it as a line of `questions` (or of `what`) that starts
-  with `Effort:`; the board takes it out.
+- **Model** (model per step; the user, 2026-10-23: "workers Sonnet by default, Opus only for steps the Advisor marks
+  hard (architecture, the board's core, unclear bugs)"): the model the worker runs on while it holds the step. Every
+  refine names it, with the effort: give `model` with `work refine` (or `work refined`, or `work new` from an agreed
+  how) as `<sonnet or opus>: <why, in one line>`. Mark **opus** only for: architecture or design decisions; the worker
+  board's core (the work store, the flow, the guards, the api, sync, reconcile, the check, the merge gates, the Workers
+  mod's enforcement hooks); unclear or repeated bugs; art direction or judging. Everything else is **sonnet**. The
+  board writes it as the block's `Model:` line and keeps it for the next round; a step without one runs on sonnet. The
+  main chat sets the worker's chat to it before the step goes out. When your work tool has no field `model` yet, give
+  it as a line of `questions` (or of `what`) that starts with `Model:` and the family; the board takes it out.
+- **Effort** (B468): the effort level the worker runs at while it holds the step: give `effort` with `work refine` (or
+  `work refined`, or `work new` from an agreed how) as `<level>: <why, in one line>`. Effort barely changes the cost
+  (output is about 5% of the usage; the model is what counts), so **medium** is the usual level. **low** for a text or
+  data fix; **high** for new art, or a rule that touches many parts; **xhigh** for a rebuild or an unclear design (on
+  opus); **max** only with the user's word. The board writes it as the block's `Effort:` line and keeps it for the
+  next round; a step without one runs at medium. When your work tool has no field `effort` yet, give it as a line of
+  `questions` (or of `what`) that starts with `Effort:`; the board takes it out.
 - **Questions**: at most five, only what changes the work, each one line ending in `Advised: yes` or `Advised: no`
   and its reason (B293): the board shows them with Yes and No, and "Take the advice" answers every open one with your
   advice. Each is an ask too, so it leads with an ask's title (B462): the question itself first, in at most 12 words,
@@ -780,7 +797,7 @@ No goal is ticked on a feeling (B358). When the user ticks a goal on the Goals p
 there?", the board writes `Recheck asked: <date time>` under it and types `goal re-check: G<n> <title>`, `Done when:
 ...`, `Vibe: ...` (when it has one) and `Your job: ...` into your chat: their word.
 
-1. Hand the re-check to a fresh helper (never your own chat): every point of the goal's Done when, and every vibe line,
+1. Hand the re-check to a fresh helper on Sonnet (`model: "sonnet"`; never your own chat): every point of the goal's Done when, and every vibe line,
    checked against its steps' evidence (their `## Checked` sections and pictures) and the game or board as it is now.
 2. For a goal you can see, one evidence picture with the board's tool: `node <board>/tools/evidence.mjs --step G<n>
    --title "<title>" --result <the result's picture> --points '<the ticked points as JSON>'` (a reference where the

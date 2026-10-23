@@ -35,6 +35,12 @@
   "morningSkipPercent": 80,
   "botherMe": "now",
   "approveRebuilds": false,
+  "models": {
+    "sonnet": "claude-sonnet-5-5",
+    "opus": "claude-opus-5-5"
+  },
+  "usualModel": "sonnet",
+  "usualEffort": "medium",
   "kinds": [
     {
       "kind": "level",

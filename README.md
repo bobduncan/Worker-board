@@ -223,6 +223,12 @@ board; a copy beside your board starts at Off whatever it says.
 shows one. A refined step whose title or text names a kind carries its standard (`Standard: <kind> · <reference
 picture> · target <score>`, written by the partner), so every result is checked against something written before it
 was built. The board knows no kind of its own; it shows the pictures of each kind's reference folder too.
+`models` (none unless set): the app's model id of both model families a step may name, as the app's model picker
+lists them: `{ "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5" }` (the ids of your app; `examples\config.json`
+has these). Every step runs on the model its refine names (`Model: sonnet` unless it says opus) at its effort: the
+main chat sets the worker's chat to both before the step goes to it, and an opus step waits until the app says its
+worker runs on Opus. Without both ids, each starting with `claude-`, the board sets the effort alone and says so on
+top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what a worker runs at between steps.
 
 ## The work store
 

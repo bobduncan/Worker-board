@@ -680,6 +680,8 @@ async function main(args) {
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,
+      // Model per step: why a step's line waits for its worker's model or effort (effort.mjs `holds`), or null.
+      stepHold: id => state.reconciled?.holds?.[id] ?? null,
       // The guard (2026-10-21): a step of a kind waits for its standard's confirm and its foundation (the product plan).
       standardHold: item => standardHold(item, state.plan?.standards ?? []),
       // B356: a board without a partner chat makes no result check: its own check closes a step.
