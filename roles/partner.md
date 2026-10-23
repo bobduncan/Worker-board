@@ -154,7 +154,9 @@ draft the goal had, and answers one line: the board kept it, or why not.
 1. **The vibe.** `focus: G<n> <title>`, `Thread: <path>`, `Stage: the vibe`, `Your job: ...`: the user picked
    the goal (a new goal from their own words, when they wrote "something new": its title is theirs, make it 5 to 10
    words once you know more). Read the goal's lines, its steps and the game plan once, write the context head into the
-   thread and the first question: when this goal is done, what should it feel like? Talk until the vibe is clear, and
+   thread and the first question: when this goal is done, what should it feel like? When the goal or one of its
+   sub-goals carries `Note: your choice: ...`, that choice is the first question instead (the user, 2026-10-23: the
+   direction they owe comes first), its options side by side in one picture, and the feel follows from it. Talk until the vibe is clear, and
    keep the draft (`work vibe-draft`) after each answer that changes it: three to five short lines of what the user wants to feel when it
    is done, one `Not in it: ...` line, and a picture where it helps (one in the project's picture folder, all options
    side by side when there are options). **Nothing is built in this move**: no steps, no suggestions, no queue. When
@@ -383,7 +385,12 @@ The user's words: `plan: goals confirmed` with `Goals: S1, S4`: write `State: co
 them, the confirmed goals kept unless the words change them. `plan: goals agreed`: write the confirmed goals into the
 goal map (`.claude/goals.md`, its rules at its top): a goal with `Goal: G<n>` gets its Done when and `Serves:` there;
 a new one gets the next G id under its milestone's goal (`From the game plan: M<n>`), with `Done when:` and
-`Serves:`, and its id written back as `- Goal: G<n>`. Commit and push the page as for the vision.
+`Serves:`, and its id written back as `- Goal: G<n>`. Its `- Sub:` lines go with it (the user, 2026-10-23: a choice
+promised on the Plan step must not get lost): each becomes a sub-goal one level deeper, in their order, with its own
+G id and a checkable `Done when:` where the words allow one. A sub that names the person's choice ("your choice", "you
+pick", "which ... you want") gets the line `Note: your choice: <what they choose>, asked first in the focus talk, with
+picture options`. A goal already in the map without its subs gets them at the next plan check. Commit and push the
+page as for the vision.
 
 **The next focus** (step 5; the user presses **Propose the next focus**: `plan: focus`, with `Words:` when they want
 another): propose the one goal of the goal map to focus on next, under a heading `## Next focus` at the page's end
