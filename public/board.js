@@ -2570,6 +2570,8 @@ function drawToday(state) {
 
 /** The chat of that name on the board: a lane, or the advisor. */
 const chatNamed = name => (board === null ? null : [...board.chats, board.advisor].find(chat => chat !== null && chat.name === name) ?? null)
+/** The main chat as the board reads it (its name, whether it runs), or null without one. */
+const mainChatOf = state => (state?.chats ?? []).find(chat => chat.name === (state?.restart?.main ?? null)) ?? null
 
 /**
  * What is said where something waits for a chat that is not running: that the main chat was asked to start it,
@@ -3765,6 +3767,10 @@ function focusPageView(state, ui) {
     recaps: linkable(state.recaps),
     recapsShow: state.recapsShow ?? null,
     backlog: stepKeysOf(state.backlog),
+    // The main chat alone (its name, whether it runs): the talk's line says whether it can start a partner that does
+    // not run (mainChatOf); the other chats are not drawn here.
+    chats: (state.chats ?? []).filter(chat => chat.name === (state.restart?.main ?? null)).map(runnerOf),
+    restart: { main: state.restart?.main ?? null },
   }
   return {
     ...cards,
@@ -8921,9 +8927,9 @@ function focusNoteView(focus, allowed, why) {
 /**
  * Focus 2: where the talk stands, as the Brainstorm part answers it: the partner's open question with its options, its
  * why and its picture (the person answers it here), or, while the partner has the turn, what it does. `partner` is
- * state.advisor.
+ * state.advisor; `main` the main chat (its name, whether it runs), which starts a partner that does not run.
  */
-function focusAsk(thread, partner) {
+function focusAsk(thread, partner, main = null) {
   // The review of Focus 2: no talk, or one that is over, wrapped up or holding a proposal (the Brainstorm part's), is
   // started anew from here (`restart`: "Start the talk").
   if (thread === null || thread === undefined) return { question: null, waiting: 'No talk about this goal runs: start one.', restart: true }
@@ -8933,7 +8939,8 @@ function focusAsk(thread, partner) {
     return { question: { n: latest.n, why: latest.why ?? null, picture: latest.picture ?? null, options: (latest.options ?? []).map(one => ({ key: one.key, text: one.text, isAdvised: one.isAdvised === true })) }, waiting: null, restart: false }
   }
   const waiting = partner === null || partner === undefined ? 'No partner chat is on the board.'
-    : partner.isRunning === false ? 'Your partner\'s chat is not running: the main chat is asked to start it.'
+    : partner.isRunning === false && main?.isRunning === false ? `Your partner's chat is not running, and neither is ${main.name}, which could start it: open one of the two chats.`
+      : partner.isRunning === false ? 'Your partner\'s chat is not running: the main chat is asked to start it.'
       : 'Your partner is thinking…'
   return { question: null, waiting, restart: false }
 }
@@ -9381,7 +9388,7 @@ function focusTalkCard(state, can) {
   card.append(el('h3', '', 'Talk with your partner'))
   const thread = (state.brainstorms?.threads ?? []).find(one => one.path === state.focus.thread) ?? null
   const bubbles = focusTalk(thread)
-  const ask = focusAsk(thread, state.advisor ?? null)
+  const ask = focusAsk(thread, state.advisor ?? null, mainChatOf(state))
   const list = el('div', 'focus-bubbles')
   if (bubbles.length === 0) list.append(el('p', 'muted', 'No talk about this goal yet.'))
   for (const bubble of bubbles) {
@@ -9770,6 +9777,9 @@ function visionWorking(working, state, can, off) {
     } else if (one.state === 'late' || one.state === 'failed') line.append(el('span', 'muted', `Send it again from its box, or look in ${partner}'s chat.`))
     box.append(line)
   }
+  // A word waits for a partner whose chat does not run (2026-10-21: three waited an hour unseen): say who can start it,
+  // or that the person opens it, with the button that asks the main chat (startParts).
+  if (working.some(one => one.state === 'waiting') && (state.advisor ?? null) !== null) box.append(...startParts(state.advisor.name))
   return box
 }
 
@@ -10873,7 +10883,7 @@ async function focusAnswerAsk(id, label) {
 /** The person's answer to the partner's open question: written under it in the thread, then typed to the partner. */
 async function focusAnswer(focus) {
   const thread = (board?.brainstorms?.threads ?? []).find(one => one.path === focus.thread) ?? null
-  const ask = focusAsk(thread, board?.advisor ?? null)
+  const ask = focusAsk(thread, board?.advisor ?? null, mainChatOf(board))
   const words = focusUi.words.talk.trim()
   const picked = focusUi.picked !== null && ask.question?.options.some(one => one.key === focusUi.picked) ? focusUi.picked : null
   if (ask.question === null) return

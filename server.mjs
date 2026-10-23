@@ -52,7 +52,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { findPicture, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -1636,6 +1636,14 @@ async function main(args) {
           if (wake !== null) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...wake, state: 'waiting' })
         }
         if (due.release.length + due.drop.length > 0 || due.refine !== null || due.notice !== null) readState.reset()
+      }
+      // Words that wait for a chat that is not running, sent while the main chat did not run either, are followed by
+      // the word to start it once the main chat runs (say.mjs wakesDue). Only the board that delivers.
+      if (bridgeKey !== null && state.bridge?.isMissing !== true) {
+        const now = clock()
+        const starts = wakesDue(state, sentNow(), now, config.maxMessageChars)
+        for (const start of starts) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...start, state: 'waiting' })
+        if (starts.length > 0) readState.reset()
       }
       // B124: the main chat alone in the list is asked for workers, once. Only the board that delivers asks.
       const ask = bridgeKey === null ? null : spawnWhenAlone(state, store.outbox(), store.lines())
