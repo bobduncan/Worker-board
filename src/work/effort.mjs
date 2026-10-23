@@ -306,8 +306,9 @@ export function effortPlan({ items, lanes = [], deliveries = [], sent = [], now,
     // after both (the main chat sets them in their order).
     const isAgainstModel = against !== null && (against.model ?? null) !== null && !sameModel(against.model, id)
     const canAsk = main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
+    // Only the step whose line waits: one it holds already is set as soon as can be, its line gone.
     let waitsFor = null
-    if (isStrict && !isModelSet) {
+    if (isStrict && !isModelSet && holding === undefined) {
       const since = mine.find(word => word.forStep === step && sameTarget(word, level, id))?.at ?? null
       const reason = main === null ? 'there is no main chat (or no Workers mod) to set it'
         : isAgainstModel ? `the word to set it to ${MODEL_WORDS[MODELS.find(one => sameModel(idOf(one), against.model))] ?? against.model} first is not applied yet`

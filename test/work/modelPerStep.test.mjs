@@ -191,6 +191,9 @@ test('the review: an opus step not set in time stays held, the lane says since w
   assert.deepEqual([noEffort.words.map(one => one.model), [...noEffort.held]], [[MODELS.opus], ['B8']])
   // A word for another model on its way first: the opus word waits for it to be applied.
   assert.deepEqual(plan({ items, lanes, deliveries, sent: [word('Units', 'high', MODELS.sonnet, NOW - 60_000, 'taken', 'B8')] }).words, [])
+  // A step the worker holds already (in progress) cannot wait: its word goes, and the lane names no wait.
+  const holding = plan({ items: itemsOf(step('B8', { Owner: 'Units', State: 'in progress' }, { Model: ['opus · a guard'], Effort: ['high · many parts'] })), lanes })
+  assert.deepEqual([holding.words.map(one => one.model), [...holding.held], holding.runs.get('Units').waitsFor], [[MODELS.opus], [], null])
 })
 
 test('a sonnet step keeps B468\'s timeout: not read back within three minutes, its line goes', () => {
