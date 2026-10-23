@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { once } from 'node:events'
 
-import { chatLogKeeper, entryText, logBase, logFolderName, writeTextLog } from '../src/chatLogs.mjs'
+import { chatLogKeeper, entryText, isReadOut, leftSubjects, logBase, logFolderName, writeTextLog } from '../src/chatLogs.mjs'
 
 const AT = Date.parse('2026-10-23T14:05:00')
 const iso = ms => new Date(ms).toISOString()
@@ -134,7 +134,7 @@ test('a log the board did not finish is finished after a restart, from the copy 
     assert.match(await readFile(join(logs, 'new.txt'), 'utf8'), /Worker 1:\nThe knight is in\./)
     assert.match(await readFile(join(logs, 'old.txt'), 'utf8'), /Worker 1:\nThe knight is in\./)
     assert.equal((await readFile(join(logs, 'new.jsonl'), 'utf8')), `${transcriptLines().join('\n')}\n`)
-    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')), { jobs: [] })
+    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')), { jobs: [], left: [] })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -153,7 +153,7 @@ test('a transcript gone before its copy is given up, said once; no transcript, n
     await keeper.resume()
     await keeper.idle()
     assert.deepEqual(given, ['x'])
-    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')), { jobs: [] })
+    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')), { jobs: [], left: [] })
     assert.deepEqual(await keeper.save({ chat: 'W', session: 'none', step: 'B1' }), { ok: false, status: 404, why: 'No transcript of this session (none): nothing to keep.' })
     assert.equal((await keeper.save({ chat: 'W', session: '../x', step: 'B1' })).status, 400)
     await writeFile(join(transcripts, 's2.jsonl'), `${transcriptLines()[1]}\n`)
@@ -161,6 +161,65 @@ test('a transcript gone before its copy is given up, said once; no transcript, n
     const second = await keeper.save({ chat: 'W', session: 's2', step: 'B1' })
     assert.deepEqual([first.result.log, second.result.log], ['.claude/chat-logs/W/2026-10-23 1405 B1.txt', '.claude/chat-logs/W/2026-10-23 1405 B1-2.txt'])
     await keeper.idle()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('review 2: the session a cleared chat left is named until it is read to its end, also after a restart', async () => {
+  const dir = await folder()
+  try {
+    const transcripts = join(dir, 'transcripts')
+    await mkdir(transcripts, { recursive: true })
+    await writeFile(join(transcripts, 'old.jsonl'), `${transcriptLines()[1]}\n`)
+    const journal = join(dir, 'chat-logs.json')
+    const keeper = chatLogKeeper({ file: journal, project: join(dir, 'project'), transcripts, clock: () => AT })
+    await keeper.save({ chat: 'Worker 2', session: 'old', step: 'B12' })
+    await keeper.save({ chat: 'Worker 2', session: 'old', step: 'B12' })
+    await keeper.idle()
+    assert.deepEqual(await keeper.leftSessions(), [{ session: 'old', chat: 'Worker 2', at: AT }])
+    // A board started anew still names it, until it is read out.
+    const again = chatLogKeeper({ file: journal, project: join(dir, 'project'), transcripts, clock: () => AT })
+    assert.deepEqual((await again.leftSessions()).map(one => one.session), ['old'])
+    await again.readOut('old')
+    assert.deepEqual(await again.leftSessions(), [])
+    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')).left, [])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('review 2: who is read on: the keeper\'s sessions and the state\'s moved ones, once each, never a lane\'s own; read out at the end', () => {
+  const kept = [{ session: 'a-old', chat: 'Worker 1', at: 1 }, { session: 'b-old', chat: 'Worker 2', at: 2 }]
+  const moved = [{ session: 'a-old', name: 'Worker 1' }, { session: 'c-old', name: 'Worker 3' }, { session: '../x', name: 'Bad' }]
+  assert.deepEqual(leftSubjects(kept, moved, ['b-old']), [{ session: 'a-old', name: 'Worker 1' }, { session: 'c-old', name: 'Worker 3' }])
+  assert.equal(isReadOut({ size: 100, taskOffset: 100, spendingOffset: 100 }), true)
+  assert.equal(isReadOut({ size: 120, taskOffset: 100, spendingOffset: 120 }), false)
+  assert.equal(isReadOut({ size: 120, taskOffset: 120, spendingOffset: 100 }), false)
+  assert.equal(isReadOut({ size: null, taskOffset: 0, spendingOffset: 0 }), true)
+})
+
+test('review 9: two calls at the board\'s start share one reading of the journal: no log is lost from it', async () => {
+  const dir = await folder()
+  try {
+    const project = join(dir, 'project')
+    const transcripts = join(dir, 'transcripts')
+    await mkdir(transcripts, { recursive: true })
+    await writeFile(join(transcripts, 's1.jsonl'), `${transcriptLines()[1]}\n`)
+    await writeFile(join(transcripts, 's2.jsonl'), `${transcriptLines()[1]}\n`)
+    const journal = join(dir, 'chat-logs.json')
+    const logs = join(project, 'logs')
+    await writeFile(journal, JSON.stringify({ jobs: [{ id: 'old', chat: 'W', session: 's1', step: 'B1', at: AT, state: 'copy', source: join(transcripts, 's1.jsonl'), jsonl: join(logs, 'old.jsonl'), txt: join(logs, 'old.txt'), log: 'logs/old.txt' }] }))
+    const keeper = chatLogKeeper({ file: journal, project, transcripts, clock: () => AT })
+    // The journal's job and a new one, asked for at once: both are in the journal before either is written.
+    const [, saved] = await Promise.all([keeper.pending(), keeper.save({ chat: 'W', session: 's2', step: 'B2' })])
+    assert.equal(saved.ok, true)
+    assert.deepEqual((await keeper.pending()).map(job => job.session).sort(), ['s1', 's2'])
+    await keeper.resume()
+    await keeper.idle()
+    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')).jobs, [])
+    assert.ok((await stat(join(logs, 'old.txt'))).size > 0)
+    assert.ok((await stat(saved.result.file)).size > 0)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -23,6 +23,8 @@ export function createSpendingCollector({dir,transcripts,clock=Date.now}){
       try{return routingSummary({events:ledger.events,outcomes,now:clock(),days,coverage:coverage()})}
       catch{unavailable=true;problem='Spending is unavailable. Its local history is preserved; other board functions remain available.';return routingSummary({events:[],outcomes:[],now:clock(),days,coverage:{problem,unavailable:true}})}
     },
+    /** Clear after each step: how far a session's transcript is read (a left session is read on to its end). */
+    offsetOf(key){return ledger.scans[key]?.offset??0},
     async scan(subjects,{assignments=[],results=[]}={}){
       if(busy||!transcripts||unavailable)return
       busy=true;outcomes=results

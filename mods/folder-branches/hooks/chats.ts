@@ -167,6 +167,8 @@ export function parseList(text: string): ChatList | null {
     compactAbove: typeof l.compactAbove === 'number' && Number.isFinite(l.compactAbove) && l.compactAbove >= 0 ? l.compactAbove : COMPACT_ABOVE,
     // Clear after each step: "compact" unless the list says "clear" or "off", so every other project stays as it was.
     afterStep: l.afterStep === 'clear' || l.afterStep === 'off' ? l.afterStep : 'compact',
+    // The main chat and the partners are compacted at rest unless the list says "compactAtRest": false.
+    compactAtRest: l.compactAtRest !== false,
   }
 }
 

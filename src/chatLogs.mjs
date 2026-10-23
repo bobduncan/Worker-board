@@ -188,6 +188,28 @@ export async function writeTextLog(jsonl, txt, about) {
 
 const exists = path => stat(path).then(() => true, () => false)
 
+/** A session a cleared chat left, still to be read to its end: its id, the chat, when it was cleared. */
+const isLeft = one => one !== null && typeof one === 'object' && typeof one.session === 'string' && SESSION_ID.test(one.session)
+  && typeof one.chat === 'string' && one.chat !== '' && Number.isFinite(one.at)
+
+/**
+ * Review of clear after each step: the sessions cleared chats left, for the task times and the spending, which read a
+ * lane's session only: the ones the keeper names (each save-log) and the ones the state follows (`movedFrom`), once each
+ * by session, never a lane's own session. `[{ session, name }]`.
+ */
+export function leftSubjects(kept, movedFrom, lanes = []) {
+  const own = new Set(lanes)
+  const seen = new Map()
+  for (const one of [...(kept ?? []).map(left => ({ session: left.session, name: left.chat })), ...(movedFrom ?? [])]) {
+    if (typeof one?.session !== 'string' || !SESSION_ID.test(one.session) || typeof one.name !== 'string' || own.has(one.session) || seen.has(one.session)) continue
+    seen.set(one.session, { session: one.session, name: one.name })
+  }
+  return [...seen.values()]
+}
+
+/** Review of clear after each step: a left session's transcript is read to its end by both readers, or is gone. */
+export const isReadOut = ({ size, taskOffset, spendingOffset }) => size === null || (taskOffset >= size && spendingOffset >= size)
+
 /** A job of the journal as it was read: only one with every field it needs is kept. */
 const isJob = job => job !== null && typeof job === 'object' && ['copy', 'text'].includes(job.state)
   && ['id', 'chat', 'session', 'source', 'jsonl', 'txt', 'log'].every(key => typeof job[key] === 'string' && job[key] !== '') && Number.isFinite(job.at)
@@ -200,23 +222,30 @@ const isJob = job => job !== null && typeof job === 'object' && ['copy', 'text']
  */
 export function chatLogKeeper({ file, project, transcripts, clock = Date.now, failed = () => {} }) {
   let jobs = null
+  /** The sessions cleared chats left, still to be read to their ends (`leftSubjects`). */
+  let left = []
   let queue = Promise.resolve()
   let journal = Promise.resolve()
+  // Read once: two callers at the board's start share the one reading, so neither puts the other's job out.
+  let loading = null
 
-  const load = async () => {
-    if (jobs !== null) return jobs
-    try {
-      const raw = JSON.parse(await readFile(file, 'utf8'))
-      jobs = (Array.isArray(raw?.jobs) ? raw.jobs : []).filter(isJob)
-    } catch {
-      // No journal yet, or a torn one: nothing is unfinished that it can name.
-      jobs ??= []
-    }
-    return jobs
+  const load = () => {
+    loading ??= (async () => {
+      try {
+        const raw = JSON.parse(await readFile(file, 'utf8'))
+        jobs = (Array.isArray(raw?.jobs) ? raw.jobs : []).filter(isJob)
+        left = (Array.isArray(raw?.left) ? raw.left : []).filter(isLeft)
+      } catch {
+        // No journal yet, or a torn one: nothing is unfinished that it can name.
+        jobs ??= []
+      }
+      return jobs
+    })()
+    return loading
   }
   /** The journal as it is now, written one write after the other. */
   const keep = () => {
-    const text = `${JSON.stringify({ jobs: jobs ?? [] }, null, 2)}\n`
+    const text = `${JSON.stringify({ jobs: jobs ?? [], left }, null, 2)}\n`
     const write = journal.catch(() => {}).then(async () => {
       await mkdir(dirname(file), { recursive: true })
       await writeAtomic(file, text)
@@ -291,6 +320,8 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
       jsonl: join(folder, `${name}.jsonl`), txt: join(folder, `${name}.txt`), log: `${LOGS_FOLDER}/${folderName}/${name}.txt`,
     }
     jobs.push(job)
+    // The session is read on to its end for the task times and the spending: its last lines come after this.
+    if (!left.some(one => one.session === session)) left.push({ session, chat: job.chat, at })
     try {
       await keep()
     } catch (error) {
@@ -303,9 +334,27 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
 
   /** Starts every log the journal names: the board was stopped before they were written. */
   async function resume() {
-    for (const job of [...await load()]) void run(job)
+    await load()
+    for (const job of [...jobs]) void run(job)
     return queue
   }
 
-  return { save, resume, idle: async () => { await queue; await journal }, pending: async () => (await load()).map(job => ({ ...job })) }
+  /** The sessions cleared chats left, still to be read to their ends. */
+  async function leftSessions() {
+    await load()
+    return left.map(one => ({ ...one }))
+  }
+
+  /** A left session read to its end: it is no longer named. */
+  async function readOut(session) {
+    await load()
+    if (!left.some(one => one.session === session)) return
+    left = left.filter(one => one.session !== session)
+    await keep()
+  }
+
+  return { save, resume, leftSessions, readOut, idle: async () => { await queue; await journal }, pending: async () => {
+    await load()
+    return jobs.map(job => ({ ...job }))
+  } }
 }

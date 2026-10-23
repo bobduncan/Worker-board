@@ -2872,14 +2872,17 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
 
 - **The setting.** `list.json` `"afterStep"`: `"clear"`, `"compact"` (the default, so every other project stays as it
   was) or `"off"`. The main chat and the partners are never cleared: they are compacted while they rest (a turn of
-  theirs ended, nothing of theirs runs on) above `compactAbove`, once per turn, told to keep what their role needs
+  theirs ended, nothing of theirs runs on) above `compactAbove`, once per turn and one /compact on its way at a time
+  (`"compactAtRest": false` stops this alone), told to keep what their role needs
   (`compactKeep`: the main chat its workers, queues and the person's open words; the partner its focus goal, refines,
   checks and routed asks; the helper its task from the Advisor).
 - **When a worker is cleared** (`clearAfter` in `register.tsx`, `clearWhy` in `chats.ts`): when the turn in which it
   reported its step has ended (where the compaction ran), also when more work follows. Not, and compacted instead with
   the reason on its card (`clearNote`), when the board's answer to the turn's end does not name it a worker (`role`), the
-  person pauses, its answer asks the person something the board did not file (`unfiled`, or a question outside the
-  block the mod reads), a subagent of it still runs, a prompt came in, or the log could not be saved.
+  person pauses, its answer asks the person something the board did not file (`unfiled`, a question outside the
+  block the mod reads, or more items than the board is handed), it sent another chat a message in that turn (the
+  answer would come into a cleared conversation), a subagent of it still runs, a prompt came in, or the log could not
+  be saved.
 - **The log, at no token cost** (`src/chatLogs.mjs`). The mod asks the board through the bridge (`/api/bridge/work`,
   `save-log` with `stepId`, the mod's own call: the work tool refuses it from the model, the board refuses it for any
   chat but a worker, and for one whose transcript shows background work running). The board puts the log in its
@@ -2891,9 +2894,14 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   named as such. The old transcript stays on disk after a /clear, so the copy may finish after the clear; a log not
   finished when the board stops is finished at its next start, and once copied nothing needs the app to keep the old
   transcript. Logs go to `<project>/.claude/chat-logs/<chat>/<YYYY-MM-DD HHmm> <step>.txt`.
-- **The clear.** The mod marks the card (`clearing: { at, step, log }`), then queues /clear; its own `command.run` hook
-  lets the /clear run only while no prompt or turn came in since it was decided. Nothing is typed into the chat while
-  the clear is on its way (a line the board put out waits for the conversation after it). /clear ends the conversation
+- **The clear.** The mod marks the card (`clearing: { at, step, log }`), then queues /clear with a ticket; its own
+  `command.run` hook runs a /clear of the mod only as the one of the clear still on its way (its ticket), while no
+  prompt or turn came in since it was decided; any other is refused (a stale one after the clear was dropped, also
+  much later). A real turn on the same session drops the clear at its start, and its end is told to the board as any
+  turn's; a clear that has not run within two minutes is let go. A /clear queued before the mod was loaded anew runs
+  only on the card's fresh mark, with nothing come in since. Should the engine run the /clear or /compact as a turn,
+  that turn is none of the chat's (no turn's end told, nothing decided). Nothing is typed into the chat while the clear
+  is on its way (a line the board put out waits for the conversation after it). /clear ends the conversation
   (`session.end`, reason `clear`) and the process goes on under a new session id.
 - **The same chat after it.** At the new conversation's start (`classic.SessionStart`, source `clear`; else the first
   prompt or turn) the mod moves the card to the new session id, the old file holding only `{ "movedTo": "<new id>" }`
@@ -2904,7 +2912,12 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   the new conversation is not "not the chat the board shows". The fresh conversation is told as its start's context
   who it is, that its rules are in `CLAUDE.md` and `.claude/worker-briefing.md`, that its earlier conversation was
   cleared and where the log is, the person's instructions still open (as `work next` lists them; the mod asks `next`
-  as a chat started anew does, B298), and to run `work next`.
+  as a chat started anew does, B298), and to run `work next`; after the mod's own clear, or a /clear the person ran of
+  a chat the board last named a worker; the move happens once, also when the tick and a prompt meet. A new process of
+  the mod finds what the clear was by the card's mark.
+- **The old session's end.** The task times and the spending read a lane's session; the session a cleared chat left
+  is read on to its end (the report's line, the last minutes), named in the journal's `left` by each save-log and in
+  the state's `movedFrom` while the app still names it, until both readers reached its end or it is gone.
 - **No false signals.** Neither the /clear nor the start after it is a turn: no `turn-ended` goes to the board for
   them, so no instruction is marked missed for them; the fresh conversation's first turn that ends without closing
   one counts as any turn does.

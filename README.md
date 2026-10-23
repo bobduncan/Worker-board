@@ -261,7 +261,8 @@ after it reports, the main chat and the partners while they rest; 250000 unless 
 list switches the automatic start off. `helper` names the partner's helper (B424): a chat shown under the Advisor and
 never given a queue, whose refines and result checks the work tool takes as the partner's. `afterStep` says what
 becomes of a worker after its reported step: `"compact"` (unless set: above `compactAbove`, and not while more of the
-same work follows), `"clear"` or `"off"`.
+same work follows), `"clear"` or `"off"`. `compactAtRest` (`true` unless set) switches the main chat's and the
+partners' compaction at rest off with `false`, and leaves the workers' as it is.
 
 **Clear after each step** (`"afterStep": "clear"`, the Workers mod 0.14.0): after the turn in which a worker reported
 its step, the mod has the board keep the conversation, then runs /clear, also when more work follows, so every step

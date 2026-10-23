@@ -160,14 +160,14 @@ describe('what a chat writes into its file', () => {
 describe('which chats are in the list', () => {
   test('a chat joins by its title when the project says which titles are its chats', () => {
     const list = parseList('{ "prefix": "Game - ", "main": "Main" }')
-    expect(list).toEqual({ prefix: 'Game - ', main: 'Main', compactAbove: 250000, afterStep: 'compact' })
+    expect(list).toEqual({ prefix: 'Game - ', main: 'Main', compactAbove: 250000, afterStep: 'compact', compactAtRest: true })
     if (list === null) return
     expect(nameFromTitle('Game - Units', list)).toEqual({ name: 'Units', role: 'worker' })
     expect(nameFromTitle('Game - Levels / Environment', list)).toEqual({ name: 'Levels / Environment', role: 'worker' })
     expect(nameFromTitle('game - main', list)).toEqual({ name: 'main', role: 'main' })
     expect(nameFromTitle('Web folder organization', list)).toBeNull()
     expect(nameFromTitle('Game - ', list)).toBeNull()
-    expect(parseList('{ "prefix": "Game - " }')).toEqual({ prefix: 'Game - ', main: 'Main', compactAbove: 250000, afterStep: 'compact' })
+    expect(parseList('{ "prefix": "Game - " }')).toEqual({ prefix: 'Game - ', main: 'Main', compactAbove: 250000, afterStep: 'compact', compactAtRest: true })
     for (const text of ['', '{}', '{ "prefix": "" }', 'nope']) expect(parseList(text)).toBeNull()
   })
 
@@ -357,6 +357,9 @@ describe('a large chat is compacted after it reported its task', () => {
     expect(parseList('{"prefix":"Game - ","main":"Main","afterStep":"clear"}')?.afterStep).toBe('clear')
     expect(parseList('{"prefix":"Game - ","main":"Main","afterStep":"off"}')?.afterStep).toBe('off')
     for (const value of ['"compact"', '"Clear"', '1', 'null']) expect(parseList(`{"prefix":"Game - ","main":"Main","afterStep":${value}}`)?.afterStep).toBe('compact')
+    // Review 10: the main chat's and the partners' compaction at rest has its own off switch; on unless it says false.
+    expect(parseList('{"prefix":"Game - ","main":"Main","compactAtRest":false}')?.compactAtRest).toBe(false)
+    for (const value of ['true', '0', '"no"', 'null']) expect(parseList(`{"prefix":"Game - ","main":"Main","compactAtRest":${value}}`)?.compactAtRest).toBe(true)
   })
 
   test('the main chat and the partners are told to keep what their roles need, a worker what its next step needs', () => {

@@ -91,6 +91,8 @@ for (const appNames of ['units-old', 'units-new']) {
     assert.equal(units.removedAt, null)
     assert.deepEqual(units.compaction, { kind: 'cleared', at: NOW - MIN, step: 'B12', log: LOG })
     assert.deepEqual(units.queue.map(step => step.id), ['B13'])
+    // Review 2: the session it went on from, while the app still names it, is read on to its end.
+    assert.deepEqual(state.movedFrom, appNames === 'units-old' ? [{ session: 'units-old', name: 'Units' }] : [])
     assert.deepEqual(state.instructions.filter(one => one.chat === 'Units').map(one => [one.id, one.text, one.turns]), [['I1', 'Use the red cape', 0]])
     // The bridge serves the new session under the chat's name, and the old one no longer.
     assert.deepEqual(checkTake({ chat: 'Units', session: 'units-new' }, state), { ok: true, chat: 'Units' })
@@ -126,6 +128,11 @@ test('the board answers a turn\'s end with the chat\'s role, and with how many q
   assert.equal(filed.ok, true, filed.why)
   assert.equal(filed.result.asked.length, 1)
   assert.equal(filed.result.unfiled, undefined)
+  // Review 8: past the nine items the board files, the rest count as unfiled.
+  const many = Array.from({ length: 11 }, (_one, i) => ({ n: i + 1, kind: 'do', text: [`Look at sheet number ${i + 1} of the knight in the game`], options: [], advice: '', pictures: [], play: '', ref: null }))
+  const lots = await end('Units', { since: NOW + 2 * MIN, forYou: many })
+  assert.equal(lots.ok, true, lots.why)
+  assert.equal(lots.result.unfiled, 2)
 })
 
 test('a clear is no turn: an open instruction is not missed for it; the next real turn that ends without closing it is', async t => {

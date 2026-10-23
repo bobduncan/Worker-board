@@ -1819,7 +1819,8 @@ const namesOpenAsk = (text, w) => text.some(words => askIdsIn(words).some(id => 
  * order and the items left out as asked already in other words (`forYouRepeat`), each its start and why.
  */
 async function askForYou(value, since, w) {
-  const items = (Array.isArray(value) ? value : []).filter(one => one !== null && typeof one === 'object' && !Array.isArray(one)).slice(0, 9)
+  const given = (Array.isArray(value) ? value : []).filter(one => one !== null && typeof one === 'object' && !Array.isArray(one))
+  const items = given.slice(0, 9)
   const all = [...w.store.items.values()]
   // Warnings (2026-10-19): an ask's time to the millisecond (`Filed`; an older one at the end of its minute).
   // B480: an ask withdrawn unanswered asked nothing, also in the same words.
@@ -1838,7 +1839,8 @@ async function askForYou(value, since, w) {
   const of = held.length === 1 ? valueOf(held[0], 'Id') : null
   const asked = []
   const left = []
-  let unfiled = 0
+  // Clear after each step: items past the nine the board files stay the chat's questions only: they count as unfiled.
+  let unfiled = given.length - items.length
   for (const one of items) {
     if (typeof one.ref === 'string' && ASK_REF.test(one.ref) && w.store.items.has(one.ref)) continue
     const kind = one.kind ?? 'decide'

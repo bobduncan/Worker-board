@@ -1099,6 +1099,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     .map(text => parseAppChat(textOr(text, '')))
     .filter(chat => chat !== null)
     .map(chat => (moved.has(chat.cliSessionId) ? { ...chat, cliSessionId: moved.get(chat.cliSessionId) } : chat))
+  const movedBack = new Map([...moved].map(([from, to]) => [to, from]))
   // B152: a chat whose card says it left the list of chats ("left": true) gets no lane, also while its chat stays
   // open in the app (one with Remote Control on cannot be closed). For two minutes after the card said so, its lane
   // stays and says it was removed; a card the board cannot date goes at once. A chat that joins again writes a new
@@ -1532,6 +1533,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
 
   return {
     readAt: now,
+    // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).
+    movedFrom: found.filter(chat => !chat.isLeftover && movedBack.has(chat.cliSessionId)).map(chat => ({ session: movedBack.get(chat.cliSessionId), name: chat.name })),
     spendingSubjects: found.filter(chat => !chat.isLeftover).map(chat => ({ session: chat.cliSessionId, appSession: chat.appSessionId, name: chat.name, model: chat.model, effort: chat.effort, role: chat.isMain ? 'main' : isAdvisor(chat) ? 'advisor' : isHelper(chat) ? 'helper' : 'worker' })),
     routing: { mode: config.routing?.ok === false ? 'invalid' : config.routing?.policy?.mode ?? 'off', problem: config.routing?.why ?? null, readiness: enforcementReadiness(null) },
     refreshSeconds: config.refreshSeconds,

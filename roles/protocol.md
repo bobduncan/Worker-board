@@ -32,7 +32,7 @@ read only for what the store does not hold.
 
 | File (in the project) | Who writes it | What it holds | Read in |
 |---|---|---|---|
-| `.claude/chats/list.json` | the person or the main chat | `prefix` (how the project's chat titles start), `main` (the main chat's name), `boards` (boards a chat starts), `helper` (the partner's helper, B424), `compactAbove` (tokens; 250000 unless set, 0 for never), `afterStep` (`clear`, `compact` unless set, or `off`: what becomes of a worker after its reported step) | `src/appChats.mjs` (`parseList`), the Workers mod (`parseList`) |
+| `.claude/chats/list.json` | the person or the main chat | `prefix` (how the project's chat titles start), `main` (the main chat's name), `boards` (boards a chat starts), `helper` (the partner's helper, B424), `compactAbove` (tokens; 250000 unless set, 0 for never), `afterStep` (`clear`, `compact` unless set, or `off`: what becomes of a worker after its reported step), `compactAtRest` (`false` stops the main chat's and the partners' compaction at rest; on unless set) | `src/appChats.mjs` (`parseList`), the Workers mod (`parseList`) |
 | `.claude/chats/<session>.json` | each chat, its card (by the Workers mod's tool) | `task: { text, step, steps, names, left, stepLeft, since, isReported }`; `left: true` when it left the list; the mod's notes `compacted: { at, before, after }`, `compactNote: { at, why }`, and (clear after each step) `cleared: { at, step, log }` (the log in the project, `.claude/chat-logs/...txt`), `clearNote: { at, why }` (why it was compacted instead), `clearing: { at, step, log }` (the mark written just before /clear). After a /clear the file of the old session holds only `{ "movedTo": "<new session>", "at" }`: the board follows it to the chat's card and transcript while the app still names the old session | `src/planLines.mjs` (`compactionOf`, `movedTo`), `src/sources.mjs` (`followMoves`) |
 | `.claude/chat-logs/<chat>/<YYYY-MM-DD HHmm> <step>.txt` and `.jsonl` | the board alone, on the Workers mod's `save-log` before it clears a worker | the conversation as text (each message with its time and speaker, every tool call's input and every tool result in full) and an exact copy of the transcript; `data/chat-logs.json` in the board's folder is the journal of the logs not finished yet, finished at the board's next start | `src/chatLogs.mjs`, the board's file viewer (`src/gameFile.mjs`) |
 | `.claude/chats/own/<name>.json` (B210) | a chat without the Workers mod, its card itself; `<name>` in small letters, other characters "-" | the same fields, with `minutes` and `stepMinutes` for the times; the file's time when it has no `at`. Read only when the mod's card is not there | `src/planLines.mjs` (`ownCard`), `src/sources.mjs` |
@@ -208,16 +208,20 @@ Clear after each step (2026-10-23, the mod 0.14.0): when the list of chats says 
 mod clears a worker after the turn in which it reported its step, even when more work follows: first `save-log`
 (`stepId`, the mod's own work call, never the model's: the board refuses it for the main chat, the partner, its helper
 and a chat with background work still running), then the mark on the card, then /clear once the chat is idle (a
-prompt or turn that comes in first stops it). It is compacted instead, its card saying why (`clearNote`), when the
-board does not answer that it is a worker (`role` in turn-ended's answer), the person pauses, its answer asks the
-person something the board did not file (`unfiled` in turn-ended's answer), a subagent of it still runs, or the log
-could not be saved. The conversation after the clear is told, as the start's context:
+prompt or turn that comes in first stops it: a real turn on the same session drops the clear, and a /clear of the mod
+runs only as the one of the clear still on its way). It is compacted instead, its card saying why (`clearNote`), when
+the board does not answer that it is a worker (`role` in turn-ended's answer), the person pauses, its answer asks the
+person something the board did not file (`unfiled` in turn-ended's answer, which also counts the items past the nine
+the board files), it sent another chat a message in that turn, a subagent of it still runs, or the log could not be
+saved. The board reads the session it left on to its end for the task times and the spending (`left` in
+`data/chat-logs.json`, and the state's `movedFrom`). The conversation after the clear is told, as the start's context:
 
 | The words | When | Written in |
 |---|---|---|
-| `This chat is "<title>", a worker in the person's list of chats, listed as "<name>"; "<main>" is the main chat. Your earlier conversation was cleared by the Workers mod after your step B<id> was reported, so this conversation starts empty. It is kept word for word in <log>: read from it only when you need something it holds. Your rules are in CLAUDE.md and .claude/worker-briefing.md: read them before your first step. Everything for your next step stands in the worker board's store: run mcp__folder-branches__work with action "next" now, and go on from what it lists.` and, with instructions open, `The person's instructions to you that are still open, as work next lists them: I<n> (missed <k> turns): "<words>"; ...` | the start of the conversation after a /clear (the mod's, or one the person ran: then without step and log) | `mods/folder-branches/hooks/chats.ts` (`clearedStart`) |
+| `This chat is "<title>", a worker in the person's list of chats, listed as "<name>"; "<main>" is the main chat. Your earlier conversation was cleared by the Workers mod after your step B<id> was reported, so this conversation starts empty. It is kept word for word in <log>: read from it only when you need something it holds. Your rules are in CLAUDE.md and .claude/worker-briefing.md: read them before your first step. Everything for your next step stands in the worker board's store: run mcp__folder-branches__work with action "next" now, and go on from what it lists.` and, with instructions open, `The person's instructions to you that are still open, as work next lists them: I<n> (missed <k> turns): "<words>"; ...` | the start of the conversation after a /clear (the mod's; or one the person ran of a chat the board last named a worker: then without step and log; a partner or the main chat the person cleared is told nothing) | `mods/folder-branches/hooks/chats.ts` (`clearedStart`) |
 
 Neither the /clear nor that start is a turn: no `turn-ended` goes to the board for them, so no instruction counts as
 missed for them; the fresh conversation's first turn that ends without closing one counts, as any turn.
 The main chat, the partner and its helper are never cleared: each is compacted while it rests (a turn of it has
-ended, nothing of it runs on) above `compactAbove`, with words to keep that fit its role (`compactKeep`).
+ended, nothing of it runs on) above `compactAbove`, with words to keep that fit its role (`compactKeep`), one /compact
+on its way at a time, unless `compactAtRest` is `false`.

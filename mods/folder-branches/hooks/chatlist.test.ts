@@ -86,6 +86,9 @@ type World = {
   holdAction: { action: string; until: Promise<void> } | null
   /** Clear after each step: what went out, in order: each work call's action, and each /clear. */
   sequence: string[]
+  /** Review 3: a /compact the test holds until it lets it go; every file the mod wrote, in order. */
+  holdCompact: Promise<void> | null
+  writes: string[]
 }
 
 /** Pause 2: the board's pause-state answer while nobody paused. */
@@ -97,7 +100,7 @@ async function settle(): Promise<void> {
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -143,12 +146,13 @@ function stand(on: On, w: World): void {
   on('classic.PostToolBatch', () => ({}))
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: w.tokens, window: 1_000_000, percent: Math.round(w.tokens / 10_000) }, rateLimits: [] } }))
   on('command.run', { command: 'clear' }, (_$, e) => {
-    w.commanded.push(`/clear by ${e.origin.kind}`)
+    w.commanded.push(`/clear by ${e.origin.kind}${e.origin.kind === 'plugin' ? ` ${e.origin.name}` : ''}`)
     w.sequence.push('/clear')
     return { text: '' }
   })
-  on('command.run', { command: 'compact' }, (_$, e) => {
+  on('command.run', { command: 'compact' }, async (_$, e) => {
     w.commanded.push(e.args)
+    if (w.holdCompact !== null) await w.holdCompact
     w.tokens = 90_000
     return { text: 'Compacted.' }
   })
@@ -197,6 +201,7 @@ function stand(on: On, w: World): void {
     return text === undefined ? { deny: 'ENOENT' } : { value: text }
   })
   on('fs.write', (_$, e) => {
+    w.writes.push(slashed(e.path))
     w.files[slashed(e.path)] = e.text
 
     return { value: undefined }
@@ -2049,6 +2054,10 @@ describe('B468: the Advisor gives a step its effort with the work tool', () => {
   })
 })
 
+/** A /clear as the mod runs it: from the plugin, by its name. */
+const CLEAR_ARGS = { command: 'clear', args: '', origin: { kind: 'plugin', name: 'folder-branches' }, presentation: { isFullscreen: false, columns: 100 } }
+const CLEAR_BY_MOD = CLEAR_ARGS as never
+
 describe('clear after each step', () => {
   /** Real time passing, for the work the engine queues (a command run once the chat is idle). */
   const wait = (ms: number): Promise<void> => new Promise(resolve => { (globalThis as unknown as { setTimeout: (done: () => void, ms: number) => void }).setTimeout(resolve, ms) })
@@ -2089,7 +2098,7 @@ describe('clear after each step', () => {
     await wait(50)
     expect(w.sequence).toEqual(['report', 'turn-ended', 'save-log', '/clear'])
     expect(sent(w).find(one => one.action === 'save-log')).toEqual({ action: 'save-log', stepId: 'B12', chat: 'Units', session: 'units' })
-    expect(w.commanded).toEqual(['/clear by plugin'])
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
     expect(w.compactions).toEqual([])
     // The mark on the card, just before /clear.
     expect(fileOf(w)?.clearing).toEqual({ at: fileOf(w)?.clearing?.at, step: 'B12', log: LOG })
@@ -2147,7 +2156,7 @@ describe('clear after each step', () => {
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await wait(50)
     expect(w.typedIn).toEqual([])
-    expect(w.commanded).toEqual(['/clear by plugin'])
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
     await cleared($, w)
     // The next tick takes it, into the new conversation.
     await clock.advance(5000)
@@ -2210,14 +2219,50 @@ describe('clear after each step', () => {
     const w = await worker($, on)
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await wait(50)
-    expect(w.commanded).toEqual(['/clear by plugin'])
-    // As if the queued /clear came only after a new turn had started.
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    // As if the queued /clear came only after a new turn had started: the turn drops the clear, its /clear is refused.
     await $.turn.start({ text: 'one more thing', turnId: 't2' })
-    const ran = await $.command.run({ command: 'clear', args: '', origin: { kind: 'plugin', name: 'folder-branches' }, presentation: { isFullscreen: false, columns: 100 } } as never)
-    expect(ran.text).toBe('Not cleared: a new prompt came in before the clear ran.')
-    expect(w.commanded).toEqual(['/clear by plugin'])
-    expect(fileOf(w)?.clearNote?.why).toBe('a new prompt came in before the clear ran')
+    expect(fileOf(w)?.clearNote?.why).toBe('a new turn started before the clear ran')
     expect(fileOf(w)?.clearing).toBeUndefined()
+    const ran = await $.command.run(CLEAR_BY_MOD)
+    expect(ran.text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+  })
+
+  test('review 1: a clear dropped while a turn runs long: the turn is told to the board, and the late /clear is refused, then and later', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await worker($, on)
+    // The test kit runs the queued /clear at once (its new conversation never comes); a late one is run by hand below.
+    w.commanded = []
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    const ends = (): number => sent(w).filter(one => one.action === 'turn-ended').length
+    expect(ends()).toBe(1)
+    // A prompt and its turn on the same session, running past the two minutes of the let-go.
+    await $.prompt.submit({ text: 'one more thing', origin: { kind: 'composer' } } as never)
+    await $.turn.start({ text: 'one more thing', turnId: 't2' })
+    await clock.advance(3 * MIN)
+    await settle()
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    // The real turn's end is told, also though a clear was on its way when it started.
+    expect(ends()).toBe(2)
+    // The /clear that was queued comes now, after the turn: refused; and the person's own /clear still runs.
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
+    await $.command.run({ ...CLEAR_ARGS, origin: { kind: 'composer' } } as never)
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches', '/clear by composer'])
+  })
+
+  test('review 1: should the engine run the mod\'s /clear as a turn, that turn is no turn of the chat\'s', async ($, on) => {
+    mock.clock(on)
+    const w = await worker($, on)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(fileOf(w)?.clearing?.step).toBe('B12')
+    await $.turn.start({ text: '/clear', turnId: 'c1' })
+    await $.turn.complete({ ...ENDED, turnId: 'c1' })
+    // Nothing told, the clear still on its way.
+    expect(sent(w).filter(one => one.action === 'turn-ended').length).toBe(1)
+    expect(fileOf(w)?.clearing?.step).toBe('B12')
   })
 
   test('a mod that lost its word of the clear (a reload) finds the card by the mark it wrote; an old mark is not followed', async ($, on) => {
@@ -2228,7 +2273,7 @@ describe('clear after each step', () => {
     w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [] }) }
     await $.session.start(START)
     const started = await $.classic.SessionStart({ source: 'clear', session_title: 'Game - Units' })
-    expect(started.additionalContext?.[0]).toContain(`after your step B12 was reported, so this conversation starts empty. It is kept word for word in ${LOG}`)
+    expect(started.additionalContext?.[0]).toContain('after your step B12 was reported, so this conversation starts empty. It is kept word for word in D:\\Work\\project\\.claude\\chat-logs\\Units\\2026-10-23 1405 B12.txt')
     expect(fileOf(w, 'units-2')).toEqual({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: clock.now(), cleared: { at: clock.now(), step: 'B12', log: LOG } })
     expect(JSON.parse(w.files[`${CHATS}/units.json`] ?? '{}').movedTo).toBe('units-2')
     // A mark twenty minutes old moves nothing.
@@ -2287,13 +2332,136 @@ describe('clear after each step', () => {
     mock.clock(on)
     const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('B12 Give the golem', 1, 3, 20), at: 0 } }), [BOARD]: board })
     stand(on, w)
-    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [] }) }
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [], role: 'worker', missed: [] }) }
     await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
     const context = await cleared($, w)
     expect(fileOf(w, 'units-2')?.task?.text).toBe('B12 Give the golem')
     expect(fileOf(w, 'units-2')?.cleared).toBeUndefined()
     expect(context[0]).toContain('Your earlier conversation was cleared, so this conversation starts empty.')
     expect(context[0]).not.toContain('kept word for word')
+  })
+
+  test('review 4: the person\'s own /clear of a partner moves its card and tells it nothing of a worker', async ($, on) => {
+    mock.clock(on)
+    const w = world('advisor', { ...listed({ advisor: { name: 'Advisor', role: 'worker', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
+    stand(on, w)
+    w.byAction = { 'turn-ended': ok({ missed: [], open: [], role: 'advisor', pause: RUNNING }), next: ok({ text: 'Yours:', open: [] }) }
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Advisor' })
+    await $.turn.start({ text: 'refine', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await $.session.end({ reason: 'clear', sessionId: 'advisor', resume: { id: 'advisor' } })
+    w.id = 'advisor-2'
+    const started = await $.classic.SessionStart({ source: 'clear', session_title: 'Game - Advisor' })
+    expect(started.additionalContext).toBeUndefined()
+    expect(fileOf(w, 'advisor-2')?.name).toBe('Advisor')
+    expect(JSON.parse(w.files[`${CHATS}/advisor.json`] ?? '{}').movedTo).toBe('advisor-2')
+  })
+
+  test('review 5: a new process of the mod before the /clear runs: the card\'s mark lets it run, and the start names the step and the log', async ($, on) => {
+    const clock = mock.clock(on, { now: 50 * MIN })
+    const marked: ChatFile = { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 49 * MIN, clearing: { at: 49 * MIN, step: 'B12', log: LOG } }
+    const w = world('units', { ...listed({ units: marked }), [BOARD]: board })
+    stand(on, w)
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [] }) }
+    await $.session.start(START)
+    // The /clear the mod queued before it was loaded anew comes now: nothing came in since, the mark is a minute old.
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('')
+    const context = await cleared($, w)
+    expect(context[0]).toContain('after your step B12 was reported')
+    expect(context[0]).toContain('2026-10-23 1405 B12.txt')
+    expect(fileOf(w, 'units-2')?.cleared).toEqual({ at: clock.now(), step: 'B12', log: LOG })
+  })
+
+  test('review 5: a /clear of the mod with only a mark older than two minutes, or after a prompt, does not run', async ($, on) => {
+    mock.clock(on, { now: 50 * MIN })
+    const marked: ChatFile = { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 40 * MIN, clearing: { at: 47 * MIN, step: 'B12', log: LOG } }
+    const w = world('units', { ...listed({ units: marked }), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
+    w.files[`${CHATS}/units.json`] = chatText({ ...marked, clearing: { at: 49 * MIN, step: 'B12', log: LOG } })
+    await $.prompt.submit({ text: 'go on', origin: { kind: 'composer' } } as never)
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
+    expect(w.commanded).toEqual([])
+  })
+
+  test('review 6: a prompt and the tick at once after a clear no hook announced: the card moves once, and the turn keeps its marks', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await worker($, on)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    w.id = 'units-2'
+    w.writes = []
+    const ticking = clock.advance(5000)
+    const prompted = $.prompt.submit({ text: 'go on', origin: { kind: 'composer' } } as never)
+    await Promise.all([ticking, prompted])
+    for (let i = 0; i < 50 && fileOf(w, 'units-2') === null; i++) await settle()
+    expect(w.writes.filter(path => path === `${CHATS}/units.json`).length).toBe(1)
+    expect(w.contexts.at(-1)?.join(' ')).toContain('starts empty')
+    await $.turn.start({ text: 'go on', turnId: 't2' })
+    await clock.advance(5000)
+    await settle()
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    expect(sent(w).filter(one => one.action === 'turn-ended').length).toBe(2)
+  })
+
+  test('review 7: a message to the main chat in the report\'s turn keeps the worker from being cleared', async ($, on) => {
+    mock.clock(on)
+    const w = await worker($, on, null)
+    await $.session.send({ to: 'Game - Main', text: 'Question from Game - Units: which shield?', ...BY_MODEL })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual([])
+    expect(fileOf(w)?.clearNote?.why).toBe('it sent another chat a message in this turn and waits for its answer')
+    expect(w.compactions.length).toBe(1)
+  })
+
+  test('review 8: a "For you" block of more items than the board is handed keeps the worker from being cleared', async ($, on) => {
+    mock.clock(on)
+    const w = await worker($, on, null)
+    const items = Array.from({ length: 10 }, (_one, i) => `> ${i + 1}. **Do:** look at sheet ${i + 1}.`).join('\n')
+    w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: RUNNING, asked: [] })
+    await $.turn.complete({ ...ENDED, answer: `In.\n\n> **For you**\n${items}`, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual([])
+    expect(fileOf(w)?.clearNote?.why).toContain('did not file as an ask')
+  })
+
+  test('review 3 and 10: one /compact at rest on its way at a time; "compactAtRest": false stops it', async ($, on) => {
+    mock.clock(on)
+    const w = world('main', listed())
+    stand(on, w)
+    w.isHeadless = true
+    let release = (): void => {}
+    w.holdCompact = new Promise<void>(done => { release = done })
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Main' })
+    w.tokens = 400_000
+    for (const turnId of ['t1', 't2', 't3']) {
+      await $.turn.start({ text: 'go', turnId })
+      await $.turn.complete({ ...ENDED, turnId })
+      await wait(20)
+    }
+    expect(w.commanded.length).toBe(1)
+    release()
+    await wait(50)
+    w.holdCompact = null
+    w.tokens = 400_000
+    await $.turn.start({ text: 'go', turnId: 't4' })
+    await $.turn.complete({ ...ENDED, turnId: 't4' })
+    await wait(50)
+    expect(w.commanded.length).toBe(2)
+    // The list switches it off: no more, whatever the size.
+    w.files[`${CHATS}/list.json`] = '{ "prefix": "Game - ", "main": "Main", "compactAtRest": false }\n'
+    w.tokens = 400_000
+    await $.turn.start({ text: 'go', turnId: 't5' })
+    await $.turn.complete({ ...ENDED, turnId: 't5' })
+    await wait(50)
+    expect(w.commanded.length).toBe(2)
   })
 
   test('Main and the partners are never cleared; they are compacted at rest at the list\'s threshold', async ($, on) => {

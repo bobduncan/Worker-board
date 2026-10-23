@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url'
 
 import { minutesOf } from './src/backlog.mjs'
 import { bridgeNote, checkTake, checkTyped, clearRefusal, isUnknownSession, messageText } from './src/bridge.mjs'
-import { chatLogKeeper } from './src/chatLogs.mjs'
+import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
@@ -1030,7 +1030,12 @@ async function main(args) {
       }
       const added = []
       const routingRecords = [...items.values()].map(item => ({ item, read: readRoutingRecord(item) }))
-      await spending.scan(state.spendingSubjects ?? [], {
+      // Clear after each step: the sessions cleared chats left are read on to their ends (the report's line, the last
+      // minutes), for the task times and the spending, which read a lane's session only.
+      const lanes = (state.spendingSubjects ?? []).map(one => one.session)
+      const left = leftSubjects(chatLogs === null ? [] : await chatLogs.leftSessions(), state.movedFrom ?? [], lanes)
+      const leftSpending = left.map(one => ({ session: one.session, appSession: null, name: one.name, model: null, effort: null, role: 'worker' }))
+      await spending.scan([...(state.spendingSubjects ?? []), ...leftSpending], {
         assignments: routingRecords.filter(one => one.read.ok).flatMap(one => one.read.record.assignments),
         results: routingRecords.filter(one => one.item.head.get('Kind') === 'step').map(({ item, read }) => ({ id: item.head.get('Id'), title: item.head.get('Title'), accepted: item.head.get('State') === 'done', attempts: read.ok ? read.record.repair?.lifetimeAttempts ?? null : null, risk: read.ok ? read.record.contract?.risk?.class ?? null : null })),
       })
@@ -1040,6 +1045,15 @@ async function main(args) {
         scan.worker = chat.name
         taskTimes.scans[chat.session] = scan
         added.push(...await readOn(join(config.transcripts, `${chat.session}.jsonl`), scan, stepOf))
+      }
+      for (const one of left) {
+        const path = join(config.transcripts, `${one.session}.jsonl`)
+        const scan = taskTimes.scans[one.session] ?? freshScan(one.name)
+        scan.worker = one.name
+        taskTimes.scans[one.session] = scan
+        added.push(...await readOn(path, scan, stepOf))
+        const size = await stat(path).then(file => file.size, () => null)
+        if (isReadOut({ size, taskOffset: scan.offset, spendingOffset: spending.offsetOf(one.session) })) await chatLogs?.readOut(one.session)
       }
       if (added.length > 0) taskTimes.tasks = keptTasks(taskTimes.tasks, added)
       if (historyFrom === undefined) {

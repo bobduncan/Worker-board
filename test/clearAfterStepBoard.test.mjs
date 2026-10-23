@@ -110,6 +110,10 @@ test('save-log through the bridge keeps a worker\'s conversation, the chat goes 
   assert.match(await readFile(saved.body.file, 'utf8'), /The person:\nDraw the knight\.[\s\S]*Units:\nB12 is in\./)
   assert.equal(await readFile(saved.body.jsonl, 'utf8'), await readFile(join(transcripts, 'units-old.jsonl'), 'utf8'))
 
+  // Review 2: the old transcript's last lines come after the log was asked for (here, the step's report): the board
+  // reads them on for the task times and the spending, though its lane reads the new session from now on.
+  const report = JSON.stringify({ type: 'assistant', timestamp: new Date(NOW - MIN).toISOString(), message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Reported B12.' }] } })
+  await writeFile(join(transcripts, 'units-old.jsonl'), `${await readFile(join(transcripts, 'units-old.jsonl'), 'utf8')}${report}\n`)
   // The /clear: the mod moves the card to the new session; the app still names the old one. The board serves the new
   // session at once, under the chat's name.
   await put(join(chats, 'units-new.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW, cleared: { at: NOW, step: 'B12', log: saved.body.log } }))
@@ -124,9 +128,16 @@ test('save-log through the bridge keeps a worker\'s conversation, the chat goes 
   await stop(started.pop())
   const folder = join(project, '.claude', 'chat-logs', 'Units')
   const job = { id: 'units-old-1', chat: 'Units', session: 'units-old', step: 'B11', at: NOW, state: 'copy', source: join(transcripts, 'units-old.jsonl'), jsonl: join(folder, 'late B11.jsonl'), txt: join(folder, 'late B11.txt'), log: '.claude/chat-logs/Units/late B11.txt' }
-  await put(join(board, 'data', 'chat-logs.json'), JSON.stringify({ jobs: [job] }))
+  const before = JSON.parse(await readFile(join(board, 'data', 'chat-logs.json'), 'utf8'))
+  // The session the clear left is named in the journal, to be read on after the restart.
+  assert.deepEqual(before.left.map(one => one.session), ['units-old'])
+  await put(join(board, 'data', 'chat-logs.json'), JSON.stringify({ ...before, jobs: [job] }))
   await run(started, board, env)
   await until(() => exists(job.txt), 'the log the journal named')
   assert.match(await readFile(job.txt, 'utf8'), /after its reported step B11/)
   await until(async () => JSON.parse(await readFile(join(board, 'data', 'chat-logs.json'), 'utf8')).jobs.length === 0, 'an empty journal')
+  // Review 2: the old session was read to its end for the task times and the spending, and is no longer named.
+  const size = (await stat(join(transcripts, 'units-old.jsonl'))).size
+  await until(async () => JSON.parse(await readFile(join(board, 'data', 'task-times.json'), 'utf8')).scans?.['units-old']?.offset === size, 'the old session read to its end')
+  await until(async () => JSON.parse(await readFile(join(board, 'data', 'chat-logs.json'), 'utf8')).left.length === 0, 'the old session read out')
 })

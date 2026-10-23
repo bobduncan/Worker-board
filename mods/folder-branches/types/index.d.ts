@@ -93,6 +93,8 @@ export type ChatList = {
    * log and cleared), "compact" (above `compactAbove`, the default) or "off".
    */
   afterStep?: AfterStep
+  /** Clear after each step: the main chat and the partners are compacted at rest; false stops that alone. */
+  compactAtRest?: boolean
 }
 
 /** Clear after each step: what the mod does with a worker's conversation after its reported step. */
