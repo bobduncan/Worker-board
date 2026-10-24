@@ -13,6 +13,8 @@ import vm from 'node:vm'
 
 import { demoSupervisor } from '../../fixtures/demo.mjs'
 import { SUPERVISOR_RULES, incidentCards } from '../../src/supervisor/index.mjs'
+import { incidentsOf } from '../../src/supervisor/incidents.mjs'
+import { stamp } from '../../src/work/migrate.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const script = await readFile(join(ROOT, 'public', 'board.js'), 'utf8')
@@ -25,7 +27,8 @@ const NOW = at(10, 42)
 
 const page = { clock: ms => new Date(ms).toTimeString().slice(0, 5) }
 vm.runInNewContext(`${script.slice(script.indexOf('// supervisor:start'), script.indexOf('// supervisor:end'))}
-this.supervisorOf = supervisorOf; this.isSupervisorShown = isSupervisorShown; this.supervisorLines = supervisorLines; this.gistOf = gistOf; this.incidentCardOf = incidentCardOf`, page)
+this.supervisorOf = supervisorOf; this.isSupervisorShown = isSupervisorShown; this.supervisorLine = supervisorLine; this.gistOf = gistOf; this.incidentCardOf = incidentCardOf
+this.supervisorCounts = supervisorCounts; this.isNewIncident = isNewIncident; this.supervisorKept = supervisorKept; this.foldSupervisor = foldSupervisor`, page)
 /** The page's objects are of another realm (vm): compared as JSON. */
 const plain = value => JSON.parse(JSON.stringify(value))
 
@@ -54,8 +57,8 @@ const VIEW = {
 }
 
 test('the section: when it checked itself, one card per fix step, the last check, the rules folded in one line, and "No sweep yet"', () => {
-  const shown = plain(page.supervisorOf(VIEW))
-  assert.equal(shown.title, 'Supervisor · checked itself at 10:40')
+  const shown = plain(page.supervisorOf(VIEW, { now: NOW }))
+  assert.match(shown.note, /^Checked itself at 10:40\. /)
   assert.deepEqual(shown.cards.map(card => [card.key, card.href, card.title, card.state, card.tone, card.line]), [
     ['B490', '#details=B490', 'Wake a worker that stays unknown', 'Worker 5 · building', 'busy', 'X2 · All 4 workers idle for 12 min'],
     ['nofix', null, 'No fix step yet', 'sending to the Advisor…', 'sending', 'X3 · Worker 2 unknown for 15 min (seen 5×)'],
@@ -72,8 +75,8 @@ test('the section: when it checked itself, one card per fix step, the last check
   assert.deepEqual(shown.rules.rest.map(one => [one.id, one.tone, one.often]), [['old-mod', 'fine', 'fine today']])
   assert.equal(shown.sweep, 'No sweep yet.')
   // Before its first run, and on a board without a supervisor.
-  const fresh = plain(page.supervisorOf({ run: null, checkedAt: null, rules: [rule('blocked', 'repair', 'x', null)], incidents: [], lastSweep: null }))
-  assert.deepEqual([fresh.title, fresh.check, fresh.cards, fresh.rules.rest[0].often], ['Supervisor · not checked yet', null, [], 'not checked yet'])
+  const fresh = plain(page.supervisorOf({ run: null, checkedAt: null, rules: [rule('blocked', 'repair', 'x', null)], incidents: [], lastSweep: null }, { now: NOW, isOpen: false }))
+  assert.deepEqual([fresh.head, fresh.note.split('.')[0], fresh.check, fresh.cards, fresh.rules.rest[0].often], ['Supervisor · 0 found today · 0 in work · 0 new', 'Not checked yet', null, [], 'not checked yet'])
   assert.equal(page.supervisorOf(null), null)
 })
 
@@ -90,41 +93,110 @@ test('Part 2, the last sweep: running, what it found and cost, why none ran (sai
   assert.equal(of({ lastSweep: null, sweepNote: { at: at(10, 41), why: 'the list of chats names no supervisor chat ("supervisor" in .claude/chats/list.json)', asked: true } }).sweep,
     'No sweep at 10:41: the list of chats names no supervisor chat ("supervisor" in .claude/chats/list.json).')
   assert.equal(of({ lastSweep: sweep(), sweepsToday: { count: 6, tokens: 190000 } }).sweep, 'Last sweep at 10:30 (by the clock): 2 findings, 31,200 tokens. Today 6 sweeps, 190,000 tokens.')
-  assert.equal(of({ lastSweep: null }).note, 'It checks every 3 min and sweeps every 10 min while work runs; Check now does both.')
-  assert.equal(of({ lastSweep: null, sweepEvery: 0 }).note, 'It checks every 3 min; Check now checks and sweeps at once.')
+  assert.equal(of({ lastSweep: null }).note, 'Checked itself at 10:40. It checks every 3 min and sweeps every 10 min while work runs; Check now does both.')
+  assert.equal(of({ lastSweep: null, sweepEvery: 0 }).note, 'Checked itself at 10:40. It checks every 3 min; Check now checks and sweeps at once.')
   // Check now no longer asks the main chat: its titles say so.
   assert.doesNotMatch(script.slice(script.indexOf('function syncPart('), script.indexOf('// syncline:start')), /asks \$\{state\.workers\.mainTitle/)
 })
 
-test('the section shows when something is new: a check, or an incident that opened or changed; closed, it shows again only for something newer', () => {
-  const ui = (more = {}) => ({ isOpen: false, closedAt: null, showsRules: false, ...more })
-  assert.equal(page.isSupervisorShown(VIEW, ui()), true)
-  assert.equal(page.isSupervisorShown(VIEW, ui({ closedAt: at(10, 41) })), false, 'closed after the newest')
-  // The review: a check that finds the same again every 3 minutes is nothing new; a new repair finding is.
-  assert.equal(page.isSupervisorShown({ ...VIEW, run: { ...VIEW.run, at: at(10, 45), newAt: at(10, 40) } }, ui({ closedAt: at(10, 41) })), false, 'the same finding, checked again')
-  assert.equal(page.isSupervisorShown({ ...VIEW, run: { ...VIEW.run, at: at(10, 45), newAt: at(10, 45) } }, ui({ closedAt: at(10, 41) })), true, 'a new repair finding')
-  assert.equal(page.isSupervisorShown({ ...VIEW, run: { ...VIEW.run, at: at(10, 45) } }, ui({ closedAt: at(10, 41) })), false, 'a check alone')
-  // A count that grows is nothing new; a fixed incident is nothing new either.
-  const quiet = { ...VIEW, run: null, incidents: [{ ...VIEW.incidents[0], count: 9, lastSeen: at(10, 50) }, VIEW.incidents[2]] }
-  assert.equal(page.isSupervisorShown(quiet, ui({ closedAt: at(10, 41) })), false)
-  assert.equal(page.isSupervisorShown({ run: null, incidents: [VIEW.incidents[2]], rules: [] }, ui()), false)
-  assert.equal(page.isSupervisorShown({ run: null, incidents: [], rules: [] }, ui({ isOpen: true })), true, 'opened by the person')
-  assert.equal(page.isSupervisorShown(null, ui({ isOpen: true })), false, 'no supervisor on this board')
+// B573, the person (2026-10-24): "the supervisor notes take up too much space. i want it collapisble and understand how
+// many things it found and is working on ... determine when it found something new". A store in memory, as the board
+// reads it: X1 came back, X20 fixed, X21 with the Advisor since yesterday, X22 to X24 with fix steps.
+const record = (head, history = []) => ({ head: new Map(Object.entries(head)), sections: new Map(history.length === 0 ? [] : [['History', history.map(([time, who, what]) => `- ${stamp(time)} ${who}: ${what}`)]]) })
+const DAY = 24 * 60 * MIN
+const incidentRecord = (id, state, found, more = {}, history = []) => record({ Id: id, Kind: 'incident', Title: `Finding ${id}`, State: state, 'First seen': stamp(found), 'Last seen': stamp(found), Since: stamp(found), Count: '1', ...more }, history)
+const STORE = new Map([
+  incidentRecord('X1', 'came back', at(10, 20) - 2 * DAY, { Since: stamp(at(10, 20)), 'Last seen': stamp(at(10, 20)), Count: '4' },
+    [[at(10, 20) - 2 * DAY, 'board', 'opened by the rule blocked'], [at(10, 20) - DAY, 'board', 'fixed'], [at(10, 20), 'board', 'came back (seen 4 times)']]),
+  incidentRecord('X20', 'fixed', at(8, 0), { Fix: 'B599' }),
+  incidentRecord('X21', 'with the advisor', at(9, 0) - DAY),
+  incidentRecord('X22', 'fix', at(9, 0), { Fix: 'B600' }),
+  incidentRecord('X23', 'fix', at(9, 30), { Fix: 'B601' }),
+  incidentRecord('X24', 'fix', at(10, 30), { Fix: 'B602' }),
+  record({ Id: 'B599', Kind: 'step', Title: 'Fix of X20', State: 'done', Since: stamp(at(9, 0)) }),
+  record({ Id: 'B600', Kind: 'step', Title: 'Fix of X22', State: 'queued', Owner: 'Worker 2', Since: stamp(at(9, 5)) }),
+  record({ Id: 'B601', Kind: 'step', Title: 'Fix of X23', State: 'in progress', Owner: 'Worker 3', Since: stamp(at(9, 40)) }),
+  record({ Id: 'B602', Kind: 'step', Title: 'Fix of X24', State: 'review', Owner: 'Worker 4', Since: stamp(at(10, 35)) }),
+].map(item => [item.head.get('Id'), item]))
+const viewOfStore = () => {
+  const incidents = incidentsOf(STORE, NOW)
+  return { run: null, checkedAt: at(10, 40), rules: [], incidents, cards: incidentCards({ incidents, items: STORE, lanes: [] }), lastSweep: null }
+}
+
+test('B573: the head counts from the store: found today (opened or came back), in work (a fix step queued to review), with the Advisor, fixed', () => {
+  const view = viewOfStore()
+  assert.deepEqual(plain(page.supervisorCounts(view, at(10, 0), NOW)), { found: 5, inWork: 3, withAdvisor: 2, fixed: 1, fresh: 2 })
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: false, now: NOW }).head, 'Supervisor · 5 found today · 3 in work · 2 new')
+  assert.equal(page.supervisorOf(view, { seenAt: at(10, 0), isOpen: true, now: NOW }).head, 'Supervisor · 5 found today · 3 in work · 2 new · 2 with the Advisor · 1 fixed')
+  // X1 counts as found today because it came back today, though it opened two days ago.
+  assert.equal(view.incidents.find(one => one.id === 'X1').foundAt, at(10, 20))
+  assert.equal(view.incidents.find(one => one.id === 'X22').foundAt, at(9, 0))
 })
 
-test('a new or returning incident gives one quiet line (its note, Via supervisor, not read yet); a counted one gives none', () => {
+test('B573: New only for what was found since the person last opened the section; those cards come first; never for a fixed one', () => {
+  const view = viewOfStore()
+  const one = (found, more = {}) => ({ id: 'X9', state: 'open', foundAt: found, ...more })
+  assert.equal(page.isNewIncident(one(at(10, 20)), at(10, 0), NOW), true)
+  assert.equal(page.isNewIncident(one(at(10, 20)), at(10, 30), NOW), false, 'seen after it was found')
+  assert.equal(page.isNewIncident(one(at(10, 20), { state: 'fixed' }), at(10, 0), NOW), false, 'fixed since')
+  assert.equal(page.isNewIncident(one(at(10, 20)), null, NOW), true, 'never opened: what was found today')
+  assert.equal(page.isNewIncident(one(NOW - 2 * DAY), null, NOW), false, 'never opened: not what was found days ago')
+  // X1 (came back 10:20, no fix step) and X24 (10:30, B602) are new since 10:00; their cards first, each with New.
+  const drawn = plain(page.supervisorOf(view, { seenAt: at(10, 0), now: NOW }))
+  assert.deepEqual(drawn.cards.map(card => [card.key, card.isNew]), [['B602', true], ['nofix', true], ['B601', false], ['B600', false], ['B599', false]])
+  const later = plain(page.supervisorOf(view, { seenAt: at(10, 25), now: NOW }))
+  assert.deepEqual(later.cards.filter(card => card.isNew).map(card => card.key), ['B602'])
+  // The open section's tags stand against the opening before, so opening does not wipe them at once.
+  assert.match(script, /supervisorOf\(view, \{ seenAt: isOpen \? supervisorUi\.shownSince : supervisorUi\.seenAt, isOpen, now: Date\.now\(\) \}\)/)
+  assert.match(script, /if \(card\.isNew\) top\.append\(el\('span', 'inc-new', 'New'\)\)/)
+})
+
+test('B573: folded by default; the fold and the last opening are kept across a reload; storage that fails leaves it folded', () => {
+  const storage = () => {
+    const kept = new Map()
+    return { getItem: key => (kept.has(key) ? kept.get(key) : null), setItem: (key, value) => kept.set(key, String(value)), removeItem: key => kept.delete(key) }
+  }
+  const store = storage()
+  assert.deepEqual(plain(page.supervisorKept(store)), { isOpen: false, seenAt: null, shownSince: null })
+  const ui = page.supervisorKept(store)
+  page.foldSupervisor(ui, true, store, at(10, 0))
+  // A reload: the page reads what it kept.
+  assert.deepEqual(plain(page.supervisorKept(store)), { isOpen: true, seenAt: at(10, 0), shownSince: null })
+  page.foldSupervisor(ui, false, store, at(10, 5))
+  assert.deepEqual(plain(page.supervisorKept(store)), { isOpen: false, seenAt: at(10, 0), shownSince: null }, 'folding is no opening')
+  page.foldSupervisor(ui, true, store, at(10, 50))
+  assert.deepEqual(plain(page.supervisorKept(store)), { isOpen: true, seenAt: at(10, 50), shownSince: at(10, 0) })
+  const broken = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') }, removeItem: () => {} }
+  assert.deepEqual(plain(page.supervisorKept(broken)), { isOpen: false, seenAt: null, shownSince: null })
+  assert.equal(page.foldSupervisor({ isOpen: false, seenAt: null, shownSince: null }, true, broken, at(10, 0)).isOpen, true, 'kept for this visit')
+  assert.deepEqual(plain(page.supervisorKept(null)), { isOpen: false, seenAt: null, shownSince: null })
+  // The section stands folded on every board with a supervisor; the head's line opens and folds it.
+  assert.equal(page.isSupervisorShown(VIEW), true)
+  assert.equal(page.isSupervisorShown(null), false, 'no supervisor on this board')
+  assert.match(script, /const supervisorUi = \{ \.\.\.supervisorKept\(supervisorStorage\), /)
+  assert.match(script, /'supervisor-fold': \(\) => setSupervisorOpen\(!supervisorUi\.isOpen\)/)
+  assert.match(script, /if \(!isOpen\) return fill\(box, \[head\]\)/)
+})
+
+test('B573: the supervisor\'s notes under Needs your attention are one line, "Supervisor: 3 new findings"; opening the section reads them', () => {
   const information = [
     { id: 'N7', via: 'supervisor', isRead: false, about: 'X3', text: 'Supervisor: Worker 2 unknown for 15 min, B482 waits' },
+    { id: 'N8', via: 'supervisor', isRead: false, about: 'X4', text: 'Supervisor: a step waits' },
+    { id: 'N9', via: 'supervisor', isRead: false, about: 'X5', text: 'Supervisor: a chat is off' },
     { id: 'N6', via: 'supervisor', isRead: true, about: 'X2', text: 'Supervisor: All 4 workers idle for 12 min' },
     { id: 'N5', via: null, isRead: false, about: 'B12', text: 'A report' },
   ]
-  assert.deepEqual(plain(page.supervisorLines(information)), [{ id: 'N7', incident: 'X3', text: 'Supervisor: Worker 2 unknown for 15 min, B482 waits' }])
-  assert.deepEqual(plain(page.supervisorLines([])), [])
-  // Drawn under Needs your attention after the missed lines, never counted; a click opens the section and reads it.
-  assert.match(script, /const supervised = supervisorLines\(state\.information\)/)
-  assert.match(script, /drawMissed\(missed\), drawSupervisorLines\(supervised\)/)
+  assert.deepEqual(plain(page.supervisorLine(information)), { ids: ['N7', 'N8', 'N9'], text: 'Supervisor: 3 new findings' })
+  assert.deepEqual(plain(page.supervisorLine(information.slice(2))), { ids: ['N9'], text: 'Supervisor: one new finding' })
+  assert.equal(page.supervisorLine(information.slice(3)), null)
+  assert.equal(page.supervisorLine([]), null)
+  // Drawn under Needs your attention after the missed lines, never counted; a click opens the section, which reads them.
+  assert.match(script, /const supervised = supervisorLine\(state\.information\)/)
+  assert.match(script, /drawMissed\(missed\), drawSupervisorLine\(supervised\)/)
   assert.doesNotMatch(script.match(/const unanswered = [^\n]*/)[0], /supervised/)
-  assert.match(script, /'supervisor-line': button => \{\n\s+openSupervisor\(\)\n\s+sendWork\(\{ action: 'read', id: button\.dataset\.supervisorLine \}/)
+  assert.match(script, /'supervisor-line': \(\) => openSupervisor\(\)/)
+  assert.match(script, /function setSupervisorOpen\(isOpen\) \{\n\s+foldSupervisor\(supervisorUi, isOpen, supervisorStorage, Date\.now\(\)\)\n\s+if \(isOpen\) readSupervisorNotes\(\)/)
+  assert.match(script, /for \(const id of supervisorLine\(board\?\.information\)\?\.ids \?\? \[\]\) \{\n\s+if \(!sending\.has\(`read:\$\{id\}`\)\) sendWork\(\{ action: 'read', id \}, `read:\$\{id\}`\)/)
 })
 
 test('"Check now" carries the wrench, in the button\'s own colour, and sends the sync command; from a worker\'s menu it names the worker', () => {
@@ -198,10 +270,10 @@ test('the demo shows the section: every rule of the supervisor, three tripped to
     ['B543', 'refined \u00b7 waits for Main', 'X8'], ['B544', 'refined \u00b7 waits for Main', 'X9'], ['nofix', 'sending to the Advisor\u2026', 'X10'],
   ])
   assert.equal(view.checkedAt, NOW - 2 * MIN)
-  assert.equal(page.isSupervisorShown(view, { isOpen: false, closedAt: null }), true)
+  assert.equal(page.isSupervisorShown(view), true)
   assert.match(server, /supervisor: supervised \?\? \(isDemo \? demoSupervisor\(clock\(\), SUPERVISOR_RULES, incidentCards\) : null\),/)
   // The page's cards of that view, as the picture shows them.
-  const drawn = plain(page.supervisorOf(view))
+  const drawn = plain(page.supervisorOf(view, { seenAt: NOW, now: NOW }))
   assert.deepEqual(drawn.cards.map(card => [card.href, card.line]), [
     ['#details=B532', 'X1 X2 X3 \u00b7 21 words to Advisor not delivered (seen 18\u00d7)'],
     ['#details=B541', 'X4 X5 X6 \u00b7 Worker 1 runs the Workers mod older than 0.16.0 (seen 5\u00d7)'],
@@ -304,6 +376,10 @@ test('the page draws a card: the id a link to its step, the chip in the state\'s
   assert.deepEqual(plain(details.children[0].children.map(one => [one.className, one.text])), [
     ['inc-detail-head', 'X1 \u00b7 21 words to Advisor not delivered'], ['inc-detail-meta', 'fix B532 \u00b7 seen 18 times, since 15:23, last 18:34'], ['inc-detail-evidence', 'Evidence: 18:13 round (waiting)'],
   ])
+  // B573: a card with something new carries a quiet New tag first, and a class of its own.
+  const fresh = fake.drawIncidentCard({ ...card, isNew: true }, false)
+  assert.equal(fresh.className, 'inc-card is-busy is-new')
+  assert.deepEqual(plain([fresh.children[0].children[0].className, fresh.children[0].children[0].text]), ['inc-new', 'New'])
   // The card without a fix step has no link, only its title.
   const none = fake.drawIncidentCard(plain(page.incidentCardOf({ key: 'nofix', step: null, title: 'No fix step yet', state: { text: 'sending to the Advisor\u2026', tone: 'sending' }, incidents: [{ id: 'X10', word: 'sending to the Advisor\u2026' }] }, new Map())), false)
   assert.deepEqual(plain(none.children[0].children.map(one => [one.tag, one.className])), [['span', 'inc-title'], ['span', 'inc-state is-sending']])
@@ -316,8 +392,8 @@ test('the page wires the cards: opened by a click on the card (its link opens th
   assert.match(clicks, /'supervisor-step': \(\) => \{\n\s+setTimeout\(\(\) => \{\n\s+if \(board === null\) return\n\s+openFromAddress\(board\)\n\s+\/\/[^\n]*\n\s+if \(detailsOf === null && location\.hash\.startsWith\('#details='\)\) history\.replaceState\(null, '', location\.pathname\)/)
   assert.match(clicks, /'supervisor-card': button => \{\n\s+const key = button\.dataset\.supervisorCard\n\s+if \(!supervisorUi\.openCards\.delete\(key\)\) supervisorUi\.openCards\.add\(key\)/)
   assert.match(clicks, /'supervisor-older': \(\) => \{\n\s+supervisorUi\.showsOlder = !supervisorUi\.showsOlder/)
-  const draw = script.slice(script.indexOf('function drawSupervisor('), script.indexOf('/** The supervisor\'s lines under Needs your attention'))
-  assert.match(draw, /once\('supervisor', \[view, shown, supervisorUi\.showsRules, supervisorUi\.showsOlder, \[\.\.\.supervisorUi\.openCards\],/)
+  const draw = script.slice(script.indexOf('function drawSupervisor('), script.indexOf('/** B573: the supervisor\'s one line under Needs your attention'))
+  assert.match(draw, /once\('supervisor', \[view, shown, isOpen, supervisorUi\.seenAt, supervisorUi\.shownSince, supervisorUi\.showsRules, supervisorUi\.showsOlder, \[\.\.\.supervisorUi\.openCards\],/)
   // The rules are one folded line that opens the list; nothing of them is drawn while it is folded.
   assert.match(draw, /const fold = el\('button', 'quiet-button supervisor-more supervisor-rules-line'/)
   assert.match(draw, /if \(supervisorUi\.showsRules\) \{\n\s+const rules = el\('div', 'supervisor-rules'\)/)

@@ -132,7 +132,8 @@ function fixStepOf(incident, named, steps) {
  * card "No fix step yet" for the incidents with none. `incidents` as incidents.mjs `incidentsOf` gives them; `items` the
  * store's items (a Map; null when it could not be read); `lanes` the board's chats; `words` a Map of an incident's id to
  * what became of its word to the partner; `hasPartner` whether the board has an Advisor to send to. Each card:
- * `{ key, step, title, state: { text, tone }, incidents: [{ id, word }], at }`; `word` is the incident's own state, said
+ * `{ key, step, title, state: { text, tone }, phase, incidents: [{ id, word }], at }`; `phase` the fix step's own State
+ * (B573: what the section counts as in work; null without a step in the store), `word` the incident's own state, said
  * for the card without a fix step (the others carry null).
  */
 export function incidentCards({ incidents = [], items = null, lanes = [], words = new Map(), hasPartner = true } = {}) {
@@ -155,14 +156,14 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
     const state = step !== undefined ? stepState(step, { lanes, steps: stepsOnly })
       : { text: items instanceof Map ? 'step not in the store' : 'step not read yet', tone: 'idle' }
     const at = Math.max(step === undefined ? -Infinity : activityOf(step) || -Infinity, latest(list))
-    return { key: id, step: id, title: step === undefined ? null : valueOf(step, 'Title'), state, incidents: list.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 }
+    return { key: id, step: id, title: step === undefined ? null : valueOf(step, 'Title'), state, phase: step === undefined ? null : valueOf(step, 'State'), incidents: list.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 }
   }).sort((a, b) => b.at - a.at || numeric(a.step, b.step))
   if (loose.length > 0) {
     const each = loose.map(one => ({ id: one.id, ...noFixState(one, words.get(one.id), hasPartner) }))
     const chip = [...each].sort((a, b) => CHIP_FIRST.indexOf(a.tone) - CHIP_FIRST.indexOf(b.tone))[0]
     const at = latest(loose)
     cards.push({
-      key: 'nofix', step: null, title: 'No fix step yet', state: { text: chip.text, tone: chip.tone },
+      key: 'nofix', step: null, title: 'No fix step yet', state: { text: chip.text, tone: chip.tone }, phase: null,
       incidents: each.map(one => ({ id: one.id, word: one.text })), at: Number.isFinite(at) ? at : 0,
     })
   }
