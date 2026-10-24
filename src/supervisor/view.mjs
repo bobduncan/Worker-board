@@ -9,7 +9,7 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
 
 /**
  * The view: `items` (the store's items, a Map), `lanes` (the board's chats, state.mjs; the main chat first), `partner`
- * and `helper` (their cards, or null), `prefix` (the chats' titles' start), `now`, `outbox` (the board's messages as the
+ * and `helper` (their cards, or null), `prefix` (the chats' titles' start), `appStartedAt` (the app's last start, or null), `now`, `outbox` (the board's messages as the
  * board sees them now), `limits`, `pause` (the store's), `refused` (the names a chat's mod was refused under lately),
  * `leftovers` (the loop's look at leftover worktrees: `{ found }` or `{ error }`; undefined without one), `timeline`
  * (state.mjs `today`: per chat its spans of state), `since` (a Map: since when each chat has been in the state it is in
@@ -27,6 +27,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     partner: state.advisor ?? null,
     helper: state.advisorHelper ?? null,
     prefix: state.chatPrefix ?? '',
+    // B546: when the Claude app last started (state.mjs), or null: a helper quiet since before it stopped for the restart.
+    appStartedAt: Number.isFinite(state.appStartedAt) ? state.appStartedAt : null,
     now,
     outbox,
     // B532: how long a word waits for its chat (the outbox's own keep, store.mjs isLate), and the goal map's nodes, so

@@ -35,15 +35,18 @@ const app = name => JSON.stringify({
 const tail = lines => ({ text: lines.join('\n'), isCut: false, modifiedAt: NOW })
 const planLine = task => JSON.stringify({ name: 'x', role: 'worker', state: 'working', task: { isReported: false, ...task }, at: NOW - 10 * MIN })
 
-function build({ list = '{"prefix":"Garden · ","main":"Lead","helper":"Second"}', chats = ['Lead', 'Digger', 'Advisor', 'Second'], second = [answer(NOW - 30 * MIN, 'ok')], plan = null } = {}) {
-  const raw = {
+function rawOf({ list = '{"prefix":"Garden · ","main":"Lead","helper":"Second"}', chats = ['Lead', 'Digger', 'Advisor', 'Second'], second = [answer(NOW - 30 * MIN, 'ok')], plan = null } = {}) {
+  return {
     listText: list,
     appChatTexts: chats.map(app),
     tails: { 'cli-Lead': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Digger': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Advisor': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Second': tail(second) },
     planLineTexts: plan === null ? {} : { 'cli-Second': planLine(plan) },
     backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {},
   }
-  return buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config })
+}
+
+function build(options = {}) {
+  return buildState(rawOf(options), { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config })
 }
 
 test('the list of chats names the helper with "helper"; a list without one has none', () => {
@@ -232,4 +235,11 @@ test('the server gives the helper its role, its words and its place in a pause, 
   // The supervisor (2026-10-24): the chats the board shows by name are one list in bridge.mjs (`shownChats`), the helper in it.
   assert.ok(server.includes('shownChats(state).some(chat => chat.name === wake.to)'))
   assert.equal(shownChats({ chats: [], advisorHelper: { name: 'Second' } })[0].name, 'Second')
+})
+
+test('B546: the helper\'s card carries when its transcript was last written, and the state when the app last started', () => {
+  const state = buildState({ ...rawOf(), appStartedAt: NOW - 20 * MIN }, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config })
+  assert.equal(state.advisorHelper.writtenAt, NOW)
+  assert.equal(state.appStartedAt, NOW - 20 * MIN)
+  assert.equal(build().appStartedAt, null)
 })

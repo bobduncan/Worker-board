@@ -249,10 +249,10 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     if (changed) await ports.noted.save({ noted: [...noted], seen: Object.fromEntries(seen) })
     // The supervisor: what the repairs did (one row per finding, in their order), for the watch rule repair-repeats. A
     // note to the main chat ("Sent") counts only in the run it went: a finding that stands is told once (`noted`), and
-    // its row says Sent at every run all the same.
+    // its row says Sent at every run all the same. B546: a repair the app's restart caused carries `cause: 'restart'`.
     const didRepair = (one, row) => REPAIRED.includes(row?.status) && one.fix?.do !== 'woken' && (row.status !== 'Sent' || told.has(one.key))
     const repaired = findings.flatMap((one, index) => (didRepair(one, done.rows[index])
-      ? [{ at: now, rule: one.rule ?? one.check, subject: one.subject ?? null, key: one.key }] : []))
+      ? [{ at: now, rule: one.rule ?? one.check, subject: one.subject ?? null, key: one.key, ...(typeof one.cause === 'string' ? { cause: one.cause } : {}) }] : []))
     // When a repair finding came that the run before did not have: the page opens its section for that, not for every
     // run in which the same finding stands (a row's words may change with the minutes, its key does not).
     const keysNow = new Set(findings.filter(one => one.fix?.do !== 'list').map(one => one.key))

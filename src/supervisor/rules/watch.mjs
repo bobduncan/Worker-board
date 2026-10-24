@@ -226,10 +226,13 @@ function skipRepeats(view, ctx) {
   return found
 }
 
-/** 7. The same repair (a repair rule, on the same chat or step) `repairsPerDay` times or more in a day. */
+/**
+ * 7. The same repair (a repair rule, on the same chat or step) `repairsPerDay` times or more in a day. B546: a repair
+ * the app's restart caused (`cause: 'restart'`, a chat stopped because the app started anew) does not count.
+ */
 function repairRepeats(view) {
   const counts = new Map()
-  for (const one of view.repairs.filter(repair => view.now - repair.at < DAY)) {
+  for (const one of view.repairs.filter(repair => view.now - repair.at < DAY && repair.cause !== 'restart')) {
     const id = `${one.rule} ${one.subject}`
     counts.set(id, [...(counts.get(id) ?? []), one])
   }

@@ -1728,6 +1728,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
       suspended: helperLane.suspended,
       asksYou: helperLane.state === 'waiting' || waits.asking.has(helperLane.name.toLowerCase()),
       isRunning: helperLane.state === 'off' ? false : runningOf(helperLane.name),
+      // B546: when its transcript was last written, so the supervisor tells a helper the app's restart stopped.
+      writtenAt: raw.tails?.[helperLane.session]?.modifiedAt ?? null,
     },
     // The supervisor (spec 2026-10-24): the chat that sweeps (the list's "supervisor"): how it stands, for its sweeps.
     supervisorChat: supervisorLane === null ? null : {
@@ -1746,6 +1748,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // to paste instead (null on a board that does not deliver). `chatPrefix` makes a chat's name its title.
     bridge: isBridgeMissing === null ? null : { isMissing: isBridgeMissing },
     chatPrefix: prefix,
+    // B546: when the Claude app last started (B315), or null: the supervisor's helper rule reads it.
+    appStartedAt,
     // B161: the talk with the main chat; null without a main chat.
     mainTalk: mainTalk === null ? null : { ...mainTalk, isRunning: runningOf(mainTalk.name) },
     // B173: the game plan (config.gamePlan in the game's repository), and the Advisor's open suggestions: the open
