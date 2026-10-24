@@ -29,6 +29,7 @@
       <button class="tab" type="button" data-tab="spending">Spending</button>
     </div>
     <span class="grow"></span>
+    <button class="waits-button" id="waits-for-you" type="button" title="Open Needs your attention on the Overview" hidden></button>
     <button class="quiet-button" id="pause-all" type="button" title="Before you quit Claude: every chat commits its work, writes its checkpoint and ends its turn" hidden>Pause all</button>
     <details class="settings" id="settings" hidden>
       <summary class="icon-button settings-button" id="settings-button" title="Settings: CPU for the chats, when you are bothered, rebuilds, and the board's version" aria-label="Settings: CPU for the chats, when you are bothered, rebuilds, and the board's version">⚙</summary>
@@ -335,6 +336,7 @@
 
   <dialog class="details" id="details" aria-label="Details"></dialog>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <div class="ask-notice" id="ask-notice" role="status" aria-live="polite" hidden></div>
 
   <dialog class="file-view" id="file-view" aria-label="A file of the game"></dialog>
 

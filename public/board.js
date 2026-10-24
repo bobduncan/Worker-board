@@ -4291,6 +4291,80 @@ function partnerFirst(needs, focusIds) {
 }
 // partner-needs:end
 
+// waits:start
+// The trial's gap 3 (2026-10-24): a question waited on the Overview while the user was on another tab and missed it.
+// The top bar says on every tab how many wait for you; a question that comes while the page is open shows a notice.
+
+/** The top bar's words: "2 wait for you", or null when nothing waits. */
+function waitsWords(count) {
+  return count > 0 ? `${count} wait${count === 1 ? 's' : ''} for you` : null
+}
+
+/**
+ * Which of the open questions are new: `seen` the ids seen before (null on the page's first draw, when none are new).
+ * `{ seen, fresh }`: every id seen so far, and the questions not seen before.
+ */
+function freshWaiting(seen, open) {
+  const fresh = seen === null ? [] : open.filter(one => !seen.has(one.id))
+  return { seen: new Set([...(seen ?? []), ...open.map(one => one.id)]), fresh }
+}
+
+/** The notice's words: "New question from Main: May I ...?". */
+function noticeWords(one) {
+  return `New question${one.from ? ` from ${one.from}` : ''}: ${one.title}`
+}
+// waits:end
+
+/** The top bar's count and the notice of a new question, from what Needs your attention counts and shows. */
+let waitsSeen = null
+let noticeOf = null
+function drawWaits(count, open) {
+  const button = $('waits-for-you')
+  const words = waitsWords(count)
+  button.hidden = words === null
+  button.textContent = words ?? ''
+  const { seen, fresh } = freshWaiting(waitsSeen, open)
+  waitsSeen = seen
+  // The notice stays until it is opened or closed, or its question no longer waits.
+  if (fresh.length > 0) noticeOf = fresh[fresh.length - 1]
+  if (noticeOf !== null && !open.some(one => one.id === noticeOf.id)) noticeOf = null
+  const notice = $('ask-notice')
+  notice.hidden = noticeOf === null
+  if (noticeOf !== null) {
+    const opener = el('button', 'is-primary', 'Open it')
+    opener.type = 'button'
+    opener.dataset.openWaiting = noticeOf.id
+    const close = el('button', 'icon-button', '×')
+    close.type = 'button'
+    close.dataset.closeNotice = ''
+    close.setAttribute('aria-label', 'Close')
+    notice.replaceChildren(el('span', 'ask-notice-mark', '?'), el('span', 'ask-notice-words', noticeWords(noticeOf)), opener, close)
+  }
+}
+
+/** Opens Needs your attention on the Overview at a question (its id), or at the first that waits. */
+function openWaiting(id) {
+  show('overview')
+  showSide('needs')
+  const cards = [...$('needs').querySelectorAll('[data-id]')]
+  const card = cards.find(one => one.dataset.id === id) ?? cards.find(one => !one.classList.contains('is-closed')) ?? null
+  if (card === null) return
+  card.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  card.classList.remove('is-lit')
+  void card.offsetWidth
+  card.classList.add('is-lit')
+}
+
+$('waits-for-you').addEventListener('click', () => openWaiting(null))
+$('ask-notice').addEventListener('click', event => {
+  const open = event.target.closest('[data-open-waiting]')
+  if (open !== null) openWaiting(open.dataset.openWaiting)
+  if (open !== null || event.target.closest('[data-close-notice]') !== null) {
+    noticeOf = null
+    $('ask-notice').hidden = true
+  }
+})
+
 /** Focus 4: the group "From your partner" with its cards, or null when the partner asks nothing. */
 function drawPartnerNeeds(cards, open) {
   if (cards.length === 0) return null
@@ -4325,6 +4399,7 @@ function drawNeeds(state) {
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
   const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
+  drawWaits(unanswered, cardsOpen.filter(need => !isAnswered(need)).map(need => ({ id: need.id, from: need.from ?? null, title: need.title })))
   // Focus 4: the partner's questions first, under "From your partner"; the rest as before.
   const shown = ordered(shownNeeds(needs, showsClosed()).filter(need => !isRefineQuestion(need)))
   const { partner, rest } = partnerFirst(shown, (state.focus?.needs ?? []).map(need => need.id))
