@@ -364,6 +364,20 @@ button, textarea, select { font: inherit; color: inherit; }
 .vision-button.is-busy:disabled { opacity: 1; border-color: var(--advisor); color: var(--advisor); cursor: progress; }
 /* Vision, the steps (2026-10-19): Vision → Features → Goals, and the interview over all of them. */
 .vision-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.vision-start { padding: 24px; gap: 20px; border-radius: 16px; background: linear-gradient(135deg, #101925, #0e1622); }
+.vision-start h2 { margin: 0; font-size: 26px; }
+.vision-start > p { margin: -4px 0 2px; line-height: 1.5; }
+.vision-start-kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; align-items: stretch; }
+.vision-start-kinds .vision-mode { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-width: 0; min-height: 210px; padding: 22px 14px 18px; border-radius: 15px; background: linear-gradient(145deg, #162132, #121c2a); transition: background 150ms, border-color 150ms, box-shadow 150ms; }
+.vision-start-kinds .vision-mode[aria-pressed="true"] { background: linear-gradient(145deg, #203b63, #172c49); border-color: #78a7ff; box-shadow: 0 0 0 2px #78a7ff40; }
+.vision-kind-picture { display: flex; align-items: center; justify-content: center; height: 100px; font-family: 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif; font-size: 80px; line-height: 1; filter: drop-shadow(0 4px 3px #0005); }
+.vision-kind-label { font-size: 22px; font-weight: 700; }
+.vision-kind-example { color: var(--muted); font-size: 15px; font-weight: 400; line-height: 1.4; }
+.vision-start textarea { min-height: 96px; padding: 16px; border-radius: 13px; font: inherit; }
+.vision-start .vision-buttons .is-primary { display: inline-flex; align-items: center; justify-content: center; gap: 14px; min-height: 52px; padding: 12px 24px; border-radius: 12px; font-size: 18px; background: #2c62c6; }
+.vision-start-arrow { font-size: 25px; line-height: 1; }
+@media (max-width: 900px) { .vision-start-kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .vision-start { padding: 16px; } .vision-start-kinds { gap: 10px; } .vision-start-kinds .vision-mode { min-height: 185px; padding: 16px 8px; } .vision-kind-picture { font-size: 64px; height: 80px; } .vision-kind-example { font-size: 13px; } }
 .vision-arrow { color: var(--muted); }
 .vision-mode.is-done { color: var(--working); }
 .vision-interview { margin-left: 10px; }

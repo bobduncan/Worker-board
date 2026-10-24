@@ -115,6 +115,10 @@ function since(at, now) {
 }
 
 const ICONS = {
+  game: 'M7 8h10a4 4 0 0 1 3.9 3.1l1 4.5a2.8 2.8 0 0 1-4.7 2.6L15 16H9l-2.2 2.2a2.8 2.8 0 0 1-4.7-2.6l1-4.5A4 4 0 0 1 7 8zM6 12h4M8 10v4M16 11h.01M18 13h.01',
+  website: 'M3 7h18M7 5h.01M10 5h.01M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM7 11h10M7 15h6',
+  app: 'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM10 5h4M12 18h.01',
+  other: 'M9 3H3v6h6V3zM21 3h-6v6h6V3zM9 15H3v6h6v-6zM18 15v6M15 18h6',
   // B280: the Advisor, set apart from the workers.
   advisor: 'M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.74V16a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1.26A7 7 0 0 0 12 2z',
   refresh: 'M20 11a8 8 0 0 0-14.3-4.5M4 4v4h4M4 13a8 8 0 0 0 14.3 4.5M20 20v-4h-4',
@@ -11023,10 +11027,20 @@ function visionStartCard(start, can, off) {
   const card = el('section', 'vision-card vision-start')
   card.append(el('h2', '', 'What are you building?'),
     el('p', 'muted', 'Pick what it is and say it in a few words. Your partner starts the plan from it; its questions come here, one per slide.'))
-  const kinds = el('div', 'vision-steps')
+  const kinds = el('div', 'vision-steps vision-start-kinds')
   for (const kind of start.kinds) {
     const button = visionButton(kind.key, 'start-kind', { id: kind.key, className: 'vision-mode', isEnabled: can && !visionUi.startSent, title: off })
     button.setAttribute('aria-pressed', String(kind.isPicked))
+    const examples = {
+      Game: ['🎮', 'e.g. a tactics game, mobile puzzle, …'],
+      Website: ['💻', 'e.g. portfolio, blog, landing page, …'],
+      App: ['📱', 'e.g. iOS/Android app, tool, utility, …'],
+      Other: ['💡', 'e.g. a goal, automation, service, …'],
+    }
+    const [picture, example] = examples[kind.key] ?? examples.Other
+    const symbol = el('span', 'vision-kind-picture', picture)
+    symbol.setAttribute('aria-hidden', 'true')
+    button.replaceChildren(symbol, el('span', 'vision-kind-label', kind.key), el('span', 'vision-kind-example', example))
     kinds.append(button)
   }
   card.append(kinds, visionBox('vision-extra-words', 'In a few words: what is it, and who is it for? (a tactics game for short breaks, a site for my bakery...)', 3, can && !visionUi.startSent))
@@ -11035,7 +11049,11 @@ function visionStartCard(start, can, off) {
   if (visionUi.startSent) buttons.append(el('span', 'muted', 'Sent: your partner starts the interview.'))
   else {
     const why = !can ? off : start.kind === null ? 'Pick what you build first.' : 'Say in a few words what it is.'
-    buttons.append(visionButton('Start the plan', 'start-plan', { className: 'is-primary', isEnabled: can && start.canStart, title: why }))
+    const begin = visionButton('Start the plan', 'start-plan', { className: 'is-primary', isEnabled: can && start.canStart, title: why })
+    const arrow = el('span', 'vision-start-arrow', '→')
+    arrow.setAttribute('aria-hidden', 'true')
+    begin.append(arrow)
+    buttons.append(begin)
   }
   card.append(buttons)
   return card
