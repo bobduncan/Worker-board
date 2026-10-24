@@ -46,6 +46,8 @@ button, textarea, select { font: inherit; color: inherit; }
 .update-note:hover:not(:disabled) { filter: brightness(1.07); }
 .update-note:disabled { cursor: default; }
 .update-note.is-busy { opacity: 0.85; }
+/* B454: the board updates itself: information, not a call to act, so a quiet cool tone, never the amber of waiting. */
+.update-note.is-quiet { background: var(--inset); color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); cursor: default; }
 .update-note.is-problem { background: var(--warn); color: var(--ink); }
 /* B273: the app moved its folder: where the board found it (blue), or that it found it nowhere (orange). */
 .app-note { flex: none; padding: 7px 18px; border-bottom: 1px solid #2f5fb3; background: #13254a; color: #cfe0ff; font-size: 14px; text-align: center; overflow-wrap: anywhere; }

@@ -191,6 +191,9 @@ function updateView(version, loadedPage, { isStarting = false, problem = null } 
   if (version === undefined || version === null) return null
   if (isStarting) return { text: 'Starting the new version of the board…', action: null, tone: 'busy' }
   if (problem !== null) return { text: `${problem} Click to try again.`, action: 'restart', tone: 'problem' }
+  // B454: the board starts a new server by itself at a safe moment: until then the note says what it waits for; after 10
+  // minutes without one it asks for the click as before.
+  if (version.isServerNewer && version.canRestart && version.selfUpdate?.state === 'waiting') return { text: version.selfUpdate.line, action: null, tone: 'quiet' }
   if (version.isServerNewer) {
     return version.canRestart
       ? { text: 'A new version of the board is available. Click to start it.', action: 'restart', tone: 'new' }
@@ -198,6 +201,21 @@ function updateView(version, loadedPage, { isStarting = false, problem = null } 
   }
   if (loadedPage !== '' && typeof version.page === 'string' && version.page !== loadedPage) return { text: 'A new version of the page is available. Click to load it.', action: 'reload', tone: 'new' }
   return null
+}
+
+/**
+ * B454: whether the page loads the new version of itself now: only the page is newer (a newer server restarts the
+ * board, and the page then loads itself anew), the page is idle (`isIdle`) and it did not do so within the last minute
+ * (`lastAt`), so a version it cannot settle on cannot make it load over and over.
+ */
+function reloadsNow(version, loadedPage, { isIdle, lastAt = 0, now = 0 }) {
+  if (version === undefined || version === null || version.isServerNewer || loadedPage === '' || typeof version.page !== 'string') return false
+  return version.page !== loadedPage && isIdle && now - lastAt > MIN
+}
+
+/** B454: the short note after the page loaded itself, for a few seconds (`at`: when it did). */
+function updatedView(at, now) {
+  return Number.isFinite(at) && at > 0 && now - at < 8000 ? { text: 'The page was updated to the new version.', action: null, tone: 'quiet' } : null
 }
 
 /** Which version of the board runs, and since when: "Board 5fb7da8 · since 09:31". */
@@ -594,10 +612,24 @@ function drawLoopsNote(state) {
   }
 }
 
-/** The note on top (see `updateView`). */
+/** B454: nothing is open or being typed: no popup, no field with focus or with words in it, nothing on its way. */
+function isPageIdle() {
+  if (document.querySelector('dialog[open]') !== null || sending.size > 0) return false
+  const isText = field => field.matches('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="number"]')
+  if (document.activeElement !== null && document.activeElement !== document.body && document.activeElement.matches('input, textarea, select, [contenteditable]')) return false
+  return ![...document.querySelectorAll('textarea, input')].some(field => isText(field) && field.value.trim() !== '')
+}
+
+/** The note on top (see `updateView`). B454: a newer page loads itself when the page is idle; a short note says so after. */
 function drawUpdate(state) {
   const note = $('update-note')
-  const shown = updateView(state.version, PAGE, { isStarting: sending.has('board-anew'), problem: problems.get('board-anew') ?? null })
+  const lastAt = Number(sessionStorage.getItem('page-updated-at') ?? 0)
+  if (reloadsNow(state.version, PAGE, { isIdle: isPageIdle(), lastAt, now: Date.now() })) {
+    sessionStorage.setItem('page-updated-at', String(Date.now()))
+    location.reload()
+    return
+  }
+  const shown = updateView(state.version, PAGE, { isStarting: sending.has('board-anew'), problem: problems.get('board-anew') ?? null }) ?? updatedView(lastAt, Date.now())
   note.hidden = shown === null
   if (shown === null) return
   note.className = `update-note is-${shown.tone}`
