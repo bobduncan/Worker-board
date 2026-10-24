@@ -152,10 +152,11 @@ function storeOver(lines, messages, alive, write) {
     /**
      * B532: closes a waiting word with its reason (`state` dropped: no longer needed; expired: waited too long), written
      * down with the time, so the outbox holds only words that still matter and the page says what became of the rest.
+     * B571: also a failed word that is not tried again (its purpose gone, outboxSweep.mjs).
      */
     async close(id, state, why, now) {
       const message = messages.find(one => one.id === id)
-      if (message === undefined || message.state !== 'waiting') return false
+      if (message === undefined || !(message.state === 'waiting' || (message.state === 'failed' && message.retriedAs === undefined))) return false
       Object.assign(message, { state, why, closedAt: now })
       await write.outbox([{ id, state, why, closedAt: now }])
       return true
