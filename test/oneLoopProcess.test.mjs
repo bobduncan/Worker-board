@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
 import { createBoard } from '../server.mjs'
+import { foldOutbox } from '../src/store.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { writeStore } from '../src/work/store.mjs'
 
@@ -170,7 +171,7 @@ test('two board processes on one project: each line goes out once, and the other
   /** Every word the board sent but its wakes (one may follow another after two minutes), sent more than once. */
   const twice = async () => {
     const seen = new Map()
-    for (const message of await sent(one => one.command !== 'start')) {
+    for (const message of foldOutbox(await readFile(outbox, 'utf8')).filter(one => one.command !== 'start')) {
       const key = JSON.stringify([message.to, message.command ?? null, message.about ?? null, message.text ?? null])
       seen.set(key, (seen.get(key) ?? 0) + 1)
     }
@@ -217,7 +218,7 @@ test('two board processes on one project: each line goes out once, and the other
   const note = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   assert.equal(note.url, `http://127.0.0.1:${otherPort}`, 'the chats find the one that took over')
   // The Workers mod finds it there and asks it (this one has had no mod asking it since its start, a minute ago).
-  const asked = await fetch(`${note.url}/api/bridge/take`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': note.key }, body: JSON.stringify({ chat: 'Game - Maps', session: 'maps-id' }) })
+  const asked = await fetch(`${note.url}/api/bridge/take`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': note.key }, body: JSON.stringify({ chat: 'Maps', session: 'maps-id' }) })
   assert.equal(asked.status, 200, await asked.text())
   await until(async () => stat(join(logs, 'left.txt')).then(() => true, () => false), 'the log the holder left, finished by the one that took over')
   assert.match(await readFile(join(logs, 'left.txt'), 'utf8'), /The shield is in\./)
