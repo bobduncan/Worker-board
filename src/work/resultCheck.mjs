@@ -152,6 +152,78 @@ export function fixOutcomeOf(id, items) {
   return { ...base, isFixed: false, note }
 }
 
+const BULLET = /^\s*[-*]\s+/
+const MAKES_PASS = /^Makes pass:\s*/i
+// Words too common to tie a checked point to an agreed one.
+const COMMON = new Set(['with', 'that', 'this', 'from', 'when', 'each', 'every', 'they', 'them', 'their', 'have', 'into', 'only', 'once', 'then', 'than', 'what', 'which', 'does', 'there', 'step', 'still', 'stays', 'more'])
+const wordsIn = text => new Set((text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []).filter(one => !COMMON.has(one)))
+
+/**
+ * B526: a step's agreed points as its "What we build" holds them, a "Not in it" line too: one per bullet, a line
+ * without a bullet joined to the one before, the bullet taken off.
+ */
+export function agreedPoints(item) {
+  const points = []
+  for (const one of item?.sections?.get('What we build') ?? []) {
+    if (BULLET.test(one)) points.push(one.replace(BULLET, '').trim())
+    else if (one.trim() !== '' && points.length > 0) points[points.length - 1] += ` ${one.trim()}`
+  }
+  return points.filter(Boolean)
+}
+
+/**
+ * B526: for each failed point of a check (`failed`, each with its `index` in the checked list `points`), the agreed
+ * point of the checked step (`origin`) it must make pass, or null. By the list's order when the checker ticked one
+ * point per agreed point ("Not in it" ticked or not); otherwise, as checkers add points ("harm: ...", "extra: ...")
+ * and split others, the agreed point that shares the most words with it. A step without agreed points, or a failed
+ * point that shares too few words with any: its Standard line, else its Summary.
+ * A fix of a fix names the first step's point, not the words of an earlier fail: a fix's fail text stands with its
+ * "Makes pass" line, which counts; a fix made before B526 has none, and its fail text is followed up the chain of
+ * `Fix of` through the checks that made it (`items`, the store's steps by id).
+ */
+export function parentPointsOf(origin, points, failed, items = null, depth = 0) {
+  const raw = agreedPoints(origin)
+  const all = raw.map(one => one.replace(MAKES_PASS, ''))
+  const kept = all.map((text, place) => ({ text, place })).filter(one => !/^Not in it\b/i.test(one.text)).map(one => one.place)
+  const standard = standardOf(origin)
+  const summary = (origin?.sections?.get('Summary') ?? []).join(' ').trim()
+  const fallback = standard !== null && !/^none\b/i.test(standard) ? `Standard: ${standard}` : summary === '' ? null : summary
+  if (all.length === 0) return failed.map(() => fallback)
+  const inOrder = points.length === all.length ? all.map((_, place) => place) : points.length === kept.length ? kept : null
+  const placeOf = one => {
+    if (inOrder !== null && inOrder[one.index] !== undefined) return inOrder[one.index]
+    // A checker's "not in it held: ..." is the Not in it line.
+    if (/^not in it\b/i.test(one.text)) {
+      const notInIt = all.findIndex(text => /^Not in it\b/i.test(text))
+      if (notInIt >= 0) return notInIt
+    }
+    const said = wordsIn(one.text)
+    const scored = all.map((text, place) => {
+      const words = wordsIn(text)
+      const shared = [...words].filter(word => said.has(word)).length
+      // Checkers mostly keep the agreed order and add their own points after: the same place counts for a little.
+      return { place, shared, score: shared / Math.max(1, words.size) + (place === one.index ? 0.15 : 0) - Math.abs(place - one.index) * 0.02 }
+    }).filter(each => each.shared >= 2)
+    scored.sort((a, b) => b.score - a.score || b.shared - a.shared)
+    return scored[0]?.place ?? -1
+  }
+  const isFix = valueOf(origin, 'Fix of') !== null
+  const hasPasses = raw.some(one => MAKES_PASS.test(one))
+  return failed.map(one => {
+    const place = placeOf(one)
+    if (place < 0) return fallback
+    if (!isFix) return all[place]
+    if (MAKES_PASS.test(raw[place])) return all[place]
+    if (MAKES_PASS.test(raw[place + 1] ?? '')) return all[place + 1]
+    // A fix made before B526: its fail text was a failed point of the check that made it.
+    const parent = hasPasses || items === null || depth >= 10 ? undefined : items.get(valueOf(origin, 'Fix of'))
+    const check = parent === undefined ? null : checkedOf(parent)
+    const index = check === null ? -1 : check.points.findIndex(point => point.verdict === 'fail' && point.text === raw[place])
+    if (index < 0) return all[place]
+    return parentPointsOf(parent, check.points, [{ ...check.points[index], index }], items, depth + 1)[0] ?? all[place]
+  })
+}
+
 /** A fix step's title: "Fix: <the failed points in a few words>", no brackets at its end, at most about 100 characters. */
 export function fixTitle(failed) {
   const words = failed.map(one => one.text.replace(/\s*\([^()]*\)\s*$/, '').trim()).filter(Boolean).join('; ')

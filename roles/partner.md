@@ -634,7 +634,11 @@ from design B and still passed, the same minute the user answered "they dont loo
 
 Every point passes: the board closes the step. A failed point: the board makes the fix step itself ("Fix: <the failed
 points>", refined from them, queued for the same worker, the step's `Attempts` counted up), and the step waits in
-review until its fix is done and checked; check a fix as any step. A point that is the user's to judge: ask them under
+review until its fix is done and checked; check a fix as any step. Under each fail text a fix carries `Makes pass:
+<point>`, the agreed point of the step it fixes that the fail was ticked against (B526; for a step checked on its
+Standard alone, its Standard line): its check ticks every fail text and every Makes pass line, and the board refuses a
+`checked` on a fix with fewer points. A fix that does what its fail text says but leaves its Makes pass point unmet
+fails that point. A point that is the user's to judge: ask them under
 the step (`work ask`, kind look, the evidence picture, your advice); once they answered, the board files `checked`
 again by itself (B449): every answer a yes (Approved, Done, yes, keep it) makes the ask points pass and closes the step, a
 no (Rejected, no) fails them with their words and makes the fix. Words it cannot read as yes or no, or fewer answers than
