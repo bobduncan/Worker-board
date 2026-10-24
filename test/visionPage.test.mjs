@@ -19,7 +19,7 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// vision:start'), script.indexOf('// vision:end'))}
-Object.assign(this, { visionView, OWN_WORDS, visionStart, visionStartWords, visionStartWait, visionStartProblem })`, made)
+Object.assign(this, { visionView, OWN_WORDS, visionStart, visionStartWords, visionStartWait, visionStartProblem, planBadge })`, made)
 const visionView = (...args) => JSON.parse(JSON.stringify(made.visionView(...args)))
 const visionStart = (...args) => JSON.parse(JSON.stringify(made.visionStart(...args)))
 
@@ -333,7 +333,7 @@ test('the Vision tab sits beside Overview, with its view, its address and its st
   // A standard's card in two parts, the bar set apart; what the goals need is a muted line, not a bar point; how the
   // things get built (the foundation, the hours) is not on the card (the user, 2026-10-21: "it's a standard, not a step").
   assert.match(script, /'The bar: what each one must meet'/)
-  assert.doesNotMatch(script, /'To get there'|Foundation first|withoutHours/)
+  assert.doesNotMatch(script, /'To get there'|\*\*Foundation first:\*\*|withoutHours/)
   assert.match(script, /`Needed: \$\{card\.count\}`/)
   assert.match(css, /\.vision-part\.is-bar \{/)
   // The Focus page no longer carries the plan.
@@ -451,4 +451,43 @@ test("a card whose next question the partner prepares from your answer shows a l
   const busy = slideOf([{ command: 'plan-answer', about: 'P1', at: 1, state: 'working', what: 'the next question from your answer' }])
   assert.deepEqual([busy.isAsked, busy.isFromAnswer], [true, true])
   assert.match(script, /Your partner is preparing the next question\./)
+})
+
+test('the plan step: the strategy choice, change badges, Not now, only what changes (2026-10-24)', () => {
+  const page = [
+    '# P', '', '## P1 · What', '- State: decided (you, 2026-10-24)', '', '## Goals preset', '',
+    'Strategy advice: Playable first · you want to feel it early', '',
+    '### M1 · One fight', '- Change: rename One fight you can play', '- Cause: shorter', '',
+    '#### S1 · Play one fight', '- Change: new', '- Sub: Move a squad', '- Sub: Enemies act', '',
+    '#### S2 · Palette', '- Change: merge G4, G6', '- Cause: the look is cozy (P3)', '- Steps: B12 and B14 move here', '',
+    '#### S3 · Turn order', '- Change: move G9 from M2', '',
+    '#### S4 · Kept', '- Goal: G5', '',
+    '#### S5 · Lighting', '- Change: drop G7', '- State: not now (you, 2026-10-24)', '',
+    '### M2 · A run', '', '#### S6 · Three fights', '- Goal: G8', '',
+  ].join('\n')
+  const goals = ui => visionView(planState(page, [], 'p.md'), { ...UI, page: 'plan', ...ui }).goals
+  const all = goals({})
+  // No strategy chosen yet: the four, the advised one marked; the plan waits for your pick.
+  assert.equal(all.strategy, null)
+  assert.deepEqual(all.strategies.map(one => [one.name, one.isAdvised]), [['Playable first', true], ['Foundation first', false], ['Scale first', false], ['Risk first', false]])
+  assert.equal(all.strategyAdvice.why, 'you want to feel it early')
+  // The badges: milestone and goals.
+  const [m1, m2] = all.milestones
+  assert.deepEqual(m1.badge, { label: 'Renamed', tone: 'change' })
+  assert.equal(m1.cause, 'shorter')
+  assert.deepEqual(m1.goals.map(goal => goal.badge?.label ?? null), ['New', 'Merges G4 and G6', 'Moved from M2', null, 'Drop'])
+  assert.deepEqual(m1.goals.map(goal => goal.badge?.tone ?? null), ['new', 'change', 'change', null, 'drop'])
+  assert.deepEqual([m1.goals[1].cause, m1.goals[1].steps], ['the look is cozy (P3)', 'B12 and B14 move here'])
+  assert.equal(m1.goals[4].state, 'later')
+  assert.equal(all.changes, 5)
+  // Only what changes: kept goals and a milestone without changes go.
+  const only = goals({ onlyChanges: true })
+  assert.equal(only.onlyChanges, true)
+  assert.deepEqual(only.milestones.map(one => [one.id, one.goals.map(goal => goal.id)]), [['M1', ['S1', 'S2', 'S3', 'S5']]])
+  assert.equal(m2.badge, null)
+  // An unknown change is shown in its own words.
+  const badge = change => JSON.parse(JSON.stringify(made.planBadge(change)))
+  assert.deepEqual(badge({ kind: 'other', text: 'frobnicate G1' }), { label: 'frobnicate G1', tone: 'change' })
+  assert.equal(badge({ kind: 'keep', text: 'G1' }), null)
+  assert.deepEqual(badge({ kind: 'split', text: 'G12' }), { label: 'Splits G12', tone: 'change' })
 })

@@ -10032,6 +10032,25 @@ function visionStartWait(planStart, ui, partner) {
 function visionStartProblem(planStart, partner) {
   return planStart?.state === 'failed' ? `Your start did not reach ${partner}: start again.` : null
 }
+/**
+ * The plan's strategies (the user, 2026-10-24: "before it makes this plan it can require imput from the user to choose
+ * the strategy"): chosen on the Plan step before the partner lays the plan, or in the person's own words.
+ */
+const STRATEGIES = [['Playable first', 'a thin slice from start to end, then widen'], ['Foundation first', 'systems and tools before content'],
+  ['Scale first', 'the way to make content comes early'], ['Risk first', 'the hardest unknown first']]
+
+/** A plan change's label on a milestone or goal (2026-10-24), or null when it keeps it as it is. */
+function planBadge(change) {
+  if (change === null || change === undefined || change.kind === 'keep') return null
+  const ids = String(change.text ?? '').match(/\b[GM]\d+\b/g) ?? []
+  if (change.kind === 'new') return { label: 'New', tone: 'new' }
+  if (change.kind === 'drop') return { label: 'Drop', tone: 'drop' }
+  if (change.kind === 'rename') return { label: 'Renamed', tone: 'change' }
+  if (change.kind === 'merge') return { label: `Merges ${ids.join(' and ')}`.trim(), tone: 'change' }
+  if (change.kind === 'split') return { label: `Splits ${ids[0] ?? ''}`.trim(), tone: 'change' }
+  if (change.kind === 'move') return { label: `Moved ${String(change.text ?? '').replace(/^\s*[GM]\d+\s*/, '')}`.trim(), tone: 'change' }
+  return { label: String(change.text ?? '').trim() || change.kind, tone: 'change' }
+}
 /** A feature's marks (the user, 2026-10-21: the milestones do not exist yet on the Features step; the plan places it). */
 const MARK_LABELS = [['must', 'Must'], ['later', 'Later'], ['no', 'No'], ['unsure', '?']]
 
@@ -10188,12 +10207,20 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   const confirms = ui.confirms ?? []
   const goalCards = milestones.map(one => ({
     id: one.id, title: one.title,
+    // 2026-10-24: a plan change's label and cause on the milestone and on each goal; where a goal's steps go.
+    badge: planBadge(one.change ?? null), cause: one.cause ?? '',
     goals: one.goals.map(item => ({
       id: item.id, title: item.title, doneWhen: item.doneWhen, serves: item.serves, pictures: item.pictures, subs: item.subs, goal: item.goal, why: item.why ?? '',
-      state: item.state === 'confirmed' ? 'confirmed' : confirms.includes(item.id) ? 'confirming' : 'proposed', source: visionSource(item), slide: slideOf(item.id),
+      badge: planBadge(item.change ?? null), cause: item.cause ?? '', steps: item.steps ?? '',
+      state: item.state === 'confirmed' ? 'confirmed' : item.state === 'later' ? 'later' : confirms.includes(item.id) ? 'confirming' : 'proposed', source: visionSource(item), slide: slideOf(item.id),
     })),
   }))
   const allGoals = goalCards.flatMap(one => one.goals)
+  // Only what changes (2026-10-24): the goals a plan change touches, and the milestones that hold one or change.
+  const onlyChanges = ui.onlyChanges === true
+  const shownMilestones = !onlyChanges ? goalCards : goalCards
+    .map(one => ({ ...one, goals: one.goals.filter(item => item.badge !== null) }))
+    .filter(one => one.badge !== null || one.goals.length > 0)
   // Standards (2026-10-20): per kind of thing the goals need: the bar, the foundation first, today's gap.
   const standardConfirms = ui.standardConfirms ?? []
   // A standard's gallery: the bar's picture, today's, one per bar point that has one (the aspect highlighted), the rest.
@@ -10262,7 +10289,11 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
       tradeoffs: tradeoffCards, tradeoffsOpen: tradeoffsOpen.map(card => card.id),
     },
     goals: {
-      milestones: goalCards, pending: allGoals.filter(item => item.state === 'confirming').map(item => item.id),
+      milestones: shownMilestones, pending: allGoals.filter(item => item.state === 'confirming').map(item => item.id),
+      // 2026-10-24: the strategy the plan is laid in (null: you choose it first), the partner's advice, the four.
+      strategy: plan.strategy ?? null, strategyAdvice: plan.strategyAdvice ?? null,
+      strategies: STRATEGIES.map(([name, words]) => ({ name, words, isAdvised: plan.strategyAdvice?.name === name })),
+      onlyChanges, changes: goalCards.filter(one => one.badge !== null).length + allGoals.filter(item => item.badge !== null).length,
       summary: allGoals.length === 0 ? '' : `${allGoals.length} goals · ${allGoals.filter(item => item.state === 'confirmed').length} confirmed by you`,
       // The partner's last check of the whole plan (null: none yet).
       check: plan.check ?? null,
