@@ -11,7 +11,7 @@ import { checkpointOf, isHolding } from '../work/pause.mjs'
 import { isFailedForGood } from '../work/outboxSweep.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, workingOnOther } from '../work/parked.mjs'
-import { checkpointLate, familyOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
+import { checkWordsOf, checkpointLate, familyOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -256,7 +256,8 @@ function stepLines(view, now) {
     const ended = state === 'queued' ? ((valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []).filter(blocker => ENDED.includes(stateIn(view.items, blocker))) : []
     // B563: a step in review names what it waits for, its open fix with that fix's state and owner.
     const review = reviewWaitOf(item, view.items)
-    const fixWords = review?.kind === 'fix' ? ` (${stateIn(view.items, review.fix)}, ${valueOf(view.items.get(review.fix), 'Owner') ?? 'no owner'})` : ''
+    const fixWords = review?.kind === 'fix' ? ` (${stateIn(view.items, review.fix)}, ${valueOf(view.items.get(review.fix), 'Owner') ?? 'no owner'})`
+      : review?.kind === 'check' ? checkAskedWords(view, id, review.since, now) : ''
     const waits = review !== null ? ` (${review.text}${fixWords})`
       : wait !== null ? ` (waits${wait.stalled.length === 0 ? ' as planned' : ''} for ${wait.open.map(blockerWords).join(' and ')})`
       : blocked.length > 0 ? ` (waits for ${blocked.join('; ')})`
@@ -276,6 +277,16 @@ function stepLines(view, now) {
   }
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined`, { tier: 1 }))
   return lines
+}
+
+/**
+ * B585 (X33: a check under way read as stuck): when the check of a step in review was asked, and the last check word
+ * to the partner with its state: ", check asked 22:04, word to Partner (delivered)", or ", no check word yet".
+ */
+function checkAskedWords(view, id, since, now) {
+  const last = checkWordsOf(view, id, since).at(-1)
+  const word = last === undefined ? 'no check word yet' : `word to ${last.to ?? view.partner?.name ?? 'the partner'} (${last.state ?? 'not known'})`
+  return `, check asked ${dayClockOf(since, now)}, ${word}`
 }
 
 /** Each chat's queue as the board shows it, in its order, with why the first step waits. */
