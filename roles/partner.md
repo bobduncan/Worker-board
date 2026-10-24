@@ -713,11 +713,15 @@ the feedback. It reads as the finished description, not as a talk:
   folder that the result is held against, and the score its definition of done must reach; ` · foundation` at the
   end for a step that builds its kind's foundation (the guard lets only those in until the foundation is built). The board writes it as the
   block's `Standard:` line and keeps it for the next round. A step whose title or text names a kind by chance (a fix of
-  the board that mentions a map) gets `none (<why>)`. Without one, `refined` is refused for a step that names a kind.
+  the board that mentions a map) gets `none (<why>)`, for a look kind (below) `none (no look change: <why>)`. Without one, `refined` is refused for a step that names a kind.
   B451: a kind of the settings marked `look` is one the player sees (a unit, a map, a ground look, an effect, the
   HUD, a screen). A step that names one changes what the player sees, so `none (<why>)` is refused for it: it always
   carries a kind's standard with a reference and a target. B395 (crumbling tiles and vents, a new ground look) was
   refined with `none (rules as data)`, and its look was never held against a picture.
+  B513: it counts only beside drawn things (render, sprite, HUD, camera, a render/, hud/, art/ or docs/visual/ path, a
+  .css file; B516: not plain words like draw, look, picture, screen): a step that names a kind only in its rules ("mark summoned units as spent") is no look change.
+  A step whose words name a look kind and a drawn thing but that changes nothing the player sees says so:
+  `none (no look change: <why>)`, which the board takes.
   When your work tool has no field `standard` yet (a chat started before it came), give it as a line of `what` that
   starts with `Standard:`; the board takes it out of What we build.
 - **Model** (model per step; the user, 2026-10-23: "workers Sonnet by default, Opus only for steps the Advisor marks

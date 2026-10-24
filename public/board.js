@@ -36,6 +36,11 @@ const $ = id => document.getElementById(id)
 const openLanes = new Set()
 const openBubbles = new Set()
 const drafts = new Map()
+// B519: the answers kept by a reload after a restart of the board (see `read`) come back once.
+try {
+  for (const [name, text] of draftsBack(sessionStorage.getItem('drafts-kept'))) drafts.set(name, text)
+  sessionStorage.removeItem('drafts-kept')
+} catch { /* no sessionStorage: nothing was kept */ }
 const chosen = new Map()
 const problems = new Map()
 const sending = new Set()
@@ -211,6 +216,30 @@ function updateView(version, loadedPage, { isStarting = false, problem = null } 
 function reloadsNow(version, loadedPage, { isIdle, lastAt = 0, now = 0 }) {
   if (version === undefined || version === null || version.isServerNewer || loadedPage === '' || typeof version.page !== 'string') return false
   return version.page !== loadedPage && isIdle && now - lastAt > MIN
+}
+
+/**
+ * B519: whether the page loads itself anew after the board answered 403 (it was started again and has a new token, so
+ * every Send of this page fails): at once, at most once a minute (`lastAt`), so a real refusal cannot make it reload
+ * over and over. The words being typed are not lost: see `draftsKept`.
+ */
+function reloadsOn403(status, { lastAt = 0, now = 0 }) {
+  return status === 403 && now - lastAt > MIN
+}
+
+/** B519: the answers being typed (`drafts`, a Map) as text for sessionStorage, kept across a reload; empty ones are left out. */
+function draftsKept(drafts) {
+  return JSON.stringify([...drafts].filter(([name, text]) => typeof name === 'string' && typeof text === 'string' && text !== ''))
+}
+
+/** B519: the entries `draftsKept` wrote, back from the text; anything unreadable gives none. */
+function draftsBack(text) {
+  try {
+    const list = JSON.parse(text ?? '[]')
+    return Array.isArray(list) ? list.filter(pair => Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 /** B454: the short note after the page loaded itself, for a few seconds (`at`: when it did). */
@@ -6160,7 +6189,7 @@ function goalCrumb(goals, focusId) {
 
 /** B505: the goals a search finds at any depth, done or not: an id (G33, g33) or every word of the title; id matches first, at most 8. */
 function goalSearch(goals, query) {
-  const words = query.toLowerCase().split(/s+/).filter(word => word !== '')
+  const words = query.toLowerCase().split(/\s+/).filter(word => word !== '')
   if (words.length === 0) return []
   const rank = node => {
     const id = node.id.toLowerCase()
@@ -6171,7 +6200,7 @@ function goalSearch(goals, query) {
     .map((node, order) => ({ node, order, rank: rank(node) }))
     .sort((a, b) => a.rank - b.rank || a.order - b.order)
     .slice(0, 8)
-    .map(({ node }) => ({ id: node.id, title: node.title, where: goalCrumb(goals, node.id).slice(1).map(step => step.id).join(' › ') }))
+    .map(({ node }) => ({ id: node.id, title: node.title, where: goalCrumb(goals, node.id).slice(1).map(step => /^M\d+(?= |$)/.exec(step.title)?.[0] ?? step.id).join(' › ') }))
 }
 
 /** "2 inside · 4 steps · 3 done · 1 missing"; "no steps yet" when there is nothing to count. */
@@ -13931,10 +13960,13 @@ async function read() {
   clearTimeout(timer)
   try {
     const answer = await fetch('/api/state', { headers: { 'X-Board-Token': TOKEN }, cache: 'no-store' })
-    // The server was started again and has a new token: a fresh page has it. At most once a minute, so a real
-    // refusal cannot make the page load itself over and over.
-    if (answer.status === 403 && Date.now() - Number(sessionStorage.getItem('reloaded-at') ?? 0) > MIN) {
+    // The server was started again and has a new token: a fresh page has it, and every Send of this page fails until
+    // then. B519: so the page loads itself at once, and keeps the answers being typed in sessionStorage across it
+    // (B512 waited for idle, but Send failed on the old token meanwhile). At most once a minute, so a real refusal
+    // cannot make the page load itself over and over.
+    if (reloadsOn403(answer.status, { lastAt: Number(sessionStorage.getItem('reloaded-at') ?? 0), now: Date.now() })) {
       sessionStorage.setItem('reloaded-at', String(Date.now()))
+      try { sessionStorage.setItem('drafts-kept', draftsKept(drafts)) } catch { /* full or blocked: the page still loads */ }
       location.reload()
       return
     }

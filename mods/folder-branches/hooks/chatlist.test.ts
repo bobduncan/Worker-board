@@ -1580,6 +1580,80 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
     expect(w.typedIn).toEqual([])
   })
 
+  describe('B484: the board answers the turn\'s end with a "For you" block slowly', () => {
+    const block = 'Closed B277.\n\n> **For you**\n> 1. **Answer:** Keep the golem as it is? I advise yes.\n\n---\n\n```diff\n  Prompt: x\n  Who:    Game - Main\n- Done:   partly\n```'
+    const answer = JSON.stringify({ missed: [], open: [], role: 'main', pause: RUNNING, asked: ['Q7'], left: ['"Plant the hedge?" asks what Q5 asks'] })
+    const told = (w: World): boolean[] => w.contexts.map(one => one.join(' ').includes('from your last "For you" block: Q7') && one.join(' ').includes('as asked already: "Plant the hedge?"'))
+
+    async function slow($: Engine, on: On, afterMs: number, before?: (w: World) => void): Promise<World> {
+      const clock = mock.clock(on)
+      const w = world('main', { ...listed(), [BOARD]: board })
+      stand(on, w)
+      await $.session.start(START)
+      await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Main' })
+      await $.turn.start({ text: 'go', turnId: 't1' })
+      let release = (): void => {}
+      w.byAction['turn-ended'] = { status: 200, text: answer }
+      w.holdAction = { action: 'turn-ended', until: new Promise<void>(done => { release = done }) }
+      const ending = $.turn.complete({ ...ENDED, answer: block, turnId: 't1' })
+      await settle()
+      await clock.advance(afterMs)
+      before?.(w)
+      release()
+      await settle()
+      await clock.advance(10_000)
+      await ending
+      await settle()
+      return w
+    }
+
+    test('a board that answers after 1.5 s but within the wait still tells the chat what it filed and left out', async ($, on) => {
+      const w = await slow($, on, 3000)
+      await $.prompt.submit({ text: 'yes', ...ASKED } as never)
+      expect(told(w)).toEqual([true])
+    })
+
+    test('the turn\'s end is held for the board past 1.5 s, and let go with its answer in hand (not left to the late path)', async ($, on) => {
+      const clock = mock.clock(on)
+      const w = world('main', { ...listed(), [BOARD]: board })
+      stand(on, w)
+      await $.session.start(START)
+      await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Main' })
+      await $.turn.start({ text: 'go', turnId: 't1' })
+      let release = (): void => {}
+      w.byAction['turn-ended'] = { status: 200, text: answer }
+      w.holdAction = { action: 'turn-ended', until: new Promise<void>(done => { release = done }) }
+      let isEnded = false
+      const ending = $.turn.complete({ ...ENDED, answer: block, turnId: 't1' }).then(() => { isEnded = true })
+      await settle()
+      await clock.advance(3000)
+      await settle()
+      expect(isEnded).toBe(false)
+      release()
+      await settle()
+      await ending
+      expect(isEnded).toBe(true)
+      // taken in the turn itself: the late path would drop this answer once the chat is cleared
+      w.id = 'fresh-session'
+      await $.prompt.submit({ text: 'yes', ...ASKED } as never)
+      expect(told(w)).toEqual([true])
+      expect(w.toasts.join(' ')).not.toContain('answered after this chat was cleared')
+    })
+
+    test('a board that answers after the wait is over tells the chat at its next prompt, while it is the same chat', async ($, on) => {
+      const w = await slow($, on, 8000)
+      await $.prompt.submit({ text: 'yes', ...ASKED } as never)
+      expect(told(w)).toEqual([true])
+    })
+
+    test('an answer that comes after the chat was cleared is dropped and said, not given to the fresh chat', async ($, on) => {
+      const w = await slow($, on, 8000, world => { world.id = 'fresh-session' })
+      await $.prompt.submit({ text: 'yes', ...ASKED } as never)
+      expect(told(w)).toEqual([false])
+      expect(w.toasts.join(' ')).toContain('answered after this chat was cleared')
+    })
+  })
+
   test('B317: an answer that ends with a "For you" block hands its items to the board with the turn\'s end, in the same call', async ($, on) => {
     mock.clock(on)
     const w = world('main', { ...listed(), [BOARD]: board })

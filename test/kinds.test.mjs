@@ -64,7 +64,7 @@ test('a standard is "<kind> · <reference picture> · target <score>" with a kin
 })
 
 const NOW = new Date(2026, 9, 18, 22, 0).getTime()
-const BACKLOG = '# Backlog\n\n## World work\n- [ ] B1 Draw three forest levels\n- [ ] B2 Speed up the page\n'
+const BACKLOG = '# Backlog\n\n## World work\n- [ ] B1 Render three forest levels\n- [ ] B2 Speed up the page\n'
 const ROLES = { Main: 'main', Board: 'worker', Advisor: 'advisor' }
 
 async function fresh(kinds = KINDS) {
@@ -121,17 +121,24 @@ test('refined is refused for a step that names a kind of the settings and has no
 })
 
 test('B451: "none" is refused for a step that names a look kind; a kind\'s standard is taken', async () => {
-  assert.deepEqual(noneForLook('A new creature look', 'none (rules as data)', LOOK).map(one => one.kind), ['creature'])
-  assert.deepEqual(noneForLook('A new creature look', 'creature · art/creatures/a.png · target 75', LOOK), [])
+  assert.deepEqual(noneForLook('A new creature sprite', 'none (rules as data)', LOOK).map(one => one.kind), ['creature'])
+  assert.deepEqual(noneForLook('A new creature sprite', 'creature · art/creatures/a.png · target 75', LOOK), [])
   assert.deepEqual(noneForLook('Speed up the page', 'none (it tests the loader)', LOOK), [])
+  // B513: a kind named in rules words only, or a step that says it changes nothing seen, is no look change.
+  assert.deepEqual(noneForLook('Mark summoned creatures as spent after their turn', 'none (rules as data)', LOOK), [])
+  assert.deepEqual(noneForLook('A new creature sprite', 'none (no look change: only the tests move)', LOOK), [])
+  // B516: plain words (look, draw, picture, screen, colour) are not drawn things.
+  assert.deepEqual(noneForLook('Show a picture of the creature on the screen with a look at its colour', 'none (rules)', LOOK), [])
+  assert.deepEqual(noneForLook('Render the creature walk', 'none (rules as data)', LOOK).map(one => one.kind), ['creature'])
+  assert.deepEqual(noneForLook('Move creature art/creatures/a.png', 'none (rules)', LOOK).map(one => one.kind), ['creature'])
   assert.deepEqual(parseConfig(JSON.stringify({ kinds: [{ ...LOOK[0] }, { ...LOOK[1], look: 'yes' }] }), {}).kinds.map(one => one.look), [true])
   const { dir, advisor } = await fresh(LOOK)
   await advisor({ ...REFINE, id: 'B1', summary: 'Three forest levels to walk.' })
-  const refused = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels'], standard: 'none (rules as data)' })
+  const refused = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels, drawn in the art'], standard: 'none (rules as data)' })
   assert.equal(refused.status, 409)
-  assert.match(refused.why, /^B1 names the look kind "level", so it changes what the player sees: "none \(\.\.\.\)" is refused\. Give a kind's standard, "level · <a reference picture from art\/levels> · target <score>"/)
+  assert.match(refused.why, /^B1 names the look kind "level", so it changes what the player sees: "none \(\.\.\.\)" is refused\. Give a kind's standard, "level · <a reference picture from art\/levels> · target <score>".*no look change: <why>/)
   assert.equal(valueOf(await itemOf(dir, 'B1'), 'Refined'), 'open')
-  const ready = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels'], standard: 'level · art/levels/forest.png · target 75' })
+  const ready = await advisor({ action: 'refined', id: 'B1', what: ['three forest levels, drawn in the art'], standard: 'level · art/levels/forest.png · target 75' })
   assert.equal(ready.ok, true, ready.why)
 })
 
