@@ -94,8 +94,10 @@ step therefore says what it touches ("Touches: ...").
 ## A task on the worker board itself
 
 - The board the user looks at runs from its own folder and starts by itself: never stop or start it. Try your work
-  on a copy started from your task folder, which takes a port of its own; say "needs a new start of the board" in
-  your report when its server changed.
+  on a copy started from your task folder, which takes a port of its own. The board loads a merged change by itself
+  (B454: the page when it is idle, the server at a safe moment, 10 minutes at most before the yellow note asks for a
+  click): never ask the user to restart the board or to click its note, and write in your report that the board updates
+  itself, not "needs a new start".
 - Every change to the board works for any project: no project, chat, folder or PC names in its code, page, job
   texts or examples; names, paths and words come from the settings or the project's files. Its test
   `test/anyProject.test.mjs` fails on a new tie.
@@ -122,11 +124,17 @@ step therefore says what it touches ("Touches: ...").
   (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that those
   files are there (else the paths its Touches name), not a merged branch.
 - What only the person can do: `work ask` under your step, `kind` decide, look, provide or do, `blocking` when you
-  wait for it, with its pictures; a choice with each option apart in `options`, its letter first (`A thin`), and
+  wait for it, with its pictures (copied first into the project's picture folder, the settings' `pictureRoots`, under
+  `<step>/`: the board shows no picture from a worktree, and refuses an ask that names one); a choice with each option apart in `options`, its letter first (`A thin`), and
   your `advice` (the letter, or yes or no), so the board shows them as cards; put the block it answers into your answer. The user answered it in your chat:
   `work answered-in-chat Q<id>` with their words. An ask you no longer need: `work withdraw Q<id>`;
   a step that waits on you is reported only once its asks are answered or withdrawn. Information for the person or the main
   chat: `work note`. An instruction of the user's that you finished: `work close I<id>` with what came of it.
+- A place on the board your ask names gets a link (B507): the work tool's For you block adds one for every goal (`G33`),
+  step or ask id and tab ("the Focus tab, then Goals") in the title, and the popup links the same words. In a Do item
+  you write yourself, link the place the same way: `<board>/#advice/goals/G33` (a goal on Goals), `#advice/focus` or
+  `#advice/brainstorm` (a part of the Focus tab), `#vision`, `#backlog`, `#design`, `#spending` (a tab),
+  `#details=B12` (a step or ask), beside `#picture=` and `#play=`.
 - An ask with your advice (or options) may be answered by the partner (partner answers, 2026-10-19): when the tool says
   it goes to your partner first, write no block for it and wait; the answer comes into your chat as the user's would.
 - An ask leads with its `title`: the question itself, plain, in at most 12 words (`Thin or thick strip?`); the board

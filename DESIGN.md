@@ -856,9 +856,24 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   the new version once in a process of its own, and refuses with the reason when it does not load; else the board
   answers, ends with code 75, and its keeper starts it again, with the key the chats' mod knows, so nothing waits
   for a chat in vain. The page then loads itself anew. A newer page alone needs no new start: its note loads the
-  page. Nothing starts anew by itself. The top bar says which version runs: "Board 9beb081 · since 09:48". A board
+  page. (Nothing started anew by itself until B454, below.) The top bar says which version runs: "Board 9beb081 · since 09:48". A board
   started without the keeper (one from before B142) says so and has to be started anew by hand once. The picture:
   `art-inbox/worker-board/b142/2026-10-14-b142-new-version-note.png`.
+- *A new version, by itself (B454).* The person, 2026-10-20 (Q259 A, G11's re-check): nine of 65 questions in two days
+  only asked to click that note or to start the board anew, and the goal map puts the noise among the questions in G15.
+  Their earlier "dont auto refresh" (above) gave way to it. A newer *page* loads itself the next time the page is idle
+  (`isPageIdle` in `public/board.js`: no dialog open, no field with focus or with words in it, nothing on its way), at
+  most once a minute (`sessionStorage` `page-updated-at`), and a quiet note says so for 8 seconds. A newer *server*
+  starts itself anew at a safe moment (`src/selfUpdate.mjs`, `lookAtUpdate` in `server.mjs`, every 3 seconds): no line
+  taken by a chat and not yet typed (an outbox line in `taken`, under 2 minutes old), no result check and no reconcile
+  pass running, no chat log being written (`chatLogs.pending`), no call of a chat (`take`, `typed`, `work`) being
+  answered, not within 30 seconds of the last `save-log` (a chat being cleared after its step, and its fresh
+  conversation's first calls), and no Pause all standing. The start is the one the click makes (`restartNow`: the
+  settings file and the new version are checked first, B404's 10-second settle follows), so a start the board refuses
+  is not tried again for 10 minutes. The note on top says what the board waits for in a quiet cool tone
+  (`version.selfUpdate`); after 10 minutes without a safe moment it turns into the yellow "Click to start it" of
+  before, the fallback, and a safe moment after that still starts the new version. Not in it: the chats (the Workers
+  mod reaches a chat only when its process starts anew).
 - *The page keeps asking.* While the board is away the page asks every 5 seconds and says since when; a board
   that is back has a new token, and the page loads itself anew. The board says for an hour that it was off, and
   from when to when.
@@ -2927,6 +2942,20 @@ stuck that day was found by the person. They are now one list in the board, each
   one loop per project: `<project>/.claude/sync-loop.json` names the board process that runs the list (`mayRunLoop`),
   a second one on the project (another `--port`) leaves it, and its "Out of sync?" asks the main chat only; a lock
   whose owner has not run for two rounds is taken over.
+- **One board process runs all the loops (B488).** The lock is for every loop that writes or sends, not the list alone:
+  the look (task times, the clock's rounds, the refine lines, the wakes, the board's asks), the reconciler (the work
+  store's moves, each chat's line, the recaps, the stuck checks) and the list. `loopGate` (`src/supervisor/loop.mjs` since
+  the supervisor; server.mjs takes it from `src/supervisor/index.mjs` and gives the gate to the supervisor as `owns`) asks `loopOwner`
+  before each run and keeps the answer for a second; a process without the lock serves the page and reads (its look
+  reads the outbox and history files again, `reload` in store.mjs). A new claim is written and read back after 80 ms,
+  so of two processes starting at once the write that stands wins. The process that gains the lock after being refused
+  it (the holder ended; a dead process's lock is taken at once) reads again the files the holder wrote (the outbox, the
+  finished, rounds and refine records, the task times, the spending), so it sends nothing twice, and writes
+  `.claude/board.json`, so the mod finds it. At its start a process that does not get the lock writes no `board.json`.
+  A word sent from the page of the process without the lock lands in its own memory, not the holder's: use the
+  holder's page. Test: `test/oneLoopProcess.test.mjs` (two real processes: the round and a step's line go out once;
+  the holder is killed, the other takes the lock, writes `board.json`, and sends the next step's line once), and the
+  gate in `test/supervisor/selfCheck.test.mjs`.
 - A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
 - Tests: `test/supervisor/selfCheck.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
   `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).

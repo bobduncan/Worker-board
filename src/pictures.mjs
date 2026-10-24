@@ -2,7 +2,7 @@
 // project's picture folder). A chat or the backlog only gives a path; whether it may be shown is decided here, on the
 // real file, so nothing outside those folders can be asked for through the board.
 
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 
 import { picturePath } from './asks.mjs'
@@ -18,6 +18,12 @@ const PICTURE_BYTES = 12 * 1024 * 1024
  * folder (`kinds`), so a step's reference picture opens.
  */
 export const shownRoots = config => [...(config.pictureRoots ?? []), ...(config.kinds ?? []).map(one => one.reference)]
+
+/** The shown folders as a chat is told them: each once, and none that lies inside another (a picture folder holds its kinds' folders). */
+export function shownFolders(config) {
+  const roots = [...new Set(shownRoots(config))]
+  return roots.filter(root => !roots.some(other => other !== root && root.startsWith(`${other}/`)))
+}
 
 /**
  * A real path inside the project's shown folder it claims to be in, also after links are followed. Or null. B354: a
@@ -45,6 +51,41 @@ export async function findPicture(project, roots, value) {
     const info = await stat(file)
     if (!info.isFile() || info.size > PICTURE_BYTES) return null
     return { file, type: TYPES[path.split('.').pop().toLowerCase()], size: info.size }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Why the board cannot show a picture a chat names, or null when it can: 'outside' when the path lies in none of the
+ * shown folders (or is no picture's path), 'missing' when it lies in one but no such picture is there (2026-10-24:
+ * Worker 1's ask linked a picture in its worktree, and the person met a link that opened nothing).
+ */
+export async function pictureProblem(project, roots, value) {
+  const path = picturePath(value)
+  if (path === null) return 'outside'
+  if ((await findPicture(project, roots, path)) !== null) return null
+  return roots.some(root => path === root || path.startsWith(`${root}/`)) ? 'missing' : 'outside'
+}
+
+/**
+ * A picture a chat named outside the shown folders, copied into the settings' picture folder under `<subject>/`, so the
+ * person can open it (2026-10-24: Q311, filed from a chat's For you block, named one in a worktree). Only a picture
+ * inside the project's folder is copied; the copy's path, or null.
+ */
+export async function adoptPicture(project, folder, subject, value) {
+  const path = picturePath(value)
+  if (path === null || typeof folder !== 'string' || !/^[\w.-]+$/.test(subject)) return null
+  try {
+    const top = await realpath(project)
+    const real = await realpath(join(project, path))
+    if (!real.toLowerCase().startsWith(`${top.toLowerCase()}${sep}`)) return null
+    const info = await stat(real)
+    if (!info.isFile() || info.size > PICTURE_BYTES) return null
+    const to = `${folder}/${subject}/${path.split('/').pop()}`
+    await mkdir(join(project, ...folder.split('/'), subject), { recursive: true })
+    await copyFile(real, join(project, ...to.split('/')))
+    return to
   } catch {
     return null
   }

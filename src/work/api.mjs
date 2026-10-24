@@ -18,12 +18,13 @@ import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
+import { placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckOf } from './resultCheck.mjs'
+import { answerReading, checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckAtMs, resultCheckOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
-import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
-import { effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
+import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
+import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
@@ -539,13 +540,19 @@ const playWhere = play => {
   return settings.length > 0 ? settings.join(', ').replaceAll('=', ' ') : branch
 }
 
+/** B507: which goals, steps and asks the board holds, for the places a title names (the ask's own id is no place). */
+function placesKnown(w, own) {
+  const holds = (id, kind) => id !== own && w.store.items.has(id) && kindOf(w.store.items.get(id)) === kind
+  return { isGoal: id => w.hasGoal?.(id) === true, isStep: id => holds(id, 'step'), isAsk: id => holds(id, 'ask') }
+}
+
 /**
  * The "For you" block an ask puts in the chat's answer, so chat and board say the same. B299: in the project's form:
  * one numbered item, "**Answer:**" (decide, look) or "**Do:**" (provide, do), the options with the advice ("A or B; I
  * advise B"), the ask's id, kind and step, and under it one link per picture and per play, opening the board
- * (`<boardUrl>/#picture=<path>`, `<boardUrl>/#play=<branch>&<settings>`); without the board's address, the plain path.
+ * (`<boardUrl>/#picture=<path>`, `<boardUrl>/#play=<branch>&<settings>`), then one per place the title names (B507, `places`); without the board's address, the plain path.
  */
-export function forYouBlock({ id, of = null, kind, blocking = false, title, options = [], advice = '', pictures = [], play = '' }, boardUrl = '') {
+export function forYouBlock({ id, of = null, kind, blocking = false, title, options = [], advice = '', pictures = [], play = '', places = [] }, boardUrl = '') {
   const verb = ['provide', 'do'].includes(kind) ? 'Do' : 'Answer'
   const choice = options.length === 0 ? (advice === '' ? '' : ` I advise ${advice}.`) : ` ${options.join(' or ')}${advice === '' ? '' : `; I advise ${advice}`}`
   const where = of === null ? `${id}, ${kind}` : `${id}, ${kind}${blocking ? ', blocks ' : ' on '}${of}`
@@ -553,6 +560,8 @@ export function forYouBlock({ id, of = null, kind, blocking = false, title, opti
   const extra = [
     ...pictures.map(path => `>    ${link('See the picture', pictureName(path), `picture=${path}`, path)}`),
     ...(play === '' ? [] : [`>    ${link('Play it', playWhere(play), `play=${play}`, play)}`]),
+    // B507: a place on the board the title names opens there: a goal, a step, an ask, a tab.
+    ...places.map(place => `>    ${boardUrl === '' ? place.label : `[${place.label}](${boardUrl}/${place.hash})`}`),
   ]
   return ['> **For you**', `> 1. **${verb}:** ${title}${choice} (${where})`, ...extra].join('\n')
 }
@@ -600,12 +609,36 @@ async function ask(body, w) {
     const same = openRepeat(text.join(' '), isAlone ? goal : valueOf(of.item, 'Id'), mine.map(repeatFactsOf))
     if (same !== undefined) {
       const found = w.store.items.get(same.id)
-      const answered = stateOf(found) === 'answered' ? ` and the person answered it: ${(found.sections.get('Answer') ?? []).join(' ').slice(0, 200)}` : ' and it stands open'
+      const who = valueOf(found, 'Answered by') === 'partner' ? 'the partner' : 'the person'
+      const answered = stateOf(found) === 'answered' ? ` and ${who} answered it: ${(found.sections.get('Answer') ?? []).join(' ').slice(0, 200)}` : ' and it stands open'
       return refuse(409, `${same.id} asks this already${answered}. Wait for its answer or use it; to ask it anew, withdraw ${same.id} first.`)
     }
   }
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
   const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
+  // 2026-10-24: a picture the board cannot show is refused here, with where to put it, so the person never meets a
+  // link that opens nothing (Worker 1 linked one in its worktree). The mod's own asks (`via`) keep theirs as they came.
+  // An ask filed from a chat's For you block (`via`) keeps its question: a picture outside is copied in instead (Q311).
+  if (via !== null && typeof w.pictureProblem === 'function' && typeof w.adoptPicture === 'function') {
+    const subject = String((isAlone ? goal : valueOf(of.item, 'Id')) ?? 'asks').toLowerCase()
+    for (const [n, path] of pictures.entries()) {
+      if ((await w.pictureProblem(path)) === 'outside') pictures[n] = (await w.adoptPicture(path, subject)) ?? path
+    }
+  }
+  if (via === null && typeof w.pictureProblem === 'function') {
+    for (const path of pictures) {
+      const problem = await w.pictureProblem(path)
+      if (problem === 'missing') return refuse(400, `There is no picture at ${path}: make it first, then ask.`)
+      if (problem === 'outside') {
+        const subject = String((isAlone ? goal : valueOf(of.item, 'Id')) ?? 'asks').toLowerCase()
+        const name = path.replace(/\\/g, '/').split('/').pop()
+        // The first shown folder is the settings' own picture folder (pictureRoots), the place for a step's pictures.
+        const folders = w.shownFolders ?? []
+        const example = folders.length === 0 ? '' : `, for example to ${folders[0]}/${subject}/${name}`
+        return refuse(400, `The board cannot show ${path}: it shows pictures only from ${folders.length === 0 ? 'the settings\' picture folders' : folders.join(', ')} in the project's folder. Copy it there${example}, and ask again with that path.`)
+      }
+    }
+  }
   const play = line(body.play, 300)
   const advice = line(body.advice, 120)
   // Partner answers (2026-10-19): a detail question goes to the partner first; the person sees it only once handed on.
@@ -616,7 +649,7 @@ async function ask(body, w) {
   const stepId = isAlone ? null : valueOf(of.item, 'Id')
   const block = route === 'partner'
     ? `${id} goes to your partner first: it answers it for the person (normally with your advice) or hands it to them. Nothing is for the person now, so do not ask it in your answer: the answer comes to this chat as the person's would.`
-    : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play }, w.boardUrl ?? '')
+    : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play, places: placesIn([title, ...options, advice].join(' '), placesKnown(w, id)) }, w.boardUrl ?? '')
   const routed = route === null ? {} : { route }
   if (isAlone) return changed(question, block, routed)
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`]), w, `asked ${id}`)
@@ -1379,8 +1412,10 @@ async function fixStep(origin, failed, w) {
   const activity = valueOf(origin, 'Activity')
   const goal = valueOf(origin, 'Goal')
   const standard = standardOf(origin)
-  const effort = effortLineOf(origin)
-  const model = modelLineOf(origin)
+  // B525: a goal in its evaluation lifts its fix steps too.
+  const guarded = guardedDefaults(w, goal ?? '', false)
+  const effort = liftEffortLine(effortLineOf(origin), guarded)
+  const model = liftModelLine(modelLineOf(origin), guarded)
   const what = failed.map(one => `- ${one.text}`)
   const summary = `Fix what the result check of ${originId} found: ${failed.map(one => one.text).join('; ')}`.slice(0, 600)
   const block = [
@@ -1507,16 +1542,21 @@ async function make(call, w) {
   // B354: a standard given is kept on the step; a step made ready at once names it when it makes a thing of a kind.
   const standard = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
   if (standard !== null && !standard.ok) return refuse(400, standard.why)
+  // B518: a goal in its fundamental evaluation (and the steps made from the how that ends it) default to opus and high.
+  const guarded = guardedDefaults(w, goal, body.what !== undefined)
   // B468: so is an effort given: the worker that takes the step runs at it.
-  const effort = parseEffort(body.effort)
+  const effort = liftEffort(parseEffort(body.effort), guarded)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
   // Model per step: and so is a model given.
-  const model = parseModel(body.model)
+  const model = liftModel(parseModel(body.model), guarded)
   if (model !== null && !model.ok) return refuse(400, model.why)
   const fromHow = body.what === undefined ? null : howBlock(body, goal, w, standard?.line ?? null, effort?.line ?? null, model?.line ?? null)
   if (fromHow !== null && !fromHow.ok) return fromHow
   const named = fromHow === null || standard !== null ? [] : kindsNamed(`${title}\n${lines(body.text).join('\n')}`, w.kinds)
   if (named.length > 0) return refuse(409, standardWanted('This step', named))
+  // B451: "none" is refused for a step that names a look kind (what the player sees).
+  const looks = fromHow === null || standard === null ? [] : noneForLook(`${title}\n${lines(body.text).join('\n')}`, standard.line, w.kinds)
+  if (looks.length > 0) return refuse(409, standardNoneRefused('This step', looks))
   const read = lineFields(title)
   if (read.title !== title || read.isYou || read.owner !== null || read.branch !== null || read.asks !== null || read.id !== null) {
     return refuse(400, 'The title would not read back as written: leave out an id at its start, "Verify:" and the like, brackets at its end and @you.')
@@ -1882,7 +1922,7 @@ async function askForYou(value, since, w) {
     // B474: in other words, or pointing to it; the chat is told which and why (the review).
     const repeat = forYouRepeat({ text, kind }, repeats)
     if (repeat !== null) {
-      left.push(`"${line(text[0], 100)}" ${repeat}`)
+      left.push(`"${line(text[0], 100).trimEnd()}" ${repeat}`)
       continue
     }
     const fields = { kind, text, options: one.options, advice: one.advice, pictures: one.pictures, play: one.play, via: 'chat', blocking: false }
@@ -1918,6 +1958,26 @@ async function drop(body, w) {
 
 /** The round number of a refine block's head, 0 when there is none. */
 const roundOf = item => Number((item.sections.get('Refined') ?? [''])[0].match(/\bround\s+(\d+)/i)?.[1] ?? ((item.sections.get('Refined') ?? []).length > 0 ? 1 : 0))
+/**
+ * B518: the model and effort the goal guard sets (src/goalGuard.mjs): a step of a goal whose fundamental evaluation runs
+ * (`w.evaluationOf(goal)` is 'running'), and the steps made from the how that ended it ('ended', only with `isFromHow`)
+ * default to opus and high when none is given. Null otherwise; `{ model, effort }` as parseModel and parseEffort read them.
+ */
+function guardedDefaults(w, goal, isFromHow) {
+  const state = goal === '' ? null : w.evaluationOf?.(goal) ?? null
+  if (state !== 'running' && !(state === 'ended' && isFromHow)) return null
+  const why = state === 'running' ? `the goal guard: ${goal} is in its fundamental evaluation` : `the goal guard: ${goal}'s evaluation just ended with a new how`
+  return { model: parseModel(`opus: ${why}`), effort: parseEffort(`high: ${why}`) }
+}
+
+/**
+ * B525: the guard lifts, it does not only fill in: a model below opus or an effort below high (given, or the step's
+ * earlier one) becomes the guard's; opus, high and anything above stay. `guarded` is guardedDefaults' answer, or null.
+ */
+const liftModel = (model, guarded) => (guarded === null || guarded === undefined || (model?.ok === true && model.family === 'opus') || (model !== null && model !== undefined && !model.ok) ? model ?? null : guarded.model)
+const liftEffort = (effort, guarded) => (guarded === null || guarded === undefined || (effort !== null && effort !== undefined && (!effort.ok || EFFORTS.indexOf(effort.level) >= EFFORTS.indexOf('high'))) ? effort ?? null : guarded.effort)
+const liftModelLine = (line, guarded) => (line === null ? liftModel(null, guarded)?.line ?? null : liftModel(parseModel(line), guarded)?.line ?? line)
+const liftEffortLine = (line, guarded) => (line === null ? liftEffort(null, guarded)?.line ?? null : liftEffort(parseEffort(line), guarded)?.line ?? line)
 /** B468: the effort a step was given, as the store keeps it ("medium · a board fix"), or null when it has none. */
 const effortLineOf = item => {
   const effort = effortOf(item)
@@ -1985,12 +2045,13 @@ async function refine(call, w) {
   const given = body.standard === undefined ? null : parseStandard(body.standard, w.kinds)
   if (given !== null && !given.ok) return refuse(400, given.why)
   const standard = given?.line ?? standardOf(found.item)
+  const guarded = guardedDefaults(w, goal !== '' ? goal : valueOf(found.item, 'Goal') ?? '', false)
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
-  const effortLine = effort?.line ?? effortLineOf(found.item)
+  const effortLine = liftEffortLine(effort?.line ?? effortLineOf(found.item), guarded)
   const model = parseModel(body.model)
   if (model !== null && !model.ok) return refuse(400, model.why)
-  const modelLine = model?.line ?? modelLineOf(found.item)
+  const modelLine = liftModelLine(model?.line ?? modelLineOf(found.item), guarded)
   const round = roundOf(found.item) + 1
   const block = [
     `Refined (round ${round}, by ${w.who}, ${stamp(w.now)}):`,
@@ -2117,14 +2178,18 @@ async function refined(call, w) {
   const standard = given?.line ?? standardOf(found.item)
   const named = standard === null ? kindsNamed(`${valueOf(found.item, 'Title') ?? ''}\n${(found.item.sections.get('Context') ?? []).join('\n')}`, w.kinds) : []
   if (named.length > 0) return refuse(409, standardWanted(id, named))
+  // B451: "none" is refused for a step that names a look kind (what the player sees).
+  const looks = standard === null ? [] : noneForLook(`${valueOf(found.item, 'Title') ?? ''}\n${(found.item.sections.get('Context') ?? []).join('\n')}`, standard, w.kinds)
+  if (looks.length > 0) return refuse(409, standardNoneRefused(id, looks))
   // B468: the effort given now, else the one the step had.
+  const guarded = guardedDefaults(w, valueOf(found.item, 'Goal') ?? '', false)
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
-  const effortLine = effort?.line ?? effortLineOf(found.item)
+  const effortLine = liftEffortLine(effort?.line ?? effortLineOf(found.item), guarded)
   // Model per step: the model given now, else the one the step had.
   const model = parseModel(body.model)
   if (model !== null && !model.ok) return refuse(400, model.why)
-  const modelLine = model?.line ?? modelLineOf(found.item)
+  const modelLine = liftModelLine(model?.line ?? modelLineOf(found.item), guarded)
   const head = block[0].match(/^(\s*)Refined\s*(?:\(([^)]*)\))?\s*:\s*$/)
   if (head === null) return refuse(409, `${id}: its refine block does not start with "Refined (...):"; fix it by hand first.`)
   const inside = (head[2] ?? '').split(';').map(one => one.trim()).filter(one => one !== '' && !/^ready$/i.test(one))
@@ -2208,7 +2273,51 @@ async function answer(body, w) {
   if (done.ok && isRefine && of !== null) await dropNote(w, of, askWords(found.item), short)
   // Focus 3, the review: the step goes on, so its owner is woken too (the flow's "wake Owner") when another chat asked.
   const wakeOwner = freed !== null && (owner === null || plain(freed, w.prefix) !== plain(owner, w.prefix)) ? { to: freed, ...told } : null
-  return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner } } : done
+  // B449: the ask point of a result check that waits for the person: the check is filed again, or the partner woken.
+  const refiled = done.ok && of !== null && /^B\d+$/.test(of) ? await refileCheck(of, w) : {}
+  return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner, ...refiled } } : done
+}
+
+/**
+ * B449 (G11's re-check: B364, B383 and B376 sat in review for 31 to 35 hours after the person answered the one point of
+ * their result check that was theirs, and nobody was woken): once the person answered the last open ask under a step
+ * in review whose result check waits for them, the board files that check again by itself. All their answers read as
+ * yes: the ask points pass, and the step is done. Any reads as no: the ask points fail with their words, and the fix
+ * step is made as for any failed point. Words the board cannot read as yes or no (or fewer answers than ask points)
+ * wake the partner once ("check B<id>: Q<n> answered"), who files the check. `{}` when the step is not waiting for that.
+ */
+async function refileCheck(stepId, w) {
+  const read = await readStore(w.dir, w.fs).catch(() => null)
+  const step = read?.items.get(stepId)
+  if (step === undefined || stateOf(step) !== 'review' || resultCheckOf(step) !== 'waits') return {}
+  const fresh = { ...w, store: { ok: true, dir: w.dir, ...read } }
+  const check = checkedOf(step)
+  const points = check?.points.filter(one => one.verdict === 'ask') ?? []
+  if (points.length === 0) return {}
+  const asks = [...read.items.values()].filter(one => kindOf(one) === 'ask' && valueOf(one, 'Of') === stepId)
+  if (asks.some(one => stateOf(one) === 'open')) return {}
+  const filedAt = resultCheckAtMs(step)
+  const answered = asks.filter(one => stateOf(one) === 'answered' && !(sinceMs(valueOf(one, 'Since')) < filedAt))
+  if (answered.length === 0) return {}
+  const words = answered.map(one => (one.sections.get('Answer') ?? []).join(' ').trim())
+  const readings = words.map(answerReading)
+  const partner = (w.chats ?? []).find(chat => w.roleOf?.(chat) === 'advisor') ?? null
+  const ids = answered.map(one => valueOf(one, 'Id')).join(', ')
+  const tell = why => partner === null ? {} : {
+    wakePartner: { to: partner, id: stepId, title: valueOf(step, 'Title') ?? '', text: [`check ${stepId}: ${ids} answered`, `The person said: ${words.join(' | ')}`, `Your job: file the result check of ${stepId} again with work checked (${why}), roles/partner.md, "The check"`].join('\n') },
+  }
+  if (readings.includes(null) || answered.length < points.length) return tell(readings.includes(null) ? 'the board could not read the answer as yes or no' : `${points.length} points wait for the person, ${answered.length} answers came`)
+  const isNo = readings.includes('no')
+  const spoken = words.filter(Boolean).join(' | ')
+  const filed = await checked({
+    id: stepId,
+    evidence: check.evidence ?? `none (the person answered ${ids})`,
+    ...(check.score === null ? {} : { score: check.score }),
+    points: check.points.map(one => (one.verdict !== 'ask' ? `${one.verdict}: ${one.text}` : isNo ? `fail: ${one.text} (the person said: ${spoken})` : `pass: ${one.text}`)),
+  }, fresh)
+  if (!filed.ok) return tell(`the board could not file it by itself: ${filed.why}`)
+  const { fix, resultCheck } = filed.result
+  return { ...(fix === undefined ? {} : { fix }), ...(resultCheck === undefined ? {} : { resultCheck }) }
 }
 
 /**

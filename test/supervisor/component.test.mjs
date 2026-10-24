@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { REFUSED_MS, createSupervisor } from '../../src/supervisor/index.mjs'
+import { REFUSED_MS, createSupervisor, loopGate, loopOwner } from '../../src/supervisor/index.mjs'
 import { SYNC_EVERY_MS } from '../../src/supervisor/loop.mjs'
 import { CHECKS, REPAIR_RULES, findStuck } from '../../src/supervisor/rules/repair.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
@@ -40,13 +40,18 @@ function board({ lock = null, fail = null } = {}) {
     wake: async () => ({ id: 'w' }),
     noted: { load: async () => saved, save: async value => { saved = value } },
     now: () => NOW,
-    loopLock: {
-      read: async () => (held === null ? Promise.reject(Object.assign(new Error('none'), { code: 'ENOENT' })) : JSON.stringify(held)),
-      write: async text => { held = JSON.parse(text); done.lockWrites.push(held) },
-      alive: () => true,
-      pid: 7,
-      port: 4310,
-    },
+    // B482, B488: the server's gate of the board's loops, as server.mjs builds it, on a lock file in memory
+    owns: loopGate({
+      owner: loopOwner({
+        read: async () => (held === null ? Promise.reject(Object.assign(new Error('none'), { code: 'ENOENT' })) : JSON.stringify(held)),
+        write: async text => { held = JSON.parse(text); done.lockWrites.push(held) },
+        alive: () => true,
+        pid: 7,
+        port: 4310,
+        now: () => NOW,
+      }),
+      now: () => NOW,
+    }),
     loops: {
       run: async (name, fn) => { try { return await fn() } catch (error) { done.failed.push([name, error.message]) } },
       failed: (name, error) => done.failed.push([name, error.message]),
@@ -83,13 +88,13 @@ test('run: the list at once, as "Out of sync?" ran it; its answer is today\'s, a
   const answer = await supervisor.run({ asked: true })
   assert.deepEqual([answer.at, answer.asked, answer.rows.map(row => row.status), answer.fine], [NOW, true, ['Fixed', 'For Main'], CHECKS.length - 1])
   assert.deepEqual(done.applied.map(one => one.action), ['unblock', 'note'])
-  // The loop's lock is this process's now (B482: one loop per project).
+  // The loops' lock is this process's now (B482, B488: one board process per project runs them).
   assert.deepEqual(done.lockWrites.map(one => [one.pid, one.port]), [[7, 4310]])
   assert.equal(supervisor.view(NOW).run, answer)
   assert.equal(supervisor.view(NOW).checkedAt, NOW)
 })
 
-test('run: another board process that holds the project\'s loop runs it; this one runs nothing and answers null', async () => {
+test('run: another board process that holds the project\'s loops (the server\'s gate) runs it; this one runs nothing and answers null', async () => {
   const { ports, done } = board({ lock: { pid: 8, port: 4311, at: NOW - MIN } })
   const supervisor = createSupervisor(ports)
   assert.equal(await supervisor.run({ asked: true }), null)

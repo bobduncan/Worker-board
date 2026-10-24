@@ -6,13 +6,18 @@
 // repairs only through the repairs the self-check had: unblock, hand a step on, wake a chat, a word to the main chat,
 // clean a worktree.
 
-import { SYNC_EVERY_MS, loopOwner, syncRunner } from './loop.mjs'
+import { SYNC_EVERY_MS, syncRunner } from './loop.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES } from './rules/watch.mjs'
 import { incidentsOf, recordFindings } from './incidents.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
 export { REFUSED_MS }
+/**
+ * B482, B488: the project's one lock for the board's loops (loop.mjs). The server builds its gate from these and gives it
+ * to the supervisor as `owns`, so the list runs only where every other loop of the board runs.
+ */
+export { loopGate, loopOwner } from './loop.mjs'
 
 /** Every rule of the supervisor, as the page names them: `{ id, kind, says }` (the demo's section draws them too). */
 export const SUPERVISOR_RULES = [...REPAIR_RULES, ...WATCH_RULES].map(({ id, kind, says }) => ({ id, kind, says }))
@@ -22,8 +27,8 @@ const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id
 
 /**
  * The board's supervisor. `ports`: the runner's (loop.mjs `syncRunner`: `state()`, `items()`, `outbox()`, `refused()`,
- * `apply(body)`, `wake(one)`, `leftovers(...)`, `clean(one)`, `noted`, `now()`), plus `loopLock` (`read()`, `write(text)`,
- * `alive(pid)`, `pid`, `port`: the project's lock file, one loop per project, B482), `loops` (the board's loop record:
+ * `apply(body)`, `wake(one)`, `leftovers(...)`, `clean(one)`, `noted`, `now()`), plus `owns()` (true while this board
+ * process holds the project's loops: the server's gate, B482, B488; always true unless given), `loops` (the board's loop record:
  * `run(name, fn)`, `failed(name, error)`), `closing()` (true while the board ends), `settings` (config.json: its
  * `supervisor` thresholds), `timers` (`setInterval`, `clearInterval`; the global ones unless given), and for the watch
  * rules `memory` (`load()`, `save(value)`: the supervisor's own file) and `mods()` (the Workers mod installed and per
@@ -39,9 +44,8 @@ const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id
  * work API as the board), and `incidents` is what the store holds of them (incidents.mjs `incidentsOf`).
  */
 export function createSupervisor(ports) {
-  const { loopLock, loops, closing = () => false, settings = {}, timers = globalThis, ...runnerPorts } = ports
+  const { owns = async () => true, loops, closing = () => false, settings = {}, timers = globalThis, ...runnerPorts } = ports
   const runner = syncRunner({ ...runnerPorts, settings: settings.supervisor ?? {} }, REPAIR_RULES, WATCH_RULES)
-  const owns = loopOwner({ ...loopLock, now: ports.now })
   let timer = null
   // Task 3: the incidents as the store holds them, read after each run (and once at the start).
   let incidents = []

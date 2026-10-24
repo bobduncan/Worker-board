@@ -24,7 +24,7 @@ test('the run shows the guard: attempts so far, the evaluation, a rebuild for th
   assert.deepEqual([two.tone, two.title], ['counting', 'Checks failed: 2 of 3 attempts'])
   const evaluating = made.focusGuardView(focus({ attempts: 3, of: 3, state: 'evaluating', ask: null }))
   assert.deepEqual([evaluating.tone, evaluating.title], ['evaluating', 'Your partner evaluates the approach'])
-  assert.match(evaluating.text, /^3 checks failed since Go: on high effort/)
+  assert.match(evaluating.text, /^3 checks failed: on high effort/)
   const rebuild = made.focusGuardView(focus({ attempts: 3, of: 3, state: 'rebuild', ask: 'Q9' }))
   assert.deepEqual([rebuild.tone, rebuild.title], ['rebuild', 'A rebuild waits for you'])
   assert.match(rebuild.text, /\(Q9\): answer it under Needs your attention\. Nothing is rebuilt before your yes\./)

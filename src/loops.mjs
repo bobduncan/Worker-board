@@ -35,6 +35,8 @@ export const LOOP_WORDS = {
   'design-kinds': 'reading the kinds of idea',
   history: 'reading the other board\'s task times',
   'bridge-note': 'telling the chats where the board is',
+  // B454: the board's look at its own new version.
+  'self-update': 'starting the new version by itself',
 }
 
 /** The page's words for a loop; `check:<id>` is the check after the report of that step. */

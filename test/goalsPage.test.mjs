@@ -16,7 +16,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// goals:start'), script.indexOf('// goals:end'))}
-Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalDropTarget, goalFocusOf, goalFrameLine, goalFrameLines, goalHasOpenInside, goalKeyMove, goalLinkChoices, goalNextState, goalOutlineRows, goalPlaceAt, goalTools, goalZoomOut, tabOfAddress })`, made)
+Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalDropTarget, goalFocusOf, goalFrameLine, goalFrameLines, goalHasOpenInside, goalKeyMove, goalLinkChoices, goalNextState, goalOutlineRows, goalPlaceAt, goalSearch, goalTools, goalZoomOut, tabOfAddress })`, made)
 // What the page's functions answer, as this file's own objects, so deepEqual compares them by value.
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
@@ -209,4 +209,46 @@ test('review: the keys move a goal only from its title; the arrows walk the rows
   assert.match(script, /event\.target\.closest\('\.goal-title'\)/)
   assert.ok(script.includes("'ArrowRight'") && script.includes("'ArrowLeft'"))
   assert.ok(script.includes("'application/x-goal'"))
+})
+
+test('B505: the search finds a goal by id or by every word of its title, at any depth, done ones too', () => {
+  const goals = stateGoals()
+  assert.deepEqual(page.goalSearch(goals, 'G4'), [{ id: 'G4', title: 'Let the fountains sing', where: 'G1 › M1 › G4' }])
+  assert.deepEqual(page.goalSearch(goals, 'g8').map(one => one.id), ['G8'])
+  // A word of the title, not of the id: a deep goal and a done one are found.
+  assert.deepEqual(page.goalSearch(goals, 'fountains').map(one => one.id), ['G4'])
+  assert.deepEqual(page.goalSearch(goals, 'first path').map(one => one.id), ['G3'])
+  assert.equal(page.goalSearch(goals, 'LAY the')[0].where, 'G1 › M1 › G3')
+  // Every word must match; a milestone is found by its M-number.
+  assert.deepEqual(page.goalSearch(goals, 'paths fountains'), [])
+  assert.deepEqual(page.goalSearch(goals, 'm2').map(one => one.id), ['G5'])
+})
+
+test('B505: id matches come first, there are at most 8, and an empty or unmatched query lists nothing', () => {
+  const nodes = Array.from({ length: 12 }, (_, at) => ({ id: `G${at + 1}`, title: at === 11 ? 'Plant the 1 tree' : `Row ${at + 1}`, parent: null, children: [] }))
+  const many = { roots: nodes.map(one => one.id), nodes }
+  assert.deepEqual(page.goalSearch(many, 'g1').map(one => one.id).slice(0, 4), ['G1', 'G10', 'G11', 'G12'])
+  assert.equal(page.goalSearch(many, 'row').length, 8)
+  assert.deepEqual(page.goalSearch(stateGoals(), '   '), [])
+  assert.deepEqual(page.goalSearch(stateGoals(), 'nothing like this'), [])
+})
+
+test('B505: the search box stands in the Goals head and its keys and picks reach zoomGoal', () => {
+  assert.match(html, /id="goals-find-input"[^>]*placeholder="Find a goal: G33 or words"/)
+  for (const id of ['goals-find', 'goals-find-clear', 'goals-find-list']) assert.ok(html.includes(`id="${id}"`), id)
+  assert.match(script, /function pickGoalsFind\(id\) \{\s*clearGoalsFind\(\)\s*zoomGoal\(id\)/)
+  assert.match(script, /'No goal matches'/)
+  assert.match(script, /event\.key === 'Escape'[\s\S]*?clearGoalsFind\(\)/)
+})
+
+test('B514: words split on spaces, in any order; a word with an s finds its goals; the where line names the milestone', () => {
+  const titles = ['Check the architecture', 'Phone board layout', 'Found a way', 'Sound of lava', 'Sounds in the arena', 'Music sounds', 'Sound mixer', 'Sound test', 'Sound bank', 'Sound pool', 'Sound menu', 'Sound volume']
+  const nodes = [{ id: 'G1', title: 'M2 · The garden is open', parent: null, children: titles.map((_, at) => `G${at + 2}`) }, ...titles.map((title, at) => ({ id: `G${at + 2}`, title, parent: 'G1', children: [] }))]
+  const goals = { roots: ['G1'], nodes }
+  assert.deepEqual(page.goalSearch(goals, 'architecture check').map(one => one.id), ['G2'])
+  assert.deepEqual(page.goalSearch(goals, 'board phone').map(one => one.id), ['G3'])
+  // 'Found a way' holds "ound" but not "sound": the old split on the letter s matched it.
+  assert.deepEqual(page.goalSearch(goals, 'sound').map(one => one.id), ['G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12'])
+  assert.deepEqual(page.goalSearch(goals, 'sounds arena').map(one => one.id), ['G6'])
+  assert.deepEqual(page.goalSearch(goals, 'g2'), [{ id: 'G2', title: 'Check the architecture', where: 'M2 › G2' }])
 })

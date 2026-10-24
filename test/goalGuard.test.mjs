@@ -5,12 +5,18 @@
 // effort, for a fundamental evaluation; a rebuild is the person's to approve unless the board approves it by itself
 // (off at first, Q130). Made-up names only.
 import assert from 'node:assert/strict'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import { evaluationsRunning, focusMove, guardGoal } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
-import { GUARD_ATTEMPTS, evaluateWords, goalAttempts, guardOf, needsEvaluation } from '../src/goalGuard.mjs'
+import { GUARD_ATTEMPTS, evaluateWords, evaluationState, goalAttempts, guardOf, needsEvaluation } from '../src/goalGuard.mjs'
 import { parseConfig } from '../src/config.mjs'
+import { workApi } from '../src/work/api.mjs'
+import { migrateBacklog } from '../src/work/migrate.mjs'
+import { readStore, writeStore } from '../src/work/store.mjs'
 
 const step = (id, goal, history, checked = [], more = {}) => ({
   head: new Map([['Id', id], ['Kind', 'step'], ['Title', `Step ${id}`], ['State', 'in progress'], ['Goal', goal], ...Object.entries(more)]),
@@ -38,7 +44,7 @@ const goal = (text = MAP) => parseGoals(text).byId.get('G2')
 
 const ITEMS = [
   // Before Go: not counted. After Go: two failed result checks of B1 and one of its fix B4; one of another goal's step.
-  step('B1', 'G2', ['2026-10-19 07:40 Partner: result check failed: 1 of 3 points pass; fix B3 for W1', '2026-10-19 08:20 Partner: result check failed: 2 of 3 points pass; fix B4 for W1'], ['Evidence: none (no picture)', '- pass: Oak', '- fail: The seat is too high']),
+  step('B1', 'G2', ['2026-10-19 07:00 Advisor: new → refined', '2026-10-19 07:40 Partner: result check failed: 1 of 3 points pass; fix B3 for W1', '2026-10-19 08:20 Partner: result check failed: 2 of 3 points pass; fix B4 for W1'], ['Evidence: none (no picture)', '- pass: Oak', '- fail: The seat is too high']),
   step('B4', 'G2', ['2026-10-19 08:50 Partner: result check failed: 0 of 1 points pass; fix B5 for W1', '2026-10-19 09:10 Partner: result check passed: 1 of 1 points pass'], ['Evidence: none', '- pass: The seat is lower']),
   step('B7', 'G3', ['2026-10-19 08:30 Partner: result check failed: 0 of 1 points pass; fix B8 for W2']),
 ]
@@ -52,8 +58,9 @@ test('a goal\'s attempts are its failed checks since Go: its steps\' result chec
   assert.deepEqual(counted.failures.map(one => one.text), ['The seat is too high', '0 of 1 points pass', 'nobody sits'])
   // Go again (a new How agreed) starts the count anew.
   assert.equal(goalAttempts(goal(MAP.replace('How agreed: 2026-10-19 08:00', 'How agreed: 2026-10-19 09:00')), ITEMS).count, 1)
-  // Before its how is agreed nothing is counted: there is nothing to evaluate yet.
-  assert.equal(goalAttempts(goal(MAP.replace('  How agreed: 2026-10-19 08:00\n', '')), ITEMS).count, 0)
+  // B450: before its how is agreed the count starts at the goal's first refined step.
+  const noHow = goalAttempts(goal(MAP.replace('  How agreed: 2026-10-19 08:00\n', '')), ITEMS)
+  assert.deepEqual([noHow.count, noHow.since], [5, '2026-10-19 07:00'])
 })
 
 test('the third attempt fires the guard once: not for a goal done, not twice while the evaluation runs', () => {
@@ -72,8 +79,8 @@ test('the Focus page reads the guard: attempts so far, evaluating, a rebuild tha
   assert.deepEqual(guardOf(asked, ITEMS, [ask('Q9', 'G2', 'Rebuild G2: benches of stone instead of wood?')]), { attempts: 3, of: 3, state: 'rebuild', ask: 'Q9' })
   // Another ask, an answered one, or one of another goal is no rebuild waiting.
   assert.equal(guardOf(asked, ITEMS, [ask('Q8', 'G2', 'Which oak?'), ask('Q9', 'G2', 'Rebuild G2: stone?', 'answered'), ask('Q10', 'G3', 'Rebuild G3: lamps?')]).state, 'evaluating')
-  // No how agreed yet: nothing to show.
-  assert.equal(guardOf(goal(MAP.replace('  How agreed: 2026-10-19 08:00\n', '')), ITEMS, []), null)
+  // B450: no how agreed yet: the goal's failed checks count all the same.
+  assert.deepEqual(guardOf(goal(MAP.replace('  How agreed: 2026-10-19 08:00\n', '')), ITEMS, []), { attempts: 5, of: 3, state: 'counting', ask: null })
 })
 
 test('the word to the partner: evaluate the goal, with what failed and whether a rebuild needs the person\'s yes', () => {
@@ -86,6 +93,7 @@ test('the word to the partner: evaluate the goal, with what failed and whether a
     '- B1 (2026-10-19 08:20): The seat is too high',
     '- B4 (2026-10-19 08:50): 0 of 1 points pass',
     '- G2 re-check (2026-10-19 09:30): nobody sits',
+    'Next steps: refine every next step of G2 with Model: opus and Effort: high until the evaluation ends',
     'Rebuilds: ask the person first (decide); "Approve rebuilds by itself" is off',
     'Your job: D:/b/roles/partner.md, "The fundamental evaluation"',
   ].join('\n'))
@@ -233,4 +241,147 @@ test('B467: a goal map that cannot be read is not "none running": the error goes
   // A move on the Focus page is not told "there is no goal map" either: the error goes on (the page gets an error).
   await assert.rejects(focusMove({ command: 'vibe-draft', id: 'G2', lines: ['a', 'b', 'c'] }, ctx(busy)), /EBUSY/)
   assert.equal((await focusMove({ command: 'vibe-draft', id: 'G2', lines: ['a', 'b', 'c'] }, ctx(fakeFs({})))).why, 'There is no goal map to write into.')
+})
+
+// B450: the crumbling tiles (G30 of the real project): a failed result check, then the person's no twice to a look of the
+// same step. No how was agreed; the guard fires at the third, the partner is told to use opus and high for the next steps.
+const TILES = [
+  '# Goals', 'Last id: G5', 'Focus: G3', '',
+  '- [ ] G5 Ground that changes', '  Done when: tiles fall and vents erupt', '',
+].join('\n')
+const tilesGoal = (text = TILES) => parseGoals(text).byId.get('G5')
+const look = (id, of, answer, history) => ({
+  head: new Map([['Id', id], ['Kind', 'ask'], ['Asks', 'look'], ['State', 'answered'], ['Of', of]]),
+  sections: new Map([['Answer', answer], ['History', history.map(line => `- ${line}`)]]),
+})
+const TILE_ITEMS = [
+  step('B395', 'G5', ['2026-10-18 10:00 Advisor: new → refined', '2026-10-18 15:00 Advisor 2: result check failed: 1 of 3 points pass; fix B396 for W5'], ['Evidence: none', '- fail: the tiles do not read']),
+  look('Q214', 'B395', ['B no, say what to change', 'They dont look good'], ['2026-10-18 16:22 Worker 5: asked (look)', '2026-10-18 16:38 person: answered: B no, say what to change']),
+  look('Q230', 'B395', ['Rejected. not close to the reference'], ['2026-10-18 23:10 person: answered: Rejected. not close to the reference']),
+]
+
+test('B450: a goal without a how counts its failed checks and your no to a look, and the guard fires at the third', () => {
+  const counted = goalAttempts(tilesGoal(), TILE_ITEMS)
+  assert.deepEqual(counted.failures.map(one => [one.at, one.id, one.by]), [['2026-10-18 15:00', 'B395', 'check'], ['2026-10-18 16:38', 'Q214', 'you'], ['2026-10-18 23:10', 'Q230', 'you']])
+  assert.equal(needsEvaluation(tilesGoal(), TILE_ITEMS), true)
+  assert.equal(needsEvaluation(tilesGoal(), TILE_ITEMS.slice(0, 2)), false, 'two attempts')
+  const words = evaluateWords({ to: 'Partner', goal: tilesGoal(), attempts: counted, approveRebuilds: false, job: 'j' })
+  assert.match(words.text, /Attempts: 3 failed checks since its first refined step \(2026-10-18 10:00\)\n- B395 \(2026-10-18 15:00\): the tiles do not read\n- Q214, your no to a look \(2026-10-18 16:38\): B no, say what to change They dont look good\n- Q230, your no to a look/)
+  assert.match(words.text, /\nNext steps: refine every next step of G5 with Model: opus and Effort: high/)
+})
+
+test('B450: a yes, a look of a step of another goal or an answer by the partner is no attempt', () => {
+  const yes = look('Q1', 'B395', ['A yes'], ['2026-10-18 17:00 person: answered: A yes'])
+  const other = look('Q2', 'B7', ['No'], ['2026-10-18 17:00 person: answered: No'])
+  const partner = look('Q3', 'B395', ['No'], ['2026-10-18 17:00 Advisor: answered: No'])
+  const notNo = look('Q4', 'B395', ['Not now, later'], ['2026-10-18 17:00 person: answered: Not now'])
+  assert.equal(goalAttempts(tilesGoal(), [TILE_ITEMS[0], yes, other, partner, notNo, step('B7', 'G3', [])]).count, 1)
+})
+
+test('B450: the guard fires for a goal that is not the focus and has no how, and its marked draft ends the evaluation', async () => {
+  const fs = fakeFs({ [FILE]: latin(TILES) })
+  const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS }
+  const fired = await guardGoal('G5', base)
+  assert.equal(fired.result.fired, true)
+  assert.equal(parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8')).byId.get('G5').evaluationAsked, '2026-10-19 10:00')
+  // The partner's marked draft: no focus, no vibe, no how needed; it ends the evaluation and waits for Go.
+  const drafted = await focusMove({ command: 'how-draft', id: 'G5', parts: ['Sprites from a reference · 2 h'], partnerDecides: ['Evaluation: draw them from a Codex reference'], youDecide: [] }, ctx(fs))
+  assert.equal(drafted.ok, true, drafted.why)
+  const now = parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8')).byId.get('G5')
+  assert.deepEqual([now.evaluationAsked, now.howAgreed, now.parts.map(part => part.title)], [null, null, ['Sprites from a reference']])
+  assert.match(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'), /\n {2}Evaluated \(2026-10-19 10:00\): a how drafted for your Go \(1 part\) · draw them from a Codex reference\n/)
+  // The count starts anew, and the guard does not fire again on the old attempts.
+  assert.equal(goalAttempts(now, TILE_ITEMS).count, 0)
+  assert.equal((await guardGoal('G5', base)).result.fired, false)
+  // Without a running evaluation a goal that is not the focus and has no how is still not drafted.
+  const calm = await focusMove({ command: 'how-draft', id: 'G5', parts: ['Other · 1 h'], partnerDecides: [], youDecide: [] }, ctx(fakeFs({ [FILE]: latin(TILES) })))
+  assert.equal(calm.ok, false)
+})
+
+// B518: the words alone set nothing; the work tool gives the next steps of a goal in its evaluation Model: opus and Effort: high.
+test('B518: after the guard fires, a step of the goal is refined and made on opus and high; a goal not in evaluation stays as it was', async () => {
+  const fs = fakeFs({ [FILE]: latin(TILES) })
+  const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS }
+  const mapOf = () => parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'))
+  const dir = await mkdtemp(join(tmpdir(), 'guard-'))
+  const at = new Date(2026, 9, 19, 12, 0).getTime()
+  await writeStore(dir, migrateBacklog(['# Backlog', '', '## Tiles', '- [ ] B1 Redraw the tiles', '- [ ] B2 Sort the crates', ''].join('\n'), { now: at }), undefined, { now: at })
+  const ctx = () => ({
+    dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor' })[chat] ?? null, freeChats: new Set(),
+    evaluationOf: id => evaluationState(mapOf().byId.get(id)),
+  })
+  const partner = body => workApi({ chat: 'Partner', ...body }, ctx())
+  const read = async id => (await readStore(dir)).items.get(id)
+  // Before the third failed attempt: no model, no effort.
+  const calm = await partner({ action: 'refine', id: 'B2', summary: 'Sort the crates.', goal: 'G5' })
+  assert.equal(calm.ok, true, calm.why)
+  assert.deepEqual([(await read('B2')).sections.get('Model')?.[0] ?? null, (await read('B2')).sections.get('Effort')?.[0] ?? null], [null, null])
+  assert.equal((await guardGoal('G5', base)).result.fired, true)
+  const refined = await partner({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.', goal: 'G5' })
+  assert.equal(refined.ok, true, refined.why)
+  assert.match((await read('B1')).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5 is in its fundamental evaluation$/)
+  assert.match((await read('B1')).sections.get('Effort')?.[0] ?? null, /^high · the goal guard: G5 /)
+  const made = await partner({ action: 'new', title: 'Draw the tiles from a reference', activity: 'Tiles', goal: 'G5' })
+  assert.equal(made.ok, true, made.why)
+  assert.match((await read(made.result.id)).sections.get('Model')?.[0] ?? null, /^opus · /)
+  assert.match((await read(made.result.id)).sections.get('Effort')?.[0] ?? null, /^high · /)
+  // B525: a model below opus and an effort below high, given or earlier, are lifted; opus and xhigh stay.
+  const given = await partner({ action: 'new', title: 'Sweep the floor', activity: 'Tiles', goal: 'G5', model: 'sonnet: a chore', effort: 'low: a chore' })
+  assert.match((await read(given.result.id)).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5 is in its fundamental evaluation$/)
+  assert.match((await read(given.result.id)).sections.get('Effort')?.[0] ?? null, /^high · the goal guard: G5 /)
+  const above = await partner({ action: 'new', title: 'Paint the walls', activity: 'Tiles', goal: 'G5', model: 'opus: the walls are hard', effort: 'xhigh: the walls are hard' })
+  assert.deepEqual([(await read(above.result.id)).sections.get('Model')?.[0], (await read(above.result.id)).sections.get('Effort')?.[0]], ['opus · the walls are hard', 'xhigh · the walls are hard'])
+  const other = await partner({ action: 'new', title: 'Hang a lantern', activity: 'Tiles', goal: 'G3' })
+  assert.equal((await read(other.result.id)).sections.get('Model')?.[0] ?? null, null)
+  // The marked draft ends the evaluation; the steps made from that how are still on opus and high, a plain step is not.
+  const drafted = await focusMove({ command: 'how-draft', id: 'G5', parts: ['Sprites from a reference · 2 h'], partnerDecides: ['Evaluation: draw them from a Codex reference'], youDecide: [] }, { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS, isKnown: true })
+  assert.equal(drafted.ok, true, drafted.why)
+  const fromHow = await partner({ action: 'new', title: 'Draw the sprites', activity: 'Tiles', goal: 'G5', summary: 'Sprites.', size: '2 h', what: ['four sprites'] })
+  assert.equal(fromHow.ok, true, fromHow.why)
+  assert.match((await read(fromHow.result.id)).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5's evaluation just ended/)
+  const plain = await partner({ action: 'new', title: 'Add a crate', activity: 'Tiles', goal: 'G5' })
+  assert.deepEqual([(await read(plain.result.id)).sections.get('Model')?.[0] ?? null, (await read(plain.result.id)).sections.get('Effort')?.[0] ?? null], [null, null])
+  // B525: it ends at the next Go. A Go after the evaluation: a how agreed later, and the next steps are plain again.
+  const evaluated = mapOf().byId.get('G5')
+  assert.equal(evaluationState(evaluated), 'ended')
+  assert.equal(evaluationState({ ...evaluated, howAgreed: evaluated.evaluatedAt.at(-1) }), 'ended', 'the draft of an agreed how counts as Go at the same time')
+  assert.equal(evaluationState({ ...evaluated, howAgreed: '2099-01-01 00:00' }), null)
+  assert.equal(evaluationState({ ...evaluated, state: 'done' }), null)
+})
+
+test('B525: a step already on sonnet and medium is lifted at its refine in a goal in evaluation, and its fix step runs on opus and high', async () => {
+  const fs = fakeFs({ [FILE]: latin(TILES) })
+  const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS }
+  const mapOf = () => parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'))
+  const dir = await mkdtemp(join(tmpdir(), 'guard-'))
+  const at = new Date(2026, 9, 19, 12, 0).getTime()
+  await writeStore(dir, migrateBacklog(['# Backlog', '', '## Tiles', '- [ ] B1 Redraw the tiles', '- [ ] B2 Sort the crates', ''].join('\n'), { now: at }), undefined, { now: at })
+  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter'], evaluationOf: id => evaluationState(mapOf().byId.get(id)) }
+  const as = chat => body => workApi({ chat, ...body }, ctx)
+  const read = async id => (await readStore(dir)).items.get(id)
+  const line = async (id, key) => (await read(id)).sections.get(key)?.[0] ?? null
+  // Refined before the evaluation, on sonnet and medium; the evaluation then runs.
+  assert.equal((await as('Partner')({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.', goal: 'G5', model: 'sonnet: a plain redraw', effort: 'medium: a plain redraw' })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', id: 'B1', what: ['four tiles'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates.', goal: 'G5', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
+  assert.match(await line('B1', 'Model') ?? '', /^sonnet · /)
+  assert.equal((await guardGoal('G5', base)).result.fired, true)
+  // The refine of a step that was on sonnet and medium lifts it.
+  const lifted = await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates, again.' })
+  assert.equal(lifted.ok, true, lifted.why)
+  assert.match(await line('B2', 'Model') ?? '', /^opus · the goal guard: G5 is in its fundamental evaluation$/)
+  assert.match(await line('B2', 'Effort') ?? '', /^high · the goal guard: G5 /)
+  // The refined of a step on sonnet lifts it too.
+  assert.equal((await as('Partner')({ action: 'refined', id: 'B2', what: ['crates in rows'] })).ok, true)
+  assert.match(await line('B2', 'Model') ?? '', /^opus · /)
+  // The failed result check of B1, still on sonnet, makes a fix step that runs on opus and high.
+  assert.equal((await as('Keeper')({ action: 'queue', id: 'B1', for: 'Painter', about: '1 h' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'take', id: 'B1', branch: 'b1-tiles' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Four tiles.', merged: 'c0ffee1' })).ok, true)
+  assert.equal((await workApi({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
+  const checked = await as('Partner')({ action: 'checked', id: 'B1', evidence: 'none (x)', points: ['fail: the tiles do not read'] })
+  assert.equal(checked.ok, true, checked.why)
+  const fixId = checked.result.fix ?? (await readStore(dir)).items.keys().toArray().filter(id => id !== 'B1').at(-1)
+  assert.match(await line(fixId, 'Model') ?? '', /^opus · /)
+  assert.match(await line(fixId, 'Effort') ?? '', /^high · /)
 })

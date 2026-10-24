@@ -16,7 +16,7 @@ import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 import { AGAIN_MS, CHECKS, NOT_TAKEN_MS, OWNER_GONE_MS, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
-import { LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
+import { LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopGate, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
@@ -33,7 +33,7 @@ const of = (found, check) => found.filter(one => one.check === check)
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
-  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask', 'worktrees'])
+  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask', 'unchecked', 'worktrees'])
   assert.ok(CHECKS.every(one => typeof one.words === 'string' && one.words.length > 0))
 })
 
@@ -179,6 +179,37 @@ test('partner ask: an ask routed to the partner open ten minutes with no line ab
   assert.equal(of(findStuck(world({ outbox: [{ id: 'p1', kind: 'partner-ask', about: 'Q5', to: 'Partner', at: ago(4), state: 'delivered' }] })), 'partner-ask').length, 0)
   assert.equal(of(findStuck(world({ items: items(ask('Q5', { Route: 'partner', Since: stamp(ago(5)) })) })), 'partner-ask').length, 0)
   assert.equal(of(findStuck(world({ pause: { state: 'pausing', since: stamp(ago(1)) } })), 'partner-ask').length, 0)
+})
+
+test('unchecked (B449): a step in review with no result check after 30 minutes wakes the partner once per 30 minutes; not before', () => {
+  const partner = { name: 'Partner', state: 'working', isRunning: true }
+  const history = [`- ${stamp(ago(40))} server: check passed: merged`]
+  const reviewed = (since, more = {}, sections = {}) => step('B7', 'review', { Since: stamp(ago(since)), ...more }, { 'What we build': ['- a lamp at every bench'], History: history, ...sections })
+  const world = (more = {}) => base({ partner, items: items(reviewed(40)), ...more })
+  const woke = of(findStuck(world()), 'unchecked')
+  assert.deepEqual(woke.map(one => [one.fix.do, one.fix.chat, one.fix.id]), [['wake', 'Partner', 'B7']])
+  assert.match(woke[0].fix.text, /^check step B7/)
+  // Not before 30 minutes; not for a step that needs no check, one whose board check did not pass, or while the person pauses.
+  assert.equal(of(findStuck(world({ items: items(reviewed(25)) })), 'unchecked').length, 0)
+  assert.equal(of(findStuck(world({ items: items(step('B7', 'review', { Since: stamp(ago(40)) }, { History: history })) })), 'unchecked').length, 0)
+  assert.equal(of(findStuck(world({ items: items(reviewed(40, {}, { History: [`- ${stamp(ago(40))} server: check failed: not merged`] })) })), 'unchecked').length, 0)
+  assert.equal(of(findStuck(world({ pause: { state: 'pausing', since: stamp(ago(1)) } })), 'unchecked').length, 0)
+  assert.equal(of(findStuck(world({ partner: null })), 'unchecked').length, 0)
+  // A line to the partner about it still waiting, or sent within 30 minutes, counts as the wake; an old taken one does not.
+  const line = more => ({ id: 'c1', command: 'result-check', about: 'B7', to: 'Partner', at: ago(40), state: 'taken', ...more })
+  assert.equal(of(findStuck(world({ outbox: [line({ state: 'waiting' })] })), 'unchecked').length, 0)
+  assert.equal(of(findStuck(world({ outbox: [line({ at: ago(10), state: 'taken' })] })), 'unchecked').length, 0)
+  assert.equal(of(findStuck(world({ outbox: [line()] })), 'unchecked').length, 1)
+  // A check that was filed stops it; so does one that waits for the person while an ask under the step is still open.
+  const waits = [...history, `- ${stamp(ago(35))} Partner: result check waits for you: 1 of 2 points pass; 1 for you to judge`]
+  assert.equal(of(findStuck(world({ items: items(reviewed(40, {}, { History: [...history, `- ${stamp(ago(35))} Partner: result check passed: 1 of 1 points pass`] })) })), 'unchecked').length, 0)
+  assert.equal(of(findStuck(world({ items: items(reviewed(40, {}, { History: waits }), ask('Q9', { Of: 'B7' })) })), 'unchecked').length, 0)
+  // Its ask point answered and no check filed again after 30 minutes: woken, saying so.
+  const answered = of(findStuck(world({ items: items(reviewed(40, {}, { History: waits }), ask('Q9', { Of: 'B7', State: 'answered' })) })), 'unchecked')
+  assert.equal(answered.length, 1)
+  assert.match(answered[0].fix.text, /^check step B7 \(its ask point is answered/)
+  // Every 30 minutes anew: a new key per window.
+  assert.notEqual(woke[0].key, of(findStuck(world({ now: NOW + 31 * MIN })), 'unchecked')[0].key)
 })
 
 test('the fixes: each carried out through its port, with its row; what cannot be fixed goes to Main in one note, never twice', async () => {
@@ -555,4 +586,52 @@ test('worktree clean-up in the runner: it looks with the store\'s items; a run t
   assert.equal(runner.shown(NOW).rows[0].status, 'Cleaned')
   isBroken = true
   assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Left', 'leftover worktrees: not looked at (the project folder could not be read)']])
+})
+
+test('B488: of two processes that claim an empty lock at once, the write that stands wins and the other finds out', async () => {
+  let file = ''
+  const clock = NOW
+  // each writes, then the other writes before the first reads the lock back
+  const board = (pid, port) => loopOwner({
+    read: async () => file, write: async text => { file = text }, alive: () => true, pid, port, now: () => clock, settleMs: 50,
+    wait: async () => { if (pid === 7 && file.includes('"pid":7')) file = JSON.stringify({ pid: 8, port: 4311, at: clock }) },
+  })
+  assert.equal(await board(7, 4310)(), false, 'the first claim was written over before it settled')
+  assert.equal(JSON.parse(file).pid, 8)
+  assert.equal(await board(8, 4311)(), true, 'the claim that stands is the second\'s; it needs no second settle to keep the loops')
+  const refresh = []
+  const owner = loopOwner({ read: async () => file, write: async text => { file = text }, alive: () => true, pid: 8, port: 4311, now: () => clock, settleMs: 50, wait: async ms => refresh.push(ms) })
+  assert.equal(await owner(), true)
+  assert.deepEqual(refresh, [], 'a lock that is already its own is refreshed without waiting')
+})
+
+test('B488: the loop gate answers from the lock at most once a second, says no when the check fails, and reads the files again when it gains the loops', async () => {
+  let clock = NOW
+  let answers = [false, true, true]
+  let asked = 0
+  const gained = []
+  const failed = []
+  const gate = loopGate({
+    owner: async () => { asked += 1; const next = answers.shift(); if (next === undefined) throw new Error('lock unreadable'); return next },
+    now: () => clock, onGained: async () => { gained.push(clock) }, onFailed: error => failed.push(error.message),
+  })
+  assert.equal(await gate(), false)
+  assert.equal(await gate(), false, 'the answer of this second stands')
+  assert.equal(asked, 1)
+  clock += 1500
+  assert.deepEqual([await Promise.all([gate(), gate()])].flat(), [true, true], 'two asks at once make one check')
+  assert.equal(asked, 2)
+  assert.deepEqual(gained, [clock], 'gained after it was refused: once, before the loops run')
+  clock += 1500
+  assert.equal(await gate(), true)
+  assert.equal(gained.length, 1, 'holding the lock again is no gain')
+  clock += 1500
+  assert.equal(await gate(), false, 'a lock that cannot be read is a no')
+  assert.deepEqual(failed, ['lock unreadable'])
+  answers = [true]
+  clock += 1500
+  assert.equal(await gate(), true)
+  assert.equal(gained.length, 2, 'a no from a failing check counts as refused')
+  const first = loopGate({ owner: async () => true, now: () => clock, onGained: async () => { throw new Error('never') } })
+  assert.equal(await first(), true, 'a process that starts with the lock gains nothing')
 })

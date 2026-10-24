@@ -5,8 +5,10 @@
 //
 // The supervisor (spec 2026-10-24): moved here from src/work/sync.mjs without changing what it finds or does: the
 // runner and its one run at a time (`syncRunner`), the fixes (`applySync`), and one loop per project (`loopOwner`,
-// `readLoopLock`, `mayRunLoop`; B482, B487, B489). The runner reads the view, runs the rules over it, and acts only
-// through the ports it is given.
+// `readLoopLock`, `mayRunLoop`, `loopGate`; B482, B487, B488, B489). Since B488 that lock gates every loop of the board,
+// not the list alone: server.mjs builds its gate from `loopOwner` and `loopGate` (re-exported by index.mjs) and gives
+// it to the supervisor as its port `owns`. The runner reads the view, runs the rules over it, and acts only through the
+// ports it is given.
 
 import { CHECKS, REPAIR_RULES } from './rules/repair.mjs'
 import { buildView } from './view.mjs'
@@ -297,14 +299,55 @@ async function lookLeftovers(ports, items, now) {
 /**
  * B489: the loop's own check, as the server runs it before every list: `read` and `write` (the lock file's text, in and
  * out), `alive(pid)`. Gives true when this process (`pid`) holds the lock after it, with the lock written then.
+ * B488: a claim that is new (no lock, a dead owner's, one left to lapse) is written and then read back after `settleMs`:
+ * of two processes that claim at once, the one whose write stands is the owner, and the other finds that out.
  */
-export function loopOwner({ read, write, alive, pid, port, now }) {
+export function loopOwner({ read, write, alive, pid, port, now, settleMs = 0, wait = ms => new Promise(done => setTimeout(done, ms)) }) {
   return async () => {
     const held = await readLoopLock(read)
     // a lock whose process is gone (a board killed without its exit) is taken over at once
     const lock = held !== null && Number.isInteger(held.pid) && held.pid !== pid && !alive(held.pid) ? null : held
     if (!mayRunLoop(lock, pid, now())) return false
     await write(JSON.stringify({ pid, port, at: now() }))
+    if (settleMs > 0 && lock?.pid !== pid) {
+      await wait(settleMs)
+      return (await readLoopLock(read))?.pid === pid
+    }
     return true
+  }
+}
+
+/**
+ * B488: the lock for every loop of the board, not the list alone. `owner` is `loopOwner`'s check; the gate answers from
+ * it at most once in `holdMs` (the loops ask at every run, the answer of a second ago stands), and a check that fails is
+ * a no, told to `onFailed`. When this process gains the lock after it was refused it (another board process held it,
+ * then ended), `onGained` runs first: its memory of the files the other board wrote is read again, and the chats are
+ * told where it delivers. Gives a function answering true while this process may run the loops.
+ */
+export function loopGate({ owner, now, holdMs = 1000, onGained, onFailed }) {
+  let last = null
+  let asking = null
+  let was = null
+  return () => {
+    if (last !== null && now() - last.at < holdMs) return Promise.resolve(last.owns)
+    asking ??= (async () => {
+      let owns = false
+      try {
+        owns = await owner()
+      } catch (error) {
+        onFailed?.(error)
+      }
+      if (owns && was === false) {
+        try {
+          await onGained?.()
+        } catch (error) {
+          onFailed?.(error)
+        }
+      }
+      was = owns
+      last = { at: now(), owns }
+      return owns
+    })().finally(() => { asking = null })
+    return asking
   }
 }

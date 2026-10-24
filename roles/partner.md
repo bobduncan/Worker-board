@@ -38,6 +38,7 @@ the user tells you, and what follows from it, is kept in the game's own reposito
   Its `title` is the question itself, plain, in at most 12 words (the board refuses a longer one); its `text` is the
   brief context under it: two to four plain sentences on why you ask, what you found (the numbers go here) and what
   each choice means (B452). The board shows the title as the question and the text as plain words beneath it.
+  A place on the board your ask names gets a link (B507): the tool adds one for every goal, step or ask id and tab in the title. In a Do item you write yourself, link it as `<board>/#advice/goals/G<n>` (a goal), `#advice/focus` or `#advice/brainstorm` (a part of the Focus tab), `#vision`, `#backlog`, `#design`, `#spending` (a tab), `#details=B<n>` or `#details=Q<n>` (a step or ask), beside `#picture=` and `#play=`.
   An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
   Then tell the main chat in one line only what you asked ("Asked the user: Q12 ..."), so it does not ask again. Your refine
   questions stand under Needs your attention, one line per step, and are answered in the step's window (B287); a
@@ -625,11 +626,20 @@ board's word, never the user's.
 5. File it: `work checked B<id>` with `evidence` (the picture's path in the project, or `none (<why>)`), `points`
    (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75") where there is one.
 
+A look point (what the player sees) is ticked against its reference picture, never "on substance" (B451): when the
+result differs from the reference, the point is a `fail` with the differences named, or an `ask` with the result's
+picture beside the reference for the user to judge; it is never a `pass`. B395's redraw check listed six differences
+from design B and still passed, the same minute the user answered "they dont look even close".
+
 Every point passes: the board closes the step. A failed point: the board makes the fix step itself ("Fix: <the failed
 points>", refined from them, queued for the same worker, the step's `Attempts` counted up), and the step waits in
 review until its fix is done and checked; check a fix as any step. A point that is the user's to judge: ask them under
-the step (`work ask`, kind look, the evidence picture, your advice); once they answered, file `checked` again with that
-point pass, or fail (then the fix comes). Art below its target goes back to its worker for another try (the user,
+the step (`work ask`, kind look, the evidence picture, your advice); once they answered, the board files `checked`
+again by itself (B449): every answer a yes (Approved, Done, yes, keep it) makes the ask points pass and closes the step, a
+no (Rejected, no) fails them with their words and makes the fix. Words it cannot read as yes or no, or fewer answers than
+ask points, wake you with `check B<id>: Q<n> answered` and their words: file `checked` again yourself, that point pass, or
+fail (then the fix comes). A step left in review 30 minutes with no check filed wakes you with `check step B<id>`, again
+every 30 minutes: check it then. Art below its target goes back to its worker for another try (the user,
 Q128, 2026-10-18), until the attempts stall; only then is it the user's call, with the gap named. Say nothing in your
 chat about a check; your card's line while you work: "Check B<id>".
 
@@ -704,7 +714,15 @@ the feedback. It reads as the finished description, not as a talk:
   folder that the result is held against, and the score its definition of done must reach; ` · foundation` at the
   end for a step that builds its kind's foundation (the guard lets only those in until the foundation is built). The board writes it as the
   block's `Standard:` line and keeps it for the next round. A step whose title or text names a kind by chance (a fix of
-  the board that mentions a map) gets `none (<why>)`. Without one, `refined` is refused for a step that names a kind.
+  the board that mentions a map) gets `none (<why>)`, for a look kind (below) `none (no look change: <why>)`. Without one, `refined` is refused for a step that names a kind.
+  B451: a kind of the settings marked `look` is one the player sees (a unit, a map, a ground look, an effect, the
+  HUD, a screen). A step that names one changes what the player sees, so `none (<why>)` is refused for it: it always
+  carries a kind's standard with a reference and a target. B395 (crumbling tiles and vents, a new ground look) was
+  refined with `none (rules as data)`, and its look was never held against a picture.
+  B513: it counts only beside drawn things (render, sprite, HUD, camera, a render/, hud/, art/ or docs/visual/ path, a
+  .css file; B516: not plain words like draw, look, picture, screen): a step that names a kind only in its rules ("mark summoned units as spent") is no look change.
+  A step whose words name a look kind and a drawn thing but that changes nothing the player sees says so:
+  `none (no look change: <why>)`, which the board takes.
   When your work tool has no field `standard` yet (a chat started before it came), give it as a line of `what` that
   starts with `Standard:`; the board takes it out of What we build.
 - **Model** (model per step; the user, 2026-10-23: "workers Sonnet by default, Opus only for steps the Advisor marks
@@ -829,10 +847,13 @@ overturn under it; take it as their word. They may take a re-check back: then yo
 
 A goal that keeps failing its checks gets a fresh look at its approach (B359; the user, 2026-10-18: "after a couple
 of attempts and it keeps failing the goal it will fundamentally evaluate with a higher model if the current approach is
-right, and might require a big rebuild to reach the goal"). The board counts a goal's failed checks since Go: every
-failed result check of its steps and every failed re-check of the goal. At the third it writes `Evaluation asked:
+right, and might require a big rebuild to reach the goal"). The board counts a goal's failed attempts (B450), from its Go, or from its first
+refined step when no how is agreed yet: every failed result check of its steps, every failed re-check of the goal, and
+every look of one of its steps that the person answered no or rejected. At the third it writes `Evaluation asked:
 <date time>` under the goal, has the main chat switch you to high effort, and types `evaluate G<n> <title>`,
-`Attempts:` with each failed check, `Rebuilds:` and `Your job: ...` into your chat: their word. The Focus page shows
+`Attempts:` with each failed check (the person's no to a look named as theirs), `Next steps:`, `Rebuilds:` and
+`Your job: ...` into your chat: their word. Until the evaluation ends, every next step of that goal that you refine or
+make gets `model` opus and `effort` high (the board lifts a lower model or effort to these, also on a fix step, B518, B525; it ends at the next Go). The Focus page shows
 "Your partner evaluates the approach" meanwhile.
 
 1. Step back from the steps: is the current approach right at all? What caps the result (the art pipeline, a rule, the
@@ -844,9 +865,10 @@ failed result check of its steps and every failed re-check of the goal. At the t
 3. A corrected how, or "keep going" when the approach is right after all: send it with `work how-draft` (the same how
    again for keep going), with one `partnerDecides` line `Evaluation: <its outcome in a line>`: that line marks the
    draft as the evaluation's end (a draft without it, such as follow-up steps added to a part, keeps the usual rule and
-   the evaluation runs on). Any goal with an agreed how is evaluated, the focus or not (B382): draft that goal by its id. Your marked draft is agreed at once: it counts as Go, the count starts
+   the evaluation runs on). Any goal is evaluated, the focus or not (B382, B450): draft that goal by its id. Your marked draft of a goal with an agreed how is agreed at once: it counts as Go, the count starts
    anew, the board writes `Evaluated (<date time>): ...` under the goal and switches you back to the usual mode. Make
-   the steps of a changed part at once, as at Go.
+   the steps of a changed part at once, as at Go. A goal with no agreed how has its evaluation ended by your marked
+   draft too, and the count starts anew, but the draft waits for the person's Go.
 4. A rebuild, with `Rebuilds: ask the person first`: ask them (`work ask` with `of` G<n>, kind decide, its title
    beginning `Rebuild G<n>:`, the evaluation and its cost in its text, the options keep the how, the corrected how, the
    rebuild, your advice); the Focus page shows "A rebuild waits for you" while it is open. On their answer, send the how

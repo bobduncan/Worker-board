@@ -135,8 +135,9 @@ export const DEFAULTS = {
   /** B311: the chats' CPU until the person picks one on the board (data/cpu.json): "off", "gentle" or "strong". */
   cpuLimit: 'off',
   /**
-   * B354: the project's kinds of work, each `{ kind, done, reference }`: its name, its definition of done and its
-   * reference folder, paths inside the project written with /. A refined step that names a kind carries its Standard
+   * B354: the project's kinds of work, each `{ kind, done, reference, look? }`: its name, its definition of done and its
+   * reference folder, paths inside the project written with /; `look: true` (B451) marks a kind whose result the player
+   * sees: a step that names it never gets "none" as its standard. A refined step that names a kind carries its Standard
    * line (src/work/standard.mjs). The board knows no kind of its own.
    */
   kinds: [],
@@ -158,8 +159,9 @@ export const DEFAULTS = {
 /** B354: one kind of work of the settings, its paths inside the project. */
 const isKind = one => one !== null && typeof one === 'object' && !Array.isArray(one)
   && typeof one.kind === 'string' && /^[A-Za-z][A-Za-z0-9 -]{0,39}$/.test(one.kind.trim())
+  && (one.look === undefined || typeof one.look === 'boolean')
   && ['done', 'reference'].every(key => typeof one[key] === 'string' && INSIDE.test(one[key].trim()) && !one[key].trim().split('/').includes('.'))
-const kindOf = one => ({ kind: one.kind.trim().replace(/\s+/g, ' '), done: one.done.trim(), reference: one.reference.trim() })
+const kindOf = one => ({ kind: one.kind.trim().replace(/\s+/g, ' '), done: one.done.trim(), reference: one.reference.trim(), ...(one.look === true ? { look: true } : {}) })
 /** B354: the kinds as a list, each once (by name, any case). */
 const isKinds = value => Array.isArray(value) && value.every(isKind) && new Set(value.map(one => kindOf(one).kind.toLowerCase())).size === value.length
 
@@ -387,7 +389,7 @@ export function configProblem(fileText) {
       if (Object.hasOwn(given, key) && !(Number.isFinite(given[key]) && given[key] > 0)) return `"supervisor.${key}" must be a number above 0, not ${JSON.stringify(given[key]).slice(0, 60)}`
     }
   }
-  if (has('kinds') && !isKinds(raw.kinds)) return wrong('kinds', 'a list of { "kind", "done", "reference" }: a kind\'s name, its definition of done and its reference folder, paths inside the project written with /, each kind once')
+  if (has('kinds') && !isKinds(raw.kinds)) return wrong('kinds', 'a list of { "kind", "done", "reference", "look"? }: a kind\'s name, its definition of done and its reference folder, paths inside the project written with /, "look": true for a kind the player sees, each kind once')
   return null
 }
 

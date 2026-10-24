@@ -13,6 +13,8 @@ import { answer, line, step, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
+import { memoryStore } from '../src/store.mjs'
+import { isHolding } from '../src/work/pause.mjs'
 import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
@@ -139,6 +141,9 @@ test('B364, the user\'s pick B: while pausing the panel is one ring, a slice per
   assert.deepEqual([safe.head, safe.tone, safe.still, safe.of, safe.isDone], ['All still: safe to restart', 'ready', 5, 5, true])
   assert.deepEqual(safe.groups, [{ state: 'still', text: 'Main, Worker 1, Worker 2, Worker 3, Advisor' }, { state: 'off', text: 'Worker 5 (not running)' }])
   assert.deepEqual(safe.notes, ['Paused since 21:01.'])
+  // B442: lines the pause holds back are named beside Safe and keep nothing from it.
+  const waits = pauseRingOf({ ...pausing, working: [], typing: [], unsaved: [], isSafe: true, chats: still, held: [{ chat: 'Advisor', step: 'B441' }, { chat: 'Worker 2', step: null }] })
+  assert.deepEqual([waits.head, waits.notes.at(-1)], ['All still: safe to restart', '2 lines wait for the resume (Advisor: B441, Worker 2).'])
   // A chat in the app's question form waits for the person.
   assert.deepEqual(pauseRingOf({ ...pausing, chats: [{ name: 'Advisor', state: 'asking' }] }).groups, [{ state: 'asking', text: 'Advisor (waiting for you)' }])
   // The review: a server from before B364 names no chats; the ring is drawn from who still works, asks or is typed into.
@@ -204,4 +209,25 @@ test('the page: "Pause all" replaces "Prepare restart"; both switches write paus
   assert.doesNotMatch(html, /Prepare restart/)
   assert.match(script, /sendWork\(\{ action: 'pause-all' \}, 'restart'\)/)
   assert.match(script, /sendWork\(\{ action: 'resume-all' \}, 'restart'\)/)
+})
+
+test('B442: a line the pause holds back is not typing: safe to restart, the line named; a line already being typed still blocks; after the resume it is typed once', async () => {
+  const pause = { state: 'pausing', since: PAUSED, by: 'person' }
+  const refine = { id: 'h1', at: PAUSED + MIN, to: 'Support', ask: null, command: 'work', step: 'B441', text: 'work: B441 is yours; run work next', state: 'waiting' }
+  const state = build({ pause, outbox: [refine] })
+  assert.deepEqual([state.pause.isSafe, state.pause.typing], [true, []])
+  assert.deepEqual(state.pause.held, [{ chat: 'Support', step: 'B441' }])
+  assert.deepEqual(state.pause.chats.find(chat => chat.name === 'Support'), { name: 'Support', state: 'still' })
+  // Handed before the pause and typed (taken): it starts a turn, so it blocks, as before.
+  const taken = build({ pause, outbox: [{ ...refine, at: PAUSED - MIN, state: 'taken', takenAt: NOW - MIN }] })
+  assert.deepEqual([taken.pause.isSafe, taken.pause.typing, 'held' in taken.pause], [false, ['Support'], false])
+  // The second half: the pause hands nothing out; at the resume the line is typed once, and a second take finds none.
+  const keep = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }
+  const resuming = { state: 'resuming', since: NOW, by: 'person', pausedSince: PAUSED }
+  const outbox = memoryStore()
+  await outbox.say({ ...refine })
+  assert.deepEqual(await outbox.take('Support', NOW - MIN, { ...keep, pause }, message => message.command === 'resume'), [])
+  const once = await outbox.take('Support', NOW + MIN, { ...keep, pause: resuming }, isHolding(resuming) ? () => false : undefined)
+  assert.deepEqual(once.map(one => one.id), ['h1'])
+  assert.deepEqual(await outbox.take('Support', NOW + 2 * MIN, { ...keep, pause: resuming }, isHolding(resuming) ? () => false : undefined), [])
 })
