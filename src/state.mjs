@@ -38,7 +38,7 @@ import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
-import { checkedOf } from './work/resultCheck.mjs'
+import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
@@ -1015,7 +1015,10 @@ export function focusState(goalMap, items, threads, prefix, partner = null) {
     // B356: the result checks of its steps: each step's ticks and its evidence picture.
     const checked = known.flatMap(one => {
       const check = checkedOf(one)
-      return check === null || check.total === 0 ? [] : [{ id: one.head.get('Id'), passed: check.passed, total: check.total, evidence: check.evidence }]
+      if (check === null || check.total === 0) return []
+      // B504: a failed check follows its fix steps to the last one: fixed, or what goes on
+      const fix = check.passed < check.total ? fixOutcomeOf(one.head.get('Id'), steps) : null
+      return [{ id: one.head.get('Id'), passed: check.passed, total: check.total, evidence: check.evidence, ...(fix === null ? {} : { fix }) }]
     })
     return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, checked, ...(isHandout ? { waitsSince: since.length > 0 ? Math.max(...since) : null } : {}), ...(fix === null ? {} : { fixFirst: fix }) }
   })

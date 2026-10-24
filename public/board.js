@@ -8997,8 +8997,13 @@ function focusView(focus, goals, can = null, ui = {}) {
         // B356: the result checks of its steps by a helper that did not build them, each with its evidence picture.
         checked: (part.checked ?? []).map(one => ({
           text: `Checked by a helper: ${one.passed} of ${one.total} points pass (${one.id})`,
-          isPass: one.passed === one.total,
+          // B504: a failed check whose last fix passed is quiet ("fixed by B493: 4 of 4"); red while a fix is open or failed
+          isPass: one.passed === one.total || one.fix?.isFixed === true,
           picture: /\.(?:png|jpe?g|gif|webp)$/i.test(one.evidence ?? '') ? one.evidence : null,
+          ...(one.fix === undefined ? {} : { fix: {
+            text: one.fix.isFixed ? `fixed by ${one.fix.by}${one.fix.total === null ? '' : `: ${one.fix.passed} of ${one.fix.total}`}` : one.fix.note,
+            picture: /\.(?:png|jpe?g|gif|webp)$/i.test(one.fix.evidence ?? '') ? one.fix.evidence : null,
+          } }),
         })),
       })),
       stepsOf: focus.id,
@@ -9666,6 +9671,17 @@ function focusRunCard(view) {
         look.dataset.zoom = check.picture
         look.dataset.caption = check.text
         line.append(' · ', look)
+      }
+      // B504: where its fixes stand, the fix's evidence opened from the fix's part of the line
+      if (check.fix !== undefined) {
+        line.append(` · ${check.fix.text}`)
+        if (check.fix.picture !== null) {
+          const look = el('button', 'focus-standard-picture', 'the evidence of the fix')
+          look.type = 'button'
+          look.dataset.zoom = check.fix.picture
+          look.dataset.caption = `${check.text} · ${check.fix.text}`
+          line.append(' · ', look)
+        }
       }
       row.append(line)
     }
