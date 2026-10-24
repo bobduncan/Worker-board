@@ -249,6 +249,21 @@ Since B179 the tab opens as one list unless this browser turned the checkbox off
 away and back with a click on its head (a button that says whether the list is open), also kept in this browser.
 The person, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
 default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.jpg`.
+**Completed by day (B579).** A toggle at the Backlog tab's top, "Open items | Completed by day" (`#backlog/days`; the
+choice is kept in this browser), shows one day of finished steps: a pager (‹ day ›), "N items completed", a recap on
+top, the table of the day's steps (id, title, time, worker; a find box; a click opens the step's window) and on the right
+the day at a glance, the last 7 days with their counts, how the recap groups the steps, and Copy daily recap. The person,
+2026-10-24: "i want to be able to see which changes were done today ... including a generated recap text, highover ...
+the goal here is easy overview. so if 1 bullet in a recap might correlate to multiple backlog items". A step counts on
+the local day of its last move to done in the work store (`src/work/doneDays.mjs`); dropped steps and steps without such
+a line are not there. The recap is 3 to 6 points, each step in exactly one, written by one headless call of the Claude
+command line (`src/dayRecap.mjs`: Sonnet, no tools, no settings, plugins or MCP servers, in a temporary folder, told only
+the day's titles and summaries), kept per day in `data/recaps.json`. It is written when a day is opened and its recap is
+missing, not generated, or older than its newest step; today at most every 30 minutes. Only the board that runs the
+loops calls, never while all chats are paused or a usage limit is near; without a call (or while the command line is
+not signed in) the points are the day's goals, marked "Not generated" with the reason, and the next open tries again.
+Steps finished after a recap stand in one more point, "Finished since this recap". Colours stay quiet: the points and
+bars take cool tones, done ticks are green. The picture: `art-inbox/b579/completed-by-day-desktop.png`.
 Since B302 the tab without "One list" groups the steps by the goal map, no longer by activity (the person,
 2026-10-17: "that these categories are the same as the goals/milstones the advisors knows"; of two pictures they
 chose A, nested as on the goal map). Each goal is a header with its G id, its title and how many of the steps shown

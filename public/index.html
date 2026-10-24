@@ -241,8 +241,13 @@
     <main class="coordinate">
       <header class="coordinate-top">
         <h1>Backlog <small id="coordinate-count"></small></h1>
+        <p class="coordinate-note muted" id="coordinate-note" hidden>See what changed, one day at a time.</p>
+        <div class="coordinate-mode" id="coordinate-mode" role="group" aria-label="What the tab shows">
+          <button class="choice is-chosen" type="button" data-mode="open">Open items</button>
+          <button class="choice" type="button" data-mode="days">Completed by day</button>
+        </div>
         <div class="coordinate-filters" id="coordinate-filters" role="group" aria-label="Which steps"></div>
-        <div class="coordinate-tools">
+        <div class="coordinate-tools" id="coordinate-tools">
           <input type="search" id="coordinate-find" placeholder="Find a step: B64…" aria-label="Find a step by its id" maxlength="40">
           <div class="coordinate-checks">
             <label class="check" title="Also show the steps that are ticked in the backlog">
@@ -260,6 +265,7 @@
       <p class="coordinate-store" id="coordinate-store" role="status" hidden></p>
       <section class="finished" id="finished" aria-labelledby="finished-title" hidden></section>
       <div class="coordinate-list" id="coordinate-list"></div>
+      <div class="done-day" id="done-day" hidden></div>
     </main>
   </div>
 
