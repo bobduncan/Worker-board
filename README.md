@@ -203,7 +203,7 @@ shows and answers), the Advisor's long answers to the asks on it (its "More:" li
 These four may also be a whole path of their own, as `work`: a copy tried beside your board reads its own goal map.
 `approveRebuilds` (false unless set, B359): whether a rebuild the goal guard's evaluation calls for goes ahead
 without your yes. The guard: at a goal's third failed attempt (its steps' result checks, its re-checks and your no to a look, counted from its Go, else from its
-first refined step; any goal, the focus or not, B382, B450; the goal's next steps then default to Model: opus and Effort: high, B518), the
+first refined step; any goal, the focus or not, B382, B450; the goal's next steps then are lifted to Model: opus and Effort: high while it evaluates, and the steps made from the how that ends it until the next Go, B518, B525), the
 board switches the partner to high effort and asks it for a fundamental evaluation of the approach; the Focus page shows
 the count, the evaluation, and a rebuild that waits for you.
 `botherMe` (`"now"` unless set, B360; `"daily"`): where the recaps of finished work and the questions that hold up no

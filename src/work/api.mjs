@@ -24,7 +24,7 @@ import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } fr
 import { answerReading, checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckAtMs, resultCheckOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
-import { effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
+import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readNamesFile, readPartnerAnswersFile, readPauseFile, writeNames, writePartnerAnswers, writePause } from './store.mjs'
@@ -1402,8 +1402,10 @@ async function fixStep(origin, failed, w) {
   const activity = valueOf(origin, 'Activity')
   const goal = valueOf(origin, 'Goal')
   const standard = standardOf(origin)
-  const effort = effortLineOf(origin)
-  const model = modelLineOf(origin)
+  // B525: a goal in its evaluation lifts its fix steps too.
+  const guarded = guardedDefaults(w, goal ?? '', false)
+  const effort = liftEffortLine(effortLineOf(origin), guarded)
+  const model = liftModelLine(modelLineOf(origin), guarded)
   const what = failed.map(one => `- ${one.text}`)
   const summary = `Fix what the result check of ${originId} found: ${failed.map(one => one.text).join('; ')}`.slice(0, 600)
   const block = [
@@ -1533,10 +1535,10 @@ async function make(call, w) {
   // B518: a goal in its fundamental evaluation (and the steps made from the how that ends it) default to opus and high.
   const guarded = guardedDefaults(w, goal, body.what !== undefined)
   // B468: so is an effort given: the worker that takes the step runs at it.
-  const effort = parseEffort(body.effort) ?? guarded?.effort ?? null
+  const effort = liftEffort(parseEffort(body.effort), guarded)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
   // Model per step: and so is a model given.
-  const model = parseModel(body.model) ?? guarded?.model ?? null
+  const model = liftModel(parseModel(body.model), guarded)
   if (model !== null && !model.ok) return refuse(400, model.why)
   const fromHow = body.what === undefined ? null : howBlock(body, goal, w, standard?.line ?? null, effort?.line ?? null, model?.line ?? null)
   if (fromHow !== null && !fromHow.ok) return fromHow
@@ -1958,6 +1960,14 @@ function guardedDefaults(w, goal, isFromHow) {
   return { model: parseModel(`opus: ${why}`), effort: parseEffort(`high: ${why}`) }
 }
 
+/**
+ * B525: the guard lifts, it does not only fill in: a model below opus or an effort below high (given, or the step's
+ * earlier one) becomes the guard's; opus, high and anything above stay. `guarded` is guardedDefaults' answer, or null.
+ */
+const liftModel = (model, guarded) => (guarded === null || guarded === undefined || (model?.ok === true && model.family === 'opus') || (model !== null && model !== undefined && !model.ok) ? model ?? null : guarded.model)
+const liftEffort = (effort, guarded) => (guarded === null || guarded === undefined || (effort !== null && effort !== undefined && (!effort.ok || EFFORTS.indexOf(effort.level) >= EFFORTS.indexOf('high'))) ? effort ?? null : guarded.effort)
+const liftModelLine = (line, guarded) => (line === null ? liftModel(null, guarded)?.line ?? null : liftModel(parseModel(line), guarded)?.line ?? line)
+const liftEffortLine = (line, guarded) => (line === null ? liftEffort(null, guarded)?.line ?? null : liftEffort(parseEffort(line), guarded)?.line ?? line)
 /** B468: the effort a step was given, as the store keeps it ("medium · a board fix"), or null when it has none. */
 const effortLineOf = item => {
   const effort = effortOf(item)
@@ -2028,10 +2038,10 @@ async function refine(call, w) {
   const guarded = guardedDefaults(w, goal !== '' ? goal : valueOf(found.item, 'Goal') ?? '', false)
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
-  const effortLine = effort?.line ?? effortLineOf(found.item) ?? guarded?.effort.line ?? null
+  const effortLine = liftEffortLine(effort?.line ?? effortLineOf(found.item), guarded)
   const model = parseModel(body.model)
   if (model !== null && !model.ok) return refuse(400, model.why)
-  const modelLine = model?.line ?? modelLineOf(found.item) ?? guarded?.model.line ?? null
+  const modelLine = liftModelLine(model?.line ?? modelLineOf(found.item), guarded)
   const round = roundOf(found.item) + 1
   const block = [
     `Refined (round ${round}, by ${w.who}, ${stamp(w.now)}):`,
@@ -2165,11 +2175,11 @@ async function refined(call, w) {
   const guarded = guardedDefaults(w, valueOf(found.item, 'Goal') ?? '', false)
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)
-  const effortLine = effort?.line ?? effortLineOf(found.item) ?? guarded?.effort.line ?? null
+  const effortLine = liftEffortLine(effort?.line ?? effortLineOf(found.item), guarded)
   // Model per step: the model given now, else the one the step had.
   const model = parseModel(body.model)
   if (model !== null && !model.ok) return refuse(400, model.why)
-  const modelLine = model?.line ?? modelLineOf(found.item) ?? guarded?.model.line ?? null
+  const modelLine = liftModelLine(model?.line ?? modelLineOf(found.item), guarded)
   const head = block[0].match(/^(\s*)Refined\s*(?:\(([^)]*)\))?\s*:\s*$/)
   if (head === null) return refuse(409, `${id}: its refine block does not start with "Refined (...):"; fix it by hand first.`)
   const inside = (head[2] ?? '').split(';').map(one => one.trim()).filter(one => one !== '' && !/^ready$/i.test(one))

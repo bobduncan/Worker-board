@@ -62,7 +62,7 @@ import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsRunning, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
-import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
+import { GUARD_ATTEMPTS, evaluationState } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { buildState } from './src/state.mjs'
@@ -730,11 +730,7 @@ async function main(args) {
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // B518: a goal in its fundamental evaluation ('running') or that ended one ('ended'): its steps default to opus and high.
-      evaluationOf: id => {
-        const node = (state.goals?.nodes ?? []).find(one => one.id === id)
-        if (node === undefined || node.state === 'done') return null
-        return (node.evaluationAsked ?? null) !== null ? 'running' : (node.evaluatedAt ?? []).length > 0 ? 'ended' : null
-      },
+      evaluationOf: id => evaluationState((state.goals?.nodes ?? []).find(one => one.id === id)),
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,
       // 2026-10-24: an ask's picture the board cannot show is refused with where to put it (api.mjs ask).

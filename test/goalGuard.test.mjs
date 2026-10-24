@@ -12,7 +12,7 @@ import test from 'node:test'
 
 import { evaluationsRunning, focusMove, guardGoal } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
-import { GUARD_ATTEMPTS, evaluateWords, goalAttempts, guardOf, needsEvaluation } from '../src/goalGuard.mjs'
+import { GUARD_ATTEMPTS, evaluateWords, evaluationState, goalAttempts, guardOf, needsEvaluation } from '../src/goalGuard.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
@@ -308,7 +308,7 @@ test('B518: after the guard fires, a step of the goal is refined and made on opu
   await writeStore(dir, migrateBacklog(['# Backlog', '', '## Tiles', '- [ ] B1 Redraw the tiles', '- [ ] B2 Sort the crates', ''].join('\n'), { now: at }), undefined, { now: at })
   const ctx = () => ({
     dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor' })[chat] ?? null, freeChats: new Set(),
-    evaluationOf: id => { const node = mapOf().byId.get(id); return node === undefined ? null : (node.evaluationAsked ?? null) !== null ? 'running' : node.evaluatedAt.length > 0 ? 'ended' : null },
+    evaluationOf: id => evaluationState(mapOf().byId.get(id)),
   })
   const partner = body => workApi({ chat: 'Partner', ...body }, ctx())
   const read = async id => (await readStore(dir)).items.get(id)
@@ -325,9 +325,12 @@ test('B518: after the guard fires, a step of the goal is refined and made on opu
   assert.equal(made.ok, true, made.why)
   assert.match((await read(made.result.id)).sections.get('Model')?.[0] ?? null, /^opus · /)
   assert.match((await read(made.result.id)).sections.get('Effort')?.[0] ?? null, /^high · /)
-  // A model given is kept; a step of another goal is not touched.
+  // B525: a model below opus and an effort below high, given or earlier, are lifted; opus and xhigh stay.
   const given = await partner({ action: 'new', title: 'Sweep the floor', activity: 'Tiles', goal: 'G5', model: 'sonnet: a chore', effort: 'low: a chore' })
-  assert.match((await read(given.result.id)).sections.get('Model')?.[0] ?? null, /^sonnet · a chore$/)
+  assert.match((await read(given.result.id)).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5 is in its fundamental evaluation$/)
+  assert.match((await read(given.result.id)).sections.get('Effort')?.[0] ?? null, /^high · the goal guard: G5 /)
+  const above = await partner({ action: 'new', title: 'Paint the walls', activity: 'Tiles', goal: 'G5', model: 'opus: the walls are hard', effort: 'xhigh: the walls are hard' })
+  assert.deepEqual([(await read(above.result.id)).sections.get('Model')?.[0], (await read(above.result.id)).sections.get('Effort')?.[0]], ['opus · the walls are hard', 'xhigh · the walls are hard'])
   const other = await partner({ action: 'new', title: 'Hang a lantern', activity: 'Tiles', goal: 'G3' })
   assert.equal((await read(other.result.id)).sections.get('Model')?.[0] ?? null, null)
   // The marked draft ends the evaluation; the steps made from that how are still on opus and high, a plain step is not.
@@ -337,5 +340,48 @@ test('B518: after the guard fires, a step of the goal is refined and made on opu
   assert.equal(fromHow.ok, true, fromHow.why)
   assert.match((await read(fromHow.result.id)).sections.get('Model')?.[0] ?? null, /^opus · the goal guard: G5's evaluation just ended/)
   const plain = await partner({ action: 'new', title: 'Add a crate', activity: 'Tiles', goal: 'G5' })
-  assert.equal((await read(plain.result.id)).sections.get('Model')?.[0] ?? null, null)
+  assert.deepEqual([(await read(plain.result.id)).sections.get('Model')?.[0] ?? null, (await read(plain.result.id)).sections.get('Effort')?.[0] ?? null], [null, null])
+  // B525: it ends at the next Go. A Go after the evaluation: a how agreed later, and the next steps are plain again.
+  const evaluated = mapOf().byId.get('G5')
+  assert.equal(evaluationState(evaluated), 'ended')
+  assert.equal(evaluationState({ ...evaluated, howAgreed: evaluated.evaluatedAt.at(-1) }), 'ended', 'the draft of an agreed how counts as Go at the same time')
+  assert.equal(evaluationState({ ...evaluated, howAgreed: '2099-01-01 00:00' }), null)
+  assert.equal(evaluationState({ ...evaluated, state: 'done' }), null)
+})
+
+test('B525: a step already on sonnet and medium is lifted at its refine in a goal in evaluation, and its fix step runs on opus and high', async () => {
+  const fs = fakeFs({ [FILE]: latin(TILES) })
+  const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: TILE_ITEMS }
+  const mapOf = () => parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8'))
+  const dir = await mkdtemp(join(tmpdir(), 'guard-'))
+  const at = new Date(2026, 9, 19, 12, 0).getTime()
+  await writeStore(dir, migrateBacklog(['# Backlog', '', '## Tiles', '- [ ] B1 Redraw the tiles', '- [ ] B2 Sort the crates', ''].join('\n'), { now: at }), undefined, { now: at })
+  const ctx = { dir, now: at + 60_000, prefix: '', roleOf: chat => ({ Partner: 'advisor', Keeper: 'main', Painter: 'worker' })[chat] ?? null, freeChats: new Set(['Painter']), chats: ['Partner', 'Keeper', 'Painter'], evaluationOf: id => evaluationState(mapOf().byId.get(id)) }
+  const as = chat => body => workApi({ chat, ...body }, ctx)
+  const read = async id => (await readStore(dir)).items.get(id)
+  const line = async (id, key) => (await read(id)).sections.get(key)?.[0] ?? null
+  // Refined before the evaluation, on sonnet and medium; the evaluation then runs.
+  assert.equal((await as('Partner')({ action: 'refine', id: 'B1', summary: 'Redraw the tiles.', goal: 'G5', model: 'sonnet: a plain redraw', effort: 'medium: a plain redraw' })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refined', id: 'B1', what: ['four tiles'] })).ok, true)
+  assert.equal((await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates.', goal: 'G5', model: 'sonnet: a plain chore', effort: 'medium: a plain chore' })).ok, true)
+  assert.match(await line('B1', 'Model') ?? '', /^sonnet · /)
+  assert.equal((await guardGoal('G5', base)).result.fired, true)
+  // The refine of a step that was on sonnet and medium lifts it.
+  const lifted = await as('Partner')({ action: 'refine', id: 'B2', summary: 'Sort the crates, again.' })
+  assert.equal(lifted.ok, true, lifted.why)
+  assert.match(await line('B2', 'Model') ?? '', /^opus · the goal guard: G5 is in its fundamental evaluation$/)
+  assert.match(await line('B2', 'Effort') ?? '', /^high · the goal guard: G5 /)
+  // The refined of a step on sonnet lifts it too.
+  assert.equal((await as('Partner')({ action: 'refined', id: 'B2', what: ['crates in rows'] })).ok, true)
+  assert.match(await line('B2', 'Model') ?? '', /^opus · /)
+  // The failed result check of B1, still on sonnet, makes a fix step that runs on opus and high.
+  assert.equal((await as('Keeper')({ action: 'queue', id: 'B1', for: 'Painter', about: '1 h' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'take', id: 'B1', branch: 'b1-tiles' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Four tiles.', merged: 'c0ffee1' })).ok, true)
+  assert.equal((await workApi({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
+  const checked = await as('Partner')({ action: 'checked', id: 'B1', evidence: 'none (x)', points: ['fail: the tiles do not read'] })
+  assert.equal(checked.ok, true, checked.why)
+  const fixId = checked.result.fix ?? (await readStore(dir)).items.keys().toArray().filter(id => id !== 'B1').at(-1)
+  assert.match(await line(fixId, 'Model') ?? '', /^opus · /)
+  assert.match(await line(fixId, 'Effort') ?? '', /^high · /)
 })

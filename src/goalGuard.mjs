@@ -75,6 +75,19 @@ export function goalAttempts(node, items) {
   return { count: failures.length, since: since === '' ? null : since, failures }
 }
 
+/**
+ * B518, B525: where the goal's evaluation stands for the work tool: 'running' while the partner evaluates, 'ended' from its
+ * marked draft until the next Go (a Go after the evaluation ended; the draft of a goal with an agreed how counts as Go
+ * itself, at the same time), else null. A goal that is done has none.
+ */
+export function evaluationState(node) {
+  if (node === undefined || node === null || node.state === 'done') return null
+  if ((node.evaluationAsked ?? null) !== null) return 'running'
+  const ended = [...(node.evaluatedAt ?? [])].sort().at(-1)
+  if (ended === undefined) return null
+  return node.howAgreed === null || node.howAgreed <= ended ? 'ended' : null
+}
+
 /** Whether the guard fires now: an open goal at its third failed attempt, no evaluation running. */
 export function needsEvaluation(node, items) {
   if (node === undefined || node === null || node.state === 'done') return false
