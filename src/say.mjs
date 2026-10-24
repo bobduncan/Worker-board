@@ -232,6 +232,9 @@ export function planWords(command, { to, id, words = null, job }) {
     // Tradeoffs (2026-10-21): weigh every complex feature later or not sure; the person's choice for one.
     'plan-tradeoffs': ['plan: tradeoffs'],
     'plan-tradeoff': [`plan: ${id} tradeoff`, `Choice: ${said}`],
+    // 2026-10-24: lay the plan in the strategy the person chose; a goal or milestone they set aside for now.
+    'plan-strategy': ['plan: strategy', `Strategy: ${said}`],
+    'plan-not-now': [`plan: ${id} not now`],
   }[command]
   return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, text: [...head, `Your job: ${job}, "The plan interview"`].join('\n') }
 }

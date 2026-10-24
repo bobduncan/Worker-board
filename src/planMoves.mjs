@@ -14,9 +14,11 @@ export const PLAN_MOVES = ['plan-confirm', 'plan-change', 'plan-ask', 'plan-deep
   // Tradeoffs (2026-10-21): the partner weighs every complex feature later or not sure; the person chooses prepare or wait.
   'plan-tradeoffs', 'plan-tradeoff',
   // The trial's gap 1 (2026-10-24): the empty Vision tab's start, what the person builds, begins the interview.
-  'plan-start']
+  'plan-start',
+  // 2026-10-24: the strategy the plan is laid in (your pick or your words); a goal or milestone set aside for now.
+  'plan-strategy', 'plan-not-now']
 
-const PLAN_IDS = { 'plan-confirm': /^P\d+$/, 'plan-ask': /^P\d+$/, 'plan-deeper': /^P\d+$/, 'plan-settled': /^P\d+$/, 'plan-measure': /^K\d+$/, 'plan-change': /^[PFSK]\d+$/, 'plan-tradeoff': /^F\d+$/ }
+const PLAN_IDS = { 'plan-confirm': /^P\d+$/, 'plan-ask': /^P\d+$/, 'plan-deeper': /^P\d+$/, 'plan-settled': /^P\d+$/, 'plan-measure': /^K\d+$/, 'plan-change': /^[PFSK]\d+$/, 'plan-tradeoff': /^F\d+$/, 'plan-not-now': /^[SM]\d+$/ }
 // The new order (2026-10-21): a feature is placed in a milestone of the road (M1, M2, M3+), or no, or not sure.
 const MARKS_LINE = /^F\d+ (must|later|no|unsure|M\d+\+?)(; F\d+ (must|later|no|unsure|M\d+\+?))*$/
 const GOALS_LINE = /^S\d+(, S\d+)*$/
@@ -42,7 +44,7 @@ export function planMove(body, ctx) {
   const pattern = PLAN_IDS[command]
   if (pattern !== undefined && !pattern.test(id)) return refuse(400, command === 'plan-change' ? 'Name what to change by its id (P5, F3, S2 or K1).' : command === 'plan-measure' ? 'Name the standard by its id (K1).' : 'Name the answer by its id (P5).')
   const words = oneLine(body.text, 1000)
-  if (['plan-change', 'plan-feature-add', 'plan-goals-change', 'plan-standards-change'].includes(command) && words === '') return refuse(400, 'Say it in your words first.')
+  if (['plan-change', 'plan-feature-add', 'plan-goals-change', 'plan-standards-change', 'plan-strategy'].includes(command) && words === '') return refuse(400, 'Say it in your words first.')
   if (command === 'plan-marks' && !MARKS_LINE.test(words)) return refuse(400, 'Give the marks as "F3 M1; F5 no".')
   if (command === 'plan-goals-confirm' && !GOALS_LINE.test(words)) return refuse(400, 'Give the goals as "S1, S2".')
   if (command === 'plan-standards-confirm' && !STANDARDS_LINE.test(words)) return refuse(400, 'Give the standards as "K1, K2".')

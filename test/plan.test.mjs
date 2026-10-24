@@ -472,3 +472,15 @@ test('parsePlan reads the strategy, its advice, and the changes of milestones an
   assert.equal(planState(page, [], 'p.md').strategy.name, 'Playable first')
   assert.deepEqual([parsePlan('# P\n').strategy, parsePlan('# P\n').strategyAdvice], [null, null])
 })
+
+test('the strategy and Not now go to the partner on the plan route (2026-10-24)', () => {
+  const ctx = { canWrite: true, partner: { name: 'Partner' }, job: 'partner.md' }
+  assert.equal(planMove({ command: 'plan-strategy', text: '' }, ctx).status, 400)
+  assert.equal(planMove({ command: 'plan-not-now', id: '' }, ctx).status, 400)
+  assert.equal(planMove({ command: 'plan-not-now', id: 'P3' }, ctx).status, 400)
+  const strategy = planMove({ command: 'plan-strategy', text: 'Playable first' }, ctx)
+  assert.ok(strategy.ok)
+  assert.ok(strategy.words.text.startsWith('plan: strategy\nStrategy: Playable first'))
+  assert.ok(planMove({ command: 'plan-not-now', id: 'S3' }, ctx).words.text.startsWith('plan: S3 not now'))
+  assert.ok(planMove({ command: 'plan-not-now', id: 'M2' }, ctx).words.text.startsWith('plan: M2 not now'))
+})
