@@ -8981,7 +8981,8 @@ function focusTalk(thread) {
   }
   const bubbles = thread.opening ? [{ who: 'you', text: thread.opening }] : []
   for (const question of [...(thread.earlier ?? []), ...(thread.latest ? [thread.latest] : [])]) {
-    bubbles.push({ who: 'partner', text: question.text })
+    // B475: the question's title, its context after it (an older question has its whole text as the title).
+    bubbles.push({ who: 'partner', text: [question.title ?? question.text, question.context].filter(Boolean).join(' ') })
     const words = said(question)
     if (words !== null) bubbles.push({ who: 'you', text: words })
   }

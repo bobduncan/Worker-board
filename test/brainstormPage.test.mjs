@@ -153,3 +153,11 @@ test('B475: the card draws the title as its header and the context as normal tex
   assert.match(script, /el\('p', 'brainstorm-context', view\.question\.context\)/)
   assert.match(css, /\.brainstorm-context \{/)
 })
+
+test('B475: a question with no title line is a problem of the thread', () => {
+  const thread = one(`${HEAD}## Q1 (21:01)
+Context: Only context.
+- A: gate (advised)
+`)
+  assert.match(thread.problems.join(' '), /Q1 has no title/)
+})

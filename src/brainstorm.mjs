@@ -177,8 +177,10 @@ export function parseThread(text) {
       const { title, context } = askTitleOf([question.text])
       return { ...question, title, context: context.join(' ') }
     }
+    // `line` is the question's heading (1-based): its title is the next line.
     const why = titleProblem(question.text)
-    if (why !== null) thread.problems.push(`line ${line + 1}: Q${question.n}'s title is too long. ${why.replace('in "text"', 'in its "Context:" line')}`)
+    if (question.text === '') thread.problems.push(`line ${line + 1}: Q${question.n} has no title: its first line is the question itself, then "Context:".`)
+    else if (why !== null) thread.problems.push(`line ${line + 1}: Q${question.n}'s title is too long. ${why.replace('in "text"', 'in its "Context:" line')}`)
     return { ...question, title: question.text }
   })
   return thread
