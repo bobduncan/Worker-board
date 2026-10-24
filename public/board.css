@@ -2448,6 +2448,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .focus-guard.is-counting h3 { color: var(--warn); }
 .focus-guard.is-evaluating h3 { color: var(--waiting); }
 .focus-guard.is-rebuild h3 { color: var(--waiting); }
+.focus-guard.is-asking h3 { color: var(--waiting); }
 
 /* B383: the Goals page's right panel "Steps for this goal" (the person's design picture). On a wide screen it stands
    on the right of the map; narrower, under it. */

@@ -7,7 +7,7 @@ import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'n
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
-import { evaluateWords, evaluationsDue, goalAttempts, needsEvaluation } from './goalGuard.mjs'
+import { evaluateWords, evaluationsDue, fableAskOf, goalAttempts, guardStep, openFableAsk, partnerModeFor } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 import { absentAs, again } from './write.mjs'
@@ -151,8 +151,9 @@ async function agree(node, ctx, goalsAt, field, write, say) {
     if (now === undefined) return { ok: false, why: 'gone' }
     wrote = now[field] === null
     const written = write(text, node.id, minuteOf(ctx.now))
-    // B359: Go starts the count of failed checks anew; an evaluation left from before the how was reopened ends with it.
-    return written.ok && field === 'howAgreed' && wrote ? setGoalLine(written.text, node.id, 'Evaluation asked', '') : written
+    // B359: Go starts the count of failed checks anew; an evaluation left from before the how was reopened ends with it,
+    // and so does the board's ask before one (2026-10-24): a late answer to it starts nothing.
+    return written.ok && field === 'howAgreed' && wrote ? endTrip(written.text, node.id) : written
   }, goalsAt)
   if (!done.ok) return failed(done.why)
   return wrote ? { ok: true, result: {}, words: await say() } : { ok: true, result: { unchanged: true }, words: null }
@@ -428,10 +429,14 @@ async function reopenGoal({ id, words }, ctx) {
 }
 
 /**
- * B359: the goal guard fires for goal `id` when its failed attempts (since Go, else since its first refined step) reached the third (src/goalGuard.mjs),
- * once: "Evaluation asked: <date time>" under the goal, and the word `evaluate G<n>` to the partner (`ctx.partner`),
- * with what failed and whether a rebuild needs the person's yes (`ctx.approveRebuilds`). `ctx.items` are the store's.
- * Answers `{ ok, result: { id, fired }, words }`; words is null when the guard did not fire.
+ * B359: the goal guard for goal `id` when its failed attempts (since Go, else since its first refined step) reached the
+ * third (src/goalGuard.mjs `guardStep`). 2026-10-24: first it asks the person, once per trip: the board's ask (Fable or
+ * Opus, `fableAskOf`) filed with `ctx.fileAsk(body)` (the work API as the board), and "Fable asked: Q<n>" under the goal;
+ * while it stands open nothing more happens. On its answer: "Evaluation asked: <date time>" under the goal, and the word
+ * `evaluate G<n>` to the partner (`ctx.partner`), with what failed and whether a rebuild needs the person's yes
+ * (`ctx.approveRebuilds`). `ctx.items` are the store's. Answers `{ ok, result: { id, fired, asked?, mode?, ask? }, words }`:
+ * `asked` the ask just filed; once fired, `mode` the partner's for this evaluation ('fable' only for the person's A,
+ * else 'high') and `ask` its ask; words is null when the guard did not fire. Without `ctx.fileAsk` it starts nothing.
  */
 export function guardGoal(id, ctx) {
   const run = turn.then(() => fireGuard(id, { fs: files, ...ctx }))
@@ -450,21 +455,74 @@ export async function evaluationsRunning(ctx) {
   return parseGoals(text).nodes.filter(node => node.state !== 'done' && (node.evaluationAsked ?? null) !== null).map(node => node.id)
 }
 
+/**
+ * 2026-10-24: the goals whose board ask (Fable or Opus) stands under them with no evaluation running yet: the board's tick
+ * runs the guard for each, so an answer it missed (the board restarted) still starts the evaluation.
+ */
+export async function guardsAsking(ctx) {
+  const text = await readMap(ctx.fs ?? files, ctx.goalsFile)
+  if (text === null) return []
+  return parseGoals(text).nodes.filter(node => node.state !== 'done' && (node.fableAsked ?? null) !== null && (node.evaluationAsked ?? null) === null).map(node => node.id)
+}
+
+/**
+ * 2026-10-24: the partner's mode while evaluations run, `{ mode, yes }` (goalGuard.mjs `partnerModeFor`): 'usual' when
+ * none runs, 'fable' only when every one that runs had the person's A (`yes` its ask), else 'high'. `ctx.items()` reads
+ * the store's items. A map it cannot read goes to the caller (B467).
+ */
+export async function evaluationsMode(ctx) {
+  const text = await readMap(ctx.fs ?? files, ctx.goalsFile)
+  if (text === null) return partnerModeFor([], [])
+  const nodes = parseGoals(text).nodes
+  return partnerModeFor(nodes, nodes.some(node => node.state !== 'done' && (node.evaluationAsked ?? null) !== null) ? await ctx.items() : [])
+}
+
+/** The end of a guard's trip: "Evaluation asked" and the board's "Fable asked" taken from under the goal. */
+function endTrip(text, id) {
+  const cleared = setGoalLine(text, id, 'Evaluation asked', '')
+  return cleared.ok ? setGoalLine(cleared.text, id, 'Fable asked', '') : cleared
+}
+
 async function fireGuard(id, ctx) {
-  if (ctx.canWrite !== true || (ctx.partner ?? null) === null || !isId(id)) return { ok: true, result: { id, fired: false }, words: null }
+  const calm = { ok: true, result: { id, fired: false }, words: null }
+  if (ctx.canWrite !== true || (ctx.partner ?? null) === null || !isId(id)) return calm
   const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
+  const text = await readMap(ctx.fs, ctx.goalsFile)
+  if (text === null) return calm
+  const first = guardStep(parseGoals(text).byId.get(id), ctx.items)
+  if (first === null || first.do === 'wait') return calm
+  if (first.do === 'ask') {
+    // Never an evaluation without the person's answer: a board that cannot ask starts nothing.
+    if (typeof ctx.fileAsk !== 'function') return calm
+    const node = parseGoals(text).byId.get(id)
+    // An open ask of the board's for this goal (its line lost) is used again: the person is never asked twice.
+    let asked = openFableAsk(id, ctx.items)?.head.get('Id') ?? null
+    if (asked === null) {
+      const filed = await ctx.fileAsk(fableAskOf({ goal: node, attempts: goalAttempts(node, ctx.items) }))
+      if (filed?.ok !== true) return refuse(filed?.status ?? 500, `The ask for ${id}'s evaluation could not be filed: ${filed?.why ?? 'no answer'}`)
+      asked = filed.result.id
+    }
+    const done = await changeGoalsFile(now => {
+      const goal = parseGoals(now).byId.get(id)
+      if (goal === undefined || goal.state === 'done' || (goal.fableAsked ?? null) !== null || (goal.evaluationAsked ?? null) !== null) return { ok: false, why: 'calm' }
+      return setGoalLine(now, id, 'Fable asked', asked)
+    }, goalsAt)
+    if (!done.ok) return done.why === 'calm' ? calm : failed(done.why)
+    return { ok: true, result: { id, fired: false, asked }, words: null }
+  }
   let node = null
-  const done = await changeGoalsFile(text => {
-    const map = parseGoals(text)
-    const now = map.byId.get(id)
+  let step = null
+  const done = await changeGoalsFile(now => {
+    const goal = parseGoals(now).byId.get(id)
     // B382: any goal with an agreed how, the focus or not: its evaluation ends with a marked how-draft of that goal.
-    if (now === undefined || !needsEvaluation(now, ctx.items)) return { ok: false, why: 'calm' }
-    node = now
-    return setGoalLine(text, id, 'Evaluation asked', minuteOf(ctx.now))
+    step = guardStep(goal, ctx.items)
+    if (step?.do !== 'start') return { ok: false, why: 'calm' }
+    node = goal
+    return setGoalLine(now, id, 'Evaluation asked', minuteOf(ctx.now))
   }, goalsAt)
-  if (!done.ok) return done.why === 'calm' ? { ok: true, result: { id, fired: false }, words: null } : failed(done.why)
+  if (!done.ok) return done.why === 'calm' ? calm : failed(done.why)
   const words = evaluateWords({ to: ctx.partner.name, goal: node, attempts: goalAttempts(node, ctx.items), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job, maxChars: ctx.maxChars })
-  return { ok: true, result: { id, fired: true }, words }
+  return { ok: true, result: { id, fired: true, mode: step.mode, ask: step.ask }, words }
 }
 
 /**
@@ -582,7 +640,7 @@ async function draft(body, node, ctx, goalsAt, focus) {
       if (!runs) return next
       evaluated = true
       const at = minuteOf(ctx.now)
-      const cleared = setGoalLine(next.text, node.id, 'Evaluation asked', '')
+      const cleared = endTrip(next.text, node.id)
       return cleared.ok ? addGoalLine(cleared.text, node.id, `Evaluated (${at}): a how drafted for your Go (${how.parts.length} ${how.parts.length === 1 ? 'part' : 'parts'}) · ${outcome}`) : cleared
     }
     // B359: while the goal guard's evaluation runs, the draft is its outcome: the how it names (corrected, rebuilt, or
@@ -594,7 +652,7 @@ async function draft(body, node, ctx, goalsAt, focus) {
       const isSame = agreedOf(parseGoals(next.text).byId.get(node.id)) === agreedOf(now)
       const at = minuteOf(ctx.now)
       const agreed = setGoalLine(next.text, node.id, 'How agreed', at)
-      const cleared = agreed.ok ? setGoalLine(agreed.text, node.id, 'Evaluation asked', '') : agreed
+      const cleared = agreed.ok ? endTrip(agreed.text, node.id) : agreed
       return cleared.ok ? addGoalLine(cleared.text, node.id, `Evaluated (${at}): ${isSame ? 'the how stays' : `a new how (${how.parts.length} ${how.parts.length === 1 ? 'part' : 'parts'})`} · ${outcome}`) : cleared
     }
     changed = agreedOf(parseGoals(next.text).byId.get(node.id)) !== agreedOf(now)

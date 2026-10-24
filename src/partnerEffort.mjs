@@ -5,22 +5,34 @@
 // it is set the board reads from the partner's own transcript, whose every answer names the model and the effort it ran
 // on. Go on the how and a new focus switch it back to the usual partner (the person's yes, 2026-10-18).
 
-/** The two modes: the usual partner, and high effort for the vibe and the how of a hard goal. */
+/**
+ * The modes: the usual partner, high effort for the vibe and the how of a hard goal (Opus at max since 2026-10-24), and
+ * Fable, only for a goal guard's evaluation the person said A to (the person, 2026-10-24: "you cant run fable without my
+ * permission"; src/goalGuard.mjs `fableAskOf`).
+ */
 export const PARTNER_MODES = {
   usual: { model: 'claude-opus-5-5', effort: 'xhigh', label: 'Opus 5.5, extra high' },
   high: { model: 'claude-opus-5-5', effort: 'max', label: 'Opus 5.5, max' },
+  fable: { model: 'claude-fable-5-1', effort: 'max', label: 'Fable 5.1, max' },
 }
+
+/** The modes the person's switch on the Focus page sets: never Fable. */
+export const SWITCH_MODES = ['usual', 'high']
 
 /**
  * The word that asks the main chat to set the partner's chat (`partner`, its app session id `session` when the board
- * knows it) to `mode`, and `why`. One message of the outbox, to the main chat.
+ * knows it) to `mode`, and `why`. One message of the outbox, to the main chat. Mode fable only with `yes`, the board's
+ * ask the person answered A (Q<n>): the word names it, and without it nothing is made (it throws).
  */
-export function partnerEffortWords({ to, partner, session, mode, why }) {
+export function partnerEffortWords({ to, partner, session, mode, why, yes = null }) {
+  if (!Object.hasOwn(PARTNER_MODES, mode ?? '')) throw new Error(`No partner mode "${String(mode).slice(0, 20)}".`)
+  if (mode === 'fable' && !/^Q\d+$/.test(String(yes ?? ''))) throw new Error('Fable only with the person\'s yes: name the ask they answered A.')
   const { model, effort } = PARTNER_MODES[mode]
   const id = typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? [`Session: ${session}`] : []
+  const said = mode === 'fable' ? [`Yes: ${yes}, the person's A: Fable for this evaluation only`] : []
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'partner-effort', about: partner, mode,
-    text: ['partner effort', `Chat: ${partner}`, `Mode: ${mode}`, `Model: ${model}`, `Effort: ${effort}`, ...id, `Why: ${why}`].join('\n'),
+    text: ['partner effort', `Chat: ${partner}`, `Mode: ${mode}`, `Model: ${model}`, `Effort: ${effort}`, ...id, ...said, `Why: ${why}`].join('\n'),
   }
 }
 
@@ -29,10 +41,10 @@ export function partnerEffortWords({ to, partner, session, mode, why }) {
  * (`entries`, its parsed transcript; null when it cannot be read), and whether that is the mode asked, answered after
  * the ask. Without a word (none was asked, or the outbox forgot it after two hours) what the partner runs on says the
  * mode, so high effort is still known, and switched back on Go. A word that did not arrive (expired, or the Workers mod
- * could not type it) changed nothing: it is `missed`. `labels` name both modes for the switch.
+ * could not type it) changed nothing: it is `missed`. `labels` name the modes for the switch.
  */
 export function partnerEffort({ sent, partner, entries }) {
-  const words = (sent ?? []).filter(message => message.command === 'partner-effort' && message.about === partner && (message.mode === 'high' || message.mode === 'usual'))
+  const words = (sent ?? []).filter(message => message.command === 'partner-effort' && message.about === partner && Object.hasOwn(PARTNER_MODES, message.mode ?? ''))
   const isMissed = message => message.state === 'expired' || message.state === 'failed'
   const last = words.findLast(message => !isMissed(message))
   const latest = words.at(-1)
@@ -40,7 +52,8 @@ export function partnerEffort({ sent, partner, entries }) {
   const answer = (entries ?? []).findLast(entry => entry.type === 'assistant' && !entry.isSidechain && typeof entry.model === 'string' && entry.model.startsWith('claude-'))
   const runsOn = answer === undefined || answer.at === null ? null : { model: answer.model, effort: answer.effort, at: answer.at }
   const runs = mode => runsOn !== null && runsOn.model === PARTNER_MODES[mode].model && runsOn.effort === PARTNER_MODES[mode].effort
-  const mode = last?.mode ?? (runs('high') ? 'high' : 'usual')
+  // Fable set by hand (no word) reads as Fable too, so Go switches it back as it does high.
+  const mode = last?.mode ?? (runs('fable') ? 'fable' : runs('high') ? 'high' : 'usual')
   const isSet = last === undefined || (runs(mode) && runsOn.at >= last.at)
   return {
     mode,
@@ -49,13 +62,13 @@ export function partnerEffort({ sent, partner, entries }) {
     missed: latest !== undefined && isMissed(latest) && !runs(latest.mode) ? { at: latest.at, state: latest.state } : null,
     runsOn,
     isSet,
-    labels: { usual: PARTNER_MODES.usual.label, high: PARTNER_MODES.high.label },
+    labels: { usual: PARTNER_MODES.usual.label, high: PARTNER_MODES.high.label, fable: PARTNER_MODES.fable.label },
   }
 }
 
 /** Why a move of the Focus page switches the partner back to the usual mode: Go on the how, or a new focus; else null. */
 export function effortBack(command, effort) {
-  if (effort?.mode !== 'high') return null
+  if (effort?.mode !== 'high' && effort?.mode !== 'fable') return null
   if (command === 'how-go') return 'Go on the how: back to the usual partner'
   if (command === 'focus') return 'a new focus: back to the usual partner'
   return null

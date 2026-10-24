@@ -5,8 +5,11 @@
 // A goal's attempts are its failed checks, counted from its Go (How agreed) or, without a how, from its first refined
 // step (B450): every failed result check of its steps (a fix step carries its goal too), every failed re-check of the
 // goal itself, and every look of one of its steps that the person answered no or rejected. The third fires the guard
-// once: the board writes "Evaluation asked: <date time>" under the goal, switches the partner to high effort (B352) and
-// types `evaluate G<n>` to it, with the word that the goal's next steps are refined on Model: opus and Effort: high.
+// once. Since 2026-10-24 the board first asks the person (the person: "on 3 failed attempts is important context. i want
+// to be asked. hey this task failed 3 times, we would like to evaluate strategy using fable. yes, or no use opus."): one
+// ask of the goal, A Fable 5.1 at max for this evaluation only, B Opus 5.5 at max, and "Fable asked: Q<n>" under the goal.
+// On the answer the board writes "Evaluation asked: <date time>", switches the partner to that mode (B352; Fable only on
+// an A) and types `evaluate G<n>` to it, with the word that the goal's next steps are refined on Model: opus and Effort: high.
 // The partner's answer is a how-draft (src/focus.mjs): a corrected or rebuilt how, or the same how again ("keep
 // going"); it counts as Go, so the count starts anew. A rebuild is the person's to approve (an ask of the goal whose
 // title begins "Rebuild G<n>") unless "Approve rebuilds by itself" (config `approveRebuilds`) is on.
@@ -89,22 +92,100 @@ export function evaluationState(node) {
   return node.howAgreed === null || node.howAgreed <= ended ? 'ended' : null
 }
 
-/** Whether the guard fires now: an open goal at its third failed attempt, no evaluation running. */
+/** Whether the guard trips now: an open goal at its third failed attempt, no ask of the board's and no evaluation running. */
 export function needsEvaluation(node, items) {
   if (node === undefined || node === null || node.state === 'done') return false
-  if ((node.evaluationAsked ?? null) !== null) return false
+  if ((node.evaluationAsked ?? null) !== null || (node.fableAsked ?? null) !== null) return false
   return goalAttempts(node, items).count >= GUARD_ATTEMPTS
 }
 
 const isOpenAsk = item => !['answered', 'withdrawn', 'dropped', 'closed', 'done'].includes(String(item.head.get('State') ?? '').toLowerCase())
 
+/** 2026-10-24: the two answers of the board's ask before an evaluation; no advice: it is the person's call. */
+export const FABLE_OPTIONS = ['A Fable 5.1 (max), only for this evaluation', 'B Opus 5.5 (max)']
+/** The board's ask by its title, "G<n> failed <n> times: evaluate the strategy with Fable?". */
+const FABLE_TITLE = /^G\d+ failed \d+ times: evaluate the strategy with Fable\?$/
+const cutTo = (text, chars) => (text.length > chars ? `${text.slice(0, chars - 1).trimEnd()}…` : text)
+
 /**
- * The guard as the Focus page shows it: `{ attempts, of, state, ask }`, state `counting` (attempts so far), `evaluating`
- * (the partner evaluates) or `rebuild` (a rebuild waits for the person: the open ask `ask`).
+ * 2026-10-24: the ask the board files (as the board, through the work API) when the guard trips: kind decide, blocking,
+ * of the goal, its title the question, two plain lines (what failed; what Fable costs), A Fable and B Opus, no advice.
+ */
+export function fableAskOf({ goal, attempts }) {
+  const last = attempts.failures.at(-1)
+  const who = last === undefined ? '' : last.by === 'you' ? `your no to ${last.id}` : last.id === goal.id ? `${goal.id}'s re-check` : last.id
+  const latest = last === undefined ? '' : `; the latest, ${who}: ${cutTo(last.text, 160)}`
+  const since = attempts.since !== null && attempts.since === goal.howAgreed ? 'Go' : 'its first refined step'
+  return {
+    action: 'ask', of: goal.id, kind: 'decide', blocking: true,
+    title: `${goal.id} failed ${attempts.count} times: evaluate the strategy with Fable?`,
+    text: [
+      `${goal.id} ${lineOf(goal.title)}: ${attempts.count} checks failed since ${since}${latest}${/[.!?…]$/.test(latest) ? '' : '.'}`,
+      'Your partner now evaluates whether the approach is right. Fable 5.1 is the strongest model but uses far more tokens than Opus 5.5; nothing starts before your answer.',
+    ].join('\n'),
+    options: [...FABLE_OPTIONS],
+  }
+}
+
+/**
+ * 2026-10-24: the partner's mode for the evaluation the person answered: 'fable' only for the person's A ("A", "A Fable
+ * 5.1 ..."); everything else (B, a no, other words, no answer, withdrawn, an answer by the partner) is Opus at max, 'high'.
+ */
+export function modeOfAnswer(item) {
+  if (item === undefined || item === null || String(item.head.get('State') ?? '').toLowerCase() !== 'answered') return 'high'
+  if (item.head.get('Answered by') === 'partner') return 'high'
+  const first = (item.sections.get('Answer') ?? []).map(lineOf).find(one => one !== '') ?? ''
+  return /^A\b/i.test(first) ? 'fable' : 'high'
+}
+
+const itemOf = (items, id) => [...(items ?? [])].find(item => item.head.get('Id') === id)
+
+/**
+ * 2026-10-24: what the guard does now for the goal: `{ do: 'ask' }` (it trips: ask the person), `{ do: 'wait', ask }`
+ * (the ask stands open, or the items read do not hold it yet: it never starts on an ask it cannot see), `{ do: 'start',
+ * ask, mode }` (answered, or no longer open: the evaluation starts on that mode), or null (calm, running, done).
+ */
+export function guardStep(node, items) {
+  if (node === undefined || node === null || node.state === 'done' || (node.evaluationAsked ?? null) !== null) return null
+  const asked = node.fableAsked ?? null
+  if (asked === null) return needsEvaluation(node, items) ? { do: 'ask' } : null
+  const ask = itemOf(items, asked)
+  if (ask === undefined || isOpenAsk(ask)) return { do: 'wait', ask: asked }
+  return { do: 'start', ask: asked, mode: modeOfAnswer(ask) }
+}
+
+/** An open ask of the board's before an evaluation of the goal, if one stands (its line lost): used again, never filed twice. */
+export function openFableAsk(goalId, items) {
+  return [...(items ?? [])].find(item => item.head.get('Kind') === 'ask' && item.head.get('Owner') === 'server' && item.head.get('Of') === goalId
+    && isOpenAsk(item) && FABLE_TITLE.test(String(item.head.get('Title') ?? ''))) ?? null
+}
+
+/** The mode a running evaluation needs: 'fable' only when the ask under it was answered A, else 'high' (Opus at max). */
+export function evaluationMode(node, items) {
+  const asked = node?.fableAsked ?? null
+  return asked === null ? 'high' : modeOfAnswer(itemOf(items, asked))
+}
+
+/**
+ * The partner's mode while evaluations run (`nodes` the goal map's): 'usual' when none runs, 'fable' when every one that
+ * runs had the person's A (`yes` its ask), else 'high'. So Fable never stays on for an evaluation without an A.
+ */
+export function partnerModeFor(nodes, items) {
+  const running = (nodes ?? []).filter(node => node.state !== 'done' && (node.evaluationAsked ?? null) !== null)
+  if (running.length === 0) return { mode: 'usual', yes: null }
+  const isFable = running.every(node => /^Q\d+$/.test(node.fableAsked ?? '') && evaluationMode(node, items) === 'fable')
+  return isFable ? { mode: 'fable', yes: running[0].fableAsked } : { mode: 'high', yes: null }
+}
+
+/**
+ * The guard as the Focus page shows it: `{ attempts, of, state, ask }`, state `counting` (attempts so far), `asking` (the
+ * board asks the person, Fable or Opus: the ask `ask`), `evaluating` (the partner evaluates) or `rebuild` (a rebuild waits
+ * for the person: the open ask `ask`).
  */
 export function guardOf(node, items, asks) {
   if (node === undefined || node === null) return null
   const attempts = goalAttempts(node, items).count
+  if ((node.evaluationAsked ?? null) === null && (node.fableAsked ?? null) !== null) return { attempts, of: GUARD_ATTEMPTS, state: 'asking', ask: node.fableAsked }
   if ((node.evaluationAsked ?? null) === null) return { attempts, of: GUARD_ATTEMPTS, state: 'counting', ask: null }
   const rebuild = new RegExp(`^Rebuild ${node.id}\\b`, 'i')
   const waiting = (asks ?? []).find(one => one.head.get('Kind') === 'ask' && one.head.get('Of') === node.id && isOpenAsk(one) && rebuild.test(String(one.head.get('Title') ?? '')))

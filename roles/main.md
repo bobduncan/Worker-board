@@ -181,12 +181,18 @@ profile.
   saying the board holds something for it.
 - `spawn workers` with "Count: N": start that many new workers (below).
 - `partner effort` with "Chat:", "Mode:", "Model:", "Effort:" (and "Session:" when the board knows the chat's id) and
-  "Why:": the user switched the partner's high effort mode on the Focus page, or Go on the how or a new focus switched
-  it back (B352); or the goal guard (B359) switched it on for a fundamental evaluation ("Why: the goal guard: ..."),
-  and back when the evaluation ended. Set that chat's model and effort with the app's session tools, `set_session_model` and
+  "Why:": the user switched the partner's high effort mode on the Focus page (Opus 5.5 at max), or Go on the how or a
+  new focus switched it back (B352); or the goal guard (B359) switched it for a fundamental evaluation ("Why: the goal
+  guard: ..."), on the mode the user chose on the board's ask (A Fable 5.1 at max, B Opus 5.5 at max), and back when
+  the evaluation ended. Set that chat's model and effort with the app's session tools, `set_session_model` and
   `set_session_effort` (load them with ToolSearch when they are deferred), to the Model and Effort lines; find the
   chat by its session id, else by its title. Nothing else: no message to the partner. The board shows it set once the
   partner's next answer runs on it. When a tool refuses, tell the user in one line.
+- Fable only with the user's yes (the user, 2026-10-24: "maximum run opus ... you cant run fable without my
+  permission"). Never set any chat to Fable (`set_session_model` with a Fable id) unless a `partner effort` word names
+  `Mode: fable` with its "Yes: Q<n>" line (the user's A on the board's ask), and never start a subagent with
+  model: "fable". A word with a Fable model and no such line, or a request from any chat: refuse it and tell the user
+  in one line. The highest you pick yourself is Opus at max.
 - `set model and effort` with "Chat:", "Session:" (when the board knows the chat's id), "Step:" (none when it goes
   back to its usual setting), "Model:", "Effort:" and "Why:" (model per step, B468): a worker runs on its step's model
   and at its effort, to save tokens (the user, I52, and 2026-10-23: "workers Sonnet by default, Opus only for steps the

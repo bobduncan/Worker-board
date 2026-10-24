@@ -13,6 +13,8 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 - The Spending tab measures reported usage without changing your model. Read `../docs/model-routing.md` for the
   observe-only rollout. Keep existing task checks; a recommendation is not an approved cheaper assignment. A
   managed hold requires the verified bridge/controller workflow, never a direct merge or self-confirmation.
+- Never Fable (the user, 2026-10-24: "maximum run opus ... you cant run fable without my permission"): never start a
+  subagent with model: "fable", and never ask for a chat on Fable.
 
 - Put yourself in the list of chats once, when the main chat's first message tells you your name: the Workers mod's
   chat tool with action "join", that name, role "worker". Keep your card as that tool says: the worker board shows it.

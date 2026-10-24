@@ -5,7 +5,7 @@
 import { isRefined, refinedKey } from './backlog.mjs'
 import { brainstormFixWords, leftOutKey } from './brainstorm.mjs'
 export { brainstormFixWords }
-import { PARTNER_MODES, partnerEffortWords } from './partnerEffort.mjs'
+import { SWITCH_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
 import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
@@ -457,7 +457,8 @@ export function checkSay(body, state, maxChars) {
     if (text !== '' || (body.ask ?? null) !== null || (body.verdict ?? null) !== null) return refuse(400, 'A command carries nothing else.')
     // B352: the partner's high effort mode, switched on the Focus page: the main chat sets the partner's chat.
     if (body.command === 'partner-effort') {
-      if (!Object.hasOwn(PARTNER_MODES, body.mode ?? '')) return refuse(400, 'High effort or the usual partner.')
+      // 2026-10-24: the person's switch sets high effort (Opus at max) or the usual partner, never Fable.
+      if (!SWITCH_MODES.includes(body.mode)) return refuse(400, 'High effort or the usual partner.')
       if (!state.advisor?.name) return refuse(409, 'No partner chat is on the board.')
       return { ok: true, message: partnerEffortWords({ to: body.to, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: body.mode, why: 'switched on the Focus page' }) }
     }

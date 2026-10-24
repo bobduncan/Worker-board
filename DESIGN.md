@@ -2345,8 +2345,10 @@ other model/effort, lets call it high effort mode. so like fable 5.1 max effort.
 
 1. A switch under the talk with the partner on the Focus page (the vibe and the how): "High effort mode · off: Opus
    5.5, extra high" or "· on: Opus 5.5, max", amber when on (`src/partnerEffort.mjs`, `PARTNER_MODES`). Since 2026-10-24 high effort is Opus at
-   max effort, not Fable (the person: "maximum run opus ... you cant run fable without my permission"); the goal guard
-   switches to it by itself, so it must never be Fable.
+   max effort, not Fable (the person: "maximum run opus ... you cant run fable without my permission"); the switch only
+   ever sends `usual` or `high` (`SWITCH_MODES`). A third mode, `fable` (Fable 5.1 at max), comes only from the goal
+   guard after the person's A (the next part); while it is on the switch reads "· on: Fable 5.1, max", and flipping it
+   goes back to the usual partner.
 2. The board cannot change a chat itself: the switch types `partner effort` (Chat, Mode, Model, Effort, Session when
    known, Why) into the main chat, which sets the partner's chat with the app's `set_session_model` and
    `set_session_effort` (roles/main.md, roles/protocol.md). It is one of the board's words, never the person's.
@@ -2359,6 +2361,46 @@ other model/effort, lets call it high effort mode. so like fable 5.1 max effort.
 4. Go on the how and another goal as the focus switch it back to the usual partner (the person's yes, 2026-10-18), so
    the run's refining and rounds use the usual partner; the talk about the same goal started again keeps it.
 5. Not in it: a switch for the workers' chats or the main chat.
+
+## The goal guard asks before Fable (2026-10-24)
+
+The person, 2026-10-24: "i want to prevent any chat running fable. i run out of tokens too quickly. maximum run opus.
+if you really require fable somereason exclicitly ask, you cant run fable without my permission"; and "on 3 failed
+attempts is important context. i want to be asked. hey this task failed 3 times, we would like to evaluate strategy
+using fable. yes, or no use opus."
+
+1. The goal guard (B359, `src/goalGuard.mjs`, `src/focus.mjs` `guardGoal`) no longer starts the fundamental evaluation
+   at a goal's third failed attempt. It files one ask to the person through the work API as the board (`as: 'server'`,
+   `fableAskOf`): kind decide, blocking, of the goal, its title "G<n> failed 3 times: evaluate the strategy with Fable?"
+   (the real count), two plain lines (what failed and the latest failure; that Fable 5.1 is the strongest model but uses
+   far more tokens than Opus 5.5), the options "A Fable 5.1 (max), only for this evaluation" and "B Opus 5.5 (max)", no
+   advice. It is the person's: never routed to the partner (the board is no worker or main chat), and only the person
+   answers it on the board (its Owner is the board, so no chat can close it in its chat). The work API lets the board
+   ask of a goal as it lets the partner.
+2. The board writes `Fable asked: Q<n>` under the goal. While the ask stands open the guard does nothing more: no
+   second ask, no evaluation, no mode word (`guardStep` says `wait`; it also waits when the store read does not hold
+   the ask yet, so it never starts on an ask it cannot see). An open ask of the board's for the goal whose line was lost
+   is used again (`openFableAsk`), never filed twice.
+3. The answer starts it (the person's answer runs the guard, as every answer of the goal's asks does, and the board's
+   tick runs it for every goal with a `Fable asked` line, `guardsAsking`, so a missed one starts too): `Evaluation asked:
+   <date time>` under the goal, the partner set by the `partner effort` word, then `evaluate G<n>` as before. Only an
+   answer whose first word is A gives mode `fable` (`modeOfAnswer`); B, any other words, a withdrawn ask or an answer
+   by the partner give `high`, Opus 5.5 at max.
+4. The `partner effort` word for `fable` names the ask: `Yes: Q<n>, the person's A: Fable for this evaluation only`.
+   `partnerEffortWords` throws for mode `fable` without a `Q<n>`, so no code path sends it without the answered A; the
+   page's switch is refused it (`checkSay`, `SWITCH_MODES`); the server names no Fable model or mode itself.
+5. While evaluations run, the partner's mode is `evaluationsMode` (`partnerModeFor`): Fable only when every evaluation
+   that runs had the person's A, else Opus at max; one asked again (B528) keeps its mode the same way. The evaluation's
+   end (the marked how-draft, or Go on a reopened how) takes `Evaluation asked` and `Fable asked` away and switches the
+   partner back to usual, as before; another that still runs keeps its own mode, so Fable never stays on for an
+   evaluation without an A. Go and a new focus switch Fable back as they switch high (`effortBack`). The next trip asks
+   anew: an old A is no yes for it.
+6. The Focus page's run shows "Fable or Opus? The board asks you" with the ask while it stands (`guardOf` state
+   `asking`).
+7. Nothing else picks Fable: roles/main.md (sets Fable only on a `partner effort` word with `Mode: fable` and its `Yes:`
+   line, never a subagent with model "fable"), roles/partner.md and roles/worker.md (never), and the settings' `models`
+   refuse a Fable id (`modelIds`). The model chip still shows Fable when the person sets a chat to it by hand.
+8. Tests: `test/fableAsk.test.mjs`; `test/goalGuard.test.mjs` fires the guard through the answered ask.
 
 ## Done when and the standard per kind of work (B354)
 

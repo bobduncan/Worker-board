@@ -9618,9 +9618,11 @@ function focusGuardView(focus) {
   const guard = focus?.guard ?? null
   if (guard === null) return null
   if (guard.state === 'rebuild') return { tone: 'rebuild', title: 'A rebuild waits for you', text: `Your partner's evaluation proposes a new how for ${focus.id}${guard.ask === null ? '' : ` (${guard.ask})`}: answer it under Needs your attention. Nothing is rebuilt before your yes.` }
+  // 2026-10-24: before the evaluation the board asks the person which model runs it: Fable only with their yes.
+  if (guard.state === 'asking') return { tone: 'asking', title: 'Fable or Opus? The board asks you', text: `${guard.attempts} checks failed: before your partner evaluates the approach, answer ${guard.ask} under Needs your attention: A Fable 5.1 (the strongest, far more tokens) or B Opus 5.5. Nothing starts before your answer.` }
   if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
   if (guard.attempts === 0) return null
-  return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks (or your no to a look) your partner, on high effort, evaluates whether the approach is right.` }
+  return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks (or your no to a look) your partner evaluates whether the approach is right, on Fable or Opus as you answer the board.` }
 }
 
 /** B354: whether a goal (or the focus) has a Done when line with words in it. */
@@ -10261,14 +10263,18 @@ function focusSay(placeholder, className, { box = null, act = null, label = 'Sen
  */
 function effortView(effort) {
   if (effort === null || effort === undefined) return null
-  const isOn = effort.mode === 'high'
+  // 2026-10-24: Fable (only for a goal guard's evaluation, with the person's yes) is on too; flipping it goes to usual.
+  const isFable = effort.mode === 'fable'
+  const isOn = effort.mode === 'high' || isFable
+  const label = isFable ? effort.labels.fable ?? 'Fable' : effort.labels.high
   const isSettling = effort.isSet === false
   // Review: a word that did not arrive changed nothing; the switch shows what the partner runs on.
   const note = effort.missed ? 'The main chat did not take the word: flip the switch again.'
     : isSettling ? 'Switching… the main chat sets it; the line turns solid once your partner runs on it.'
-      : isOn ? `Your partner runs on ${effort.labels.high}. Go on the how switches it back.`
-        : 'Flip it for the vibe and the how of a hard goal: your partner switches at its next answer.'
-  return { isOn, line: isOn ? `on: ${effort.labels.high}` : `off: ${effort.labels.usual}`, isSettling, note }
+      : isFable ? `Your partner runs on ${label} for the goal guard's evaluation, with your yes. Its end switches it back.`
+        : isOn ? `Your partner runs on ${label}. Go on the how switches it back.`
+          : 'Flip it for the vibe and the how of a hard goal: your partner switches at its next answer.'
+  return { isOn, line: isOn ? `on: ${label}` : `off: ${effort.labels.usual}`, isSettling, note }
 }
 // effortswitch:end
 
@@ -10299,7 +10305,7 @@ async function switchEffort() {
   const main = board?.workers?.main ?? null
   const effort = board?.advisor?.effort ?? null
   if (main === null || effort === null || sending.has('partner-effort')) return
-  await send({ to: main, command: 'partner-effort', mode: effort.mode === 'high' ? 'usual' : 'high' }, 'partner-effort')
+  await send({ to: main, command: 'partner-effort', mode: effort.mode === 'usual' ? 'high' : 'usual' }, 'partner-effort')
 }
 
 /**

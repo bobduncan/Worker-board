@@ -612,8 +612,9 @@ export function forYouBlock({ id, of = null, kind, blocking = false, title, opti
 async function ask(body, w) {
   // Focus 3: an ask of a goal (the partner's question on the focus) stands under no step; its Of names the goal.
   const goal = typeof body.of === 'string' && GOAL_ID.test(body.of) ? body.of : null
-  // The review: only the partner asks of a goal, and only of one in the goal map (`hasGoal`, from the board).
-  if (goal !== null && w.role !== 'advisor') return refuse(403, 'Only the partner asks of a goal; ask under a step.')
+  // The review: only the partner asks of a goal, and only of one in the goal map (`hasGoal`, from the board). 2026-10-24:
+  // and the board itself, for its goal guard's ask before an evaluation (Fable or Opus, src/goalGuard.mjs `fableAskOf`).
+  if (goal !== null && w.role !== 'advisor' && w.role !== 'server') return refuse(403, 'Only the partner asks of a goal; ask under a step.')
   if (goal !== null && w.hasGoal?.(goal) !== true) return refuse(409, `${goal} is not in the goal map.`)
   const isAlone = goal !== null || body.of === undefined || body.of === null || body.of === ''
   const of = isAlone ? { ok: true, item: null, text: null } : await load(body.of, w, { kind: ['step'] })
