@@ -39,7 +39,7 @@ import { BrokenConfig, configProblem, firstStart, followApp, isOwnWork, loadConf
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designState, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
-import { GAME_SPAN, boardsFile, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
+import { GAME_SPAN, boardAddress, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { makeProject } from './src/newProject.mjs'
 import { readHead } from './src/files.mjs'
@@ -465,6 +465,8 @@ async function main(args) {
   // The project as a whole path: the list is the PC's, read from every board's folder.
   const home = config.project === '' ? null : resolve(HERE, config.project)
   const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner(), project: home, gamePort: config.gamePort, boards })
+  // B3: the "only shows" notices send the person to the board that records, on the port the PC's list of boards keeps for it.
+  const recordingPort = await recordingBoardPort({ boards, project: home, fallback: homePort })
   config.port = chosen.port
   if (chosen.gamePort !== undefined) config.gamePort = chosen.gamePort
   /** The main folder's board, on the port it was not given by hand: the one that keeps its project's place in the list. */
@@ -804,7 +806,7 @@ async function main(args) {
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
-      viewFile, boardUrl: `http://${HOST}:${homePort}`, backlogFile: join(config.project, ...config.backlog.split('/')),
+      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: join(config.project, ...config.backlog.split('/')),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // B518: a goal in its fundamental evaluation ('running') or that ended one ('ended'): its steps default to opus and high.
@@ -873,7 +875,7 @@ async function main(args) {
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
-    if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${homePort}/` }
+    if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
     const done = await workApi(body, { ...(await workCtx()), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
     // B356, the second review: a fix's check that leaves the step it fixes in review asks the partner for that step again.
@@ -1113,7 +1115,7 @@ async function main(args) {
     busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
     // Asking the main chat for the step is sending: only the board that delivers does it.
     canSend: !isDemo && !isShowOnly,
-    whyNot: isDemo ? 'This is the demo: it asks nobody.' : `This board only shows. Do this on the board that delivers: http://${HOST}:${homePort}/`,
+    whyNot: isDemo ? 'This is the demo: it asks nobody.' : `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/`,
     main: state.restart?.main ?? null,
     workers: (state.chats ?? []).filter(chat => !chat.isLeftover && !chat.isMain).map(chat => chat.name),
   })
@@ -1401,14 +1403,14 @@ async function main(args) {
         why: whyNoPicture,
         busy: making === null ? null : { idea: making.idea, version: making.version, since: making.since },
         canSend: !isDemo && !isShowOnly && (state.restart?.main ?? null) !== null,
-        whyNot: isDemo ? 'This is the demo: it asks nobody.' : isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${homePort}/` : 'No main chat is open to ask.',
+        whyNot: isDemo ? 'This is the demo: it asks nobody.' : isShowOnly ? `This board only shows. Do this on the board that delivers: http://${HOST}:${recordingPort}/` : 'No main chat is open to ask.',
         outbox: sentNow(),
         backlog: state.backlog,
         missing: isDemo ? [] : await missingReferences(),
         typical: typicalSeconds(),
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
-      const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
+      const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${recordingPort}/` : null }
       // B541: chats on an older Workers mod than the one installed: one card first under Needs your attention, with the
       // one way to bring them up to date; gone once every chat that asked lately runs the installed one.
       const oldMods = oldModNeed(isDemo ? demoMods() : await modsNow(), chatsByRole(state), clock())
@@ -1420,6 +1422,7 @@ async function main(args) {
         items: stored?.ok === true ? stored.items : null,
         lanes: [...(state.chats ?? []), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])],
         partner: state.advisor?.name ?? null,
+        flow: stored?.ok === true ? stored.flow : null,
       })
       return { ...state, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
@@ -1439,7 +1442,7 @@ async function main(args) {
     },
     newProject: async body => {
       if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it makes no project.' }
-      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Make the project on the board that delivers: http://${HOST}:${homePort}/` }
+      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Make the project on the board that delivers: http://${HOST}:${recordingPort}/` }
       if (makingProject) return { ok: false, status: 409, why: 'A project is being made: wait until it is done.' }
       makingProject = true
       try {
@@ -1523,7 +1526,7 @@ async function main(args) {
     // B167: a picture pasted into Talk to Main, kept in the project's picture folder (see keepTalkPicture).
     talkPicture: async bytes => {
       if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it keeps no picture.' }
-      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Send it on the board that delivers: http://${HOST}:${homePort}/` }
+      if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Send it on the board that delivers: http://${HOST}:${recordingPort}/` }
       if (config.project === '') return { ok: false, status: 409, why: 'This board knows no project folder to keep the picture in.' }
       const kind = pictureKind(bytes)
       if (kind === null) return { ok: false, status: 415, why: 'That is no PNG, JPEG or WebP picture.' }
@@ -1534,7 +1537,7 @@ async function main(args) {
       // What is answered here would never arrive: this board has no bridge.
       // Focus 2: a copy with a goal map of its own keeps the words of its brainstorms in its own outbox.
       const isOwnTalk = writesMap && typeof body?.command === 'string' && body.command.startsWith('brainstorm')
-      if (isShowOnly && !isOwnTalk) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${homePort}/` }
+      if (isShowOnly && !isOwnTalk) return { ok: false, status: 409, why: `This board only shows. Answer on the board that delivers: http://${HOST}:${recordingPort}/` }
       // The person's "Dismiss" on the restart banner's copied word: kept on that word in the outbox.
       if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
       // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page). The supervisor's Part 2:

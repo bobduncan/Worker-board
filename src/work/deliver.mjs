@@ -16,6 +16,7 @@ import { isHolding } from './pause.mjs'
 import { sweepOutbox } from './outboxSweep.mjs'
 import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
 import { AGAIN_MS, effortWords, lastWord, sameTarget } from './effort.mjs'
+import { boardLineKey } from './incidentFix.mjs'
 
 export { partnerAskWords }
 
@@ -185,6 +186,13 @@ async function withdrawStale({ dir, outbox, prefix, fs, now = Date.now() }) {
       const isOwnersLine = /^(?:not-taken|limit-back) /.test(String(message.syncKey ?? ''))
       const isStill = !isOwnersLine || (value(item, 'Owner') !== null && plain(value(item, 'Owner'), prefix) === plain(message.to, prefix))
       if (isOpen && isStill && now - (message.at ?? 0) < SYNC_LINE_MS) continue
+    } else if (message.kind === 'board-queued') {
+      // Incident fixes (2026-10-24): the main chat's information line about a fix the board queued holds while that step
+      // is still open: it is the main chat's to know, whoever has the step by now.
+      if (item !== undefined && !['done', 'dropped'].includes(state)) continue
+    } else if (message.kind === 'fix-held') {
+      // The review: the word that a fix's standard holds it holds while the fix is still refined, not queued.
+      if (state === 'refined') continue
     } else if (message.kind === 'partner-ask') {
       // Partner answers (2026-10-19): the partner's line holds while its ask still waits for its answer.
       if (state === 'open' && value(item, 'Route') === 'partner') continue
@@ -247,6 +255,17 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const moved = await apply({ action: 'advance', id: move.id, to: move.to }).catch(() => null)
     if (moved?.ok === true) done.moved.push(move.id)
   }
+  // Incident fixes (2026-10-24): the board queues each ready incident fix for the worker the reconciler picked (the API
+  // checks it anew: a step the main chat queued meanwhile is left alone), and the main chat gets its information line at
+  // once (the reconciler's `boardLines` names it again later, under the same key, should it not go now).
+  const placed = []
+  for (const one of plan.autoQueues ?? []) {
+    const queued = await apply({ action: 'advance', id: one.id, to: 'queued', for: one.chat, tier: one.tier }).catch(() => null)
+    if (queued?.ok !== true) continue
+    done.moved.push(one.id)
+    const said = queued.result?.boardQueued ?? null
+    if (said !== null && typeof one.main === 'string') placed.push({ key: boardLineKey(said.id, said.chat, said.since), words: { ...workWords(one.main, said.id, said.text), kind: 'board-queued' } })
+  }
   // Partner answers (2026-10-19): what the partner did not answer in time (or cannot) goes to the person, also while
   // the person pauses: it only shows them the ask.
   for (const one of plan.escalations ?? []) {
@@ -271,6 +290,11 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
       .filter(one => one.again !== true || !outbox.outbox().some(message => (message.kind === 'partner-ask' || String(message.syncKey ?? '').startsWith('partner-ask ')) && message.about === one.id
         && (message.state === 'waiting' || now - (message.at ?? 0) < PARTNER_AGAIN_MS)))
       .map(one => ({ key: partnerAskKey(one.id, one.chat, one.again === true), words: { ...workWords(one.chat, one.id, partnerAskWords(one.id)), kind: 'partner-ask' } })),
+    // Incident fixes: the main chat's one information line per placement of the board's, this refresh's first.
+    ...placed,
+    ...(plan.boardLines ?? []).map(one => ({ key: one.key, words: { ...workWords(one.chat, one.id, one.text), kind: 'board-queued' } })),
+    // The review: a ready incident fix its standard holds, once to the main chat and once to the partner.
+    ...(plan.heldFixes ?? []).flatMap(one => one.chats.map(chat => ({ key: `fix-held ${one.id} ${chat}`, words: { ...workWords(chat, one.id, one.text), kind: 'fix-held' } }))),
   ]
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })
