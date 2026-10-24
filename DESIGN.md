@@ -3075,7 +3075,13 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   older Workers mod than the one installed: dormant until the mod reports its version, Part 2's mod), `odd-effort`
   (B544, the fix of X9: a chat whose card says an effort that is not a level; the partner's card holds the app's level in
   `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
-  summary never says "[object Object]"). How long a thing
+  summary never says "[object Object]"), `review-waits` (B543, the fix of X8: a step in review with no result check
+  filed for over 60 min, its first or again after its fix was done or its ask point answered, or whose fix was dropped
+  with none open; one that waits for an open fix, down a chain of fixes too, or for the person's answer is no case).
+  What a step in review waits for (`resultCheck.mjs reviewWaitOf`: its first check, its check again, the person's
+  answer, its fix B<n>, or its fix dropped) stands beside its title on the Backlog tab and in the work tool's `next`
+  and `list`; the repair rule `fix-dropped` gives the main chat one word for a dropped fix, 30 min after the drop:
+  close it or have it checked again. How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at

@@ -9,7 +9,7 @@ import { isFix, valueOf } from './item.mjs'
 import { migrateBacklog } from './migrate.mjs'
 import { stepWaitsForPartner } from './partnerAnswers.mjs'
 import { effortOf, modelOf } from './effort.mjs'
-import { checkedOf } from './resultCheck.mjs'
+import { checkedOf, reviewWaitOf } from './resultCheck.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
 import { readStore } from './store.mjs'
 
@@ -142,6 +142,15 @@ export function itemOfStep(work, key) {
     // step: and the model (sonnet when its refine gave none).
     effort: effortOf(item), model: modelOf(item), owner: valueOf(item, 'Owner'), state: valueOf(item, 'State'),
   }
+}
+
+/**
+ * B543: what a step in review waits for, in words for its line on the Backlog tab ("waits for its fix B<n>", "waits for
+ * its first check", ...), or null (not in review, or nothing to say). `key` as for `flowOfStep`.
+ */
+export function reviewWaitOfStep(work, key) {
+  const found = itemAt(work, key)
+  return found === null ? null : reviewWaitOf(found.item, work.items)?.text ?? null
 }
 
 /**

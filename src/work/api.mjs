@@ -21,7 +21,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { agreedPoints, answerReading, checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf } from './resultCheck.mjs'
+import { agreedPoints, answerReading, checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
@@ -269,7 +269,8 @@ function oneLine(item, items) {
   const waitOpen = waitIds(item).filter(isOpen)
   const waiting = words !== null ? `waiting: ${words}, until the main chat clears it`
     : waitOpen.length > 0 ? `waiting: ${valueOf(item, 'Waits for')}; ${waitOpen.map(id => `${id} is ${stateOf(items.get(id) ?? { head: new Map() }) ?? 'not in the store'}`).join(', ')}` : null
-  const waits = [open.length > 0 ? `after ${open.join(', ')}` : null, waiting].filter(Boolean)
+  // B543: a step in review says what it waits for (its check, its fix B<n>).
+  const waits = [open.length > 0 ? `after ${open.join(', ')}` : null, waiting, reviewWaitOf(item, items)?.text ?? null].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
   const turns = missed > 0 ? `, missed ${missed} turn${missed === 1 ? '' : 's'}` : ''
   const fix = isFix(item) ? ', board fix' : ''
@@ -350,8 +351,10 @@ function list(w) {
   const rows = items.map(item => ({
     id: valueOf(item, 'Id'), kind: kindOf(item), state: stateOf(item), owner: valueOf(item, 'Owner'),
     title: valueOf(item, 'Title') ?? valueOf(item, 'Text'), since: valueOf(item, 'Since'),
+    // B543: what a step in review waits for, or null.
+    waits: kindOf(item) === 'step' ? reviewWaitOf(item, w.store.items)?.text ?? null : null,
   }))
-  const text = rows.map(row => [row.id, row.kind, row.state, row.owner ?? '-', row.title ?? ''].join(' · ')).join('\n')
+  const text = rows.map(row => [row.id, row.kind, row.waits === null ? row.state : `${row.state} (${row.waits})`, row.owner ?? '-', row.title ?? ''].join(' · ')).join('\n')
   return { ok: true, result: { text, items: rows, changed: false } }
 }
 

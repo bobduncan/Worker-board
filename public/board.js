@@ -13617,6 +13617,8 @@ function coordinateLine(step, state) {
   const title = el('span', 'step-title')
   if (step.isFix === true) title.append(fixChip(), ' ')
   title.append(step.title)
+  // B543: a step in review says what it waits for: its first check, its fix B<n>, the person's answer.
+  if (typeof step.reviewWait === 'string') title.append(' ', el('small', 'step-wait', `(${step.reviewWait})`))
   row.append(
     el('span', 'step-id', step.id ?? ''),
     el('span', `step-kind${step.asks === null ? ' is-none' : ''}`, step.asks === null ? '' : ASKS[step.asks] ?? ''),

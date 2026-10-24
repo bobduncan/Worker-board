@@ -24,7 +24,7 @@ import { stamp } from '../../work/migrate.mjs'
 import { waitIds } from '../../work/guards.mjs'
 import { PARTNER_AGAIN_MS, isRoutedToPartner, partnerAskWords } from '../../work/partnerAnswers.mjs'
 import { isHolding } from '../../work/pause.mjs'
-import { gitCheckPassed, needsResultCheck, resultCheckAtMs, resultCheckOf } from '../../work/resultCheck.mjs'
+import { gitCheckPassed, needsResultCheck, resultCheckAtMs, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
 
 const MIN = 60_000
@@ -373,6 +373,25 @@ function unchecked(view) {
 }
 
 /**
+ * B543 (the fix of X8: a step sat in review for 3 days after its fix was dropped, as nothing closes it then): a step in
+ * review whose check failed and whose fix was dropped, none other open or done, for 30 minutes: the main chat gets one
+ * word, close it or have it checked again; once per step and fix (the loop tells the main chat of a key once).
+ */
+function fixDropped(view) {
+  const { items = new Map(), now } = view
+  const { steps, isHeld } = factsOf(view)
+  if (isHeld) return []
+  return steps.filter(one => stateOf(one) === 'review').flatMap(item => {
+    const wait = reviewWaitOf(item, items)
+    if (wait?.kind !== 'dropped' || !(now - wait.since >= UNCHECKED_MS)) return []
+    const id = idOf(item)
+    const text = `${id} waits in review, but ${wait.text}`
+    return [finding('fix-dropped', `fix-dropped ${id} ${wait.fix ?? 'none'}`, id, text,
+      { do: 'send', text: `${text}: close it (work drop ${id}, or the person marks it done) or have it checked again (work report ${id})` })]
+  })
+}
+
+/**
  * Worktree clean-up: the findings of the check `worktrees` from what worktrees.mjs `findLeftovers` found: one the board
  * may remove (`{ do: 'clean', leftover }`) or one it only lists (`{ do: 'list' }`), each with its path and what it is.
  */
@@ -407,6 +426,7 @@ export const REPAIR_RULES = [
   { id: 'helper', kind: 'repair', says: 'the partner\'s helper not running while refines or result checks wait', check: helperIdle },
   { id: 'partner-ask', kind: 'repair', says: 'an ask routed to the partner left unanswered', check: partnerAsk },
   { id: 'unchecked', kind: 'repair', says: 'a reported step left without its result check, or with its ask point answered and no check filed again', check: unchecked },
+  { id: 'fix-dropped', kind: 'repair', says: 'a step in review whose fix was dropped, which nothing closes', check: fixDropped },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
 
