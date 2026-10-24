@@ -1528,6 +1528,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     ...pauseFacts({
       pause: pauseRecord, items: raw.work.items, lanes: [...chats.filter(lane => !lane.isLeftover), ...[advisorCard, helperLane].filter(one => one !== null)], prefix, now,
       pending: sent.filter(message => message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_SHOWN_MS),
+      held: sent.filter(message => message.isHeld === true),
     }),
     // `hasActed`: the main chat ran a turn since the pause's last change, or runs one now (the review of Pause 2: once its
     // process runs while resuming and it has not, the board types "resume" into it).
