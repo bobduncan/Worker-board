@@ -3075,7 +3075,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   its turns (`turn-ended`) and `pull`, as every chat's Workers mod does.
 - Tests: `test/supervisor/` (boundary, component, selfCheck, watch, incidents, page), `test/outOfSync.test.mjs`.
 
-## The supervisor, part 2 (2026-10-24): the sweep
+## The supervisor, part 2 (2026-10-24): the sweep and the hand-over
 
 Part 2 (T7.3) of the supervisor (spec and plan as part 1's): the AI for the gaps the code rules leave, at as few tokens as
 it can. The person: "It just needs to observe, periodically, not consume a lot of tokens."
@@ -3130,8 +3130,30 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
 - **The Workers mod's version** (0.16.0): every call to the board carries `X-Workers-Mod` (`board.ts MOD_VERSION`, the
   same as plugin.json, a test checks it); the server keeps it per chat (`noteMod`), which makes the watch rule `old-mod`
   live and lets Check now say that the supervisor's chat runs a mod too old to sweep. A mod older than 0.16.0 sends none.
-- Tests: `test/supervisor/health.test.mjs`, `test/supervisor/sweep.test.mjs`; the mod's `chatlist.test.ts` (health and
-  incident forwarded, the supervisor cleared without a log, the version header), `chats.test.ts`, `board.test.ts`.
+- **The hand-over to the Advisor** (Task 7, `index.mjs tellOwed`, after every run of the rules and at the end of each
+  sweep's turn): each incident that opened or came back gets, from the store (so also one the sweep filed, and after a
+  restart), first the person's line (part 1), then, once that line is filed, one board word to the partner through
+  the outbox (`tell`, as every board word: one to a partner that does not run waits there and the main chat is asked to
+  start it): `incident: X<n> <title>`, `State:` (new, or came back after its fix), `Count:`, `Source:`, `Subject:`,
+  `Evidence:`, `Rule wanted:` (a sweep's) and `Your job: <board>/roles/partner.md, "Incidents"` (`say.mjs
+  incidentWords`, typed with the board's mark, as `check step`). The incident is then "with the advisor" (`work
+  incident-told`, the board's alone). Review Focus 2: once per new or returning incident; a count that grows gives
+  nothing; a word in the outbox about it since it got its state counts as sent, so a failed state change is only tried
+  again; a word that could not go is tried at the next run (the loop "incidents" says so). Without a partner on the
+  board the incident stays open, the person told.
+- **The partner** (`roles/partner.md`, "Incidents"): a small tweak (new, one place, a clear cause) or a structural fix
+  (came back, Count 2 or more after a fix, or several parts: it starts with a deeper look); the fix step refined with
+  `work new` ("Fix of X<n>: ...", `priority` fix, so it goes first to its worker; opus · high for a structural fix),
+  a part that adds a supervisor rule where it can, then `work incident-fix X<n>` (the Workers mod 0.16.0 forwards it,
+  with `fix`). The main chat queues it as any board fix (`roles/main.md`). When the Refiner exists (T6.4) this moves
+  there.
+- Tests: `test/supervisor/health.test.mjs`, `test/supervisor/sweep.test.mjs`, `test/supervisor/handover.test.mjs`; the
+  mod's `chatlist.test.ts` (health, incident and incident-fix forwarded, the supervisor cleared without a log, the
+  version header), `chats.test.ts`, `board.test.ts`.
+- **Set up after the merge** (not in the code): the Workers mod 0.16.0 installed, a chat started by the main chat and
+  titled with the list's prefix and the name the list gives it (`"supervisor": "Supervisor"` in
+  `.claude/chats/list.json`), on Sonnet · low; it joins the list by its title. Until then the rules run as before and
+  Check now says why no sweep ran.
 
 ## Clear after each step (2026-10-23)
 

@@ -50,14 +50,14 @@ function board({ working = true, pause = null, limits = {}, chat = { named: 'Wat
     loops: { run: async (_name, fn) => fn(), failed: () => {} },
     settings: every === undefined ? {} : { supervisorSweepMinutes: every },
     timers: { setInterval: (fn, ms) => intervals.push({ fn, ms }), clearInterval: () => {} },
+    tell: async words => {
+      const message = { id: `w${outbox.length + 1}`, at: now, ...words, state: 'waiting' }
+      outbox.push(message)
+      told.push(message)
+      return { ok: true, started: chat.card?.isRunning === false, copied: false }
+    },
     sweep: {
       chat: async () => chat,
-      tell: async words => {
-        const message = { id: `w${outbox.length + 1}`, at: now, ...words, state: 'waiting' }
-        outbox.push(message)
-        told.push(message)
-        return { ok: true, started: chat.card?.isRunning === false, copied: false }
-      },
       job: 'C:/board/roles/supervisor.md',
       tokens: async ({ session, from }) => (session === 'cli-watcher' && from >= START ? { total: 31_200, input: 400, cacheWrite: 2_800, cacheRead: 27_000, output: 1_000 } : null),
       memory: { load: async () => memory.value, save: async value => { memory.value = JSON.parse(JSON.stringify(value)) } },

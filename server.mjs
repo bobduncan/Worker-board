@@ -1971,6 +1971,19 @@ async function main(args) {
         },
         // The Workers mod installed, and the version each chat's mod said with its last call (Part 2: since 0.16.0)
         mods: async () => ({ installed: (await modNow())?.installed ?? null, chats: Object.fromEntries([...modOf].filter(([, one]) => typeof one.version === 'string').map(([name, one]) => [name, one.version])) }),
+        // The supervisor's Part 2: a board word into the outbox, as every board word goes (the sweep's word to the
+        // supervisor's chat, an incident's word to the partner); the main chat is asked to start a chat that does not run.
+        tell: async words => {
+          const state = await readState()
+          const isCopied = state.bridge?.isMissing === true
+          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
+          await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
+          const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
+          if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
+          readState.reset()
+          return { ok: true, id: message.id, started: start !== null, copied: isCopied }
+        },
+        partnerJob: join(HERE, 'roles', 'partner.md'),
         // The supervisor's Part 2: the sweep of the supervisor's chat (the list of chats' "supervisor").
         sweep: {
           chat: async () => {
@@ -1981,17 +1994,6 @@ async function main(args) {
               named: state.supervisorName ?? null, title: `${state.chatPrefix ?? ''}${card?.name ?? state.supervisorName ?? ''}`, card,
               withoutMod: state.bridge?.isMissing === true, mod: mod === undefined ? undefined : mod.version,
             }
-          },
-          // A board word into the outbox, as every board word goes; the main chat is asked to start a chat that does not run.
-          tell: async words => {
-            const state = await readState()
-            const isCopied = state.bridge?.isMissing === true
-            const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
-            await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
-            const start = isCopied ? null : wakeFor(message, state, store.outbox(), clock(), config.maxMessageChars)
-            if (start !== null) await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...start, state: 'waiting' })
-            readState.reset()
-            return { ok: true, id: message.id, started: start !== null, copied: isCopied }
           },
           job: join(HERE, 'roles', 'supervisor.md'),
           // What a sweep's turn cost: the supervisor chat's transcript of that turn (its old one stays after the clear).

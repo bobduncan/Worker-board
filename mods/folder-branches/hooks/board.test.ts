@@ -109,6 +109,11 @@ describe('the supervisor: its chat reads the health summary and files incidents 
     expect(WORK_ACTIONS.includes('incident')).toBe(true)
     for (const field of ['title', 'subject', 'evidence', 'rule', 'key']) expect(WORK_FIELDS.includes(field)).toBe(true)
   })
+
+  test('incident-fix is an action of the tool, with the incident\'s id and the step that fixes it', () => {
+    expect(WORK_ACTIONS.includes('incident-fix')).toBe(true)
+    for (const field of ['id', 'fix']) expect(WORK_FIELDS.includes(field)).toBe(true)
+  })
 })
 
 describe("B313: the main chat moves a renamed chat's work with the work tool", () => {

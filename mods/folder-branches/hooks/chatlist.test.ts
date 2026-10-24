@@ -1318,6 +1318,11 @@ describe('B297: the work tool asks the worker board', () => {
     // Both are the tool's actions, and its description says what they are for.
     expect(w.descriptions.work).toContain('"health": the supervisor chat reads the board\'s health summary')
     expect(w.descriptions.work).toContain('"incident" ("title", "subject", "evidence", "rule", "key")')
+    // The partner names the step that fixes an incident.
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'X4: fix B490; the board marks it fixed once B490 is done.' }) }
+    await $.tool.call({ tool: WORK, action: 'incident-fix', id: 'X4', fix: 'B490' } as never)
+    expect(JSON.parse(w.worked[2] ?? '{}')).toEqual({ action: 'incident-fix', id: 'X4', fix: 'B490', chat: 'Watcher', session: 'watcher' })
+    expect(w.descriptions.work).toContain('"incident-fix" ("id" X<n>, "fix" B<n>)')
   })
 
   test('Fix first: new and queue carry priority fix to the board', async ($, on) => {

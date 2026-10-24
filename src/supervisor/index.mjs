@@ -14,7 +14,7 @@ import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
 import { SWEEP_MOD, sweepRunner, tokensOfTurn } from './sweep.mjs'
-import { sweepWords } from '../say.mjs'
+import { incidentWords, sweepWords } from '../say.mjs'
 import { isHolding } from '../work/pause.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
@@ -34,6 +34,11 @@ const MIN = 60_000
 /** The states of a step that is under way: work runs while one is. */
 const UNDER_WAY = ['taken', 'in progress']
 
+/** What the loop "incidents" could not do, as its error: the first of them and how many. */
+function throwFailed(failed) {
+  if (failed.length > 0) throw new Error(`${failed.length} not filed (${failed[0]})`)
+}
+
 /** Every rule of the supervisor, as the page names them: `{ id, kind, says }` (the demo's section draws them too). */
 export const SUPERVISOR_RULES = [...REPAIR_RULES, ...WATCH_RULES].map(({ id, kind, says }) => ({ id, kind, says }))
 
@@ -47,7 +52,9 @@ const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id
  * `run(name, fn)`, `failed(name, error)`), `closing()` (true while the board ends), `settings` (config.json: its
  * `supervisor` thresholds), `timers` (`setInterval`, `clearInterval`; the global ones unless given), and for the watch
  * rules `memory` (`load()`, `save(value)`: the supervisor's own file) and `mods()` (the Workers mod installed and per
- * chat); Part 2: `sweep` (see `sweepOver`; none: no sweep) and `settings.supervisorSweepMinutes`.
+ * chat); Part 2: `tell(message)` (a board word into the outbox, as every board word goes: `{ ok, started, copied }`,
+ * `started` when the main chat was asked to start the chat), `partnerJob` (roles/partner.md, for the incident's word to
+ * the partner), `sweep` (see `sweepOver`; none, or no `tell`: no sweep) and `settings.supervisorSweepMinutes`.
  * Answers `{ start(), run({ asked, subject }), checkNow({ subject }), heard(call), health(), view(now), stop() }`: `start`
  * runs the list every SYNC_EVERY_MS while this process holds the project's loop, and looks every minute whether a sweep
  * is due; `run` runs the list at once and answers today's `{ at, asked, rows, fine }`, or null when another board process
@@ -61,11 +68,11 @@ const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id
  * work API as the board), and `incidents` is what the store holds of them (incidents.mjs `incidentsOf`).
  */
 export function createSupervisor(ports) {
-  const { owns = async () => true, loops, closing = () => false, settings = {}, timers = globalThis, sweep: sweepPorts = null, ...runnerPorts } = ports
+  const { owns = async () => true, loops, closing = () => false, settings = {}, timers = globalThis, sweep: sweepPorts = null, tell = null, partnerJob = 'roles/partner.md', ...runnerPorts } = ports
   const runner = syncRunner({ ...runnerPorts, settings: settings.supervisor ?? {} }, REPAIR_RULES, WATCH_RULES)
   let timer = null
   let sweepTimer = null
-  const sweeper = sweepPorts === null ? null : sweepOver(sweepPorts, { ports: runnerPorts, every: sweepEvery(settings) })
+  const sweeper = sweepPorts === null || tell === null ? null : sweepOver(sweepPorts, { ports: runnerPorts, every: sweepEvery(settings), tell })
   // Task 3: the incidents as the store holds them, read after each run (and once at the start).
   let incidents = []
   const readIncidents = async () => {
@@ -84,16 +91,48 @@ export function createSupervisor(ports) {
     if (answer === null || answer === undefined) return answer
     await loops.run('incidents', async () => {
       const done = await recordFindings(answer.findings ?? [], { work: runnerPorts.apply, now: answer.at })
-      const items = await readIncidents()
-      const told = []
-      for (const incident of linesOwed(items, incidents)) {
-        const sent = await runnerPorts.apply({ action: 'note', to: 'you', text: [personWords(incident, incident.state === 'came back')], of: incident.id, via: 'supervisor' })
-        if (sent?.ok !== true) told.push(`${incident.id}: ${sent?.why ?? 'no answer'}`)
-      }
-      const failed = [...done.failed.map(one => `${one.key}: ${one.why}`), ...told.map(one => `the line to you of ${one}`)]
-      if (failed.length > 0) throw new Error(`${failed.length} not filed (${failed[0]})`)
+      throwFailed([...done.failed.map(one => `${one.key}: ${one.why}`), ...await tellOwed(await readIncidents())])
     })
     return answer
+  }
+  /**
+   * Tasks 4 and 7: what each incident that opened or came back is owed, from the store (also one the sweep filed, and
+   * after a restart): the person's line first (a note of the board's, Via supervisor), then, once that line is filed,
+   * the partner's word through the outbox (`tell`, say.mjs `incidentWords`; Review Focus 2: once per new or returning
+   * incident, never for one that only counted), and the incident is "with the advisor" (`incident-told`). A word in the
+   * outbox about it since it got its state counts as sent, so a state change that failed is only tried again. Without a
+   * partner on the board the incident stays open, its line told. Answers what could not be done, one line each.
+   */
+  const tellOwed = async items => {
+    const failed = []
+    const owed = linesOwed(items, incidents)
+    const lined = new Set()
+    for (const incident of owed) {
+      const sent = await runnerPorts.apply({ action: 'note', to: 'you', text: [personWords(incident, incident.state === 'came back')], of: incident.id, via: 'supervisor' })
+      if (sent?.ok === true) lined.add(incident.id)
+      else failed.push(`the line to you of ${incident.id}: ${sent?.why ?? 'no answer'}`)
+    }
+    const partner = tell === null ? null : (await runnerPorts.state()).advisor?.name ?? null
+    if (partner === null) return failed
+    const lineOwed = new Set(owed.map(one => one.id))
+    const ready = incidents.filter(one => (one.state === 'open' || one.state === 'came back') && (!lineOwed.has(one.id) || lined.has(one.id)))
+    let moved = false
+    for (const incident of ready) {
+      const isSent = runnerPorts.outbox().some(message => message.command === 'incident' && message.about === incident.id && message.to === partner
+        && message.at >= (Number.isFinite(incident.since) ? incident.since : -Infinity) && message.state !== 'failed')
+      if (!isSent) {
+        const done = await tell(incidentWords(partner, incident, partnerJob)).catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
+        if (done?.ok !== true) {
+          failed.push(`the word to ${partner} of ${incident.id}: ${done?.why ?? 'no answer'}`)
+          continue
+        }
+      }
+      const handed = await runnerPorts.apply({ action: 'incident-told', id: incident.id, to: partner })
+      if (handed?.ok === true) moved = true
+      else failed.push(`${incident.id} with the advisor: ${handed?.why ?? 'no answer'}`)
+    }
+    if (moved) await readIncidents()
+    return failed
   }
   return {
     start() {
@@ -108,10 +147,6 @@ export function createSupervisor(ports) {
       if (!mine) return null
       return afterRun(await runner.run({ asked, subject }).catch(error => { loops.failed('sync', error); return null }))
     },
-    /**
-     * The supervisor's Task 5: the board's health summary (health.mjs) for the supervisor chat's sweep (`work health`),
-     * from a view built now: the board's state, the store, the outbox and the repairs of the day in its memory.
-     */
     /**
      * Part 2, "Check now" (Review Focus 4): the rules at once (`run`, asked), and a sweep at once, or the plain reason none
      * runs: `{ run, sweep: { started, why, note } }`. Another board process of the project runs neither here.
@@ -129,9 +164,14 @@ export function createSupervisor(ports) {
      * its turn's end, for the sweep that runs. Its tokens are read a moment after its turn ended (the next tick).
      */
     async heard(call) {
-      if (sweeper === null) return
-      await loops.run('sweep', () => sweeper.heard({ ...call, at: runnerPorts.now() }))
+      if (sweeper !== null) await loops.run('sweep', () => sweeper.heard({ ...call, at: runnerPorts.now() }))
+      // Task 7: what the sweep filed reaches the person and the partner now, not at the next run of the rules.
+      if (call.action === 'turn-ended') await loops.run('incidents', async () => throwFailed(await tellOwed(await readIncidents())))
     },
+    /**
+     * The supervisor's Task 5: the board's health summary (health.mjs) for the supervisor chat's sweep (`work health`),
+     * from a view built now: the board's state, the store, the outbox and the repairs of the day in its memory.
+     */
     async health() {
       const now = runnerPorts.now()
       const kept = typeof runnerPorts.memory?.load === 'function' ? await runnerPorts.memory.load() : null
@@ -159,12 +199,11 @@ const sweepEvery = settings => (Number.isFinite(settings.supervisorSweepMinutes)
 
 /**
  * Part 2: the sweep's runner (sweep.mjs) over the board. `sweep` ports: `chat()` how the board sees the supervisor's chat
- * (`{ named, title, card, withoutMod, mod }`, sweep.mjs `whyNoSweep`), `tell(message)` a board word into the outbox, as
- * every board word goes (`{ ok, started, copied }`: `started` when the main chat was asked to start the chat), `job` the
- * supervisor's job text (roles/supervisor.md), `tokens({ session, from })` what the turn cost, `memory` its file. Work
- * runs while a chat of the board works or a step is taken or in progress (Review Focus 3).
+ * (`{ named, title, card, withoutMod, mod }`, sweep.mjs `whyNoSweep`), `job` the supervisor's job text
+ * (roles/supervisor.md), `tokens({ session, from })` what the turn cost, `memory` its file; `tell` the supervisor's port
+ * for a board word. Work runs while a chat of the board works or a step is taken or in progress (Review Focus 3).
  */
-function sweepOver(sweep, { ports, every }) {
+function sweepOver(sweep, { ports, every, tell }) {
   const chats = state => [...(state.chats ?? []).filter(one => !one.isLeftover), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])]
   return sweepRunner({
     every,
@@ -192,7 +231,7 @@ function sweepOver(sweep, { ports, every }) {
     wake: async ({ subject }) => {
       const card = (await sweep.chat())?.card ?? null
       if (card === null) return { ok: false, why: 'its chat is not on the board' }
-      const told = await sweep.tell(sweepWords(card.name, { subject, job: sweep.job }))
+      const told = await tell(sweepWords(card.name, { subject, job: sweep.job }))
       if (told?.ok !== true) return { ok: false, why: told?.why ?? 'no answer' }
       const note = told.started === true ? 'its chat does not run: the main chat was asked to start it'
         : told.copied === true ? 'no Workers mod takes the board\'s words: the word waits to be pasted' : null

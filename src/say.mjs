@@ -662,6 +662,35 @@ export const sweepWords = (to, { subject = null, job }) => ({
   ].join('\n'),
 })
 
+/** One line of a chat's or the board's words, at most `max` characters. */
+const wordsLine = (value, max = 300) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
+
+/**
+ * The supervisor's Part 2 (Task 7, spec 2026-10-24, "To you and to the Advisor"): the board's word to the partner about an
+ * incident that opened or came back (`incident`, as supervisor/incidents.mjs `incidentsOf` gives it): its id and what
+ * was found, whether it is new or came back, its count, where it came from (a rule's id, or the sweep), what it is
+ * about, its evidence and the rule that could catch it; the partner decides a tweak or a structural fix and files the
+ * fix step (roles/partner.md, "Incidents"). It goes through the outbox like every board word, and waits there for a
+ * partner that does not run (the main chat is asked to start it, `wakeFor`).
+ */
+export function incidentWords(to, incident, job) {
+  const count = Number.isFinite(incident.count) && incident.count > 0 ? incident.count : 1
+  const isBack = incident.state === 'came back'
+  return {
+    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'incident', about: incident.id,
+    text: [
+      `incident: ${incident.id} ${wordsLine(incident.title, 200)}`,
+      `State: ${isBack ? `came back after its fix${incident.fix ? ` ${incident.fix}` : ''}` : 'new'}`,
+      `Count: ${count} (${count === 1 ? 'seen once' : `seen ${count} times`})`,
+      `Source: ${incident.source === 'sweep' ? 'sweep (the supervisor\'s chat)' : `the rule ${wordsLine(incident.source, 60)}`}`,
+      `Subject: ${wordsLine(incident.subject, 80) || 'the board'}`,
+      `Evidence: ${wordsLine(incident.evidence) || 'none given'}`,
+      ...(incident.ruleWanted ? [`Rule wanted: ${wordsLine(incident.ruleWanted)}`] : []),
+      `Your job: ${job}, "Incidents"`,
+    ].join('\n'),
+  }
+}
+
 export const answerWords = wake => ({
   to: wake.to, ask: `work:${wake.id}`, step: wake.id, title: String(wake.title ?? '').slice(0, 200), version: null, verdict: null, text: String(wake.text ?? ''),
 })
