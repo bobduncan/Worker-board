@@ -43,7 +43,7 @@ async function garden() {
     }
     const seen = { shown: { Lead: now, Digger: diggerSeen }, other: {} }
     const mods = { installed: '0.17.0', chats: { Lead: '0.17.0', ...(digger === null ? {} : { Digger: digger }) } }
-    return buildState(raw, { lines: [], outbox, runs: [], board: { startedAt: NOW - 60 * MIN, offSince: null }, seen, mods, now, config })
+    return buildState(raw, { lines: [], outbox, runs: [], board: { startedAt: NOW - 60 * MIN, offSince: null }, seen, modsLately: mods, now, config })
   }
   let n = 0
   const deliver = (state, outbox, now = NOW) => deliverWork({ state, dir, outbox, apply: body => server(body, now), now, maxChars: 2000, newId: () => `m${(n += 1)}` })

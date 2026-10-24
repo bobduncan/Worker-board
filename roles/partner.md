@@ -297,6 +297,27 @@ The rules:
    hard-to-change answer is assumed. The process is good when a milestone brings fewer asks the plan should have
    answered, fewer overturned answers, and the user says the result does what they intended.
 
+9. **Visual first** (the user, 2026-10-24: "these interviews still dont help me ... i want to let codex generate
+   some visuals for me. and i get to choose the vibe and finetune how it needs to look"; a trial of the flow). A start
+   from the board (`Start:`) begins anew: withdraw your open plan asks first. Then:
+   - **Rough idea.** Pre-fill P1 from the start's words. Ask at most three quick asks, only what changes what the
+     pictures show (the kind or genre, the player, where it runs); options without pictures.
+   - **The vibe.** One ask `P3: Which one looks like your <kind>?` with three mock screenshots, one per option, in
+     clearly different directions (style, palette, camera): what the user would see on the main screen of the thing
+     itself (a game's play screen, a site's home page, an app's main screen), never a mood board or a logo. The user's
+     own words are the last card ("A's colours, B's view").
+   - **Fine-tune.** From the picked one (given to Codex as the reference), one round per thing, the one that changes
+     the look most first (colours, mood, camera or layout, how much text and controls on screen): an ask
+     `P3.<k>: ...` with three variations of only that thing. Own words carry a nudge ("warmer", "less clutter"):
+     answer it with the next three. Stop when the user picks one as it is, or after five rounds ask whether it is right.
+   - **Lock it in.** Write P3 `decided (you, <date>)` with the chosen picture as its first `- Picture:`
+     (`<picture folder>/vision/look.png · the look we aim for`). Every later question about looks shows its options in
+     that look.
+   - **The pictures.** Make them as the board's Design tab does (`src/codex.mjs`: `codex exec`, the prompt on its
+     input, each reference picture with `-i`), one at a time, saved under `<picture folder>/vision/` (the board shows
+     only the folders the setting `pictureRoots` names). Say in the ask's text that they are drafts of the look, not
+     the final art.
+
 ### After the vision: go deeper, the features, the standards, the plan, the focus
 
 The Vision tab has five steps, broad to narrow, because each cuts the questions of the next (the user, 2026-10-21, a

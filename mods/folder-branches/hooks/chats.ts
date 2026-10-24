@@ -657,12 +657,25 @@ const TYPED_BY_PERSON: readonly string[] = ['composer', 'bridge', 'sdk']
 const FROM_BOARD = /\[I\d+\]\s*$|\((?:typed|answered) on the worker board\b/
 
 /**
+ * B1: the app's own notes, which it hands a chat as a prompt of the person's (a chat it started ended a turn, a card was
+ * started, a message from another chat): each a block of its tag, closed by it.
+ */
+const APP_BLOCK = /<(system-reminder|side-sessions-event|cross-session-message|task-notification|ci-monitor-event)\b[^>]*>[\s\S]*?<\/\1\s*>/g
+
+/** B1: a prompt's words without the app's own blocks: the person's words alone, empty when it held only the app's notes. */
+export function personsWords(text: string): string {
+  return text.replace(APP_BLOCK, '').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/**
  * B298: whether a prompt is filed on the worker board as the person's instruction: only what they typed themselves,
  * never what the board or another chat brought in (a board line carries its id already, also when pasted by hand),
- * and never a slash command.
+ * and never a slash command. B1: the app's own blocks are no words of the person's.
  */
 export function isFiled(text: unknown, origin: { kind?: string } | undefined): boolean {
-  return TYPED_BY_PERSON.includes(origin?.kind ?? '') && typeof text === 'string' && text.trim() !== '' && !text.trimStart().startsWith('/') && !FROM_BOARD.test(text)
+  if (!TYPED_BY_PERSON.includes(origin?.kind ?? '') || typeof text !== 'string') return false
+  const words = personsWords(text)
+  return words !== '' && !words.startsWith('/') && !FROM_BOARD.test(words)
 }
 
 /** B298: the open instructions as the board's answer gives them (`open`); null when the answer has none. */

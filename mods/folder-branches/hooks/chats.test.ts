@@ -4,7 +4,7 @@ import type { ChatFile, ChatTask } from '../types'
 import {
   LEFT_MAX_SIZE, LEFT_TEXT, STALE_MS, afterTurn, asksPerson, atTurnStart, cardGap, cardOld, chatLine, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName, foldersAbove, hasLeft,
   isAgentId, nameFromTitle, orderChats, parseChat, parseList, sessionOf, status, timeText, uniqueByName, withDone, withPlan,
-  withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, recordedLine,
+  withSend, withState, withStep, workCard, instructionsLine, isFiled, openFrom, personsWords, recordedLine,
   clearWhy, clearedStart, movedText, roleFrom, unfiledAsk, isOlderMod, modNote,
 } from './chats'
 
@@ -518,6 +518,23 @@ describe('B298: the instructions of the person, as the chat is told of them', ()
     for (const kind of ['bridge', 'sdk']) expect(isFiled('Make it blue', { kind })).toBe(true)
     expect(isFiled('Queue the menu [I18]', { kind: 'composer' })).toBe(false)
     expect(isFiled('x\n(typed on the worker board, 11:05)', { kind: 'composer' })).toBe(false)
+  })
+
+  test('B1: the app\'s own notes are no words of the person\'s: alone they file nothing, beside the person\'s words they are cut out', () => {
+    const reminder = '<system-reminder>\nThe session "Team - Units" you started (local_x) finished a turn.\n</system-reminder>'
+    const event = '<side-sessions-event>None of the sessions you started is working now.</side-sessions-event>'
+    const peer = '<cross-session-message from="local_y" name="Team - Main">\nNote from Team - Main: run work next.\n</cross-session-message>'
+    for (const only of [reminder, event, peer, `${reminder}\n${reminder}\n${event}`, `${reminder}\n${peer}`]) {
+      expect(isFiled(only, { kind: 'sdk' })).toBe(false)
+      expect(personsWords(only)).toBe('')
+    }
+    const mixed = `${reminder}\nMake the strip blue\n${peer}\nand queue the menu`
+    expect(isFiled(mixed, { kind: 'sdk' })).toBe(true)
+    expect(personsWords(mixed)).toBe('Make the strip blue\n\nand queue the menu')
+    expect(isFiled(`${reminder}\n/compact`, { kind: 'composer' })).toBe(false)
+    expect(isFiled(`${reminder}\nx\n(typed on the worker board, 11:05)`, { kind: 'composer' })).toBe(false)
+    // An unclosed tag, or one the person writes about, is their words.
+    expect(personsWords('What does <system-reminder> mean?')).toBe('What does <system-reminder> mean?')
   })
 
   test('the lines: new ones, turns, and several at once', () => {

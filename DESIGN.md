@@ -3095,7 +3095,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   What a step in review waits for (`resultCheck.mjs reviewWaitOf`: its first check, its check again, the person's
   answer, its fix B<n>, or its fix dropped) stands beside its title on the Backlog tab and in the work tool's `next`
   and `list`; the repair rule `fix-dropped` gives the main chat one word for a dropped fix, 30 min after the drop:
-  close it or have it checked again. How long a thing
+  close it or have it checked again. `not-cleared` (B547, the fix of X13 and X14: a worker whose last report is newer than its last clear and that took a new
+  step since, at once, or that stays so for over 10 min, `notClearedMinutes`; one finding per worker per report, with
+  the mod's why and the repair). How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at
@@ -3244,7 +3246,7 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
 - **A new mod between steps** (B570, the person's I95, 2026-10-24: "i dont want to restart all the chats manually"): an
   idle chat is restarted alone by archiving and unarchiving it in the app (its process ends; its next word starts it on
   the installed mod; nothing is spent until then). `src/work/modRollout.mjs` (pure, `rolloutPlan`) reads the version
-  each chat's mod said lately (`modsNow`, now also in `buildState`'s `mods`) against the installed one: a chat on an
+  each chat's mod said lately (`modsNow`, now also `buildState`'s `modsLately`) against the installed one: a chat on an
   older mod that is free, whose process runs (`isRunning` true, never on a guess) and that holds no step taken, in
   progress or waiting on you gets the word `restart for mod` (Chat, Session, From, To, Why; command `mod-restart`, a
   partner word so a partner that does not run is started) to its restarter: the main chat, or the partner for the main
@@ -3347,6 +3349,24 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   viewer, which shows a log larger than 1 MB by its last 2 MB under a line naming the whole file.
 - **Rollout** (the person's, once the mod is installed and the app started anew): `"afterStep": "clear"` and
   `"compactAbove": 150000` in the project's `list.json`.
+
+### The board keeps the account of clears (B547, 2026-10-24)
+
+On 2026-10-24 three reported steps ended in no clear: Workers 4 and 1 (an older mod, 18:22 and 18:23) left no
+turn-ended, no log and no reason on the board, and Worker 2 (19:10) was refused its log while its background work ran
+(HTTP 409); each took its next step on the old conversation. The mod decides the clear once, at the end of the
+reporting turn, and when that moment fails nothing tries again. So the board, which sees both ends, keeps the account
+(`src/clearOwed.mjs`): a worker whose last report (its own History line to review, or reported again) is newer than its
+last clear (its card's `cleared`, now kept as `lastCleared` whatever came after) owes a clear (`clearOwed` on its lane).
+While it does, for a Workers mod of 0.17.0 or newer (the version its last call said): the reconciler's and the pull's
+line of its next step waits (`reconciled.held`), its mod's take hands out no step line, its work tool's take is refused
+("Not yet: this chat is cleared after B12 first ..."), and once the chat is free, nothing it started runs in the
+background, the person does not pause and two minutes have passed since the report (the mod's own clear goes first),
+the take's answer names the clear (`clear: { step, reportedAt }`). The mod (0.17.0) runs it as the clear after a report,
+with all its guards, at most once a minute, and refused it only writes why on the card (no compaction). An older mod is
+held to nothing; the row says "not cleared after B12" with what happens next, and the watch rule `not-cleared` names it.
+The mod's newest word why it did not clear now shows as its own kind (`not-cleared`), no longer hidden behind an older
+clear.
 
 ## What it does not do
 
