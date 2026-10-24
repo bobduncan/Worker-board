@@ -162,6 +162,11 @@ test('a work line whose word was dropped as stopped is not sent a second time: t
     await takeAndDrop(store, state, 'w5', at(21, 42))
     assert.equal(await send(at(21, 43)), null)
     assert.equal(store.outbox().filter(one => one.command === 'work').length, 2, 'the line and the word it went again as')
+    // That word is what the line's "once more" goes by: once it fails for another reason, the line goes once more.
+    const woken = stateWith(lane('w5', at(21, 50)))
+    const [copy] = await takeFor({ dir: null, outbox: store, state: woken, now: at(21, 50), keep, chat: 'Worker 5' })
+    await store.settle('Worker 5', checkTyped({ chat: 'Worker 5', session: 'w5', typed: [], failed: [copy.id], why: { [copy.id]: 'the chat did not take it' } }, woken), at(21, 50))
+    assert.notEqual(await send(at(21, 51)), null)
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
