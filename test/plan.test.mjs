@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { planMove } from '../src/planMoves.mjs'
-import { PLAN_LATE_MS, optionCard, parsePlan, planState, withPlanWork } from '../src/plan.mjs'
+import { PLAN_LATE_MS, optionCard, parsePlan, planStarting, planState, withPlanWork } from '../src/plan.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { itemsOf, storeFromText } from '../src/work/read.mjs'
 
@@ -414,4 +414,20 @@ test('a goal or a standard "agreed" by the person reads as confirmed (the partne
   const page = '# P\n\n## Goals preset\n\n### M1 · A corner\n\n#### S1 · Benches\n\n- State: agreed (you, 2026-10-19; in the goal map)\n\n#### S2 · Lamps\n\n- State: proposed\n\n## Standards\n\n### K1 · Benches\n\n- State: agreed (you, 2026-10-21)\n'
   const { milestones, standards } = parsePlan(page)
   assert.deepEqual([milestones[0].goals.map(one => one.state), standards[0].state], [['confirmed', 'proposed'], 'confirmed'])
+})
+
+test("planStarting (2026-10-24, the user: \"i want a loader while im waiting for the partner\"): the empty tab's start word, until the page is there", () => {
+  const at = 5_000_000
+  const start = state => [{ command: 'plan-start', about: 'plan', at: at - 60_000, state: 'failed' }, { command: 'focus', about: 'G1', at, state: 'delivered' }, { command: 'plan-start', about: 'plan', at, state }]
+  // Nothing sent: no wait.
+  assert.equal(planStarting([], at), null)
+  assert.equal(planStarting(null, at), null)
+  // The newest start word, its state.
+  assert.deepEqual(planStarting(start('waiting'), at + 1000), { at, state: 'waiting' })
+  assert.deepEqual(planStarting(start('held'), at + 1000), { at, state: 'waiting' })
+  assert.deepEqual(planStarting(start('delivered'), at + 1000), { at, state: 'working' })
+  assert.deepEqual(planStarting(start('delivered'), at + PLAN_LATE_MS + 1), { at, state: 'late' })
+  assert.deepEqual(planStarting(start('expired'), at + 1000), { at, state: 'failed' })
+  // A day later the start shows again.
+  assert.equal(planStarting(start('delivered'), at + 25 * 60 * 60_000), null)
 })

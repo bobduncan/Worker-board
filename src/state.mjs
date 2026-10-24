@@ -23,7 +23,7 @@ import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
-import { planState, withPlanWork } from './plan.mjs'
+import { planStarting, planState, withPlanWork } from './plan.mjs'
 import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
 import { forYouRepeat } from './work/askRepeat.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
@@ -1573,6 +1573,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null)
+  const plan = planState(raw.productPlanText ?? null, itemsOf(raw.work), config.productPlan)
 
   return {
     readAt: now,
@@ -1753,7 +1754,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     gamePlan: config.gamePlan,
     // Plan (2026-10-19): the product plan's eight answers with their state, and the partner's open ask on each open
     // one, for the Plan part on top of the Focus page; null without the page.
-    plan: withPlanWork(planState(raw.productPlanText ?? null, itemsOf(raw.work), config.productPlan), sent, raw.productPlanAt ?? null, now),
+    plan: withPlanWork(plan, sent, raw.productPlanAt ?? null, now),
+    // 2026-10-24: the empty Vision tab's wait for the partner after Start; null once the plan's page is there.
+    planStart: plan === null ? planStarting(sent, now) : null,
     // B193: the project's own picture folder, where the board keeps the pictures it is given.
     pictures: config.pictureRoots[0],
     suggestions: backlog.activities
