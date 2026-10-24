@@ -189,6 +189,7 @@ export function pictureKind(bytes) {
  *   `work(body)`       B297: one action of the page on the work store (work/api.mjs), the same shape
  *   `bridgeWork(body)` B297: one action of a chat's work tool, the same shape; only with `bridgeKey`
  *   `cpu(body)`        B311: the level of "CPU for the chats" ({ level }), the same shape
+ *   `mayWrite()`       B529: null while this process may take the page's writes, else why not (refused with 409)
  */
 export function createBoard({
   token, getState, say, picture = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
@@ -207,7 +208,12 @@ export function createBoard({
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   project = '',
+  mayWrite = async () => null,
 }) {
+  // B529: what the page writes into the project or sends to the chats is taken only by the board process that runs the
+  // loops; another one on the project names where that one is. A game, a restart, the CPU level and a new project are
+  // this process's own.
+  const WRITES = new Set(['/api/say', '/api/design', '/api/backlog', '/api/goals', '/api/brainstorm', '/api/work', '/api/settings', '/api/design/reference', '/api/talk/picture'])
   async function handle(req, res) {
     const self = `${HOST}:${req.socket.localPort}`
     const { pathname, searchParams } = new URL(req.url, `http://${self}`)
@@ -264,6 +270,11 @@ export function createBoard({
         if (req.method !== 'POST') return refuse(res, 405, 'Only POST.')
         return maySend ? refuse(res, 415, 'Send a PNG, JPEG or WebP picture.') : refuse(res, 403, 'Only the board\'s own page may send.')
       }
+      const notHere = await mayWrite()
+      if (notHere !== null) {
+        req.resume()
+        return refuse(res, 409, notHere)
+      }
       const bytes = await readBytes(req, PICTURE_BYTES)
       if (bytes === null) return refuse(res, 413, 'A picture of at most 8 MB.')
       const kept = await (pathname === '/api/talk/picture' ? talkPicture : reference)(bytes)
@@ -284,6 +295,11 @@ export function createBoard({
       if (pathname === '/api/work' && isClosing()) {
         req.resume()
         return refuse(res, 503, 'The board restarts: try again in a moment.')
+      }
+      const notHere = WRITES.has(pathname) ? await mayWrite() : null
+      if (notHere !== null) {
+        req.resume()
+        return refuse(res, 409, notHere)
       }
       const body = await readBody(req)
       if (body === null) return refuse(res, 413, 'Too large.')
@@ -518,6 +534,15 @@ async function main(args) {
     onGained: () => gainedLoops(),
     onFailed: error => loops.failed('loop-lock', error),
   })
+  /** B529: the port of the board process that holds the lock, or null. */
+  const loopHolderPort = async () => {
+    try {
+      const port = JSON.parse(await readFile(LOOP_LOCK, 'utf8')).port
+      return Number.isInteger(port) ? port : null
+    } catch {
+      return null
+    }
+  }
   if (LOOP_LOCK !== null) {
     process.on('exit', () => {
       try {
@@ -1196,15 +1221,17 @@ async function main(args) {
   // B412: the answers of the chats' work calls, kept by their request id (see `requestKeeper`).
   const requests = requestKeeper({ file: isDemo ? null : join(HERE, 'data', 'work-requests.json'), clock })
   // Clear after each step: the logs of the conversations the Workers mod clears, written by the board (src/chatLogs.mjs).
-  // A log the board did not finish before it stopped is finished now.
+  // A log the board did not finish before it stopped is finished now; B529: by the board process that runs the loops
+  // only (at its start, below; or when it gains them), so two never write the same log.
   const chatLogs = isDemo || isShowOnly || config.project === '' ? null : chatLogKeeper({
     file: join(HERE, 'data', 'chat-logs.json'), project: config.project, transcripts: config.transcripts, clock,
     failed: job => console.error(`A chat log was given up: ${job.log} (${job.why ?? 'unknown'}).`),
   })
-  void chatLogs?.resume().catch(error => loops.failed('chat-logs', error))
   /** Clear after each step: the mod asks to keep the conversation before it clears a worker (`save-log`, `stepId`). */
   const saveLog = async (body, checked, state) => {
     if (chatLogs === null) return { ok: false, status: 503, why: 'This board keeps no chat logs.' }
+    // B529: the journal is written by the board process that runs the loops only
+    if (LOOP_LOCK !== null && !(await ownsLoops())) return { ok: false, status: 503, why: `Another board process of this project keeps the chat logs${await loopHolderPort().then(port => (port === null ? '' : ` (port ${port})`))}: try again in a moment.` }
     lastLogAt = clock()
     loggedAt.set(String(checked.chat), lastLogAt)
     const session = String(body.session ?? '').trim()
@@ -1297,6 +1324,13 @@ async function main(args) {
     },
     // B320: a new project, from the New project button (src/newProject.mjs); one at a time, and only on the board that
     // delivers, so it is made from the version of the board the person works with.
+    // B529: a board process that does not run the loops takes no write of its page: its words would wait in an outbox
+    // no chat takes from. It names the page of the one that runs them.
+    mayWrite: async () => {
+      if (LOOP_LOCK === null || await ownsLoops()) return null
+      const port = await loopHolderPort()
+      return `Another board process of this project runs the loops: do this on its page${port === null ? '' : `, http://${HOST}:${port}/`}.`
+    },
     newProject: async body => {
       if (isDemo) return { ok: false, status: 409, why: 'This is the demo: it makes no project.' }
       if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Make the project on the board that delivers: http://${HOST}:${homePort}/` }
@@ -1662,6 +1696,7 @@ async function main(args) {
   // B488: this process gains the loops when the one that ran them ended: it reads again what that one wrote (the
   // outbox and the notes of what was sent and seen), so it sends nothing twice and writes no old state over a new
   // one, and the mod finds it at once.
+  // B529: and the journal of the chat logs, whose open logs it finishes (a holder that died left them).
   gainedLoops = async () => {
     await store.reload?.()
     finishedSeen = await kept(FINISHED_FILE)
@@ -1670,11 +1705,18 @@ async function main(args) {
     taskTimes = await kept(TASK_TIMES_FILE) ?? taskTimes
     await spending.load()
     readState.reset()
+    if (chatLogs !== null) {
+      await chatLogs.reload()
+      void chatLogs.resume().catch(error => loops.failed('chat-logs', error))
+    }
     await claimBridge()
   }
   server.listen(config.port, HOST, async () => {
+    // B529: the loops' first owner finishes the open chat logs; one that gains the loops later does it then.
+    const owns = await ownsLoops()
+    if (owns) void chatLogs?.resume().catch(error => loops.failed('chat-logs', error))
     if (bridgeKey !== null && config.project !== '') {
-      if (await ownsLoops()) await claimBridge()
+      if (owns) await claimBridge()
       else console.error('Another board process of this project runs the loops (.claude/sync-loop.json): this one shows the page and reads.')
     }
     // B319: listening, it keeps its port and games' range for its project in the PC's list of boards.

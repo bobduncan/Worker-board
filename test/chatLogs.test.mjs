@@ -225,6 +225,35 @@ test('review 9: two calls at the board\'s start share one reading of the journal
   }
 })
 
+test('B529: a board process that gains the loops reads the journal again and finishes the log the holder left open', async () => {
+  const dir = await folder()
+  try {
+    const project = join(dir, 'project')
+    const transcripts = join(dir, 'transcripts')
+    await mkdir(transcripts, { recursive: true })
+    await writeFile(join(transcripts, 's1.jsonl'), `${transcriptLines().join('\n')}\n`)
+    const journal = join(dir, 'chat-logs.json')
+    const logs = join(project, 'logs')
+    // The process without the lock read the journal (its page's self-update looks at it) while it was empty ...
+    const other = chatLogKeeper({ file: journal, project, transcripts, clock: () => AT })
+    assert.deepEqual(await other.pending(), [])
+    // ... then the holder put a log in it and ended before it was written.
+    await writeFile(journal, JSON.stringify({ jobs: [{ id: 'open', chat: 'W', session: 's1', step: 'B3', at: AT, state: 'copy', source: join(transcripts, 's1.jsonl'), jsonl: join(logs, 'open.jsonl'), txt: join(logs, 'open.txt'), log: 'logs/open.txt' }], left: [{ session: 's1', chat: 'W', at: AT }] }))
+    await other.resume()
+    await other.idle()
+    await assert.rejects(stat(join(logs, 'open.txt')), 'without reading again, the old reading names no log')
+    await other.reload()
+    assert.deepEqual((await other.pending()).map(job => job.id), ['open'])
+    assert.deepEqual((await other.leftSessions()).map(one => one.session), ['s1'])
+    await other.resume()
+    await other.idle()
+    assert.match(await readFile(join(logs, 'open.txt'), 'utf8'), /W:\nThe knight is in\./)
+    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')), { jobs: [], left: [{ session: 's1', chat: 'W', at: AT }] })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('a line that is no JSON says so; the app\'s bookkeeping writes nothing', () => {
   const ctx = { chat: 'W', tools: new Map() }
   assert.match(entryText('{"type":"user"', ctx), /could not be read/)
