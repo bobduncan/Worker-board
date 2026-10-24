@@ -22,7 +22,7 @@ import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undon
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { answerReading, checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckAtMs, resultCheckOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
-import { kindsNamed, parseStandard, standardOf, standardWanted } from './standard.mjs'
+import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
@@ -1530,6 +1530,9 @@ async function make(call, w) {
   if (fromHow !== null && !fromHow.ok) return fromHow
   const named = fromHow === null || standard !== null ? [] : kindsNamed(`${title}\n${lines(body.text).join('\n')}`, w.kinds)
   if (named.length > 0) return refuse(409, standardWanted('This step', named))
+  // B451: "none" is refused for a step that names a look kind (what the player sees).
+  const looks = fromHow === null || standard === null ? [] : noneForLook(`${title}\n${lines(body.text).join('\n')}`, standard.line, w.kinds)
+  if (looks.length > 0) return refuse(409, standardNoneRefused('This step', looks))
   const read = lineFields(title)
   if (read.title !== title || read.isYou || read.owner !== null || read.branch !== null || read.asks !== null || read.id !== null) {
     return refuse(400, 'The title would not read back as written: leave out an id at its start, "Verify:" and the like, brackets at its end and @you.')
@@ -2130,6 +2133,9 @@ async function refined(call, w) {
   const standard = given?.line ?? standardOf(found.item)
   const named = standard === null ? kindsNamed(`${valueOf(found.item, 'Title') ?? ''}\n${(found.item.sections.get('Context') ?? []).join('\n')}`, w.kinds) : []
   if (named.length > 0) return refuse(409, standardWanted(id, named))
+  // B451: "none" is refused for a step that names a look kind (what the player sees).
+  const looks = standard === null ? [] : noneForLook(`${valueOf(found.item, 'Title') ?? ''}\n${(found.item.sections.get('Context') ?? []).join('\n')}`, standard, w.kinds)
+  if (looks.length > 0) return refuse(409, standardNoneRefused(id, looks))
   // B468: the effort given now, else the one the step had.
   const effort = parseEffort(body.effort)
   if (effort !== null && !effort.ok) return refuse(400, effort.why)

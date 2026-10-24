@@ -625,6 +625,11 @@ board's word, never the user's.
 5. File it: `work checked B<id>` with `evidence` (the picture's path in the project, or `none (<why>)`), `points`
    (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75") where there is one.
 
+A look point (what the player sees) is ticked against its reference picture, never "on substance" (B451): when the
+result differs from the reference, the point is a `fail` with the differences named, or an `ask` with the result's
+picture beside the reference for the user to judge; it is never a `pass`. B395's redraw check listed six differences
+from design B and still passed, the same minute the user answered "they dont look even close".
+
 Every point passes: the board closes the step. A failed point: the board makes the fix step itself ("Fix: <the failed
 points>", refined from them, queued for the same worker, the step's `Attempts` counted up), and the step waits in
 review until its fix is done and checked; check a fix as any step. A point that is the user's to judge: ask them under
@@ -709,6 +714,10 @@ the feedback. It reads as the finished description, not as a talk:
   end for a step that builds its kind's foundation (the guard lets only those in until the foundation is built). The board writes it as the
   block's `Standard:` line and keeps it for the next round. A step whose title or text names a kind by chance (a fix of
   the board that mentions a map) gets `none (<why>)`. Without one, `refined` is refused for a step that names a kind.
+  B451: a kind of the settings marked `look` is one the player sees (a unit, a map, a ground look, an effect, the
+  HUD, a screen). A step that names one changes what the player sees, so `none (<why>)` is refused for it: it always
+  carries a kind's standard with a reference and a target. B395 (crumbling tiles and vents, a new ground look) was
+  refined with `none (rules as data)`, and its look was never held against a picture.
   When your work tool has no field `standard` yet (a chat started before it came), give it as a line of `what` that
   starts with `Standard:`; the board takes it out of What we build.
 - **Model** (model per step; the user, 2026-10-23: "workers Sonnet by default, Opus only for steps the Advisor marks

@@ -62,3 +62,48 @@ test('the Focus page: each part shows its steps\' result checks, with the eviden
     { text: 'Checked by a helper: 1 of 1 points pass (B3)', isPass: true, picture: 'pictures/b3/evidence.png' },
   ])
 })
+
+// B504: a failed check follows its fix steps to the last one: quiet once that passed, red only while a fix is open or failed.
+const FAILED = ['Evidence: pictures/b2/evidence.png', '- pass: a lamp at every bench', '- fail: warm yellow light, never white']
+const PASSED = ['Evidence: pictures/b9/evidence.png', 'Score: 2 of 2', '- pass: a lamp at every bench', '- pass: warm yellow light']
+const fixOf = (id, of, state, checked = null) => step(id, state, checked, `Fix of: ${of}\n`)
+const chain = (...items) => {
+  const state = focusState(parseGoals(GOALS), items, [], '')
+  const [line] = plain(page.focusView(state, parseGoals(GOALS), { canWrite: true, whyNot: null })).run.parts[0].checked
+  return { data: state.parts[0].checked[0], line }
+}
+
+test('a failed check whose last fix passed is quiet: "fixed by", with the fix\'s own evidence', () => {
+  const { data, line } = chain(step('B2', 'done', FAILED), fixOf('B5', 'B2', 'done', PASSED))
+  assert.deepEqual(data.fix, { by: 'B5', passed: 2, total: 2, evidence: 'pictures/b9/evidence.png', isFixed: true, note: null })
+  assert.deepEqual(line, {
+    text: 'Checked by a helper: 1 of 2 points pass (B2)', isPass: true, picture: 'pictures/b2/evidence.png',
+    fix: { text: 'fixed by B5: 2 of 2', picture: 'pictures/b9/evidence.png' },
+  })
+})
+
+test('a fix that is still open keeps the check red and says what goes on', () => {
+  for (const [state, note] of [['review', 'its fix B5 is being checked'], ['queued', 'its fix B5 is waiting to start'], ['in progress', 'its fix B5 is being worked on']]) {
+    const { line } = chain(step('B2', 'review', FAILED), fixOf('B5', 'B2', state))
+    assert.equal(line.isPass, false)
+    assert.equal(line.fix.text, note)
+  }
+})
+
+test('a chain of several rounds is followed to its last fix', () => {
+  // B2 fixed by B5, whose own check failed and was fixed by B6, then B7
+  const failedToo = ['Evidence: pictures/b5/evidence.png', '- fail: the glow at dusk']
+  const done = [step('B2', 'done', FAILED), fixOf('B5', 'B2', 'done', failedToo), fixOf('B6', 'B5', 'done', failedToo)]
+  assert.equal(chain(...done, fixOf('B7', 'B6', 'done', PASSED)).line.fix.text, 'fixed by B7: 2 of 2')
+  assert.equal(chain(...done, fixOf('B7', 'B6', 'review')).line.fix.text, 'its fix B6 failed too, B7 is being checked')
+  assert.equal(chain(...done, fixOf('B7', 'B6', 'in progress')).line.fix.text, 'its fix B6 failed too, B7 fixes it')
+  assert.equal(chain(...done).line.fix.text, 'its fix B6 failed too')
+  assert.equal(chain(...done).line.isPass, false)
+})
+
+test('a dropped fix counts for nothing, and a check without a fix reads as before', () => {
+  assert.equal(chain(step('B2', 'review', FAILED), fixOf('B5', 'B2', 'dropped')).data.fix, undefined)
+  const { data, line } = chain(step('B2', 'review', FAILED))
+  assert.equal(data.fix, undefined)
+  assert.deepEqual(line, { text: 'Checked by a helper: 1 of 2 points pass (B2)', isPass: false, picture: 'pictures/b2/evidence.png' })
+})
