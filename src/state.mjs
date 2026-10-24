@@ -1325,7 +1325,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     if (step.after !== null) {
       const ids = [...new Set(step.after.match(/\bB\d+\b/g) ?? [])]
       const open = ids.filter(id => openIds.has(id))
-      if (open.length > 0) return { reason: 'after', steps: open }
+      // B542: the ones in review wait only for their check, and the line says so.
+      const checks = workOk ? open.filter(id => valueOf(raw.work.items.get(id) ?? { head: new Map() }, 'State') === 'review') : []
+      if (open.length > 0) return { reason: 'after', steps: open, ...(checks.length > 0 ? { checks } : {}) }
       if (ids.length === 0 || ids.some(id => !knownIds.has(id))) return { reason: 'after', words: step.after }
     }
     if (lane === null) return { reason: 'nobody' }

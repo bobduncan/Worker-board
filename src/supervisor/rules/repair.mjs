@@ -45,6 +45,8 @@ export const UNCHECKED_MS = 30 * MIN
 const HELPER_LOOK_MS = 6 * 60 * MIN
 /** B546: a refine or check the running partner has said or done nothing about this long waits for the helper. */
 export const PARTNER_QUIET_MS = 10 * MIN
+/** B542: a queued step its free owner waits on this long behind a step in review is named to the main chat. */
+export const REVIEW_WAIT_MS = 60 * MIN
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
@@ -107,6 +109,8 @@ function factsOf(view) {
 /**
  * A step blocked by one in review whose board check passed (its work is merged; only its result check is open), or by
  * one the store lacks. The review: in review with a check pending or failed is not merged: it holds.
+ * B542 (X7, X10: B522 still blocked by B509 hours after it was done, B506 in progress still waiting for B503): a
+ * blocker done or dropped is unblocked too, queued or in progress, and so is a `Waits for` whose every step is.
  */
 function blocked(view) {
   const { items = new Map() } = view
@@ -119,12 +123,21 @@ function blocked(view) {
       if (other === undefined) {
         const text = `${id} is blocked by ${on}, which the store does not hold`
         found.push(finding('blocked', `blocked ${id} ${on}`, id, text, { do: 'main', text: `${text}: unblock it or make ${on}` }))
+      } else if (CLOSED.includes(stateOf(other))) {
+        found.push(finding('blocked', `blocked ${id} ${on}`, id, `${id} waited on ${on}, which is ${stateOf(other)}`, { do: 'unblock', id, on }))
       } else if (isMergedAndChecked(other)) {
         found.push(finding('blocked', `blocked ${id} ${on}`, id, `${id} waited on ${on}, which is in review`, { do: 'unblock', id, on }))
       }
     }
+    // B542: a `Waits for` that names only steps done or dropped no longer holds: the board clears it.
+    const waits = waitIds(item)
+    if (waits.length > 0 && waits.every(one => /^B\d+$/.test(one) && CLOSED.includes(stateOf(items.get(one) ?? { head: new Map() })))) {
+      const on = waits[0]
+      found.push(finding('blocked', `blocked ${id} waits ${on}`, id, `${id} waited for ${waits.join(', ')}, ${waits.length === 1 ? `which is ${stateOf(items.get(on))}` : 'all done or dropped'}`, { do: 'unblock', id, on }))
+      continue
+    }
     // A `Waits for` is the main chat's or the person's to clear: the board says so.
-    for (const on of waitIds(item).filter(one => /^B\d+$/.test(one))) {
+    for (const on of waits.filter(one => /^B\d+$/.test(one))) {
       const other = items.get(on)
       if (other !== undefined && !isMergedAndChecked(other)) continue
       const what = other === undefined ? 'which the store does not hold' : 'in review'
@@ -157,6 +170,32 @@ function notTaken(view) {
       { do: 'main', text: `${lane.name} did not take ${id} after the board woke it again: look why` })
     // The supervisor: about the chat that did not take it (the same chat woken again and again is a repair that repeats).
     found.push(finding('not-taken', key, lane.name, text, fix))
+  }
+  return found
+}
+
+/**
+ * B542 (X7: B500 and B510 waited hours behind B502, in review with its check running, while their workers were free):
+ * a step queued REVIEW_WAIT_MS with its owner free that a step in review still blocks (its check not passed, so
+ * `blocked` leaves it): the main chat hears it once per pair, as a note naming both.
+ */
+function reviewWait(view) {
+  const { items = new Map(), now } = view
+  const { steps, laneOf, isHeld, holds } = factsOf(view)
+  const found = []
+  if (isHeld) return found
+  for (const item of steps.filter(one => stateOf(one) === 'queued')) {
+    const id = idOf(item)
+    const lane = laneOf(valueOf(item, 'Owner'))
+    if (lane === undefined || lane.isMain === true || lane.state !== 'free' || holds(lane.name)) continue
+    const since = Math.max(sinceMs(valueOf(item, 'Since')), Number.isFinite(lane.idle?.since) ? lane.idle.since : -Infinity)
+    if (!(now - since >= REVIEW_WAIT_MS)) continue
+    for (const on of [...new Set([...idsIn(valueOf(item, 'Blocked by')), ...waitIds(item).filter(one => /^B\d+$/.test(one))])]) {
+      const other = items.get(on)
+      if (other === undefined || stateOf(other) !== 'review' || isMergedAndChecked(other)) continue
+      const text = `${id} waits for the check of ${on}: queued ${minutes(now - since)} min while ${lane.name} is free`
+      found.push(finding('review-wait', `review-wait ${id} ${on}`, id, text, { do: 'send', text: `${text}; ${on} is in review: see that it is checked, or give ${lane.name} other work` }))
+    }
   }
   return found
 }
@@ -398,8 +437,9 @@ function worktrees(view) {
 
 /** Every repair rule of the board's self-check, in the order the answer shows them. */
 export const REPAIR_RULES = [
-  { id: 'blocked', kind: 'repair', says: 'a step blocked by one in review, or by one the store does not hold', check: blocked },
+  { id: 'blocked', kind: 'repair', says: 'a step blocked by one done, dropped or in review, or by one the store does not hold', check: blocked },
   { id: 'not-taken', kind: 'repair', says: 'a queued step its free owner was told of and did not take', check: notTaken },
+  { id: 'review-wait', kind: 'repair', says: 'a queued step its free owner waits on for an hour behind a step in review', check: reviewWait },
   { id: 'owner-gone', kind: 'repair', says: 'a step owned by a chat no longer in the list', check: ownerGone },
   { id: 'refine-drop', kind: 'repair', says: 'a yes to dropping a step in its refine, which only the main chat carries out', check: refineDrop },
   { id: 'limit-back', kind: 'repair', says: 'a worker paused for the limit after its time', check: limitBack },

@@ -2926,9 +2926,10 @@ stuck that day was found by the person. They are now one list in the board, each
 
 | Check | Found when | Fix (status) |
 | --- | --- | --- |
-| `blocked` | a step's `Blocked by` names one in review whose board check passed (merged, its result check open) | unblocked by the board (Fixed) |
+| `blocked` | a step's `Blocked by` names one in review whose board check passed (merged, its result check open), or (B542) one done or dropped, queued or in progress; or its `Waits for` names only steps done or dropped | unblocked by the board, the `Waits for` cleared, a History line naming the blocker (Fixed) |
 | | ... names one the store lacks, or its `Waits for` names one in review | the main chat (For Main) |
 | `not-taken` | a queued step whose free owner, holding nothing, got its line 10 min ago and did not take it | the line again (Woke); still queued 10 min on: For Main |
+| `review-wait` | (B542, X7) a step queued an hour, its owner free that long, behind one in review whose check has not passed | a note to the main chat naming both, once per pair (Sent); the step's line says "waits for the check of B<n>" |
 | `owner-gone` | a step queued for a chat the list has not shown for 30 min by the runner's own watch (not the partner, its helper or a leftover) | requeued to a free worker, a running one with the fewest queued first (Fixed); none free: For Main |
 | | ... taken or in progress for such a chat | For Main: its work may stand on a branch |
 | `refine-drop` | a yes to a refine question that drops the step (`Drop B<n> ...`), which the partner cannot do | a note to the main chat (Sent) |
@@ -2938,6 +2939,9 @@ stuck that day was found by the person. They are now one list in the board, each
 | `partner-ask` | an ask routed to the partner open 10 min with no line about it in that time (the partner was busy) | the partner woken, busy or not (Woke) |
 | `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
 
+- **At its take** (B542, X10): a step's `Blocked by` loses the steps done, dropped or in review, and a `Waits for` whose
+  every step is goes, each with a History line naming the blocker, so no step in progress still shows a wait. The
+  health summary names only what still holds a step, and dates a word of another day ("2026-10-15 18:13 round ...").
 - **When**: every 3 minutes (`SYNC_EVERY_MS`, loop `sync`), on a board that writes the store and is no copy beside the
   person's; and at once on **Out of sync?** (**Check now** since the supervisor, below; a worker's menu or the panel's
   head), before the board types `check sync`

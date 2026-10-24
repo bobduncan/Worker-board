@@ -85,6 +85,8 @@ test('each reason reads as one plain line', () => {
   assert.equal(said({ reason: 'after', steps: ['B110'] }), 'Not started: waits for B110')
   assert.equal(said({ reason: 'after', steps: ['B110', 'B55', 'B63'] }), 'Not started: waits for B110, B55 and B63')
   assert.equal(said({ reason: 'after', words: 'the art is agreed' }), 'Not started: after the art is agreed')
+  // B542: a step in review is waited on for its check.
+  assert.equal(said({ reason: 'after', steps: ['B110', 'B55'], checks: ['B55'] }), 'Not started: waits for B110 and the check of B55')
   assert.equal(said({ reason: 'busy', worker: 'Units', leftMs: 48 * MIN }), 'Not started: Units is busy, about 48 min left')
   assert.equal(said({ reason: 'busy', worker: 'Units', leftMs: null }), 'Not started: Units is busy')
   assert.equal(said({ reason: 'you', worker: 'Units' }), 'Not started: Units waits for you')

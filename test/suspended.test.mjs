@@ -7,6 +7,7 @@ import test from 'node:test'
 import { answer, assistant, fromChat, hitLimit, step, tool, toolResult, typed, usageResult } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from './withStore.mjs'
+import { storeFromText } from '../src/work/read.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -44,7 +45,7 @@ const toMain = (when, message) => [assistant(when, 'tool_use', [tool('SendMessag
 const paused = (until = ' until 23:40') => [...work, ...toMain(NOW - 11 * MIN, `Note from Game - Features: paused for the limit${until}.`), answer(NOW - 10 * MIN, 'I stop here.')]
 const stopped = [...work, hitLimit(NOW - 14 * MIN, 'You\'ve hit your session limit · resets 11:40pm (Europe/Berlin)')]
 
-function build({ tails = {}, plans = {}, usageText = null, apps = ['Main', 'Units', 'Features', 'Levels'], now = NOW, more = {} } = {}) {
+function build({ tails = {}, plans = {}, usageText = null, apps = ['Main', 'Units', 'Features', 'Levels'], now = NOW, more = {}, work = undefined } = {}) {
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: apps.map(name => app(name, more[name] ?? {})),
@@ -56,6 +57,7 @@ function build({ tails = {}, plans = {}, usageText = null, apps = ['Main', 'Unit
     askTexts: [],
     pictureLists: {},
     usageText,
+    ...(work === undefined ? {} : { work }),
   }
   return buildState(raw, { lines: [], outbox: [], runs: [], now, config })
 }
@@ -184,6 +186,13 @@ test('a condition that is not met comes before the worker: an open step by its i
   assert.deepEqual(why(state, 'Levels', 'B05'), { reason: 'after', words: 'the art is agreed' })
   // A step the backlog does not hold: the board cannot tell, and says the condition as it is written.
   assert.deepEqual(why(state, 'Features', 'B06'), { reason: 'after', words: 'B99' })
+})
+
+test('B542: a condition on a step in review says it waits for that step\'s check', () => {
+  const work = storeFromText(BACKLOG, { now: NOW - 60 * MIN })
+  work.items.get('B02').head.set('State', 'review')
+  const state = build({ tails: { Units: tail(busy) }, work })
+  assert.deepEqual(why(state, 'Units', 'B04'), { reason: 'after', steps: ['B02'], checks: ['B02'] })
 })
 
 test('a suspended worker and a full limit come before everything else, also for a step that names no worker here', () => {
