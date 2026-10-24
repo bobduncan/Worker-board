@@ -71,7 +71,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, SYNC_EVERY_MS, mayRunLoop, readLoopLock, syncRunner } from './src/work/sync.mjs'
+import { REFUSED_MS, SYNC_EVERY_MS, loopOwner, syncRunner } from './src/work/sync.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
 import { storeKeeper } from './src/work/read.mjs'
@@ -1774,23 +1774,24 @@ async function main(args) {
       })
       // B482: one loop per project: a second board process on it (another --port) leaves the list to the first
       const LOOP_LOCK = join(config.project, '.claude', 'sync-loop.json')
-      const ownLoop = async () => {
-        const read = await readLoopLock(() => readFile(LOOP_LOCK, 'utf8'))
-        // the review: a lock whose process is gone (a board killed without its exit) is taken over at once
-        const alive = pid => {
+      const ownLoop = loopOwner({
+        read: () => readFile(LOOP_LOCK, 'utf8'),
+        write: async text => {
+          await mkdir(dirname(LOOP_LOCK), { recursive: true })
+          await writeAtomic(LOOP_LOCK, text)
+        },
+        alive: pid => {
           try {
             process.kill(pid, 0)
             return true
           } catch (error) {
             return error?.code === 'EPERM'
           }
-        }
-        const lock = read !== null && Number.isInteger(read.pid) && read.pid !== process.pid && !alive(read.pid) ? null : read
-        if (!mayRunLoop(lock, process.pid, clock())) return false
-        await mkdir(dirname(LOOP_LOCK), { recursive: true })
-        await writeAtomic(LOOP_LOCK, JSON.stringify({ pid: process.pid, port: config.port, at: clock() }))
-        return true
-      }
+        },
+        pid: process.pid,
+        port: config.port,
+        now: clock,
+      })
       syncOwned = ownLoop
       process.on('exit', () => {
         try {

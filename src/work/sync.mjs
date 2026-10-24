@@ -430,3 +430,18 @@ export function syncRunner(ports) {
     shown: now => (shownRun !== null && now - shownRun.at < SYNC_SHOWN_MS ? shownRun : null),
   }
 }
+
+/**
+ * B489: the loop's own check, as the server runs it before every list: `read` and `write` (the lock file's text, in and
+ * out), `alive(pid)`. Gives true when this process (`pid`) holds the lock after it, with the lock written then.
+ */
+export function loopOwner({ read, write, alive, pid, port, now }) {
+  return async () => {
+    const held = await readLoopLock(read)
+    // a lock whose process is gone (a board killed without its exit) is taken over at once
+    const lock = held !== null && Number.isInteger(held.pid) && held.pid !== pid && !alive(held.pid) ? null : held
+    if (!mayRunLoop(lock, pid, now())) return false
+    await write(JSON.stringify({ pid, port, at: now() }))
+    return true
+  }
+}

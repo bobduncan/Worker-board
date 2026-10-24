@@ -14,7 +14,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, mayRunLoop, readLoopLock, syncRunner } from '../../src/work/sync.mjs'
+import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/work/sync.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
@@ -423,4 +423,37 @@ test('B487: a lock file cut off mid-write is taken over like a dead one; an unre
   await assert.rejects(readLoopLock(() => Promise.reject(Object.assign(new Error('denied'), { code: 'EACCES' }))), /denied/)
   // and a torn lock lets this process run the list
   assert.equal(mayRunLoop(await readLoopLock(async () => '{"pid":8'), 7, NOW), true)
+})
+
+test('B489: with a torn lock file two board processes run the list once between them, and nothing is told twice', async () => {
+  let file = '{"pid":8,"po'
+  let clock = NOW
+  const applied = []
+  let stored = { noted: [], seen: {} }
+  let world = items(step('B3', 'queued', { Owner: 'Ghost' }))
+  const runner = syncRunner({
+    state: async () => ({ chats: [LEAD, lane('Painter')], chatPrefix: '', limits: {}, pause: null }),
+    items: async () => world, outbox: () => [], refused: () => [],
+    apply: async body => (applied.push(body), world = items(step('B3', 'queued', { Owner: body.for })), { ok: true }), wake: async () => ({ id: 'w' }),
+    noted: { load: async () => JSON.parse(JSON.stringify(stored)), save: async state => { stored = JSON.parse(JSON.stringify(state)) } },
+    now: () => clock,
+  })
+  const board = (pid, port) => loopOwner({ read: async () => file, write: async text => { file = text }, alive: () => true, pid, port, now: () => clock })
+  const first = board(7, 4310)
+  const second = board(8, 4311)
+  const tick = async () => {
+    const ran = []
+    for (const [name, own] of [['first', first], ['second', second]]) if (await own()) { ran.push(name); await runner.run() }
+    return ran
+  }
+  await runner.run()
+  applied.length = 0
+  clock += OWNER_GONE_MS
+  assert.deepEqual(await tick(), ['first'], 'the torn lock is taken by the first; the second finds it held')
+  assert.equal(JSON.parse(file).pid, 7)
+  assert.deepEqual(applied.map(one => [one.action, one.id]), [['requeue', 'B3']], 'the list ran once')
+  clock += MIN
+  assert.deepEqual(await tick(), ['first'])
+  assert.equal(applied.filter(one => one.action === 'requeue').length, 1, 'no repeat fix, no repeat note')
+  assert.equal(applied.filter(one => one.action === 'note' || one.wake !== undefined).length, 0)
 })
