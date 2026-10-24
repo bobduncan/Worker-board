@@ -7,7 +7,7 @@ import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'n
 
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
-import { evaluateWords, goalAttempts, needsEvaluation } from './goalGuard.mjs'
+import { evaluateWords, evaluationsDue, goalAttempts, needsEvaluation } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords, planWords } from './say.mjs'
 import { absentAs, again } from './write.mjs'
@@ -488,8 +488,26 @@ async function fireGuard(id, ctx) {
     return setGoalLine(text, id, 'Evaluation asked', minuteOf(ctx.now))
   }, goalsAt)
   if (!done.ok) return done.why === 'calm' ? { ok: true, result: { id, fired: false }, words: null } : failed(done.why)
-  const words = evaluateWords({ to: ctx.partner.name, goal: node, attempts: goalAttempts(node, ctx.items), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job })
+  const words = evaluateWords({ to: ctx.partner.name, goal: node, attempts: goalAttempts(node, ctx.items), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job, maxChars: ctx.maxChars })
   return { ok: true, result: { id, fired: true }, words }
+}
+
+/**
+ * B528: the words that go to the partner again, one per goal whose evaluation runs and was last asked of it
+ * `EVALUATE_AGAIN_MS` ago (goalGuard.mjs `evaluationsDue`; `ctx.outbox` the outbox's messages), with "again" in them.
+ * `ctx.items()` reads the store's items, only when a word is due. None without a partner, or on a board that only shows.
+ */
+export async function evaluationsAgain(ctx) {
+  if (ctx.canWrite !== true || (ctx.partner ?? null) === null) return []
+  const text = await readMap(ctx.fs ?? files, ctx.goalsFile)
+  if (text === null) return []
+  const due = evaluationsDue(parseGoals(text).nodes, ctx.outbox, ctx.now)
+  if (due.length === 0) return []
+  const items = await ctx.items()
+  return due.map(node => evaluateWords({
+    to: ctx.partner.name, goal: node, attempts: goalAttempts(node, items), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job,
+    maxChars: ctx.maxChars, again: node.evaluationAsked,
+  }))
 }
 
 async function recheckDone(body, ctx) {

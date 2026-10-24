@@ -10,9 +10,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { evaluationsRunning, focusMove, guardGoal } from '../src/focus.mjs'
+import { evaluationsAgain, evaluationsRunning, focusMove, guardGoal } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
-import { GUARD_ATTEMPTS, evaluateWords, evaluationState, goalAttempts, guardOf, needsEvaluation } from '../src/goalGuard.mjs'
+import { GUARD_ATTEMPTS, evaluateWords, evaluationState, evaluationsDue, goalAttempts, guardOf, needsEvaluation } from '../src/goalGuard.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
@@ -98,6 +98,22 @@ test('the word to the partner: evaluate the goal, with what failed and whether a
     'Your job: D:/b/roles/partner.md, "The fundamental evaluation"',
   ].join('\n'))
   assert.match(evaluateWords({ to: 'Partner', goal: goal(), attempts: counted, approveRebuilds: true, job: 'j' }).text, /\nRebuilds: approved by the board \("Approve rebuilds by itself" is on\): make its steps at once and give the person a recap\n/)
+})
+
+test('B528: a goal with many long failed checks gets a word that fits the limit: the newest kept, the rest counted', () => {
+  const failures = Array.from({ length: 22 }, (_, n) => ({ at: `2026-10-19 ${String(10 + Math.floor(n / 6)).padStart(2, '0')}:${String((n % 6) * 10).padStart(2, '0')}`, id: `B${100 + n}`, text: `point ${n} `.repeat(60).trim(), by: 'check' }))
+  const words = evaluateWords({ to: 'Partner', goal: goal(), attempts: { count: 22, since: '2026-10-19 08:00', failures }, approveRebuilds: false, job: 'j', maxChars: 2000 })
+  assert.ok(words.text.length <= 2000, `${words.text.length} characters`)
+  const lines = words.text.split('\n')
+  assert.equal(lines[0], 'evaluate G2 Benches that feel like home')
+  assert.equal(lines[1], 'Attempts: 22 failed checks since Go (2026-10-19 08:00)')
+  assert.match(lines[2], /^- and \d+ earlier failed checks: the goal's steps' History holds them$/)
+  // The newest is kept, each line cut short; the job's line closes it.
+  assert.match(words.text, /\n- B121 \(2026-10-19 13:30\): point 21 [^\n]*…\nNext steps: /)
+  assert.ok(lines.filter(line => line.startsWith('- B')).every(line => line.length <= 240))
+  assert.equal(lines.at(-1), 'Your job: j, "The fundamental evaluation"')
+  // Without a limit given, the board's own (2000).
+  assert.ok(evaluateWords({ to: 'Partner', goal: goal(), attempts: { count: 22, since: null, failures }, approveRebuilds: false, job: 'j' }).text.length <= 2000)
 })
 
 test('"Approve rebuilds by itself" is off unless the settings turn it on', () => {
@@ -384,4 +400,47 @@ test('B525: a step already on sonnet and medium is lifted at its refine in a goa
   const fixId = checked.result.fix ?? (await readStore(dir)).items.keys().toArray().filter(id => id !== 'B1').at(-1)
   assert.match(await line(fixId, 'Model') ?? '', /^opus · /)
   assert.match(await line(fixId, 'Effort') ?? '', /^high · /)
+})
+
+test('B528: an evaluation that has not ended is asked again 30 minutes after its last word, a lost word included', () => {
+  const asked = parseGoals(evaluating).nodes
+  const at = minutes => new Date(2026, 9, 19, 9, 31).getTime() + minutes * 60_000
+  // No word in the outbox (the board was restarted, or it was never kept): counted from "Evaluation asked".
+  assert.deepEqual(evaluationsDue(asked, [], at(29)).map(node => node.id), [])
+  assert.deepEqual(evaluationsDue(asked, [], at(30)).map(node => node.id), ['G2'])
+  // The first word was refused by the chat's mod (too long, as G15's of 2026-10-24): the ask stays, the word goes again.
+  const failed = [{ id: 'm1', at: at(0), command: 'evaluate', about: 'G2', state: 'failed' }]
+  assert.deepEqual(evaluationsDue(asked, failed, at(10)).map(node => node.id), [])
+  assert.deepEqual(evaluationsDue(asked, failed, at(31)).map(node => node.id), ['G2'])
+  // A word again 5 minutes ago holds the next for 30 minutes; another goal's word does not.
+  assert.deepEqual(evaluationsDue(asked, [...failed, { id: 'm2', at: at(31), command: 'evaluate', about: 'G2', state: 'delivered' }], at(36)).map(node => node.id), [])
+  assert.deepEqual(evaluationsDue(asked, [...failed, { id: 'm3', at: at(31), command: 'evaluate', about: 'G3', state: 'delivered' }], at(36)).map(node => node.id), ['G2'])
+  // Evaluated (no "Evaluation asked" left), or done: none.
+  assert.deepEqual(evaluationsDue(parseGoals(MAP).nodes, failed, at(90)), [])
+  assert.deepEqual(evaluationsDue(parseGoals(evaluating.replace('- [~] G2', '- [x] G2')).nodes, failed, at(90)), [])
+})
+
+test('B528: the board asks the partner again with "again" in the word, until the marked how-draft ends the evaluation', async () => {
+  const fs = fakeFs({ [FILE]: latin(MAP) })
+  const base = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', fs, partner: { name: 'Partner' }, job: 'j', approveRebuilds: false }
+  const fired = await guardGoal('G2', { ...base, now: NOW, items: ITEMS })
+  assert.equal(fired.result.fired, true)
+  // The first word never reached the partner's chat.
+  const outbox = [{ id: 'm1', at: NOW, ...fired.words, state: 'failed' }]
+  let reads = 0
+  const items = async () => { reads += 1; return ITEMS }
+  const again = ctx => evaluationsAgain({ ...base, outbox, items, ...ctx })
+  assert.deepEqual(await again({ now: NOW + 29 * 60_000 }), [])
+  assert.equal(reads, 0, 'the store is read only when a word is due')
+  const words = await again({ now: NOW + 30 * 60_000 })
+  assert.equal(words.length, 1)
+  assert.deepEqual([words[0].to, words[0].command, words[0].about], ['Partner', 'evaluate', 'G2'])
+  assert.match(words[0].text, /^evaluate G2 Benches that feel like home \(again: asked 2026-10-19 10:00, not evaluated yet\)\nAttempts: 3 failed checks since Go/)
+  // Not on a board that only shows, nor without a partner.
+  assert.deepEqual(await again({ now: NOW + 30 * 60_000, canWrite: false }), [])
+  assert.deepEqual(await again({ now: NOW + 30 * 60_000, partner: null }), [])
+  // The partner's marked how-draft ends it: no word again.
+  const drafted = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h'], partnerDecides: ['Evaluation: wood caps the comfort'], youDecide: [] }, ctx(fs))
+  assert.equal(drafted.ok, true, drafted.why)
+  assert.deepEqual(await again({ now: NOW + 90 * 60_000 }), [])
 })

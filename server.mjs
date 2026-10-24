@@ -60,7 +60,7 @@ import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell } from './src/brainstorm.mjs'
 import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsRunning, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsAgain, evaluationsRunning, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS, evaluationState } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
@@ -633,11 +633,27 @@ async function main(args) {
     const items = [...(await readStore(workDir)).items.values()]
     const done = await guardGoal(id, {
       canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
-      partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true,
+      partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items, approveRebuilds: config.approveRebuilds === true, maxChars: config.maxMessageChars,
     })
     if (!done.ok || done.words === null) return
     await partnerMode(state, 'high', `the goal guard: ${id} failed ${GUARD_ATTEMPTS} attempts: a fundamental evaluation`)
     await toPartner(done.words, {}, state)
+  }
+  /**
+   * B528: while an evaluation runs and has not ended, its word goes to the partner again every 30 minutes (src/focus.mjs
+   * `evaluationsAgain`), so a word that did not arrive (refused, expired, lost) never leaves it waiting unseen. Not while
+   * the person pauses.
+   */
+  const evaluateAgainNow = async state => {
+    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause)) return
+    const again = await evaluationsAgain({
+      canWrite: writesMap, goalsFile: projectFile(config, 'goals'), now: clock(), outbox: store.outbox(), partner: state.advisor,
+      items: async () => [...(await readStore(workDir)).items.values()], job: join(HERE, 'roles', 'partner.md'),
+      approveRebuilds: config.approveRebuilds === true, maxChars: config.maxMessageChars,
+    })
+    if (again.length === 0) return
+    await partnerMode(state, 'high', `the goal guard: the evaluation of ${again.map(words => words.about).join(', ')} has not ended`)
+    for (const words of again) await toPartner(words, {}, state)
   }
   /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
   const toPartner = async (words, result, state) => {
@@ -1875,6 +1891,8 @@ async function main(args) {
           readState.reset()
         }
         loops.succeeded('reconcile')
+        // B528: an evaluation that has not ended is asked of the partner again; on its own, so a failure stops no delivery.
+        await loops.run('evaluate-again', () => evaluateAgainNow(state))
         // B404: a step that has stood on "check pending" for more than 2 minutes (a restart right after a report ended
         // its check) is checked again; the checks that run now are skipped.
         await loops.run('stuck-checks', async () => {
