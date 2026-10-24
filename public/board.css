@@ -983,16 +983,31 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .supervisor-close:hover { color: var(--text); }
 .supervisor-note { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 .supervisor-sub { margin: 14px 0 6px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
-.supervisor-incidents { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: baseline; }
-.incident-state { min-width: 84px; padding: 2px 9px; border: 1px solid currentColor; border-radius: 6px; font-size: 12px; text-align: center; white-space: nowrap; }
-.incident-state.is-open { color: #7cc4ff; }
-.incident-state.is-back { color: #93b4ff; }
-.incident-state.is-advisor { color: var(--ask); }
-.incident-state.is-fix { color: #5eead4; }
-.incident-state.is-fixed { color: var(--working); }
-.incident-words { font-size: 13.5px; overflow-wrap: anywhere; }
-.incident-id { color: var(--muted); font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
-.incident-seen { color: var(--muted); font-size: 12px; }
+/* The incident cards (the person's choice of layout B, 2026-10-24): one card per fix step, its live state in a small chip, one
+   quiet line under it, the evidence folded away until a click. Quiet blues and greys; green only for a fix that is done. */
+.supervisor-cards { display: grid; gap: 8px; }
+.inc-card { padding: 9px 12px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; }
+.inc-card:hover { border-color: #2d4262; }
+.inc-card.is-done { opacity: 0.78; }
+.inc-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.inc-step { color: #93b4ff; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; font-weight: 700; text-decoration: underline; text-decoration-color: #3b5a85; text-underline-offset: 2px; }
+.inc-step:hover { color: #bcd0ff; }
+.inc-title { flex: 1 1 200px; min-width: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.inc-state { flex: none; margin-left: auto; padding: 2px 11px; border: 1px solid #3b5a85; border-radius: 999px; color: #93b4ff; font-size: 12px; white-space: nowrap; }
+.inc-state.is-busy { border-color: #7cc4ff; background: #17304f; color: #cfe3ff; }
+.inc-state.is-idle { border-color: #34455d; color: #9fb0c6; }
+.inc-state.is-review { border-color: #4f86b8; color: #7cc4ff; }
+.inc-state.is-done { border-color: #2f5a49; color: var(--working); }
+.inc-state.is-dropped { border-color: #34455d; color: var(--muted); }
+.inc-state.is-sending { border-style: dashed; border-color: #7cc4ff; color: #7cc4ff; }
+.inc-state.is-advisor { border-color: #6a5a99; color: var(--ask); }
+.inc-state.is-back { border-color: #7c86d6; color: #a5b4fc; }
+.inc-line { display: block; width: 100%; min-height: 0; margin: 4px 0 0; padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.inc-line:focus-visible { outline: 2px solid var(--free); outline-offset: 2px; border-radius: 3px; }
+.inc-details { display: grid; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); cursor: auto; }
+.inc-detail-head { font-size: 13px; overflow-wrap: anywhere; }
+.inc-detail-meta { color: var(--muted); font-size: 12px; }
+.inc-detail-evidence { margin-top: 2px; color: #b4c0d2; font-size: 12px; overflow-wrap: anywhere; }
 .sync-rows { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; }
 .sync-status { min-width: 84px; padding: 3px 10px; border: 1px solid currentColor; border-radius: 6px; font-size: 12px; text-align: center; }
 .sync-status.is-done { color: var(--working); }
@@ -1024,8 +1039,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   .supervisor-title { flex: 1 1 calc(100% - 44px); min-width: 0; }
   .supervisor-close { order: 1; }
   .supervisor-head .check-now { order: 2; }
-  .supervisor-incidents, .sync-rows { gap: 6px 10px; }
-  .incident-state, .sync-status { min-width: 0; }
+  .sync-rows { gap: 6px 10px; }
+  .sync-status { min-width: 0; }
+  .inc-state { margin-left: 0; }
   .supervisor-rules { grid-template-columns: 1fr; }
 }
 /* supervisor:end */

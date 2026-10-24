@@ -21,7 +21,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { answerReading, checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parsePoints, resultCheckAtMs, resultCheckOf } from './resultCheck.mjs'
+import { agreedPoints, answerReading, checkedOf, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
@@ -1320,6 +1320,11 @@ async function checked(body, w) {
   if (evidence === '') return refuse(400, 'Name the evidence picture in "evidence", by its path, or "none (<why>)".')
   const read = parsePoints(body.points)
   if (!read.ok) return refuse(400, read.why)
+  // B526: a fix is done only when the point of the step it fixes passes: its check ticks every fail text and every
+  // "Makes pass" line of its What we build.
+  const fixOf = valueOf(found.item, 'Fix of')
+  const owed = fixOf === null ? 0 : agreedPoints(found.item).filter(one => !/^Not in it\b/i.test(one)).length
+  if (read.points.length < owed) return refuse(400, `${id} is a fix of ${fixOf}: tick each of its ${owed} agreed points, every fail text and every "Makes pass" line of its What we build, not ${read.points.length}.`)
   const score = line(body.score, 60)
   // Worktree clean-up (the person, 2026-10-24): the check's own worktrees (check-<id>, check-<id>-before) are gone
   // before its result is filed, as a worker's are before its report passes (`checkWorktrees`, worktrees.mjs
@@ -1329,14 +1334,15 @@ async function checked(body, w) {
     : []
   if (left.length > 0) return refuse(409, `${id}'s check left its worktrees: ${left.join('; ')}. Remove them, then file checked again.`)
   const { points } = read
-  const failed = points.filter(one => one.verdict === 'fail')
+  // B526: each failed point keeps its place in the list, which names the agreed point it was ticked against.
+  const failed = points.map((one, index) => ({ ...one, index })).filter(one => one.verdict === 'fail')
   const judged = points.filter(one => one.verdict === 'ask')
   const summary = `${points.filter(one => one.verdict === 'pass').length} of ${points.length} points pass${score === '' ? '' : `, score ${score}`}`
   let item = copy(found.item)
   item.sections.set('Checked', [`Evidence: ${evidence}`, ...(score === '' ? [] : [`Score: ${score}`]), ...points.map(one => `- ${one.verdict}: ${one.text}`)])
   let fix = null
   if (failed.length > 0) {
-    const made = await fixStep(found.item, failed, w)
+    const made = await fixStep(found.item, failed, w, points)
     if (!made.ok) return made
     fix = made.id
     item = put(item, 'Attempts', String(Number(valueOf(found.item, 'Attempts') ?? 0) + 1))
@@ -1428,7 +1434,7 @@ async function undoFix(id, w) {
  * the result check of B<id>"), with the step's activity, goal and standard, queued for the same worker. Answers
  * `{ ok, id }`. B468: it runs at the effort of the step it fixes; model per step: and on its model.
  */
-async function fixStep(origin, failed, w) {
+async function fixStep(origin, failed, w, points = failed) {
   const originId = valueOf(origin, 'Id')
   const owner = valueOf(origin, 'Owner')
   const activity = valueOf(origin, 'Activity')
@@ -1438,8 +1444,14 @@ async function fixStep(origin, failed, w) {
   const guarded = guardedDefaults(w, goal ?? '', false)
   const effort = liftEffortLine(effortLineOf(origin), guarded)
   const model = liftModelLine(modelLineOf(origin), guarded)
-  const what = failed.map(one => `- ${one.text}`)
-  const summary = `Fix what the result check of ${originId} found: ${failed.map(one => one.text).join('; ')}`.slice(0, 600)
+  // B526: under each failed point, the agreed point of the step it fixes that it must make pass, so its check ticks
+  // the intent, not only the words of the fail.
+  const passes = parentPointsOf(origin, points, failed, w.store.items)
+  const what = failed.flatMap((one, place) => [`- ${one.text}`, ...(passes[place] === null ? [] : [`- Makes pass: ${passes[place]}`])])
+  const named = passes.filter(one => one !== null)
+  const summary = (named.length === 0
+    ? `Fix what the result check of ${originId} found: ${failed.map(one => one.text).join('; ')}`
+    : `Fix what the result check of ${originId} found, so its agreed ${named.length === 1 ? 'point passes' : 'points pass'}: ${named.join('; ')}. Found: ${failed.map(one => one.text).join('; ')}`).slice(0, 600)
   const block = [
     `Refined (${stamp(w.now)}; ready; from the result check of ${originId} by ${w.who}):`,
     `Summary: ${summary}`,

@@ -7,6 +7,7 @@
 // clean a worktree. Part 2: the sweep (sweep.mjs), the AI for the gaps: the chat of role supervisor reads the health
 // summary (health.mjs) every few minutes while work runs, and on "Check now", and files what looks wrong.
 
+import { incidentCards } from './cards.mjs'
 import { healthSummary } from './health.mjs'
 import { SYNC_EVERY_MS, memoryOf, syncRunner } from './loop.mjs'
 import { buildView } from './view.mjs'
@@ -22,6 +23,8 @@ import { isHolding } from '../work/pause.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
 export { REFUSED_MS }
+/** The incident cards (cards.mjs), also for the demo, which makes its own incidents and steps. */
+export { incidentCards }
 /**
  * B482, B488: the project's one lock for the board's loops (loop.mjs). The server builds its gate from these and gives it
  * to the supervisor as `owns`, so the list runs only where every other loop of the board runs.
@@ -53,6 +56,28 @@ export function wordState(message, now, keep = KEEP) {
   if (message.state === 'held') return 'on its way'
   if (message.state === 'waiting') return isLate(message, now, keep) ? 'lost' : 'on its way'
   return 'lost'
+}
+
+/**
+ * How the board's words to the partner about an incident stand, as `wordState` gives them, one entry per word it made
+ * since the incident got its state (the outbox as `store.outbox()` holds it). Empty for none.
+ */
+export function incidentWordStates(outbox, incident, partner, now, keep = KEEP) {
+  return outbox.filter(message => message.command === 'incident' && message.about === incident.id && message.to === partner
+    && message.at >= (Number.isFinite(incident.since) ? incident.since : -Infinity)).map(message => wordState(message, now, keep))
+}
+
+/**
+ * The cards' view of those words: per incident, `arrived` when one arrived, else `on its way` while one is, else `lost`
+ * when there were only lost ones; an incident with no word at all has no entry.
+ */
+export function wordsOf(outbox, incidents, partner, now, keep = KEEP) {
+  const words = new Map()
+  for (const incident of incidents) {
+    const states = incidentWordStates(outbox, incident, partner, now, keep)
+    if (states.length > 0) words.set(incident.id, states.includes('arrived') ? 'arrived' : states.includes('on its way') ? 'on its way' : 'lost')
+  }
+  return words
 }
 
 /**
@@ -89,9 +114,10 @@ const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id
  * is due; `run` runs the list at once and answers today's `{ at, asked, rows, fine }`, or null when another board process
  * holds the loop or the run failed (recorded as the loop "sync"); `checkNow` is the person's "Check now": the list and a
  * sweep at once; `heard` takes the supervisor chat's work calls; `health` is the summary its sweep reads;
- * `view(now)` is `{ run, checkedAt, rules, incidents, lastSweep, sweepNote, sweepEvery, sweepsToday }`: the run the page
- * shows (the newest asked, or one that found something, for an hour; else null), when the list last ran, every rule
- * (repair and watch) with how it stood then and how often it tripped in the last day, and the sweep (`sweepView`).
+ * `view(now, live)` is `{ run, checkedAt, rules, incidents, cards, lastSweep, sweepNote, sweepEvery, sweepsToday }`: the
+ * run the page shows (the newest asked, or one that found something, for an hour; else null), when the list last ran, every
+ * rule (repair and watch) with how it stood then and how often it tripped in the last day, the incidents and their cards
+ * (one per fix step, from `live`), and the sweep (`sweepView`).
  * Task 2: the watch rules (rules/watch.mjs) run after the repairs and report only: their findings are the run's
  * `findings`. Task 3: each run's findings are filed as incidents in the work store (incidents.mjs, through `apply`, the
  * work API as the board), and `incidents` is what the store holds of them (incidents.mjs `incidentsOf`).
@@ -172,8 +198,7 @@ export function createSupervisor(ports) {
     const now = runnerPorts.now()
     for (const incident of ready) {
       // Its words to the partner since it got its state, as they stand now: one arrived hands it on, one on its way waits.
-      const words = runnerPorts.outbox().filter(message => message.command === 'incident' && message.about === incident.id && message.to === partner
-        && message.at >= (Number.isFinite(incident.since) ? incident.since : -Infinity)).map(message => wordState(message, now, keep))
+      const words = incidentWordStates(runnerPorts.outbox(), incident, partner, now, keep)
       if (!words.includes('arrived')) {
         if (words.includes('on its way')) continue
         const done = await tell(incidentWords(partner, incident, partnerJob)).catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
@@ -227,9 +252,22 @@ export function createSupervisor(ports) {
      * from a view built now: the board's state, the store, the outbox and the repairs of the day in its memory.
      */
     health: () => healthNow(),
-    view: now => {
+    /**
+     * The cards (cards.mjs): one per fix step, so the page shows what is being done about the incidents as it happens. They
+     * are made from `live`, what the board knows at this look (the server passes it at every refresh): `items` the store as
+     * its keeper holds it (null when it could not be read), `lanes` the board's chats (also the Advisor's), `partner` the
+     * Advisor's name (null for none). The incidents are read from those items too, so an incident the partner just linked to
+     * a fix step shows at once, not at the next run of the rules. Without `live`, `cards` is empty.
+     */
+    view: (now, live = null) => {
       const { at, rules } = runner.status()
-      return { run: runner.shown(now), checkedAt: at, rules, incidents, ...sweepView(sweeper, now, sweepEvery(settings)) }
+      const shown = live?.items instanceof Map ? incidentsOf(live.items, now) : incidents
+      const partner = live?.partner ?? null
+      const cards = live === null ? [] : incidentCards({
+        incidents: shown, items: live.items ?? null, lanes: live.lanes ?? [], hasPartner: partner !== null,
+        words: wordsOf(runnerPorts.outbox(), shown, partner, now, keep),
+      })
+      return { run: runner.shown(now), checkedAt: at, rules, incidents: shown, cards, ...sweepView(sweeper, now, sweepEvery(settings)) }
     },
     stop() {
       if (timer !== null) timers.clearInterval(timer)

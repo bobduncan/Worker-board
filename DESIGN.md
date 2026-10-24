@@ -3090,7 +3090,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   X<n>), drawn as one quiet line under Needs your attention, "Supervisor: <what>" with a wrench, never counted; a
   click opens the section (Details first, from Simple) and reads it. A count that grows gives nothing.
 - **The section** (state `supervisor`, the view, in place of `syncList`), under the Workers panel's head where the
-  "Out of sync?" list stood: "Supervisor · checked itself at HH:MM", its incidents with their states, the last check
+  "Out of sync?" list stood: "Supervisor · checked itself at HH:MM", its incidents (one card per fix step, see "The supervisor's incident cards"), the last check
   (B465's rows, as before, for an hour), the rules (those that tripped now or today, how often, a failed one with why;
   the others on a click) and the last sweep ("No sweep yet." until Part 2), with **Check now** and ×. It shows when
   something is new (a check, an incident that opened or changed state) and stays closed after × until something newer
@@ -3214,6 +3214,24 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   Resume all) and a Pause all button that asks as the one above the workers does; while a pause stands it names the next
   step. Built from what the chats' mods said in the last 2 minutes, it clears by itself once all run the installed mod.
   The board restarts nothing. Tests: `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
+
+## The supervisor's incident cards (2026-10-24)
+
+The person, 2026-10-24, on the section's rows: "too much text. is it busy trying to send this to the advisor or not? what
+backlogitem is there. its not clear what the follow up is." They chose layout B of
+`art-inbox/worker-board/supervisor/incidents-layout-ab.png`: **one card per fix step**, newest activity first.
+
+- **A card** is the step's id (a link, `#details=B541`) and short title, its live state in a chip ("refined · waits for
+  Main", "queued for Worker 2", "Worker 5 · building", "in review", "done · fixed"; from the step's record and its worker's
+  lane, `src/supervisor/cards.mjs stepState`), and one quiet line: the incident ids and a few words, "(seen N×)" only above
+  once. A click opens each incident's evidence, times and count. The rules are one folded line ("20 rules · 2 tripped").
+- **Grouping** is by the incident's `Fix` while it is being fixed or fixed; a step titled "Fix of X<n>" counts only as a
+  fallback when no Fix does; an incident that came back, or is open again, does not keep its old Fix. Those with no fix
+  step stand on the last card, "No fix step yet": "sending to the Advisor…" while its word waits or was just taken, "with
+  the Advisor" once it arrived, "came back".
+- **Live**: `supervisor.view(now, live)` makes the cards at every refresh from the store, the chats and the Advisor's name
+  the server passes, so a step the partner just linked shows at once. Quiet blues and greys, nothing warm.
+  Tests: `test/supervisor/cards.test.mjs`, `handover.test.mjs`, `page.test.mjs`; pictures `incident-cards.png`, `-400.png`.
 
 ## Clear after each step (2026-10-23)
 

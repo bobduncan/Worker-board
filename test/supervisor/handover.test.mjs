@@ -258,3 +258,34 @@ test('the job texts: the partner decides a tweak or a structural fix and files t
   const main = (await readFile(join(ROOT, 'roles', 'main.md'), 'utf8')).replace(/\s+/g, ' ')
   for (const words of ['Fix of X<n>', 'the supervisor\'s chat']) assert.ok(main.includes(words), `main.md: ${words}`)
 })
+
+test('the cards follow the hand-over as it happens: sending while the word waits, with the Advisor once it arrived, one fix card the moment the partner names its step', async t => {
+  const b = await board(t)
+  await b.run()
+  // What the server passes at every refresh: the store as it stands, the chats, the partner's name.
+  const live = async (partner = 'Partner') => ({ items: (await readStore(b.dir)).items, lanes: [lane('Lead', { isMain: true }), lane('Digger', { state: 'working' })], partner })
+  const cards = async (partner) => b.supervisor.view(START + MIN, await live(partner)).cards
+  // The word waits in the outbox: the card says it is being sent.
+  let [card] = await cards()
+  assert.deepEqual([card.key, card.state.text, card.incidents.map(one => one.id)], ['nofix', 'sending to the Advisor…', ['X1']])
+  // Without an Advisor on the board nothing can send it, and the card says so.
+  assert.equal((await cards(null))[0].state.text, 'no Advisor on the board')
+  // Typed into the partner's chat: with the Advisor, before the store's own state moves (the next run).
+  b.deliver()
+  ;[card] = await cards()
+  assert.equal(card.state.text, 'with the Advisor')
+  b.at(1)
+  await b.run()
+  assert.equal((await b.incident('X1')).head.get('State'), 'with the advisor')
+  ;[card] = await cards()
+  assert.equal(card.state.text, 'with the Advisor')
+  // The partner names its fix step: the card is that step's the next time the page asks, without a run of the rules.
+  assert.equal((await b.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })).ok, true)
+  const fresh = await cards()
+  assert.deepEqual(fresh.map(one => [one.key, one.title, one.state.text, one.incidents.map(inc => inc.id)]), [
+    ['B12', 'Wake an unknown worker', 'queued for Digger', ['X1']],
+  ])
+  assert.equal(b.supervisor.view(START + MIN).cards.length, 0, 'without what the board knows now there are no cards')
+  assert.equal(b.supervisor.view(START + MIN).incidents[0].fix, null, 'and the incidents are those of the last read')
+  assert.equal(b.supervisor.view(START + MIN, await live()).incidents[0].fix, 'B12', 'which the live items update')
+})
