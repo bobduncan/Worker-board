@@ -3195,7 +3195,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   and `list`; the repair rule `fix-dropped` gives the main chat one word for a dropped fix, 30 min after the drop:
   close it or have it checked again. `not-cleared` (B547, the fix of X13 and X14: a worker whose last report is newer than its last clear and that took a new
   step since, at once, or that stays so for over 10 min, `notClearedMinutes`; one finding per worker per report, with
-  the mod's why and the repair). How long a thing
+  the mod's why and the repair). `queued-not-running` (B587, the fix of X36: a free worker whose chat does not run while
+  its next queued step waits over 15 min with no `start` of it on its way to the main chat; one finding per step). How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at
@@ -3369,7 +3370,9 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
   first word for it (`overdueChats`, from the outbox): the restart did not reach it. A restart word stays known in the
   outbox a day (`store.mjs`), so its three tries are counted. The partner sends the restarted main chat one line, as no
   board word starts the main chat (the review). The merging worker of a mod change runs the CLI's marketplace update and
-  plugin update once (roles/worker.md); the person restarts nothing. Tests: `test/modRollout.test.mjs`,
+  plugin update once (roles/worker.md); the person restarts nothing. B587: the hold never outlasts the restart: a chat
+  whose process ended is not held, and a word typed over two minutes ago whose restarter's turn has ended with the chat
+  still running (refused, or the archive was) holds nothing either (`REFUSED_AFTER_MS`). Tests: `test/modRollout.test.mjs`,
   `test/work/modRolloutDeliver.test.mjs`, `test/oldMods.test.mjs`, `test/supervisor/watch.test.mjs`.
 
 ## The supervisor's incident cards (2026-10-24)
@@ -3523,6 +3526,11 @@ with all its guards, at most once a minute, and refused it only writes why on th
 held to nothing; the row says "not cleared after B12" with what happens next, and the watch rule `not-cleared` names it.
 The mod's newest word why it did not clear now shows as its own kind (`not-cleared`), no longer hidden behind an older
 clear.
+B587 (X36: a worker restarted for a new mod at 22:45 owed the clear of the step it had just reported; its process
+ended with the archive, so it could not clear, and its next step's line waited until the board itself started anew
+8 minutes on): the clear holds the line only while the chat's process runs (`clearHolds`). A worker whose process ended
+gets its line at once, with the board's `start` to the main chat beside it in the same refresh; once started, its take
+is refused and its mod clears it first, then the fresh conversation takes the step. Tests: `test/restartStart.test.mjs`.
 
 ## A step its worker holds while on another (B567, 2026-10-24)
 

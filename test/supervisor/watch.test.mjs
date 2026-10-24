@@ -38,8 +38,8 @@ const check = (id, board, seen = new Map()) => {
   return Object.defineProperty(found, 'observed', { value: observed, enumerable: false })
 }
 
-test('the watch rules: sixteen, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'stale-checkpoint', 'effort-mismatch', 'not-cleared'])
+test('the watch rules: seventeen, report only, each with what it says', () => {
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'stale-checkpoint', 'effort-mismatch', 'not-cleared', 'queued-not-running'])
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))
 })
 
@@ -416,4 +416,27 @@ test('B584: the findings name when their case began (since): not-cleared its tak
   const line = (minutes, words) => `- ${stamp(ago(minutes))} server: ${words}`
   const twice = view({ items: items(step('B12', 'review', {}, { History: [line(90, 'check failed: a'), line(80, 'check passed: merged'), line(60, 'check failed: b'), line(40, 'check failed: c'), line(20, 'check failed: d')] })) })
   assert.deepEqual(check('report-check-twice', twice).map(one => one.since), [ago(40)])
+})
+
+test('B587 (X36): queued-not-running names a step queued for a free worker whose chat does not run, after 15 min, once per step', () => {
+  const start = (minutes, state) => ({ id: `s${minutes}`, to: 'Lead', command: 'start', about: 'Painter', at: ago(minutes), state })
+  const board = (minutes, more = {}) => view({
+    chats: [LEAD, lane('Painter', { isRunning: false, queue: [{ id: 'B14' }, { id: 'B13' }], ...more.lane })],
+    today: [span('Painter', 'free', minutes)],
+    items: items(step('B13', 'queued', { Owner: 'Painter', Since: stamp(ago(60)) }), step('B14', 'queued', { Owner: 'Painter', Since: stamp(ago(60)) }), step('B9', 'done', { Owner: 'Painter' })),
+    outbox: more.outbox ?? [],
+  })
+  const found = check('queued-not-running', board(16))
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['queued-not-running', 'queued-not-running B14', 'B14']], 'its next step, the first of its queue')
+  assert.equal(found[0].text, 'B14 queued for Painter for 16 min, but its chat does not run and no start of it is on its way')
+  assert.match(found[0].evidence, /^Painter: free, running no, since \d\d:\d\d; queued for it: B13, B14/)
+  assert.deepEqual(check('queued-not-running', board(14)), [], 'not before 15 min')
+  assert.deepEqual(check('queued-not-running', board(2)), [], 'X35: two minutes is no case')
+  assert.deepEqual(check('queued-not-running', board(16, { outbox: [start(3, 'waiting')] })), [], 'a start word on its way')
+  assert.equal(check('queued-not-running', board(16, { outbox: [start(12, 'delivered')] })).length, 1, 'a start that was typed and did not start it')
+  assert.deepEqual(check('queued-not-running', board(16, { lane: { isRunning: true } })), [], 'its chat runs')
+  assert.deepEqual(check('queued-not-running', board(16, { lane: { isRunning: null } })), [], 'not known whether it runs')
+  assert.deepEqual(check('queued-not-running', board(16, { lane: { state: 'working' } })), [], 'not free')
+  assert.deepEqual(check('queued-not-running', view({ chats: [LEAD, lane('Painter', { isRunning: false })], today: [span('Painter', 'free', 30)] })), [], 'nothing queued for it')
+  assert.deepEqual(check('queued-not-running', view({ chats: [LEAD, lane('Painter', { isRunning: false })], today: [span('Painter', 'free', 30)], pause: { state: 'pausing', since: stamp(ago(5)) }, items: items(step('B13', 'queued', { Owner: 'Painter' })) })), [], 'the person pauses')
 })

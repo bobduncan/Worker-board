@@ -39,7 +39,7 @@ import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
-import { clearOwed, modAtLeast } from './clearOwed.mjs'
+import { clearHolds, clearOwed, modAtLeast } from './clearOwed.mjs'
 import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -1595,7 +1595,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     standardHold: item => standardHold(item, plan?.standards ?? []),
   })
   // B547: the steps whose line waits for their worker's clear (a mod that can clear only: an older one would wait for ever).
-  const clearHeld = new Set(chats.filter(lane => lane.clearOwed?.canClear === true).flatMap(lane => (reconciled?.deliveries ?? []).filter(one => one.chat === lane.name).map(one => one.id)))
+  // B587: not for a worker whose process ended: its line and the start word go at once.
+  const clearHeld = clearHolds({ lanes: chats, deliveries: reconciled?.deliveries ?? [] })
   // B468: what each worker runs at for its step, the words that have the main chat set it (none without the Workers mod),
   // and the steps whose line to their worker waits until it is set. Model per step: its model too, by the settings'
   // model ids, and the usual setting between steps from the settings.
