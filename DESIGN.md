@@ -1351,7 +1351,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   merged commit a repository holds) is checked by its files: those its result names (else its Touches), in the
   project's folder outside every repository: a word with a "/" and a file's ending or a "/" at its end must be there;
   another ("and/or", "B1/B2/B3", a date) counts only when it is; one inside a repository is work in git, to be reported
-  with its merged commit: "work outside git", "there: ...", "not there: ...", "in a repository: ..." (B353, B347). The
+  with its merged commit: "work outside git", "there: ...", "not there: ...", "in a repository: ..." (B353, B347).
+  B580: a branch named at the take that no repository has or ever had (every repository answered, none has a trace)
+  counts as no branch of its own, so such a step is checked by its files too; a git that does not answer never does. The
   review of B363: work merged on a repository's base branch itself passes without "branch gone" ("worked on main
   itself"). Worktree clean-up (2026-10-24): the check also confirms that no worktree of the step is left: none of
   that repository on the step's branch, none of a repository the board knows named for the step (its id as a whole in
@@ -3170,7 +3172,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `holder-not-running` (a step taken or in progress whose worker has not run for over 30 min), `opus-wait` (an opus
   step's line held for Opus over 15 min), `skip-repeats` (a clear, or a compaction not skipped by design as for a small
   chat, skipped for the same reason twice in a row), `repair-repeats` (the same repair rule on the same chat or
-  step 3 times in a day), `undelivered` (a word to a chat waiting over 10 min, or expired or failed in the last two
+  step 3 times in a day; B574: an unblock counts by its step and blocker, so a step freed once per finished blocker is
+  no repeat; and a step that goes done leaves its dependants' Blocked by in the same move, "no longer blocked by B<n>:
+  done", so the sync check's unblock is left for misses), `undelivered` (a word to a chat waiting over 10 min, or expired or failed in the last two
   hours), `report-check-twice` (a step's board check failed twice in a row since its last pass), `old-mod` (a chat on an
   older Workers mod than the one installed: dormant until the mod reports its version, Part 2's mod), `odd-effort`
   (B544, the fix of X9: a chat whose card says an effort that is not a level; the partner's card holds the app's level in

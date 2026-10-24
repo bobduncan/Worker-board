@@ -282,12 +282,14 @@ function fixedAtOf(view, key) {
  * 7. The same repair (a repair rule, on the same chat or step) `repairsPerDay` times or more in a day. B546: a repair
  * the app's restart caused (`cause: 'restart'`, a chat stopped because the app started anew) does not count. B551: nor
  * does one from before its incident's fix was done (`fixedAtOf`): X11 came back on the very wakes B546 was made for,
- * recorded before it and so without their cause.
+ * recorded before it and so without their cause. B574 (X25: B531 unblocked three times in a day, each time from another
+ * finished blocker): an unblock counts by its own key, the step and its blocker, so only the same blocker removed again
+ * and again is a repeat.
  */
 function repairRepeats(view) {
   const counts = new Map()
   for (const one of view.repairs.filter(repair => view.now - repair.at < DAY && repair.cause !== 'restart')) {
-    const id = `${one.rule} ${one.subject}`
+    const id = one.rule === 'blocked' && typeof one.key === 'string' ? one.key : `${one.rule} ${one.subject}`
     counts.set(id, [...(counts.get(id) ?? []), one])
   }
   for (const [id, all] of counts) {
