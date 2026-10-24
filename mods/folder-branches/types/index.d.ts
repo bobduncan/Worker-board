@@ -59,6 +59,8 @@ export type ChatFile = {
   task: ChatTask | null
   /** When its session last wrote the file, in milliseconds. */
   at: number
+  /** B570: the Workers mod version its process runs, as it last wrote its file; none from a mod older than 0.17.0. */
+  mod?: string
   /** The last time the mod compacted this chat before a new task: when, and its size in tokens before and after. */
   compacted?: { at: number; before: number; after: number }
   /** B227: why the last report was not followed by a compaction, and when; gone once one is. */

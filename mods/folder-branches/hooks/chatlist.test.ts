@@ -119,9 +119,17 @@ const task = (text: string, step = 0, steps = 0, minutes: number | null = null):
 )
 
 /** The chat a session keeps in the project's folder; null when it keeps none. */
+/**
+ * A chat's card as the mod wrote it. B570: every write names the mod's version (`mod`, checked here and left out, so the
+ * cards below read as before; the test 'B570: ...' looks at it).
+ */
 function fileOf(w: World, id = w.id): ChatFile | null {
   const text = w.files[`${CHATS}/${id}.json`]
-  return text === undefined ? null : parseChat(text)
+  const card = text === undefined ? null : parseChat(text)
+  if (card === null || card.mod === undefined) return card
+  if (card.mod !== MOD_VERSION) throw new Error(`the card names mod ${card.mod}, not ${MOD_VERSION}`)
+  const { mod: _mod, ...rest } = card
+  return rest
 }
 
 /** The engine beneath the mod: a folder of files, a clock the test moves, and the session's own answers. */
