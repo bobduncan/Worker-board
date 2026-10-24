@@ -217,7 +217,7 @@ test('the page: "Check now" (was "Out of sync?") in each worker\'s menu and in t
   assert.match(script, /const syncLine = syncLineOf\(state\.changeAsks\?\.sync\?\.\[lane\.name\] \?\? null, main\)/)
   assert.match(script, /return checkNowButton\('board', state, /)
   // The supervisor: while its section shows, the head's button stands in the section instead.
-  assert.match(script, /fill\(\$\('workers-add'\), \[lines, isSupervisorShown\(state\.supervisor \?\? null, supervisorUi\) \? null : boardSyncButton\(state\), button\]\)/)
+  assert.match(script, /fill\(\$\('workers-add'\), \[lines, isSupervisorShown\(state\.supervisor \?\? null\) \? null : boardSyncButton\(state\), button\]\)/)
 })
 
 // The line under a worker's row (and under the panel's head), cut out of the page and run on its own.
@@ -262,7 +262,7 @@ const supervisorPage = async () => {
   const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
   const page = { clock: ms => new Date(ms).toTimeString().slice(0, 5) }
   vm.runInNewContext(`${script.slice(script.indexOf('// supervisor:start'), script.indexOf('// supervisor:end'))}\nthis.supervisorOf = supervisorOf`, page)
-  return run => (run === null ? null : { title: page.supervisorOf({ run, checkedAt: run.at, rules: [], incidents: [], lastSweep: null }).title, rows: page.supervisorOf({ run, rules: [], incidents: [] }).check.rows })
+  return run => (run === null ? null : { note: page.supervisorOf({ run, checkedAt: run.at, rules: [], incidents: [], lastSweep: null }).note, rows: page.supervisorOf({ run, rules: [], incidents: [] }).check.rows })
 }
 
 test('B465: the page shows the board\'s own check as in the agreed picture: a row per finding with its status, then the checks that found nothing', async () => {
@@ -272,7 +272,7 @@ test('B465: the page shows the board\'s own check as in the agreed picture: a ro
     at: at(0, 42), asked: true, fine: 2,
     rows: [{ status: 'Fixed', text: 'B46 was queued for Ghost, no longer in the list: queued for Worker 1' }, { status: 'Woke', text: 'Worker 2: its queued B55 waited 12 min while it was free' }, { status: 'Sent', text: 'B17: the person\'s yes to dropping it (Q158): to Main as a note' }, { status: 'For Main', text: 'Second is not running: 2 refines and checks wait: its work went to Partner' }],
   })
-  assert.equal(shown.title, 'Supervisor · checked itself at 00:42')
+  assert.match(shown.note, /^Checked itself at 00:42\. /)
   // The page's arrays are of another realm (vm): compared as JSON.
   assert.equal(JSON.stringify(shown.rows.map(row => [row.status, row.tone])), JSON.stringify([['Fixed', 'done'], ['Woke', 'done'], ['Sent', 'done'], ['For Main', 'main'], ['Fine', 'fine']]))
   assert.equal(shown.rows.at(-1).text, '2 other checks: nothing stuck')

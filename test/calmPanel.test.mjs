@@ -72,7 +72,7 @@ test('Needs your attention draws the cards and the missed lines, and the log no 
   assert.ok(!needs.includes('drawInstructions(state)'))
   assert.ok(!needs.includes('drawLegacy(state)'))
   // B466: the partner's lines come after what needs the person.
-  assert.match(needs, /drawPartnerNeeds\([^\n]*\), drawMissed\(missed\), drawSupervisorLines\(supervised\), drawGoalAskNeeds\(state\)/)
+  assert.match(needs, /drawPartnerNeeds\([^\n]*\), drawMissed\(missed\), drawSupervisorLine\(supervised\), drawGoalAskNeeds\(state\)/)
   // The count: what waits for the person, the missed lines among it; never the log's notes or instructions.
   const count = needs.slice(needs.indexOf('const unanswered ='), needs.indexOf("$('needs-count')"))
   assert.match(count, /\+ missed\.length/)
