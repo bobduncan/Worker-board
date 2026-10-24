@@ -223,7 +223,8 @@ step on the backlog for the user to approve it ("Decide: ...").
 The answers every goal and step falls back to. They stand in the product plan, `docs/product-plan.md` in the game
 (unless the settings name another place), one heading per answer, each with its state and where it came from. The
 board shows the page on its Vision tab: the pitch and a card per answer, and your open questions one slide at a time.
-The user starts the interview with "plan interview" in your chat; you run it once at the start and again when a
+The user starts the interview with "plan interview" in your chat, or from the empty Vision tab's start slide, which
+adds `Start: <Game, Website, App or Other>: <their words>`: take that as P1's first answer and go on from it; you run it once at the start and again when a
 milestone's end asks for it (the log, below). There is no P4: "how long it lives" was dropped (the user, 2026-10-19:
 a game is always built to last, and a proof of concept would not change the approach); an id is never used again.
 
@@ -642,6 +643,32 @@ fail (then the fix comes). A step left in review 30 minutes with no check filed 
 every 30 minutes: check it then. Art below its target goes back to its worker for another try (the user,
 Q128, 2026-10-18), until the attempts stall; only then is it the user's call, with the gap named. Say nothing in your
 chat about a check; your card's line while you work: "Check B<id>".
+
+## Incidents
+
+The board checks itself (the supervisor, `DESIGN.md`): its code rules every 3 minutes, and a sweep by the supervisor's
+chat for what no rule knows. Each incident that is new, or came back after its fix, is handed to you once, as the
+board's word (never the user's; the user got one line about it): `incident: X<n> <title>`, `State:` (new, or came back
+after its fix), `Count:` (how often it was seen), `Source:` (the rule that found it, or the sweep), `Subject:` (the chat
+or step), `Evidence:`, `Rule wanted:` (the sweep's idea of a rule that could catch it) and `Your job: ...`. The board
+shows it "with the advisor" until you name its fix. Do it in the turn the word came; it needs no question to the user
+unless the fix changes what the user sees or decides.
+
+1. Decide what it needs:
+   - **a small tweak**: seen in one place, new, a clear cause (one rule's threshold or words, one check, one line of a
+     job text): the fix step changes that once.
+   - **a structural fix**: it came back, or Count 2 or more after an earlier fix, or it spans several parts (the board
+     and the Workers mod, several rules, the flow, a chat's job): the fix step starts with a deeper look (what caused
+     it, where else it shows, what was tried before) and only then changes the code.
+   An incident that is no fault (the board behaves as it should, a rule is too eager) is a small tweak of that rule.
+2. File the fix step refined, as for any step you refine ("Refine a step"): `work new` with `title` "Fix of X<n>:
+   <what>", the `goal` it serves, `summary` and `what` (one part per line), `priority` fix (a fix for the worker board:
+   first in its worker's queue), and its model and effort (a structural fix: opus · high; a small tweak: sonnet ·
+   medium). Where it can, one part adds a rule to the supervisor (a repair or watch rule in `src/supervisor/rules/`,
+   with its test), so the same is caught by code next time and costs no sweep.
+3. Name it: `work incident-fix X<n>` with `fix` B<id>. The board marks the incident fixed once that step is done, and
+   open again (handing it to you anew) when the step is dropped.
+4. The main chat queues the step as any other; tell it nothing more. Never leave an incident without its fix step.
 
 ## Recaps
 

@@ -19,8 +19,9 @@ const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// vision:start'), script.indexOf('// vision:end'))}
-Object.assign(this, { visionView, OWN_WORDS })`, made)
+Object.assign(this, { visionView, OWN_WORDS, visionStart, visionStartWords })`, made)
 const visionView = (...args) => JSON.parse(JSON.stringify(made.visionView(...args)))
+const visionStart = (...args) => JSON.parse(JSON.stringify(made.visionStart(...args)))
 
 const PAGE = `# Garden: the product plan
 
@@ -396,4 +397,18 @@ test('the Interview as the way through (2026-10-21): how many wait and where the
   assert.match(script, /\{ command: 'plan-change', id: slide\.id, text: words \}/)
   assert.match(script, /function visionAllDecided\(view\)/)
   assert.match(script, /visionButton\('Start', 'start-interview'/)
+})
+
+test("the trial's gap 1 (2026-10-24): an empty Vision tab starts with what you build, Game, Website, App or Other, and your words", () => {
+  const blank = { ...UI, startKind: null, extra: '' }
+  const none = visionStart(blank)
+  assert.deepEqual([none.kinds.map(kind => kind.key), none.kind, none.canStart], [['Game', 'Website', 'App', 'Other'], null, false])
+  const game = visionStart({ ...blank, startKind: 'Game' })
+  assert.deepEqual([game.kinds.filter(kind => kind.isPicked).map(kind => kind.key), game.canStart], [['Game'], true])
+  // Other says nothing by itself: it needs your words.
+  assert.equal(visionStart({ ...blank, startKind: 'Other' }).canStart, false)
+  assert.equal(visionStart({ ...blank, startKind: 'Other', extra: 'a board game night planner' }).canStart, true)
+  assert.equal(visionStart({ ...blank, startKind: 'Spaceship' }).kind, null)
+  assert.equal(made.visionStartWords('Game', '  a tactics game,  short fights  '), 'Game: a tactics game, short fights')
+  assert.equal(made.visionStartWords('Website', ''), 'Website')
 })

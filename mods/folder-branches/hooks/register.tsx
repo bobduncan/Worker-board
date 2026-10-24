@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName, typedWhy } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName, typedWhy } from './board'
 import type { Board, BoardStart, PauseState, PauseWhere } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -402,7 +402,7 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
   if (myself === null) return null
   const answer = await $.http.fetch(`${board.url}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key },
+    headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, [MOD_HEADER]: MOD_VERSION },
     body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more }),
   })
   // B463: a chat renamed in the app learns its new name here, at the next take, whatever wakes it.
@@ -453,7 +453,7 @@ async function workOnce($: EngineInterface, fields: Record<string, unknown>, req
     // B412: the call's request id: the board gives a repeat of it the first answer, so a call is recorded once.
     const asked = $.http.fetch(`${board.url}${WORK_PATH}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, ...(request === null ? {} : { [REQUEST_HEADER]: request }) },
+      headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, [MOD_HEADER]: MOD_VERSION, ...(request === null ? {} : { [REQUEST_HEADER]: request }) },
       // Who asks is the mod's to say, never the chat's.
       body: JSON.stringify({ ...fields, chat: myself.name, session: await $.session.id() }),
     })
@@ -998,7 +998,9 @@ async function busyWhy($: EngineInterface): Promise<string | null> {
 /**
  * Clear after each step: what becomes of the chat when a turn of it has ended. A worker that reported its step in it is
  * cleared ("afterStep": "clear" in the list of chats) or compacted (the default); the main chat and the partners are
- * never cleared, and are compacted at rest above the list's threshold, once per turn.
+ * never cleared, and are compacted at rest above the list's threshold, once per turn. The supervisor's chat (the
+ * board's role supervisor, or the list's "supervisor" when the board did not answer) is cleared after every turn,
+ * without a log, so each sweep starts empty.
  */
 async function whenTurnEnds($: EngineInterface, f: { isReported: boolean; moreFollows: boolean; step: string | null; answer: string; ended: Record<string, unknown> | null; asked: boolean; retry: EndedRetry | null }): Promise<void> {
   const dir = await findChatsDir($)
@@ -1006,6 +1008,7 @@ async function whenTurnEnds($: EngineInterface, f: { isReported: boolean; moreFo
   const role = roleFrom(f.ended)
   const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
   const chat = await readChat($, dir, await $.session.id())
+  if (role === 'supervisor' || (role === null && isSupervisorOf(list, chat))) return clearSupervisor($, chat)
   if ((role ?? chat?.role ?? 'worker') === 'worker') {
     if (!f.isReported) return
     if (list !== null && chat !== null && list.afterStep === 'clear') {
@@ -1104,11 +1107,19 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
   // The mark on the card, written just before /clear: the conversation after it finds its card by it (a reload between).
   const marked = await changeMine($, mine => ({ ...mine, clearing: { at: now, step: c.step, log }, clearNote: undefined }))
   if (marked === null) return instead('this chat\'s card could not be written')
+  queueClear($, { from, chat: marked, step: c.step, log, file, at: now, prompts, turn }, instead)
+  await tell($, `Clearing this chat after ${c.step ?? 'its step'}: its conversation is kept in ${file}.`)
+}
+
+/**
+ * Clear after each step: the /clear of a clear decided now (`c`, its mark on the card written), queued for when this chat
+ * is idle, as /compact is; the command's own hook looks once more before it runs, and runs only the /clear of the clear
+ * still on its way (its ticket). One that does not run is said through `instead`.
+ */
+function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (why: string) => Promise<void>): void {
   clearTickets += 1
   const ticket = clearTickets
-  clearing = { from, chat: marked, step: c.step, log, file, at: now, prompts, turn, ticket }
-  // Queued for when this chat is idle, as /compact is; the command's own hook looks once more before it runs, and runs
-  // only the /clear of the clear still on its way (its ticket).
+  clearing = { ...c, ticket }
   queuedClears.push(ticket)
   void $.command.run({ command: 'clear' }).then(() => undefined, async (err: unknown) => {
     const at = queuedClears.indexOf(ticket)
@@ -1117,7 +1128,52 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
     clearing = null
     await instead(`/clear did not run: ${reason(err)}`)
   }).catch(() => null)
-  await tell($, `Clearing this chat after ${c.step ?? 'its step'}: its conversation is kept in ${file}.`)
+}
+
+/** The supervisor (spec 2026-10-24): true when the list of chats names this chat its supervisor ("supervisor"). */
+function isSupervisorOf(list: ChatList | null, chat: { name: string; role: ChatRole } | null): boolean {
+  // The review: never the main chat, whatever the list says.
+  return list?.supervisor !== undefined && chat !== null && chat.role !== 'main' && chat.name.toLowerCase() === list.supervisor.toLowerCase()
+}
+
+/**
+ * The supervisor (the review): whether this chat is the supervisor's, as the board last named its role, or as the list of
+ * chats names it. Its answers file nothing for the person: their "For you" block is not handed to the board.
+ */
+async function isSupervisorNow($: EngineInterface): Promise<boolean> {
+  if (lastRole === 'supervisor') return true
+  if (lastRole !== null || chatsDir === null) return false
+  try {
+    return isSupervisorOf(parseList(await $.fs.read(inFolder(chatsDir, LIST_FILE)).catch(() => '')), myself)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The supervisor (spec 2026-10-24): its chat is cleared after every turn of its own, so each sweep starts empty and costs
+ * little. No log is kept (nothing in a sweep is needed after it: what it found stands in the board's incidents), and
+ * none of a worker's guards hold it but these: a turn or a subagent of it still running, or a prompt that came in
+ * before the /clear ran (the command's own hook). Its turn's end reached the board before this. The card says why when
+ * it is not cleared; the conversation after the clear is told nothing (the next sweep word says what to do).
+ */
+async function clearSupervisor($: EngineInterface, chat: ChatFile | null): Promise<void> {
+  const note = async (why: string): Promise<void> => {
+    try {
+      const now = await $.clock.now()
+      await changeMine($, mine => ({ ...mine, clearNote: { at: now, why }, clearing: undefined }))
+    } catch {
+      // only the card does not learn of it
+    }
+  }
+  if (chat === null) return
+  const busy = isInTurn ? 'a turn is running' : await busyWhy($)
+  if (busy !== null) return note(busy)
+  const from = await $.session.id()
+  const now = await $.clock.now()
+  const marked = await changeMine($, mine => ({ ...mine, clearing: { at: now, step: null, log: null }, clearNote: undefined }))
+  if (marked === null) return note('this chat\'s card could not be written')
+  queueClear($, { from, chat: marked, step: null, log: null, file: null, at: now, prompts: promptCount, turn: turnNumber }, note)
 }
 
 /**
@@ -1206,8 +1262,9 @@ async function afterClear($: EngineInterface, title: unknown, isClear: boolean):
       isTurnEndTold = true
     }
     // The start's words only after the mod's own clear of a worker, or a clear of a chat the board names a worker: a
-    // partner or the main chat the person cleared themselves is told nothing of a worker's.
-    if (moved === null || (done === null && lastRole !== 'worker')) return
+    // partner or the main chat the person cleared themselves is told nothing of a worker's. Nor is the supervisor's
+    // chat, which the mod clears without a log after each sweep: the next sweep word says what to do.
+    if (moved === null || (done === null && lastRole !== 'worker') || lastRole === 'supervisor' || (done !== null && done.log === null)) return
     const list = parseList(await $.fs.read(inFolder(chatsDir ?? '', LIST_FILE)).catch(() => ''))
     // B298: the board names the open instructions, kept under the chat's name; the ones it named before the clear stand
     // in when it does not answer in time.
@@ -1457,12 +1514,15 @@ const WORK_TOOL = {
     + 'name of a chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one). '
     + '"partner-answer" ("id", "text", "why"): the partner answers an ask the board routed to it for the person ("text" its '
     + 'answer, normally the advice; "why" one line); the asking chat is woken as with the person\'s answer, and the answer '
-    + 'stands in the partner\'s daily note with an Undo. "escalate" ("id", "why"): the partner hands a routed ask to the person.',
+    + 'stands in the partner\'s daily note with an Undo. "escalate" ("id", "why"): the partner hands a routed ask to the person. '
+    + '"health": the supervisor chat reads the board\'s health summary. "incident" ("title", "subject", "evidence", "rule", "key"): '
+    + 'the supervisor chat files what looks wrong; the same "key" again only counts it. "incident-fix" ("id" X<n>, "fix" B<n>): '
+    + 'the partner names the step that fixes an incident; the board marks it fixed once that step is done.',
   inputSchema: {
     type: 'object',
     properties: {
       action: { type: 'string', enum: WORK_ACTIONS },
-      id: { type: 'string', description: 'The item: B12 (a step), Q3 (an ask), I4 (an instruction).' },
+      id: { type: 'string', description: 'The item: B12 (a step), Q3 (an ask), I4 (an instruction), X5 (an incident).' },
       branch: { type: 'string', description: 'take: the branch you work the step on.' },
       step: { type: 'integer', description: 'step: the step of your plan you are on now.' },
       steps: { type: 'integer', description: 'step: how many steps your plan has, when they are not named.' },
@@ -1481,7 +1541,7 @@ const WORK_TOOL = {
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
       merged: { type: 'string', description: 'report: the commit it was merged with.' },
       on: { type: 'string', description: 'block, unblock: the step it waits on; unblock without it clears Waits for.' },
-      title: { type: 'string', description: "new: the step's title." },
+      title: { type: 'string', description: "new: the step's title. incident: what looks wrong, in one plain line." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
       goal: { type: 'string', description: 'new, refine: the goal it serves (G17); vibe-draft, how-draft: the focus goal.' },
       for: { type: 'string', description: 'queue: the chat it is for.' },
@@ -1495,7 +1555,11 @@ const WORK_TOOL = {
       standard: { type: 'string', description: 'refine, refined and new: what the step\'s result is checked against, "<kind> · <reference picture> · target <score>" (a kind of the project\'s settings), or "none (<why>)".' },
       model: { type: 'string', description: 'refine, refined and new: the model the worker runs the step on, "<sonnet or opus>: <why, in one line of at most 200 characters>"; opus only for architecture or design decisions, the board\'s core, unclear or repeated bugs, art direction or judging; a step without one runs on sonnet.' },
       effort: { type: 'string', description: 'refine, refined and new: the effort level the worker runs the step at, "<low, medium, high, xhigh or max>: <why, in one line of at most 200 characters>"; a step without one runs at medium.' },
-      evidence: { type: 'string', description: 'checked: the evidence picture\'s path in the project (the result beside its reference, the points ticked), or "none (<why>)".' },
+      evidence: { type: 'string', description: 'checked: the evidence picture\'s path in the project (the result beside its reference, the points ticked), or "none (<why>)". incident: what you saw, in one line, with times and ids.' },
+      subject: { type: 'string', description: 'incident: the chat or the step it is about ("Worker 2", "B482"), or "board".' },
+      rule: { type: 'string', description: 'incident: the code rule that could catch it next time, in one line ("a worker working with no step for 30 min").' },
+      key: { type: 'string', description: 'incident: what makes it the same finding next time, "<what> <subject>" ("working-without-step Worker 2"); the key of an incident the summary lists counts that one.' },
+      fix: { type: 'string', description: 'incident-fix: the step that fixes the incident ("B490").' },
       points: { type: 'array', items: { type: 'string' }, description: 'checked: every agreed point of the step, each "pass: <point>", "fail: <point>" or "ask: <point>" (a point only the person can judge).' },
       score: { type: 'string', description: 'checked: the score beside its target, "82 of 75", where the kind\'s definition of done has a rubric.' },
       questions: { type: 'array', items: { type: 'string' }, description: 'refine: the questions for the person.' },
@@ -1751,7 +1815,8 @@ export const register: Register = on => {
         if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
           isTurnEndTold = true
           const since = turnStartedAt
-          const forYou = forYouItems(e.answer)
+          // The review: the supervisor's chat asks the person nothing: no "For you" block of its goes to the board.
+          const forYou = await isSupervisorNow($) ? [] : forYouItems(e.answer)
           // B300: a worker that holds nothing pulls with the same call, once per turn: when a step queued for it may be
           // taken now, the board puts its line ("work: B286 is yours; run work next") into the outbox once, and it is
           // typed here at once. All of it holds the turn's end 1.5 s at most; a board without a work store refuses, and

@@ -372,3 +372,13 @@ test("B412: a work call's request id comes in its X-Work-Request header; one in 
   await ask({ method: 'POST', path: '/api/bridge/work', headers, body })
   assert.deepEqual(worked, [['mod', { chat: 'Board', action: 'next', request: 'cli-board-7-abc' }], ['mod', { chat: 'Board', action: 'next' }]])
 })
+
+test('the supervisor\'s Part 2: the Workers mod\'s version comes in its X-Workers-Mod header; one in the body, or one that is no version, is not taken', async t => {
+  const { ask, worked } = await board(t)
+  const headers = { 'Content-Type': 'application/json', 'X-Board-Key': KEY }
+  const body = JSON.stringify({ chat: 'Board', action: 'next', mod: '9.9.9' })
+  await ask({ method: 'POST', path: '/api/bridge/work', headers: { ...headers, 'X-Workers-Mod': '0.16.0' }, body })
+  await ask({ method: 'POST', path: '/api/bridge/work', headers, body })
+  await ask({ method: 'POST', path: '/api/bridge/work', headers: { ...headers, 'X-Workers-Mod': 'new and shiny' }, body })
+  assert.deepEqual(worked, [['mod', { chat: 'Board', action: 'next', mod: '0.16.0' }], ['mod', { chat: 'Board', action: 'next' }], ['mod', { chat: 'Board', action: 'next' }]])
+})

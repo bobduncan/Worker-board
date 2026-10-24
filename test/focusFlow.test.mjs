@@ -6,7 +6,7 @@ import test from 'node:test'
 
 import { messageText } from '../src/bridge.mjs'
 import { parseThread } from '../src/brainstorm.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove } from '../src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, focusAllDone } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
 import { wakeFor } from '../src/say.mjs'
 import { workApi } from '../src/work/api.mjs'
@@ -67,7 +67,7 @@ async function inVibe() {
 }
 
 test('the moves and the drafts it knows', () => {
-  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done', 'plan-confirm', 'plan-change', 'plan-ask', 'plan-deeper', 'plan-marks', 'plan-feature-add', 'plan-goals-confirm', 'plan-goals-change', 'plan-goals-agree', 'plan-settled', 'plan-standards', 'plan-standards-confirm', 'plan-standards-change', 'plan-standards-agree', 'plan-measure', 'plan-check', 'plan-focus', 'plan-tradeoffs', 'plan-tradeoff'])
+  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done', 'plan-confirm', 'plan-change', 'plan-ask', 'plan-deeper', 'plan-marks', 'plan-feature-add', 'plan-goals-confirm', 'plan-goals-change', 'plan-goals-agree', 'plan-settled', 'plan-standards', 'plan-standards-confirm', 'plan-standards-change', 'plan-standards-agree', 'plan-measure', 'plan-check', 'plan-focus', 'plan-tradeoffs', 'plan-tradeoff', 'plan-start'])
   assert.deepEqual(FOCUS_DRAFTS, ['vibe-draft', 'how-draft'])
 })
 
@@ -301,4 +301,15 @@ test('B467: a goal map Windows holds right after the pick still lets the focus w
   assert.match(picked.words.text, /\nStage: the vibe\n/)
   // What could not be written or read is said, not dropped.
   assert.ok(said.mock.calls.length >= 1)
+})
+
+test('whether every part of the focus is done: only for the focus goal itself; no focus, or a word without a goal, is not', () => {
+  // 2026-10-24: on the trial board (no focus yet) a Vision word without an id read progress of no focus and failed.
+  assert.equal(focusAllDone(null, undefined), false)
+  assert.equal(focusAllDone(null, 'G1'), false)
+  assert.equal(focusAllDone({ id: 'G1', progress: { done: 3, total: 3 } }, undefined), false)
+  assert.equal(focusAllDone({ id: 'G1', progress: { done: 3, total: 3 } }, 'G1'), true)
+  assert.equal(focusAllDone({ id: 'G1', progress: { done: 2, total: 3 } }, 'G1'), false)
+  assert.equal(focusAllDone({ id: 'G1', progress: { done: 0, total: 0 } }, 'G1'), false)
+  assert.equal(focusAllDone({ id: 'G1' }, 'G1'), false)
 })

@@ -95,13 +95,15 @@ export type ChatList = {
   afterStep?: AfterStep
   /** Clear after each step: the main chat and the partners are compacted at rest; false stops that alone. */
   compactAtRest?: boolean
+  /** The supervisor (spec 2026-10-24): the name of the chat whose sweeps look the board over; cleared after every turn. */
+  supervisor?: string
 }
 
 /** Clear after each step: what the mod does with a worker's conversation after its reported step. */
 export type AfterStep = 'clear' | 'compact' | 'off'
 
 /** The role the worker board gives a chat of its list. */
-export type BoardRole = 'main' | 'worker' | 'advisor' | 'helper'
+export type BoardRole = 'main' | 'worker' | 'advisor' | 'helper' | 'supervisor'
 
 /** The chats as last read. */
 export type ChatsView = {

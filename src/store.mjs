@@ -48,7 +48,8 @@ const TAKEN_SHOWN_MS = 10 * 60_000
 // board used to drop them after ten minutes, in silence, when the chat was busy or closed; now they wait until their
 // purpose is gone (src/work/outboxSweep.mjs closes them with a reason) or answerMs passed. A line the person typed to a
 // chat keeps its minutes: nothing typed long ago turns up in a chat.
-export const keepMs = (message, keep) => (isAnswer(message) || ['step', 'refined', 'work'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
+// The supervisor (2026-10-24): and an incident's word to the partner, which waits for a partner that does not run.
+export const keepMs = (message, keep) => (isAnswer(message) || ['step', 'refined', 'work', 'incident'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
 export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
 
 /**

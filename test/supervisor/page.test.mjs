@@ -72,6 +72,25 @@ test('the section: when it checked itself, the incidents and their states, the l
   assert.equal(page.supervisorOf(null), null)
 })
 
+test('Part 2, the last sweep: running, what it found and cost, why none ran (said plainly), the day\'s sweeps; the note names the schedule', () => {
+  const sweep = (more = {}) => ({ at: at(10, 30), asked: false, subject: null, ended: at(10, 32), found: 2, read: true, tokens: 31200, tokenParts: null, note: null, ...more })
+  const of = more => plain(page.supervisorOf({ ...VIEW, sweepEvery: 10, sweepNote: null, sweepsToday: { count: 1, tokens: 31200 }, ...more }))
+  assert.equal(of({ lastSweep: sweep() }).sweep, 'Last sweep at 10:30 (by the clock): 2 findings, 31,200 tokens.')
+  assert.equal(of({ lastSweep: sweep({ asked: true, subject: 'Worker 2', ended: null, found: 0, tokens: null, note: 'its chat does not run: the main chat was asked to start it' }) }).sweep,
+    'Sweep at 10:30 (asked, about Worker 2): running; its chat does not run: the main chat was asked to start it.')
+  assert.equal(of({ lastSweep: sweep({ found: 1, tokens: null }) }).sweep, 'Last sweep at 10:30 (by the clock): one finding, its tokens not read yet.')
+  // Review Focus 4: why no sweep ran, before the last one that did.
+  assert.equal(of({ lastSweep: sweep(), sweepNote: { at: at(10, 41), why: 'no chat "Game - Supervisor" is open in the app', asked: true } }).sweep,
+    'No sweep at 10:41: no chat "Game - Supervisor" is open in the app. Last sweep at 10:30 (by the clock): 2 findings, 31,200 tokens.')
+  assert.equal(of({ lastSweep: null, sweepNote: { at: at(10, 41), why: 'the list of chats names no supervisor chat ("supervisor" in .claude/chats/list.json)', asked: true } }).sweep,
+    'No sweep at 10:41: the list of chats names no supervisor chat ("supervisor" in .claude/chats/list.json).')
+  assert.equal(of({ lastSweep: sweep(), sweepsToday: { count: 6, tokens: 190000 } }).sweep, 'Last sweep at 10:30 (by the clock): 2 findings, 31,200 tokens. Today 6 sweeps, 190,000 tokens.')
+  assert.equal(of({ lastSweep: null }).note, 'Its rules run every 3 minutes by themselves, and its chat sweeps the board every 10 minutes while work runs; Check now runs both at once.')
+  assert.equal(of({ lastSweep: null, sweepEvery: 0 }).note, 'Its rules run every 3 minutes by themselves; Check now runs them at once, with a sweep by its chat.')
+  // Check now no longer asks the main chat: its titles say so.
+  assert.doesNotMatch(script.slice(script.indexOf('function syncPart('), script.indexOf('// syncline:start')), /asks \$\{state\.workers\.mainTitle/)
+})
+
 test('the section shows when something is new: a check, or an incident that opened or changed; closed, it shows again only for something newer', () => {
   const ui = (more = {}) => ({ isOpen: false, closedAt: null, showsRules: false, ...more })
   assert.equal(page.isSupervisorShown(VIEW, ui()), true)
@@ -113,9 +132,10 @@ test('"Check now" carries the wrench, in the button\'s own colour, and sends the
   assert.match(script.slice(script.indexOf('function icon(name)'), script.indexOf('function icon(name)') + 400), /stroke: 'currentColor'/)
   assert.match(script, /return checkNowButton\(lane\.name, state, /)
   assert.match(script, /send\(\{ to: main, command: 'sync', chat \}, `sync:\$\{chat\}`\)/)
-  // The server runs the supervisor at once, about that worker (null for the whole board).
+  // The server runs the supervisor at once, about that worker (null for the whole board): since Part 2 the rules and a
+  // sweep (`checkNow`), no word to the main chat.
   assert.match(server, /const subject = typeof body\?\.chat === 'string' && body\.chat !== 'board' \? body\.chat\.slice\(0, 80\) : null/)
-  assert.match(server, /await supervisor\.run\(\{ asked: true, subject \}\)/)
+  assert.match(server, /await supervisor\.checkNow\(\{ subject \}\)/)
   assert.doesNotMatch(script, /'Out of sync\?'\)/, 'no button says "Out of sync?" any more')
 })
 

@@ -675,7 +675,8 @@ const DEMO_INCIDENTS = [
 
 /**
  * The supervisor's section on the demo (the server's `supervisor` in the state): a check asked a moment ago with a fix
- * and a wake, every rule (`rules`, the supervisor's own list) with three tripped today, the incidents above, no sweep.
+ * and a wake, every rule (`rules`, the supervisor's own list) with three tripped today, the incidents above, and (Part 2)
+ * a sweep by the clock 6 minutes ago that found one thing, with its tokens and the day's.
  */
 export function demoSupervisor(now, rules = []) {
   const tripped = { blocked: 2, 'limit-back': 1, 'unknown-lane': 5 }
@@ -690,7 +691,10 @@ export function demoSupervisor(now, rules = []) {
     checkedAt: now - 2 * MIN,
     rules: rules.map(rule => ({ ...rule, state: rule.id in tripped ? 'tripped' : 'fine', why: null, trips: tripped[rule.id] ?? 0 })),
     incidents: DEMO_INCIDENTS.map(({ seen: [first, last], ...one }) => ({ ...one, firstSeen: now - first * MIN, lastSeen: now - last * MIN, since: now - (one.state === 'open' ? first : last) * MIN, ruleWanted: null })),
-    lastSweep: null,
+    lastSweep: { at: now - 6 * MIN, asked: false, subject: null, ended: now - 5 * MIN, found: 1, read: true, tokens: 28400, tokenParts: { input: 300, cacheWrite: 2100, cacheRead: 25200, output: 800 }, note: null },
+    sweepNote: null,
+    sweepEvery: 10,
+    sweepsToday: { count: 7, tokens: 201300 },
   }
 }
 

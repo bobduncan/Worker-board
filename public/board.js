@@ -115,6 +115,10 @@ function since(at, now) {
 }
 
 const ICONS = {
+  game: 'M7 8h10a4 4 0 0 1 3.9 3.1l1 4.5a2.8 2.8 0 0 1-4.7 2.6L15 16H9l-2.2 2.2a2.8 2.8 0 0 1-4.7-2.6l1-4.5A4 4 0 0 1 7 8zM6 12h4M8 10v4M16 11h.01M18 13h.01',
+  website: 'M3 7h18M7 5h.01M10 5h.01M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM7 11h10M7 15h6',
+  app: 'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM10 5h4M12 18h.01',
+  other: 'M9 3H3v6h6V3zM21 3h-6v6h6V3zM9 15H3v6h6v-6zM18 15v6M15 18h6',
   // B280: the Advisor, set apart from the workers.
   advisor: 'M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.74V16a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1.26A7 7 0 0 0 12 2z',
   refresh: 'M20 11a8 8 0 0 0-14.3-4.5M4 4v4h4M4 13a8 8 0 0 0 14.3 4.5M20 20v-4h-4',
@@ -657,18 +661,48 @@ function supervisorOf(view) {
   const shown = rules.filter(isShown)
   const tripped = rules.filter(rule => rule.tone === 'tripped').length
   const failed = rules.filter(rule => rule.tone === 'failed').length
-  const sweep = view.lastSweep ?? null
+  const every = Number.isFinite(view.sweepEvery) ? view.sweepEvery : 0
   return {
     title: Number.isFinite(view.checkedAt) ? `Supervisor · checked itself at ${clock(view.checkedAt)}` : 'Supervisor · not checked yet',
-    note: 'Its rules run every 3 minutes by themselves; Check now runs them at once, and the main chat checks what they do not know.',
+    note: every > 0
+      ? `Its rules run every 3 minutes by themselves, and its chat sweeps the board every ${every} minutes while work runs; Check now runs both at once.`
+      : 'Its rules run every 3 minutes by themselves; Check now runs them at once, with a sweep by its chat.',
     incidents: (view.incidents ?? []).map(one => ({
       id: one.id, tone: INCIDENT_TONES[one.state] ?? 'open', state: one.state === 'fix' && one.fix ? `fix ${one.fix}` : one.state ?? 'open', text: one.title ?? '',
       seen: [one.count === 1 ? 'seen once' : `seen ${one.count} times`, Number.isFinite(one.firstSeen) ? `since ${clock(one.firstSeen)}` : null, one.count > 1 && Number.isFinite(one.lastSeen) ? `last ${clock(one.lastSeen)}` : null].filter(Boolean).join(', '),
     })),
     check: run === null ? null : { head: `Last check at ${clock(run.at)}${run.asked ? `, asked${run.subject ? ` about ${run.subject}` : ''}` : ''}`, rows: checkRowsOf(run) },
     rules: { head: `Rules · ${rules.length}${tripped > 0 ? ` · ${tripped} tripped` : ''}${failed > 0 ? ` · ${failed} failed` : ''}`, shown, rest: rules.filter(rule => !isShown(rule)) },
-    sweep: sweep === null ? 'No sweep yet.' : `Last sweep at ${clock(sweep.at)}: ${sweep.found === 1 ? 'one finding' : `${sweep.found ?? 0} findings`}${Number.isFinite(sweep.tokens) ? `, ${sweep.tokens} tokens` : ''}.`,
+    sweep: sweepLineOf(view),
   }
+}
+
+/** A count of tokens in words: "31,200 tokens". */
+const tokenWords = count => `${Math.round(count).toLocaleString('en-US')} tokens`
+
+/**
+ * The supervisor's Part 2: the last sweep of its chat, in one line: asked or by the clock, about whom, running or what it
+ * found and cost; why the newest did not run (Check now, or the clock, with the supervisor's chat missing); the day's
+ * sweeps and their tokens. "No sweep yet." before the first.
+ */
+function sweepLineOf(view) {
+  const sweep = view.lastSweep ?? null
+  const refused = view.sweepNote ?? null
+  const about = one => `${one.asked ? 'asked' : 'by the clock'}${one.subject ? `, about ${one.subject}` : ''}`
+  const parts = []
+  if (refused !== null) parts.push(`No sweep at ${clock(refused.at)}: ${refused.why}.`)
+  if (sweep === null) {
+    if (refused === null) parts.push('No sweep yet.')
+  } else if (!Number.isFinite(sweep.ended)) {
+    parts.push(`Sweep at ${clock(sweep.at)} (${about(sweep)}): running${sweep.note ? `; ${sweep.note}` : ''}.`)
+  } else {
+    const found = sweep.found === 1 ? 'one finding' : `${sweep.found ?? 0} findings`
+    const cost = Number.isFinite(sweep.tokens) ? `, ${tokenWords(sweep.tokens)}` : ', its tokens not read yet'
+    parts.push(`Last sweep at ${clock(sweep.at)} (${about(sweep)}): ${found}${cost}${sweep.note ? `; ${sweep.note}` : ''}.`)
+  }
+  const today = view.sweepsToday ?? null
+  if (today !== null && today.count > 1) parts.push(`Today ${today.count} sweeps, ${tokenWords(today.tokens)}.`)
+  return parts.join(' ')
 }
 
 /**
@@ -2771,13 +2805,13 @@ $('lanes').addEventListener('click', event => {
  */
 function syncPart(lane, state) {
   if (lane.isMain || lane.isLeftover || (state.workers?.main ?? null) === null) return null
-  return checkNowButton(lane.name, state, `Runs the board's own checks at once, about this worker, and asks ${state.workers.mainTitle ?? state.workers.main} to check it against the work store, its chat and the limits, and to fix what it can`)
+  return checkNowButton(lane.name, state, 'Runs the board\'s own checks at once, and a sweep by the supervisor\'s chat about this worker; what they find shows in the supervisor\'s section')
 }
 
 /** B438: the same for the whole board, in the Workers panel's head beside "+ Add worker", and in the supervisor's section. */
 function boardSyncButton(state) {
   if ((state.workers?.main ?? null) === null) return null
-  return checkNowButton('board', state, `Runs the board's own checks at once, and asks ${state.workers.mainTitle ?? state.workers.main} to check the whole board against the work store, the chats and the limits, and to fix what it can`)
+  return checkNowButton('board', state, 'Runs the board\'s own checks at once, and a sweep of the whole board by the supervisor\'s chat; what they find shows in the supervisor\'s section')
 }
 
 // syncline:start
@@ -9583,6 +9617,25 @@ function goalStepIds(goals, id) {
 // vision:start
 /** The own-words card's label among an ask's options: no option of the partner's is written so. */
 const OWN_WORDS = '\u0000own words'
+/** What a project builds, the empty Vision tab's first choice (the trial's gap 1, 2026-10-24). */
+const VISION_KINDS = ['Game', 'Website', 'App', 'Other']
+
+/**
+ * The empty Vision tab's start (the user, 2026-10-24: "it should start with a nice and easy prompt of what am I trying
+ * to build ... Game, website, app, other with text input"): the kinds with the one picked, and whether it can start;
+ * Other says nothing by itself, so it needs the person's words (`ui.extra`).
+ */
+function visionStart(ui) {
+  const kind = VISION_KINDS.includes(ui.startKind) ? ui.startKind : null
+  const words = String(ui.extra ?? '').trim()
+  return { kinds: VISION_KINDS.map(key => ({ key, isPicked: key === kind })), kind, canStart: kind !== null && (kind !== 'Other' || words !== '') }
+}
+
+/** The start's words to the partner: the kind, then the person's words on one line ("Game: a tactics game"). */
+function visionStartWords(kind, words) {
+  const said = String(words ?? '').replace(/\s+/g, ' ').trim()
+  return said === '' ? kind : `${kind}: ${said}`
+}
 /** A feature's marks (the user, 2026-10-21: the milestones do not exist yet on the Features step; the plan places it). */
 const MARK_LABELS = [['must', 'Must'], ['later', 'Later'], ['no', 'No'], ['unsure', '?']]
 
@@ -10214,10 +10267,10 @@ function focusNoteCard(view) {
 // Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page; the board
 // types your moves and answers to it (src/focus.mjs `planWord`, the store's `answer`). Your feature marks and goal
 // confirms wait on the page until you send them, in one word.
-const visionUi = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [] }
+const visionUi = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false }
 
 function visionData(state) {
-  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note,
+  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent,
     // While the partner prepares something, the minute, for "sent 2 min ago"; and the partner's name.
     (state.plan?.working ?? []).length > 0 ? Math.floor(state.readAt / MIN) : null, state.advisor?.name ?? null]
 }
@@ -10302,7 +10355,7 @@ function drawVision(state) {
     top.append(steps)
   }
   main.append(top)
-  if (view !== null && !can) main.append(el('p', 'vision-note', `The buttons are off here. ${off}`))
+  if (!can) main.append(el('p', 'vision-note', `The buttons are off here. ${off}`))
   if (visionUi.note !== null) main.append(el('p', `vision-note${visionUi.note.isProblem ? ' is-problem' : ''}`, visionUi.note.text))
   if (view !== null && view.working.length > 0) main.append(visionWorking(view.working, state, can, off))
   // Decisions waiting (the user, 2026-10-21: "when in the flow is this supposed to happen"): a bar on every step.
@@ -10313,7 +10366,7 @@ function drawVision(state) {
       visionButton('Start', 'start-interview', { className: 'is-primary' }))
     main.append(bar)
   }
-  if (view === null) main.append(el('p', 'vision-empty', 'No product plan yet. Type "plan interview" to your partner: the answers every goal falls back to appear here, and the questions it asks you come one per slide.'))
+  if (view === null) main.append(visionStartCard(visionStart(visionUi), can, off))
   else if (view.page === 'vision') main.append(...visionPage(view, can, off))
   else if (view.page === 'features') main.append(...featuresPage(view, can, off))
   else if (view.page === 'plan') main.append(...planPage(view, can, off))
@@ -10996,6 +11049,46 @@ function visionSlide(view, can, off) {
   return card
 }
 
+/**
+ * The empty Vision tab's start (the trial's gap 1, 2026-10-24): what you build, picked from four, your words, and Start,
+ * which asks the partner to begin the interview; its questions then come here, one per slide.
+ */
+function visionStartCard(start, can, off) {
+  const card = el('section', 'vision-card vision-start')
+  card.append(el('h2', '', 'What are you building?'),
+    el('p', 'muted', 'Pick what it is and say it in a few words. Your partner starts the plan from it; its questions come here, one per slide.'))
+  const kinds = el('div', 'vision-steps vision-start-kinds')
+  for (const kind of start.kinds) {
+    const button = visionButton(kind.key, 'start-kind', { id: kind.key, className: 'vision-mode', isEnabled: can && !visionUi.startSent, title: off })
+    button.setAttribute('aria-pressed', String(kind.isPicked))
+    const examples = {
+      Game: ['🎮', 'e.g. a tactics game, mobile puzzle, …'],
+      Website: ['💻', 'e.g. portfolio, blog, landing page, …'],
+      App: ['📱', 'e.g. iOS/Android app, tool, utility, …'],
+      Other: ['💡', 'e.g. a goal, automation, service, …'],
+    }
+    const [picture, example] = examples[kind.key] ?? examples.Other
+    const symbol = el('span', 'vision-kind-picture', picture)
+    symbol.setAttribute('aria-hidden', 'true')
+    button.replaceChildren(symbol, el('span', 'vision-kind-label', kind.key), el('span', 'vision-kind-example', example))
+    kinds.append(button)
+  }
+  card.append(kinds, visionBox('vision-extra-words', 'In a few words: what is it, and who is it for? (a tactics game for short breaks, a site for my bakery...)', 3, can && !visionUi.startSent))
+  const buttons = el('div', 'vision-buttons')
+  buttons.append(el('span', 'grow'))
+  if (visionUi.startSent) buttons.append(el('span', 'muted', 'Sent: your partner starts the interview.'))
+  else {
+    const why = !can ? off : start.kind === null ? 'Pick what you build first.' : 'Say in a few words what it is.'
+    const begin = visionButton('Start the plan', 'start-plan', { className: 'is-primary', isEnabled: can && start.canStart, title: why })
+    const arrow = el('span', 'vision-start-arrow', '→')
+    arrow.setAttribute('aria-hidden', 'true')
+    begin.append(arrow)
+    buttons.append(begin)
+  }
+  card.append(buttons)
+  return card
+}
+
 /** A move of the Vision tab: to the store (an answer) or to the goals route (a word to the partner), then read again. */
 async function visionSend(url, body, done) {
   visionUi.busy = true
@@ -11022,6 +11115,22 @@ async function visionSend(url, body, done) {
 const toPartner = (body, done) => visionSend('/api/goals', body, done)
 
 async function visionAct(act, id) {
+  // The empty tab's start (the trial's gap 1): its two moves come before there is a plan to view.
+  if (act === 'start-kind') {
+    visionUi.startKind = id
+    visionUi.note = null
+    return redrawVision()
+  }
+  if (act === 'start-plan') {
+    const start = visionStart(visionUi)
+    if (!start.canStart) return redrawVision()
+    const words = visionStartWords(start.kind, visionUi.extra)
+    if (await toPartner({ command: 'plan-start', text: words }, 'Sent to your partner: it starts the plan interview. Its questions come here, one per slide.')) {
+      visionUi.extra = ''
+      visionUi.startSent = true
+    }
+    return redrawVision()
+  }
   const view = visionView(board?.plan ?? null, visionUi, board?.focus ?? null)
   if (view === null) return
   const slide = view.slides[view.at] ?? null

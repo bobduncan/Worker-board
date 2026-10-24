@@ -162,7 +162,7 @@ export function runRules(rules, view, ctx) {
 }
 
 /** The supervisor's own memory as its file keeps it: `{ seen, repairs, trips }`, anything else left out. */
-function memoryOf(value) {
+export function memoryOf(value) {
   const seen = value?.seen !== null && typeof value?.seen === 'object' ? Object.entries(value.seen).filter(([, at]) => Number.isFinite(at)) : []
   const repairs = Array.isArray(value?.repairs) ? value.repairs.filter(one => Number.isFinite(one?.at) && typeof one?.rule === 'string') : []
   const trips = value?.trips !== null && typeof value?.trips === 'object'

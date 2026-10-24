@@ -232,6 +232,11 @@ top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what
 `supervisor` (the defaults unless set): the thresholds of the board's watch rules, which report what does not look right
 (the supervisor, `DESIGN.md`): `{ "unknownMinutes": 10, "suspendedMinutes": 10, "idleMinutes": 10, "notRunningMinutes":
 30, "opusWaitMinutes": 15, "undeliveredMinutes": 10, "repairsPerDay": 3 }`; any of them, each a number above 0.
+`supervisorSweepMinutes` (10 unless set): how often the board wakes the supervisor's chat for a sweep while work runs
+(a chat works or a step is taken or in progress; never while you pause all, at a full limit, or while the last sweep
+runs); 0 for no sweep by the clock (Check now still sweeps). A sweep costs a few tens of thousands of tokens, mostly
+cached; the supervisor's section shows each sweep's tokens and the day's sum, so lower it (or raise the minutes) to
+save tokens.
 
 ## The work store
 
@@ -271,7 +276,10 @@ list switches the automatic start off. `helper` names the partner's helper (B424
 never given a queue, whose refines and result checks the work tool takes as the partner's. `afterStep` says what
 becomes of a worker after its reported step: `"compact"` (unless set: above `compactAbove`, and not while more of the
 same work follows), `"clear"` or `"off"`. `compactAtRest` (`true` unless set) switches the main chat's and the
-partners' compaction at rest off with `false`, and leaves the workers' as it is.
+partners' compaction at rest off with `false`, and leaves the workers' as it is. `supervisor` names the supervisor's
+chat (the supervisor, `DESIGN.md`): no lane and no queue; the board wakes it for a sweep (it reads `work health` and
+files `work incident`, nothing else; its job is `roles\supervisor.md`), and its Workers mod (0.16.0 or newer) clears it
+after every turn, without a log. Without it the code rules run as before, and "Check now" says why no sweep ran.
 
 **Clear after each step** (`"afterStep": "clear"`, the Workers mod 0.14.0): after the turn in which a worker reported
 its step, the mod has the board keep the conversation, then runs /clear, also when more work follows, so every step

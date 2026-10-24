@@ -4,6 +4,7 @@ import type { FsEntry, On } from 'claude-code'
 
 import type { ChatFile, ChatTask } from '../types'
 import { chatText, parseChat } from './chats'
+import { forYouItems } from './foryou'
 
 const TOOL = 'mcp__folder-branches__chat'
 const ROOT = 'D:\\Work\\project'
@@ -89,6 +90,8 @@ type World = {
   /** Review 3: a /compact the test holds until it lets it go; every file the mod wrote, in order. */
   holdCompact: Promise<void> | null
   writes: string[]
+  /** The supervisor: the version each call to the board said in its X-Workers-Mod header. */
+  modHeaders: string[]
 }
 
 /** Pause 2: the board's pause-state answer while nobody paused. */
@@ -100,7 +103,7 @@ async function settle(): Promise<void> {
 }
 
 function world(id: string, files: Record<string, string> = {}): World {
-  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [] }
+  return { id, files, agents: [], tools: [], opened: [], sent: [], whileAsked: null, waiting: [], takeAnswers: [], fetched: [], typedIn: [], reported: [], refusesTyping: false, up: null, spawned: [], comesUp: true, tokens: 50_000, refusesCompact: false, isHeadless: false, commanded: [], compactions: [], toasts: [], worked: [], workAnswer: { status: 200, text: '{"text":"Yours, Units:"}' }, formAnswers: {}, workAnswers: [], formResponse: null, formCloses: false, hangs: false, contexts: [], workedAt: [], pauseAnswer: RUNNING, pauseReads: 0, descriptions: {}, stored: {}, requests: [], cuts: [], held: null, byAction: {}, holdAction: null, sequence: [], holdCompact: null, writes: [], modHeaders: [] }
 }
 
 /** The project's list of chats, with the titles that join by themselves. */
@@ -226,6 +229,7 @@ function stand(on: On, w: World): void {
   })
   on('http.fetch', (_$, e) => {
     if (w.up !== null && !w.up.some(address => e.url.startsWith(address))) return { deny: 'ECONNREFUSED' }
+    if (e.url.includes('/api/bridge/')) w.modHeaders.push(e.init?.headers?.['X-Workers-Mod'] ?? '')
     if (e.url.endsWith('/api/bridge/work') && /"action":"pause-state"/.test(e.init?.body ?? '')) {
       // Pause 2: the mod's own reading of the pause, apart from the work calls the tests count.
       w.pauseReads += 1
@@ -1300,6 +1304,30 @@ describe('B297: the work tool asks the worker board', () => {
     expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'vibe-draft', goal: 'G6', lines: ['hits feel heavy'], picture: 'pictures/hit.png', chat: 'Units', session: 'units' })
     await $.tool.call({ tool: WORK, action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'] } as never)
     expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'how-draft', goal: 'G6', parts: ['Hit effects · about 2 h · steps B20'], partnerDecides: ['the colours'], youDecide: ['the sounds'], chat: 'Units', session: 'units' })
+  })
+
+  test('the supervisor: its chat reads the health summary and files an incident, with its fields sent to the board', async ($, on) => {
+    mock.clock(on)
+    const w = world('watcher', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'sweep', session_title: 'Game - Watcher' })
+    await $.turn.start({ text: 'sweep', turnId: 't1' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'The board\'s health at 11:00.', changed: false }) }
+    expect((await $.tool.call({ tool: WORK, action: 'health' } as never) as { result: string }).result).toBe('The board\'s health at 11:00.')
+    expect(JSON.parse(w.worked[0] ?? '{}')).toEqual({ action: 'health', chat: 'Watcher', session: 'watcher' })
+    w.workAnswer = { status: 200, text: JSON.stringify({ id: 'X4', text: 'X4: opened: Units works with no step for an hour', opened: true }) }
+    const filed = await $.tool.call({ tool: WORK, action: 'incident', title: 'Units works with no step for an hour', subject: 'Units', evidence: 'working since 10:00, card empty', rule: 'a worker working with no step for 30 min', key: 'working-without-step Units' } as never)
+    expect((filed as { result: string }).result).toBe('X4: opened: Units works with no step for an hour')
+    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'incident', title: 'Units works with no step for an hour', subject: 'Units', evidence: 'working since 10:00, card empty', rule: 'a worker working with no step for 30 min', key: 'working-without-step Units', chat: 'Watcher', session: 'watcher' })
+    // Both are the tool's actions, and its description says what they are for.
+    expect(w.descriptions.work).toContain('"health": the supervisor chat reads the board\'s health summary')
+    expect(w.descriptions.work).toContain('"incident" ("title", "subject", "evidence", "rule", "key")')
+    // The partner names the step that fixes an incident.
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'X4: fix B490; the board marks it fixed once B490 is done.' }) }
+    await $.tool.call({ tool: WORK, action: 'incident-fix', id: 'X4', fix: 'B490' } as never)
+    expect(JSON.parse(w.worked[2] ?? '{}')).toEqual({ action: 'incident-fix', id: 'X4', fix: 'B490', chat: 'Watcher', session: 'watcher' })
+    expect(w.descriptions.work).toContain('"incident-fix" ("id" X<n>, "fix" B<n>)')
   })
 
   test('Fix first: new and queue carry priority fix to the board', async ($, on) => {
@@ -2660,5 +2688,83 @@ describe('clear after each step', () => {
     const before = w.worked.length
     expect((await $.tool.call({ tool: WORK, action: 'save-log' } as never)).result).toContain('the Workers mod\'s own call')
     expect(w.worked.length).toBe(before)
+  })
+
+  /** The supervisor's chat (the list's "supervisor"), at the start of a sweep's turn; the board answers its turn's end with `ended`. */
+  async function watcher($: Engine, on: On, ended: { status: number; text: string }): Promise<World> {
+    const w = world('watcher', { [`${CHATS}/list.json`]: '{ "prefix": "Game - ", "main": "Main", "afterStep": "clear", "supervisor": "Watcher" }\n', [BOARD]: board })
+    stand(on, w)
+    w.tokens = 400_000
+    w.byAction = { 'turn-ended': ended }
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'sweep', session_title: 'Game - Watcher' })
+    await $.turn.start({ text: 'sweep: run work health', turnId: 't1' })
+    return w
+  }
+
+  test('the supervisor: its chat is cleared after every turn, without a log; its turn\'s end reaches the board first; the next conversation is told nothing', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await watcher($, on, ok({ text: 'No instruction was left open.', missed: [], open: [], role: 'supervisor', pause: RUNNING }))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    // No report and no step: the turn's end goes to the board, then /clear; no log is asked for, nothing is compacted.
+    expect(w.sequence).toEqual(['turn-ended', '/clear'])
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.compactions).toEqual([])
+    expect(w.toasts).toEqual([])
+    expect(fileOf(w)?.clearing).toEqual({ at: clock.now(), step: null, log: null })
+    await $.session.end({ reason: 'clear', sessionId: w.id, resume: { id: w.id } })
+    w.id = 'watcher-2'
+    const started = await $.classic.SessionStart({ source: 'clear', session_title: 'Game - Watcher' })
+    expect([...(started.additionalContext ?? [])]).toEqual([])
+    expect(fileOf(w, 'watcher-2')).toEqual({ name: 'Watcher', role: 'worker', state: 'waiting', task: null, at: clock.now(), cleared: { at: clock.now(), step: null, log: null } })
+    // Every call to the board says the mod's version.
+    expect(w.modHeaders.length).toBeGreaterThan(0)
+    expect(w.modHeaders.every(one => one === '0.16.0')).toBe(true)
+  })
+
+  test('the supervisor: when the board does not answer its turn\'s end, the list of chats names it, and it is cleared all the same', async ($, on) => {
+    mock.clock(on)
+    const w = await watcher($, on, { status: 503, text: 'The board restarts: try again in a moment.' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.sequence.filter(one => one === 'save-log')).toEqual([])
+  })
+
+  test('the review: the supervisor\'s chat hands the board no "For you" block at its turn\'s end, also before the board named its role', async ($, on) => {
+    mock.clock(on)
+    const w = await watcher($, on, ok({ missed: [], open: [], role: 'supervisor', pause: RUNNING }))
+    const answer = 'Filed X4.\n\n> **For you**\n> 1. **Answer:** Should the board wake Units now? I advise yes.'
+    await $.turn.complete({ ...ENDED, answer, turnId: 't1' })
+    await wait(50)
+    const ended = sent(w).find(one => one.action === 'turn-ended')
+    expect(ended?.forYou).toBeUndefined()
+    // A worker's answer of the same words hands one item over (the block is one the mod reads).
+    expect(forYouItems(answer).length).toBe(1)
+  })
+
+  test('the review: the list naming the main chat its supervisor never has the main chat cleared', async ($, on) => {
+    mock.clock(on)
+    const w = world('main', { [`${CHATS}/list.json`]: '{ "prefix": "Game - ", "main": "Main", "supervisor": "Main" }\n', [BOARD]: board })
+    stand(on, w)
+    w.byAction = { 'turn-ended': { status: 503, text: 'The board restarts: try again in a moment.' } }
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'go', session_title: 'Game - Main' })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded.filter(one => one.startsWith('/clear'))).toEqual([])
+  })
+
+  test('the supervisor: a subagent of it still running keeps it from being cleared, and its card says why', async ($, on) => {
+    mock.clock(on)
+    const w = await watcher($, on, ok({ missed: [], open: [], role: 'supervisor', pause: RUNNING }))
+    w.agents = [{ id: 'a1', name: 'look' }]
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual([])
+    expect(w.compactions).toEqual([])
+    expect(fileOf(w)?.clearNote?.why).toBe('a subagent it started still runs (1)')
   })
 })

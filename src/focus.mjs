@@ -26,9 +26,22 @@ export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'ho
   // The new order (2026-10-21): the partner checks the whole plan for missing goals; it proposes the next focus.
   'plan-check', 'plan-focus',
   // Tradeoffs (2026-10-21): the partner weighs every complex feature later or not sure; the person chooses prepare or wait.
-  'plan-tradeoffs', 'plan-tradeoff']
+  'plan-tradeoffs', 'plan-tradeoff',
+  // The trial's gap 1 (2026-10-24): the empty Vision tab's start, what the person builds, begins the interview.
+  'plan-start']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
+
+/**
+ * Focus 3: whether every part of the focus goal's how is done, for "Is the vibe there?" on that goal (`id`). No focus,
+ * or a word that names no goal, is not (2026-10-24: on a board with no focus yet a Vision word without an id read the
+ * progress of no focus and failed: "Cannot read properties of null (reading 'progress')").
+ */
+export function focusAllDone(focus, id) {
+  if ((focus ?? null) === null || typeof id !== 'string' || focus.id !== id) return false
+  const total = focus.progress?.total ?? 0
+  return total > 0 && focus.progress.done === total
+}
 
 const refuse = (status, why) => ({ ok: false, status, why })
 const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)

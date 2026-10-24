@@ -11,6 +11,12 @@ export const TYPED_PATH = '/api/bridge/typed'
 export const WORK_PATH = '/api/bridge/work'
 /** B412: the header that carries a work call's request id: the board answers a repeat of it the same way. */
 export const REQUEST_HEADER = 'X-Work-Request'
+/**
+ * The supervisor (spec 2026-10-24): the header that tells the board this mod's version with every call, so it sees a
+ * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
+ */
+export const MOD_HEADER = 'X-Workers-Mod'
+export const MOD_VERSION = '0.16.1'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -93,9 +99,11 @@ export function typedWhy(reason: unknown, fallback: string): string {
 /**
  * B297: the actions of the work tool. Focus 2: the partner's drafts of the focus, `vibe-draft` and `how-draft`. Partner
  * answers (2026-10-19): the partner answers an ask routed to it for the person (`partner-answer`: "id", "text", "why")
- * or hands it to the person (`escalate`: "id", "why").
+ * or hands it to the person (`escalate`: "id", "why"). The supervisor (spec 2026-10-24): its chat reads the board's
+ * health summary (`health`) and files what looks wrong (`incident`: "title", "subject", "evidence", "rule", "key"); the
+ * partner names the step that fixes an incident (`incident-fix`: "id" X<n>, "fix" B<n>).
  */
-export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate']
+export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'requeue', 'unqueue', 'close', 'drop', 'refine', 'refined', 'checked', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix']
 
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',
@@ -116,7 +124,11 @@ export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 
   // B468: a step's effort on refine, refined and new: "<level>: <why>", the level the worker runs the step at.
   'effort',
   // Model per step: a step's model on refine, refined and new: "<sonnet or opus>: <why>", the model the worker runs it on.
-  'model']
+  'model',
+  // The supervisor: an incident's subject (a chat or a step), the rule that could catch it, and its key ("evidence" above).
+  'subject', 'rule', 'key',
+  // The supervisor: the step that fixes an incident, on incident-fix.
+  'fix']
 
 /** What every chat in the list is told about the board, in the same words at every request. */
 export const BOARD_NOTE = ' The person also answers on their worker board, a page on this machine. What they answer or '
