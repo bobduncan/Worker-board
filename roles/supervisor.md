@@ -53,7 +53,9 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   ("waits for its fix B<n> (<state>, <owner>)", "waits for your answer to its check", "waits for its first check" or
   "waits for its check again", "its fix B<n> was dropped"). One that waits for its fix or for the person's answer
   waits as planned: no incident, and no "!" unless its fix is odd itself. The review-stuck rule watches the rest: a
-  check not filed within the review minutes, or a dropped fix.
+  check not filed within the review minutes, or a dropped fix. A first check counts from when the board's own check
+  passed and asked it ("check asked HH:MM, word to <partner> (<state>)"), not from the step's age in review: one under
+  the review minutes with its check word delivered is a check under way, no incident (B585).
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
 - Work follows the focus goal: work outside it while the focus has steps waiting is odd. A worker free over 20 minutes
   with nothing queued while the focus has steps refined ready: the focus-ready rule names a step for it to the main

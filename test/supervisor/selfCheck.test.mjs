@@ -311,7 +311,8 @@ test('unchecked (B449): a step in review with no result check after 30 minutes w
   assert.deepEqual(woke.map(one => [one.fix.do, one.fix.chat, one.fix.id]), [['wake', 'Partner', 'B7']])
   assert.match(woke[0].fix.text, /^check step B7/)
   // Not before 30 minutes; not for a step that needs no check, one whose board check did not pass, or while the person pauses.
-  assert.equal(of(findStuck(world({ items: items(reviewed(25)) })), 'unchecked').length, 0)
+  // B585: counted from the board check that asked it, so its History's check passed 25 minutes ago.
+  assert.equal(of(findStuck(world({ items: items(reviewed(25, {}, { History: [`- ${stamp(ago(25))} server: check passed: merged`] })) })), 'unchecked').length, 0)
   assert.equal(of(findStuck(world({ items: items(step('B7', 'review', { Since: stamp(ago(40)) }, { History: history })) })), 'unchecked').length, 0)
   assert.equal(of(findStuck(world({ items: items(reviewed(40, {}, { History: [`- ${stamp(ago(40))} server: check failed: not merged`] })) })), 'unchecked').length, 0)
   assert.equal(of(findStuck(world({ pause: { state: 'pausing', since: stamp(ago(1)) } })), 'unchecked').length, 0)

@@ -90,6 +90,16 @@ export function gitCheckPassed(item) {
   return last !== undefined && last.startsWith('check passed')
 }
 
+/**
+ * B585 (X33: B522 read as waiting 39 min for its first check, counted from its move to review at 21:41, while its
+ * board check passed only at 22:04, when the check word went to the partner): when the board's own check last passed
+ * (ms), or NaN: the History line's own minute.
+ */
+export function gitCheckAtMs(item) {
+  const line = historyOf(item).filter(one => wordsOf(one).startsWith('check passed')).at(-1)
+  return line === undefined ? Number.NaN : sinceMs(line.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/)?.[1])
+}
+
 /** The steps of the store (`items`) made as fixes of the step `id`. */
 export const fixesOf = (id, items) => [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'step' && valueOf(one, 'Fix of') === id)
 
@@ -122,7 +132,11 @@ export function reviewWaitOf(item, items) {
   const id = valueOf(item, 'Id')
   const result = resultCheckOf(item)
   if (result === 'passed') return null
-  if (result === null) return { kind: 'check', fix: null, since: sinceMs(valueOf(item, 'Since')), text: 'waits for its first check' }
+  // B585: the first check is asked when the board's own check passes, not when the step went to review.
+  if (result === null) {
+    const asked = gitCheckAtMs(item)
+    return { kind: 'check', fix: null, since: Number.isFinite(asked) ? asked : sinceMs(valueOf(item, 'Since')), text: 'waits for its first check' }
+  }
   if (result === 'waits') {
     const open = [...(items?.values() ?? [])].some(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id && valueOf(one, 'State') === 'open')
     return open ? { kind: 'answer', fix: null, since: resultCheckAtMs(item), text: 'waits for your answer to its check' }

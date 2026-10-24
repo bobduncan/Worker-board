@@ -466,10 +466,8 @@ function reviewStuck(view, ctx) {
       })
       continue
     }
-    // The check words the partner was sent about it (the board's ask for its check, the repair's wakes).
-    const words = view.outbox.filter(message => message?.about === id && Number.isFinite(message.at) && message.at >= wait.since
-      && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked ')))
-    const last = words.reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+    const words = checkWordsOf(view, id, wait.since)
+    const last = words.at(-1) ?? null
     found.push({
       rule: 'review-stuck', key, subject: id,
       text: `${id} in review ${minutes(ms)} min with no result check filed (${wait.text})`,
@@ -477,6 +475,16 @@ function reviewStuck(view, ctx) {
     })
   }
   return found
+}
+
+/**
+ * The check words the partner was sent about the step `id` from `since` on (the board's ask for its check, the repair
+ * `unchecked`'s wakes), oldest first: for the rule review-stuck and the health summary's review line (B585).
+ */
+export function checkWordsOf(view, id, since) {
+  return (view.outbox ?? []).filter(message => message?.about === id && Number.isFinite(message.at) && message.at >= since
+    && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked ')))
+    .sort((a, b) => a.at - b.at)
 }
 
 /** A span in words: "45 min", "2 h 10 min". */
