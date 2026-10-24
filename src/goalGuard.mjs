@@ -7,9 +7,9 @@
 // goal itself, and every look of one of its steps that the person answered no or rejected. The third fires the guard
 // once. Since 2026-10-24 the board first asks the person (the person: "on 3 failed attempts is important context. i want
 // to be asked. hey this task failed 3 times, we would like to evaluate strategy using fable. yes, or no use opus."): one
-// ask of the goal, A Fable 5.1 at max for this evaluation only, B Opus 5.5 at max, and "Fable asked: Q<n>" under the goal.
+// ask of the goal, A Yes: Fable 5.1 at max for this evaluation only, B No: Opus 5.5 at max, and "Fable asked: Q<n>" under it.
 // On the answer the board writes "Evaluation asked: <date time>", switches the partner to that mode (B352; Fable only on
-// an A) and types `evaluate G<n>` to it, with the word that the goal's next steps are refined on Model: opus and Effort: high.
+// the person's yes) and types `evaluate G<n>` to it, with the word that the goal's next steps are refined on Model: opus and Effort: high.
 // The partner's answer is a how-draft (src/focus.mjs): a corrected or rebuilt how, or the same how again ("keep
 // going"); it counts as Go, so the count starts anew. A rebuild is the person's to approve (an ask of the goal whose
 // title begins "Rebuild G<n>") unless "Approve rebuilds by itself" (config `approveRebuilds`) is on.
@@ -101,8 +101,11 @@ export function needsEvaluation(node, items) {
 
 const isOpenAsk = item => !['answered', 'withdrawn', 'dropped', 'closed', 'done'].includes(String(item.head.get('State') ?? '').toLowerCase())
 
-/** 2026-10-24: the two answers of the board's ask before an evaluation; no advice: it is the person's call. */
-export const FABLE_OPTIONS = ['A Fable 5.1 (max), only for this evaluation', 'B Opus 5.5 (max)']
+/**
+ * 2026-10-24: the two answers of the board's ask before an evaluation, in the person's framing ("we would like to evaluate
+ * strategy using fable. yes, or no use opus"); no advice: it is the person's call.
+ */
+export const FABLE_OPTIONS = ['A Yes: Fable 5.1 (max), only for this evaluation', 'B No: Opus 5.5 (max)']
 /** The board's ask by its title, "G<n> failed <n> times: evaluate the strategy with Fable?". */
 const FABLE_TITLE = /^G\d+ failed \d+ times: evaluate the strategy with Fable\?$/
 const cutTo = (text, chars) => (text.length > chars ? `${text.slice(0, chars - 1).trimEnd()}…` : text)
@@ -127,32 +130,48 @@ export function fableAskOf({ goal, attempts }) {
   }
 }
 
+const wordsOf = text => String(text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+/** The words of option A after its letter: yes, fable, 5, 1, max, only, for, this, evaluation. */
+const YES_WORDS = wordsOf(FABLE_OPTIONS[0].replace(/^A\s+/, ''))
+
 /**
- * 2026-10-24: the partner's mode for the evaluation the person answered: 'fable' only for the person's A ("A", "A Fable
- * 5.1 ..."); everything else (B, a no, other words, no answer, withdrawn, an answer by the partner) is Opus at max, 'high'.
+ * 2026-10-24: the partner's mode for the evaluation the person answered: 'fable' only for the person's yes: an answer
+ * that is A alone (any case, its punctuation), A followed by its option's words ("A Yes: Fable 5.1 (max), ...", "A: yes"),
+ * or whose first word is yes. Everything else (B, a no, "a bit pricey, use opus", other words, no answer, withdrawn, an
+ * answer by the partner) is Opus at max, 'high'.
  */
 export function modeOfAnswer(item) {
   if (item === undefined || item === null || String(item.head.get('State') ?? '').toLowerCase() !== 'answered') return 'high'
   if (item.head.get('Answered by') === 'partner') return 'high'
   const first = (item.sections.get('Answer') ?? []).map(lineOf).find(one => one !== '') ?? ''
-  return /^A\b/i.test(first) ? 'fable' : 'high'
+  if (/^a[.!:)]*$/i.test(first) || /^yes\b/i.test(first)) return 'fable'
+  const lettered = first.match(/^a(?:\s+|\s*[:.)]\s*)(.+)$/i)
+  if (lettered === null) return 'high'
+  const said = wordsOf(lettered[1])
+  const isPrefix = (short, long) => short.length > 0 && short.length <= long.length && short.every((word, at) => word === long[at])
+  return isPrefix(said, YES_WORDS) || isPrefix(YES_WORDS, said) ? 'fable' : 'high'
 }
 
 const itemOf = (items, id) => [...(items ?? [])].find(item => item.head.get('Id') === id)
 
 /**
  * 2026-10-24: what the guard does now for the goal: `{ do: 'ask' }` (it trips: ask the person), `{ do: 'wait', ask }`
- * (the ask stands open, or the items read do not hold it yet: it never starts on an ask it cannot see), `{ do: 'start',
- * ask, mode }` (answered, or no longer open: the evaluation starts on that mode), or null (calm, running, done).
+ * (the ask stands open), `{ do: 'start', ask, mode, gone }` (answered or no longer open: the evaluation starts on that
+ * mode; an ask the store no longer holds, `gone`, starts it on Opus and its line goes), or null (calm, running, done).
+ * The guard reads the store's items fresh, after the ask was filed and its line written, so a missing ask is a deleted one.
  */
 export function guardStep(node, items) {
   if (node === undefined || node === null || node.state === 'done' || (node.evaluationAsked ?? null) !== null) return null
   const asked = node.fableAsked ?? null
   if (asked === null) return needsEvaluation(node, items) ? { do: 'ask' } : null
   const ask = itemOf(items, asked)
-  if (ask === undefined || isOpenAsk(ask)) return { do: 'wait', ask: asked }
-  return { do: 'start', ask: asked, mode: modeOfAnswer(ask) }
+  if (ask === undefined) return { do: 'start', ask: asked, mode: 'high', gone: true }
+  if (isOpenAsk(ask)) return { do: 'wait', ask: asked }
+  return { do: 'start', ask: asked, mode: modeOfAnswer(ask), gone: false }
 }
+
+/** The board's ask a goal's trip still waits on (`Fable asked` with no evaluation running), else null: withdrawn when the trip ends. */
+export const askingOf = node => ((node?.evaluationAsked ?? null) === null ? node?.fableAsked ?? null : null)
 
 /** An open ask of the board's before an evaluation of the goal, if one stands (its line lost): used again, never filed twice. */
 export function openFableAsk(goalId, items) {
@@ -160,7 +179,7 @@ export function openFableAsk(goalId, items) {
     && isOpenAsk(item) && FABLE_TITLE.test(String(item.head.get('Title') ?? ''))) ?? null
 }
 
-/** The mode a running evaluation needs: 'fable' only when the ask under it was answered A, else 'high' (Opus at max). */
+/** The mode a running evaluation needs: 'fable' only when the ask under it was answered yes, else 'high' (Opus at max). */
 export function evaluationMode(node, items) {
   const asked = node?.fableAsked ?? null
   return asked === null ? 'high' : modeOfAnswer(itemOf(items, asked))
@@ -168,7 +187,7 @@ export function evaluationMode(node, items) {
 
 /**
  * The partner's mode while evaluations run (`nodes` the goal map's): 'usual' when none runs, 'fable' when every one that
- * runs had the person's A (`yes` its ask), else 'high'. So Fable never stays on for an evaluation without an A.
+ * runs had the person's yes (`yes` its ask), else 'high'. So Fable never stays on for an evaluation without a yes.
  */
 export function partnerModeFor(nodes, items) {
   const running = (nodes ?? []).filter(node => node.state !== 'done' && (node.evaluationAsked ?? null) !== null)

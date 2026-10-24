@@ -7,7 +7,7 @@
 
 /**
  * The modes: the usual partner, high effort for the vibe and the how of a hard goal (Opus at max since 2026-10-24), and
- * Fable, only for a goal guard's evaluation the person said A to (the person, 2026-10-24: "you cant run fable without my
+ * Fable, only for a goal guard's evaluation the person said yes to (the person, 2026-10-24: "you cant run fable without my
  * permission"; src/goalGuard.mjs `fableAskOf`).
  */
 export const PARTNER_MODES = {
@@ -22,14 +22,14 @@ export const SWITCH_MODES = ['usual', 'high']
 /**
  * The word that asks the main chat to set the partner's chat (`partner`, its app session id `session` when the board
  * knows it) to `mode`, and `why`. One message of the outbox, to the main chat. Mode fable only with `yes`, the board's
- * ask the person answered A (Q<n>): the word names it, and without it nothing is made (it throws).
+ * ask the person answered yes (Q<n>): the word names it, and without it nothing is made (it throws).
  */
 export function partnerEffortWords({ to, partner, session, mode, why, yes = null }) {
   if (!Object.hasOwn(PARTNER_MODES, mode ?? '')) throw new Error(`No partner mode "${String(mode).slice(0, 20)}".`)
-  if (mode === 'fable' && !/^Q\d+$/.test(String(yes ?? ''))) throw new Error('Fable only with the person\'s yes: name the ask they answered A.')
+  if (mode === 'fable' && !/^Q\d+$/.test(String(yes ?? ''))) throw new Error('Fable only with the person\'s yes: name the ask they answered yes.')
   const { model, effort } = PARTNER_MODES[mode]
   const id = typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? [`Session: ${session}`] : []
-  const said = mode === 'fable' ? [`Yes: ${yes}, the person's A: Fable for this evaluation only`] : []
+  const said = mode === 'fable' ? [`Yes: ${yes}, the person's yes: Fable for this evaluation only`] : []
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'partner-effort', about: partner, mode,
     text: ['partner effort', `Chat: ${partner}`, `Mode: ${mode}`, `Model: ${model}`, `Effort: ${effort}`, ...id, ...said, `Why: ${why}`].join('\n'),
@@ -72,4 +72,17 @@ export function effortBack(command, effort) {
   if (command === 'how-go') return 'Go on the how: back to the usual partner'
   if (command === 'focus') return 'a new focus: back to the usual partner'
   return null
+}
+
+/**
+ * 2026-10-24: Fable never stays on. When the board set the partner on Fable (its own word: `effort.asked`) and the
+ * evaluations that run (`running`, src/focus.mjs `evaluationsMode`) no longer all had the person's yes, the mode the
+ * board's tick sends it back to, `{ mode, why }`: the usual partner when none runs, else Opus at max. Null otherwise;
+ * Fable the person set by hand (no word of the board's) is theirs.
+ */
+export function fableBack(effort, running) {
+  if (effort?.mode !== 'fable' || (effort.asked ?? null) === null || running?.mode === 'fable') return null
+  return running?.mode === 'high'
+    ? { mode: 'high', why: 'the evaluations that run had no yes to Fable from the person: Opus 5.5 at max' }
+    : { mode: 'usual', why: 'no evaluation with the person\'s yes to Fable runs: back to the usual partner' }
 }

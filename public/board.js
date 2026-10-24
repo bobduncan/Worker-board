@@ -9619,7 +9619,7 @@ function focusGuardView(focus) {
   if (guard === null) return null
   if (guard.state === 'rebuild') return { tone: 'rebuild', title: 'A rebuild waits for you', text: `Your partner's evaluation proposes a new how for ${focus.id}${guard.ask === null ? '' : ` (${guard.ask})`}: answer it under Needs your attention. Nothing is rebuilt before your yes.` }
   // 2026-10-24: before the evaluation the board asks the person which model runs it: Fable only with their yes.
-  if (guard.state === 'asking') return { tone: 'asking', title: 'Fable or Opus? The board asks you', text: `${guard.attempts} checks failed: before your partner evaluates the approach, answer ${guard.ask} under Needs your attention: A Fable 5.1 (the strongest, far more tokens) or B Opus 5.5. Nothing starts before your answer.` }
+  if (guard.state === 'asking') return { tone: 'asking', title: 'Fable or Opus? The board asks you', text: `${guard.attempts} checks failed: before your partner evaluates the approach, answer ${guard.ask} under Needs your attention: A Yes, Fable 5.1 (the strongest, far more tokens), or B No, Opus 5.5. Nothing starts before your answer.` }
   if (guard.state === 'evaluating') return { tone: 'evaluating', title: 'Your partner evaluates the approach', text: `${guard.attempts} checks failed: on high effort your partner asks whether the how is right and what caps the result, then corrects the how or proposes a rebuild.` }
   if (guard.attempts === 0) return null
   return { tone: 'counting', title: `Checks failed: ${guard.attempts} of ${guard.of} attempts`, text: `At ${guard.of} failed checks (or your no to a look) your partner evaluates whether the approach is right, on Fable or Opus as you answer the board.` }

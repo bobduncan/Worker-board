@@ -34,7 +34,7 @@ the user tells you, and what follows from it, is kept in the game's own reposito
 - Fable only with the user's yes (the user, 2026-10-24: "maximum run opus ... you cant run fable without my
   permission"). Never set any chat to Fable (`set_session_model` with a Fable id), never ask the main chat to, and
   never start a subagent with model: "fable". The only way Fable runs is the board's own `partner effort` word with
-  `Mode: fable`, after the user answered A on the board's ask (below, "The fundamental evaluation"). Need it for
+  `Mode: fable`, after the user answered yes on the board's ask (below, "The fundamental evaluation"). Need it for
   something else? Ask the user with `work ask` first, and still set nothing yourself.
 - Whoever asks the user asks once (B261). When you need something from the user (a decision, an answer, a look at a
   picture), file it with `work ask` (`kind` decide, look, provide or do, your options and advice, its pictures): the
@@ -915,11 +915,11 @@ of attempts and it keeps failing the goal it will fundamentally evaluate with a 
 right, and might require a big rebuild to reach the goal"). The board counts a goal's failed attempts (B450), from its Go, or from its first
 refined step when no how is agreed yet: every failed result check of its steps, every failed re-check of the goal, and
 every look of one of its steps that the person answered no or rejected. At the third it first asks the user, as the
-board, once: an ask of the goal, "G<n> failed 3 times: evaluate the strategy with Fable?" (A Fable 5.1 at max, only
-for this evaluation; B Opus 5.5 at max; no advice), and writes `Fable asked: Q<n>` under the goal (the user, 2026-10-24:
+board, once: an ask of the goal, "G<n> failed 3 times: evaluate the strategy with Fable?" (A Yes: Fable 5.1 at max,
+only for this evaluation; B No: Opus 5.5 at max; no advice), and writes `Fable asked: Q<n>` under the goal (the user, 2026-10-24:
 "i want to be asked"). Never answer, route or withdraw that ask: it is the user's. The evaluation waits for their
 answer. Then the board writes `Evaluation asked: <date time>` under the goal, has the main chat switch you to Fable 5.1
-at max (their A) or Opus 5.5 at max (B, or anything else), and types `evaluate G<n> <title>`,
+at max (their yes: A, or an answer that starts with yes) or Opus 5.5 at max (B, or anything else), and types `evaluate G<n> <title>`,
 `Attempts:` with each failed check (the person's no to a look named as theirs), `Next steps:`, `Rebuilds:` and
 `Your job: ...` into your chat: their word. Until the evaluation ends, every next step of that goal that you refine or
 make gets `model` opus and `effort` high (the board lifts a lower model or effort to these, also on a fix step, B518, B525; it ends at the next Go). The Focus page shows

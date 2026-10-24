@@ -12,10 +12,10 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { evaluationsAgain, evaluationsMode, focusMove, guardGoal, guardsAsking } from '../src/focus.mjs'
+import { evaluationsAgain, evaluationsMode, focusMove, goalChecked, guardGoal, guardsAsking } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
 import { FABLE_OPTIONS, evaluationMode, fableAskOf, goalAttempts, guardOf, guardStep, modeOfAnswer, needsEvaluation, partnerModeFor } from '../src/goalGuard.mjs'
-import { PARTNER_MODES, SWITCH_MODES, effortBack, partnerEffort, partnerEffortWords } from '../src/partnerEffort.mjs'
+import { PARTNER_MODES, SWITCH_MODES, effortBack, fableBack, partnerEffort, partnerEffortWords } from '../src/partnerEffort.mjs'
 import { checkSay } from '../src/say.mjs'
 import { parseTail } from '../src/transcript.mjs'
 import { workApi } from '../src/work/api.mjs'
@@ -97,7 +97,7 @@ async function board(text = MAP) {
     return workApi(body, ctx('server'))
   }
   const items = async (extra = FAILED) => [...extra, ...(await readStore(dir)).items.values()]
-  const guard = async (id = 'G2', extra = FAILED) => guardGoal(id, { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: await items(extra), approveRebuilds: false, fileAsk })
+  const guard = async (id = 'G2', extra = FAILED) => guardGoal(id, { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: () => items(extra), approveRebuilds: false, fileAsk })
   const answer = (id, text) => workApi({ action: 'answer', id, text }, ctx('person'))
   const store = async () => (await readStore(dir)).items
   return { fs, dir, filed, guard, answer, store, items, later: ms => { clock.now += ms } }
@@ -108,7 +108,8 @@ test('the ask: a decide of the goal, blocking, its title the question, two plain
   const body = fableAskOf({ goal: node, attempts: goalAttempts(node, FAILED) })
   assert.deepEqual([body.action, body.of, body.kind, body.blocking], ['ask', 'G2', 'decide', true])
   assert.equal(body.title, 'G2 failed 3 times: evaluate the strategy with Fable?')
-  assert.deepEqual(body.options, ['A Fable 5.1 (max), only for this evaluation', 'B Opus 5.5 (max)'])
+  // The person's framing: "we would like to evaluate strategy using fable. yes, or no use opus".
+  assert.deepEqual(body.options, ['A Yes: Fable 5.1 (max), only for this evaluation', 'B No: Opus 5.5 (max)'])
   assert.deepEqual(FABLE_OPTIONS, body.options)
   assert.equal(body.advice, undefined)
   const lines = body.text.split('\n')
@@ -118,10 +119,13 @@ test('the ask: a decide of the goal, blocking, its title the question, two plain
   assert.match(lines[1], /nothing starts before your answer/)
 })
 
-test('the person\'s answer: only an A is Fable; B, a no, other words or no answer are Opus', () => {
-  assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'answered', 'A Fable 5.1 (max), only for this evaluation')), 'fable')
-  assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'answered', 'a')), 'fable')
-  for (const words of ['B Opus 5.5 (max)', 'B', 'no, use opus', 'Approved', 'Fable? not now', 'yes']) assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'answered', words)), 'high', words)
+test('the person\'s answer: only a yes is Fable (A, A with its words, or yes first); B, a no and other words are Opus', () => {
+  for (const words of ['A Yes: Fable 5.1 (max), only for this evaluation', 'A', 'a', 'A.', 'a!', 'A: yes', 'A. Yes, Fable', 'a yes fable 5.1 max', 'yes', 'Yes, Fable please', 'YES']) {
+    assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'answered', words)), 'fable', words)
+  }
+  for (const words of ['B No: Opus 5.5 (max)', 'B', 'no, use opus', 'a bit pricey, use opus', 'A bit much', 'A y', 'A yes but no', 'Approved', 'Fable? not now', 'yesterday', 'ok']) {
+    assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'answered', words)), 'high', words)
+  }
   assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'open')), 'high')
   assert.equal(modeOfAnswer(boardAsk('Q1', 'G2', 'withdrawn')), 'high')
   assert.equal(modeOfAnswer(undefined), 'high')
@@ -139,12 +143,12 @@ test('the guard\'s steps: ask at the third failure, wait while the ask is open, 
   assert.equal(node(asked).fableAsked, 'Q7')
   assert.equal(needsEvaluation(node(asked), FAILED), false, 'an ask stands: the guard does not trip again')
   assert.deepEqual(guardStep(node(asked), [...FAILED, boardAsk('Q7', 'G2')]), { do: 'wait', ask: 'Q7' })
-  // Not in the items read (filed a moment after they were read): it waits, it never starts.
-  assert.deepEqual(guardStep(node(asked), FAILED), { do: 'wait', ask: 'Q7' })
-  assert.deepEqual(guardStep(node(asked), [...FAILED, boardAsk('Q7', 'G2', 'answered', 'A')]), { do: 'start', ask: 'Q7', mode: 'fable' })
-  assert.deepEqual(guardStep(node(asked), [...FAILED, boardAsk('Q7', 'G2', 'answered', 'B')]), { do: 'start', ask: 'Q7', mode: 'high' })
+  assert.deepEqual(guardStep(node(asked), [...FAILED, boardAsk('Q7', 'G2', 'answered', 'A')]), { do: 'start', ask: 'Q7', mode: 'fable', gone: false })
+  assert.deepEqual(guardStep(node(asked), [...FAILED, boardAsk('Q7', 'G2', 'answered', 'B')]), { do: 'start', ask: 'Q7', mode: 'high', gone: false })
   // Withdrawn by the person: no yes to Fable, so Opus.
-  assert.deepEqual(guardStep(node(asked), [...FAILED, boardAsk('Q7', 'G2', 'withdrawn')]), { do: 'start', ask: 'Q7', mode: 'high' })
+  assert.deepEqual(guardStep(node(asked), [...FAILED, boardAsk('Q7', 'G2', 'withdrawn')]), { do: 'start', ask: 'Q7', mode: 'high', gone: false })
+  // Deleted from the store (the guard reads it fresh, after the ask was filed): Opus, never "asking" for ever.
+  assert.deepEqual(guardStep(node(asked), FAILED), { do: 'start', ask: 'Q7', mode: 'high', gone: true })
   // Running, or done: nothing.
   assert.equal(guardStep(node(asked.replace('  Fable asked: Q7\n', '  Fable asked: Q7\n  Evaluation asked: 2026-10-19 09:40\n')), FAILED), null)
   assert.equal(guardStep(node(MAP.replace('- [~] G2', '- [x] G2')), FAILED), null)
@@ -165,7 +169,7 @@ test('the third failure files exactly one ask and starts no evaluation and no mo
   const ask = (await one.store()).get(id)
   assert.deepEqual(['Kind', 'Owner', 'Asks', 'Blocking', 'Of', 'State'].map(key => ask.head.get(key)), ['ask', 'server', 'decide', 'yes', 'G2', 'open'])
   assert.equal(ask.head.get('Title'), 'G2 failed 3 times: evaluate the strategy with Fable?')
-  assert.equal(ask.head.get('Options'), 'A Fable 5.1 (max), only for this evaluation | B Opus 5.5 (max)')
+  assert.equal(ask.head.get('Options'), 'A Yes: Fable 5.1 (max), only for this evaluation | B No: Opus 5.5 (max)')
   assert.equal(ask.head.get('Advice') ?? null, null)
   assert.equal(ask.head.get('Route') ?? null, null, 'the person\'s, never routed to the partner')
   // Again while it is open (another failed check, the tick): nothing new.
@@ -179,7 +183,7 @@ test('the third failure files exactly one ask and starts no evaluation and no mo
 test('A: the partner\'s mode is fable, then the evaluation starts as before', async () => {
   const one = await board()
   const { result: { asked } } = await one.guard()
-  assert.equal((await one.answer(asked, 'A Fable 5.1 (max), only for this evaluation')).ok, true)
+  assert.equal((await one.answer(asked, 'A Yes: Fable 5.1 (max), only for this evaluation')).ok, true)
   const started = await one.guard()
   assert.equal(started.ok, true, started.why)
   assert.deepEqual([started.result.fired, started.result.mode, started.result.ask], [true, 'fable', asked])
@@ -191,7 +195,7 @@ test('A: the partner\'s mode is fable, then the evaluation starts as before', as
   assert.equal(evaluationMode(goal, await one.items()), 'fable')
   assert.deepEqual(await evaluationsMode({ fs: one.fs, goalsFile: FILE, items: one.items }), { mode: 'fable', yes: asked })
   const word = partnerEffortWords({ to: 'Main', partner: 'Partner', session: null, mode: 'fable', why: 'the goal guard', yes: asked })
-  assert.equal(word.text, `partner effort\nChat: Partner\nMode: fable\nModel: claude-fable-5-1\nEffort: max\nYes: ${asked}, the person's A: Fable for this evaluation only\nWhy: the goal guard`)
+  assert.equal(word.text, `partner effort\nChat: Partner\nMode: fable\nModel: claude-fable-5-1\nEffort: max\nYes: ${asked}, the person's yes: Fable for this evaluation only\nWhy: the goal guard`)
   // Once: no second ask, no second start.
   assert.deepEqual([(await one.guard()).result.fired, one.filed.length], [false, 1])
 })
@@ -199,7 +203,7 @@ test('A: the partner\'s mode is fable, then the evaluation starts as before', as
 test('B: the partner\'s mode is high (Opus 5.5 at max), then the evaluation starts', async () => {
   const one = await board()
   const { result: { asked } } = await one.guard()
-  assert.equal((await one.answer(asked, 'B Opus 5.5 (max)')).ok, true)
+  assert.equal((await one.answer(asked, 'B No: Opus 5.5 (max)')).ok, true)
   const started = await one.guard()
   assert.deepEqual([started.result.fired, started.result.mode], [true, 'high'])
   assert.equal(started.words.command, 'evaluate')
@@ -235,6 +239,8 @@ test('Go on the how ends a trip whose ask stands: a late A then starts nothing',
   const go = await focusMove({ command: 'how-go', id: 'G2' }, { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', brainstormDir: 'D:/Work/p/talks', brainstormFolder: 'talks', now: NOW + 60_000, fs: one.fs, partner: { name: 'Partner' }, job: 'j' })
   assert.equal(go.ok, true, go.why)
   assert.equal(mapOf(one.fs).byId.get('G2').fableAsked, null)
+  // The board withdraws its own ask (the server, outside the map's turn).
+  assert.equal(go.result.withdraw, asked)
   await one.answer(asked, 'A')
   const late = await one.guard('G2', FAILED)
   assert.deepEqual([late.result.fired, late.words], [false, null])
@@ -280,7 +286,8 @@ test('no code path sends mode fable without an answered A', async () => {
   assert.equal(mapOf(fs).byId.get('G2').evaluationAsked, null)
   // The server: its only Fable comes from the guard's answered ask; no default, setting or literal names it.
   const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
-  assert.doesNotMatch(server, /'fable'/)
+  // It reads the mode, but never sends fable by itself: the mode it sends comes from the answered asks.
+  assert.doesNotMatch(server, /partnerMode\(state, 'fable'|mode: 'fable'|partnerMode\(state, back\.mode, back\.why, /)
   assert.doesNotMatch(server, /claude-fable/)
   const guard = server.slice(server.indexOf('const guardNow = async id => {'), server.indexOf('const toPartner = async'))
   assert.match(guard, /fileAsk: body => workAction\(body, 'server'\)/)
@@ -342,4 +349,92 @@ test('the roles: nothing but the board\'s word after the person\'s A sets Fable'
   assert.match(partner, /failed 3 times: evaluate the strategy with Fable\?/)
   assert.match(protocol, /Mode `fable`: Fable 5\.1, max/)
   assert.doesNotMatch(protocol, /Mode `high`: Fable/)
+})
+
+test('the review: the ask is filed outside the map\'s turn, so a draft through the work API meanwhile never deadlocks', async () => {
+  const one = await board()
+  const focusCtx = { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', brainstormDir: 'D:/Work/p/talks', brainstormFolder: 'talks', now: NOW, fs: one.fs, partner: { name: 'Partner' }, job: 'j' }
+  const ctx = as => ({ dir: one.dir, now: NOW + 60_000, prefix: '', ...(as === undefined ? {} : { as }), roleOf: name => (name === 'Partner' ? 'advisor' : null), freeChats: new Set(), hasGoal: id => mapOf(one.fs).byId.has(id), goalDraft: body => focusMove(body, focusCtx) })
+  // As the server's workAction: it reads the board's state before it calls the work API.
+  const fileAsk = async body => { await new Promise(done => setTimeout(done, 50)); return workApi(body, ctx('server')) }
+  const guarded = guardGoal('G2', { ...focusCtx, items: await one.items(), approveRebuilds: false, fileAsk })
+  await new Promise(done => setTimeout(done, 10))
+  // The partner's how-draft (a step added to a part) arrives meanwhile, through the work tool: the work API's turn, then the map's.
+  const drafted = workApi({ action: 'how-draft', chat: 'Partner', goal: 'G2', parts: ['Wooden benches · 2 h · steps B1, B2, B9'] }, ctx())
+  let timer
+  const late = new Promise(done => { timer = setTimeout(() => done('stuck'), 3000) })
+  const both = await Promise.race([Promise.all([guarded, drafted]), late])
+  clearTimeout(timer)
+  assert.notEqual(both, 'stuck', 'the guard and the draft wait on each other')
+  const [guard, draft] = both
+  assert.equal(guard.ok, true, guard.why)
+  assert.match(guard.result.asked, /^Q\d+$/)
+  assert.equal(draft.ok, true, draft.why)
+  assert.equal(mapOf(one.fs).byId.get('G2').fableAsked, guard.result.asked)
+})
+
+test('the review: two guards at once ask once; an ask filed for a trip that ended meanwhile is withdrawn', async () => {
+  const one = await board()
+  const [a, b] = await Promise.all([one.guard(), one.guard()])
+  assert.equal(one.filed.length, 1)
+  assert.deepEqual([a.result.asked, b.result.asked ?? null], [mapOf(one.fs).byId.get('G2').fableAsked, null])
+  // The goal ticked between the ask and its line: the board takes its ask back.
+  const other = await board()
+  const withdrawn = []
+  const ticking = async body => {
+    other.fs.files[FILE] = latin(MAP.replace('- [~] G2', '- [x] G2'))
+    return workApi(body, { dir: other.dir, now: NOW + 60_000, prefix: '', as: 'server', roleOf: () => null, freeChats: new Set(), hasGoal: () => true })
+  }
+  const late = await guardGoal('G2', { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs: other.fs, partner: { name: 'Partner' }, job: 'j', items: FAILED, approveRebuilds: false, fileAsk: ticking, withdrawAsk: async (id, why) => withdrawn.push([id, why]) })
+  assert.deepEqual([late.result.fired, late.result.asked ?? null], [false, null])
+  assert.equal(withdrawn.length, 1)
+  assert.match(withdrawn[0][0], /^Q\d+$/)
+  assert.equal(mapOf(other.fs).byId.get('G2').fableAsked, null)
+})
+
+test('the review: an ask deleted from the store starts the evaluation on Opus and its line goes', async () => {
+  const fs = fakeFs({ [FILE]: latin(MAP.replace('  How agreed: 2026-10-19 08:00\n- [ ] G3', '  How agreed: 2026-10-19 08:00\n  Fable asked: Q7\n- [ ] G3')) })
+  const started = await guardGoal('G2', { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs, partner: { name: 'Partner' }, job: 'j', items: FAILED, approveRebuilds: false })
+  assert.deepEqual([started.result.fired, started.result.mode], [true, 'high'])
+  const goal = mapOf(fs).byId.get('G2')
+  assert.deepEqual([goal.evaluationAsked, goal.fableAsked], ['2026-10-19 10:00', null])
+  assert.deepEqual(partnerModeFor(mapOf(fs).nodes, FAILED), { mode: 'high', yes: null })
+  assert.deepEqual(guardOf(goal, FAILED, []).state, 'evaluating')
+})
+
+test('the review: a goal ticked while its Fable evaluation runs ends the trip; a reopen does not bring Fable back', async () => {
+  const running = MAP.replace('  How agreed: 2026-10-19 08:00\n- [ ] G3', '  How agreed: 2026-10-19 08:00\n  Fable asked: Q7\n  Evaluation asked: 2026-10-19 09:40\n  Recheck asked: 2026-10-19 09:50\n- [ ] G3')
+  const fs = fakeFs({ [FILE]: latin(running) })
+  const ticked = await goalChecked({ id: 'G2', verdict: 'passed', line: 'passed · 2 of 2 points pass · evidence none (x)', by: 'Partner' }, { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs })
+  assert.equal(ticked.ok, true, ticked.why)
+  const goal = mapOf(fs).byId.get('G2')
+  assert.deepEqual([goal.state, goal.evaluationAsked, goal.fableAsked], ['done', null, null])
+  assert.equal(ticked.result.withdraw, undefined, 'its ask was answered: nothing to withdraw')
+  // Reopened: no evaluation, no Fable.
+  const reopened = parseGoals(Buffer.from(fs.files[FILE], 'latin1').toString('utf8').replace('- [x] G2', '- [ ] G2')).nodes
+  assert.deepEqual(partnerModeFor(reopened, [boardAsk('Q7', 'G2', 'answered', 'A')]), { mode: 'usual', yes: null })
+  // Ticked while the board still asks: its ask is withdrawn.
+  const asking = fakeFs({ [FILE]: latin(running.replace('  Evaluation asked: 2026-10-19 09:40\n', '')) })
+  const early = await goalChecked({ id: 'G2', verdict: 'passed', line: 'passed · 2 of 2 points pass · evidence none (x)', by: 'Partner' }, { canWrite: true, goalsFile: FILE, historyDir: 'D:/Work/p/history', now: NOW, fs: asking })
+  assert.equal(early.result.withdraw, 'Q7')
+})
+
+test('the review: Fable never stays on: the tick sends the partner back when no evaluation with the person\'s yes runs', async () => {
+  const fable = { mode: 'fable', asked: { at: 1, state: 'delivered', label: 'Fable 5.1, max' } }
+  assert.deepEqual(fableBack(fable, { mode: 'usual', yes: null }).mode, 'usual')
+  assert.deepEqual(fableBack(fable, { mode: 'high', yes: null }).mode, 'high')
+  assert.equal(fableBack(fable, { mode: 'fable', yes: 'Q7' }), null)
+  assert.equal(fableBack({ mode: 'high', asked: { at: 1 } }, { mode: 'usual', yes: null }), null)
+  // Fable the person set by hand (no word of the board's) is theirs.
+  assert.equal(fableBack({ mode: 'fable', asked: null }, { mode: 'usual', yes: null }), null)
+  const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
+  const again = server.slice(server.indexOf('const evaluateAgainNow = async state => {'), server.indexOf('const toPartner = async'))
+  assert.match(again, /fableBack\(state\.advisor\.effort/)
+  // The why says the mode used.
+  const guard = server.slice(server.indexOf('const guardNow = async id => {'), server.indexOf('const evaluateAgainNow'))
+  assert.match(guard, /partnerModeNow\(state, \(mode, yes\) =>/)
+})
+
+test('the review: the supervisor never runs Fable either', async () => {
+  assert.match(await readFile(join(ROOT, 'roles', 'supervisor.md'), 'utf8'), /[Nn]ever Fable/)
 })
