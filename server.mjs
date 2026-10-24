@@ -277,6 +277,12 @@ export function createBoard({
         if (req.method !== 'POST') return refuse(res, 405, 'Only POST.')
         return maySend ? refuse(res, 415, 'Send JSON.') : refuse(res, 403, 'Only the board\'s own page may send.')
       }
+      // B483: a board that restarts takes no answer of the page either: it says so at once, and the page offers Try
+      // again, instead of an answer that may be cut off by the restart.
+      if (pathname === '/api/work' && isClosing()) {
+        req.resume()
+        return refuse(res, 503, 'The board restarts: try again in a moment.')
+      }
       const body = await readBody(req)
       if (body === null) return refuse(res, 413, 'Too large.')
       let parsed

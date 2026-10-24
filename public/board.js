@@ -5137,7 +5137,8 @@ function drawCalm(box, need, state) {
     buttons.append(next)
   } else {
     // B402: a spinner while it goes; free again after any reply.
-    const shown = calmSendView(group, sending, calmSendText(group))
+    // B483: after a send that did not go, the button says to try again.
+    const shown = calmSendView(group, sending, problem?.startsWith('Not sent:') ? 'Try again' : calmSendText(group))
     const send = button(shown.text, 'is-send')
     if (shown.isBusy) send.prepend(el('span', 'calm-spinner'))
     send.dataset.calmSend = ''
@@ -5210,6 +5211,14 @@ async function sendCalm(id) {
   calmBusy = true
   try {
     return await sendEach(plan.send, show, isShowing)
+  } catch (error) {
+    // B483: whatever fails on the page, the button never stays "Sending…": the window says why, with Try again.
+    for (const { need } of plan.send) sending.delete(need.id)
+    const [first] = plan.send
+    problems.set(first.need.id, `Not sent: the page failed (${error?.message ?? error}); reload it and try again`)
+    show(first.need.id, 'question')
+    detailsShown = null
+    if (isShowing()) drawDetails(board)
   } finally {
     calmBusy = false
   }
@@ -13682,28 +13691,43 @@ async function send(message, id) {
   if (id === null) $('messages').scrollTop = $('messages').scrollHeight
 }
 
+// sendwork:start
+/**
+ * B483: how long the page waits for the board's answer to one action. The person, 2026-10-21: "approving on the
+ * board doesnt seem to work": a Yes sent while the board restarted stayed on "Sending…" for good.
+ */
+const WORK_WAIT_MS = 15000
+
 /**
  * B299: one action of the person on the work store (POST /api/work: the token, the origin, JSON): an answer to an
- * ask, a note read. Its problem shows where `key` says, as for `send`.
+ * ask, a note read. Its problem shows where `key` says, as for `send`. B483: it never stays "Sending…": no answer
+ * within WORK_WAIT_MS, or a fault of the page itself, is a problem like a refusal, and the key is free again.
  */
 async function sendWork(body, key, { reread = true } = {}) {
   sending.add(key)
   problems.delete(key)
-  redrawNeeds()
-  redrawFocus()
   let problem = null
+  const stop = new AbortController()
+  const timer = setTimeout(() => stop.abort(), WORK_WAIT_MS)
   try {
+    redrawNeeds()
+    redrawFocus()
     const answer = await fetch('/api/work', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
       body: JSON.stringify(body),
+      signal: stop.signal,
     })
     if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
     else showPaste((await answer.json().catch(() => null))?.paste ?? null)
-  } catch {
-    problem = 'the board\'s server does not answer'
+  } catch (error) {
+    problem = stop.signal.aborted ? `the board did not answer within ${WORK_WAIT_MS / 1000} s (it may be restarting); try again`
+      : error instanceof TypeError && /fetch/i.test(error.message) ? 'the board\'s server does not answer'
+        : `the page failed (${error?.message ?? error}); reload it and try again`
+  } finally {
+    clearTimeout(timer)
+    sending.delete(key)
   }
-  sending.delete(key)
   if (problem === null) {
     drafts.delete(key)
     chosen.delete(key)
@@ -13713,6 +13737,7 @@ async function sendWork(body, key, { reread = true } = {}) {
   if (reread) await read()
   return problem
 }
+// sendwork:end
 
 // paste:start
 /** B212: the line on top that says the words were copied, and into which chat to paste them. */

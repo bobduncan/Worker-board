@@ -86,6 +86,18 @@ test('an error: the window stays open, says why, and Send works again', async ()
   assert.match(style, /\.calm-answer \.problem \{[^}]*color: #ff8a8a/)
 })
 
+test('B483: a fault on the page while it sends never leaves the button on "Sending…": the window says why', async () => {
+  const page = pageWith([ask('Q1'), ask('Q2', { at: 2000 })], () => null)
+  page.calmPicks.set('work:Q1', 'B')
+  page.calmWords.set('work:Q2', 'yew')
+  page.sendWork = async () => { throw new Error('need.of is undefined') }
+  await page.run('work:Q1')
+  assert.equal(page.sending.size, 0)
+  assert.equal(page.problems.get('work:Q1'), 'Not sent: the page failed (need.of is undefined); reload it and try again')
+  assert.deepEqual(page.log, ['draw:sending', 'draw:idle'])
+  assert.equal(page.calmBusy, false)
+})
+
 test('answered meanwhile elsewhere: nothing to send any more; the toast counts only what went', async () => {
   const page = pageWith([ask('Q1')], () => 'Q1 is answered already.')
   page.calmPicks.set('work:Q1', 'B')
@@ -122,7 +134,8 @@ test('while it sends: a spinner on the button, which is never left greyed after 
   assert.deepEqual({ ...page.view(group, new Set(['work:Q1'])) }, { text: 'Sending…', isBusy: true, isDisabled: true })
   assert.deepEqual({ ...page.view(group, new Set(['work:Q9'])) }, { text: 'Send answer', isBusy: false, isDisabled: false })
   const draw = script.slice(script.indexOf('function drawCalm('), script.indexOf('// calmwindow:end'))
-  assert.ok(draw.includes('calmSendView(group, sending, calmSendText(group))'))
+  // B483: after a send that did not go, the same button says Try again.
+  assert.ok(draw.includes("calmSendView(group, sending, problem?.startsWith('Not sent:') ? 'Try again' : calmSendText(group))"))
   assert.ok(draw.includes("el('span', 'calm-spinner')"))
   assert.match(style, /\.calm-spinner \{[^}]*animation: design-turn/)
 })
