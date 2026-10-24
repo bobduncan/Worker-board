@@ -38,8 +38,8 @@ const check = (id, board, seen = new Map()) => {
   return Object.defineProperty(found, 'observed', { value: observed, enumerable: false })
 }
 
-test('the watch rules: ten, report only, each with what it says', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod'])
+test('the watch rules: eleven, report only, each with what it says', () => {
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['unknown-lane', 'stale-suspended', 'idle-while-waiting', 'holder-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort'])
   assert.ok(WATCH_RULES.every(one => one.kind === 'watch' && typeof one.says === 'string' && one.says.length > 0 && typeof one.check === 'function'))
 })
 
@@ -236,6 +236,21 @@ test('B541: three chats on an old mod (the main chat and the partner too) are on
   // The same key while it lasts, whoever is on it: one incident counts up.
   assert.equal(check('old-mod', board({ Painter: '0.15.2' }))[0].key, 'old-mod 0.16.0')
   assert.deepEqual(check('old-mod', board({ Lead: '0.16.0', Painter: '0.16.0', Mason: '0.16.0', Guide: '0.16.0' })), [])
+})
+
+test('B544: odd-effort names a chat whose effort is not a level, once; the partner\'s mode object beside its level is no case', () => {
+  const board = (more = {}) => buildView({
+    state: { chats: [LEAD, lane('Painter', { effort: more.painter ?? 'high' })], advisor: { name: 'Guide', appEffort: more.guide ?? 'xhigh', effort: { mode: 'usual', runsOn: null } }, chatPrefix: '' },
+    now: NOW,
+  })
+  assert.deepEqual(check('odd-effort', board()), [], 'levels, the partner\'s mode object, and a chat that says none (Lead)')
+  const found = check('odd-effort', board({ painter: 'ultra', guide: { mode: 'high' } }))
+  assert.deepEqual(found.map(one => [one.key, one.subject, one.text]), [
+    ['odd-effort Painter ultra', 'Painter', 'Painter\'s effort reads "ultra", not a level'],
+    ['odd-effort Guide {"mode":"high"}', 'Guide', 'Guide\'s effort reads "{"mode":"high"}", not a level'],
+  ])
+  // An object with its level, as effortOf gives one, is that level.
+  assert.deepEqual(check('odd-effort', board({ painter: { level: 'max', why: null, isSet: true } })), [])
 })
 
 test('Review Focus 1: a rule that throws is one finding "rule <id> failed" and the other rules still run', () => {

@@ -70,6 +70,25 @@ function fixture() {
   return buildView({ state, items: store, outbox, limits, pause: { state: 'running', since: ago(600) }, repairs, now: NOW })
 }
 
+test('B544 (X9): a chat\'s effort reads as its level, never "[object Object]"; a shape it does not know reads "effort not known"', () => {
+  const view = buildView({
+    state: {
+      chats: [lane('Lead', { isMain: true }), lane('Digger', { effort: { level: 'high', why: 'the layout', isSet: true } }), lane('Weeder', { effort: { odd: true } })],
+      // The partner as state.mjs gives it: the app's level in appEffort, its high effort mode in effort.
+      advisor: lane('Partner', { model: 'claude-opus-5-5', appEffort: 'xhigh', effort: { mode: 'usual', runsOn: null, isSet: true } }),
+      chatPrefix: '',
+    },
+    now: NOW,
+  })
+  const text = healthSummary(view, NOW)
+  const line = name => text.split('\n').find(one => one.includes(`${name} (`)) ?? ''
+  assert.doesNotMatch(text, /object Object/)
+  assert.match(line('Partner'), /runs opus · xhigh;/)
+  assert.match(line('Digger'), /runs sonnet · high;/)
+  assert.match(line('Weeder'), /runs sonnet · effort not known;/)
+  assert.match(line('Lead'), /runs sonnet · medium;/)
+})
+
 test('the summary holds every section: the chats with state, since, model and effort beside the step\'s, last report and clear', () => {
   const text = healthSummary(fixture(), NOW)
   assert.ok(text.length <= HEALTH_CHARS)

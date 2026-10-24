@@ -106,6 +106,24 @@ function lineOf(item, name) {
 }
 
 /**
+ * B544, the fix of X9: what a chat's card says of the effort its chat runs at, as the app's file of the chat says it:
+ * `appEffort` where the card has that field (the partner's, whose `effort` is its high effort mode, B352), else
+ * `effort`; an object is read for its `level`, as effortOf gives one (an object without one is said as it is). Null
+ * when the card says nothing.
+ */
+export function effortSaid(chat) {
+  if (chat === null || typeof chat !== 'object') return null
+  const said = Object.hasOwn(chat, 'appEffort') ? chat.appEffort : chat.effort
+  return said !== null && typeof said === 'object' && typeof said.level === 'string' ? said.level : said ?? null
+}
+
+/** B544: the level a chat runs at (one of EFFORTS), or null when its card says none or one the board does not know. */
+export function chatEffort(chat) {
+  const said = effortSaid(chat)
+  return typeof said === 'string' && EFFORTS.includes(said) ? said : null
+}
+
+/**
  * A step's effort: `{ level, why, isSet }`, from its Effort section, else its refine block's Effort line; a step without
  * one (or with one the board cannot read) counts as medium, `isSet` false.
  */

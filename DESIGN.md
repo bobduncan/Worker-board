@@ -3072,7 +3072,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   chat, skipped for the same reason twice in a row), `repair-repeats` (the same repair rule on the same chat or
   step 3 times in a day), `undelivered` (a word to a chat waiting over 10 min, or expired or failed in the last two
   hours), `report-check-twice` (a step's board check failed twice in a row since its last pass), `old-mod` (a chat on an
-  older Workers mod than the one installed: dormant until the mod reports its version, Part 2's mod). How long a thing
+  older Workers mod than the one installed: dormant until the mod reports its version, Part 2's mod), `odd-effort`
+  (B544, the fix of X9: a chat whose card says an effort that is not a level; the partner's card holds the app's level in
+  `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
+  summary never says "[object Object]"). How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at
