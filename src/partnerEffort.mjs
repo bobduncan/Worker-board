@@ -8,7 +8,7 @@
 /** The two modes: the usual partner, and high effort for the vibe and the how of a hard goal. */
 export const PARTNER_MODES = {
   usual: { model: 'claude-opus-5-5', effort: 'xhigh', label: 'Opus 5.5, extra high' },
-  high: { model: 'claude-fable-5-1', effort: 'max', label: 'Fable 5.1, max' },
+  high: { model: 'claude-opus-5-5', effort: 'max', label: 'Opus 5.5, max' },
 }
 
 /**

@@ -2344,7 +2344,9 @@ The person, 2026-10-18 (I16): "while refining a goal, i want a button to change 
 other model/effort, lets call it high effort mode. so like fable 5.1 max effort. otherwise it will use opus extra".
 
 1. A switch under the talk with the partner on the Focus page (the vibe and the how): "High effort mode · off: Opus
-   5.5, extra high" or "· on: Fable 5.1, max", amber when on (`src/partnerEffort.mjs`, `PARTNER_MODES`).
+   5.5, extra high" or "· on: Opus 5.5, max", amber when on (`src/partnerEffort.mjs`, `PARTNER_MODES`). Since 2026-10-24 high effort is Opus at
+   max effort, not Fable (the person: "maximum run opus ... you cant run fable without my permission"); the goal guard
+   switches to it by itself, so it must never be Fable.
 2. The board cannot change a chat itself: the switch types `partner effort` (Chat, Mode, Model, Effort, Session when
    known, Why) into the main chat, which sets the partner's chat with the app's `set_session_model` and
    `set_session_effort` (roles/main.md, roles/protocol.md). It is one of the board's words, never the person's.

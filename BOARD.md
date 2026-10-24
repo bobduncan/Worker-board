@@ -219,7 +219,7 @@ one) and **Go** (once it proposed parts) write their line once and tell your par
 is missing and sends your words. A line under the head says what each move did, or why not.
 
 B352: under the talk, **High effort mode** with a switch: off is the usual partner (Opus 5.5, extra high effort), on
-is Fable 5.1 at max effort, for the vibe and the how of a hard goal. Flipping it types `partner effort` into the main
+is Opus 5.5 at max effort (never Fable without your yes, since 2026-10-24), for the vibe and the how of a hard goal. Flipping it types `partner effort` into the main
 chat, which sets your partner's chat; until your partner's next answer runs on that model and effort (its transcript
 names both) the line is dashed and says "Switching…", then solid. Go on the how and another goal as your focus switch
 it back to off by themselves; a word the main chat never took says so and changes nothing. The switch stands as the
