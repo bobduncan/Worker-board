@@ -1508,7 +1508,11 @@ function drawMore(lane, state) {
   const free = freeLine(lane, clock)
   if (free !== null) list.append(el('li', '', free))
   const compacted = compactionLine(lane.compaction ?? null, clock)
-  if (compacted !== null) list.append(el('li', 'muted', compacted.title))
+  if (compacted !== null && compacted.log !== undefined) {
+    const item = el('li', 'muted', `${compacted.title} `)
+    item.append(clearedNote(compacted))
+    list.append(item)
+  } else if (compacted !== null) list.append(el('li', 'muted', compacted.title))
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
   for (const folder of lane.folders) list.append(el('li', '', folderLine(folder, now)))
   if (lane.lastActivityAt !== null) list.append(el('li', 'muted', `Last activity ${ago(lane.lastActivityAt, now)}`))
@@ -1555,7 +1559,8 @@ function laneFlags(lane, restart = null) {
   const isAsked = (restart?.starting ?? []).some(one => one.chat === lane.name && one.state !== 'expired' && one.state !== 'failed')
   return (lane.flags ?? []).map(flag => ({
     text: flag.text,
-    tone: flag.kind === 'card' ? 'warn' : 'problem',
+    // Model per step: a step that waits for its worker to run on Opus is a wait, no fault.
+    tone: flag.kind === 'card' || flag.kind === 'model' ? 'warn' : 'problem',
     // B304: a failed check is the person's to run again ("Check again", `data-recheck`: the work API's `recheck`).
     button: flag.kind === 'check failed' ? { label: 'Check again', recheck: flag.id }
       : flag.button === null || main === null || main === lane.name ? null : { label: flag.button, start: lane.name, isAsked },
@@ -1587,7 +1592,8 @@ function drawLane(lane, state) {
     const note = el('small', 'compaction is-warning', compacted.text)
     note.title = compacted.title
     names.append(note)
-  } else if (compacted !== null) names.title = compacted.title
+  } else if (compacted !== null && compacted.log !== undefined) names.append(clearedNote(compacted))
+  else if (compacted !== null) names.title = compacted.title
   // B143: a worker can be removed; the main chat cannot. The board asks the main chat, which closes the worker.
   const main = state.workers?.mainTitle ?? 'the main chat'
   const removal = removalView(lane, main, state.readAt)
@@ -2565,6 +2571,8 @@ function drawToday(state) {
 
 /** The chat of that name on the board: a lane, or the advisor. */
 const chatNamed = name => (board === null ? null : [...board.chats, board.advisor].find(chat => chat !== null && chat.name === name) ?? null)
+/** The main chat as the board reads it (its name, whether it runs), or null without one. */
+const mainChatOf = state => (state?.chats ?? []).find(chat => chat.name === (state?.restart?.main ?? null)) ?? null
 
 /**
  * What is said where something waits for a chat that is not running: that the main chat was asked to start it,
@@ -3760,6 +3768,10 @@ function focusPageView(state, ui) {
     recaps: linkable(state.recaps),
     recapsShow: state.recapsShow ?? null,
     backlog: stepKeysOf(state.backlog),
+    // The main chat alone (its name, whether it runs): the talk's line says whether it can start a partner that does
+    // not run (mainChatOf); the other chats are not drawn here.
+    chats: (state.chats ?? []).filter(chat => chat.name === (state.restart?.main ?? null)).map(runnerOf),
+    restart: { main: state.restart?.main ?? null },
   }
   return {
     ...cards,
@@ -4023,6 +4035,11 @@ function flowStripOf(flow) {
 // item:start
 /** B468: the levels of a step's effort, lowest first, as the app names them. */
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+/** Model per step: the model families a step may name, cheapest first, and the words the page says them with. */
+const MODEL_FAMILIES = ['sonnet', 'opus']
+const MODEL_NAMES = { sonnet: 'Sonnet', opus: 'Opus' }
+/** Model per step: a model family and an effort level as the page says them, "Sonnet · medium" (the level alone without a family). */
+const runWords = (family, level) => (typeof family === 'string' && family !== '' ? `${MODEL_NAMES[family] ?? family} · ${level}` : level)
 const EFFORT_HOLDS = ['taken', 'in progress', 'waiting on you']
 const effortClock = ms => { const at = new Date(ms); return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` }
 const effortMinutes = minutes => (minutes < 60 ? `${minutes} min` : minutes % 60 === 0 ? `${minutes / 60} h` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`)
@@ -4032,18 +4049,19 @@ const effortTokens = tokens => (tokens < 1000 ? String(tokens) : tokens < 1_000_
  * B468: what a step's window says under its effort, from its worker's lane (`lanes`, the state's chats with their
  * `effortRun`, src/work/effort.mjs): that the worker runs at it until the step ends, or that the main chat was asked to
  * set it and it is not set yet; for a step queued for a worker, that it will. Null for a step nobody holds or will take.
+ * Model per step: the step's model beside its effort ("Sonnet · low"), and the usual setting after it.
  */
 function effortRunLine(item, lanes = []) {
   const owner = item?.owner ?? null
   const isHeld = EFFORT_HOLDS.includes(item?.state)
   if (owner === null || (!isHeld && item.state !== 'queued')) return null
-  const level = item.effort.level
+  const setting = runWords(item.model?.family, item.effort.level)
   const run = lanes.find(lane => String(lane.name).toLowerCase() === String(owner).toLowerCase())?.effortRun ?? null
   if (run !== null && run.step === item.id && run.isSet) {
-    return isHeld ? `${owner} runs at ${level} until the step ends, then at its usual level (${run.usual}).` : `${owner} is set to ${level} for it already.`
+    return isHeld ? `${owner} runs at ${setting} until the step ends, then at its usual setting (${runWords(run.usualModel, run.usual)}).` : `${owner} is set to ${setting} for it already.`
   }
-  if (run !== null && run.step === item.id && run.asked !== null) return `The main chat was asked at ${effortClock(run.asked.at)} to set ${owner} to ${level}; not set yet.`
-  return isHeld ? `${owner} is to run at ${level} while it holds the step.` : `${owner} is set to ${level} before the step goes to it.`
+  if (run !== null && run.step === item.id && run.asked !== null) return `The main chat was asked at ${effortClock(run.asked.at)} to set ${owner} to ${setting}; not set yet.`
+  return isHeld ? `${owner} is to run at ${setting} while it holds the step.` : `${owner} is set to ${setting} before the step goes to it.`
 }
 
 /** B468: what the board kept for a level (`efforts`, the state's taskTimes.efforts): its steps, their typical time and tokens. */
@@ -4065,7 +4083,8 @@ function itemPartsOf(item, hasFlow, { lanes = [], efforts = [] } = {}) {
     item.summary.length > 0 ? { key: 'summary', title: 'Summary', lines: item.summary, isFolded: false } : null,
     item.picture !== null ? { key: 'picture', title: 'Picture', lines: [item.picture], isFolded: false } : null,
     item.goal !== null ? { key: 'goal', title: 'Goal', lines: [item.goal], isFolded: false } : null,
-    (item.effort ?? null) !== null ? { key: 'effort', title: 'Effort', lines: [], isFolded: false, effort: item.effort, run: effortRunLine(item, lanes), kept: effortKeptLine(item.effort.level, efforts) } : null,
+    // Model per step: its model with it, where the board sets one (the settings name the model ids; else none).
+    (item.effort ?? null) !== null ? { key: 'effort', title: (item.model ?? null) === null ? 'Effort' : 'Model and effort', lines: [], isFolded: false, effort: item.effort, model: item.model ?? null, run: effortRunLine(item, lanes), kept: effortKeptLine(item.effort.level, efforts) } : null,
     hasFlow ? { key: 'flow', title: 'Flow', lines: [], isFolded: false } : null,
     item.what.length > 0 ? { key: 'what', title: 'What we build', lines: item.what, isFolded: false } : null,
     // B356: the result check by a helper that did not build it: the ticks, the score and the evidence picture.
@@ -4551,6 +4570,8 @@ function drawReferences(shown) {
 
 
 // lanewindow:start
+/** Model per step: the words a lane's chip says a model family with ("Sonnet · low"). */
+const LANE_MODELS = { sonnet: 'Sonnet', opus: 'Opus' }
 /** B235: a size in tokens, short: 820000 is "820k". */
 const tokensOf = count => (Number.isFinite(count) ? (count >= 1000 ? `${Math.round(count / 1000)}k` : String(count)) : null)
 
@@ -4580,14 +4601,42 @@ const NOT_COMPACTED = [
  */
 function compactionLine(compaction, clockOf) {
   if (compaction === null || compaction === undefined) return null
+  // Clear after each step: the mod cleared the worker after its reported step; its conversation is kept as a log.
+  if (compaction.kind === 'cleared') {
+    const text = `cleared after ${compaction.step ?? 'its step'}`
+    const kept = (compaction.log ?? null) === null ? 'its log was not named' : `the conversation before is kept in ${compaction.log}`
+    return { text, title: `Workers mod at ${clockOf(compaction.at)}: ${text}; ${kept}`, isWarning: false, log: compaction.log ?? null }
+  }
+  // Clear after each step: why the mod did not clear the worker, and compacted it instead.
+  const notCleared = (compaction.notCleared ?? null) === null ? '' : ` Not cleared at ${clockOf(compaction.notCleared.at)}: ${compaction.notCleared.why}.`
   if (compaction.kind === 'skipped') {
     const [, words, isWarning] = NOT_COMPACTED.find(([pattern]) => pattern.test(compaction.why))
-    return words === null ? null : { text: words, title: `Workers mod at ${clockOf(compaction.at)}: ${compaction.why}`, isWarning }
+    return words === null ? null : { text: words, title: `Workers mod at ${clockOf(compaction.at)}: ${compaction.why}${notCleared}`, isWarning }
   }
   // B247: an after of 0 is not known yet (the mod writes it before the size is known): only the size before is said.
   const [before, after] = [tokensOf(compaction.before), compaction.after > 0 ? tokensOf(compaction.after) : null]
   const text = `compacted at ${clockOf(compaction.at)}${before === null ? '' : `, from ${before}${after === null ? '' : ` to ${after}`} tokens`}`
-  return { text, title: text, isWarning: false }
+  return { text, title: `${text}${notCleared}`, isWarning: false }
+}
+
+/**
+ * Clear after each step: the line "cleared after B482 · log" under a worker's name; "log" opens the conversation the
+ * mod cleared in the board's file viewer (B218).
+ */
+function clearedNote(line) {
+  const note = el('small', 'compaction is-cleared', `${line.text} · `)
+  note.title = line.title
+  if (line.log === null) {
+    note.append('no log')
+    return note
+  }
+  const open = el('button', 'ask-link', 'log')
+  open.type = 'button'
+  open.dataset.gameFile = line.log
+  open.dataset.projectFile = line.log
+  open.title = `Open ${line.log}`
+  note.append(open)
+  return note
 }
 
 const LANE_WINDOW_STATES = { working: 'Working', suspended: 'Suspended', interrupted: 'Cut off', off: 'Not running' }
@@ -4758,7 +4807,8 @@ function laneWindowOf(lane, now, mainTitle) {
     fullTitle,
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }, ...((brief?.goal ?? null) === null ? [] : [{ text: brief.goal, tone: 'goal' }]),
       // B468: the effort it runs at for the step, and "not set yet" while the main chat was asked and the app has not.
-      ...((brief?.effort ?? null) === null ? [] : [{ text: `Effort: ${brief.effort.level}${lane.effortRun?.step === step.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
+      // Model per step: with its model, "Sonnet · low".
+      ...((brief?.effort ?? null) === null ? [] : [{ text: `${(brief.model ?? null) === null ? 'Effort: ' : `${LANE_MODELS[brief.model.family] ?? brief.model.family} · `}${brief.effort.level}${lane.effortRun?.step === step.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
     // B301: only the person's words give a task; the main chat's messages give none.
     given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
     step,
@@ -5468,12 +5518,16 @@ function itemPart(part, strip) {
   if (part.key === 'flow') return flowPart(strip)
   if (part.key === 'picture') return pictureSection(pictureOfLine(part.lines[0]))
   if (part.key === 'goal') return el('p', 'chip is-goal', `Goal: ${part.lines[0]}`)
-  // B468: the five levels with the step's lit, its reason, who runs at it, and what the board kept for that level.
+  // B468: the five levels with the step's lit, its reason, who runs at it, and what the board kept for that level. Model
+  // per step: the model families above them, the step's lit, with its reason.
   if (part.key === 'effort') {
+    const models = el('div', 'effort-levels')
+    for (const family of MODEL_FAMILIES) models.append(el('span', `effort-level${family === part.model?.family ? ' is-on' : ''}`, MODEL_NAMES[family]))
+    const modelWhy = el('p', 'muted', part.model?.isSet ? part.model.why : 'Its refine gave no model: it counts as Sonnet.')
     const levels = el('div', 'effort-levels')
     for (const level of EFFORT_LEVELS) levels.append(el('span', `effort-level${level === part.effort.level ? ' is-on' : ''}`, level))
     const why = el('p', 'muted', part.effort.isSet ? part.effort.why : 'Its refine gave no effort: it counts as medium.')
-    return section('Effort', [levels, why, ...(part.run === null ? [] : [el('p', 'effort-run', part.run)]), el('p', 'muted effort-kept', part.kept)])
+    return section(part.title, [...((part.model ?? null) === null ? [] : [models, modelWhy]), levels, why, ...(part.run === null ? [] : [el('p', 'effort-run', part.run)]), el('p', 'muted effort-kept', part.kept)])
   }
   if (part.key === 'summary') return section('Summary', part.lines.map(one => el('p', '', one)))
   // B293: what we build as the refine shows it, "Not in it" greyed.
@@ -6090,6 +6144,7 @@ function tabOfAddress(hash) {
   if (hash === '#backlog' || hash === '#coordinate') return 'coordinate'
   if (hash === '#design') return 'design'
   if (hash === '#vision') return 'vision'
+  if (hash === '#spending') return 'spending'
   return null
 }
 
@@ -8890,9 +8945,9 @@ function focusNoteView(focus, allowed, why) {
 /**
  * Focus 2: where the talk stands, as the Brainstorm part answers it: the partner's open question with its options, its
  * why and its picture (the person answers it here), or, while the partner has the turn, what it does. `partner` is
- * state.advisor.
+ * state.advisor; `main` the main chat (its name, whether it runs), which starts a partner that does not run.
  */
-function focusAsk(thread, partner) {
+function focusAsk(thread, partner, main = null) {
   // The review of Focus 2: no talk, or one that is over, wrapped up or holding a proposal (the Brainstorm part's), is
   // started anew from here (`restart`: "Start the talk").
   if (thread === null || thread === undefined) return { question: null, waiting: 'No talk about this goal runs: start one.', restart: true }
@@ -8902,7 +8957,8 @@ function focusAsk(thread, partner) {
     return { question: { n: latest.n, why: latest.why ?? null, picture: latest.picture ?? null, options: (latest.options ?? []).map(one => ({ key: one.key, text: one.text, isAdvised: one.isAdvised === true })) }, waiting: null, restart: false }
   }
   const waiting = partner === null || partner === undefined ? 'No partner chat is on the board.'
-    : partner.isRunning === false ? 'Your partner\'s chat is not running: the main chat is asked to start it.'
+    : partner.isRunning === false && main?.isRunning === false ? `Your partner's chat is not running, and neither is ${main.name}, which could start it: open one of the two chats.`
+      : partner.isRunning === false ? 'Your partner\'s chat is not running: the main chat is asked to start it.'
       : 'Your partner is thinking…'
   return { question: null, waiting, restart: false }
 }
@@ -9350,7 +9406,7 @@ function focusTalkCard(state, can) {
   card.append(el('h3', '', 'Talk with your partner'))
   const thread = (state.brainstorms?.threads ?? []).find(one => one.path === state.focus.thread) ?? null
   const bubbles = focusTalk(thread)
-  const ask = focusAsk(thread, state.advisor ?? null)
+  const ask = focusAsk(thread, state.advisor ?? null, mainChatOf(state))
   const list = el('div', 'focus-bubbles')
   if (bubbles.length === 0) list.append(el('p', 'muted', 'No talk about this goal yet.'))
   for (const bubble of bubbles) {
@@ -9739,6 +9795,9 @@ function visionWorking(working, state, can, off) {
     } else if (one.state === 'late' || one.state === 'failed') line.append(el('span', 'muted', `Send it again from its box, or look in ${partner}'s chat.`))
     box.append(line)
   }
+  // A word waits for a partner whose chat does not run (2026-10-21: three waited an hour unseen): say who can start it,
+  // or that the person opens it, with the button that asks the main chat (startParts).
+  if (working.some(one => one.state === 'waiting') && (state.advisor ?? null) !== null) box.append(...startParts(state.advisor.name))
   return box
 }
 
@@ -10842,7 +10901,7 @@ async function focusAnswerAsk(id, label) {
 /** The person's answer to the partner's open question: written under it in the thread, then typed to the partner. */
 async function focusAnswer(focus) {
   const thread = (board?.brainstorms?.threads ?? []).find(one => one.path === focus.thread) ?? null
-  const ask = focusAsk(thread, board?.advisor ?? null)
+  const ask = focusAsk(thread, board?.advisor ?? null, mainChatOf(board))
   const words = focusUi.words.talk.trim()
   const picked = focusUi.picked !== null && ask.question?.options.some(one => one.key === focusUi.picked) ? focusUi.picked : null
   if (ask.question === null) return
@@ -12433,6 +12492,8 @@ function refinedParts(refined) {
   if (refined.build.length > 0) {
     parts.push(holding('div', '', el('span', 'refine-tag', 'What we build'), buildList(refined.build)))
   }
+  // Model per step: the model its worker runs on, "<sonnet or opus> · <reason>".
+  if ((refined.model ?? '') !== '') parts.push(holding('div', 'refined-effort', el('span', 'refine-tag', 'Model'), el('p', '', refined.model)))
   // B468: the effort its worker runs at, "<level> · <reason>".
   if ((refined.effort ?? '') !== '') parts.push(holding('div', 'refined-effort', el('span', 'refine-tag', 'Effort'), el('p', '', refined.effort)))
   return parts
@@ -13453,6 +13514,7 @@ function show(tab) {
   $('view-coordinate').hidden = tab !== 'coordinate'
   $('view-design').hidden = tab !== 'design'
   $('view-vision').hidden = tab !== 'vision'
+  if ($('view-spending')) $('view-spending').hidden = tab !== 'spending'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
   if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) {
@@ -13477,6 +13539,7 @@ $('phone-more').addEventListener('click', () => {
 
 function draw(state) {
   board = state
+  window.BoardSpending?.draw(state)
   drawTop(state)
   drawUpdate(state)
   drawAppNote(state)

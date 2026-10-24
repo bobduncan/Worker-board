@@ -14,28 +14,36 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const cut = (start, end) => script.slice(script.indexOf(start), script.indexOf(end))
 const page = {}
 vm.runInNewContext(`${cut('// item:start', '// item:end')}
-this.itemPartsOf = itemPartsOf; this.effortRunLine = effortRunLine; this.effortKeptLine = effortKeptLine`, page)
+this.itemPartsOf = itemPartsOf; this.effortRunLine = effortRunLine; this.effortKeptLine = effortKeptLine; this.runWords = runWords`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const AT = new Date(2026, 9, 21, 9, 12).getTime()
-const item = (state, effort = { level: 'low', why: 'a text fix', isSet: true }) => ({
-  id: 'B7', title: 'Fix the gate words', summary: [], picture: null, goal: null, what: [], requirements: [], touches: [], history: [], checked: null, fixOf: null, effort, owner: 'Units', state,
+const SONNET = { family: 'sonnet', why: null, isSet: false }
+const item = (state, effort = { level: 'low', why: 'a text fix', isSet: true }, model = SONNET) => ({
+  id: 'B7', title: 'Fix the gate words', summary: [], picture: null, goal: null, what: [], requirements: [], touches: [], history: [], checked: null, fixOf: null, effort, model, owner: 'Units', state,
 })
 const lane = effortRun => ({ name: 'Units', effortRun })
 
-test('who runs at the step\'s effort: set, asked and not set yet, or to come', () => {
-  assert.equal(page.effortRunLine(item('in progress'), [lane({ level: 'low', usual: 'xhigh', step: 'B7', isSet: true, asked: { at: AT, state: 'delivered' } })]),
-    'Units runs at low until the step ends, then at its usual level (xhigh).')
-  assert.equal(page.effortRunLine(item('queued'), [lane({ level: 'low', usual: 'xhigh', step: 'B7', isSet: false, asked: { at: AT, state: 'taken' } })]),
-    'The main chat was asked at 09:12 to set Units to low; not set yet.')
-  assert.equal(page.effortRunLine(item('queued'), [lane({ level: 'low', usual: 'xhigh', step: 'B7', isSet: true, asked: null })]), 'Units is set to low for it already.')
-  assert.equal(page.effortRunLine(item('queued'), []), 'Units is set to low before the step goes to it.')
-  assert.equal(page.effortRunLine(item('waiting on you'), [lane({ level: 'medium', step: 'B9', isSet: true, asked: null })]), 'Units is to run at low while it holds the step.')
+test('who runs at the step\'s model and effort: set, asked and not set yet, or to come', () => {
+  const run = more => lane({ level: 'low', model: 'sonnet', usual: 'medium', usualModel: 'sonnet', step: 'B7', ...more })
+  assert.equal(page.effortRunLine(item('in progress'), [run({ isSet: true, asked: { at: AT, state: 'delivered' } })]),
+    'Units runs at Sonnet · low until the step ends, then at its usual setting (Sonnet · medium).')
+  assert.equal(page.effortRunLine(item('queued'), [run({ isSet: false, asked: { at: AT, state: 'taken' } })]),
+    'The main chat was asked at 09:12 to set Units to Sonnet · low; not set yet.')
+  assert.equal(page.effortRunLine(item('queued'), [run({ isSet: true, asked: null })]), 'Units is set to Sonnet · low for it already.')
+  assert.equal(page.effortRunLine(item('queued'), []), 'Units is set to Sonnet · low before the step goes to it.')
+  assert.equal(page.effortRunLine(item('waiting on you'), [lane({ level: 'medium', step: 'B9', isSet: true, asked: null })]), 'Units is to run at Sonnet · low while it holds the step.')
   assert.equal(page.effortRunLine(item('review'), []), null)
+  // An opus step says so.
+  assert.equal(page.effortRunLine(item('queued', undefined, { family: 'opus', why: 'a guard', isSet: true }), []), 'Units is set to Opus · low before the step goes to it.')
   // The Owner written in another case is the same chat.
-  assert.equal(page.effortRunLine({ ...item('in progress'), owner: 'units' }, [lane({ level: 'low', usual: 'xhigh', step: 'B7', isSet: true, asked: null })]),
-    'units runs at low until the step ends, then at its usual level (xhigh).')
+  assert.equal(page.effortRunLine({ ...item('in progress'), owner: 'units' }, [run({ isSet: true, asked: null })]),
+    'units runs at Sonnet · low until the step ends, then at its usual setting (Sonnet · medium).')
   assert.equal(page.effortRunLine({ ...item('queued'), owner: null }, []), null)
+  // A state from before model per step names the level alone.
+  const { model, ...older } = item('in progress')
+  assert.equal(page.effortRunLine(older, [lane({ level: 'low', usual: 'xhigh', step: 'B7', isSet: true, asked: null })]), 'Units runs at low until the step ends, then at its usual setting (xhigh).')
+  assert.equal(page.runWords('opus', 'high'), 'Opus · high')
 })
 
 test('what the board kept for a level', () => {
@@ -44,13 +52,18 @@ test('what the board kept for a level', () => {
   assert.equal(page.effortKeptLine('max', []), 'Kept per level: the time and tokens its steps take, so the levels can be tuned. None at max yet.')
 })
 
-test('the effort part stands after the goal, with its run and kept lines; an item without one has none', () => {
-  const parts = plain(page.itemPartsOf(item('in progress'), true, { lanes: [lane({ level: 'low', usual: 'high', step: 'B7', isSet: true, asked: null })], efforts: [] }))
+test('the model and effort part stands after the goal, with its run and kept lines; an item without one has none', () => {
+  const parts = plain(page.itemPartsOf(item('in progress'), true, { lanes: [lane({ level: 'low', model: 'sonnet', usual: 'medium', usualModel: 'sonnet', step: 'B7', isSet: true, asked: null })], efforts: [] }))
   assert.deepEqual(parts.map(part => part.key), ['effort', 'flow'])
   assert.deepEqual(parts[0], {
-    key: 'effort', title: 'Effort', lines: [], isFolded: false, effort: { level: 'low', why: 'a text fix', isSet: true },
-    run: 'Units runs at low until the step ends, then at its usual level (high).', kept: 'Kept per level: the time and tokens its steps take, so the levels can be tuned. None at low yet.',
+    key: 'effort', title: 'Model and effort', lines: [], isFolded: false, effort: { level: 'low', why: 'a text fix', isSet: true }, model: SONNET,
+    run: 'Units runs at Sonnet · low until the step ends, then at its usual setting (Sonnet · medium).', kept: 'Kept per level: the time and tokens its steps take, so the levels can be tuned. None at low yet.',
   })
   const { effort, ...without } = item('queued')
   assert.deepEqual(plain(page.itemPartsOf(without, false)).map(part => part.key), [])
+  // The review: without the model ids in the settings the state gives no model: the part is the effort alone.
+  const effortOnly = plain(page.itemPartsOf(item('queued', undefined, null), false))
+  assert.deepEqual([effortOnly[0].title, effortOnly[0].model, effortOnly[0].run], ['Effort', null, 'Units is set to low before the step goes to it.'])
+  assert.equal(page.effortRunLine(item('in progress', undefined, null), [lane({ level: 'low', model: null, usual: 'medium', usualModel: null, step: 'B7', isSet: true, asked: null })]),
+    'Units runs at low until the step ends, then at its usual setting (medium).')
 })

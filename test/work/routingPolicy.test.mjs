@@ -1,0 +1,46 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { parseRoutingPolicy, resolveRoute, meetsRoute } from '../../src/work/routing/policy.mjs'
+
+const registry = Object.fromEntries(['haiku','sonnet','opus'].map(family => [family,{model:`claude-${family}-5-5`,verified:true,efforts:['low','medium','high','xhigh','max']}]))
+const policy = options => parseRoutingPolicy({mode:'observe',registry,...options}).policy
+test('ordinary work uses Sonnet and unknown risk cannot be cheaply assigned', () => {
+  assert.equal(resolveRoute({policy:policy(),role:'main',phase:'coordinate'}).route.effort,'low')
+  assert.equal(resolveRoute({policy:policy(),role:'worker',contract:{risk:{class:'R2',factors:[]}}}).route.family,'sonnet')
+  assert.equal(resolveRoute({policy:policy(),role:'worker',contract:{}}).ok,false)
+  assert.equal(resolveRoute({policy:policy(),role:'worker',contract:{risk:{class:'R2',factors:['persistence']}}}).route.effort,'high')
+})
+test('small protected changes and effort cannot evade model floors', () => {
+  const found=resolveRoute({policy:policy({r1Canary:true}),role:'worker',contract:{risk:{class:'R1',factors:[]},allowedPaths:{board:['src/work/guards.mjs']}}})
+  assert.equal(found.risk.class,'R3')
+  assert.equal(found.route.family,'opus')
+  assert.equal(meetsRoute({model:'claude-haiku-5-5',effort:'max'}, {family:'sonnet',model:'claude-sonnet-5-5',effort:'medium'},registry),false)
+  assert.equal(meetsRoute({model:'claude-opus-5-5',effort:'high'}, {family:'sonnet',model:'claude-sonnet-5-5',effort:'medium'},registry),true)
+})
+
+test('broad scopes overlapping protected files inherit the protected floor',()=>{
+  const found=resolveRoute({policy:policy(),contract:{risk:{class:'R1',factors:[]},allowedPaths:{board:['src/**']}}})
+  assert.equal(found.risk.class,'R3')
+  assert.equal(found.route.family,'opus')
+})
+test('cheap execution requires its canary and exact verified model support', () => {
+  const contract={risk:{class:'R1',factors:[]},implementationFiles:2,patternReference:'public/existing.js',allowedPaths:{board:['public/label.js','public/label.css','test/**']}}
+  assert.equal(resolveRoute({policy:policy(),role:'worker',contract}).route.family,'sonnet')
+  assert.equal(resolveRoute({policy:policy({r1Canary:true}),role:'worker',contract}).route.family,'haiku')
+  assert.equal(resolveRoute({policy:policy({r1Canary:true}),role:'worker',contract:{...contract,implementationFiles:4}}).route.family,'sonnet')
+  assert.equal(resolveRoute({policy:parseRoutingPolicy().policy,role:'main',phase:'coordinate'}).ok,false)
+  assert.equal(parseRoutingPolicy({mode:'bad'}).ok,false)
+  assert.equal(parseRoutingPolicy({registry:{haiku:{model:'x',efforts:['fiction'],verified:true}}}).ok,false)
+})
+test('a mechanical label cannot conceal executable scope or unexplained risk',()=>{
+  const p=policy({r0Canary:true,r1Canary:true})
+  assert.notEqual(resolveRoute({policy:p,contract:{risk:{class:'R0',factors:[]},allowedPaths:{board:['src/rule.mjs']}}}).route.family,'haiku')
+  assert.notEqual(resolveRoute({policy:p,contract:{risk:{class:'R1',factors:['unknown-risk']},implementationFiles:1}}).route.family,'haiku')
+  assert.notEqual(resolveRoute({policy:p,contract:{risk:{class:'R1',factors:[]},implementationFiles:1,patternReference:'public/old.js',allowedPaths:{board:['public/**']}}}).route.family,'haiku')
+})
+test('review is independent of cheap author floors and an escalation never lowers', () => {
+  const contract={risk:{class:'R0',factors:[]}}
+  assert.equal(resolveRoute({policy:policy({r0Canary:true}),role:'reviewer',phase:'review',contract}).route.family,'sonnet')
+  assert.equal(resolveRoute({policy:policy({r0Canary:true}),role:'worker',contract,previousFloor:{family:'opus',model:'claude-opus-5-5',effort:'high'}}).route.family,'opus')
+})
+export {registry}

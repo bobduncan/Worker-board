@@ -116,7 +116,10 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   running, with its step kept and no "may wait for you" hint), **Current task** (its topic, "Now:" what it does, or "Last task: ..., finished", a red line when it is over
   its first estimate), **Progress** (a bar with "step n of m" and the time left of the step), **Est. time** (ETA and
   the clock time, "Goes on at ..." when suspended, "Blocked" when it waits), **Queue** (the next step for it, how
-  many more, and why it has not started). A ⋯ menu per row holds **Remove**, which asks the main chat to close that
+  many more, and why it has not started). Under a worker's name, when the Workers mod cleared it after its reported
+  step (clear after each step): "cleared after B482 · log", "log" opening the kept conversation in a window of the
+  board (a log larger than 1 MB shows its last 2 MB, under the line that names the whole file); a compaction's line
+  says in its tooltip why the worker was not cleared. A ⋯ menu per row holds **Remove**, which asks the main chat to close that
   worker (with a warning when it is not free). Under the rows: what is missing (no list of chats, no chat, no
   backlog), "No main chat yet" with the steps to make one, "No workers yet" with **Ask for three workers**, the line
   about the missing mod, and **+ Add worker**. B465: under the panel's head, after **Out of sync?** (or when the
@@ -165,7 +168,11 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   details.
 - **A worker's answer:** its "Task" and "What I did" lines and the rest of its answer, as its words; its "For you"
   items are no questions to answer here (B301).
-- **A step of the backlog:** its words, its notes in sections, its branch, its pictures, and **Add to queue**.
+- **A step of the backlog:** its words, its notes in sections, its branch, its pictures, and **Add to queue**. Its
+  **Model and effort** (B468, model per step): Sonnet or Opus and the five effort levels, the step's lit, each with its
+  reason, and who runs at it ("Units runs at Sonnet · low until the step ends, then at its usual setting (Sonnet ·
+  medium)", or that the main chat was asked and it is not set yet). A worker's task window shows the same as a chip,
+  "Sonnet · low".
 - **A picture** (`04-picture-popup.png`, a click on any picture or `#picture=<path>`): the picture large with its
   path; a click closes it.
 - **A game** (`#play=<branch>&<settings>`): the branch's game started and this tab turned into it.

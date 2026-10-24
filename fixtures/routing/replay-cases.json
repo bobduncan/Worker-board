@@ -1,0 +1,22 @@
+[
+  {"label":"Exact documentation correction","contract":{"risk":{"class":"R0","factors":[]},"allowedPaths":{"board":["docs/readme.md"]}},"expected":{"family":"haiku","effort":"low"}},
+  {"label":"B471 fixed product-plan wording","contract":{"risk":{"class":"R0","factors":[]},"allowedPaths":{"board":["docs/product-plan.md"]}},"expected":{"family":"haiku","effort":"low"}},
+  {"label":"B475 narrow title UI pattern","contract":{"risk":{"class":"R1","factors":[]},"allowedPaths":{"board":["public/labels.js","test/**"]},"implementationFiles":1,"patternReference":"public/existing.js"},"expected":{"family":"haiku","effort":"medium"}},
+  {"label":"B483 asynchronous answer failure","contract":{"risk":{"class":"R2","factors":["concurrency"]}},"expected":{"family":"sonnet","effort":"high"}},
+  {"label":"B478 enemy rules interaction","contract":{"risk":{"class":"R2","factors":["state"]}},"expected":{"family":"sonnet","effort":"high"}},
+  {"label":"B470 architecture decision","contract":{"risk":{"class":"R3","factors":["architecture"]}},"expected":{"family":"opus","effort":"high"}},
+  {"label":"Single protected blocker line","contract":{"risk":{"class":"R1","factors":[]},"allowedPaths":{"board":["src/work/guards.mjs"]}},"expected":{"family":"opus","effort":"high"}},
+  {"label":"Missing risk assessment","contract":{},"expected":{"held":true}},
+  {"label":"Server routing changes","contract":{"risk":{"class":"R2","factors":[]},"allowedPaths":{"board":["server.mjs"]}},"expected":{"family":"opus","effort":"high"}},
+  {"label":"Subjective visual iteration","contract":{"risk":{"class":"R2","factors":["art"]}},"expected":{"family":"sonnet","effort":"high"}},
+  {"label":"Broad implementation scope","contract":{"risk":{"class":"R1","factors":[]},"allowedPaths":{"board":["public/**"]},"implementationFiles":1,"patternReference":"public/existing.js"},"expected":{"family":"sonnet","effort":"medium"}},
+  {"label":"Four implementation files","contract":{"risk":{"class":"R1","factors":[]},"allowedPaths":{"board":["public/a.js"]},"implementationFiles":4,"patternReference":"public/existing.js"},"expected":{"family":"sonnet","effort":"medium"}},
+  {"label":"Unknown risk must not be cheap","contract":{"risk":{"class":"R1","factors":["unknown-risk"]},"implementationFiles":1},"expected":{"family":"sonnet","effort":"high"}},
+  {"label":"Save migration is protected","contract":{"risk":{"class":"R1","factors":[]},"allowedPaths":{"game":["src/save/migrate.ts"]}},"expected":{"family":"opus","effort":"high"}},
+  {"label":"Mechanical claim on code","contract":{"risk":{"class":"R0","factors":[]},"allowedPaths":{"board":["public/label.js"]}},"expected":{"family":"sonnet","effort":"medium"}},
+  {"label":"Independent mechanical review","phase":"review","role":"reviewer","contract":{"risk":{"class":"R0","factors":[]},"allowedPaths":{"board":["docs/one.md"]}},"expected":{"family":"sonnet","effort":"medium"}},
+  {"label":"Helper specification approval","phase":"spec","role":"helper","contract":{"risk":{"class":"R2","factors":[]}},"expected":{"family":"sonnet","effort":"medium"}},
+  {"label":"Main routine coordination","phase":"coordinate","role":"main","expected":{"family":"sonnet","effort":"low"}},
+  {"label":"Existing escalation retained","contract":{"risk":{"class":"R0","factors":[]},"allowedPaths":{"board":["docs/one.md"]}},"previousFloor":{"family":"opus","model":"claude-opus-5-5","effort":"high"},"expected":{"family":"opus","effort":"high"}},
+  {"label":"Outside-repository scope","contract":{"risk":{"class":"R1","factors":[]},"allowedPaths":{"board":["../outside.js"]}},"expected":{"held":true}}
+]

@@ -590,6 +590,28 @@ export function wakeFor(message, state, outbox, now, maxChars) {
 }
 
 /**
+ * What the board asks on its clock for words that wait for a chat that is not running and for which the main chat was
+ * never asked: they were sent while the main chat did not run either (`wakeFor` asks nothing then), so they waited
+ * unseen until the chat was opened by hand (2026-10-21: three words to the Advisor waited 09:46 to 10:57). One start
+ * word per chat, through `wakeFor`; none for a chat the main chat was asked to start since its oldest word that waits,
+ * also when that ask failed (the page's button asks again). `outbox` is everything sent, in order, with what waited too
+ * long marked "expired".
+ */
+export function wakesDue(state, outbox, now, maxChars) {
+  const seen = new Set()
+  const starts = []
+  for (const message of outbox) {
+    if (message.state !== 'waiting' || seen.has(message.to)) continue
+    seen.add(message.to)
+    if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && sent.at >= message.at)) continue
+    // B173: a round is the board's own word to the Advisor; it wakes its chat as a message does.
+    const start = wakeFor(message.command === 'round' ? { ...message, command: null } : message, state, outbox, now, maxChars)
+    if (start !== null) starts.push(start)
+  }
+  return starts
+}
+
+/**
  * B298: a line the person typed on the board to a chat is filed as an instruction before it is kept for delivery, and
  * carries its id at its end ("Make it blue [I17]"), so the chat closes the one it was given. `file(body)` is the work
  * API as the person. An answer to a request and the board's own words are no instruction; when nothing is filed (no

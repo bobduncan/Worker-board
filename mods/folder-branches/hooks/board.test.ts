@@ -89,6 +89,12 @@ describe('B468: a step\'s effort with the work tool', () => {
   })
 })
 
+describe('Model per step: a step\'s model with the work tool', () => {
+  test('model is a field of the tool, sent to the board', () => {
+    expect(WORK_FIELDS.includes('model')).toBe(true)
+  })
+})
+
 describe('Partner answers: the partner answers a routed ask for the person, or hands it to them', () => {
   test('partner-answer and escalate are actions of the tool, at its end, with id, text and why', () => {
     expect(WORK_ACTIONS.slice(-2)).toEqual(['partner-answer', 'escalate'])

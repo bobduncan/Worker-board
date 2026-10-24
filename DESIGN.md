@@ -1,5 +1,14 @@
 # Worker board: design
 
+## Quality and Spending (2026-10-21)
+
+Spending adds local usage estimates, coverage and quality measurements without making model calls. Costs include
+failed work, planning and review. API-equivalent prices and account-wide subscription allowance remain separate.
+The initial rollout is observe-only: no automatic model changes until native route confirmation, complete tool
+coverage and child controls are verified. Contracts, conservative model floors and candidate/validation helpers
+are foundations for that later guarded workflow. See `docs/model-routing.md` and `docs/model-routing-pilot.md` for
+the implemented boundary and remaining prerequisites. A missing prerequisite never relaxes a quality gate.
+
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
 > settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on any tie; its list of
@@ -637,7 +646,7 @@ never from outside them, only text files and pictures of at most 1 MB; a picture
 a chat's words stay words. The Advisor keeps no open questions in the plan (`roles/partner.md`). Pictures:
 `art-inbox/worker-board/b218/`.
 
-**Whether a worker was compacted (B235).** The Workers mod 0.9.0 compacts a large worker after its report and writes `compacted: { at, before, after }` on its card, or writes `compactNote: { at, why }` when it does not. The board reads the newer of the two and shows one small line under the worker's name: "compacted at 16:40, from 820k to 95k tokens" in grey, or "not compacted at 16:40: <why>" in yellow; the whole line as its tooltip. Without the mod there is no such line. The picture: `art-inbox/worker-board/b235/`.
+**Whether a worker was compacted (B235).** The Workers mod 0.9.0 compacts a large worker after its report and writes `compacted: { at, before, after }` on its card, or writes `compactNote: { at, why }` when it does not. The board reads the newer of the two and shows one small line under the worker's name: "compacted at 16:40, from 820k to 95k tokens" in grey, or "not compacted at 16:40: <why>" in yellow; the whole line as its tooltip. Without the mod there is no such line. The picture: `art-inbox/worker-board/b235/`. Since clear after each step (2026-10-23, below) the same place says "cleared after B482 · log" when the mod cleared the worker (`cleared` newer than both), and a compaction's tooltip says why it was not cleared (`clearNote`).
 
 **A picture in Talk to Main (B167).** The person, 2026-10-14: "i need a change so that i can post pictures in the 'talk
 to main' chat in the worker board, from my clipboard". Ctrl+V in the talk takes the picture on the clipboard (PNG,
@@ -2735,6 +2744,62 @@ level it needs. the worker will adjust to this new effort level". Every chat ran
    transcripts) are not counted.
 7. Not in it: the partner's own effort (B352) and the result checks' helpers.
 
+## A step's model (model per step, the token-saving plan's step 2)
+
+Measured on 2026-10-23: 96% of the project chats' usage ran on Opus. The person approved the same day: "workers Sonnet
+by default, Opus only for steps the Advisor marks hard (architecture, the board's core, unclear bugs)", plus "the
+Advisor's check helpers on Sonnet". It builds on B468: the same word to the main chat, the same hold.
+
+1. The partner names every step's model at its refine, with its effort: `model` on `work refine`, `work refined` and
+   `work new`, a family (sonnet or opus) and a reason of one line ("opus: a guard of the work store"; `parseModel`,
+   `src/work/effort.mjs`). The store keeps it as the step's Model section ("opus · ...") and the refine block's
+   `Model:` line, right before `Effort:`; a later round without one keeps it, a `refined` with one replaces it, a fix
+   step runs on the model of the step it fixes. The Workers mod lists `model` in `WORK_FIELDS` since its version
+   0.15.0; a chat started before gives it as a line of `questions` or `what` that starts with "Model:" and a family
+   (`withModel`). A step without one counts as sonnet (`modelOf`). When the partner marks opus stands in
+   roles/partner.md: architecture or design decisions, the board's core, unclear or repeated bugs, art direction or
+   judging; everything else sonnet, and medium the usual effort (effort barely changes the cost: output is about 5%
+   of the usage).
+2. The app's model ids come from the settings, never from the code: `models` (`{ "sonnet": "claude-...", "opus":
+   "claude-..." }`, as the app's model picker lists them; none unless set). They count only as both, each starting
+   with `claude-` (`modelIds`); given otherwise the board says so on top ("Settings: ...", `modelsProblem`) and sets
+   the effort alone, B468's word, as without them. The page then shows no model either: a model the board did not set
+   is not shown (the state's `model` of a step is null).
+3. One word to the main chat sets both (`effortWords`, command `worker-effort` as before): `set model and effort`,
+   "Chat:", "Session:", "Step:" (none when back to the usual setting), "Model:" (the id), "Effort:", "Why:". The main
+   chat runs `set_session_model` and `set_session_effort` (roles/main.md); its own model stays. A word counts as asked
+   for a setting when both its effort and its model are that setting's (`sameTarget`), also in the delivery's check.
+4. The step's line to its worker waits until both are read back (`isSet`), from the app's file of the chat: the app
+   writes the session's record there on every change of the model (Claude 3.1623: `setModel` → `commitSessionModel`,
+   which sets the record's `model` and saves the session; for an idle chat once its process took the model), so an
+   idle worker is confirmed from the file. Only a file that names no model lets the chat's last answer count (its
+   transcript names its model, as B352 reads the partner's; the lane's `lastAnswer`), and only an answer after the
+   newest word (not lost) that set another model. A word for another setting still on its way (the newest word, not
+   lost, of the last half hour, whose setting the file does not show yet: a word back to Sonnet still in the main
+   chat's queue) changes the chat after any reading now, so while it is, the step is not set.
+   The review (2026-10-24): **an opus step waits until its worker runs on Opus**, however long: no release after three
+   minutes, for a lost word, without a main chat or with a file that names no effort. Its word goes only once a word
+   for another model on its way was applied (the main chat sets them in their order, so the reading that frees it
+   comes after both), and again each half hour (`AGAIN_MS`). The lane says so, "B<id> waits for Opus since HH:MM: <why>"
+   (a flag of kind `model`, amber), and `work take` refuses the step while it waits, with that line (`stepHold`, the
+   state's `reconciled.holds`). Any other step keeps B468's hold: three minutes at most after its word (`HOLD_MS`), a
+   lost word frees the line; running a sonnet step on Opus costs tokens at worst.
+5. Between steps a worker runs at its usual setting from the settings, `usualModel` and `usualEffort` (sonnet and
+   medium unless set; `runSettings`), never at what it ran at before the board's first word (B468 kept that one, extra
+   high on Opus for every worker). The board moves a worker back only after one of its words changed it, as in B468; a
+   word of before (another level, or no model) is no word back to the usual setting, so such a worker is moved to it,
+   and a setting the person chose by hand after a word back arrived is left alone.
+6. The page says the model beside the effort: the step's window has **Model and effort** (the two families and the
+   five levels, each with the step's lit and its reason), who runs at "Sonnet · low" until the step ends and then at
+   its usual setting; the worker's window has "Sonnet · low" among its chips (", not set yet" while asked); a refine
+   block shows its Model line. No new page.
+7. The partner's helpers: every helper the partner starts for a check, a re-check, a review or facts runs on Sonnet
+   (`model: "sonnet"`), and its helper chat (Advisor 2) runs on Sonnet at medium as its own setting, which the main
+   chat sets once (roles/partner.md, roles/main.md). The board does not set the helper chat itself.
+8. The partner and its helper are never set by this plan (`skip`): their own setting (B352, and the helper's once)
+   stays.
+9. Not in it: the main chat's model, and the partner's (B352).
+
 ## The last silent catches (B446)
 
 The result check of B404 found four catches left in `server.mjs` that dropped their errors: nothing on the page,
@@ -2824,7 +2889,7 @@ stuck that day was found by the person. They are now one list in the board, `src
   next run knows it was woken; a chat not running makes the board ask the main chat to start it, as for any line.
 - **The main chat is told once**: what the list cannot fix (For Main) and what it sends (Sent) go in one note per run,
   `The board's sync check at HH:MM: what it could not fix itself`, a line each, only for findings it was not told
-  before; the keys stand in `data/sync.json` (`noted`, the newest 500). A note that could not be filed is tried at the
+  before; the keys stand in `<project>/.claude/sync.json` (`noted`, the newest 500; B482). A note that could not be filed is tried at the
   next run.
 - **The page**: the newest run that was asked or found something stands under the Workers panel's head for an hour
   (state `syncList`, `syncListOf`, the agreed picture `art-inbox/worker-board/b465/out-of-sync-answer.png`): a row per
@@ -2838,9 +2903,88 @@ stuck that day was found by the person. They are now one list in the board, `src
   another chat's, or after 30 minutes (`SYNC_LINE_MS`). A fix whose file changed meanwhile is tried at the next run, not
   told; a wake that throws is one row. A later run that finds nothing clears what the board found by itself.
 - Not in it: the limits beyond "full". A worker woken at a stop point of its own (a weekly share it keeps) pauses again.
+- **B482** (the result check of B465): a blocker in review holds its step until its result check passed too, when it
+  needs one (a pending, missing or failed one may still bring a fix); what the main chat was told and since when a
+  wait was seen (`seen`) stand in the project's `.claude/sync.json`, read at every run, so a restart or a board that
+  takes the loop over neither tells Main again nor wakes or hands on anew (a lock whose process is gone, or cut off, is
+  taken over at once);
+  one loop per project: `<project>/.claude/sync-loop.json` names the board process that runs the list (`mayRunLoop`),
+  a second one on the project (another `--port`) leaves it, and its "Out of sync?" asks the main chat only; a lock
+  whose owner has not run for two rounds is taken over.
 - A new way of getting stuck is added to the list with its check, fix and test, not only fixed by hand (roles/main.md).
 - Tests: `test/work/sync.test.mjs` (each check, each fix, the one note, the runner, the board's own unblock and requeue),
   `test/outOfSync.test.mjs` (the words to the main chat, the page's answer).
+
+## Clear after each step (2026-10-23)
+
+Measured on 2026-10-23: 73% of all the project chats' usage was the model reading long histories again (300k to 700k
+tokens of history sent on every call; the answers were 5%). The mod compacted a worker only after a reported step,
+above 250k, and never when the next step was queued already, so a busy worker was never reset, and the main chat and
+the partner's helper never at all. The person chose (2026-10-23, "Worker board task reliability"): workers are cleared
+with the Workers mod running /clear itself, as it runs /compact ("1 C. i like the clear, its cheaper"), and every
+conversation is kept as a text file without the worker spending tokens on it ("disk space is not a concern. token
+usage is"). A chat calling the app's clear_session tool on itself was refused by auto mode's safety check, so the mod
+runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is idle, the way /compact runs).
+
+- **The setting.** `list.json` `"afterStep"`: `"clear"`, `"compact"` (the default, so every other project stays as it
+  was) or `"off"`. The main chat and the partners are never cleared: they are compacted while they rest (a turn of
+  theirs ended, nothing of theirs runs on) above `compactAbove`, once per turn and one /compact on its way at a time
+  (`"compactAtRest": false` stops this alone), told to keep what their role needs
+  (`compactKeep`: the main chat its workers, queues and the person's open words; the partner its focus goal, refines,
+  checks and routed asks; the helper its task from the Advisor).
+- **When a worker is cleared** (`clearAfter` in `register.tsx`, `clearWhy` in `chats.ts`): when the turn in which it
+  reported its step has ended (where the compaction ran), also when more work follows. Not, and compacted instead with
+  the reason on its card (`clearNote`), when the board's answer to the turn's end does not name it a worker (`role`), the
+  person pauses, its answer asks the person something the board did not file (`unfiled`, a question outside the
+  block the mod reads, or more items than the board is handed), it sent another chat a message in that turn (the
+  answer would come into a cleared conversation), a subagent of it still runs, a prompt came in, or the log could not
+  be saved. A board slow to answer the report's turn's end (it checks the report then; 3.8 s seen live on 2026-10-23)
+  does not hold the turn's end past its moment and a half: the decision waits for the answer apart, up to 15 s (the
+  first call's, else a repeat with the same request id, B412), nothing typed in meanwhile, and decides then with every
+  guard of that moment; a prompt that came in meanwhile means no clear (and no compaction); no answer at all falls
+  back as before.
+- **The log, at no token cost** (`src/chatLogs.mjs`). The mod asks the board through the bridge (`/api/bridge/work`,
+  `save-log` with `stepId`, the mod's own call: the work tool refuses it from the model, the board refuses it for any
+  chat but a worker, and for one whose transcript shows background work running). The board puts the log in its
+  journal (`data/chat-logs.json`) and answers at once; then the system copies the transcript beside the log as
+  `.jsonl` (never read whole), and the text is written from that copy line by line: each message with its time and
+  speaker (the person, the person on the worker board, the worker board, a message from another chat, a background
+  notice, the chat, its thinking, each tool call with its full input, each tool result in full, a compaction, a slash
+  command), the app's own bookkeeping left out, a line that is no JSON (the last one cut off while it was written)
+  named as such. The old transcript stays on disk after a /clear, so the copy may finish after the clear; a log not
+  finished when the board stops is finished at its next start, and once copied nothing needs the app to keep the old
+  transcript. Logs go to `<project>/.claude/chat-logs/<chat>/<YYYY-MM-DD HHmm> <step>.txt`.
+- **The clear.** The mod marks the card (`clearing: { at, step, log }`), then queues /clear with a ticket; its own
+  `command.run` hook runs a /clear of the mod only as the one of the clear still on its way (its ticket), while no
+  prompt or turn came in since it was decided; any other is refused (a stale one after the clear was dropped, also
+  much later). A real turn on the same session drops the clear at its start, and its end is told to the board as any
+  turn's; a clear that has not run within two minutes is let go. A /clear queued before the mod was loaded anew runs
+  only on the card's fresh mark, with nothing come in since. Should the engine run the /clear or /compact as a turn,
+  that turn is none of the chat's (no turn's end told, nothing decided). Nothing is typed into the chat while the clear
+  is on its way (a line the board put out waits for the conversation after it). /clear ends the conversation
+  (`session.end`, reason `clear`) and the process goes on under a new session id.
+- **The same chat after it.** At the new conversation's start (`classic.SessionStart`, source `clear`; else the first
+  prompt or turn) the mod moves the card to the new session id, the old file holding only `{ "movedTo": "<new id>" }`
+  (a mod that lost its word of the clear in a reload finds the card by its mark). The board follows `movedTo` (in
+  `sources.mjs` and the state), so the lane, its card, its transcript, its steps, asks and open instructions (kept under
+  the chat's name) stay the one chat's, whether or not the app's file names the new session yet; a session the board
+  shows under no name is read anew once (at most every 30 s) before the bridge refuses it, so the first work call of
+  the new conversation is not "not the chat the board shows". The fresh conversation is told as its start's context
+  who it is, that its rules are in `CLAUDE.md` and `.claude/worker-briefing.md`, that its earlier conversation was
+  cleared and where the log is, the person's instructions still open (as `work next` lists them; the mod asks `next`
+  as a chat started anew does, B298), and to run `work next`; after the mod's own clear, or a /clear the person ran of
+  a chat the board last named a worker; the move happens once, also when the tick and a prompt meet. A new process of
+  the mod finds what the clear was by the card's mark.
+- **The old session's end.** The task times and the spending read a lane's session; the session a cleared chat left
+  is read on to its end (the report's line, the last minutes), named in the journal's `left` by each save-log and in
+  the state's `movedFrom` while the app still names it, until both readers reached its end or it is gone.
+- **No false signals.** Neither the /clear nor the start after it is a turn: no `turn-ended` goes to the board for
+  them, so no instruction is marked missed for them; the fresh conversation's first turn that ends without closing
+  one counts as any turn does.
+- **The board shows it**: "cleared after B482 · log" where B235's line stands; "log" opens the text in the board's file
+  viewer, which shows a log larger than 1 MB by its last 2 MB under a line naming the whole file.
+- **Rollout** (the person's, once the mod is installed and the app started anew): `"afterStep": "clear"` and
+  `"compactAbove": 150000` in the project's `list.json`.
 
 ## What it does not do
 

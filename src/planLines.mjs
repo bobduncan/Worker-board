@@ -56,12 +56,38 @@ const timeOf = value => (Number.isFinite(value) ? value : typeof value === 'stri
  */
 function compactionOf(raw) {
   const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+  const noteOf = value => (isRecord(value) && timeOf(value.at) !== null && typeof value.why === 'string' && value.why.trim() !== ''
+    ? { at: timeOf(value.at), why: value.why.replace(/\s+/g, ' ').trim().slice(0, 200) } : null)
   const done = isRecord(raw.compacted) && timeOf(raw.compacted.at) !== null
     ? { at: timeOf(raw.compacted.at), before: number(raw.compacted.before), after: number(raw.compacted.after) } : null
-  const note = isRecord(raw.compactNote) && timeOf(raw.compactNote.at) !== null && typeof raw.compactNote.why === 'string' && raw.compactNote.why.trim() !== ''
-    ? { at: timeOf(raw.compactNote.at), why: raw.compactNote.why.replace(/\s+/g, ' ').trim().slice(0, 200) } : null
+  const note = noteOf(raw.compactNote)
+  // Clear after each step: the mod cleared the worker after its reported step (`cleared`: when, the step, its log in
+  // the project's folder), or says why it did not and compacted instead (`clearNote`).
+  const cleared = isRecord(raw.cleared) && timeOf(raw.cleared.at) !== null
+    ? { at: timeOf(raw.cleared.at), step: typeof raw.cleared.step === 'string' && /^[A-Z]\d{1,6}$/.test(raw.cleared.step) ? raw.cleared.step : null, log: logPathOf(raw.cleared.log) } : null
+  const clearNote = noteOf(raw.clearNote)
+  const latest = Math.max(done?.at ?? -Infinity, note?.at ?? -Infinity)
+  if (cleared !== null && cleared.at >= latest) return { kind: 'cleared', ...cleared }
   if (done === null && note === null) return null
-  return note === null || (done !== null && done.at >= note.at) ? { kind: 'compacted', ...done } : { kind: 'skipped', ...note }
+  const notCleared = clearNote !== null && clearNote.at >= (cleared?.at ?? -Infinity) ? { notCleared: clearNote } : {}
+  return note === null || (done !== null && done.at >= note.at) ? { kind: 'compacted', ...done, ...notCleared } : { kind: 'skipped', ...note, ...notCleared }
+}
+
+/** A chat log's place in the project's folder as the mod names it (`.claude/chat-logs/...txt`, with /); null for any other. */
+function logPathOf(value) {
+  if (typeof value !== 'string' || value.length > 300 || !value.startsWith('.claude/chat-logs/') || !value.endsWith('.txt')) return null
+  return /^[\w@+ .-]+(?:\/[\w@+ .-]+)*$/.test(value) && !value.split('/').some(part => part === '.' || part === '..') ? value : null
+}
+
+/** Clear after each step: the session a card says its chat went on under after a /clear (`movedTo`); null for none. */
+export function movedTo(fileText) {
+  if (typeof fileText !== 'string' || !fileText.includes('movedTo')) return null
+  try {
+    const raw = JSON.parse(fileText)
+    return typeof raw?.movedTo === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(raw.movedTo) ? raw.movedTo : null
+  } catch {
+    return null
+  }
 }
 
 export function parsePlanLine(fileText) {

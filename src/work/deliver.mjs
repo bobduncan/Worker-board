@@ -14,7 +14,7 @@ import { sinceMs } from './item.mjs'
 import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 import { isHolding } from './pause.mjs'
 import { PARTNER_AGAIN_MS, partnerAskWords } from './partnerAnswers.mjs'
-import { AGAIN_MS, effortWords, lastWord } from './effort.mjs'
+import { AGAIN_MS, effortWords, lastWord, sameTarget } from './effort.mjs'
 
 export { partnerAskWords }
 
@@ -240,11 +240,12 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })
     if (sent !== null) done.sent.push(sent)
   }
-  // B468: the words that have the main chat set a worker's effort (effort.mjs, `effortPlan`): not when the newest word for
-  // the chat is one for the same level of the last half hour, also when two refreshes plan it before the state shows it.
+  // B468: the words that have the main chat set a worker's effort (effort.mjs, `effortPlan`), and since model per step
+  // its model with it: not when the newest word for the chat is one for the same setting of the last half hour, also
+  // when two refreshes plan it before the state shows it.
   for (const one of plan.efforts ?? []) {
     const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '')
-    if ((last !== undefined && last.effort === one.level && now - last.at < AGAIN_MS) || one.to === null) continue
+    if ((last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS) || one.to === null) continue
     const message = { id: newId(), at: now, ...effortWords(one), state: 'waiting' }
     try {
       await outbox.say(message)

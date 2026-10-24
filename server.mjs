@@ -30,7 +30,8 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { bridgeNote, checkTake, checkTyped, messageText } from './src/bridge.mjs'
+import { bridgeNote, checkTake, checkTyped, clearRefusal, isUnknownSession, messageText } from './src/bridge.mjs'
+import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, settingChanged } from './src/boardSettings.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
@@ -47,8 +48,11 @@ import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
+import { createSpendingCollector } from './src/work/routing/collector.mjs'
+import { readRoutingRecord } from './src/work/routing/records.mjs'
+import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { findPicture, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -60,13 +64,14 @@ import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsRunning, focusMove, goalChecked, 
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
+import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { buildState } from './src/state.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, SYNC_EVERY_MS, syncRunner } from './src/work/sync.mjs'
+import { REFUSED_MS, SYNC_EVERY_MS, mayRunLoop, syncRunner } from './src/work/sync.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
 import { storeKeeper } from './src/work/read.mjs'
@@ -85,6 +90,8 @@ const BODY_BYTES = 16 * 1024
 const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
 const STATE_MS = 2_000
+/** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
+const FRESH_MS = 30_000
 const TICK_MS = 60_000
 /** B142: how long the board's look at its folder's version is kept. */
 const VERSION_MS = 30_000
@@ -93,6 +100,7 @@ const HISTORY_BYTES = 8 * 1024 * 1024
 const FILES = {
   '/board.css': ['board.css', 'text/css; charset=utf-8'],
   '/board.js': ['board.js', 'text/javascript; charset=utf-8'],
+  '/spending.js': ['spending.js', 'text/javascript; charset=utf-8'],
 }
 // B348: the help tour's six pictures, by name only. B375: drawings of the board (tools/help-pictures.mjs), as SVG.
 for (const name of ['1-install', '2-initialise', '3-talk', '4-go', '5-workers', '6-check']) {
@@ -656,6 +664,12 @@ async function main(args) {
         return done
       },
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
+      routingPolicy: config.routing,
+      routingCapabilities: null,
+      sessionOf: name => {
+        const subject = (state.spendingSubjects ?? []).find(one => one.name === name)
+        return subject ? { sessionId: subject.session, appSessionId: subject.appSession, model: subject.model, effort: subject.effort, sampledAt: state.readAt } : null
+      },
       // Pause and resume (spec 2026-10-18): the lanes' facts, for pause-state's list of whom the main chat wakes.
       lanes: [...lanes, ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])],
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
@@ -666,6 +680,8 @@ async function main(args) {
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,
+      // Model per step: why a step's line waits for its worker's model or effort (effort.mjs `holds`), or null.
+      stepHold: id => state.reconciled?.holds?.[id] ?? null,
       // The guard (2026-10-21): a step of a kind waits for its standard's confirm and its foundation (the product plan).
       standardHold: item => standardHold(item, state.plan?.standards ?? []),
       // B356: a board without a partner chat makes no result check: its own check closes a step.
@@ -711,7 +727,7 @@ async function main(args) {
     readState.reset()
     return opened
   }
-  const workReads = new Set(['next', 'list', 'pause-state'])
+  const workReads = new Set(['next', 'list', 'pause-state', 'route-state'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
@@ -790,6 +806,8 @@ async function main(args) {
   // and measures in memory only.
   const TASK_TIMES_FILE = join(HERE, 'data', 'task-times.json')
   const TASK_LIST_FILE = join(HERE, 'data', 'task-times.md')
+  const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, clock })
+  await spending.load()
   let taskTimes = { scans: {}, tasks: [] }
   if (isDemo) {
     const { demoSources, ROOTS } = await import('./fixtures/demo.mjs')
@@ -869,6 +887,8 @@ async function main(args) {
   }
   // B465: the board's list of stuck states (src/work/sync.mjs), set up with the reconciler on a board that writes.
   let sync = null
+  // B482: whether this board process runs the list for its project (one loop per project); null: it never does
+  let syncOwned = null
 
   // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
@@ -990,7 +1010,7 @@ async function main(args) {
     // (the person deletes it once read).
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
-    return { ...state, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside }
+    return { ...state, spending: { periods: Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])) }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside }
   }, STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
@@ -1011,12 +1031,31 @@ async function main(args) {
         return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), effort: effortOf(item).level }
       }
       const added = []
+      const routingRecords = [...items.values()].map(item => ({ item, read: readRoutingRecord(item) }))
+      // Clear after each step: the sessions cleared chats left are read on to their ends (the report's line, the last
+      // minutes), for the task times and the spending, which read a lane's session only.
+      const lanes = (state.spendingSubjects ?? []).map(one => one.session)
+      const left = leftSubjects(chatLogs === null ? [] : await chatLogs.leftSessions(), state.movedFrom ?? [], lanes)
+      const leftSpending = left.map(one => ({ session: one.session, appSession: null, name: one.name, model: null, effort: null, role: 'worker' }))
+      await spending.scan([...(state.spendingSubjects ?? []), ...leftSpending], {
+        assignments: routingRecords.filter(one => one.read.ok).flatMap(one => one.read.record.assignments),
+        results: routingRecords.filter(one => one.item.head.get('Kind') === 'step').map(({ item, read }) => ({ id: item.head.get('Id'), title: item.head.get('Title'), accepted: item.head.get('State') === 'done', attempts: read.ok ? read.record.repair?.lifetimeAttempts ?? null : null, risk: read.ok ? read.record.contract?.risk?.class ?? null : null })),
+      })
       for (const chat of state.chats) {
         if (chat.isMain || chat.isLeftover || typeof chat.session !== 'string' || !/^[\w-]+$/.test(chat.session)) continue
         const scan = taskTimes.scans[chat.session] ?? freshScan(chat.name)
         scan.worker = chat.name
         taskTimes.scans[chat.session] = scan
         added.push(...await readOn(join(config.transcripts, `${chat.session}.jsonl`), scan, stepOf))
+      }
+      for (const one of left) {
+        const path = join(config.transcripts, `${one.session}.jsonl`)
+        const scan = taskTimes.scans[one.session] ?? freshScan(one.name)
+        scan.worker = one.name
+        taskTimes.scans[one.session] = scan
+        added.push(...await readOn(path, scan, stepOf))
+        const size = await stat(path).then(file => file.size, () => null)
+        if (isReadOut({ size, taskOffset: scan.offset, spendingOffset: spending.offsetOf(one.session) })) await chatLogs?.readOut(one.session)
       }
       if (added.length > 0) taskTimes.tasks = keptTasks(taskTimes.tasks, added)
       if (historyFrom === undefined) {
@@ -1075,6 +1114,40 @@ async function main(args) {
   }
   // B412: the answers of the chats' work calls, kept by their request id (see `requestKeeper`).
   const requests = requestKeeper({ file: isDemo ? null : join(HERE, 'data', 'work-requests.json'), clock })
+  // Clear after each step: the logs of the conversations the Workers mod clears, written by the board (src/chatLogs.mjs).
+  // A log the board did not finish before it stopped is finished now.
+  const chatLogs = isDemo || isShowOnly || config.project === '' ? null : chatLogKeeper({
+    file: join(HERE, 'data', 'chat-logs.json'), project: config.project, transcripts: config.transcripts, clock,
+    failed: job => console.error(`A chat log was given up: ${job.log} (${job.why ?? 'unknown'}).`),
+  })
+  void chatLogs?.resume().catch(error => loops.failed('chat-logs', error))
+  /** Clear after each step: the mod asks to keep the conversation before it clears a worker (`save-log`, `stepId`). */
+  const saveLog = async (body, checked, state) => {
+    if (chatLogs === null) return { ok: false, status: 503, why: 'This board keeps no chat logs.' }
+    const session = String(body.session ?? '').trim()
+    const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
+    const refused = clearRefusal(state, checked.chat, tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut)))
+    if (refused !== null) return refused
+    return chatLogs.save({ chat: checked.chat, session, step: body.stepId })
+  }
+  /**
+   * Clear after each step: a session the state shows under no name may be a chat that went on under a new id a moment
+   * ago (its card moved): the state is read anew once before the bridge refuses it.
+   */
+  const freshFor = new Map()
+  const checkFresh = async body => {
+    const state = await readState()
+    const checked = checkTake(body, state)
+    if (checked.ok || checked.status !== 409 || !isUnknownSession(body, state)) return { checked, state }
+    // Once in a while per session: a chat the board never shows asks every few seconds, and is not read anew each time.
+    const session = String(body.session)
+    if (clock() - (freshFor.get(session) ?? -Infinity) < FRESH_MS) return { checked, state }
+    freshFor.set(session, clock())
+    for (const [one, at] of freshFor) if (clock() - at >= FRESH_MS) freshFor.delete(one)
+    readState.reset()
+    const fresh = await readState()
+    return { checked: checkTake(body, fresh), state: fresh }
+  }
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
   const bridgeWorkOnce = async (body, checked) => {
     const done = await workAction({ ...body, chat: checked.chat })
@@ -1155,7 +1228,8 @@ async function main(args) {
           return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
         }
       }
-      config[checked.key] = checked.value
+      if (checked.key === 'routingMode') config.routing = parseRoutingPolicy({ ...(config.routing?.policy ?? {}), mode: checked.value })
+      else config[checked.key] = checked.value
       readState.reset()
       return { ok: true, result: boardSettingsNow() }
     }),
@@ -1224,7 +1298,9 @@ async function main(args) {
       if (body?.command === 'dismiss copied') return dismissCopied(store, body.id, clock())
       // B465: "Out of sync?" runs the board's own list at once (its answer stands on the page); the main chat's check,
       // for what the list does not know, gets that answer with the rest, and the board as it stands after the fixes.
-      const syncAnswer = body?.command === 'sync' && sync !== null ? await sync.run({ asked: true }).catch(error => { loops.failed('sync', error); return null }) : null
+      const mayAsk = body?.command === 'sync' && sync !== null && syncOwned !== null
+        && await syncOwned().catch(error => { loops.failed('sync', error); return false })
+      const syncAnswer = mayAsk ? await sync.run({ asked: true }).catch(error => { loops.failed('sync', error); return null }) : null
       if (syncAnswer !== null) readState.reset()
       const state = await readState()
       const checked = checkSay(body, syncAnswer === null ? state : { ...state, syncList: syncAnswer }, config.maxMessageChars)
@@ -1387,15 +1463,15 @@ async function main(args) {
       const session = String(body?.session ?? '')
       const kept = await requests.known(session, request)
       if (kept !== undefined) return kept
-      const state = await readState()
-      const checked = checkTake(body, state)
+      const { checked, state } = await checkFresh(body)
       noteRefused(body, checked)
       if (!checked.ok) return checked
+      if (asked.action === 'save-log') return requests.answer(session, request, () => saveLog(asked, checked, state))
       if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)
       return requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
     },
     take: async body => {
-      const checked = checkTake(body, await readState())
+      const { checked } = await checkFresh(body)
       // Who asks runs, also a chat the board shows another session for.
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
       noteRefused(body, checked)
@@ -1563,6 +1639,14 @@ async function main(args) {
         }
         if (due.release.length + due.drop.length > 0 || due.refine !== null || due.notice !== null) readState.reset()
       }
+      // Words that wait for a chat that is not running, sent while the main chat did not run either, are followed by
+      // the word to start it once the main chat runs (say.mjs wakesDue). Only the board that delivers.
+      if (bridgeKey !== null && state.bridge?.isMissing !== true) {
+        const now = clock()
+        const starts = wakesDue(state, sentNow(), now, config.maxMessageChars)
+        for (const start of starts) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...start, state: 'waiting' })
+        if (starts.length > 0) readState.reset()
+      }
       // B124: the main chat alone in the list is asked for workers, once. Only the board that delivers asks.
       const ask = bridgeKey === null ? null : spawnWhenAlone(state, store.outbox(), store.lines())
       if (ask !== null) {
@@ -1649,7 +1733,8 @@ async function main(args) {
     // (through the work API as the board, and its lines once per finding), the rest to the main chat in one note, never
     // twice for the same thing (data/sync.json keeps what it was told). Not on a copy beside the person's board.
     if (!isShowOnly) {
-      const SYNC_FILE = join(HERE, 'data', 'sync.json')
+      // B482, the review: kept with the project, beside the loop's lock, so every board of it reads the same
+      const SYNC_FILE = join(config.project, '.claude', 'sync.json')
       sync = syncRunner({
         state: () => readState(),
         items: async () => (await readStore(workDir)).items,
@@ -1667,16 +1752,51 @@ async function main(args) {
           dir: workDir, key: `sync ${key}`, words: { ...workWords(chat, id, text), kind: 'sync', syncKey: key }, outbox: store, state: await readState(),
           now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex'), keep,
         }),
+        // B482: what the main chat was told and since when a wait was seen, kept over a restart
         noted: {
           load: async () => {
-            const value = await kept(SYNC_FILE)
-            return Array.isArray(value?.noted) ? value.noted.filter(key => typeof key === 'string') : []
+            // (the board's own data/sync.json, from before B482's review, until the project's is written)
+            const value = (await kept(SYNC_FILE)) ?? (await kept(join(HERE, 'data', 'sync.json')))
+            return {
+              noted: Array.isArray(value?.noted) ? value.noted.filter(key => typeof key === 'string') : [],
+              seen: value?.seen !== null && typeof value?.seen === 'object' ? value.seen : {},
+            }
           },
-          save: keys => writeAtomic(SYNC_FILE, JSON.stringify({ noted: keys })),
+          save: state => writeAtomic(SYNC_FILE, JSON.stringify(state)),
         },
         now: clock,
       })
-      setInterval(() => (isClosing ? null : loops.run('sync', () => sync.run())), SYNC_EVERY_MS)
+      // B482: one loop per project: a second board process on it (another --port) leaves the list to the first
+      const LOOP_LOCK = join(config.project, '.claude', 'sync-loop.json')
+      const ownLoop = async () => {
+        const read = await readFile(LOOP_LOCK, 'utf8').then(text => JSON.parse(text), error => {
+          if (error?.code === 'ENOENT' || error instanceof SyntaxError) return null   // none, or one cut off: taken over
+          throw error
+        })
+        // the review: a lock whose process is gone (a board killed without its exit) is taken over at once
+        const alive = pid => {
+          try {
+            process.kill(pid, 0)
+            return true
+          } catch (error) {
+            return error?.code === 'EPERM'
+          }
+        }
+        const lock = read !== null && Number.isInteger(read.pid) && read.pid !== process.pid && !alive(read.pid) ? null : read
+        if (!mayRunLoop(lock, process.pid, clock())) return false
+        await mkdir(dirname(LOOP_LOCK), { recursive: true })
+        await writeAtomic(LOOP_LOCK, JSON.stringify({ pid: process.pid, port: config.port, at: clock() }))
+        return true
+      }
+      syncOwned = ownLoop
+      process.on('exit', () => {
+        try {
+          if (JSON.parse(readFileSync(LOOP_LOCK, 'utf8')).pid === process.pid) rmSync(LOOP_LOCK)
+        } catch {
+          // not there, or another board's by now
+        }
+      })
+      setInterval(() => (isClosing ? null : loops.run('sync', async () => (await ownLoop() ? sync.run() : null))), SYNC_EVERY_MS)
     }
   }
 }
