@@ -580,7 +580,9 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   // line to a chat go to another chat than the main one.
   // B288: and a re-check of the goals, asked of the Advisor; B258: and an ask from the goal map; B259: and the words of a brainstorm.
   // Focus 2: and the words of the Focus page to the partner. B359: and the goal guard's evaluate.
-  if (main === null || message.to === main || ((message.command ?? null) !== null && !['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', ...FOCUS_COMMANDS].includes(message.command))) return null
+  // 2026-10-24: and the Vision tab's words on the product plan (`plan-*`), which waited for a stopped partner unseen.
+  const command = message.command ?? null
+  if (main === null || message.to === main || (command !== null && !command.startsWith('plan-') && !['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', ...FOCUS_COMMANDS].includes(command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

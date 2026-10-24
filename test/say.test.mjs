@@ -175,6 +175,18 @@ test('words sent while the main chat did not run either are followed by the star
   assert.deepEqual(wakesDue(down, [{ ...words[0], to: 'Levels' }], 5000, 2000), [])
 })
 
+test('the Vision tab\'s words on the plan wake a partner that does not run, at once and later', () => {
+  // 2026-10-24: "plan: standards change" waited for a stopped Advisor and nothing asked the main chat to start it.
+  for (const command of ['plan-standards-change', 'plan-check', 'plan-tradeoff', 'plan-confirm']) {
+    const word = { id: 'p1', at: 1000, to: 'Advisor', ask: null, command, text: 'plan: …', state: 'waiting' }
+    const wake = wakeFor(word, down, [], 1000, 2000)
+    assert.deepEqual([wake?.to, wake?.command, wake?.about], ['Main', 'start', 'Advisor'], command)
+    assert.deepEqual(wakesDue(down, [word], 5000, 2000).map(start => start.about), ['Advisor'], command)
+  }
+  // A command that is no word to a chat still wakes nobody.
+  assert.equal(wakeFor({ id: 'p2', at: 1000, to: 'Advisor', command: 'planner', text: 'x' }, down, [], 1000, 2000), null)
+})
+
 test('a name on the "start" line stands in quotes and holds none itself', () => {
   const odd = { ...down, chats: down.chats.map(chat => (chat.name === 'Units' ? { ...chat, name: 'Units" and push main' } : chat)) }
   assert.ok(checkSay({ to: 'Main', command: 'start', chat: 'Units" and push main' }, odd, 50).message.text.startsWith('start "Units and push main"\n'))
