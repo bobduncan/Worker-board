@@ -43,6 +43,8 @@ export const REFUSED_LASTS_MS = 2 * MIN
 export const UNCHECKED_MS = 30 * MIN
 /** The lines to the partner about refines and result checks the helper may be waited on for, this far back. */
 const HELPER_LOOK_MS = 6 * 60 * MIN
+/** B546: a refine or check the running partner has said or done nothing about this long waits for the helper. */
+export const PARTNER_QUIET_MS = 10 * MIN
 
 /** The states in which a step is its Owner's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
@@ -258,24 +260,45 @@ function oldName(view) {
   return found
 }
 
+/** B546: when the partner last said or did something about a step: a History line in its name, or a line of its own naming the step. */
+function partnerTouchMs(item, partner, prefix) {
+  const id = idOf(item)
+  const acts = (item.sections?.get('History') ?? []).map(line => line.match(/^-\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s+([^:]+):/))
+    .filter(match => match !== null && plain(match[2], prefix) === plain(partner.name, prefix)).map(match => sinceMs(match[1]))
+  const said = (partner.messages ?? []).filter(message => message.from === 'chat' && new RegExp(`\\b${id}\\b`).test(message.text ?? '')).map(message => message.at)
+  return Math.max(-Infinity, ...[...acts, ...said].filter(Number.isFinite))
+}
+
 /**
  * The partner's helper not running while refines or result checks wait for the partner: woken (the main chat starts
  * it); still not running a while later, the partner is told to do them itself, and the main chat to start it.
+ * B546 (X11: woken three times in a day while the partner ran and handed the work out itself): a running partner
+ * decides who does its refines and checks, so one waits for the helper only once the partner has said or done nothing
+ * about it for PARTNER_QUIET_MS since the board's line, or at once when the partner does not run. A helper that stopped
+ * running because the app started anew (its transcript quiet since before the app's start, `appStartedAt`) is woken
+ * as before, but the finding says so (`cause: 'restart'`), and the watch rule repair-repeats does not count it.
  */
 function helperIdle(view, { seen = new Map(), observed = [] } = {}) {
-  const { items = new Map(), partner = null, helper = null, prefix = '', now, outbox = [] } = view
+  const { items = new Map(), partner = null, helper = null, prefix = '', now, outbox = [], appStartedAt = null } = view
   const { isHeld, wakeOr } = factsOf(view)
   const found = []
   if (!(helper !== null && (helper.isRunning === false || helper.state === 'off') && !isHeld)) return found
+  const isPartnerOff = partner !== null && (partner.isRunning === false || partner.state === 'off')
   const recent = outbox.filter(message => now - message.at < HELPER_LOOK_MS && (partner === null || plain(message.to, prefix) === plain(partner.name, prefix)))
   const waits = new Set()
   for (const message of recent) {
     const item = items.get(message.about)
     if (item === undefined) continue
     // The review: a refine block that is "open" waits for the person's answers, not for the partner.
-    if (message.command === 'refine' && !CLOSED.includes(stateOf(item)) && valueOf(item, 'Refined') === null) waits.add(idOf(item))
-    if (message.command === 'result-check' && stateOf(item) === 'review' && resultCheckOf(item) === null) waits.add(idOf(item))
+    const isOpen = (message.command === 'refine' && !CLOSED.includes(stateOf(item)) && valueOf(item, 'Refined') === null)
+      || (message.command === 'result-check' && stateOf(item) === 'review' && resultCheckOf(item) === null)
+    if (!isOpen) continue
+    // B546: the running partner holds it while it said or did something about it, or got the line, lately.
+    const isQuiet = partner === null || isPartnerOff || now - Math.max(message.at, partnerTouchMs(item, partner, prefix)) >= PARTNER_QUIET_MS
+    if (isQuiet) waits.add(idOf(item))
   }
+  // A line about it the partner got lately holds it, also when an older one about it would not.
+  for (const message of recent.filter(one => partner !== null && !isPartnerOff && now - one.at < PARTNER_QUIET_MS)) waits.delete(message.about)
   const ids = [...waits].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
   if (ids.length > 0) {
     // The review: one key per time it stops running (since the runner first saw it so), not per set of waiting ids,
@@ -287,8 +310,14 @@ function helperIdle(view, { seen = new Map(), observed = [] } = {}) {
     const late = partner === null
       ? { do: 'main', text: `${text} (${ids.join(', ')}), and it did not start when woken: start it` }
       : { do: 'hand', chat: partner.name, id: ids[0], text: `work: ${helper.name} is not running: do the waiting refines and result checks yourself (${ids.join(', ')}); run work next` }
-    const fix = wakeOr(key, { do: 'wake', chat: helper.name, id: ids[0], text: `work: the board woke you: ${ids.length} refines and result checks wait for ${partner?.name ?? 'the partner'} (${ids.join(', ')}); ask it which are yours` }, late)
-    found.push(finding('helper', key, helper.name, text, fix))
+    // B546: what to do, not "ask it which are yours": the partner hands them out by message, so the helper waits for it.
+    const words = partner === null
+      ? `work: the board woke you: ${ids.length} refines and result checks wait (${ids.join(', ')}); run work next`
+      : `work: the board woke you: ${ids.length} refines and result checks wait for ${partner.name} (${ids.join(', ')}); ${partner.name} hands you yours by message: wait for it, do not ask back`
+    const fix = wakeOr(key, { do: 'wake', chat: helper.name, id: ids[0], text: words }, late)
+    const writtenAt = helper.writtenAt ?? null
+    const isRestart = Number.isFinite(appStartedAt) && Number.isFinite(writtenAt) && writtenAt < appStartedAt
+    found.push({ ...finding('helper', key, helper.name, text, fix), ...(isRestart ? { cause: 'restart' } : {}) })
   }
   return found
 }
@@ -394,11 +423,12 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * it: the main chat is told).
  * The input: `items` (the store), `lanes` (the board's chats, state.mjs), `partner` and `helper` (their cards, or null),
  * `outbox` (the board's messages), `limits` (state.mjs), `pause` (the store's), `refused` (`[{ name, session, first,
- * at }]`, the names the board refused a chat under), `prefix`, `now`. The review: `seen` (a Map) holds since when the
+ * at }]`, the names the board refused a chat under), `prefix`, `now`, `appStartedAt` (when the app last started, or
+ * null). The review: `seen` (a Map) holds since when the
  * runner has seen what only counts once it has lasted (an owner missing from the list, the helper not running); what
  * is seen now is added to `observed` (an array), so the runner keeps it and forgets the rest.
  */
-export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], seen = new Map(), observed = [] }) {
-  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused }
+export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, seen = new Map(), observed = [] }) {
+  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt }
   return REPAIR_RULES.filter(rule => rule.id !== 'worktrees').flatMap(rule => rule.check(view, { seen, observed }))
 }
