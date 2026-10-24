@@ -213,12 +213,12 @@ test('review: the keys move a goal only from its title; the arrows walk the rows
 
 test('B505: the search finds a goal by id or by every word of its title, at any depth, done ones too', () => {
   const goals = stateGoals()
-  assert.deepEqual(page.goalSearch(goals, 'G4'), [{ id: 'G4', title: 'Let the fountains sing', where: 'G1 › G2 › G4' }])
+  assert.deepEqual(page.goalSearch(goals, 'G4'), [{ id: 'G4', title: 'Let the fountains sing', where: 'G1 › M1 › G4' }])
   assert.deepEqual(page.goalSearch(goals, 'g8').map(one => one.id), ['G8'])
   // A word of the title, not of the id: a deep goal and a done one are found.
   assert.deepEqual(page.goalSearch(goals, 'fountains').map(one => one.id), ['G4'])
   assert.deepEqual(page.goalSearch(goals, 'first path').map(one => one.id), ['G3'])
-  assert.equal(page.goalSearch(goals, 'LAY the')[0].where, 'G1 › G2 › G3')
+  assert.equal(page.goalSearch(goals, 'LAY the')[0].where, 'G1 › M1 › G3')
   // Every word must match; a milestone is found by its M-number.
   assert.deepEqual(page.goalSearch(goals, 'paths fountains'), [])
   assert.deepEqual(page.goalSearch(goals, 'm2').map(one => one.id), ['G5'])
@@ -239,4 +239,16 @@ test('B505: the search box stands in the Goals head and its keys and picks reach
   assert.match(script, /function pickGoalsFind\(id\) \{\s*clearGoalsFind\(\)\s*zoomGoal\(id\)/)
   assert.match(script, /'No goal matches'/)
   assert.match(script, /event\.key === 'Escape'[\s\S]*?clearGoalsFind\(\)/)
+})
+
+test('B514: words split on spaces, in any order; a word with an s finds its goals; the where line names the milestone', () => {
+  const titles = ['Check the architecture', 'Phone board layout', 'Sound of lava', 'Sounds in the arena', 'Music sounds', 'Sound mixer', 'Sound test', 'Sound bank', 'Sound pool', 'Sound menu', 'Sound volume']
+  const nodes = [{ id: 'G1', title: 'M2 · The garden is open', parent: null, children: titles.map((_, at) => `G${at + 2}`) }, ...titles.map((title, at) => ({ id: `G${at + 2}`, title, parent: 'G1', children: [] }))]
+  const goals = { roots: ['G1'], nodes }
+  assert.deepEqual(page.goalSearch(goals, 'architecture check').map(one => one.id), ['G2'])
+  assert.deepEqual(page.goalSearch(goals, 'board phone').map(one => one.id), ['G3'])
+  assert.deepEqual(page.goalSearch(goals, 'sound'), page.goalSearch(goals, 'sound').slice(0, 8))
+  assert.equal(page.goalSearch(goals, 'sound').length, 8)
+  assert.deepEqual(page.goalSearch(goals, 'sounds arena').map(one => one.id), ['G5'])
+  assert.deepEqual(page.goalSearch(goals, 'g2'), [{ id: 'G2', title: 'Check the architecture', where: 'M2 › G2' }])
 })

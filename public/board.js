@@ -6160,7 +6160,7 @@ function goalCrumb(goals, focusId) {
 
 /** B505: the goals a search finds at any depth, done or not: an id (G33, g33) or every word of the title; id matches first, at most 8. */
 function goalSearch(goals, query) {
-  const words = query.toLowerCase().split(/s+/).filter(word => word !== '')
+  const words = query.toLowerCase().split(/\s+/).filter(word => word !== '')
   if (words.length === 0) return []
   const rank = node => {
     const id = node.id.toLowerCase()
@@ -6171,7 +6171,7 @@ function goalSearch(goals, query) {
     .map((node, order) => ({ node, order, rank: rank(node) }))
     .sort((a, b) => a.rank - b.rank || a.order - b.order)
     .slice(0, 8)
-    .map(({ node }) => ({ id: node.id, title: node.title, where: goalCrumb(goals, node.id).slice(1).map(step => step.id).join(' › ') }))
+    .map(({ node }) => ({ id: node.id, title: node.title, where: goalCrumb(goals, node.id).slice(1).map(step => /^M\d+(?= |$)/.exec(step.title)?.[0] ?? step.id).join(' › ') }))
 }
 
 /** "2 inside · 4 steps · 3 done · 1 missing"; "no steps yet" when there is nothing to count. */
