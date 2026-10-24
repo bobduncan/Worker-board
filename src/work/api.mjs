@@ -38,17 +38,17 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', ...ROUTING_READS])
-const CHANGES = new Set(['take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'recheck-stuck'])
 /**
  * Focus 2: the partner's drafts of the focus goal's vibe and how. They change the goal map, not the store: the board's
  * `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
  */
 const GOAL_MAP = new Set(['vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'recheck-stuck'])
+const OFF_VIEW = new Set(['incident', 'incident-fix', 'incidents-fixed', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'recheck-stuck'])
 /** What only the person does, on the board's page; and what only the server does. */
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers'])
-const SERVER = new Set(['check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'route-confirm', 'quality-job-result'])
+const SERVER = new Set(['incidents-fixed', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'route-confirm', 'quality-job-result'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -67,7 +67,13 @@ const ROLES = {
   // when the partner did not answer in time.
   'partner-answer': ['advisor'],
   escalate: ['advisor', 'server'],
+  // The supervisor (spec 2026-10-24): an incident is filed by the board's watch rules or the supervisor chat's sweep; the
+  // partner names the step that fixes it.
+  incident: ['server', 'supervisor'],
+  'incident-fix': ['advisor'],
 }
+/** The supervisor: what its chat may do. It reads, and files incidents; it never changes anything else (spec, section 5). */
+const SUPERVISOR_MAY = new Set(['incident', ...READS])
 /**
  * B424: what the partner's helper (the role 'helper' of the list) does as the partner's own: the refines and the result
  * checks of steps the partner hands it, and the asks under a step they lead to. Its History lines name the helper. A
@@ -175,6 +181,7 @@ async function act(body, ctx) {
     if (role === 'helper') role = helps(body) ? 'advisor' : 'worker'
   }
   if (PERSON.has(action) && role !== 'person') return refuse(403, 'Only the person does that, on the board.')
+  if (role === 'supervisor' && !SUPERVISOR_MAY.has(action)) return refuse(403, 'The supervisor chat only reads and files incidents (work incident).')
   if (SERVER.has(action) && role !== 'server') return refuse(403, 'Only the board does that.')
   if (ROLES[action] !== undefined && !ROLES[action].includes(role)) return refuse(403, `Only ${ROLES[action].join(' or ')} ${action === 'new' ? 'makes a step' : `may ${action}`}.`)
   if (GOAL_MAP.has(action)) return goalDraft(body, ctx)
@@ -334,7 +341,8 @@ async function load(id, w, { kind = null } = {}) {
   if (file === null) return refuse(404, `${id}: no such item in the store.`)
   const problem = file.item.problem ?? validateHead(file.item.head) ?? (valueOf(file.item, 'Id') === id ? null : `its Id is ${valueOf(file.item, 'Id')}`)
   if (problem !== null) return refuse(409, `${id}: its file is broken (${problem}); fix it by hand first.`)
-  if (kind !== null && !kind.includes(kindOf(file.item))) return refuse(409, `${id} is ${kindOf(file.item) === 'ask' ? 'an ask' : `a ${kindOf(file.item)}`}, not ${kind.map(one => `a ${one}`).join(' or ')}.`)
+  const an = word => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`)
+  if (kind !== null && !kind.includes(kindOf(file.item))) return refuse(409, `${id} is ${an(kindOf(file.item))}, not ${kind.map(an).join(' or ')}.`)
   return { ok: true, item: file.item, text: file.text }
 }
 
@@ -2392,7 +2400,105 @@ async function rename(body, w) {
   return { ok: true, result: { text, moved, failed, changed: moved.length > 0 } }
 }
 
+// ---- incidents (the supervisor, spec 2026-10-24) ----
+
+/** The incident a finding's key counts: the store's incident of that Key (the lowest id when there were two), or undefined. */
+const incidentOfKey = (items, key) => [...items.values()]
+  .filter(item => kindOf(item) === 'incident' && valueOf(item, 'Key') === key)
+  .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))[0]
+
+/**
+ * The supervisor (spec 2026-10-24, "Incidents"): a finding filed as an incident, by the board (its watch rules: `source`
+ * the rule's id) or by the supervisor chat (its sweep: Source "sweep", `rule` the rule that could catch it). `title` one
+ * line of what was found, `subject` the chat or step, `evidence` what was seen, `key` the finding's key (the sweep's
+ * may leave it out: its subject and title make it). A new key opens `X<n>`; the same key again only counts (Count, Last
+ * seen, the newest title and evidence; no History line: Review Focus 2); a fixed one's key again makes it "came back".
+ */
+async function incident(body, w) {
+  const isSweep = w.role === 'supervisor'
+  const title = line(body.title)
+  if (title === '') return refuse(400, 'Say what was found in "title", in one line.')
+  const subject = line(body.subject, 80)
+  const key = line(body.key, 200) || (isSweep ? line(`sweep ${subject || 'board'}: ${title}`.toLowerCase(), 200) : '')
+  if (key === '') return refuse(400, 'Give the finding\'s "key": the same key counts the same incident.')
+  const evidence = line(body.evidence)
+  const source = isSweep ? 'sweep' : line(body.source ?? body.rule, 60) || 'sweep'
+  const wanted = isSweep ? line(body.rule) : ''
+  const found = incidentOfKey(w.store.items, key)
+  if (found === undefined) {
+    const id = await nextId(w.dir, 'X', w.fs)
+    const head = new Map([
+      ['Id', id], ['Kind', 'incident'], ['Title', title], ['State', 'open'], ['Source', source], ['Subject', subject || '-'], ['Key', key],
+      ['Since', stamp(w.now)], ['First seen', stamp(w.now)], ['Last seen', stamp(w.now)], ['Count', '1'],
+      ...(wanted === '' ? [] : [['Rule wanted', wanted]]), ...(evidence === '' ? [] : [['Evidence', evidence]]),
+    ])
+    const item = said({ head, sections: new Map(), problem: null }, w, source === 'sweep' ? 'opened by the sweep' : `opened by the rule ${source}`)
+    const done = await save(item, null, w)
+    return done.ok ? changed(item, `${id}: opened: ${title}`, { opened: true }) : done
+  }
+  const loaded = await load(valueOf(found, 'Id'), w, { kind: ['incident'] })
+  if (!loaded.ok) return loaded
+  const id = valueOf(loaded.item, 'Id')
+  const count = (Number(valueOf(loaded.item, 'Count')) || 0) + 1
+  let next = put(put(put(copy(loaded.item), 'Title', title), 'Last seen', stamp(w.now)), 'Count', String(count))
+  if (evidence !== '') put(next, 'Evidence', evidence)
+  if (wanted !== '') put(next, 'Rule wanted', wanted)
+  const isBack = stateOf(loaded.item) === 'fixed'
+  if (isBack) next = said(put(put(next, 'State', 'came back'), 'Since', stamp(w.now)), w, `came back (seen ${count} times)`)
+  next = ordered(next)
+  const done = await save(next, loaded.text, w)
+  if (!done.ok) return done
+  return changed(next, `${id}: ${isBack ? 'came back' : `seen ${count} times`}: ${title}`, isBack ? { returned: true } : { counted: true })
+}
+
+/**
+ * The supervisor: the partner names the step that fixes an incident (`id` X<n>, `fix` B<n>): Fix and the state "fix";
+ * the board marks it fixed once that step is done (`incidentsFixed`).
+ */
+async function incidentFix(body, w) {
+  const fix = line(body.fix, 20)
+  if (!STEP_ID.test(fix)) return refuse(400, 'Name the step that fixes it: "fix" B<n>.')
+  const loaded = await load(line(body.id, 20), w, { kind: ['incident'] })
+  if (!loaded.ok) return loaded
+  const id = valueOf(loaded.item, 'Id')
+  if (stateOf(loaded.item) === 'fixed') return refuse(409, `${id} is fixed already; when it comes back, name its fix then.`)
+  const step = w.store.items.get(fix)
+  if (step === undefined || kindOf(step) !== 'step') return refuse(404, `${fix}: no such step in the store.`)
+  const next = ordered(said(put(put(put(copy(loaded.item), 'Fix', fix), 'State', 'fix'), 'Since', stamp(w.now)), w, `fix ${fix}`))
+  const done = await save(next, loaded.text, w)
+  return done.ok ? changed(next, `${id}: fix ${fix}; the board marks it fixed once ${fix} is done.`) : done
+}
+
+/**
+ * The supervisor: the board's own pass over the incidents being fixed (from its reconcile): one whose Fix step is done
+ * is fixed; one whose Fix step was dropped, or is gone, is open again. Answers the ids `fixed` and `reopened`.
+ */
+async function incidentsFixed(body, w) {
+  const fixed = []
+  const reopened = []
+  const fixing = [...w.store.items.values()].filter(item => kindOf(item) === 'incident' && stateOf(item) === 'fix')
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  for (const item of fixing) {
+    const fix = valueOf(item, 'Fix')
+    const step = fix === null ? undefined : w.store.items.get(fix)
+    const state = step === undefined ? null : stateOf(step)
+    if (state !== 'done' && state !== 'dropped' && step !== undefined) continue
+    const loaded = await load(valueOf(item, 'Id'), w, { kind: ['incident'] })
+    if (!loaded.ok) continue
+    const isDone = state === 'done'
+    const why = isDone ? `fixed: ${fix} is done` : step === undefined ? `open again: its fix ${fix ?? '(none)'} is not in the store` : `open again: its fix ${fix} was dropped`
+    const next = ordered(said(put(put(copy(loaded.item), 'State', isDone ? 'fixed' : 'open'), 'Since', stamp(w.now)), w, why))
+    const done = await save(next, loaded.text, w)
+    if (done.ok) (isDone ? fixed : reopened).push(valueOf(item, 'Id'))
+  }
+  const all = [...fixed, ...reopened]
+  return { ok: true, result: { text: all.length === 0 ? 'No incident changed.' : `Fixed: ${fixed.join(', ') || 'none'}; open again: ${reopened.join(', ') || 'none'}.`, fixed, reopened, changed: all.length > 0 } }
+}
+
 const CHANGE = {
+  incident,
+  'incident-fix': incidentFix,
+  'incidents-fixed': incidentsFixed,
   take, step, ask, withdraw, note, report, check, checked, recheck, new: make, queue, requeue, unqueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,

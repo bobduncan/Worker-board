@@ -25,9 +25,15 @@ export const HEAD_KEYS = {
   // note of a report; `Main read` when the main chat read it with work next (the person's read is its State). B360:
   // `Recap` marks a recap of finished work (recap.mjs: open, approved, seen, overturned or feedback), `Evidence` its picture.
   note: ['Id', 'Kind', 'From', 'To', 'Of', 'Via', 'State', 'Since', 'Main read', 'Recap', 'Evidence', 'Text'],
+  // The supervisor (spec 2026-10-24): an incident, `X<n>`, what the board's watch rules or its sweep found. `Source` the
+  // rule's id or "sweep", `Subject` the chat or step it is about, `Key` the finding's key (the same key counts the same
+  // incident), `First seen`, `Last seen` and `Count` how long and how often it was seen, `Fix` the step that fixes it,
+  // `Rule wanted` the rule that could catch it (a sweep's finding), `Evidence` what was seen last. Its State: open,
+  // with the advisor, fix (its Fix step under way), fixed, or came back (fixed, then seen again).
+  incident: ['Id', 'Kind', 'Title', 'State', 'Source', 'Subject', 'Key', 'Since', 'First seen', 'Last seen', 'Count', 'Fix', 'Rule wanted', 'Evidence'],
 }
 const REQUIRED = ['Id', 'Kind', 'State', 'Since']
-const KIND_NAME = { step: 'a step', ask: 'an ask', instruction: 'an instruction', note: 'a note' }
+const KIND_NAME = { step: 'a step', ask: 'an ask', instruction: 'an instruction', note: 'a note', incident: 'an incident' }
 export const ASK_KINDS = ['decide', 'look', 'provide', 'do']
 
 const HEAD_LINE = /^([A-Z][A-Za-z ]{1,24}): (.*)$/
@@ -97,7 +103,7 @@ const ID = /^(?:[A-Z]\d+|L-[0-9a-f]{8})$/
 /** What is wrong with a head for its kind, as one line naming the key, or null when it is fine. */
 export function validateHead(head, kind = head.get('Kind')) {
   const keys = HEAD_KEYS[kind]
-  if (keys === undefined) return `Kind is not step, ask, instruction or note: ${kind ?? '(none)'}`
+  if (keys === undefined) return `Kind is not step, ask, instruction, note or incident: ${kind ?? '(none)'}`
   for (const key of REQUIRED) if (!head.has(key) || head.get(key) === '') return `${key} is missing`
   for (const key of head.keys()) if (!keys.includes(key)) return `${key} is no key of ${KIND_NAME[kind]}`
   if (head.get('Kind') !== kind) return `Kind is ${head.get('Kind')}, not ${kind}`

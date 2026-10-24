@@ -9,6 +9,7 @@
 import { SYNC_EVERY_MS, loopOwner, syncRunner } from './loop.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES } from './rules/watch.mjs'
+import { incidentsOf, recordFindings } from './incidents.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
 export { REFUSED_MS }
@@ -28,26 +29,46 @@ export { REFUSED_MS }
  * that found something, for an hour; else null), when the list last ran, every rule (repair and watch) with how it
  * stood then and how often it tripped in the last day, and the parts later tasks fill (empty until then).
  * Task 2: the watch rules (rules/watch.mjs) run after the repairs and report only: their findings are the run's
- * `findings`.
+ * `findings`. Task 3: each run's findings are filed as incidents in the work store (incidents.mjs, through `apply`, the
+ * work API as the board), and `incidents` is what the store holds of them (incidents.mjs `incidentsOf`).
  */
 export function createSupervisor(ports) {
   const { loopLock, loops, closing = () => false, settings = {}, timers = globalThis, ...runnerPorts } = ports
   const runner = syncRunner({ ...runnerPorts, settings: settings.supervisor ?? {} }, REPAIR_RULES, WATCH_RULES)
   const owns = loopOwner({ ...loopLock, now: ports.now })
   let timer = null
+  // Task 3: the incidents as the store holds them, read after each run (and once at the start).
+  let incidents = []
+  const readIncidents = async () => {
+    incidents = incidentsOf(await runnerPorts.items(), runnerPorts.now())
+  }
+  /**
+   * Task 3: what a run found, filed as incidents (one per key: a lasting problem only counts), then the incidents read
+   * anew. A finding that could not be filed is tried at the next run; the loop "incidents" says so on the page.
+   */
+  const afterRun = async answer => {
+    if (answer === null || answer === undefined) return answer
+    await loops.run('incidents', async () => {
+      const done = await recordFindings(answer.findings ?? [], { work: runnerPorts.apply, now: answer.at })
+      await readIncidents()
+      if (done.failed.length > 0) throw new Error(`${done.failed.length} of the findings not filed (${done.failed[0].key}: ${done.failed[0].why})`)
+    })
+    return answer
+  }
   return {
     start() {
       if (timer !== null) return
-      timer = timers.setInterval(() => (closing() ? null : loops.run('sync', async () => (await owns() ? runner.run() : null))), SYNC_EVERY_MS)
+      void loops.run('incidents', readIncidents)
+      timer = timers.setInterval(() => (closing() ? null : loops.run('sync', async () => (await owns() ? afterRun(await runner.run()) : null))), SYNC_EVERY_MS)
     },
     async run({ asked = false } = {}) {
       const mine = await owns().catch(error => { loops.failed('sync', error); return false })
       if (!mine) return null
-      return runner.run({ asked }).catch(error => { loops.failed('sync', error); return null })
+      return afterRun(await runner.run({ asked }).catch(error => { loops.failed('sync', error); return null }))
     },
     view: now => {
       const { at, rules } = runner.status()
-      return { run: runner.shown(now), checkedAt: at, rules, incidents: [], lastSweep: null }
+      return { run: runner.shown(now), checkedAt: at, rules, incidents, lastSweep: null }
     },
     stop() {
       if (timer !== null) timers.clearInterval(timer)

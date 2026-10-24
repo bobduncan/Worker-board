@@ -202,3 +202,40 @@ test('Review Focus 1 in the loop: a repair rule that throws is a finding, the ot
   assert.deepEqual(rules.filter(one => one.state === 'failed').map(one => [one.id, one.why]), [['old-name', 'rule old-name failed: a torn list']])
   assert.ok(rules.filter(one => one.kind === 'watch').every(one => one.state === 'fine'))
 })
+
+// Task 3: the loop files its findings as incidents in the work store.
+
+test('each run files its findings as incidents: opened once, then counted; the view shows them; a filing that fails is the loop "incidents"', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { workApi } = await import('../../src/work/api.mjs')
+  const { migrateBacklog } = await import('../../src/work/migrate.mjs')
+  const { readStore, writeStore } = await import('../../src/work/store.mjs')
+  const dir = await mkdtemp(join(tmpdir(), 'supervisor-incidents-'))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B5 Paint the strip (for Mason; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
+  let clock = NOW
+  const { ports, done } = board()
+  const supervisor = createSupervisor({
+    ...ports,
+    now: () => clock,
+    items: async () => (await readStore(dir)).items,
+    apply: body => workApi(body, { dir, now: clock, prefix: '', as: 'server' }),
+    state: async () => ({
+      chats: [LEAD, lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null,
+      today: [{ chat: 'Mason', spans: [{ from: ago(30), to: NOW, state: 'unknown', task: null }] }],
+    }),
+  })
+  await supervisor.run()
+  clock += 3 * MIN
+  await supervisor.run()
+  const incidents = supervisor.view(clock).incidents
+  assert.deepEqual(incidents.map(one => [one.id, one.state, one.source, one.subject, one.count]), [['X1', 'open', 'unknown-lane', 'Mason', 2]])
+  assert.match(incidents[0].title, /^Mason unknown for 33 min/)
+  assert.deepEqual(done.failed, [])
+  // The store refuses (a file changed meanwhile): nothing is lost, the loop says so, and the next run files it.
+  const refusing = createSupervisor({ ...ports, apply: async () => ({ ok: false, status: 409, why: 'X1.md changed in the meantime' }), state: async () => ({ chats: [LEAD, lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null, today: [{ chat: 'Mason', spans: [{ from: ago(30), to: NOW, state: 'unknown', task: null }] }] }) })
+  await refusing.run()
+  assert.deepEqual(done.failed.map(([name, why]) => [name, why]), [['incidents', '1 of the findings not filed (unknown-lane Mason: X1.md changed in the meantime)']])
+})
