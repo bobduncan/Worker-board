@@ -329,13 +329,13 @@ function undelivered(view) {
     if (stop !== null) {
       const woken = view.outbox.findLast(one => one.command === 'wake' && one.about === chat && one.stoppedAt === stop.since)
       return {
-        rule: 'undelivered', key: `undelivered ${chat} stopped ${stop.since}`, subject: chat,
+        rule: 'undelivered', key: `undelivered ${chat} stopped ${stop.since}`, subject: chat, since: oldest.at,
         text: `${chat} was stopped at ${clockOf(stop.since)}: ${words.length} ${words.length === 1 ? 'word waits' : 'words wait'} for it, the oldest for ${minutes(view.now - oldest.at)} min`,
         evidence: woken === undefined ? 'the main chat is not asked to wake it yet' : `the main chat was asked to wake it at ${clockOf(woken.at)} (${woken.state})`,
       }
     }
     return {
-      rule: 'undelivered', key: `undelivered ${chat}`, subject: chat,
+      rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: oldest.at,
       text: `${words.length} ${words.length === 1 ? 'word' : 'words'} to ${chat} not delivered, the oldest for ${minutes(view.now - oldest.at)} min`,
       evidence: words.map(one => `${clockOf(one.at)} ${one.command ?? 'answer'}${one.about ? ` ${one.about}` : ''} (${one.state})`).join('; '),
     }
@@ -379,7 +379,10 @@ export function undeliveredWords(view) {
   })
 }
 
-/** 9. A step whose board check failed twice or more in a row since its last pass, and is not done. */
+/** A History line's stamp. */
+const STAMP = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s/
+
+/** 9. A step whose board check failed twice or more in a row since its last pass, and is not done; its case began at the second. */
 function reportCheckTwice(view) {
   const found = []
   for (const item of stepsOf(view).filter(one => !['done', 'dropped'].includes(stateOf(one)))) {
@@ -390,7 +393,7 @@ function reportCheckTwice(view) {
     const id = idOf(item)
     const detail = failed.at(-1).match(/server: check failed(?::\s*(.*))?$/)?.[1]?.trim() || 'no reason given'
     found.push({
-      rule: 'report-check-twice', key: `report-check-twice ${id}`, subject: id,
+      rule: 'report-check-twice', key: `report-check-twice ${id}`, subject: id, since: sinceMs(failed[1].match(STAMP)?.[1]),
       text: `${id}: the board's check failed ${failed.length} times in a row (${valueOf(item, 'Owner') ?? 'nobody'}): ${detail}`,
       evidence: failed.map(line => line.replace(/^-\s+/, '')).join(' | '),
     })
@@ -617,7 +620,7 @@ function notCleared(view, ctx) {
       ? 'the board holds its next step and names the clear to its Workers mod once the chat is idle'
       : `its Workers mod is older than ${CLEAR_MOD} and cannot run a clear the board names: its chat needs a restart (Pause all, restart the app, Resume all)`
     found.push({
-      rule: 'not-cleared', key, subject: lane.name,
+      rule: 'not-cleared', key, subject: lane.name, since: took === null ? owed.reportedAt : took.at,
       text: took === null
         ? `${lane.name} not cleared ${minutes(ms)} min after it reported ${owed.step}: ${why}`
         : `${lane.name} took ${took.id} on the conversation of ${owed.step}: not cleared after that report (${why})`,

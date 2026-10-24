@@ -391,3 +391,20 @@ test('B547: not-cleared names a worker whose last report is newer than its last 
   // The person pauses: the chats stand still on purpose.
   assert.deepEqual(check('not-cleared', view({ chats: [LEAD, lane('Painter', { clearOwed: owed() })], pause: { state: 'pausing', since: ago(5) } })), [])
 })
+
+test('B584: the findings name when their case began (since): not-cleared its take or its report, undelivered its oldest word, report-check-twice its second failure', () => {
+  const owed = { step: 'B12', reportedAt: ago(30), clearedAt: ago(90), why: null, canClear: true }
+  const took = view({
+    chats: [LEAD, lane('Painter', { clearOwed: owed })],
+    items: items(step('B12', 'done'), step('B13', 'in progress', {}, { History: [`- ${stamp(ago(20))} Painter: queued → taken`] })),
+    settings: { notClearedMinutes: 600 },
+  })
+  assert.deepEqual(check('not-cleared', took).map(one => one.since), [ago(20)])
+  const late = view({ chats: [LEAD, lane('Painter', { clearOwed: owed })], items: items(step('B12', 'done')) })
+  assert.deepEqual(check('not-cleared', late).map(one => one.since), [ago(30)])
+  const word = minutes => ({ id: `m${minutes}`, to: 'Painter', command: 'work', about: 'B5', at: ago(minutes), state: 'waiting' })
+  assert.deepEqual(check('undelivered', view({ outbox: [word(12), word(40), word(20)] })).map(one => one.since), [ago(40)])
+  const line = (minutes, words) => `- ${stamp(ago(minutes))} server: ${words}`
+  const twice = view({ items: items(step('B12', 'review', {}, { History: [line(90, 'check failed: a'), line(80, 'check passed: merged'), line(60, 'check failed: b'), line(40, 'check failed: c'), line(20, 'check failed: d')] })) })
+  assert.deepEqual(check('report-check-twice', twice).map(one => one.since), [ago(40)])
+})

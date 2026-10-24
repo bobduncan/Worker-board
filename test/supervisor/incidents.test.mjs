@@ -213,3 +213,53 @@ test('the review: a chat of role supervisor may end its turns (turn-ended), read
     assert.equal((await s.chat('Watcher', body)).status, 403, body.action)
   }
 })
+
+// B584 (X29): the old case still standing after its fix only counts; a case newer than the fix, one with no since, or
+// the old case 2 h after the fix comes back.
+test('B584: a fixed incident seen again for its old case (since before the fix was done) stays fixed and counts, once said', async t => {
+  const s = await store(t)
+  const began = NOW - 30 * MIN
+  await recordFindings([finding({ since: began })], { work: s.board })
+  await s.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })
+  s.tick(10)
+  await s.person({ action: 'tick', id: 'B12' })
+  await s.board({ action: 'incidents-fixed' })
+  s.tick(3)
+  const seen = await recordFindings([finding({ since: began })], { work: s.board })
+  assert.deepEqual(seen, { opened: [], returned: [], counted: ['X1'], failed: [] })
+  let x1 = await s.item('X1')
+  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fixed', '2'])
+  assert.match(x1.sections.get('History').at(-1), /server: old case still standing \(began 08:30, before B12 was done at 09:10\)$/)
+  s.tick(3)
+  await recordFindings([finding({ since: began })], { work: s.board })
+  x1 = await s.item('X1')
+  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fixed', '3'])
+  assert.equal(x1.sections.get('History').filter(entry => /old case still standing/.test(entry)).length, 1, 'said once')
+})
+
+test('B584: it comes back for a case that began after the fix, for a finding with no since, and for the old case 2 h after the fix', async t => {
+  const fixedOne = async t => {
+    const s = await store(t)
+    await recordFindings([finding({ since: NOW - 30 * MIN })], { work: s.board })
+    await s.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })
+    s.tick(10)
+    await s.person({ action: 'tick', id: 'B12' })
+    await s.board({ action: 'incidents-fixed' })
+    return s
+  }
+  // A new take on an uncleared chat after the fix: a new case.
+  let s = await fixedOne(t)
+  s.tick(5)
+  assert.deepEqual((await recordFindings([finding({ since: NOW + 12 * MIN })], { work: s.board })).returned, ['X1'])
+  assert.match((await s.item('X1')).sections.get('History').at(-1), /server: came back \(seen 2 times\)$/)
+  // No since: as before.
+  s = await fixedOne(t)
+  assert.deepEqual((await recordFindings([finding()], { work: s.board })).returned, ['X1'])
+  // The old case still there 2 h after the fix: it outlived it.
+  s = await fixedOne(t)
+  s.tick(120)
+  assert.deepEqual((await recordFindings([finding({ since: NOW - 30 * MIN })], { work: s.board })).returned, ['X1'])
+  const x1 = await s.item('X1')
+  assert.equal(head(x1, 'State'), 'came back')
+  assert.match(x1.sections.get('History').at(-1), /server: came back \(seen 2 times; old case outlived its fix\)$/)
+})

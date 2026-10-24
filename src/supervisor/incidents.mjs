@@ -22,7 +22,7 @@ function foundAtOf(item, firstSeen) {
 }
 
 /**
- * Files `findings` (`{ rule, key, subject, text, evidence }`), one record per key in a run, through `work` (the work API
+ * Files `findings` (`{ rule, key, subject, text, evidence, since? }`, `since` when the case began, B584), one record per key in a run, through `work` (the work API
  * as the board: `body → { ok, result | why }`). Answers `{ opened, returned, counted, failed }`: the incidents' ids by
  * what became of them, and `{ key, why }` for each finding that could not be filed (tried again at the next run, as it
  * is seen again). It never throws.
@@ -38,7 +38,7 @@ export async function recordFindings(findings, { work }) {
     keys.add(one.key)
     let done
     try {
-      done = await work({ action: 'incident', key: one.key, title: one.text, subject: one.subject ?? '', evidence: one.evidence ?? '', source: one.rule })
+      done = await work({ action: 'incident', key: one.key, title: one.text, subject: one.subject ?? '', evidence: one.evidence ?? '', source: one.rule, ...(Number.isFinite(one.since) ? { since: one.since } : {}) })
     } catch (error) {
       done = { ok: false, why: error instanceof Error ? error.message : String(error) }
     }

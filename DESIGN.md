@@ -3204,7 +3204,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (the board's reconcile: fixed once that step is done, open again when it was dropped). A chat of role supervisor
   only reads and files incidents. After each run the loop files its findings (`recordFindings`): a new key opens one,
   the same key only counts it (Count and Last seen, no History line: an hour of a lasting problem is one record with
-  count 20), a fixed one's key makes it "came back". Incidents are never on the backlog view.
+  count 20), a fixed one's key makes it "came back". B584: unless the finding names when its case began (`since`:
+  not-cleared its take or report, undelivered its oldest word, report-check-twice its second failure) before its fix
+  step was done: that old case still standing only counts and says so once in History, for up to 2 h after the fix
+  ("old case outlived its fix" then). Incidents are never on the backlog view.
 - **To the person**: each incident that opened or came back gives one note of the board's (`Via: supervisor`, About
   X<n>). B573: the unread ones are drawn as one quiet line under Needs your attention, "Supervisor: 3 new findings"
   with a wrench, never counted; a click opens the section (Details first, from Simple), and opening the section any
