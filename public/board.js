@@ -22,6 +22,8 @@ const KINDS = {
   idle: { sign: '!', tag: 'May wait for you' },
   // Focus 4: the focus's steps made but not handed out by the main chat: a hint, with the way to it.
   handout: { sign: '!', tag: 'Waits for the main chat' },
+  // B541: chats on an older Workers mod than the one installed: the one way to bring them up to date.
+  'old-mod': { sign: '!', tag: 'Restart to update' },
 }
 /** What a step in the backlog says it asks of the person. */
 const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
@@ -3232,6 +3234,7 @@ function answerPart(need, state, isFolded) {
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
   if (need.kind === 'unfiled' || need.kind === 'idle' || need.kind === 'handout') return [...parts, ...talkButton(need)]
+  if (need.kind === 'old-mod') return [...parts, ...oldModParts(need, state)]
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
@@ -3275,6 +3278,29 @@ function answerPart(need, state, isFolded) {
  * chat on its tab, or, for a worker, this card's window with its last answer. B308: also the hint that a worker holds a
  * step but is not working and asked nothing.
  */
+/**
+ * B541: the card of chats on an older Workers mod: each chat with what it runs and what that costs, the one way to bring
+ * them up to date, and Pause all (it asks as the button above the lanes does). While a pause stands, the next step.
+ */
+function oldModParts(need, state) {
+  const chats = el('ul', 'old-mod-chats')
+  for (const one of need.chats ?? []) chats.append(el('li', '', `${one.name}: ${one.runs}, ${one.cost}`))
+  const steps = el('ol', 'old-mod-steps')
+  for (const step of need.steps ?? []) steps.append(el('li', '', step))
+  const parts = [chats, el('p', '', 'Do:'), steps]
+  const pause = state.pause?.state ?? 'running'
+  if (pause !== 'running') parts.push(el('p', 'muted', pause === 'resuming' ? 'Resuming: the chats start anew on the installed mod.' : 'The pause stands: once every chat has stopped, restart the Claude app, then press Resume all.'))
+  else if ((state.restart?.main ?? null) === null) parts.push(el('p', 'muted', 'No main chat is open: Pause all needs one.'))
+  else {
+    const button = el('button', 'button', 'Pause all')
+    button.type = 'button'
+    button.dataset.oldModPause = need.id
+    button.title = 'Asks first, as Pause all above the workers does'
+    parts.push(button)
+  }
+  return parts
+}
+
 function talkButton(need) {
   const open = el('button', 'choice', need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`)
   open.type = 'button'
@@ -4049,6 +4075,12 @@ const CLICK_ACTS = {
     supervisorUi.showsRules = !supervisorUi.showsRules
     if (board !== null) drawSupervisor(board)
   },
+  // B541: Pause all on the card of chats on an older Workers mod: the same question as the button above the workers.
+  'old-mod-pause': () => {
+    isAskingPause = true
+    redrawNeeds()
+    $('restart').scrollIntoView({ block: 'nearest' })
+  },
 }
 
 /** The act of a click: the nearest button with an attribute of the table, and the act; null for none, or a button that is off. */
@@ -4223,6 +4255,8 @@ function needsView(state, ui) {
     goalsEdit: { canWrite: state.goalsEdit?.canWrite ?? null, whyNot: state.goalsEdit?.whyNot ?? null },
     withPartner: state.withPartner ?? [],
     partnerDecided: state.partnerDecided ?? [],
+    // B541: the card of chats on an older Workers mod says how the pause stands.
+    pause: { state: state.pause?.state ?? null },
     ui,
   }
 }

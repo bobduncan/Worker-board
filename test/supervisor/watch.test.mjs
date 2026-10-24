@@ -206,20 +206,36 @@ test('report-check-twice: a step whose board check failed twice since its last p
 test('old-mod: a chat on a Workers mod older than the one installed trips; the same, or one not known, does not', () => {
   const board = chats => view({ chats: [LEAD, lane('Painter'), lane('Mason')], mods: { installed: '0.15.0', chats } })
   const found = check('old-mod', board({ Painter: '0.14.2', Mason: '0.15.0' }))
-  assert.deepEqual(found.map(one => [one.key, one.subject]), [['old-mod Painter 0.14.2', 'Painter']])
-  assert.equal(found[0].text, 'Painter runs the Workers mod 0.14.2; 0.15.0 is installed')
+  assert.deepEqual(found.map(one => [one.key, one.subject]), [['old-mod 0.15.0', 'board']])
+  assert.equal(found[0].text, 'Painter runs an older Workers mod; 0.15.0 is installed')
+  assert.equal(found[0].evidence, 'installed 0.15.0; Painter 0.14.2 (it misses what came after 0.14.2)')
   assert.deepEqual(check('old-mod', board({ Painter: '0.15.0' })), [])
   assert.deepEqual(check('old-mod', view({ chats: [LEAD, lane('Painter')], mods: null })), [])
-  assert.equal(check('old-mod', board({ Painter: '0.9.9' }))[0].subject, 'Painter', 'compared as numbers, not as text')
+  assert.match(check('old-mod', board({ Painter: '0.9.9' }))[0].text, /^Painter runs/, 'compared as numbers, not as text')
   assert.deepEqual(check('old-mod', board({ Painter: '0.15.1' })), [])
 })
 
 test('the review: old-mod counts a chat whose mod asked without saying its version (null) as older than 0.16.0, once that is installed', () => {
   const board = (installed, chats) => view({ chats: [LEAD, lane('Painter'), lane('Mason')], mods: { installed, chats } })
   const found = check('old-mod', board('0.16.0', { Painter: null, Mason: '0.16.0' }))
-  assert.deepEqual(found.map(one => [one.key, one.subject, one.text]), [['old-mod Painter before 0.16.0', 'Painter', 'Painter runs the Workers mod older than 0.16.0; 0.16.0 is installed']])
+  assert.deepEqual(found.map(one => [one.key, one.subject, one.text]), [['old-mod 0.16.0', 'board', 'Painter runs an older Workers mod; 0.16.0 is installed']])
   // While an older mod is installed, no chat says its version: nothing to report.
   assert.deepEqual(check('old-mod', board('0.15.0', { Painter: null, Mason: null })), [])
+})
+
+test('B541: three chats on an old mod (the main chat and the partner too) are one finding naming all three, keyed by the installed version', () => {
+  const board = chats => buildView({
+    state: { chats: [LEAD, lane('Painter'), lane('Mason')], advisor: { name: 'Guide' }, chatPrefix: '' },
+    mods: { installed: '0.16.0', chats }, now: NOW,
+  })
+  const found = check('old-mod', board({ Lead: null, Painter: '0.15.2', Mason: '0.16.0', Guide: null }))
+  // One per chat would be three findings here: the fix of X4-X6 is one.
+  assert.equal(found.length, 1)
+  assert.deepEqual([found[0].key, found[0].subject, found[0].text], ['old-mod 0.16.0', 'board', 'Lead, Painter and Guide run an older Workers mod; 0.16.0 is installed'])
+  assert.equal(found[0].evidence, 'installed 0.16.0; Lead older than 0.16.0 (it says no version and misses the newer work calls); Painter 0.15.2 (it misses what came after 0.15.2); Guide older than 0.16.0 (it cannot name the fix of an incident)')
+  // The same key while it lasts, whoever is on it: one incident counts up.
+  assert.equal(check('old-mod', board({ Painter: '0.15.2' }))[0].key, 'old-mod 0.16.0')
+  assert.deepEqual(check('old-mod', board({ Lead: '0.16.0', Painter: '0.16.0', Mason: '0.16.0', Guide: '0.16.0' })), [])
 })
 
 test('Review Focus 1: a rule that throws is one finding "rule <id> failed" and the other rules still run', () => {
