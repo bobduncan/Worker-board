@@ -663,6 +663,15 @@ function demoWork(now) {
     sections: new Map([['Text', [`Supervisor: ${DEMO_INCIDENTS.at(-1).title}`]], ['About', ['X10']]]),
     problem: null,
   })
+  // B573: two more of its notes, so Needs your attention shows them as one line ("Supervisor: 3 new findings").
+  for (const [id, about, ago] of [['N93', 'X9', 60], ['N94', 'X8', 71]]) {
+    const text = `Supervisor: ${DEMO_INCIDENTS.find(one => one.id === about).title}`
+    work.items.set(id, {
+      head: new Map([['Id', id], ['Kind', 'note'], ['From', 'server'], ['To', 'you'], ['Via', 'supervisor'], ['State', 'unread'], ['Since', stamp(now - ago * MIN)], ['Text', text]]),
+      sections: new Map([['Text', [text]], ['About', [about]]]),
+      problem: null,
+    })
+  }
   return work
 }
 
@@ -713,7 +722,7 @@ function demoFixSteps(now) {
  */
 export function demoSupervisor(now, rules = [], makeCards = () => []) {
   const tripped = { blocked: 2, 'limit-back': 1, 'unknown-lane': 5 }
-  const incidents = DEMO_INCIDENTS.map(({ seen: [first, last], since, ...one }) => ({ ...one, firstSeen: now - first * MIN, lastSeen: now - last * MIN, since: now - since * MIN, ruleWanted: one.ruleWanted ?? null, evidence: one.evidence ?? null }))
+  const incidents = DEMO_INCIDENTS.map(({ seen: [first, last], since, ...one }) => ({ ...one, firstSeen: now - first * MIN, lastSeen: now - last * MIN, since: now - since * MIN, ruleWanted: one.ruleWanted ?? null, evidence: one.evidence ?? null, foundAt: now - first * MIN }))
     .sort((a, b) => b.lastSeen - a.lastSeen || b.id.localeCompare(a.id, 'en', { numeric: true }))
   return {
     run: {
