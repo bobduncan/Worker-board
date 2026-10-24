@@ -16,7 +16,6 @@ import { sinceMs, valueOf } from '../../work/item.mjs'
 import { blockersOpen, waitWords } from '../../work/guards.mjs'
 import { heldMs, isHolding } from '../../work/pause.mjs'
 import { whyClosed } from '../../work/outboxSweep.mjs'
-import { isLate } from '../../store.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
@@ -297,7 +296,9 @@ function undelivered(view) {
   const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map() }
   // A word that waited too long still counts (the sweep marks it expired, and so does this rule); one that no longer
   // matters (dropped: superseded, its step moved on) does not.
-  const stillWaits = message => whyClosed(message, ctx)?.state !== 'dropped' && !((message.ask ?? null) !== null && isLate(message, view.now, view.keep))
+  // B548: an answer waits for its chat however old (store.mjs isLate); past answerMs it is not named here.
+  const stillWaits = message => whyClosed(message, ctx)?.state !== 'dropped'
+    && !((message.ask ?? null) !== null && view.now - message.at - heldMs(message, view.now, view.pause) > view.keep.answerMs)
   const late = view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at)).filter(message => {
     // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
     // hold before its release (B285).

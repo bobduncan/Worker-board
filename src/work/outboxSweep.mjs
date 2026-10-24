@@ -1,8 +1,8 @@
 // B532: the outbox holds only words that still matter. At every refresh (and before a chat takes its words) each word
 // that waits is judged: still needed, or closed with its reason in outbox.jsonl (`dropped` for a word that no longer
 // matters, `expired` for one that waited longer than it is kept), so nothing waits for ever in silence and the page
-// says what became of it. A person's answer (an ask set) is never closed here: it waits for its chat, also one that is off
-// on purpose. A word the chat took and could not type is retried (store.mjs retryFailed) before the judging.
+// says what became of it. A person's answer (an ask set) is never closed here: it waits for its chat however old (B548),
+// also one that is off on purpose. A word the chat took and could not type is retried (store.mjs retryFailed) before the judging.
 
 import { waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
@@ -86,4 +86,13 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   }
   if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now)
   return [...closing.values()]
+}
+
+/**
+ * B548: a chat's take: the sweep of that chat's words first (a failed sweep is said and the take goes on), so a chat is
+ * never handed a word whose purpose is gone, then what still waits for it (store.mjs `take`).
+ */
+export async function takeFor({ dir, outbox, state, now, keep, chat, only, fs }) {
+  await sweepOutbox({ dir, outbox, state, now, keep, fs, to: chat }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
+  return outbox.take(chat, now, keep, only)
 }

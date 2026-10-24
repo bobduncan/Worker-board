@@ -80,7 +80,7 @@ import { standardHold } from './src/work/standardHold.mjs'
 import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
-import { sweepOutbox } from './src/work/outboxSweep.mjs'
+import { takeFor } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
@@ -1690,8 +1690,7 @@ async function main(args) {
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
       const only = isHolding((await readState()).pause) ? message => message.command === 'resume' : undefined
       // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
-      await sweepOutbox({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, to: checked.chat }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
-      const taken = await store.take(checked.chat, clock(), keep, only)
+      const taken = await takeFor({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, chat: checked.chat, only })
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
       const handed = taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) }))

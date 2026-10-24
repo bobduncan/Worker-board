@@ -114,15 +114,18 @@ test('a take that cannot be written down hands out nothing, and the messages wai
   assert.deepEqual((await store.take('Units', 2 * MIN, keep)).map(message => message.id), ['a'])
 })
 
-test('taking never hands out what waited too long: a typed line after minutes, an answer after two days', async () => {
+test('B548: taking hands out a typed line within two days and a person\'s answer however old; an order to a chat after minutes never', async () => {
   const store = memoryStore()
   await store.say({ id: 'line', at: 0, to: 'Advisor', ask: null, text: 'x', state: 'waiting' })
   await store.say({ id: 'answer', at: 0, to: 'Advisor', ask: 'q1', text: 'y', state: 'waiting' })
-  assert.deepEqual((await store.take('Advisor', 11 * MIN, keep)).map(message => message.id), ['answer'])
-  assert.equal(store.outbox().find(message => message.id === 'line').state, 'waiting')
+  await store.say({ id: 'stop', at: 0, to: 'Advisor', ask: null, command: 'stop', text: 'stop task', state: 'waiting' })
+  assert.deepEqual((await store.take('Advisor', 11 * MIN, keep)).map(message => [message.id, message.lateMs]), [['line', 11 * MIN], ['answer', 11 * MIN]])
+  assert.equal(store.outbox().find(message => message.id === 'stop').state, 'waiting', 'a stop of 11 minutes ago is not typed')
   const late = memoryStore()
+  await late.say({ id: 'line', at: 0, to: 'Units', ask: null, text: 'x', state: 'waiting' })
   await late.say({ id: 'answer', at: 0, to: 'Units', ask: 'q1', text: 'y', state: 'waiting' })
-  assert.deepEqual(await late.take('Units', 49 * HOUR, keep), [])
+  // Q300's case: the answer three days on reaches its chat, with its age; the line of then does not.
+  assert.deepEqual((await late.take('Units', 72 * HOUR, keep)).map(message => [message.id, message.lateMs]), [['answer', 72 * HOUR]])
 })
 
 test('the log of the outbox remembers a delivery', () => {
@@ -141,8 +144,9 @@ test('outboxNow: an answer waits long for its chat, and a taken or typed answer 
     { id: 'lost', at: 0, ask: 'q4', text: 't', state: 'failed' },
   ]
   assert.deepEqual(outboxNow(messages, 60 * MIN, keep).map(message => [message.id, message.state]),
-    [['line', 'expired'], ['answer', 'waiting'], ['done', 'delivered'], ['held', 'taken'], ['queued', 'taken'], ['lost', 'failed']])
-  assert.deepEqual(outboxNow(messages, 49 * HOUR, keep).map(message => [message.id, message.state]), [['done', 'delivered'], ['held', 'taken']])
+    [['line', 'waiting'], ['answer', 'waiting'], ['done', 'delivered'], ['held', 'taken'], ['queued', 'taken'], ['lost', 'failed']])
+  // B548: after two days the line has expired and is listed no longer; the answer still waits for its chat.
+  assert.deepEqual(outboxNow(messages, 49 * HOUR, keep).map(message => [message.id, message.state]), [['answer', 'waiting'], ['done', 'delivered'], ['held', 'taken']])
 })
 
 test('outboxNow: a word to a chat stays known for two hours, so the board can say how it fared', () => {

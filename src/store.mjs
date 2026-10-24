@@ -37,8 +37,10 @@ const COMMAND_KNOWN_MS = 2 * 60 * 60_000
 const TAKEN_SHOWN_MS = 10 * 60_000
 
 /**
- * True when a message waited too long to be delivered. A line typed to a chat is kept for minutes (`messageMs`),
- * so nothing typed long ago turns up in a chat; an answer to a request waits for its chat much longer (`answerMs`).
+ * True when a message waited too long to be delivered. A person's answer never: it waits for its chat however old. A
+ * plain word (a line typed to a chat, a resume) and a word the chat's work stands on wait `answerMs`; a word that
+ * steers a chat now (stop, clear, a model, a sweep) is kept for minutes (`messageMs`), so no old order turns up in a
+ * chat. A word older than `messageMs` goes with its age (`take`), so the chat reads it as late.
  */
 // A step asked of the main chat from the Design tab waits as long as an answer does: the main chat may be closed.
 // B285: so does the word that a step the main chat queued is refined: it waits until the main chat takes it.
@@ -46,10 +48,14 @@ const TAKEN_SHOWN_MS = 10 * 60_000
 // The review of Pause 2: the time the person's pause held it (`keep.pause`, pause.json's record) does not count.
 // B532: so does every word the chat's work stands on (a refine, a check, a round, a plan word, a start of a closed chat): the
 // board used to drop them after ten minutes, in silence, when the chat was busy or closed; now they wait until their
-// purpose is gone (src/work/outboxSweep.mjs closes them with a reason) or answerMs passed. A line the person typed to a
-// chat keeps its minutes: nothing typed long ago turns up in a chat.
+// purpose is gone (src/work/outboxSweep.mjs closes them with a reason) or answerMs passed.
 // The supervisor (2026-10-24): and an incident's word to the partner, which waits for a partner that does not run.
-export const keepMs = (message, keep) => (isAnswer(message) || ['step', 'refined', 'work', 'incident'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
+// B548 (the result check of B532): a person's answer reached its chat only within answerMs (Q300's, 3 days old, never
+// did), and a plain word (a line typed to a chat, a resume) expired after messageMs; now an answer waits however old,
+// and a plain word as long as an answer used to.
+const isPlain = message => (message.command ?? null) === null || message.command === 'resume'
+export const keepMs = (message, keep) => (isAnswer(message) ? Infinity
+  : isPlain(message) || ['step', 'refined', 'work', 'incident'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
 export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
 
 /**

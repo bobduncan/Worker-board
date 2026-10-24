@@ -74,7 +74,8 @@ test('3: the board types "resume" into a main chat that runs while resuming and 
 })
 
 test('2: a line waiting in the outbox does not grow late while the board holds it', () => {
-  const keep = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }
+  // A line is kept answerMs (B548): ten minutes here, so the hold shows in minutes.
+  const keep = { messageMs: 10 * MIN, answerMs: 10 * MIN }
   const line = { id: 'l1', at: NOW - 20 * MIN, to: 'Main', ask: null, text: 'Hand out B290', state: 'waiting' }
   assert.equal(isLate(line, NOW, keep), true)
   // Paused five minutes after it was sent: it had waited five minutes when the hold began.

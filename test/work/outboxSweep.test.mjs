@@ -29,13 +29,15 @@ function outboxOf(words) {
 const stateOf = (store, id) => store.outbox().find(one => one.id === id)
 const ctxOf = (all, more = {}) => ({ all, items: new Map(), runs: new Map(), goals: [], now: NOW, keep, closing: new Map(), ...more })
 
-test('cause: a partner word hours old is still handed out, with its age; a line typed to a chat still expires in minutes', async () => {
+test('cause: a partner word hours old is still handed out, with its age; B548: so is a line typed to a chat; an order is not', async () => {
   const late = word({ command: 'refine', about: 'B1', at: NOW - 3 * HOUR, text: 'refine step\nStep: B1 Plant the hedge' })
   const typed = word({ command: null, at: NOW - 30 * MIN, text: 'look at the hedge' })
   const fresh = word({ command: 'result-check', about: 'B2', at: NOW - 2 * MIN })
-  const store = outboxOf([late, typed, fresh])
+  const order = word({ command: 'clear', at: NOW - 30 * MIN, text: '/clear' })
+  const store = outboxOf([late, typed, fresh, order])
   const taken = await store.take('Partner', NOW, keep)
-  assert.deepEqual(taken.map(one => one.id).sort(), [late.id, fresh.id].sort())
+  assert.deepEqual(taken.map(one => one.id).sort(), [late.id, typed.id, fresh.id].sort())
+  assert.equal(taken.find(one => one.id === typed.id).lateMs, 30 * MIN)
   const handed = taken.find(one => one.id === late.id)
   assert.equal(handed.lateMs, 3 * HOUR)
   assert.equal(taken.find(one => one.id === fresh.id).lateMs, undefined, 'a word of minutes goes as it is')
@@ -43,7 +45,7 @@ test('cause: a partner word hours old is still handed out, with its age; a line 
   const text = messageText(handed, clock)
   assert.equal(text.split('\n')[0], 'refine step')
   assert.match(text, /this word waited for you: sent 3 hours ago, at 15:00/)
-  assert.equal(stateOf(store, typed.id).state, 'waiting')
+  assert.equal(stateOf(store, order.id).state, 'waiting')
 })
 
 test('a round of the board\'s clock waits for a busy partner too, and a newer round of the same kind replaces it', async () => {
@@ -102,14 +104,17 @@ test('the main chat\'s start of a closed chat: closed once that chat runs or not
   assert.deepEqual(whyClosed(start, ctxOf(all, { runs: new Map([['Partner', true]]) })), { state: 'dropped', why: 'Partner runs now' })
 })
 
-test('expired: a partner word after 48 hours, a resume after 10 minutes, each with its why; a person\'s answer never', async () => {
+test('expired: a partner word and B548 a resume after 48 hours, each with its why; a person\'s answer never', async () => {
   const old = word({ command: 'plan-tradeoffs', about: 'plan', at: NOW - 50 * HOUR })
-  const resume = word({ to: 'Lead', command: 'resume', at: NOW - 15 * MIN })
+  const resume = word({ to: 'Lead', command: 'resume', at: NOW - 49 * HOUR })
+  const fresh = word({ to: 'Lead', command: 'resume', at: NOW - 15 * MIN })
+  const typed = word({ to: 'Lead', command: null, at: NOW - 47 * HOUR })
   const answer = word({ to: 'Digger', ask: 'work:Q3', step: 'Q3', title: 'Merge it?', at: NOW - 5 * 24 * HOUR })
   const workLine = word({ to: 'Digger', command: 'work', about: 'B3', at: NOW - 5 * 24 * HOUR })
-  const store = outboxOf([old, resume, answer, workLine])
+  const store = outboxOf([old, resume, fresh, typed, answer, workLine])
   const closed = await sweepOutbox({ dir: null, outbox: store, state: { chats: [{ name: 'Digger', isRunning: false }] }, now: NOW, keep })
-  assert.deepEqual(closed.map(one => [one.id, one.state, one.why]), [[old.id, 'expired', 'waited longer than 48 hours'], [resume.id, 'expired', 'waited longer than 10 min']])
+  assert.deepEqual(closed.map(one => [one.id, one.state, one.why]), [[old.id, 'expired', 'waited longer than 48 hours'], [resume.id, 'expired', 'waited longer than 48 hours']])
+  assert.deepEqual([fresh, typed].map(one => stateOf(store, one.id).state), ['waiting', 'waiting'], 'a resume of 15 minutes and a line of 47 hours still wait')
   assert.equal(stateOf(store, answer.id).state, 'waiting', 'an answer waits for its chat, also one that is off')
   assert.equal(stateOf(store, workLine.id).state, 'waiting', 'a work line is the work store\'s to judge')
   // The page lists what was closed, with its why, for 12 hours after it was closed.
