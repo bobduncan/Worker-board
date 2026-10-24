@@ -5,6 +5,7 @@ import type { FsEntry, On } from 'claude-code'
 import type { ChatFile, ChatTask } from '../types'
 import { chatText, parseChat } from './chats'
 import { forYouItems } from './foryou'
+import { MOD_VERSION } from './board'
 
 const TOOL = 'mcp__folder-branches__chat'
 const ROOT = 'D:\\Work\\project'
@@ -2720,7 +2721,7 @@ describe('clear after each step', () => {
     expect(fileOf(w, 'watcher-2')).toEqual({ name: 'Watcher', role: 'worker', state: 'waiting', task: null, at: clock.now(), cleared: { at: clock.now(), step: null, log: null } })
     // Every call to the board says the mod's version.
     expect(w.modHeaders.length).toBeGreaterThan(0)
-    expect(w.modHeaders.every(one => one === '0.16.0')).toBe(true)
+    expect(w.modHeaders.every(one => one === MOD_VERSION)).toBe(true)
   })
 
   test('the supervisor: when the board does not answer its turn\'s end, the list of chats names it, and it is cleared all the same', async ($, on) => {
