@@ -33,11 +33,11 @@ const of = (found, check) => found.filter(one => one.check === check)
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
-  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'queued-behind', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask', 'unchecked', 'worktrees'])
+  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'queued-behind', 'review-wait', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask', 'unchecked', 'worktrees'])
   assert.ok(CHECKS.every(one => typeof one.words === 'string' && one.words.length > 0))
 })
 
-test('blocked: a step blocked by one in review is unblocked; one done holds nothing; one the store lacks, or a Waits for, is for Main', () => {
+test('blocked: a step blocked by one in review or done is unblocked; one the store lacks, or a Waits for, is for Main', () => {
   const found = findStuck(base({
     items: items(
       step('B1', 'review', {}, { History: [`- ${stamp(ago(30))} server: check passed: merged`] }), step('B9', 'done'),
@@ -50,11 +50,12 @@ test('blocked: a step blocked by one in review is unblocked; one done holds noth
     lanes: [LEAD, lane('Painter', { state: 'working' })],
   }))
   const blocked = of(found, 'blocked')
-  assert.deepEqual(blocked.map(one => [one.key, one.fix.do]), [['blocked B2 B1', 'unblock'], ['blocked B4 B77', 'main'], ['blocked B5 B1', 'main']])
+  assert.deepEqual(blocked.map(one => [one.key, one.fix.do]), [['blocked B2 B1', 'unblock'], ['blocked B3 B9', 'unblock'], ['blocked B4 B77', 'main'], ['blocked B5 B1', 'main']])
   assert.deepEqual([blocked[0].fix.id, blocked[0].fix.on], ['B2', 'B1'])
   assert.match(blocked[0].text, /^B2 waited on B1, which is in review$/)
-  assert.match(blocked[1].text, /B4 is blocked by B77, which the store does not hold/)
-  assert.match(blocked[2].text, /B5 waits for B1 \(in review\)/)
+  assert.match(blocked[1].text, /^B3 waited on B9, which is done$/)
+  assert.match(blocked[2].text, /B4 is blocked by B77, which the store does not hold/)
+  assert.match(blocked[3].text, /B5 waits for B1 \(in review\)/)
 })
 
 test('queued behind (B550, X15): a step queued over an hour behind a busy worker is named to Main for a free one, once an hour', () => {
