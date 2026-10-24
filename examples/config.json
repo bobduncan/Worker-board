@@ -45,7 +45,8 @@
     {
       "kind": "level",
       "done": "docs/done/level.md",
-      "reference": "art/references/levels"
+      "reference": "art/references/levels",
+      "look": true
     }
   ]
 }
