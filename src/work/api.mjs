@@ -10,7 +10,8 @@ import { minutesOf } from '../backlog.mjs'
 import { workWords } from '../say.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { mayMove } from './flow.mjs'
-import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
+import { GUARDS, blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
+import { AUTO_QUEUE_GUARD, AUTO_QUEUE_MOVE, boardQueuedWhat, boardQueuedWords, fixesAhead, flowQueuesFixes, freshBoardFix, incidentsFixedBy, isStillEmpty } from './incidentFix.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
 import { JUST_ANSWERED_MS, closedMsOf, forYouRepeat, isWithdrawn, openRepeat, repeatFactsOf } from './askRepeat.mjs'
@@ -1710,7 +1711,20 @@ const markedFix = (item, w) => (isFix(item) ? item : said(put(item, 'Priority', 
 
 /** Main queues a refined step for a chat: Owner, Blocked by or Waits for, Estimate. */
 async function queue(body, w) {
-  return warned(await queueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning)
+  return withBoardFix(warned(await queueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning), body, w)
+}
+
+/**
+ * Incident fixes (2026-10-24): a queue or requeue for a worker the board gave an incident fix a few minutes ago says so
+ * on top, in one line ("Worker 2 got B541, a board fix, at 21:40; your step goes after it"), so the main chat does not
+ * take that worker for free. It is not refused.
+ */
+function withBoardFix(done, body, w) {
+  if (!done.ok || done.result.changed === false || w.role === 'server' || line(body.for, 80) === '') return done
+  const chat = chatName(line(body.for, 80), w).name
+  const said = freshBoardFix(w.store.items, chat, { prefix: w.prefix ?? '', now: w.now, except: done.result.id ?? null })
+  return said === null ? done : { ...done, result: { ...done.result, text: `${said}
+${done.result.text ?? ''}`, boardFix: said } }
 }
 
 async function queueStep(body, w) {
@@ -1828,7 +1842,7 @@ function queueAsked(item, w) {
 const helperNoQueue = name => `${name} is the partner's helper: no step is queued for it. The partner hands it the next refine or result check; queue the step for a worker.`
 
 async function requeue(body, w) {
-  return warned(await requeueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning)
+  return withBoardFix(warned(await requeueStep(body, w), body.for === undefined ? undefined : chatName(line(body.for, 80), w).warning), body, w)
 }
 
 async function requeueStep(body, w) {
@@ -2550,6 +2564,8 @@ async function advance(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
   const to = line(body.to, 40)
+  // Incident fixes (2026-10-24): the board queues a ready incident fix for the worker the reconciler picked.
+  if (to === 'queued' && line(body.for, 80) !== '') return queueIncidentFix(found, body, w)
   // B303: the queue asked before the refine, with what was asked (the flow's move by the server).
   if (to === 'queued' && stateOf(found.item) === 'refined' && valueOf(found.item, 'Queue when refined') !== null) {
     const next = queueAsked(found.item, w)
@@ -2557,12 +2573,50 @@ async function advance(body, w) {
     const done = await save(next, found.text, w)
     return done.ok ? changed(next) : done
   }
+  // Incident fixes, the review: the board queues a step only for a chat it names, or as asked before its refine, never
+  // into no worker's queue.
+  if (to === 'queued') return refuse(409, `${valueOf(found.item, 'Id')}: the board queues a step only for a chat ("for"), or as asked before its refine.`)
   const moved = move(found.item, to, 'server', w)
   if (!moved.ok) return moved
   const done = await save(ordered(moved.item), found.text, w)
   // B360, the review: a step the reconciler moves to done (say once the person answered its look) gets its recap too.
   if (done.ok) await recapOnDone(ordered(moved.item), w)
   return done.ok ? changed(ordered(moved.item)) : done
+}
+
+/**
+ * Incident fixes (2026-10-24, the person's choice B): the board queues a ready incident fix itself (the reconciler's
+ * `autoQueues`, incidentFix.mjs), for the worker in `for`, by the flow's server move "an incident fix is ready". Checked
+ * anew here, so it happens once: a step the main chat queued, or took out of a queue, in the meantime is refused and
+ * left as it is, and so is one a blocker or an ask holds again. Owner the worker; History "queued by the board for
+ * Worker 2 (incident fix of X4)". The answer carries `boardQueued` (`{ id, chat, since, text }`): the main chat's one
+ * information line about it.
+ */
+async function queueIncidentFix(found, body, w) {
+  const id = valueOf(found.item, 'Id')
+  if (!flowQueuesFixes(w.store.flow)) return refuse(409, `${id}: the flow lets the board queue no incident fix (flow.json lacks ${JSON.stringify(AUTO_QUEUE_MOVE)}).`)
+  const ctx = flowCtx(w, [found.item])
+  if (!GUARDS[AUTO_QUEUE_GUARD](found.item, ctx)) return refuse(409, `${id} is ${stateOf(found.item)}: no incident fix the board queues now (it queues one once, refined, held by nothing).`)
+  const hold = w.standardHold?.(found.item) ?? null
+  if (hold !== null) return refuse(409, hold)
+  const owner = chatName(line(body.for, 80), w).name
+  if (w.roleOf?.(owner) === 'helper') return refuse(409, helperNoQueue(owner))
+  // The review: a placement on a free worker with an empty queue (`tier` 1) holds only while it still is one; the next
+  // refresh places the fix anew.
+  if (Number(body.tier) === 1 && !isStillEmpty(w.store.items, owner, w.prefix ?? '')) {
+    return refuse(409, `${owner} is no longer free with an empty queue: the board places ${id} anew at its next refresh.`)
+  }
+  const moved = move(found.item, 'queued', 'server', w, ctx)
+  if (!moved.ok) return moved
+  const incidents = incidentsFixedBy(w.store.items, found.item)
+  const placed = put(moved.item, 'Owner', owner)
+  placed.head.delete('Queue note')
+  const next = ordered(said(placed, w, boardQueuedWhat(owner, incidents)))
+  const done = await save(next, found.text, w)
+  if (!done.ok) return done
+  const steps = [...w.store.items.values()].map(item => (valueOf(item, 'Id') === id ? next : item))
+  const text = boardQueuedWords({ id, chat: owner, incidents, ahead: fixesAhead(steps, id, owner, w.prefix ?? '') })
+  return changed(next, `${id}: ${boardQueuedWhat(owner, incidents)}.`, { boardQueued: { id, chat: owner, since: stamp(w.now), text } })
 }
 
 /**

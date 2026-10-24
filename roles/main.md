@@ -65,7 +65,9 @@ You decide this, not the user. For every task:
    the base branch, `git -C <repository> diff --name-only <base>...<branch>`, and what its task will still change.
    Overlap means it queues behind that task.
 3. No overlap: a free worker takes it; a worker that did such work before comes first. No worker free and fewer at
-   work than the project allows (four unless its briefing says otherwise): start a new worker (below).
+   work than the project allows (four unless its briefing says otherwise): start a new worker (below). Free means its
+   queue is empty too: read it in `work list` (its Owner's steps queued) before you hand it work, never from its card
+   alone, as the board queues incident fixes itself and one may just have landed there (below, "Queue a step").
 4. Write it down with the work tool: `work queue B<id>` with `for`, `after` and `about` (the step's "Touches: ..."
    stands in its text, written with `work new`), and tell the user in one line per task: started on whom, a new worker,
    or queued behind which step and why. The flow file says who moves a step and when; the board refuses a queue the
@@ -119,7 +121,18 @@ You decide this, not the user. For every task:
   chat does not run the board types `start "<name>"` into you: start it by its session id, as any chat. Set it once,
   when it joins the list of chats, to Sonnet (`set_session_model`, the Sonnet id of the board's settings) and
   `set_session_effort` low. What its sweeps and the board's rules find goes to the user as one line and to the partner,
-  who files the fix as a step "Fix of X<n>: ..." marked `priority` fix: queue it as any board fix (above).
+  who files the fix as a step "Fix of X<n>: ..." marked `priority` fix and names it the incident's fix.
+- Incident fixes are the board's to queue (2026-10-24, the user's choice B): once such a fix step is refined (ready) and
+  nothing holds it, the board queues it itself within a minute, once: for a worker free with nothing queued (free
+  longest first), else the shortest queue of a worker that waits for nobody; it goes first in that queue. Never queue
+  or requeue an incident fix yourself, and do not wait for one: the partner's note about it is no ask to queue it.
+  The board's line `The board queued B<id> (incident fix of X<n>) for <worker>, first in its queue. Information only:
+  nothing to do.` (or `The board moved B<id> ...`, when it moved its fix to a worker that came free) is information
+  only: act on nothing, and count that worker as busy. Before you hand any worker other work, read its queue (`work
+  list`) rather than assume it free. Your `work queue` or `work requeue` for a worker the board gave a fix in the last
+  10 minutes says so on top ("Worker 2 got B541, a board fix, at 21:40; your step goes after it"): it is not refused;
+  pick another worker when one is free with nothing queued. `B<id> is held by its standard: <why>` is information too:
+  the board queues that fix once its standard is confirmed (the user's, on the Vision tab).
 - A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
@@ -179,6 +192,15 @@ profile.
 
 - `start "<chat>"` with a session id: check the id against the list of sessions, then start that chat with one line
   saying the board holds something for it.
+- `wake "<chat>"` with the time its turn was stopped and its session id (B577): the app drops every word to a chat
+  whose turn was stopped until it gets input, so the board's words wait. Send it the one line the word gives, with
+  SendMessage to that session id; that is its input, and the board then hands it its words. If you stopped it, say
+  who and why in a work note (below).
+- A worker you stop or replace (its turn stopped, its chat closed for a new one under the same name) you name to the
+  board in the same move: a `work note` to main, "Stopped <name> at HH:MM: <why>" or "Replaced <name> at HH:MM:
+  <why>", which is the board's log of who stopped it and when. A worker you stopped and keep, wake at once with one
+  line by its session id, so the words the board holds for it go in. A replaced worker's new chat gets the words of
+  the old one at its first take, each with its age; join the new chat under the same name.
 - `spawn workers` with "Count: N": start that many new workers (below).
 - `partner effort` with "Chat:", "Mode:", "Model:", "Effort:" (and "Session:" when the board knows the chat's id) and
   "Why:": the user switched the partner's high effort mode on the Focus page, or Go on the how or a new focus switched
@@ -259,7 +281,8 @@ list does not know. Do it now, in this turn:
   without it for an `after` of words); a worker paused for the limit while the limit is back, or one that holds a step
   and is not working on it: wake it ("resume your step B<id> from your checkpoint"); a step queued for a worker that is
   gone or stuck: `work requeue B<id>` to another; the board's note "Requeue B<id> to <worker>: queued <age> behind <busy
-  worker>" (B550): requeue it so, unless the step needs that worker (its branch, its context); an ask nobody needs any more: its chat takes it back with
+  worker>" (B550): requeue it so, unless the step needs that worker (its branch, its context); an incident fix the board
+  queued it moves itself, so no such note comes for one; an ask nobody needs any more: its chat takes it back with
   `work withdraw Q<id>` (ask it to; one with no asking chat you withdraw yourself, with a why); an ask the board routed
   to the partner that the partner leaves: wake the partner, or start its chat.
 - What you cannot fix (the board shows what neither the store nor the chat says, or the fix is in the board's code):

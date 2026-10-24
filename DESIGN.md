@@ -1994,6 +1994,32 @@ never sent again, with nobody told why. Now:
 4. The supervisor's rule 8 (`undelivered`) judges a waiting word as the sweep does and names only what still waits
    after it: not a word the sweep drops, nor a person's answer past its keep.
 
+### A chat that was stopped, or replaced (B577)
+
+X3 came back at 21:47 on 2026-10-24: four words to Worker 5 (work B522 twice, work B567 twice, 21:41-21:42) failed with
+"a hook dropped it: the session was stopped and nobody has sent input since". The main chat had stopped that worker's
+turn at about 21:40, deleted the chat at 21:46 and made a new Worker 5; the board spent its tries within minutes on a
+chat being replaced and never handed the words to the new one. Now (`src/stopped.mjs`):
+
+1. A word the app drops because its chat's session was stopped (`isStoppedWhy`) spends no try: `settle` marks it
+   `stopped` (not failed) and puts it back as a new word (`retryOf`; the mod types an id once per process) with
+   `stoppedAt` and the session that took it (`stoppedSession`, from the mod's typed report). The work store's `sendOnce`
+   follows `retriedAs` to the word that stands for a line, so a work line is not sent twice.
+2. While that very session has begun no turn since (`isStillStopped`: the lane's `turnAt`), the chat takes nothing
+   (`takeFor`): every word would be dropped again. Its lane says "stopped since HH:MM" (state.mjs `stopped`, board.js
+   `stoppedLine`), and the main chat is asked once per stop (say.mjs `wakesStopped`, the `wake "<chat>"` word with its
+   session id; it waits as long as a start does, and the sweep drops it once the chat is no longer stopped) to send it
+   one line by its session id: that is input. A turn begun after the stop, or another session under the name, lets
+   the words go, each with its age.
+3. A chat replaced under the same name (a new session on the board under that name; a cleared chat is one too): at a
+   refresh the words that failed for its old session in the last day (`failedSession`; not final, not tried again)
+   go to the new one as new words (`revive`, `revivedFor`), each with its age at the take; the sweep and
+   `withdrawStale` close those whose purpose is gone, as any waiting word.
+4. Rule 8 names a stopped chat once per stop ("Worker 5 was stopped at 21:42: 2 words wait for it"), with whether the
+   main chat was asked to wake it, not word by word; a word that went again is named by the word that stands for it.
+5. roles/main.md: a worker the main chat stops or replaces is named to the board in the same move (a work note, "Stopped
+   <name> at HH:MM: <why>"), and a stopped worker it keeps is woken at once.
+
 ## A step's title without its note (B292)
 
 The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont
@@ -2941,7 +2967,7 @@ stuck that day was found by the person. They are now one list in the board, each
 | `blocked` | a step's `Blocked by` names one in review whose board check passed (merged, its result check open), or (B542) one done or dropped, queued or in progress; or its `Waits for` names only steps done or dropped | unblocked by the board, the `Waits for` cleared, a History line naming the blocker (Fixed) |
 | | ... names one the store lacks, or its `Waits for` names one in review | the main chat (For Main) |
 | `not-taken` | a queued step whose free owner, holding nothing, got its line 10 min ago and did not take it | the line again (Woke); still queued 10 min on: For Main |
-| `queued-behind` | a step queued over 20 min (`QUEUED_BEHIND_MS`) for a busy worker, nothing holding it (Blocked by, Waits for), while another worker is free: holds nothing, has nothing queued, not suspended (B550, X15, X16) | a note to the main chat, "Requeue B<n> to <free worker>: queued <age> behind <busy worker>" (Sent): the oldest step to the first free worker (running first, then free longest), the next to the next; a result check's fix (`Fix of`) is named as staying with the worker that built it, not moved; once an hour per step, by the runner's watch while the step stays queued for the same worker. The board never requeues it itself: queueing is the main chat's |
+| `queued-behind` | a step queued over 20 min (`QUEUED_BEHIND_MS`) for a busy worker, nothing holding it (Blocked by, Waits for), while another worker is free: holds nothing, has nothing queued, not suspended (B550, X15, X16) | a note to the main chat, "Requeue B<n> to <free worker>: queued <age> behind <busy worker>" (Sent): the oldest step to the first free worker (running first, then free longest), the next to the next; a result check's fix (`Fix of`) is named as staying with the worker that built it, not moved; once an hour per step, by the runner's watch while the step stays queued for the same worker. The board never requeues it itself: queueing is the main chat's; but an incident fix the board queued itself it moves to that free worker itself (Fixed; "Incident fixes the board queues itself") |
 | `focus-ready` | a worker free over 20 min (`FOCUS_IDLE_MS`, by its lane's idle time) holding nothing, nothing queued, not named by queued-behind, while steps are refined ready and not queued; no pause, no limit full (B564, X20) | a note to the main chat, "Queue B<n> (<focus>) for <free worker>: free <age> with nothing queued" (Sent): board fixes (Priority fix, "board fix") first, then the focus goal's steps (the view's `focus`, state.mjs `focus.id`), each in id order, a step with Blocked by or Waits for open skipped; one step per free worker, free longest first; steps of other goals never; once an hour per step, by the runner's watch while it stays refined ready. The board never queues it itself |
 | `review-wait` | (B542, X7) a step queued an hour, its owner free that long, behind one in review whose check has not passed | a note to the main chat naming both, once per pair (Sent); the step's line says "waits for the check of B<n>" |
 | `owner-gone` | a step queued for a chat the list has not shown for 30 min by the runner's own watch (not the partner, its helper or a leftover) | requeued to a free worker, a running one with the fewest queued first (Fixed); none free: For Main |
@@ -3116,16 +3142,24 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   the same key only counts it (Count and Last seen, no History line: an hour of a lasting problem is one record with
   count 20), a fixed one's key makes it "came back". Incidents are never on the backlog view.
 - **To the person**: each incident that opened or came back gives one note of the board's (`Via: supervisor`, About
-  X<n>), drawn as one quiet line under Needs your attention, "Supervisor: <what>" with a wrench, never counted; a
-  click opens the section (Details first, from Simple) and reads it. A count that grows gives nothing.
+  X<n>). B573: the unread ones are drawn as one quiet line under Needs your attention, "Supervisor: 3 new findings"
+  with a wrench, never counted; a click opens the section (Details first, from Simple), and opening the section any
+  way reads them all. A count that grows gives nothing.
 - **The section** (state `supervisor`, the view, in place of `syncList`), under the Workers panel's head where the
-  "Out of sync?" list stood: "Supervisor · checked itself at HH:MM", its incidents (one card per fix step, see "The supervisor's incident cards"), the last check
-  (B465's rows, as before, for an hour), the rules (those that tripped now or today, how often, a failed one with why;
-  the others on a click) and the last sweep ("No sweep yet." until Part 2), with **Check now** and ×. It shows when
-  something is new (a check, an incident that opened or changed state) and stays closed after × until something newer
-  comes. Cool colours only: nothing in it is the person's to act on (`test/supervisor/page.test.mjs` checks every colour
+  "Out of sync?" list stood. B573 (the person, 2026-10-24: "the supervisor notes take up too much space. i want it
+  collapisble and understand how many things it found and is working on"): it stands on every board with a supervisor,
+  folded by default to one head line, "Supervisor · 10 found today · 3 in work · 2 new", with **Check now** beside it;
+  a click on the line opens it, and the fold is kept across reloads (localStorage `supervisor-open`). Found: opened or
+  came back in the last day (an incident's `foundAt`, from its History). In work: its fix step queued, taken, in
+  progress, waiting on the person or in review (the card's `phase`). Open, the head adds "· 2 with the Advisor · 0
+  fixed" (no fix under way yet; fixed), then when it checked itself, its incidents (one card per fix step, see "The
+  supervisor's incident cards"), the last check (B465's rows, as before, for an hour), the rules (those that tripped
+  now or today, how often, a failed one with why; the others on a click) and the last sweep. **New**: an incident found
+  since the person last opened the section (`supervisor-seen-at`) and not fixed; its card carries a quiet New tag and
+  comes first. Opening marks them seen; the open section's tags stand against the opening before
+  (`supervisor-shown-since`), so they do not vanish at the click. Pictures: `art-inbox/B573/`. Cool colours only: nothing in it is the person's to act on (`test/supervisor/page.test.mjs` checks every colour
   of its styles). Pictures: `art-inbox/worker-board/supervisor/` (the project's picture folder).
-- **Check now** (was "Out of sync?"; a worker's menu, the panel's head while the section is closed, and the section) with
+- **Check now** (was "Out of sync?"; a worker's menu, the section's head, and the panel's head on a board without a supervisor) with
   a wrench in the button's own colour: the server runs the supervisor at once (`run({ asked: true, subject })`, the
   subject the worker of the menu) and, until Part 2's sweep replaces it, still types `check sync` into the main chat.
 - **The review of part 1** (2026-10-24): merged with main, B449's check `unchecked` is a repair rule, and B488's one
@@ -3265,6 +3299,51 @@ backlogitem is there. its not clear what the follow up is." They chose layout B 
 - **Live**: `supervisor.view(now, live)` makes the cards at every refresh from the store, the chats and the Advisor's name
   the server passes, so a step the partner just linked shows at once. Quiet blues and greys, nothing warm.
   Tests: `test/supervisor/cards.test.mjs`, `handover.test.mjs`, `page.test.mjs`; pictures `incident-cards.png`, `-400.png`.
+
+## Incident fixes the board queues itself (2026-10-24)
+
+On the night of 2026-10-24 the supervisor's loop (an incident, the Advisor's refined fix step marked priority fix, a
+worker builds it, the incident closes) stalled 9 times at one link: only the main chat queued, the Advisor's "yours to
+queue" note did not make it act, and every fix sat refined until someone messaged it; twice it put a fix behind a busy
+worker while another was free. The person chose B: "the board queues it, but ensure that the main knows the board can
+do this so it doesnt try to double assign work to a singler worker if it expect it could be free".
+
+- **What** (`src/work/incidentFix.mjs`, the flow's server move `{ "from": "refined", "to": "queued", "by": "server",
+  "when": "an incident fix is ready" }`, in the default flow and `examples/work/flow.json`: a project without its own
+  flow.json gets it by default; one with its own flow.json needs that line, and a board built before this rejects a
+  flow.json that has it, "no guard is called ..."): a step refined (ready), `Priority: fix`, that an incident not fixed
+  names as its `Fix` (or titled "Fix of X<n>" while that incident has no Fix, or this step as its Fix), with nothing
+  holding it (Blocked by, Waits for, an ask under it, Touches that overlap a taken step's, as for the main chat's queue),
+  no `Queue when refined` (B303 carries that out) and no History line of a move to queued: once only, so a step the
+  main chat queued or took out stays as it is.
+- **For whom** (`placeFixes`, by the reconciler at every refresh, so within a minute; not while the person pauses or
+  resumes): only a chat that runs (not `off`, not `unknown`, `isRunning` not false: a fix queued for one stalled for
+  good, as nothing delivers to it or moves it); a worker free with nothing queued, free longest first; none: the worker
+  with the shortest queue that waits for nobody (its lane not waiting, no step waiting on you, not paused for the
+  limit). Several fixes at once each count in the queue for the next. The reconciler's `autoQueues`; `deliverWork`
+  carries each out through the API's `advance` with `for` and `tier`, which checks it anew (`queueIncidentFix`; a
+  free-worker placement whose worker got a queued or held step meanwhile is refused, and the next refresh places
+  anew): History "server: refined → queued" and "server: queued by the board for Worker 2 (incident fix of X4)". As a
+  board fix it goes first in that queue.
+- **Held by its standard**: a fix the product plan's standards hold (`standardHold`, the API's own guard, passed to the
+  reconciler by state.mjs) is not placed, so it takes no worker's place and is not refused at every refresh; the main
+  chat and the partner get "B<n> is held by its standard: <why>" once each (`heldFixes`, kind `fix-held`, held while
+  the step stays refined).
+- **The main chat knows**: one information line per placement into the outbox, "The board queued B541 (incident fix of
+  X4) for Worker 2, first in its queue. Information only: nothing to do." (kind `board-queued`; at once, and named again
+  from the History by the reconciler's `boardLines` for 30 minutes under the same key, so it goes once, also after a
+  restart). Its `work queue` or `requeue` for a worker the board gave a fix in the last 10 minutes says so on top
+  ("Worker 2 got B541, a board fix, at 21:40; your step goes after it"), not refused. `roles/main.md`: it never queues
+  or requeues an incident fix, and reads a worker's queue before handing it work; `roles/partner.md`: the partner names
+  the fix and asks the main chat nothing.
+- **Around it**: the rule `queued-behind` moves a fix the board queued behind a busy worker to a worker that came free
+  itself (Fixed, a server requeue), where it names other steps to the main chat, but never while a work line about it
+  went to its owner in the last 10 minutes (`NOT_TAKEN_MS`: it may be taking it); `focus-ready` leaves the fixes the
+  board queues now, or that their standard holds, to it (the view's `autoQueued`). The Supervisor section's card says "refined · the board queues it"
+  and "queued by the board for Worker 2". The review: the reconciler names a server move only when that move's own
+  guard holds (`mayMove` holds when any server move to that state does, which named a fix under B303's move, without a
+  worker), and `advance` never queues a step without a chat.
+- Tests: `test/work/autoQueueFixes.test.mjs`.
 
 ## Clear after each step (2026-10-23)
 

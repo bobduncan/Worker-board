@@ -698,13 +698,55 @@ function checkRowsOf(run) {
   return [...rows, ...fine]
 }
 
+/** B573: a day: what the section counts as found today. */
+const SUPERVISOR_DAY = 24 * 60 * 60_000
+/** B573: the states of a fix step the section counts as in work (cards.mjs `phase`). */
+const IN_WORK = ['queued', 'taken', 'in progress', 'waiting on you', 'review']
+
+/**
+ * B573: whether an incident is new to the person: found (opened, or came back) in the last day and since `seenAt`, when
+ * the person last opened the section (null: never), and not fixed since.
+ */
+function isNewIncident(one, seenAt, now) {
+  return Number.isFinite(one?.foundAt) && one.state !== 'fixed' && one.foundAt > Math.max(Number.isFinite(seenAt) ? seenAt : -Infinity, now - SUPERVISOR_DAY)
+}
+
+/**
+ * B573, the person (2026-10-24): "understand how many things it found and is working on". The section's counts, from
+ * the view's incidents and their cards: `found` opened or came back in the last day; `inWork` its fix step queued,
+ * taken, in progress, waiting on the person or in review; `withAdvisor` no fix under way yet (none, or one still being
+ * refined); `fixed`; `fresh` new to the person (`isNewIncident`).
+ */
+function supervisorCounts(view, seenAt, now) {
+  const phases = new Map()
+  for (const card of view?.cards ?? []) for (const one of card.incidents ?? []) phases.set(one.id, card.phase ?? null)
+  const counts = { found: 0, inWork: 0, withAdvisor: 0, fixed: 0, fresh: 0 }
+  for (const one of view?.incidents ?? []) {
+    const phase = phases.get(one.id) ?? null
+    if (Number.isFinite(one.foundAt) && now - one.foundAt < SUPERVISOR_DAY) counts.found += 1
+    if (isNewIncident(one, seenAt, now)) counts.fresh += 1
+    if (one.state === 'fixed' || phase === 'done') counts.fixed += 1
+    else if (IN_WORK.includes(phase)) counts.inWork += 1
+    else counts.withAdvisor += 1
+  }
+  return counts
+}
+
+/** B573: the section's head line: folded, what it found today, has in work and is new; open, also with the Advisor and fixed. */
+function supervisorHead(counts, isOpen) {
+  const parts = ['Supervisor', `${counts.found} found today`, `${counts.inWork} in work`, `${counts.fresh} new`]
+  if (isOpen) parts.push(`${counts.withAdvisor} with the Advisor`, `${counts.fixed} fixed`)
+  return parts.join(' · ')
+}
+
 /**
  * The section as drawn, from the state's `supervisor` (the supervisor's `view`), or null on a board without one (a copy
- * beside the person's board): its title (when it checked itself), a note, the incident cards (one per fix step), the last
- * check (the newest one asked, or one that found something, for an hour), the rules (those that tripped now or today
- * first, how often, a failed one with why; the rest counted as fine) and the last sweep, or "No sweep yet".
+ * beside the person's board): its head (B573: the counts, see `supervisorHead`), a note (when it checked itself, and its
+ * schedule), the incident cards (one per fix step; B573: a card with an incident new since `seenAt` carries New and comes
+ * first), the last check (the newest one asked, or one that found something, for an hour), the rules (those that tripped
+ * now or today first, how often, a failed one with why; the rest counted as fine) and the last sweep, or "No sweep yet".
  */
-function supervisorOf(view) {
+function supervisorOf(view, { seenAt = null, isOpen = true, now = Date.now() } = {}) {
   if (view === null || view === undefined) return null
   const run = view.run ?? null
   const rules = (view.rules ?? []).map(rule => ({
@@ -718,16 +760,19 @@ function supervisorOf(view) {
   const tripped = rules.filter(rule => rule.tone === 'tripped').length
   const failed = rules.filter(rule => rule.tone === 'failed').length
   const every = Number.isFinite(view.sweepEvery) ? view.sweepEvery : 0
-  // One card per fix step; the fixed ones beyond the newest few fold away.
+  // One card per fix step, those with something new first; the fixed ones beyond the newest few fold away.
   const byId = new Map((view.incidents ?? []).map(one => [one.id, one]))
-  const cards = (view.cards ?? []).map(card => incidentCardOf(card, byId))
+  const fresh = new Set((view.incidents ?? []).filter(one => isNewIncident(one, seenAt, now)).map(one => one.id))
+  const drawn = (view.cards ?? []).map(card => ({ ...incidentCardOf(card, byId), isNew: (card.incidents ?? []).some(one => fresh.has(one.id)) }))
+  const cards = [...drawn.filter(card => card.isNew), ...drawn.filter(card => !card.isNew)]
   let fixed = 0
-  const older = cards.filter(card => card.tone === 'done' && (fixed += 1) > FIXED_CARDS_SHOWN)
+  const older = cards.filter(card => card.tone === 'done' && !card.isNew && (fixed += 1) > FIXED_CARDS_SHOWN)
+  const checked = Number.isFinite(view.checkedAt) ? `Checked itself at ${clock(view.checkedAt)}.` : 'Not checked yet.'
   return {
-    title: Number.isFinite(view.checkedAt) ? `Supervisor · checked itself at ${clock(view.checkedAt)}` : 'Supervisor · not checked yet',
+    head: supervisorHead(supervisorCounts(view, seenAt, now), isOpen),
     note: every > 0
-      ? `It checks every 3 min and sweeps every ${every} min while work runs; Check now does both.`
-      : 'It checks every 3 min; Check now checks and sweeps at once.',
+      ? `${checked} It checks every 3 min and sweeps every ${every} min while work runs; Check now does both.`
+      : `${checked} It checks every 3 min; Check now checks and sweeps at once.`,
     cards: cards.filter(card => !older.includes(card)),
     older,
     check: run === null ? null : { head: `Last check at ${clock(run.at)}${run.asked ? `, asked${run.subject ? ` about ${run.subject}` : ''}` : ''}`, rows: checkRowsOf(run) },
@@ -764,33 +809,65 @@ function sweepLineOf(view) {
   return parts.join(' ')
 }
 
+/** B573: the section stands on every board with a supervisor, folded to its head line unless the person opened it. */
+function isSupervisorShown(view) {
+  return view !== null && view !== undefined
+}
+
 /**
- * When the section has something new: the newest of a repair finding the run before did not have (the check's `newAt`,
- * not its time: a repair row that stands is checked again every 3 minutes) and of the state changes of its incidents
- * not fixed; null for nothing. A count that grows is nothing new, and neither is a check that finds the same again.
+ * B573: the person's one line under Needs your attention for the supervisor's notes there (one per new or returning
+ * incident, Via supervisor) not read yet: "Supervisor: 3 new findings", with the notes' ids, read once the section is
+ * opened; null for none.
  */
-function supervisorNews(view) {
-  const times = [view?.run?.newAt, ...(view?.incidents ?? []).filter(one => one.state !== 'fixed').map(one => one.since)].filter(Number.isFinite)
-  return times.length === 0 ? null : Math.max(...times)
+function supervisorLine(information) {
+  const ids = (information ?? []).filter(one => one.via === 'supervisor' && one.isRead !== true).map(one => one.id)
+  if (ids.length === 0) return null
+  return { ids, text: `Supervisor: ${ids.length === 1 ? 'one new finding' : `${ids.length} new findings`}` }
 }
 
-/** Whether the section shows: opened by the person (a line, Check now), or something new since the person closed it. */
-function isSupervisorShown(view, ui) {
-  if (view === null || view === undefined) return false
-  if (ui.isOpen === true) return true
-  const news = supervisorNews(view)
-  return news !== null && (ui.closedAt === null || news > ui.closedAt)
+/** B573: the keys the page keeps the section under (localStorage): opened or folded, and when the person last opened it. */
+const SUPERVISOR_KEEP = { open: 'supervisor-open', seenAt: 'supervisor-seen-at', shownSince: 'supervisor-shown-since' }
+
+/**
+ * B573: the section as the page kept it across a reload (`storage`, localStorage): folded unless kept open; `seenAt`
+ * when the person last opened it, `shownSince` the opening before that (the New tags of the open section stand against
+ * it, so opening does not wipe them at once). Nothing kept, or storage that throws: folded, never opened.
+ */
+function supervisorKept(storage) {
+  const time = key => {
+    const value = Number(storage.getItem(key))
+    return Number.isFinite(value) && value > 0 ? value : null
+  }
+  try {
+    return { isOpen: storage.getItem(SUPERVISOR_KEEP.open) === 'yes', seenAt: time(SUPERVISOR_KEEP.seenAt), shownSince: time(SUPERVISOR_KEEP.shownSince) }
+  } catch {
+    return { isOpen: false, seenAt: null, shownSince: null }
+  }
 }
 
-/** The person's lines under Needs your attention: each new or returning incident's note (Via supervisor) not read yet. */
-function supervisorLines(information) {
-  return (information ?? []).filter(one => one.via === 'supervisor' && one.isRead !== true)
-    .map(one => ({ id: one.id, incident: one.about ?? null, text: one.text }))
+/** B573: opens or folds the section (`ui`, `supervisorKept`'s shape) and keeps it in `storage`; opening marks all seen. */
+function foldSupervisor(ui, isOpen, storage, now) {
+  if (isOpen && !ui.isOpen) {
+    ui.shownSince = ui.seenAt
+    ui.seenAt = now
+  }
+  ui.isOpen = isOpen
+  try {
+    storage.setItem(SUPERVISOR_KEEP.open, isOpen ? 'yes' : 'no')
+    if (ui.seenAt !== null) storage.setItem(SUPERVISOR_KEEP.seenAt, String(ui.seenAt))
+    if (ui.shownSince !== null) storage.setItem(SUPERVISOR_KEEP.shownSince, String(ui.shownSince))
+    else storage.removeItem(SUPERVISOR_KEEP.shownSince)
+  } catch { /* a browser without storage: kept for this visit only */ }
+  return ui
 }
 // supervisor:end
 
-/** The supervisor's section: opened by the person, or closed by them (then shown again once something is new). */
-const supervisorUi = { isOpen: false, closedAt: null, showsRules: false, showsOlder: false, openCards: new Set() }
+/** B573: the page's own storage for the section's fold, or null where the browser blocks it (then nothing is kept). */
+const supervisorStorage = (() => {
+  try { return localStorage } catch { return null }
+})()
+/** The supervisor's section: folded to its head line or opened by the person (B573: kept across reloads), and what shows in it. */
+const supervisorUi = { ...supervisorKept(supervisorStorage), showsRules: false, showsOlder: false, openCards: new Set() }
 
 /** "Check now" with its wrench, in the button's own colour: the board's own check at once (`sync` to the server). */
 function checkNowButton(about, state, title) {
@@ -810,9 +887,11 @@ function checkNowButton(about, state, title) {
  * the one quiet line, and, once the person clicked the card, each incident's evidence, times and count.
  */
 function drawIncidentCard(card, isOpen) {
-  const box = el('article', `inc-card is-${card.tone}${isOpen ? ' is-open' : ''}`)
+  const box = el('article', `inc-card is-${card.tone}${card.isNew ? ' is-new' : ''}${isOpen ? ' is-open' : ''}`)
   box.dataset.supervisorCard = card.key
   const top = el('div', 'inc-top')
+  // B573: found since the person last opened the section: a quiet tag, never the person's attention colours.
+  if (card.isNew) top.append(el('span', 'inc-new', 'New'))
   if (card.step !== null) {
     const link = el('a', 'inc-step', card.step)
     link.href = card.href
@@ -840,27 +919,30 @@ function drawIncidentCard(card, isOpen) {
   return box
 }
 
-/** The supervisor's section under the Workers panel's head (see `supervisorOf`); hidden while it has nothing new. */
+/** The supervisor's section under the Workers panel's head (see `supervisorOf`). B573: folded to one head line with its
+ * counts until the person opens it; open, the New tags stand against the opening before (`shownSince`). */
 function drawSupervisor(state) {
   const view = state.supervisor ?? null
-  const shown = isSupervisorShown(view, supervisorUi)
+  const shown = isSupervisorShown(view)
+  const isOpen = supervisorUi.isOpen
   const main = state.workers?.main ?? null
-  once('supervisor', [view, shown, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board')], () => {
+  once('supervisor', [view, shown, isOpen, supervisorUi.seenAt, supervisorUi.shownSince, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board')], () => {
     const box = $('supervisor')
     box.hidden = !shown
+    box.classList.toggle('is-folded', !isOpen)
     if (!shown) return fill(box, [])
-    const part = supervisorOf(view)
-    const title = el('h3', 'supervisor-title')
+    const part = supervisorOf(view, { seenAt: isOpen ? supervisorUi.shownSince : supervisorUi.seenAt, isOpen, now: Date.now() })
+    const toggle = el('button', 'supervisor-fold')
+    toggle.type = 'button'
+    toggle.dataset.supervisorFold = ''
+    toggle.setAttribute('aria-expanded', String(isOpen))
+    toggle.title = isOpen ? 'Fold the section to this line' : 'Open the incidents, the rules and the last sweep; what is new is then seen'
     const wrench = icon('wrench')
     wrench.setAttribute('aria-hidden', 'true')
-    title.append(wrench, el('span', '', part.title))
-    const close = el('button', 'supervisor-close', '×')
-    close.type = 'button'
-    close.dataset.supervisorClose = ''
-    close.title = 'Close the section; it opens again when something is new'
-    close.setAttribute('aria-label', 'Close the supervisor\'s section')
+    toggle.append(el('span', 'supervisor-caret', isOpen ? '▾' : '▸'), wrench, el('span', 'supervisor-title', part.head))
     const head = el('header', 'supervisor-head')
-    head.append(title, el('span', 'grow'), ...(main === null ? [] : [boardSyncButton(state)]), close)
+    head.append(toggle, el('span', 'grow'), ...(main === null ? [] : [boardSyncButton(state)]))
+    if (!isOpen) return fill(box, [head])
     const parts = [head, el('p', 'supervisor-note', part.note)]
     const cards = supervisorUi.showsOlder ? [...part.cards, ...part.older] : part.cards
     if (cards.length > 0) {
@@ -901,31 +983,42 @@ function drawSupervisor(state) {
   })
 }
 
-/** The supervisor's lines under Needs your attention: one per new or returning incident; a click opens the section. */
-function drawSupervisorLines(lines) {
-  if (lines.length === 0) return null
+/** B573: the supervisor's one line under Needs your attention (see `supervisorLine`); a click opens the section. */
+function drawSupervisorLine(line) {
+  if (line === null) return null
   const part = el('div', 'supervisor-lines')
-  for (const line of lines) {
-    const button = el('button', 'supervisor-line')
-    button.type = 'button'
-    button.dataset.supervisorLine = line.id
-    button.title = `Opens the supervisor's section${line.incident === null ? '' : ` at ${line.incident}`}; the line is then read`
-    const wrench = icon('wrench')
-    wrench.setAttribute('aria-hidden', 'true')
-    button.append(wrench, el('span', '', line.text))
-    part.append(button)
-  }
+  const button = el('button', 'supervisor-line')
+  button.type = 'button'
+  button.dataset.supervisorLine = line.ids.join(' ')
+  button.title = 'Opens the supervisor\'s section; its findings are then read'
+  const wrench = icon('wrench')
+  wrench.setAttribute('aria-hidden', 'true')
+  button.append(wrench, el('span', '', line.text))
+  part.append(button)
   return part
+}
+
+/** B573: opens or folds the supervisor's section and keeps it so; opening marks what is new seen and reads its notes. */
+function setSupervisorOpen(isOpen) {
+  foldSupervisor(supervisorUi, isOpen, supervisorStorage, Date.now())
+  if (isOpen) readSupervisorNotes()
+  if (board !== null) {
+    drawLanes(board)
+    drawSupervisor(board)
+  }
+}
+
+/** B573: the supervisor's notes under Needs your attention count as read once the section is opened. */
+function readSupervisorNotes() {
+  for (const id of supervisorLine(board?.information)?.ids ?? []) {
+    if (!sending.has(`read:${id}`)) sendWork({ action: 'read', id }, `read:${id}`)
+  }
 }
 
 /** Opens the supervisor's section (in Details: Simple leaves the Workers panel out) and brings it into sight. */
 function openSupervisor() {
   if ($('view-overview').dataset.mode === 'simple') document.querySelector('#overview-mode [data-overview-mode="details"]')?.click()
-  supervisorUi.isOpen = true
-  if (board !== null) {
-    drawLanes(board)
-    drawSupervisor(board)
-  }
+  setSupervisorOpen(true)
   $('supervisor').scrollIntoView({ block: 'nearest' })
 }
 
@@ -2045,6 +2138,8 @@ function drawMore(lane, state) {
   if (free !== null) list.append(el('li', '', free))
   const owedClear = clearOwedLine(lane.clearOwed ?? null, clock)
   if (owedClear !== null) list.append(el('li', '', owedClear.title))
+  const stopped = stoppedLine(lane.stopped ?? null, clock)
+  if (stopped !== null) list.append(el('li', '', stopped.title))
   const compacted = compactionLine(lane.compaction ?? null, clock)
   if (compacted !== null && compacted.log !== undefined) {
     const item = el('li', 'muted', `${compacted.title} `)
@@ -2154,6 +2249,13 @@ function drawLane(lane, state) {
   if (owed !== null) {
     const note = el('small', 'compaction is-warning', owed.text)
     note.title = owed.title
+    names.append(note)
+  }
+  // B577: a chat whose session was stopped takes no word until it gets input: its row says since when.
+  const stopped = stoppedLine(lane.stopped ?? null, clock)
+  if (stopped !== null) {
+    const note = el('small', 'compaction is-warning', stopped.text)
+    note.title = stopped.title
     names.append(note)
   }
   const compacted = compactionLine(lane.compaction ?? null, clock)
@@ -2521,7 +2623,7 @@ function drawWorkers(state) {
     if (check !== null) lines.append(el('p', `workers-line sync-line is-${check.tone}`, check.text))
     if (problems.has('sync:board')) lines.append(el('p', 'workers-line sync-line is-problem', problems.get('sync:board')))
     // The supervisor: while its section shows, "Check now" stands in it, not twice.
-    fill($('workers-add'), [lines, isSupervisorShown(state.supervisor ?? null, supervisorUi) ? null : boardSyncButton(state), button])
+    fill($('workers-add'), [lines, isSupervisorShown(state.supervisor ?? null) ? null : boardSyncButton(state), button])
     return null
   }
   box.append(lines, button)
@@ -2953,8 +3055,8 @@ $('workers-panel').addEventListener('click', event => {
   const main = board.workers.main
   const chat = button.dataset.sync
   button.disabled = true
-  supervisorUi.isOpen = true
   send({ to: main, command: 'sync', chat }, `sync:${chat}`)
+  setSupervisorOpen(true)
 })
 
 /**
@@ -4169,20 +4271,10 @@ const CLICK_ACTS = {
     try { localStorage.setItem('decided-open', decidedUi.isOpen ? 'yes' : 'no') } catch { /* kept for this visit only */ }
     redrawNeeds()
   },
-  // The supervisor: a line about an incident opens its section, and is read.
-  'supervisor-line': button => {
-    openSupervisor()
-    sendWork({ action: 'read', id: button.dataset.supervisorLine }, `read:${button.dataset.supervisorLine}`)
-  },
-  // The supervisor: its section closes until something is new; its other rules show or fold.
-  'supervisor-close': () => {
-    supervisorUi.isOpen = false
-    supervisorUi.closedAt = Date.now()
-    if (board !== null) {
-      drawLanes(board)
-      drawSupervisor(board)
-    }
-  },
+  // The supervisor: its line under Needs your attention opens its section, and its notes are read.
+  'supervisor-line': () => openSupervisor(),
+  // B573: the section's head line opens or folds it; opening marks what is new seen. Its other rules show or fold.
+  'supervisor-fold': () => setSupervisorOpen(!supervisorUi.isOpen),
   'supervisor-rules': () => {
     supervisorUi.showsRules = !supervisorUi.showsRules
     if (board !== null) drawSupervisor(board)
@@ -4392,8 +4484,8 @@ function drawNeeds(state) {
   const answered = forYou.filter(need => isClosed(need) && !isRefineQuestion(need)).length
   // Calm panel: an instruction a chat missed is the person's: one line here, while the log holds the rest.
   const missed = missedLines(state.instructions, clock)
-  // The supervisor: one quiet line per new or returning incident, information only (never counted).
-  const supervised = supervisorLines(state.information)
+  // The supervisor: one quiet line for its new or returning incidents (B573: "Supervisor: 3 new findings"), never counted.
+  const supervised = supervisorLine(state.information)
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
@@ -4410,7 +4502,7 @@ function drawNeeds(state) {
   const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLines(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
+  fill(box, [none, drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
   box.scrollTop = top
   refocus(box, focused)
   // B307: Information in its own box under the asks, as high as the person dragged it.
@@ -5368,6 +5460,16 @@ function clearOwedLine(owed, clockOf) {
   const last = Number.isFinite(owed.clearedAt) ? `its last clear at ${clockOf(owed.clearedAt)}` : 'no clear known'
   const then = owed.canClear === true ? 'its next step waits until its Workers mod clears it, as soon as the chat is idle' : 'its Workers mod is too old to clear it now: restart its chat (Pause all, restart the app, Resume all)'
   return { text: `not cleared after ${owed.step}`, title: `Reported ${owed.step} at ${clockOf(owed.reportedAt)}, ${last}: ${then}.${owed.why === null || owed.why === undefined ? '' : ` Why not cleared: ${owed.why}.`}` }
+}
+
+/**
+ * B577: the line of a chat whose session was stopped (state.mjs `stopped`): the app drops every word to it until it gets
+ * input, so its words wait and the main chat is asked once to wake it. Null when it is not stopped.
+ */
+function stoppedLine(stop, clockOf) {
+  if (stop === null || stop === undefined || !Number.isFinite(stop.since)) return null
+  const count = `${stop.words} ${stop.words === 1 ? 'word waits' : 'words wait'}`
+  return { text: `stopped since ${clockOf(stop.since)}`, title: `Stopped since ${clockOf(stop.since)}: the app takes no word for it until it gets input. ${count} for it; the main chat is asked to wake it.` }
 }
 
 /**
@@ -9963,7 +10065,11 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   const decide = slide => slides.push({ kind: 'decide', text: '', ...slide, isSent: sent.includes(slide.id) })
   for (const answer of plan.answers) {
     // An open answer the partner has not asked yet: get its options from the partner, or answer it in your words.
-    if (answer.state === 'open' && answer.ask === null) slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isAsked: isBusy(workOn('plan-ask', answer.id)) || (ui.asked ?? []).includes(answer.id) })
+    // 2026-10-24: right after your answer on this card, its next question is on its way (the user: "I would like this prepared in advance").
+    if (answer.state === 'open' && answer.ask === null) {
+      const isFromAnswer = isBusy(workOn('plan-answer', answer.id))
+      slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isFromAnswer, isAsked: isFromAnswer || isBusy(workOn('plan-ask', answer.id)) || (ui.asked ?? []).includes(answer.id) })
+    }
     for (const question of questions.filter(one => one.about === answer.id)) slides.push(questionSlide(question, ui, answer.title))
     // An answer your partner assumed: yours, or changed.
     if (answer.state === 'assumed') {
@@ -11273,7 +11379,7 @@ function visionSlide(view, can, off) {
   } else if (slide.kind === 'open') {
     // No options yet: the partner prepares them (with pictures where it is about looks), or you answer in your words.
     const ask = el('div', 'vision-open')
-    const head = el('b', '', slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.')
+    const head = el('b', '', slide.isFromAnswer ? 'Your partner is preparing the next question.' : slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.')
     if (slide.isAsked) head.prepend(visionSpinner())
     ask.append(head,
       el('p', 'muted', slide.isAsked ? 'They come here as cards, with pictures where it is about how it looks. You can answer in your own words meanwhile.' : 'Get two or three options to pick from, or answer it in your own words.'))
