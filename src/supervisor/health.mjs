@@ -140,10 +140,16 @@ function stepLines(view, now) {
     const blocked = waitsOf(item, view.items)
     const fix = valueOf(item, 'Priority') === 'fix' ? ', board fix' : ''
     const isChats = owner !== null && chats.has(plain(owner, view.prefix))
+    // B560 (X17: B558 queued behind its busy builder read as a step that should move): a result check's fix waits for
+    // the worker that built the step it fixes, as the flow queues it and the queued-behind rule keeps it.
+    const fixOf = valueOf(item, 'Fix of') ?? ''
+    const builder = /^B\d+$/.test(fixOf) ? valueOf(view.items.get(fixOf) ?? { head: new Map() }, 'Owner') : null
+    const stays = state === 'queued' && owner !== null && builder !== null && plain(builder, view.prefix) === plain(owner, view.prefix)
+      ? ` (stays with ${owner}: fix of ${fixOf})` : ''
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
     const odd = (Number.isFinite(age) && age > (LONG_MS[state] ?? Infinity)) || (owner !== null && !isChats)
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}, ${owner === null ? 'no owner' : owner}${fix}${blocked.length > 0 ? ` (waits for ${blocked.join('; ')})` : ''}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${blocked.length > 0 ? ` (waits for ${blocked.join('; ')})` : ''}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined`, { tier: 1 }))
   return lines

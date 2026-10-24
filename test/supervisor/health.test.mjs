@@ -89,6 +89,25 @@ test('B544 (X9): a chat\'s effort reads as its level, never "[object Object]"; a
   assert.match(line('Lead'), /runs sonnet · medium;/)
 })
 
+test('B560 (X17): a result check\'s fix queued behind its busy builder says it stays with that builder; a plain queued step keeps its line', () => {
+  const view = buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Digger', { state: 'working', task: { stepId: 'B12', text: 'x' } }), lane('Weeder')], chatPrefix: '' },
+    items: items(
+      step('B12', 'in progress', { Owner: 'Digger' }),
+      step('B8', 'review', { Owner: 'Digger' }),
+      step('B30', 'queued', { Owner: 'Digger', Priority: 'fix', 'Fix of': 'B8', Since: stamp(ago(25)) }),
+      step('B31', 'queued', { Owner: 'Digger', Since: stamp(ago(25)) }),
+      // A fix queued for another chat than the step's builder stays a plain queued step.
+      step('B32', 'queued', { Owner: 'Weeder', 'Fix of': 'B8', Since: stamp(ago(25)) }),
+    ),
+    now: NOW,
+  })
+  const text = healthSummary(view, NOW)
+  assert.match(text, /^- B30 queued for 25 min \(stays with Digger: fix of B8\), Digger, board fix: Step B30 of the garden$/m)
+  assert.match(text, /^- B31 queued for 25 min, Digger: Step B31 of the garden$/m)
+  assert.match(text, /^- B32 queued for 25 min, Weeder: Step B32 of the garden$/m)
+})
+
 test('the summary holds every section: the chats with state, since, model and effort beside the step\'s, last report and clear', () => {
   const text = healthSummary(fixture(), NOW)
   assert.ok(text.length <= HEALTH_CHARS)
