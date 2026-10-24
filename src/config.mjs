@@ -39,6 +39,10 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   repairsPerDay: 3,
   /** B543: a step in review with no result check filed for longer than this. */
   reviewMinutes: 60,
+  /** B572: a step in progress longer than this with no checkpoint within it. */
+  checkpointMinutes: 120,
+  /** B572: a step in progress whose last checkpoint's next action is to report, written longer ago than this. */
+  reportMinutes: 30,
 })
 
 export const DEFAULTS = {

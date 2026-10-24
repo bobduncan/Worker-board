@@ -3091,7 +3091,11 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
   summary never says "[object Object]"), `review-stuck` (B543, the fix of X8: a step in review with no result check
   filed for over 60 min, its first or again after its fix was done or its ask point answered, or whose fix was dropped
-  with none open; one that waits for an open fix, down a chain of fixes too, or for the person's answer is no case).
+  with none open; one that waits for an open fix, down a chain of fixes too, or for the person's answer is no case),
+  `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
+  last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
+  the person pauses or its worker is suspended for the limit; the health summary shows each step in progress with its
+  last checkpoint's age, commit and next action, "!" when stale).
   What a step in review waits for (`resultCheck.mjs reviewWaitOf`: its first check, its check again, the person's
   answer, its fix B<n>, or its fix dropped) stands beside its title on the Backlog tab and in the work tool's `next`
   and `list`; the repair rule `fix-dropped` gives the main chat one word for a dropped fix, 30 min after the drop:

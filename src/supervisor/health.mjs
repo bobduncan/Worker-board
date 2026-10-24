@@ -8,7 +8,9 @@
 import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { isHolding } from '../work/pause.mjs'
+import { checkpointOf } from '../work/pause.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
+import { checkpointLate } from './rules/watch.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -229,10 +231,15 @@ function stepLines(view, now) {
       : wait !== null ? ` (waits${wait.stalled.length === 0 ? ' as planned' : ''} for ${wait.open.map(blockerWords).join(' and ')})`
       : blocked.length > 0 ? ` (waits for ${blocked.join('; ')})`
         : ended.length > 0 ? ` (still blocked by ${ended.map(blocker => `${blocker}, ${stateIn(view.items, blocker)}`).join(' and ')})` : ''
+    // B572 (X24): a step in progress shows its last checkpoint, its age, commit and next action; a stale one is odd
+    const checkpoint = state === 'in progress' ? checkpointOf(item) : null
+    const checkpointWords = state !== 'in progress' ? ''
+      : checkpoint === null || !Number.isFinite(checkpoint.at) ? ' [no checkpoint]'
+        : ` [last checkpoint ${lasting(now - checkpoint.at)} ago (${checkpoint.commit ?? 'none'}): ${oneLine(checkpoint.next, 60)}]`
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
-    const odd = isLate(item, view, now) || (owner !== null && !isChats)
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
+    const odd = isLate(item, view, now) || (owner !== null && !isChats) || checkpointLate(item, { ...view, now }) !== null
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined`, { tier: 1 }))
   return lines
