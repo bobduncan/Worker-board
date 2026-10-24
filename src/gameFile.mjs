@@ -2,7 +2,7 @@
 // inside the game's folder only, and a small one. The person, 2026-10-14: "advisor game plan has links that dont work
 // i want to be able to click them in the UI".
 
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { open, readFile, realpath, stat } from 'node:fs/promises'
 import { extname, isAbsolute, join, relative } from 'node:path'
 
 const TEXT = 'text/plain; charset=utf-8'
@@ -14,6 +14,28 @@ const TYPES = {
 const MOST_BYTES = 1_000_000
 /** B426: a picture may be as large as the picture popup allows (src/pictures.mjs): a page's picture links open it here. */
 const MOST_PICTURE_BYTES = 12 * 1024 * 1024
+
+/**
+ * Clear after each step: a chat's log (`.claude/chat-logs/<chat>/<time> <step>.txt`) may be far larger: its last
+ * part is shown, under a line that says where the whole of it is.
+ */
+const LOG_FOLDER = '.claude/chat-logs/'
+const MOST_LOG_BYTES = 2 * 1024 * 1024
+
+/** The last `bytes` of a file as text, from the start of a line, under a line that names the whole file. */
+async function logTail(file, size, bytes) {
+  const handle = await open(file, 'r')
+  try {
+    const length = Math.min(bytes, size)
+    const buffer = Buffer.alloc(length)
+    await handle.read(buffer, 0, length, size - length)
+    const shown = length === size ? buffer : buffer.subarray(buffer.indexOf(10) + 1)
+    const note = `(The log is ${Math.round(size / (1024 * 1024))} MB: here its last ${Math.round(shown.length / 1024)} KB. The whole log: ${file})\n\n`
+    return Buffer.concat([Buffer.from(note), shown])
+  } finally {
+    await handle.close()
+  }
+}
 
 /** A path inside a folder, written with /: no root, no drive, no "." or "..", no backslash, no empty part. */
 export const insidePath = path => typeof path === 'string' && path.length <= 300
@@ -47,7 +69,9 @@ export async function readGameFile(root, path) {
     const inside = relative(base, file)
     if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) return null
     const info = await stat(file)
-    if (!info.isFile() || info.size > (type.startsWith('image/') ? MOST_PICTURE_BYTES : MOST_BYTES)) return null
+    if (!info.isFile()) return null
+    if (path.startsWith(LOG_FOLDER) && path.endsWith('.txt') && info.size > MOST_BYTES) return { type, body: await logTail(file, info.size, MOST_LOG_BYTES) }
+    if (info.size > (type.startsWith('image/') ? MOST_PICTURE_BYTES : MOST_BYTES)) return null
     return { type, body: await readFile(file) }
   } catch {
     return null

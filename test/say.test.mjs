@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { messageText } from '../src/bridge.mjs'
-import { checkSay, wakeFor, workWords } from '../src/say.mjs'
+import { checkSay, wakeFor, wakesDue, workWords } from '../src/say.mjs'
 import { isLate } from '../src/store.mjs'
 
 const state = {
@@ -148,6 +148,31 @@ test('what is sent to a chat that is not running makes the board ask the main ch
   assert.equal(wakeFor({ id: 'c', at: 1000, to: 'Main', command: 'resume', text: 'resume' }, down, [], 1000, 50), null)
   const mainDown = { ...down, chats: down.chats.map(chat => (chat.isMain ? { ...chat, isRunning: false } : chat)) }
   assert.equal(wakeFor(answer, mainDown, [], 1000, 50), null)
+})
+
+test('words sent while the main chat did not run either are followed by the start word once it runs, once per chat', () => {
+  // 2026-10-21: three words to the Advisor waited 09:46 to 10:57 unseen, since nothing asked the main chat later.
+  const words = [
+    { id: 'm1', at: 1000, to: 'Units', ask: 'units-path', text: 'Take A.', state: 'waiting' },
+    { id: 'm2', at: 1100, to: 'Units', ask: null, text: 'And B.', state: 'waiting' },
+    { id: 'm3', at: 1200, to: 'Advisor', ask: null, command: 'round', round: 'morning', text: 'morning round', state: 'waiting' },
+  ]
+  const starts = wakesDue(down, words, 5000, 2000)
+  assert.deepEqual(starts.map(start => [start.to, start.command, start.about]), [['Main', 'start', 'Units'], ['Main', 'start', 'Advisor']])
+  // The main chat still does not run: nothing yet.
+  const mainDown = { ...down, chats: down.chats.map(chat => (chat.isMain ? { ...chat, isRunning: false } : chat)) }
+  assert.deepEqual(wakesDue(mainDown, words, 5000, 2000), [])
+  // Asked since the oldest word that waits: not again, also when that ask failed (its button stays on the page).
+  for (const state of ['waiting', 'delivered', 'failed']) {
+    const asked = { id: 's1', at: 1050, to: 'Main', command: 'start', about: 'Units', text: 'start "Units"', state }
+    assert.deepEqual(wakesDue(down, [...words, asked], 5000 + 60 * 60_000, 2000).map(start => start.about), ['Advisor'])
+  }
+  // An ask from before the oldest word does not count: the word came after it (past wakeFor's two minutes).
+  const before = { id: 's0', at: 900, to: 'Main', command: 'start', about: 'Units', text: 'start "Units"', state: 'delivered' }
+  assert.deepEqual(wakesDue(down, [before, ...words], 5000 + 3 * 60_000, 2000).map(start => start.about), ['Units', 'Advisor'])
+  // Only words that wait: not delivered, taken, copied, held or expired ones, and none for a chat that runs.
+  for (const state of ['delivered', 'taken', 'copied', 'held', 'expired']) assert.deepEqual(wakesDue(down, words.map(word => ({ ...word, state })), 5000, 2000), [])
+  assert.deepEqual(wakesDue(down, [{ ...words[0], to: 'Levels' }], 5000, 2000), [])
 })
 
 test('a name on the "start" line stands in quotes and holds none itself', () => {

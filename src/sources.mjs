@@ -10,7 +10,7 @@ import { allWords, forYou, queue } from './backlog.mjs'
 import { projectFile } from './config.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
-import { ownCard, ownCardKey } from './planLines.mjs'
+import { movedTo, ownCard, ownCardKey } from './planLines.mjs'
 import { readDeep, readTail } from './transcript.mjs'
 import { storeBacklog } from './work/read.mjs'
 
@@ -25,6 +25,17 @@ const MOST_FOLDERS = 40
 const USAGE_BYTES = 64 * 1024
 
 const readText = async file => (await readHead(file, TEXT_BYTES))?.text ?? null
+
+/** Clear after each step: the session a chat goes on under, following the cards that say it moved (a few at most). */
+async function followMoves(claude, id) {
+  let current = id
+  for (let hop = 0; hop < 8; hop += 1) {
+    const next = movedTo(await readText(join(claude, 'chats', `${current}.json`)))
+    if (next === null || next === current || !SAFE_ID.test(next)) break
+    current = next
+  }
+  return current
+}
 
 /** B259: a thread of a brainstorm is read up to this; the board keeps the newest this many. */
 const THREAD_BYTES = 64 * 1024
@@ -120,10 +131,20 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     productPlan === null ? null : readText(productPlan),
   ])
 
-  const chats = boardChats(
+  const found = boardChats(
     appChatTexts.map(parseAppChat).filter(chat => chat !== null),
     { project: config.project, ...parseList(listText ?? '') },
   ).filter(chat => !chat.isLeftover && SAFE_ID.test(chat.cliSessionId))
+  // Clear after each step: a chat the Workers mod cleared goes on under a new session id, which its old card names
+  // (`movedTo`). The app may still name the old one: the board follows the card, so the lane, its card and its
+  // transcript are the chat's as it is now (`moved`, pairs of the old id and the new, for the state).
+  const moved = []
+  for (const chat of found) {
+    const to = await followMoves(claude, chat.cliSessionId)
+    if (to !== chat.cliSessionId) moved.push([chat.cliSessionId, to])
+  }
+  const movedTo = new Map(moved)
+  const chats = found.map(chat => (movedTo.has(chat.cliSessionId) ? { ...chat, cliSessionId: movedTo.get(chat.cliSessionId) } : chat))
 
   const tails = {}
   const planLineTexts = {}
@@ -153,7 +174,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   }))
 
   return {
-    listText, appChatTexts, planLineTexts, planLineAt, tails, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
+    listText, appChatTexts, moved, planLineTexts, planLineAt, tails, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
     pictureLists: await pictureLists(config, work, now),
     // B296, B301: the work store as it was read: the one source of the work.
     work,

@@ -4,7 +4,7 @@
 // once, whatever `botherMe` says.
 
 /** The settings the panel may change, each with the values it takes. */
-export const PANEL_SETTINGS = { botherMe: ['now', 'daily'], approveRebuilds: [false, true] }
+export const PANEL_SETTINGS = { botherMe: ['now', 'daily'], approveRebuilds: [false, true], routingMode: ['off', 'observe'] }
 
 /** The panel's settings as the page shows them, and whether this board may change them (`canSet`, `whyNot`). */
 export function panelSettings(config, { canSet = true, whyNot = null } = {}) {
@@ -37,7 +37,10 @@ export function settingChanged(text, key, value) {
     return refused(409, 'The settings file config.json is broken: fix it first.')
   }
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(409, 'The settings file config.json holds no settings object: fix it first.')
-  raw[key] = value
+  if (key === 'routingMode') {
+    if (raw.routing !== undefined && (raw.routing === null || typeof raw.routing !== 'object' || Array.isArray(raw.routing))) return refused(409, 'Routing policy is unreadable; correct it before changing mode.')
+    raw.routing = { ...raw.routing, mode: value }
+  } else raw[key] = value
   const indent = /\n([ \t]+)"/.exec(body)?.[1] ?? '  '
   const eol = body.includes('\r\n') ? '\r\n' : '\n'
   return { ok: true, text: `${JSON.stringify(raw, null, indent).replace(/\n/g, eol)}${eol}` }

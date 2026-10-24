@@ -31,6 +31,12 @@ Get-Content -Raw "$HOME\worker-board\tools\install.ps1" | iex
 
 ## What the board is
 
+The Spending tab shows reported project usage by model, effort, chat, phase and task, with a daily chart and CSV
+export. Its dollar ranges estimate equivalent API costs; subscription allowances are shown separately. Unknown
+usage and incomplete history are disclosed. The initial model-routing release supports Off and Observe only:
+automatic model changes remain disabled until the bridge proves the execution safeguards. See
+[`docs/model-routing.md`](docs/model-routing.md) for the policy, limitations and tuning workflow.
+
 The Overview shows a lane per chat (working, waiting for you, free; its task, step and time left; its queue), what
 waits for you with a form to answer it, and the day's timeline; your answer is typed into the chat it is for. Further
 tabs: Focus (the goal you work towards, its vibe and how, with a partner chat, the Advisor), Backlog (the whole work,
@@ -217,6 +223,12 @@ board; a copy beside your board starts at Off whatever it says.
 shows one. A refined step whose title or text names a kind carries its standard (`Standard: <kind> · <reference
 picture> · target <score>`, written by the partner), so every result is checked against something written before it
 was built. The board knows no kind of its own; it shows the pictures of each kind's reference folder too.
+`models` (none unless set): the app's model id of both model families a step may name, as the app's model picker
+lists them: `{ "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5" }` (the ids of your app; `examples\config.json`
+has these). Every step runs on the model its refine names (`Model: sonnet` unless it says opus) at its effort: the
+main chat sets the worker's chat to both before the step goes to it, and an opus step waits until the app says its
+worker runs on Opus. Without both ids, each starting with `claude-`, the board sets the effort alone and says so on
+top. `usualModel` and `usualEffort` (`"sonnet"` and `"medium"` unless set): what a worker runs at between steps.
 
 ## The work store
 
@@ -250,10 +262,23 @@ run is flagged on its lane after ten minutes with a button "Start <worker>" (the
 check and a card that names another step, and a file of the store the board cannot read stands on the top line.
 
 `<project>\.claude\chats\list.json`: `prefix` and `main` (the main chat's title is the two together), `boards` (the
-launch entries the mod keeps running) and `compactAbove` (a worker larger than this many tokens is compacted after
-it reports; 250000 unless set, 0 for never). An empty `boards` list switches the automatic start off. `helper` names
-the partner's helper (B424): a chat shown under the Advisor and never given a queue, whose refines and result checks
-the work tool takes as the partner's.
+launch entries the mod keeps running) and `compactAbove` (a chat larger than this many tokens is compacted: a worker
+after it reports, the main chat and the partners while they rest; 250000 unless set, 0 for never). An empty `boards`
+list switches the automatic start off. `helper` names the partner's helper (B424): a chat shown under the Advisor and
+never given a queue, whose refines and result checks the work tool takes as the partner's. `afterStep` says what
+becomes of a worker after its reported step: `"compact"` (unless set: above `compactAbove`, and not while more of the
+same work follows), `"clear"` or `"off"`. `compactAtRest` (`true` unless set) switches the main chat's and the
+partners' compaction at rest off with `false`, and leaves the workers' as it is.
+
+**Clear after each step** (`"afterStep": "clear"`, the Workers mod 0.14.0): after the turn in which a worker reported
+its step, the mod has the board keep the conversation, then runs /clear, also when more work follows, so every step
+starts with an empty history (re-reading long histories was most of the chats' usage). The board writes the log, at
+no token cost: `<project>\.claude\chat-logs\<chat>\<YYYY-MM-DD HHmm> <step>.txt`, each message with its time and
+speaker and every tool call and result in full, with an exact copy of the transcript beside it (`.jsonl`); a log not
+finished when the board stops is finished at its next start (`data\chat-logs.json`). The chat's card moves to its new
+session id and the board follows it, so its lane, steps, asks and instructions stay the same chat's; the lane says
+"cleared after B482 · log", and "log" opens the text in the board. A worker that may not be cleared then (the person
+pauses, a question not filed as an ask, something of it still running, no log) is compacted as before.
 
 The backlog's form, as the board writes its view and as `--make-store` reads it: an activity is a `## ` heading (`#focus` after it marks your main
 focus); a step is `- [ ] B<number> ...`, ticked `- [x]`; `@you` at its end is a step for you, starting with

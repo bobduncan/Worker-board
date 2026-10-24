@@ -148,5 +148,5 @@ test('the store is read once per work call; the reads are not kept by request', 
   assert.ok(bridge.includes('if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)'))
   assert.ok(bridge.includes('requests.answer(session, request, () => bridgeWorkOnce(asked, checked))'))
   // A repeat finds its kept answer before the chat is looked up: right after a restart the board may not show it yet.
-  assert.ok(bridge.indexOf('requests.known(session, request)') < bridge.indexOf('checkTake(body, state)'))
+  assert.ok(bridge.indexOf('requests.known(session, request)') < bridge.indexOf('checkFresh(body)'))
 })

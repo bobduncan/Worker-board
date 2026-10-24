@@ -6,16 +6,16 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
-import type { ChatFile, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
+import type { BoardRole, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
 import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parsePause, parseTaken, pauseContexts, shownName } from './board'
 import type { Board, BoardStart, PauseState, PauseWhere } from './board'
 import {
-  BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, compactKeep, compactWhy, chatText, chatsSummary, fileName,
-  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, sessionOf, status, uniqueByName,
-  withDone, withPlan, withSend, withState, withStep, workCard,
+  BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, cardGap, cardOld, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
+  cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, movedText, nameFromTitle, openFrom, orderChats, parseChat, parseList, recordedLine, roleFrom, sessionOf, status, uniqueByName,
+  unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
-import { blockAsksLine, forYouItems, leftOutLine } from './foryou'
+import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
 } from './folders'
@@ -67,8 +67,45 @@ let mine: Promise<unknown> = Promise.resolve()
 let isInTurn = false
 /** This session as the list names it, as last read or written; null while it is not in the list. */
 let myself: { name: string; role: ChatRole } | null = null
-/** The chat a /clear ended: the conversation that follows it is the same chat, under a new session id. */
-let carried: { name: string; role: ChatRole } | null = null
+/**
+ * Clear after each step: the clear the mod decided after a reported step, from that moment until the conversation
+ * after it has started: the session it clears (`from`), the card, the step, the log the board keeps (in the project,
+ * and its full path), and what the chat had seen then (its prompts and turns), so a prompt that comes in before the
+ * clear runs stops it.
+ */
+type Clearing = { from: string; chat: ChatFile; step: string | null; log: string | null; file: string | null; at: number; prompts: number; turn: number; ticket: number }
+/** The chat a /clear ended, with its card: the conversation that follows it is the same chat, under a new session id. */
+type Carried = { from: string; chat: ChatFile; clearing: Clearing | null }
+let carried: Carried | null = null
+let clearing: Clearing | null = null
+/** Clear after each step: the step this turn reported (its id), for the log's name and the card's line. */
+let reportedStep: string | null = null
+/** Clear after each step: the prompts that entered this session's main conversation, counted (no slash command). */
+let promptCount = 0
+/** Clear after each step: the turn the main chat or a partner was last looked at for a compaction at rest. */
+let restTurn = -1
+/** Clear after each step: the start's words for a conversation after a clear whose start no hook heard, for its first prompt. */
+let pendingStart: string[] = []
+/**
+ * Clear after each step: the /clear commands this process queued and its hook has not seen yet, oldest first, by
+ * their ticket. A /clear of this mod runs only when it is the one of the clear still on its way.
+ */
+const queuedClears: number[] = []
+let clearTickets = 0
+/** Clear after each step: a /compact this process queued is on its way: no other is queued meanwhile. */
+let compactQueued = false
+/** Clear after each step: the clear's decision waits for the board's late answer: nothing is typed in meanwhile. */
+let isDecidingClear = false
+/** Clear after each step: the role the board last named for this chat, in its answer to a turn's end. */
+let lastRole: BoardRole | null = null
+/** Clear after each step: the move of the card after a clear, on its way: the tick and a prompt never move it twice. */
+let movingAfterClear: Promise<void> | null = null
+/** Clear after each step: a turn the engine runs for a /clear or /compact of the mod's, should it run one: no turn of the chat's. */
+let isCommandTurn = false
+/** The plugin's own name, as the engine gives it on what the plugin started (`origin.name`). */
+const PLUGIN = 'folder-branches'
+/** Clear after each step: the words a turn of a slash command begins with (a /clear or /compact the engine runs as a turn). */
+const COMMAND_TURN = /^\s*(?:\/(?:clear|compact)\b|<command-(?:name|message)>\/?(?:clear|compact)\b)/
 /** When this process last looked at the boards, and when it last tried to start each. */
 let lastBoardsLook = -Infinity
 let isLookingAtBoards = false
@@ -508,17 +545,57 @@ async function workQuietly($: EngineInterface, fields: Record<string, unknown>):
  * longer than it may hold anything (`late`: the call itself, still running, which gives its fields once the board
  * answers). A call that was late is never filed a second time: the board may have recorded it.
  */
-async function workLate($: EngineInterface, fields: Record<string, unknown>): Promise<{ read: Record<string, unknown> | null; isRefused: boolean; late: Promise<Record<string, unknown> | null> | null }> {
+async function workLate($: EngineInterface, fields: Record<string, unknown>): Promise<{ read: Record<string, unknown> | null; isRefused: boolean; late: Promise<Record<string, unknown> | null> | null; request: string | null }> {
   try {
     if (myself === null) await withinTime($, changeMine($, () => null))
     // Review of B298: a board that hangs or starts anew holds the person's prompt a moment at most.
-    const running = workOnBoard($, fields, await newRequest($), null)
+    const request = await newRequest($)
+    const running = workOnBoard($, fields, request, null)
     const answer = await withinTime($, running)
-    if (answer === null) return { read: null, isRefused: false, late: running.then(late => fieldsOf(late), () => null) }
-    return { read: fieldsOf(answer), isRefused: !answer.ok && answer.isCut !== true, late: null }
+    if (answer === null) return { read: null, isRefused: false, late: running.then(late => fieldsOf(late), () => null), request }
+    return { read: fieldsOf(answer), isRefused: !answer.ok && answer.isCut !== true, late: null, request }
   } catch {
-    return { read: null, isRefused: false, late: null }
+    return { read: null, isRefused: false, late: null, request: null }
   }
+}
+
+/**
+ * Clear after each step: a turn's end the board did not answer in time (`late`, the call still on its way), to be asked
+ * again with the same request id (B412: the board answers a repeat with its kept answer and records nothing twice).
+ */
+type EndedRetry = { fields: Record<string, unknown>; request: string; late: Promise<Record<string, unknown> | null> | null }
+
+/**
+ * Clear after each step: how long the clear's decision waits for a slow answer to the report's turn's end (the board
+ * runs the report's check then), how long it waits for the first call, and how often it asks again in between.
+ */
+const LATE_ENDED_MS = 15_000
+const LATE_FIRST_MS = 4_000
+const LATE_AGAIN_MS = 3_000
+
+/** Clear after each step: the board's answer to a turn's end that came late: the first call's, else a repeat's; null for none in 15 s. */
+async function endedLate($: EngineInterface, retry: EndedRetry): Promise<Record<string, unknown> | null> {
+  const start = await $.clock.now()
+  const left = async (): Promise<number> => LATE_ENDED_MS - ((await $.clock.now()) - start)
+  let read = retry.late === null ? null : await Promise.race([retry.late, $.clock.sleep(LATE_FIRST_MS).then(() => null, () => null)])
+  while (read === null && (await left()) > 0) {
+    read = fieldsOf(await workOnBoard($, retry.fields, retry.request, Math.max(500, Math.min(2 * LATE_AGAIN_MS, await left()))))
+    if (read === null && (await left()) > 0) await $.clock.sleep(Math.min(LATE_AGAIN_MS, await left()))
+  }
+  return read
+}
+
+/** What a turn's end the board answered brings: the pause, the asks it filed of the block, the role; true when it put out a line for this chat. */
+async function tookEnded($: EngineInterface, ended: Record<string, unknown>): Promise<boolean> {
+  // Pause 2: the same answer carries the pause state: the next batch needs no call of its own.
+  pauseRead = { pause: parsePause(ended.pause), at: await $.clock.now() }
+  const filed = ended.asked
+  if (Array.isArray(filed)) blockAsks = filed.filter((id): id is string => typeof id === 'string')
+  const left = ended.left
+  blockLeft = Array.isArray(left) ? left.filter((one): one is string => typeof one === 'string') : []
+  lastRole = roleFrom(ended) ?? lastRole
+  const line = (ended.pull as { text?: unknown } | undefined)?.text
+  return typeof line === 'string' && line !== ''
 }
 
 /** B412: the fields of the board's answer to a mod's own call, or null; the open instructions it names are kept. */
@@ -651,7 +728,8 @@ async function reportTyped($: EngineInterface, board: Board, typed: string[], fa
  * the board's file no board runs, and none is asked.
  */
 async function takeFromBoard($: EngineInterface): Promise<void> {
-  if (isTaking || myself === null || chatsDir === null) return
+  // Clear after each step: nothing is typed in while a clear is on its way: it waits for the conversation after it.
+  if (isTaking || myself === null || chatsDir === null || clearing !== null || isDecidingClear) return
   isTaking = true
   try {
     // The project's folder is the one that holds `.claude/chats`.
@@ -743,11 +821,13 @@ async function tell($: EngineInterface, text: string): Promise<void> {
  * `compactWhy`). It says in one line what it did, and keeps the sizes in the chat's file for the board. A
  * compaction that is refused, or that cannot run, leaves the conversation as it is.
  */
-async function compactAfter($: EngineInterface, at: { moreFollows: boolean }): Promise<void> {
+async function compactAfter($: EngineInterface, at: { moreFollows: boolean }, role: BoardRole | null = null): Promise<void> {
+  // Clear after each step: a worker after its reported task; the main chat and the partners while they rest.
+  const isWorker = role === null || role === 'worker'
   // B227: every way out says why on the chat's card, so the board and the main chat can see it; the unexpected ones
   // also in one line on the screen.
   const note = async (why: string, isExpected = false): Promise<void> => {
-    if (!isExpected) await tell($, `Not compacted after this task: ${why}`)
+    if (!isExpected) await tell($, `Not compacted ${isWorker ? 'after this task' : 'while it rests'}: ${why}`)
     try {
       const now = await $.clock.now()
       await changeMine($, mine => ({ ...mine, compactNote: { at: now, why } }))
@@ -761,25 +841,27 @@ async function compactAfter($: EngineInterface, at: { moreFollows: boolean }): P
   const chat = await readChat($, dir, await $.session.id())
   if (list === null || chat === null) return note('the list of chats or this chat\'s card could not be read')
   const before = await sizeNow($).catch(() => null)
-  const why = compactWhy(chat, { ...at, tokens: before, above: list.compactAbove ?? 0 })
-  if (why !== null) return note(why, /small enough|main chat|switched off/.test(why))
+  const why = compactWhy(chat, { ...at, tokens: before, above: list.compactAbove ?? 0, role, afterStep: list.afterStep })
+  if (why !== null || before === null) return note(why ?? 'its size is not known', /small enough|main chat|switched off/.test(why ?? ''))
+  const keep = compactKeep(`${list.prefix}${chat.name}`, `${list.prefix}${list.main}`, role ?? chat.role)
+  const what = isWorker ? 'after the reported task' : 'while it rests'
   let done: Awaited<ReturnType<EngineInterface['session']['compact']>>
   try {
-    done = await $.session.compact({ instructions: compactKeep(`${list.prefix}${chat.name}`, `${list.prefix}${list.main}`) })
+    done = await $.session.compact({ instructions: keep })
   } catch (err) {
     // B227: in the desktop app's chats (SDK sessions) the engine compacts only inside a turn, as /compact: the mod
     // runs that command, queued for when this chat is idle, and does not wait for it (this turn would wait on it).
-    if (/headless|\/compact/i.test(reason(err))) return compactByCommand($, compactKeep(`${list.prefix}${chat.name}`, `${list.prefix}${list.main}`), before, note)
+    if (/headless|\/compact/i.test(reason(err))) return compactByCommand($, keep, before, note, what)
     return note(reason(err))
   }
   if (typeof done.skip === 'string') {
-    if (/headless|\/compact/i.test(done.skip)) return compactByCommand($, compactKeep(`${list.prefix}${chat.name}`, `${list.prefix}${list.main}`), before, note)
+    if (/headless|\/compact/i.test(done.skip)) return compactByCommand($, keep, before, note, what)
     return note(done.skip)
   }
   // The engine's own count when it has one: the status line's figure is from the last request, before the compaction.
   const sizes = { before: done.tokensBefore ?? before, after: done.tokensAfter ?? 0 }
   const thousands = (tokens: number): string => `${Math.round(tokens / 1000)},000`
-  await tell($, `Compacted after the reported task: ${thousands(sizes.before)} tokens before${sizes.after > 0 ? `, ${thousands(sizes.after)} after` : ''}.`)
+  await tell($, `Compacted ${what}: ${thousands(sizes.before)} tokens before${sizes.after > 0 ? `, ${thousands(sizes.after)} after` : ''}.`)
   try {
     const now = await $.clock.now()
     await changeMine($, mine => ({ ...mine, compacted: { at: now, ...sizes }, compactNote: undefined }))
@@ -792,7 +874,10 @@ async function compactAfter($: EngineInterface, at: { moreFollows: boolean }): P
  * B227: the compaction as the person's /compact would run it, once this chat is idle: the card says it is on its way,
  * then the sizes, or why it did not run. `before` is the size when the report's turn ended.
  */
-async function compactByCommand($: EngineInterface, instructions: string, before: number, note: (why: string) => Promise<void>): Promise<void> {
+async function compactByCommand($: EngineInterface, instructions: string, before: number, note: (why: string) => Promise<void>, what = 'after the reported task'): Promise<void> {
+  // Clear after each step: one /compact on its way at a time; with prompts waiting, each turn's end would queue another.
+  if (compactQueued) return
+  compactQueued = true
   try {
     const now = await $.clock.now()
     await changeMine($, mine => ({ ...mine, compactNote: { at: now, why: 'compacting with /compact once this chat is idle' } }))
@@ -803,10 +888,310 @@ async function compactByCommand($: EngineInterface, instructions: string, before
     const after = await sizeNow($).catch(() => null)
     const thousands = (tokens: number): string => `${Math.round(tokens / 1000)},000`
     const isSmaller = after !== null && after < before
-    await tell($, `Compacted after the reported task: ${thousands(before)} tokens before${isSmaller ? `, ${thousands(after)} after` : ''}.`)
+    await tell($, `Compacted ${what}: ${thousands(before)} tokens before${isSmaller ? `, ${thousands(after)} after` : ''}.`)
     const at = await $.clock.now()
     await changeMine($, mine => ({ ...mine, compacted: { at, before, after: isSmaller ? after : 0 }, compactNote: undefined }))
-  }, (err: unknown) => note(`/compact did not run: ${reason(err)}`)).catch(() => null)
+  }, (err: unknown) => note(`/compact did not run: ${reason(err)}`)).catch(() => null).finally(() => {
+    compactQueued = false
+  })
+}
+
+/** Clear after each step: how long the board may take to put the conversation's log in its journal before the clear. */
+const SAVE_LOG_MS = 5000
+/** Clear after each step: a card's mark of a clear on its way is followed this long (a reload between the two). */
+const MARK_MS = 10 * 60_000
+/** Clear after each step: a /clear that has neither run nor been stopped by now is let go, so nothing waits on it for ever. */
+const CLEAR_WAIT_MS = 2 * 60_000
+
+/**
+ * Clear after each step, at every tick: a clear whose new conversation started without a start this process heard (a
+ * new session id, no hook) moves the card now, its start's words kept for the first prompt; a clear that neither ran nor
+ * was stopped within two minutes is let go, and the card says so.
+ */
+async function settleClear($: EngineInterface): Promise<void> {
+  const decided = clearing
+  if (decided === null) return
+  try {
+    if ((await $.session.id()) !== decided.from) {
+      if (!isInTurn) await moveAfterClear($, undefined, true)
+      return
+    }
+    if ((await $.clock.now()) - decided.at < CLEAR_WAIT_MS) return
+    // Its /clear, should it still come, is refused: it is no clear on its way any more.
+    await dropClear($, '/clear did not run within two minutes')
+  } catch {
+    // looked at again at the next tick
+  }
+}
+
+/** Clear after each step: the clear decided on this session is dropped; its /clear, if it still comes, is refused. */
+async function dropClear($: EngineInterface, why: string): Promise<void> {
+  if (clearing === null) return
+  clearing = null
+  try {
+    const now = await $.clock.now()
+    await changeMine($, mine => ({ ...mine, clearing: undefined, clearNote: { at: now, why } }))
+  } catch {
+    // only the card does not learn of it
+  }
+}
+
+/** Clear after each step: the clear a card's own mark stands for (written just before /clear), while it is fresh. */
+function markOf(chat: ChatFile, from: string, now: number, within = MARK_MS): Clearing | null {
+  const mark = chat.clearing
+  if (mark === undefined || now - mark.at >= within) return null
+  return { from, chat, step: mark.step, log: mark.log, file: null, at: mark.at, prompts: promptCount, turn: turnNumber, ticket: 0 }
+}
+
+/**
+ * Clear after each step: a /clear this mod queued before it was loaded anew: the card's own mark is fresh, and nothing
+ * came in since this process started. The clear it stands for, or null.
+ */
+async function pendingMark($: EngineInterface): Promise<Clearing | null> {
+  if (isInTurn || promptCount !== 0 || turnNumber !== 0) return null
+  const dir = await findChatsDir($)
+  const id = await $.session.id()
+  const chat = dir === null ? null : await readChat($, dir, id)
+  return chat === null ? null : markOf(chat, id, await $.clock.now(), CLEAR_WAIT_MS)
+}
+
+/** Clear after each step: what of this chat still runs after its turn ended (a subagent of its own); null for nothing. */
+async function busyWhy($: EngineInterface): Promise<string | null> {
+  try {
+    const running = (await $.agent.list()).filter(agent => agent.status === 'running' || agent.status === 'pending' || agent.status === 'waiting')
+    return running.length === 0 ? null : `a subagent it started still runs (${String(running.length)})`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Clear after each step: what becomes of the chat when a turn of it has ended. A worker that reported its step in it is
+ * cleared ("afterStep": "clear" in the list of chats) or compacted (the default); the main chat and the partners are
+ * never cleared, and are compacted at rest above the list's threshold, once per turn.
+ */
+async function whenTurnEnds($: EngineInterface, f: { isReported: boolean; moreFollows: boolean; step: string | null; answer: string; ended: Record<string, unknown> | null; asked: boolean; retry: EndedRetry | null }): Promise<void> {
+  const dir = await findChatsDir($)
+  if (dir === null) return
+  const role = roleFrom(f.ended)
+  const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
+  const chat = await readChat($, dir, await $.session.id())
+  if ((role ?? chat?.role ?? 'worker') === 'worker') {
+    if (!f.isReported) return
+    if (list !== null && chat !== null && list.afterStep === 'clear') {
+      // The board was slow to answer the report's turn's end (it checks the report then): the decision waits for its
+      // answer without holding the turn's end.
+      if (f.ended === null && f.retry !== null) {
+        void clearWhenAnswered($, { list, chat, ...f, retry: f.retry }).catch(() => null)
+        return
+      }
+      return clearAfter($, { list, chat, role, ...f })
+    }
+    return compactAfter($, { moreFollows: f.moreFollows }, role)
+  }
+  return restCompact($, list, role ?? chat?.role ?? null)
+}
+
+/** The main chat and the partners: compacted at rest, once per turn, one /compact at a time, unless the list says not. */
+async function restCompact($: EngineInterface, list: ChatList | null, role: BoardRole | null): Promise<void> {
+  if (restTurn === turnNumber) return
+  restTurn = turnNumber
+  // The list may switch it off ("compactAtRest": false); one /compact on its way is enough.
+  if (list?.compactAtRest === false || compactQueued) return
+  // At rest: nothing of it runs on.
+  if ((await busyWhy($)) !== null) return
+  return compactAfter($, { moreFollows: false }, role)
+}
+
+/**
+ * Clear after each step: the decision on a reported step whose turn's end the board answered late. It waits up to 15 s
+ * for the answer (the first call's, else a repeat with the same request id), nothing typed in meanwhile, and decides
+ * then with every guard of that moment: a prompt or turn that came in meanwhile means no clear; a partner the answer
+ * names is compacted at rest; no answer at all falls back as before (compacted, the card saying why).
+ */
+async function clearWhenAnswered($: EngineInterface, c: { list: ChatList; chat: ChatFile; isReported: boolean; moreFollows: boolean; step: string | null; answer: string; asked: boolean; retry: EndedRetry }): Promise<void> {
+  const since = { prompts: promptCount, turn: turnNumber }
+  isDecidingClear = true
+  let ended: Record<string, unknown> | null = null
+  let pulled = false
+  try {
+    ended = await endedLate($, c.retry)
+    if (ended !== null) pulled = await tookEnded($, ended)
+  } catch {
+    // no answer: decided as without one
+  } finally {
+    isDecidingClear = false
+  }
+  try {
+    const role = roleFrom(ended)
+    if (role !== null && role !== 'worker') await restCompact($, c.list, role)
+    else if (isInTurn || promptCount !== since.prompts || turnNumber !== since.turn) {
+      const now = await $.clock.now()
+      await changeMine($, mine => ({ ...mine, clearNote: { at: now, why: 'a new prompt came in before the clear' } }))
+    } else await clearAfter($, { ...c, role, ended, since })
+  } catch (err) {
+    await tell($, `Not cleared after this task: ${reason(err)}`)
+  }
+  if (pulled && clearing === null && !isInTurn) await takeFromBoard($)
+}
+
+/**
+ * Clear after each step: a worker whose turn reported its step is cleared: the board keeps its conversation as a log
+ * first (`save-log`; no log, no clear), the card is marked, and /clear runs once the chat is idle. When it may not be
+ * cleared (`clearWhy`: no worker as the board says, the person pauses, a question the board did not file, something
+ * still running, or a prompt that came in meanwhile) it is compacted as before, and its card says why.
+ */
+async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFile; role: BoardRole | null; isReported: boolean; moreFollows: boolean; step: string | null; answer: string; ended: Record<string, unknown> | null; asked: boolean; since?: { prompts: number; turn: number } }): Promise<void> {
+  const instead = async (why: string): Promise<void> => {
+    try {
+      const now = await $.clock.now()
+      await changeMine($, mine => ({ ...mine, clearNote: { at: now, why }, clearing: undefined }))
+    } catch {
+      // only the card does not learn of it
+    }
+    await compactAfter($, { moreFollows: c.moreFollows }, 'worker')
+  }
+  // The items the board was handed; a block with more (past nine, or too long for the call) leaves some unfiled.
+  const handed = forYouItems(c.answer)
+  const isUnfiled = unfiledAsk(c.answer, c.ended, handed.filter(item => item.kind !== 'do').length) || forYouCount(c.answer) > handed.length
+  // A message to another chat in this turn (a question to the main chat): its answer would come into a cleared conversation.
+  const busy = isInTurn ? 'a turn is running' : c.asked ? 'it sent another chat a message in this turn and waits for its answer' : await busyWhy($)
+  const why = clearWhy({ role: c.role, isReported: c.isReported, isPaused: pauseRead?.pause?.state === 'pausing', isUnfiled, busy })
+  if (why !== null) return instead(why)
+  const from = await $.session.id()
+  // What the chat had seen when the decision began: at the turn's end, also when it waited for the board.
+  const prompts = c.since?.prompts ?? promptCount
+  const turn = c.since?.turn ?? turnNumber
+  if (isInTurn || promptCount !== prompts || turnNumber !== turn) return instead('a new prompt came in before the clear')
+  // The board writes the log, never the model; without the log there is no clear.
+  const answer = await workOnBoard($, { action: 'save-log', stepId: c.step ?? '' }, await newRequest($), SAVE_LOG_MS)
+  const saved = fieldsOf(answer)
+  const log = typeof saved?.log === 'string' && saved.log !== '' ? saved.log : null
+  const file = typeof saved?.file === 'string' && saved.file !== '' ? saved.file : null
+  if (log === null || file === null) return instead(`its conversation could not be saved as a log (${answer.ok ? 'the board named no log' : answer.text.slice(0, 160)})`)
+  if (isInTurn || promptCount !== prompts || turnNumber !== turn) return instead('a new prompt came in before the clear')
+  const now = await $.clock.now()
+  // The mark on the card, written just before /clear: the conversation after it finds its card by it (a reload between).
+  const marked = await changeMine($, mine => ({ ...mine, clearing: { at: now, step: c.step, log }, clearNote: undefined }))
+  if (marked === null) return instead('this chat\'s card could not be written')
+  clearTickets += 1
+  const ticket = clearTickets
+  clearing = { from, chat: marked, step: c.step, log, file, at: now, prompts, turn, ticket }
+  // Queued for when this chat is idle, as /compact is; the command's own hook looks once more before it runs, and runs
+  // only the /clear of the clear still on its way (its ticket).
+  queuedClears.push(ticket)
+  void $.command.run({ command: 'clear' }).then(() => undefined, async (err: unknown) => {
+    const at = queuedClears.indexOf(ticket)
+    if (at >= 0) queuedClears.splice(at, 1)
+    if (clearing?.ticket !== ticket) return
+    clearing = null
+    await instead(`/clear did not run: ${reason(err)}`)
+  }).catch(() => null)
+  await tell($, `Clearing this chat after ${c.step ?? 'its step'}: its conversation is kept in ${file}.`)
+}
+
+/**
+ * Clear after each step: the chat a /clear ended goes on under this session's id: its card (name, role, task, notes)
+ * moves here, with the line "cleared after <step>" when the mod cleared it, and the old file says where it went
+ * (`movedTo`), so the board follows it while the app still names the old session.
+ */
+async function moveCard($: EngineInterface, moving: Carried, to: string): Promise<ChatFile | null> {
+  const dir = chatsDir ?? await findChatsDir($, true)
+  // No new session id: nothing moves (the old file would say it moved onto itself).
+  if (dir === null || to === moving.from) return null
+  const now = await $.clock.now()
+  // A new process of the mod before the clear ran: the card's own mark says what the clear was.
+  const done = moving.clearing ?? markOf(moving.chat, moving.from, now)
+  const { clearing: _mark, ...card } = moving.chat
+  const next: ChatFile = { ...card, state: 'waiting', at: now, ...(done === null ? {} : { cleared: { at: now, step: done.step, log: done.log }, clearNote: undefined }) }
+  const run = mine.then(async () => {
+    await $.fs.write(inFolder(dir, fileName(to)), chatText(next))
+    await $.fs.write(inFolder(dir, fileName(moving.from)), movedText(to, now))
+  })
+  mine = run.catch(() => undefined)
+  await run
+  chatsDir = dir
+  lastBeat = now
+  myself = { name: next.name, role: next.role }
+  ensureChatWatch($)
+  await refreshChats($)
+  return next
+}
+
+/** Clear after each step: the chat whose card holds the mark of a clear on its way, when this process lost its own word of it. */
+async function markedClear($: EngineInterface, title: unknown): Promise<Carried | null> {
+  if (typeof title !== 'string' || title.trim() === '') return null
+  const dir = await findChatsDir($, true)
+  if (dir === null) return null
+  const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
+  const named = list === null ? null : nameFromTitle(title.trim(), list)
+  if (named === null) return null
+  const now = await $.clock.now()
+  const me = await $.session.id()
+  const found = (await readFiles($))
+    .filter(row => row.id !== me && row.name.toLowerCase() === named.name.toLowerCase() && row.clearing !== undefined && now - row.clearing.at < MARK_MS)
+    .sort((a, b) => (b.clearing?.at ?? 0) - (a.clearing?.at ?? 0))[0]
+  if (found === undefined) return null
+  const { id, ...chat } = found
+  return { from: id, chat, clearing: markOf(chat, id, now) }
+}
+
+/**
+ * Clear after each step: the start of the conversation after a /clear (`isClear`, the start's own word, or the chat
+ * the /clear ended): the card moves to the new session id, and the fresh conversation is told who it is, where its
+ * rules and its old conversation are, the person's instructions still open, and to run work next. Neither the clear
+ * nor this start is a turn: no turn's end is told for them, so no instruction counts as missed for them. Lines of
+ * start context; none for any other start.
+ */
+async function startAfterClear($: EngineInterface, title: unknown, isClear: boolean): Promise<string[]> {
+  await moveAfterClear($, title, isClear)
+  return pendingStart.splice(0)
+}
+
+/** Clear after each step: the move after a clear, once: a second caller waits for the one on its way. */
+function moveAfterClear($: EngineInterface, title: unknown, isClear: boolean): Promise<void> {
+  movingAfterClear ??= afterClear($, title, isClear).finally(() => {
+    movingAfterClear = null
+  })
+  return movingAfterClear
+}
+
+/** Clear after each step: moves the card after a clear and keeps the start's words in `pendingStart`. */
+async function afterClear($: EngineInterface, title: unknown, isClear: boolean): Promise<void> {
+  try {
+    // The chat the /clear ended; when the start comes before that end, the clear this process decided; else (a reload
+    // between) the mark the card holds.
+    const decided = clearing
+    const moving = carried ?? (!isClear ? null : decided !== null ? { from: decided.from, chat: decided.chat, clearing: decided } : await markedClear($, title))
+    carried = null
+    if (moving === null) return
+    const to = await $.session.id()
+    if (to === moving.from) return
+    const done = moving.clearing ?? markOf(moving.chat, moving.from, await $.clock.now())
+    const moved = await moveCard($, { ...moving, clearing: done }, to)
+    clearing = null
+    // A turn that started meanwhile keeps its own marks: its end is told as any turn's.
+    if (!isInTurn) {
+      turnStartedAt = null
+      isTurnEndTold = true
+    }
+    // The start's words only after the mod's own clear of a worker, or a clear of a chat the board names a worker: a
+    // partner or the main chat the person cleared themselves is told nothing of a worker's.
+    if (moved === null || (done === null && lastRole !== 'worker')) return
+    const list = parseList(await $.fs.read(inFolder(chatsDir ?? '', LIST_FILE)).catch(() => ''))
+    // B298: the board names the open instructions, kept under the chat's name; the ones it named before the clear stand
+    // in when it does not answer in time.
+    const known = openInstructions
+    const read = await workQuietly($, { action: 'next' })
+    const open = openFrom(read) ?? known
+    const project = chatsDir === null ? null : chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
+    const sep = project?.includes('\\') === true ? '\\' : '/'
+    const log = done?.file ?? (done?.log !== null && done?.log !== undefined && project !== null ? inFolder(project, done.log.split('/').join(sep)) : null)
+    const at = { name: moved.name, title: list === null ? moved.name : `${list.prefix}${moved.name}`, role: 'worker' as const, main: list === null ? 'the main chat' : `${list.prefix}${list.main}` }
+    pendingStart = [clearedStart({ ...at, step: done?.step ?? null, log, open }, TOOL)]
+  } catch {
+    // the card moves at the next prompt or turn
+  }
 }
 
 /** Every few seconds: read the list for the pane and, while a turn of this session runs, write its file again. */
@@ -817,6 +1202,7 @@ async function tick($: EngineInterface): Promise<void> {
   } catch {
     // tried again at the next tick
   }
+  await settleClear($)
   await refreshChats($)
   await keepBoards($)
   await takeFromBoard($)
@@ -1031,10 +1417,10 @@ const WORK_TOOL = {
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
     + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question; the partner\'s daily note on the focus goal is a note to you with "of" G<n>, "decided" and "needs". "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
-    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority", "standard", "effort"): a new step. "queue" ("id", '
+    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority", "standard", "model", "effort"): a new step. "queue" ("id", '
     + '"for", "after", "about", "priority"; "priority" fix: a fix for the worker board, first in its worker\'s queue), "requeue" ("id", "for": a queued step to another chat) and "unqueue" ("id": out of its '
     + 'queue): the main chat. "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
-    + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "effort", "questions") and "refined" ("id", "what", "standard", "effort"): '
+    + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "model", "effort", "questions") and "refined" ("id", "what", "standard", "model", "effort"): '
     + 'the Advisor. "checked" ("id", "evidence", "points", "score"): the partner files the result check of a step in review, by a helper that did not build it. "vibe-draft" ("goal", "lines", "picture") and "how-draft" ("goal", "parts", "partnerDecides", "youDecide"): '
     + 'the partner (the Advisor) keeps its draft of the focus goal\'s vibe and how on the board; each call takes the place '
     + 'of the draft the goal had. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old '
@@ -1077,6 +1463,7 @@ const WORK_TOOL = {
       picture: { type: 'string', description: 'refine: the picture of what it makes; vibe-draft: the vibe\'s picture.' },
       size: { type: 'string', description: 'refine, and new from an agreed how: how long it takes, roughly.' },
       standard: { type: 'string', description: 'refine, refined and new: what the step\'s result is checked against, "<kind> · <reference picture> · target <score>" (a kind of the project\'s settings), or "none (<why>)".' },
+      model: { type: 'string', description: 'refine, refined and new: the model the worker runs the step on, "<sonnet or opus>: <why, in one line of at most 200 characters>"; opus only for architecture or design decisions, the board\'s core, unclear or repeated bugs, art direction or judging; a step without one runs on sonnet.' },
       effort: { type: 'string', description: 'refine, refined and new: the effort level the worker runs the step at, "<low, medium, high, xhigh or max>: <why, in one line of at most 200 characters>"; a step without one runs at medium.' },
       evidence: { type: 'string', description: 'checked: the evidence picture\'s path in the project (the result beside its reference, the points ticked), or "none (<why>)".' },
       points: { type: 'array', items: { type: 'string' }, description: 'checked: every agreed point of the step, each "pass: <point>", "fail: <point>" or "ask: <point>" (a point only the person can judge).' },
@@ -1162,11 +1549,9 @@ async function chatLines($: EngineInterface): Promise<string> {
 async function turnStarts($: EngineInterface): Promise<void> {
   isInTurn = true
   try {
-    if (carried !== null) {
-      const { name, role } = carried
-      carried = null
-      await join($, name, role, 'working')
-    }
+    // Clear after each step: the start of the conversation after a /clear moves the card; a turn moves it when no start did.
+    const id = await $.session.id()
+    if (carried !== null || movingAfterClear !== null || (clearing !== null && clearing.from !== id)) await moveAfterClear($, undefined, true)
   } catch {
     // it joins again by its title, or when asked
   }
@@ -1179,8 +1564,9 @@ async function sessionCleared($: EngineInterface, id: string): Promise<void> {
     const dir = await findChatsDir($)
     const chat = dir === null ? null : await readChat($, dir, id)
     if (dir === null || chat === null) return
-    await writeLeft($, inFolder(dir, fileName(id)))
-    carried = { name: chat.name, role: chat.role }
+    // Clear after each step: the card moves when the conversation after the clear starts (`moveCard`), with the mod's
+    // own clear when it was one.
+    carried = { from: id, chat, clearing: clearing?.from === id ? clearing : markOf(chat, id, await $.clock.now()) }
     myself = null
   } catch {
     // the old file stays; a chat that joins under its name takes its place
@@ -1211,12 +1597,16 @@ export const register: Register = on => {
 
   // The app gives a chat's title to the classic hooks: a chat of the project joins the list under it.
   on('classic.SessionStart', async ($, e, next) => {
+    // Clear after each step: after a /clear the chat goes on under the new session id with its card, and is told where
+    // it stands (before the title joins it: it is the same chat, never a new one).
+    const cleared = e.agent_type === undefined ? await startAfterClear($, e.session_title, e.source === 'clear') : []
     await joinByTitle($, e.session_title)
     const result = await next(e)
     // Pause 2: a main chat that starts while the person resumes learns whom to wake; a chat holding a step, its checkpoint.
     const lines = e.agent_type === undefined ? await pauseLines($, 'start') : []
+    const more = [...cleared, ...lines]
 
-    return lines.length === 0 ? result : { ...result, additionalContext: [...(result.additionalContext ?? []), ...lines] }
+    return more.length === 0 ? result : { ...result, additionalContext: [...(result.additionalContext ?? []), ...more] }
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -1225,6 +1615,11 @@ export const register: Register = on => {
     // instructions still open (review: never in the system prompt, which stays the same words and stays cached).
     const context: string[] = []
     if (e.command === undefined) {
+      // Clear after each step: a prompt that comes in stops a clear that has not run yet; the first prompt after a clear
+      // that no session start announced carries the start's words.
+      promptCount += 1
+      if (carried !== null || movingAfterClear !== null || (clearing !== null && (await $.session.id()) !== clearing.from)) await moveAfterClear($, undefined, true)
+      if (pendingStart.length > 0) context.push(...pendingStart.splice(0))
       // Pause 2: read beside the filing, so both hold the prompt 1.5 s at most together.
       const paused = pauseLines($, 'prompt', e.text)
       if (isFiled(e.text, e.origin)) {
@@ -1273,8 +1668,15 @@ export const register: Register = on => {
   })
 
   on('turn.start', async ($, e, next) => {
+    // Clear after each step: should the engine run the mod's /clear or /compact as a turn, it is no turn of the chat's.
+    if (!isInTurn && e.agentId === undefined && COMMAND_TURN.test(e.text)) {
+      isCommandTurn = true
+      return next(e)
+    }
     // A turn that starts while one runs is a subagent's inside the chat's own: it starts nothing again.
     if (!isInTurn) {
+      // Clear after each step: a real turn on the session a clear was decided for: the clear is dropped, its /clear refused.
+      if (clearing !== null && (await $.session.id()) === clearing.from) await dropClear($, 'a new turn started before the clear ran')
       batches = 0
       reminders = 0
       turnStartedAt = await $.clock.now()
@@ -1282,6 +1684,7 @@ export const register: Register = on => {
       isCardSeen = false
       hasAsked = false
       hasReported = false
+      reportedStep = null
       // The review of Pause 2: each turn reads the pause anew at its first batch, unless its prompt just read it.
       turnNumber += 1
       if (!isReadForTurn) pauseRead = null
@@ -1298,17 +1701,23 @@ export const register: Register = on => {
     try {
       return await next(e)
     } finally {
-      if (e.agentId === undefined) {
+      if (e.agentId === undefined && isCommandTurn) {
+        // Clear after each step: the turn of a /clear or /compact of the mod's: nothing to tell, nothing to decide.
+        isCommandTurn = false
+      } else if (e.agentId === undefined) {
         isInTurn = false
         await say($, 'waiting', e.reason)
-        // B63: the step was reported in this turn (B301: `work report`) and the turn has ended: the moment a large chat
-        // is compacted. Both words are used up here, so neither a second end of the same turn nor a later step finds them.
+        // B63: the step was reported in this turn (B301: `work report`) and the turn has ended: the moment a worker is
+        // cleared or compacted (below). Its words are used up here, so neither a second end of the same turn nor a later
+        // step finds them.
         const isReported = hasReported && e.reason === 'answer'
-        const at = { moreFollows }
+        const at = { moreFollows, step: reportedStep }
         hasReported = false
         moreFollows = false
-        if (isReported) await compactAfter($, at).catch(err => tell($, `Not compacted after this task: ${reason(err)}`))
+        reportedStep = null
+        const told: { ended: Record<string, unknown> | null; pulled: boolean; retry: EndedRetry | null } = { ended: null, pulled: false, retry: null }
         // B298: a turn that answered has ended: the board marks the instructions filed before it and still open as missed.
+        // Clear after each step: a clear on its way is no turn, nor is the start after it.
         if (e.reason === 'answer' && !isTurnEndTold && turnStartedAt !== null) {
           isTurnEndTold = true
           const since = turnStartedAt
@@ -1318,21 +1727,24 @@ export const register: Register = on => {
           // typed here at once. All of it holds the turn's end 1.5 s at most; a board without a work store refuses, and
           // nothing changes for the chat (the board says so on its page). B317: an answer that ends with a "For you" block
           // hands its items over in the same call; the board files those the chat filed no ask for (Via: chat).
-          await withinTime($, (async () => {
-            // The review of Pause 2: while the person pauses (until running) a free worker takes nothing new.
-            const pulls = !isPaused(pauseRead?.pause ?? null) && await holdsNothing($)
-            const ended = await workQuietly($, { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}) })
-            // Pause 2: the same answer carries the pause state: the next batch needs no call of its own.
-            if (ended !== null) pauseRead = { pause: parsePause(ended.pause), at: await $.clock.now() }
-            const filed = ended?.asked
-            if (Array.isArray(filed)) blockAsks = filed.filter((id): id is string => typeof id === 'string')
-            const left = ended?.left
-            blockLeft = Array.isArray(left) ? left.filter((one): one is string => typeof one === 'string') : []
-            const line = (ended?.pull as { text?: unknown } | undefined)?.text
-            if (typeof line === 'string' && line !== '') await takeFromBoard($)
-          })())
+          // The review of Pause 2: while the person pauses (until running) a free worker takes nothing new.
+          const pulls = !isPaused(pauseRead?.pause ?? null) && await withinTime($, holdsNothing($)) === true
+          const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}) }
+          const call = await workLate($, fields)
+          told.ended = call.read
+          if (call.read !== null) told.pulled = await tookEnded($, call.read)
+          // Clear after each step: a board slow to answer (it checks a report then) is asked again later, with the same
+          // request id, for the clear's decision; a board that refused is not.
+          else if (!call.isRefused && call.request !== null) told.retry = { fields, request: call.request, late: call.late }
         }
         turnStartedAt = null
+        // Clear after each step: a worker that reported is cleared or compacted now, the main chat and the partners
+        // compacted at rest; the line the board put out for a free worker is typed in after that, unless a clear is
+        // on its way (then the conversation after it takes it).
+        if (e.reason === 'answer' && clearing === null) {
+          await whenTurnEnds($, { ...at, isReported, answer: e.answer, ended: told.ended, asked: hasAsked, retry: told.retry }).catch(err => tell($, `Not compacted after this task: ${reason(err)}`))
+        }
+        if (told.pulled) await takeFromBoard($)
       } else {
         // A subagent's turn ends inside the chat's own: the chat works on.
         ownAgents.add(e.agentId)
@@ -1406,6 +1818,28 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Clear after each step: the mod's /clear runs once the chat is idle; a prompt or turn that came in since it was
+  // decided stops it, and the chat is left as it is (its new work has started).
+  on('command.run', { command: 'clear' }, async ($, e, next) => {
+    // The person's own /clear, or another plugin's, runs as it is.
+    if (e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN) return next(e)
+    // This mod's: the oldest it queued. It runs only as the /clear of the clear still on its way, while nothing came in.
+    const ticket = queuedClears.shift() ?? null
+    const decided = clearing
+    if (decided !== null && decided.ticket === ticket) {
+      if (!isInTurn && promptCount === decided.prompts && turnNumber === decided.turn) return next(e)
+      await dropClear($, 'a new prompt came in before the clear ran')
+      return { text: 'Not cleared: a new prompt came in before the clear ran.' }
+    }
+    // Queued before the mod was loaded anew: its card's fresh mark, and nothing came in since.
+    const marked = ticket === null && decided === null ? await pendingMark($) : null
+    if (marked !== null) {
+      clearing = marked
+      return next(e)
+    }
+    return { text: 'Not cleared: this /clear of the Workers mod was let go before it ran.' }
+  })
+
   on('command.run', { command: 'git' }, async $ => {
     const view = await load($)
     ensureWatch($)
@@ -1456,6 +1890,8 @@ export const register: Register = on => {
     if (action !== 'next' && action !== 'list' && e.agentId !== undefined) {
       return { result: "Only the chat's main conversation changes the work: nothing was changed." }
     }
+    // Clear after each step: the log before a clear is the mod's own call, never the model's.
+    if (action === 'save-log') return { result: 'save-log is the Workers mod\'s own call: nothing was done.' }
     const fields = Object.fromEntries(WORK_FIELDS.filter(key => input[key] !== undefined).map(key => [key, input[key]]))
     const answer = await workTool($, fields)
     if (!answer.ok) return { result: answer.text }
@@ -1474,6 +1910,7 @@ export const register: Register = on => {
     // chat is compacted then, unless the board names its next step (more of the same work follows).
     if (action === 'report') {
       hasReported = true
+      reportedStep = typeof input.id === 'string' && /^[A-Z]\d{1,6}$/.test(input.id) ? input.id : null
       moreFollows = typeof read.more === 'string' && read.more !== ''
       await changeMine($, chat => (chat.task === null || chat.task.isReported ? null : withSend(chat)))
       return { result: text }

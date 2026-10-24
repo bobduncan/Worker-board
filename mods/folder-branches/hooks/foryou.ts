@@ -138,6 +138,19 @@ export function inlineOptions(ask: string): string[] {
  * nine items at most, and no more than fit the board's call (ITEMS_CHARS). None when the answer does not end with such a block (a block quoted earlier is another's).
  */
 export function forYouItems(answer: unknown): ForYouItem[] {
+  return readBlock(answer, ITEMS, ITEMS_CHARS)
+}
+
+/**
+ * Clear after each step: how many items the block at the end of an answer holds, however many: more than the board is
+ * handed (past nine, or too long for the call) leaves some unfiled.
+ */
+export function forYouCount(answer: unknown): number {
+  return readBlock(answer, Infinity, Infinity).length
+}
+
+/** The block's items, at most `most`, as long as they fit `chars` of the call. */
+function readBlock(answer: unknown, most: number, chars: number): ForYouItem[] {
   if (typeof answer !== 'string' || answer.trim() === '') return []
   const block = lastBlock(answer)
   if (block === null) return []
@@ -146,7 +159,7 @@ export function forYouItems(answer: unknown): ForYouItem[] {
     const line = inner.trim()
     const head = line.match(ITEM)
     if (head !== null) {
-      if (items.length >= ITEMS) break
+      if (items.length >= most) break
       const { words, pictures, plays } = linksIn(head[3])
       items.push({ n: Number(head[1]), kind: head[2]?.toLowerCase() === 'do' ? 'do' : 'decide', text: [oneLine(words)], options: [], advice: '', pictures, play: plays[0] ?? '', ref: null, lined: [] })
       continue
@@ -175,7 +188,7 @@ export function forYouItems(answer: unknown): ForYouItem[] {
   let size = 0
   for (const item of all) {
     size += JSON.stringify(item).length + 1
-    if (size > ITEMS_CHARS) break
+    if (size > chars) break
     kept.push(item)
   }
   return kept

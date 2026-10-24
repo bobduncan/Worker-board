@@ -14,7 +14,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, syncRunner } from '../../src/work/sync.mjs'
+import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, mayRunLoop, syncRunner } from '../../src/work/sync.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
@@ -250,7 +250,8 @@ test('the runner: one run at a time, the main chat told once per key across runs
     refused: () => [],
     apply: async body => (applied.push(body), { ok: true }),
     wake: async () => ({ id: 'w' }),
-    noted: { load: async () => ['blocked B9 B99'], save: async keys => { saved = keys } },
+    // what is saved is what the next run reads (B482: read at every run)
+    noted: { load: async () => saved ?? ['blocked B9 B99'], save: async keys => { saved = keys } },
     now: () => clock,
   })
   const [first, second] = await Promise.all([runner.run(), runner.run({ asked: true })])
@@ -263,7 +264,7 @@ test('the runner: one run at a time, the main chat told once per key across runs
   assert.equal(notes[0].to, 'main')
   assert.match(notes[0].text[0], /^The board's sync check at \d\d:\d\d: what it could not fix itself$/)
   assert.match(notes[0].text[1], /^- B4 is blocked by B77/)
-  assert.deepEqual(saved, ['blocked B9 B99', 'blocked B4 B77'])
+  assert.deepEqual(saved, { noted: ['blocked B9 B99', 'blocked B4 B77'], seen: {} })
   assert.equal(runner.shown(clock).asked, true)
   clock += SYNC_SHOWN_MS
   assert.equal(runner.shown(clock), null)
@@ -359,4 +360,57 @@ test('the review: a line of the sync check is withdrawn once its step is done or
   const state = { restart: { main: 'Lead' }, chatPrefix: '', chats: [], reconciled: { moves: [], deliveries: [], says: [] } }
   await deliverWork({ state, dir, outbox, apply: async () => null, now: NOW, maxChars: 2000, newId: () => 'n', keep: { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN } })
   assert.deepEqual(outbox.outbox().map(one => [one.about, one.to, one.state]), [['B1', 'Painter', 'waiting'], ['B2', 'Painter', 'dropped'], ['B3', 'Painter', 'dropped'], ['B3', 'Helper', 'waiting']])
+})
+
+// B482: the result check of B465.
+test('B482: a blocker in review holds its step until its result check passed too, when it needs one', () => {
+  const merged = (line) => step('B10', 'review', {}, {
+    'What we build': ['- the strip'],
+    History: [`- ${stamp(ago(40))} Painter: in progress → review`, `- ${stamp(ago(39))} server: check passed: merged`, ...(line === null ? [] : [`- ${stamp(ago(20))} Partner: ${line}`])],
+  })
+  const world = (line) => base({ items: items(merged(line), step('B11', 'queued', { Owner: 'Painter', 'Blocked by': 'B10' })), lanes: [LEAD, lane('Painter', { state: 'working' })] })
+  assert.equal(of(findStuck(world(null)), 'blocked').length, 0, 'no result check yet')
+  assert.equal(of(findStuck(world('result check failed: 3 of 5 points pass')), 'blocked').length, 0, 'a failed one')
+  assert.equal(of(findStuck(world('result check waits for the person')), 'blocked').length, 0, 'one that waits')
+  assert.equal(of(findStuck(world('result check passed')), 'blocked')[0]?.fix.do, 'unblock')
+})
+
+test('B482: what was seen and noted is kept over a restart: the helper is not woken, nor Main told, anew', async () => {
+  const partner = { name: 'Partner', state: 'working', isRunning: true }
+  const helper = { name: 'Second', state: 'off', isRunning: false }
+  let stored = { noted: [], seen: {} }
+  const applied = []
+  const sent = [{ id: 'r1', command: 'refine', about: 'B8', to: 'Partner', at: NOW - 20 * MIN, state: 'delivered' }]
+  let clock = NOW
+  const make = () => syncRunner({
+    state: async () => ({ chats: [LEAD], advisor: partner, advisorHelper: helper, chatPrefix: '', limits: {}, pause: null }),
+    items: async () => items(step('B8', 'new')),
+    // the board's outbox is kept over a restart too, with the line the check sent
+    outbox: () => sent,
+    refused: () => [],
+    apply: async body => (applied.push(body), { ok: true }),
+    wake: async one => {
+      applied.push({ wake: one.key })
+      sent.push({ id: `w${applied.length}`, command: 'work', about: one.id, to: one.chat, at: clock, state: 'waiting', kind: 'sync', syncKey: one.key })
+      return { id: 'w' }
+    },
+    noted: { load: async () => JSON.parse(JSON.stringify(stored)), save: async state => { stored = JSON.parse(JSON.stringify(state)) } },
+    now: () => clock,
+  })
+  await make().run()
+  const wakes = applied.filter(one => one.wake !== undefined).length
+  assert.equal(wakes, 1)
+  assert.ok(Object.keys(stored.seen).some(key => key.startsWith('helper off')))
+  // a restart a minute later: the same episode, the same key: woken a moment ago, nothing sent again
+  clock += MIN
+  await make().run()
+  assert.equal(applied.filter(one => one.wake !== undefined).length, wakes)
+  assert.equal(applied.filter(one => one.action === 'note').length, 0, 'nothing for Main')
+})
+
+test('B482: one loop per project: a lock held by another board process that runs is left alone; a stale one is taken', () => {
+  assert.equal(mayRunLoop(null, 7, NOW), true)
+  assert.equal(mayRunLoop({ pid: 7, port: 4310, at: NOW - MIN }, 7, NOW), true)
+  assert.equal(mayRunLoop({ pid: 8, port: 4311, at: NOW - MIN }, 7, NOW), false)
+  assert.equal(mayRunLoop({ pid: 8, port: 4311, at: NOW - LOOP_LOCK_MS - 1 }, 7, NOW), true)
 })

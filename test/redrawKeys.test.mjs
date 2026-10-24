@@ -143,6 +143,11 @@ test('the review of B408: the Focus page is drawn anew each minute and for every
   const quiet = key(page.view.focus(state()))
   assert.equal(key(page.view.focus(state({ readAt: state().readAt + 3 * MIN }))), quiet, 'no new minute drawn: the talk stays where it is read')
   assert.equal(key(page.view.focus(state({ chats: [{ name: 'Digger', isRunning: false }] }))), quiet, 'nor who runs')
+  // But whether the main chat runs: the talk's line says who can start a partner that does not run.
+  const withMain = { chats: [{ name: 'Lead', isRunning: true }, { name: 'Digger', isRunning: true }], restart: { main: 'Lead' } }
+  const leadRuns = key(page.view.focus(state(withMain)))
+  assert.notEqual(key(page.view.focus(state({ ...withMain, chats: [{ name: 'Lead', isRunning: false }, { name: 'Digger', isRunning: true }] }))), leadRuns)
+  assert.equal(key(page.view.focus(state({ ...withMain, chats: [{ name: 'Lead', isRunning: true }, { name: 'Digger', isRunning: false }] }))), leadRuns)
   const answered = state({ forYou: [{ ...state().forYou[0], answer: { by: 'person', text: 'A', at: 1 } }] })
   assert.equal(key(page.view.focus(answered)), quiet, 'nor an answer to an ask')
   assert.notEqual(key(page.view.focus(state({ forYou: [...state().forYou, { id: 'work:Q9', workId: 'Q9' }] }))), quiet, 'a new ask: the note may link it')
