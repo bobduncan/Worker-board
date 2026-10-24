@@ -940,6 +940,8 @@ function pauseRing(pause) {
     `Paused since ${clock(pause.since)}.`,
     // B386: which chat a line is being typed into is a detail, not said on the panel.
     ...chats.filter(chat => chat.state === 'typing').map(chat => `A line is being typed into ${chat.name}.`),
+    // B442: lines the pause holds back wait for the resume; they keep nothing from being safe.
+    ...((pause.held ?? []).length === 0 ? [] : [`${pause.held.length === 1 ? '1 line waits' : `${pause.held.length} lines wait`} for the resume (${pause.held.map(one => `${one.chat}${one.step === null ? '' : `: ${one.step}`}`).join(', ')}).`]),
     ...[
       ...(pause.unsaved ?? []).map(one => `${one.id} (${one.chat})`),
       ...(pause.offBoard ?? []).map(one => `${one.id} (${one.title}, not on the board)`),

@@ -138,9 +138,10 @@ const hasStarted = (lane, since) => lane !== undefined && (runsTurn(lane) || (Nu
  * `isResumed` when none is left, `until` when the resume ends by itself (`RESUME_WAIT_MS` after it); a chat not on the
  * board cannot be woken by its session, so it is not waited for. Running after a resume that ended by the time:
  * `notStarted` (`{ chat, ids }`, kept in pause.json) for an hour (`NOT_STARTED_SHOWN_MS` from `now`), as information;
- * a chat that has started a turn since the resume is no longer named.
+ * a chat that has started a turn since the resume is no longer named. `held` (B442): the lines the pause holds back, waiting
+ * in the outbox until the resume, `{ to, step }`.
  */
-export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = [], now = null }) {
+export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = [], held = [], now = null }) {
   if (pause === null || pause === undefined) return null
   const laneOf = chat => lanes.find(lane => plain(lane.name, prefix) === plain(chat, prefix))
   const holders = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) !== undefined)
@@ -162,7 +163,13 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
       })),
       ...typing.filter(to => !lanes.some(lane => plain(lane.name, prefix) === plain(to, prefix))).map(to => ({ name: withoutPrefix(to, prefix), state: 'typing' })),
     ]
-    return { state: 'pausing', since: pause.since, working, asking, typing, unsaved, offBoard, isSafe: working.length === 0 && asking.length === 0 && typing.length === 0, chats }
+    // B442: a line the pause holds back (waiting in the outbox) is typed at the resume, not now: it is no typing, and it
+    // blocks nothing; it is named (`held`, `{ chat, step }`, in the order they were handed) beside Safe.
+    const holding = (held ?? []).filter(one => typeof one?.to === 'string' && one.to !== '').map(one => ({ chat: withoutPrefix(one.to, prefix), step: typeof one.step === 'string' && one.step !== '' ? one.step : null }))
+    return {
+      state: 'pausing', since: pause.since, working, asking, typing, unsaved, offBoard, isSafe: working.length === 0 && asking.length === 0 && typing.length === 0, chats,
+      ...(holding.length === 0 ? {} : { held: holding }),
+    }
   }
   if (pause.state === 'resuming') {
     const waiting = byChat(holders.filter(holder => !hasStarted(laneOf(holder.chat), pause.since)), prefix)
