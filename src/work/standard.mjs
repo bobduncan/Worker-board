@@ -66,12 +66,21 @@ export function standardWanted(who, named) {
 }
 
 /**
+ * B513: words that put a look kind beside drawn things: a step that only names a kind in its rules ("mark summoned
+ * units") is no look change. Drawing words, the folders and files that hold what is drawn.
+ */
+const DRAWN = /(?<![A-Za-z0-9-])(?:draw(?:n|ing|s)?|redraw\w*|render\w*|sprites?|art(?:work)?|pictures?|looks?|visuals?|animat\w+|icons?|colou?rs?|textures?|pixels?|hud|camera|screens?|appearance|palette|tiles? art)(?![A-Za-z0-9-])|(?:^|[\s/(`])(?:render|hud|art|visuals?)\/|\.(?:css|png)\b/i
+
+/**
  * B451: the kinds of the settings marked `look` (what the player sees) that a text names, when the step's standard is
  * "none (...)". A step that changes what the player sees always carries a kind's standard with a reference and a
- * target: B395 (a new ground look) was refined with "none" and its check passed the look on substance.
+ * target: B395 (a new ground look) was refined with "none" and its check passed the look on substance. B513: only
+ * beside drawn things (`DRAWN`), and "none (no look change: <why>)" is taken, the step saying it changes nothing seen.
  */
 export function noneForLook(text, standardLine, kinds) {
-  if (!/^none\b/i.test(String(standardLine ?? '').trim())) return []
+  const line = String(standardLine ?? '').trim()
+  if (!/^none\b/i.test(line) || /^none\s*\(\s*no look change\s*:\s*\S/i.test(line)) return []
+  if (!DRAWN.test(String(text ?? ''))) return []
   return kindsNamed(text, kinds).filter(one => one.look === true)
 }
 
@@ -79,5 +88,5 @@ export function noneForLook(text, standardLine, kinds) {
 export function standardNoneRefused(who, named) {
   const first = named[0]
   const names = named.map(one => `"${one.kind}"`).join(', ')
-  return `${who} names the look kind${named.length > 1 ? 's' : ''} ${names}, so it changes what the player sees: "none (...)" is refused. Give a kind's standard, "${first.kind} · <a reference picture from ${first.reference}> · target <score>" (checked against ${first.done}).`
+  return `${who} names the look kind${named.length > 1 ? 's' : ''} ${names}, so it changes what the player sees: "none (...)" is refused. Give a kind's standard, "${first.kind} · <a reference picture from ${first.reference}> · target <score>" (checked against ${first.done}), or "none (no look change: <why>)" when its words only name the kind and nothing the player sees changes.`
 }
