@@ -97,6 +97,26 @@ export function mayRunLoop(lock, me, now) {
   return lock.pid === me || now - lock.at > LOOP_LOCK_MS
 }
 
+/**
+ * B487: what the project's lock file holds, read through `read` (a function giving its text). None, or one cut off
+ * mid-write (not JSON), is null: taken over like a dead one. Any other failure is thrown, for the loop record.
+ */
+export async function readLoopLock(read) {
+  let text
+  try {
+    text = await read()
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    if (error instanceof SyntaxError) return null
+    throw error
+  }
+}
+
 export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], seen = new Map(), observed = [] }) {
   const all = [...items.values()]
   const steps = all.filter(item => kindOf(item) === 'step' && typeof idOf(item) === 'string').sort(byId)

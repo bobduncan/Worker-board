@@ -71,7 +71,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, SYNC_EVERY_MS, mayRunLoop, syncRunner } from './src/work/sync.mjs'
+import { REFUSED_MS, SYNC_EVERY_MS, mayRunLoop, readLoopLock, syncRunner } from './src/work/sync.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
 import { storeKeeper } from './src/work/read.mjs'
@@ -1775,10 +1775,7 @@ async function main(args) {
       // B482: one loop per project: a second board process on it (another --port) leaves the list to the first
       const LOOP_LOCK = join(config.project, '.claude', 'sync-loop.json')
       const ownLoop = async () => {
-        const read = await readFile(LOOP_LOCK, 'utf8').then(text => JSON.parse(text), error => {
-          if (error?.code === 'ENOENT' || error instanceof SyntaxError) return null   // none, or one cut off: taken over
-          throw error
-        })
+        const read = await readLoopLock(() => readFile(LOOP_LOCK, 'utf8'))
         // the review: a lock whose process is gone (a board killed without its exit) is taken over at once
         const alive = pid => {
           try {

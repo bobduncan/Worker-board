@@ -14,7 +14,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, mayRunLoop, syncRunner } from '../../src/work/sync.mjs'
+import { AGAIN_MS, CHECKS, LOOP_LOCK_MS, NOT_TAKEN_MS, OWNER_GONE_MS, SYNC_SHOWN_MS, applySync, findStuck, mayRunLoop, readLoopLock, syncRunner } from '../../src/work/sync.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
@@ -413,4 +413,14 @@ test('B482: one loop per project: a lock held by another board process that runs
   assert.equal(mayRunLoop({ pid: 7, port: 4310, at: NOW - MIN }, 7, NOW), true)
   assert.equal(mayRunLoop({ pid: 8, port: 4311, at: NOW - MIN }, 7, NOW), false)
   assert.equal(mayRunLoop({ pid: 8, port: 4311, at: NOW - LOOP_LOCK_MS - 1 }, 7, NOW), true)
+})
+
+test('B487: a lock file cut off mid-write is taken over like a dead one; an unreadable one is thrown', async () => {
+  assert.equal(await readLoopLock(async () => '{"pid":8,"po'), null)
+  assert.equal(await readLoopLock(async () => ''), null)
+  assert.equal(await readLoopLock(() => Promise.reject(Object.assign(new Error('gone'), { code: 'ENOENT' }))), null)
+  assert.deepEqual(await readLoopLock(async () => '{"pid":8,"port":1,"at":5}'), { pid: 8, port: 1, at: 5 })
+  await assert.rejects(readLoopLock(() => Promise.reject(Object.assign(new Error('denied'), { code: 'EACCES' }))), /denied/)
+  // and a torn lock lets this process run the list
+  assert.equal(mayRunLoop(await readLoopLock(async () => '{"pid":8'), 7, NOW), true)
 })
