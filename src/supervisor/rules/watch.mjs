@@ -17,6 +17,7 @@ import { blockersOpen, waitWords } from '../../work/guards.mjs'
 import { heldMs, isHolding } from '../../work/pause.mjs'
 import { whyClosed } from '../../work/outboxSweep.mjs'
 import { isLate } from '../../store.mjs'
+import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -305,38 +306,19 @@ function reportCheckTwice(view) {
   return found
 }
 
-/** A version's numbers, "0.15.2" as [0, 15, 2]; null for none. */
-const versionOf = text => (typeof text === 'string' && /^\d+(?:\.\d+)*$/.test(text.trim()) ? text.trim().split('.').map(Number) : null)
-const isOlder = (a, b) => {
-  for (let i = 0; i < Math.max(a.length, b.length); i += 1) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0)
-  return false
-}
-
-/** The first Workers mod that says its version with every call (its header): a chat that says none runs an older one. */
-export const FIRST_SAYING = '0.16.0'
+export { FIRST_SAYING }
 
 /**
- * 10. A chat on an older Workers mod than the one installed: it gets the new one only when its chat starts anew. A
- * chat whose version the board does not know (its mod did not ask lately) is no case; one whose mod asked without saying
- * its version (null) runs one older than FIRST_SAYING, a case once that one or a newer one is installed (the review).
+ * 10. Chats on an older Workers mod than the one installed: they get the new one only when their chats start anew, and
+ * the one way to that is the same for all (pause all, restart the app, resume all). B541: so one finding for all of
+ * them, keyed by the installed version and naming each with what it misses: the main chat, the workers, the partner,
+ * its helper and the supervisor's chat (oldMods.mjs). A chat whose version the board does not know (its mod did not ask
+ * lately) is no case; one whose mod asked without saying its version (null) runs one older than FIRST_SAYING, a case
+ * once that one or a newer one is installed (the review).
  */
 function oldMod(view) {
-  const installed = versionOf(view.mods.installed)
-  if (installed === null) return []
-  const found = []
-  for (const lane of view.lanes.filter(one => !one.isLeftover)) {
-    if (!Object.hasOwn(view.mods.chats, lane.name)) continue
-    const version = view.mods.chats[lane.name]
-    const isUnsaid = version === null
-    if (isUnsaid ? isOlder(installed, versionOf(FIRST_SAYING)) : versionOf(version) === null || !isOlder(versionOf(version), installed)) continue
-    const runs = isUnsaid ? `older than ${FIRST_SAYING}` : version
-    found.push({
-      rule: 'old-mod', key: `old-mod ${lane.name} ${isUnsaid ? `before ${FIRST_SAYING}` : version}`, subject: lane.name,
-      text: `${lane.name} runs the Workers mod ${runs}; ${view.mods.installed} is installed`,
-      evidence: `installed ${view.mods.installed}, the chat's ${runs}`,
-    })
-  }
-  return found
+  const found = oldModFinding(view.mods, chatsByRole({ chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor }))
+  return found === null ? [] : [found]
 }
 
 /** Every watch rule, in the order the section shows them. */

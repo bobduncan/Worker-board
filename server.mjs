@@ -43,6 +43,7 @@ import { GAME_SPAN, boardsFile, launchEntry, registerHome, resolvePort, withEntr
 import { marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { makeProject } from './src/newProject.mjs'
 import { readHead } from './src/files.mjs'
+import { chatsByRole, oldModNeed } from './src/oldMods.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
@@ -72,7 +73,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { isHolding, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { reportCheck } from './src/work/check.mjs'
 import { deliverWork, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
+import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -953,12 +954,15 @@ async function main(args) {
   let taskTimes = { scans: {}, tasks: [] }
   // The supervisor's section on the demo: made-up rules, incidents and a check of its own (fixtures/demo.mjs).
   let demoSupervisor = () => null
+  // B541: the demo's Workers mods: two of its chats on an older one, so its card shows.
+  let demoMods = () => null
   if (isDemo) {
     const { demoSources, demoSupervisor: madeUp, ROOTS } = await import('./fixtures/demo.mjs')
     config.pictureRoots = ROOTS
     store = memoryStore()
     readRaw = () => demoSources(clock())
     demoSupervisor = madeUp
+    demoMods = () => ({ installed: '0.16.0', chats: { Main: '0.16.0', Features: null, Advisor: null } })
   } else {
     folders = hasGame ? cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS) : async () => null
     branches = cached(() => branchesNow(), FOLDERS_MS)
@@ -1040,6 +1044,10 @@ async function main(args) {
   const noteMod = (body, checked) => {
     if (checked.ok && typeof checked.chat === 'string') modOf.set(checked.chat, { version: typeof body?.mod === 'string' ? body.mod : null, at: clock() })
   }
+  // The Workers mod installed, and the version each chat's mod said with its last call (Part 2: since 0.16.0), for the
+  // rule old-mod and B541's card. The review: only chats whose mod asked in the last 2 minutes (it asks every 5 s while
+  // its chat runs); one that asked without the header (null) runs a mod older than the first that says its version.
+  const modsNow = async () => ({ installed: (await modNow())?.installed ?? null, chats: Object.fromEntries([...modOf].filter(([, one]) => clock() - one.at < 2 * 60_000).map(([name, one]) => [name, one.version])) })
   // B465: the names a chat's mod was refused under lately, with its session, for the sync check's "old name".
   const refusedNames = new Map()
   const noteRefused = (body, checked) => {
@@ -1375,7 +1383,19 @@ async function main(args) {
       })
       // B256: whether the Goals part may change the map: only the board that delivers writes it.
       const goalsEdit = { canWrite: writesMap, whyNot: isDemo ? 'This is the demo: it changes no file.' : !writesMap ? `This board only shows. Change the map on the board that delivers: http://${HOST}:${homePort}/` : null }
-      return { ...state, design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervisor !== null ? supervisor.view(clock()) : isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES) : null, boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
+      // B541: chats on an older Workers mod than the one installed: one card first under Needs your attention, with the
+      // one way to bring them up to date; gone once every chat that asked lately runs the installed one.
+      const oldMods = oldModNeed(isDemo ? demoMods() : await modsNow(), chatsByRole(state), clock())
+      // The supervisor's incident cards follow the work store as its keeper holds it (a change through the board drops that
+      // read, a hand edit shows within 30 seconds), the board's chats and the Advisor's name, so a card's state moves with
+      // every refresh, not at the supervisor's next check.
+      const stored = supervisor === null ? undefined : await work()
+      const supervised = supervisor === null ? null : supervisor.view(clock(), {
+        items: stored?.ok === true ? stored.items : null,
+        lanes: [...(state.chats ?? []), ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])],
+        partner: state.advisor?.name ?? null,
+      })
+      return { ...state, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown }, mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
@@ -2060,10 +2080,8 @@ async function main(args) {
           load: () => kept(SUPERVISOR_FILE),
           save: value => writeAtomic(SUPERVISOR_FILE, JSON.stringify(value)),
         },
-        // The Workers mod installed, and the version each chat's mod said with its last call (Part 2: since 0.16.0)
-        // The review: only chats whose mod asked in the last 2 minutes (it asks every 5 s while its chat runs); one that
-        // asked without the header (null) runs a mod older than the first that says its version (the rule old-mod).
-        mods: async () => ({ installed: (await modNow())?.installed ?? null, chats: Object.fromEntries([...modOf].filter(([, one]) => clock() - one.at < 2 * 60_000).map(([name, one]) => [name, one.version])) }),
+        // The Workers mod installed, and the version each chat's mod said lately (modsNow, above).
+        mods: modsNow,
         // The supervisor's Part 2: a board word into the outbox, as every board word goes (the sweep's word to the
         // supervisor's chat, an incident's word to the partner); the main chat is asked to start a chat that does not run.
         tell: async words => {

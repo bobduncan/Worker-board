@@ -659,27 +659,62 @@ function demoWork(now) {
   })
   // The supervisor (spec 2026-10-24): the board's line to the person about its newest incident (demoSupervisor below).
   work.items.set('N92', {
-    head: new Map([['Id', 'N92'], ['Kind', 'note'], ['From', 'server'], ['To', 'you'], ['Via', 'supervisor'], ['State', 'unread'], ['Since', stamp(now - 14 * MIN)], ['Text', `Supervisor: ${DEMO_INCIDENTS[0].title}`]]),
-    sections: new Map([['Text', [`Supervisor: ${DEMO_INCIDENTS[0].title}`]], ['About', ['X3']]]),
+    head: new Map([['Id', 'N92'], ['Kind', 'note'], ['From', 'server'], ['To', 'you'], ['Via', 'supervisor'], ['State', 'unread'], ['Since', stamp(now - 14 * MIN)], ['Text', `Supervisor: ${DEMO_INCIDENTS.at(-1).title}`]]),
+    sections: new Map([['Text', [`Supervisor: ${DEMO_INCIDENTS.at(-1).title}`]], ['About', ['X10']]]),
     problem: null,
   })
   return work
 }
 
-/** The supervisor's made-up incidents on the demo: one open, one being fixed, one fixed. */
+/**
+ * The supervisor's made-up incidents on the demo, shaped like the day its cards were drawn on: undelivered words (the
+ * outbox fix under way), a mod too old, steps that pile up in review, and a new one nobody has taken up yet. `seen` is
+ * [first, last] in minutes ago, `since` when it got its state; the newest incident last.
+ */
 const DEMO_INCIDENTS = [
-  { id: 'X3', title: 'Cleanup unknown for 16 min, B20 waits', state: 'open', fix: null, source: 'unknown-lane', subject: 'Cleanup', count: 5, seen: [16, 2], evidence: 'state unknown since the clear after B06; running: not known' },
-  { id: 'X2', title: 'All 4 workers idle for 12 min while 2 steps wait (B21, B22)', state: 'fix', fix: 'B24', source: 'idle-while-waiting', subject: 'board', count: 3, seen: [95, 86], evidence: 'Units free, Features unknown, Cleanup free, Levels / Environment free' },
-  { id: 'X1', title: 'Features: its clear was skipped twice in a row: its conversation could not be saved as a log', state: 'fixed', fix: 'B23', source: 'skip-repeats', subject: 'Features', count: 2, seen: [300, 270], evidence: 'skipped at 07:12 and at 07:42' },
+  { id: 'X1', title: '21 words to Advisor not delivered, the oldest for 12980 min', state: 'fix', fix: 'B532', source: 'undelivered', subject: 'Advisor', count: 18, seen: [191, 3], since: 150, evidence: '18:13 round (waiting); 12:26 refine B387 (waiting); 12:29 result-check B377 (waiting)' },
+  { id: 'X2', title: '11 words to Main not delivered, the oldest for 7568 min', state: 'fix', fix: 'B532', source: 'undelivered', subject: 'Main', count: 18, seen: [191, 3], since: 150, evidence: '12:26 start Advisor (waiting); 12:37 start Advisor (waiting); 12:49 start Advisor (waiting)' },
+  { id: 'X3', title: '1 word to Worker 5 not delivered, the oldest for 4640 min', state: 'fix', fix: 'B532', source: 'undelivered', subject: 'Worker 5', count: 18, seen: [191, 3], since: 150, evidence: '13:13 answer (waiting)' },
+  { id: 'X4', title: 'Worker 1 runs the Workers mod older than 0.16.0; 0.16.0 is installed', state: 'fix', fix: 'B541', source: 'old-mod', subject: 'Worker 1', count: 1, seen: [74, 74], since: 12, evidence: "installed 0.16.0, the chat's older than 0.16.0" },
+  { id: 'X5', title: 'Worker 2 runs the Workers mod older than 0.16.0; 0.16.0 is installed', state: 'fix', fix: 'B541', source: 'old-mod', subject: 'Worker 2', count: 2, seen: [74, 71], since: 12, evidence: "installed 0.16.0, the chat's older than 0.16.0" },
+  { id: 'X6', title: 'Worker 5 runs the Workers mod older than 0.16.0; 0.16.0 is installed', state: 'fix', fix: 'B541', source: 'old-mod', subject: 'Worker 5', count: 5, seen: [74, 3], since: 12, evidence: "installed 0.16.0, the chat's older than 0.16.0" },
+  { id: 'X7', title: 'Queued steps wait 2 h 48 min on steps that sit in review while workers are free', state: 'fix', fix: 'B542', source: 'sweep', subject: 'board', count: 1, seen: [71, 71], since: 12, evidence: '18:26: B500, B510 wait for B502 (review 19 min); B522 for B509; B527 for B526; all queued 2 h 48 min. Worker 1 free since 18:23.', ruleWanted: 'a step queued over 60 min whose owner is free and whose blocker is in review or done' },
+  { id: 'X8', title: 'Steps pile up in review for hours, one for 3 days', state: 'fix', fix: 'B543', source: 'sweep', subject: 'board', count: 1, seen: [71, 71], since: 12, evidence: '18:26: 6 steps in review; the oldest, B384, for 3 days with no result check filed.', ruleWanted: 'a step in review for more than 60 min with no result check filed' },
+  { id: 'X9', title: 'Effort shows "[object Object]" on a step in review', state: 'fix', fix: 'B544', source: 'sweep', subject: 'B510', count: 1, seen: [60, 60], since: 12, evidence: '18:37 health: B510 in review, effort "[object Object]"' },
+  { id: 'X10', title: 'Steps in progress still show "waits for" another step', state: 'open', fix: null, source: 'sweep', subject: 'board', count: 1, seen: [2, 2], since: 2, evidence: '18:36 health: B526 in progress 12 min (waits for B529), B506 in progress 20 min (waits for B503, which Worker 2 reported done at 15:59).', ruleWanted: 'a step in progress whose Waits-for names a done or in-review step: clear the wait on take' },
 ]
+
+/** The demo's fix steps: B532 is being built by Worker 5, the others wait to be handed out by the main chat. */
+function demoFixSteps(now) {
+  const stampOf = at => {
+    const date = new Date(at)
+    const pad2 = value => String(value).padStart(2, '0')
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+  }
+  const make = (id, state, title, more, history) => ({
+    head: new Map([['Id', id], ['Kind', 'step'], ['Title', title], ['State', state], ['Since', stampOf(now - 40 * MIN)], ['Priority', 'fix'], ...Object.entries(more)]),
+    sections: new Map([['History', history.map(([ago, who, what]) => `- ${stampOf(now - ago * MIN)} ${who}: ${what}`)]]),
+  })
+  return new Map([
+    make('B532', 'in progress', 'Board outbox: words stay "waiting" for days and never reach their chat', { Owner: 'Worker 5' }, [[110, 'Worker 5', 'taken → in progress'], [5, 'Worker 5', 'checkpoint 12d497e · core done and green']]),
+    make('B541', 'refined', 'Fix of X4: one clear way to update an old mod', {}, [[30, 'Advisor', 'new → refined']]),
+    make('B542', 'refined', 'Fix of X7: a block clears when its blocker is done', {}, [[30, 'Advisor', 'new → refined']]),
+    make('B543', 'refined', 'Fix of X8: a step in review says what it waits for', {}, [[30, 'Advisor', 'new → refined']]),
+    make('B544', 'refined', 'Fix of X9: effort shows as its level', {}, [[30, 'Advisor', 'new → refined']]),
+  ].map(one => [one.head.get('Id'), one]))
+}
 
 /**
  * The supervisor's section on the demo (the server's `supervisor` in the state): a check asked a moment ago with a fix
- * and a wake, every rule (`rules`, the supervisor's own list) with three tripped today, the incidents above, and (Part 2)
- * a sweep by the clock 6 minutes ago that found one thing, with its tokens and the day's.
+ * and a wake, every rule (`rules`, the supervisor's own list) with three tripped today, the incidents above with their
+ * cards (made by `makeCards`, the supervisor's own `incidentCards`, from the demo's fix steps and its word to the Advisor
+ * about the newest incident, on its way), and (Part 2) a sweep by the clock 6 minutes ago that found one thing, with its
+ * tokens and the day's.
  */
-export function demoSupervisor(now, rules = []) {
+export function demoSupervisor(now, rules = [], makeCards = () => []) {
   const tripped = { blocked: 2, 'limit-back': 1, 'unknown-lane': 5 }
+  const incidents = DEMO_INCIDENTS.map(({ seen: [first, last], since, ...one }) => ({ ...one, firstSeen: now - first * MIN, lastSeen: now - last * MIN, since: now - since * MIN, ruleWanted: one.ruleWanted ?? null, evidence: one.evidence ?? null }))
+    .sort((a, b) => b.lastSeen - a.lastSeen || b.id.localeCompare(a.id, 'en', { numeric: true }))
   return {
     run: {
       at: now - 2 * MIN, asked: true, subject: null, fine: 7, newAt: now - 2 * MIN, findings: [],
@@ -690,7 +725,8 @@ export function demoSupervisor(now, rules = []) {
     },
     checkedAt: now - 2 * MIN,
     rules: rules.map(rule => ({ ...rule, state: rule.id in tripped ? 'tripped' : 'fine', why: null, trips: tripped[rule.id] ?? 0 })),
-    incidents: DEMO_INCIDENTS.map(({ seen: [first, last], ...one }) => ({ ...one, firstSeen: now - first * MIN, lastSeen: now - last * MIN, since: now - (one.state === 'open' ? first : last) * MIN, ruleWanted: null })),
+    incidents,
+    cards: makeCards({ incidents, items: demoFixSteps(now), lanes: [{ name: 'Worker 5', state: 'working', isLeftover: false }], words: new Map([['X10', 'on its way']]), hasPartner: true }),
     lastSweep: { at: now - 6 * MIN, asked: false, subject: null, ended: now - 5 * MIN, found: 1, read: true, tokens: 28400, tokenParts: { input: 300, cacheWrite: 2100, cacheRead: 25200, output: 800 }, note: null },
     sweepNote: null,
     sweepEvery: 10,

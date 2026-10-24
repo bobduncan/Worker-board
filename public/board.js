@@ -22,6 +22,8 @@ const KINDS = {
   idle: { sign: '!', tag: 'May wait for you' },
   // Focus 4: the focus's steps made but not handed out by the main chat: a hint, with the way to it.
   handout: { sign: '!', tag: 'Waits for the main chat' },
+  // B541: chats on an older Workers mod than the one installed: the one way to bring them up to date.
+  'old-mod': { sign: '!', tag: 'Restart to update' },
 }
 /** What a step in the backlog says it asks of the person. */
 const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
@@ -630,8 +632,62 @@ $('new-project-form').addEventListener('submit', async event => {
  * amber to red, stay out of it).
  */
 const SYNC_TONES = { Fixed: 'done', Woke: 'done', Sent: 'done', Cleaned: 'done', 'For Main': 'main', Left: 'fine', Fine: 'fine' }
-/** An incident's state and its tone. */
-const INCIDENT_TONES = { open: 'open', 'with the advisor': 'advisor', fix: 'fix', fixed: 'fixed', 'came back': 'back' }
+/**
+ * The incident cards (2026-10-24, the person's choice of layout B): one card per fix step, `view.cards` (the supervisor's
+ * own cards.mjs: the step, its live state in the words of the chip, the incidents it covers), the incidents' own records
+ * from `view.incidents`. How many fixed cards stay in sight; the older ones fold under one button.
+ */
+const FIXED_CARDS_SHOWN = 3
+/** The longest evidence the details of a card show; the rest is in the work store. */
+const EVIDENCE_SHOWN = 600
+
+/** Small words a cut title does not end on ("steps that sit in…" reads better as "steps that sit…"). */
+const TRAILING_SMALL = /\s+(?:a|an|the|in|on|of|to|for|and|or|with|that|while|is|are|by|at)$/i
+
+/**
+ * The first few words of an incident's title: up to its first ";" or ", " (what follows is detail the evidence gives), and
+ * at most `most` characters, cut at a word and not on a small one.
+ */
+function gistOf(title, most = 60) {
+  const text = String(title ?? '').split(/;|, /)[0].trim()
+  if (text.length <= most) return text
+  const head = text.slice(0, most + 1)
+  let cut = head.slice(0, Math.max(head.lastIndexOf(' '), Math.floor(most / 2))).trimEnd()
+  while (TRAILING_SMALL.test(cut)) cut = cut.replace(TRAILING_SMALL, '')
+  return `${cut}…`
+}
+
+/** "seen 5 times, since 10:27, last 10:40" of an incident: what the details of a card say of its times. */
+function seenOf(one) {
+  return [one.count === 1 ? 'seen once' : `seen ${one.count} times`, Number.isFinite(one.firstSeen) ? `since ${clock(one.firstSeen)}` : null, one.count > 1 && Number.isFinite(one.lastSeen) ? `last ${clock(one.lastSeen)}` : null].filter(Boolean).join(', ')
+}
+
+/**
+ * One card as drawn, from the supervisor's card and the incidents' records: its head (the step's id, which opens that
+ * step, and its short title), its chip (the live state), the one quiet line (the incident ids and a few words, "seen N×"
+ * only when it was seen more than once; the card without a fix step names each incident's own state when they differ),
+ * and, folded away until a click, each incident's evidence, times and count.
+ */
+function incidentCardOf(card, byId) {
+  const covered = card.incidents.map(one => {
+    const record = byId.get(one.id) ?? { id: one.id, title: '', state: null, fix: null, count: 0, firstSeen: null, lastSeen: null, evidence: null, ruleWanted: null }
+    return { ...record, word: one.word ?? null }
+  })
+  const seen = Math.max(0, ...covered.map(one => one.count || 0))
+  const mixed = covered.length > 1 && new Set(covered.map(one => one.word)).size > 1
+  const line = mixed
+    ? covered.map(one => `${one.id} ${gistOf(one.title, 40)} (${[one.word, one.count > 1 ? `seen ${one.count}×` : null].filter(Boolean).join(', ')})`).join(' · ')
+    : `${covered.map(one => one.id).join(' ')} · ${gistOf(covered[0]?.title)}${seen > 1 ? ` (seen ${seen}×)` : ''}`
+  return {
+    key: card.key, step: card.step, href: card.step === null ? null : `#details=${card.step}`, title: card.title ?? '(this step is not in the store)',
+    state: card.state.text, tone: card.state.tone, line,
+    details: covered.map(one => ({
+      id: one.id, title: one.title ?? '', state: one.state === 'fix' && one.fix ? `fix ${one.fix}` : one.state ?? 'open', seen: seenOf(one),
+      evidence: one.evidence === null || one.evidence === undefined ? null : one.evidence.length > EVIDENCE_SHOWN ? `${one.evidence.slice(0, EVIDENCE_SHOWN).trimEnd()}…` : one.evidence,
+      ruleWanted: one.ruleWanted ?? null,
+    })),
+  }
+}
 
 /** B465: the last check's rows: a row per finding (Fixed, Woke, Sent, For Main, Cleaned or Left) and one for the checks that found nothing. */
 function checkRowsOf(run) {
@@ -644,7 +700,7 @@ function checkRowsOf(run) {
 
 /**
  * The section as drawn, from the state's `supervisor` (the supervisor's `view`), or null on a board without one (a copy
- * beside the person's board): its title (when it checked itself), a note, the incidents with their states, the last
+ * beside the person's board): its title (when it checked itself), a note, the incident cards (one per fix step), the last
  * check (the newest one asked, or one that found something, for an hour), the rules (those that tripped now or today
  * first, how often, a failed one with why; the rest counted as fine) and the last sweep, or "No sweep yet".
  */
@@ -662,17 +718,20 @@ function supervisorOf(view) {
   const tripped = rules.filter(rule => rule.tone === 'tripped').length
   const failed = rules.filter(rule => rule.tone === 'failed').length
   const every = Number.isFinite(view.sweepEvery) ? view.sweepEvery : 0
+  // One card per fix step; the fixed ones beyond the newest few fold away.
+  const byId = new Map((view.incidents ?? []).map(one => [one.id, one]))
+  const cards = (view.cards ?? []).map(card => incidentCardOf(card, byId))
+  let fixed = 0
+  const older = cards.filter(card => card.tone === 'done' && (fixed += 1) > FIXED_CARDS_SHOWN)
   return {
     title: Number.isFinite(view.checkedAt) ? `Supervisor · checked itself at ${clock(view.checkedAt)}` : 'Supervisor · not checked yet',
     note: every > 0
-      ? `Its rules run every 3 minutes by themselves, and its chat sweeps the board every ${every} minutes while work runs; Check now runs both at once.`
-      : 'Its rules run every 3 minutes by themselves; Check now runs them at once, with a sweep by its chat.',
-    incidents: (view.incidents ?? []).map(one => ({
-      id: one.id, tone: INCIDENT_TONES[one.state] ?? 'open', state: one.state === 'fix' && one.fix ? `fix ${one.fix}` : one.state ?? 'open', text: one.title ?? '',
-      seen: [one.count === 1 ? 'seen once' : `seen ${one.count} times`, Number.isFinite(one.firstSeen) ? `since ${clock(one.firstSeen)}` : null, one.count > 1 && Number.isFinite(one.lastSeen) ? `last ${clock(one.lastSeen)}` : null].filter(Boolean).join(', '),
-    })),
+      ? `It checks every 3 min and sweeps every ${every} min while work runs; Check now does both.`
+      : 'It checks every 3 min; Check now checks and sweeps at once.',
+    cards: cards.filter(card => !older.includes(card)),
+    older,
     check: run === null ? null : { head: `Last check at ${clock(run.at)}${run.asked ? `, asked${run.subject ? ` about ${run.subject}` : ''}` : ''}`, rows: checkRowsOf(run) },
-    rules: { head: `Rules · ${rules.length}${tripped > 0 ? ` · ${tripped} tripped` : ''}${failed > 0 ? ` · ${failed} failed` : ''}`, shown, rest: rules.filter(rule => !isShown(rule)) },
+    rules: { head: `${rules.length} ${rules.length === 1 ? 'rule' : 'rules'}${tripped > 0 ? ` · ${tripped} tripped` : ''}${failed > 0 ? ` · ${failed} failed` : ''}`, shown, rest: rules.filter(rule => !isShown(rule)) },
     sweep: sweepLineOf(view),
   }
 }
@@ -731,7 +790,7 @@ function supervisorLines(information) {
 // supervisor:end
 
 /** The supervisor's section: opened by the person, or closed by them (then shown again once something is new). */
-const supervisorUi = { isOpen: false, closedAt: null, showsRules: false }
+const supervisorUi = { isOpen: false, closedAt: null, showsRules: false, showsOlder: false, openCards: new Set() }
 
 /** "Check now" with its wrench, in the button's own colour: the board's own check at once (`sync` to the server). */
 function checkNowButton(about, state, title) {
@@ -746,12 +805,47 @@ function checkNowButton(about, state, title) {
   return button
 }
 
+/**
+ * One incident card (see `incidentCardOf`): the step's id (a link that opens it) and title, the chip with its live state,
+ * the one quiet line, and, once the person clicked the card, each incident's evidence, times and count.
+ */
+function drawIncidentCard(card, isOpen) {
+  const box = el('article', `inc-card is-${card.tone}${isOpen ? ' is-open' : ''}`)
+  box.dataset.supervisorCard = card.key
+  const top = el('div', 'inc-top')
+  if (card.step !== null) {
+    const link = el('a', 'inc-step', card.step)
+    link.href = card.href
+    link.dataset.supervisorStep = card.step
+    link.title = `Opens ${card.step}`
+    top.append(link)
+  }
+  top.append(el('span', 'inc-title', card.title), el('span', `inc-state is-${card.tone}`, card.state))
+  const line = el('button', 'inc-line', card.line)
+  line.type = 'button'
+  line.setAttribute('aria-expanded', String(isOpen))
+  line.title = isOpen ? 'Fold the evidence away' : 'Click for the evidence, the times and the counts'
+  box.append(top, line)
+  if (isOpen) {
+    const details = el('div', 'inc-details')
+    for (const one of card.details) {
+      const part = el('div', 'inc-detail')
+      part.append(el('div', 'inc-detail-head', `${one.id} · ${one.title}`), el('div', 'inc-detail-meta', `${one.state} · ${one.seen}`))
+      if (one.evidence !== null) part.append(el('div', 'inc-detail-evidence', `Evidence: ${one.evidence}`))
+      if (one.ruleWanted !== null) part.append(el('div', 'inc-detail-evidence', `Rule wanted: ${one.ruleWanted}`))
+      details.append(part)
+    }
+    box.append(details)
+  }
+  return box
+}
+
 /** The supervisor's section under the Workers panel's head (see `supervisorOf`); hidden while it has nothing new. */
 function drawSupervisor(state) {
   const view = state.supervisor ?? null
   const shown = isSupervisorShown(view, supervisorUi)
   const main = state.workers?.main ?? null
-  once('supervisor', [view, shown, supervisorUi.showsRules, main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board')], () => {
+  once('supervisor', [view, shown, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board')], () => {
     const box = $('supervisor')
     box.hidden = !shown
     if (!shown) return fill(box, [])
@@ -768,33 +862,41 @@ function drawSupervisor(state) {
     const head = el('header', 'supervisor-head')
     head.append(title, el('span', 'grow'), ...(main === null ? [] : [boardSyncButton(state)]), close)
     const parts = [head, el('p', 'supervisor-note', part.note)]
-    if (part.incidents.length > 0) {
-      const rows = el('div', 'supervisor-incidents')
-      for (const one of part.incidents) {
-        const words = el('div', 'incident-words')
-        words.append(el('span', 'incident-id', one.id), el('span', 'incident-text', ` ${one.text}`), el('span', 'incident-seen', ` · ${one.seen}`))
-        rows.append(el('span', `incident-state is-${one.tone}`, one.state), words)
+    const cards = supervisorUi.showsOlder ? [...part.cards, ...part.older] : part.cards
+    if (cards.length > 0) {
+      const list = el('div', 'supervisor-cards')
+      for (const card of cards) list.append(drawIncidentCard(card, supervisorUi.openCards.has(card.key)))
+      parts.push(el('h4', 'supervisor-sub', 'Incidents and what is being done about them'), list)
+      if (part.older.length > 0) {
+        const older = el('button', 'quiet-button supervisor-more', supervisorUi.showsOlder ? 'Hide the older fixed ones' : `Show ${part.older.length} older fixed`)
+        older.type = 'button'
+        older.dataset.supervisorOlder = ''
+        parts.push(older)
       }
-      parts.push(el('h4', 'supervisor-sub', 'Incidents'), rows)
     }
     if (part.check !== null) {
       const rows = el('div', 'sync-rows')
       for (const row of part.check.rows) rows.append(el('span', `sync-status is-${row.tone}`, row.status), el('span', 'sync-text', row.text))
       parts.push(el('h4', 'supervisor-sub', part.check.head), rows)
     }
-    const rules = el('div', 'supervisor-rules')
-    for (const rule of supervisorUi.showsRules ? [...part.rules.shown, ...part.rules.rest] : part.rules.shown) {
-      const row = el('div', `rule is-${rule.tone}`)
-      row.title = rule.id
-      row.append(el('span', 'rule-dot'), el('span', 'rule-says', rule.says), el('span', 'rule-often', rule.often))
-      if (rule.why !== null) row.append(el('span', 'rule-why', rule.why))
-      rules.append(row)
+    // The rules stay one folded line ("20 rules · 2 tripped"); a click opens the list.
+    const fold = el('button', 'quiet-button supervisor-more supervisor-rules-line', `${supervisorUi.showsRules ? '▾' : '▸'} ${part.rules.head}`)
+    fold.type = 'button'
+    fold.dataset.supervisorRules = ''
+    fold.setAttribute('aria-expanded', String(supervisorUi.showsRules))
+    parts.push(fold)
+    if (supervisorUi.showsRules) {
+      const rules = el('div', 'supervisor-rules')
+      for (const rule of [...part.rules.shown, ...part.rules.rest]) {
+        const row = el('div', `rule is-${rule.tone}`)
+        row.title = rule.id
+        row.append(el('span', 'rule-dot'), el('span', 'rule-says', rule.says), el('span', 'rule-often', rule.often))
+        if (rule.why !== null) row.append(el('span', 'rule-why', rule.why))
+        rules.append(row)
+      }
+      parts.push(rules)
     }
-    const more = el('button', 'quiet-button supervisor-more', supervisorUi.showsRules ? 'Show only what tripped' : `Show the ${part.rules.rest.length} other rules`)
-    more.type = 'button'
-    more.dataset.supervisorRules = ''
-    more.hidden = part.rules.rest.length === 0
-    parts.push(el('h4', 'supervisor-sub', part.rules.head), rules, more, el('p', 'supervisor-sweep', part.sweep))
+    parts.push(el('p', 'supervisor-sweep', part.sweep))
     fill(box, parts)
   })
 }
@@ -3232,6 +3334,7 @@ function answerPart(need, state, isFolded) {
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
   if (need.kind === 'unfiled' || need.kind === 'idle' || need.kind === 'handout') return [...parts, ...talkButton(need)]
+  if (need.kind === 'old-mod') return [...parts, ...oldModParts(need, state)]
   if (!need.canAnswer) return [...parts, el('p', 'muted', isStep(need) ? 'No main chat is open to take the answer.' : 'Answer in its chat.')]
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
@@ -3275,6 +3378,29 @@ function answerPart(need, state, isFolded) {
  * chat on its tab, or, for a worker, this card's window with its last answer. B308: also the hint that a worker holds a
  * step but is not working and asked nothing.
  */
+/**
+ * B541: the card of chats on an older Workers mod: each chat with what it runs and what that costs, the one way to bring
+ * them up to date, and Pause all (it asks as the button above the lanes does). While a pause stands, the next step.
+ */
+function oldModParts(need, state) {
+  const chats = el('ul', 'old-mod-chats')
+  for (const one of need.chats ?? []) chats.append(el('li', '', `${one.name}: ${one.runs}, ${one.cost}`))
+  const steps = el('ol', 'old-mod-steps')
+  for (const step of need.steps ?? []) steps.append(el('li', '', step))
+  const parts = [chats, el('p', 'old-mod-do', 'Do'), steps]
+  const pause = state.pause?.state ?? 'running'
+  if (pause !== 'running') parts.push(el('p', 'muted', pause === 'resuming' ? 'Resuming: the chats start anew on the installed mod.' : 'The pause stands: once every chat has stopped, restart the Claude app, then press Resume all.'))
+  else if ((state.restart?.main ?? null) === null) parts.push(el('p', 'muted', 'No main chat is open: Pause all needs one.'))
+  else {
+    const button = el('button', 'button', 'Pause all')
+    button.type = 'button'
+    button.dataset.oldModPause = need.id
+    button.title = 'Asks first, as Pause all above the workers does'
+    parts.push(button)
+  }
+  return parts
+}
+
 function talkButton(need) {
   const open = el('button', 'choice', need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`)
   open.type = 'button'
@@ -4049,6 +4175,33 @@ const CLICK_ACTS = {
     supervisorUi.showsRules = !supervisorUi.showsRules
     if (board !== null) drawSupervisor(board)
   },
+  // The supervisor's cards: the id of a card's step is a link (#details=B541) that opens that step; the click on it must
+  // not also open the card, so this act stands before the card's own (the table is read in order).
+  'supervisor-step': () => {
+    setTimeout(() => {
+      if (board === null) return
+      openFromAddress(board)
+      // A step the board does not show (an old one) opens nothing: the address is left clean.
+      if (detailsOf === null && location.hash.startsWith('#details=')) history.replaceState(null, '', location.pathname)
+    }, 0)
+  },
+  // The supervisor's cards: a click on a card opens its incidents' evidence, times and counts, and folds them again.
+  'supervisor-card': button => {
+    const key = button.dataset.supervisorCard
+    if (!supervisorUi.openCards.delete(key)) supervisorUi.openCards.add(key)
+    if (board !== null) drawSupervisor(board)
+  },
+  // The supervisor's cards: the fixed ones beyond the newest few show or fold.
+  'supervisor-older': () => {
+    supervisorUi.showsOlder = !supervisorUi.showsOlder
+    if (board !== null) drawSupervisor(board)
+  },
+  // B541: Pause all on the card of chats on an older Workers mod: the same question as the button above the workers.
+  'old-mod-pause': () => {
+    isAskingPause = true
+    redrawNeeds()
+    $('restart').scrollIntoView({ block: 'nearest' })
+  },
 }
 
 /** The act of a click: the nearest button with an attribute of the table, and the act; null for none, or a button that is off. */
@@ -4223,6 +4376,8 @@ function needsView(state, ui) {
     goalsEdit: { canWrite: state.goalsEdit?.canWrite ?? null, whyNot: state.goalsEdit?.whyNot ?? null },
     withPartner: state.withPartner ?? [],
     partnerDecided: state.partnerDecided ?? [],
+    // B541: the card of chats on an older Workers mod says how the pause stands.
+    pause: { state: state.pause?.state ?? null },
     ui,
   }
 }
