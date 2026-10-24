@@ -105,6 +105,40 @@ export function fixesThrough(item, items) {
   return made !== undefined && valueOf(made, 'Fix of') === valueOf(item, 'Id') && valueOf(made, 'State') === 'done'
 }
 
+const numberOf = item => Number(String(valueOf(item, 'Id')).slice(1))
+const isOpenStep = item => !['done', 'dropped'].includes(valueOf(item, 'State'))
+
+/**
+ * B543 (the fix of X8: steps sat in review for days behind a dropped fix): what a step in review waits for, or null
+ * (not in review, its board check not passed, no result check needed, or its check passed). `{ kind, fix, since, text }`:
+ * kind 'check', its result check (never filed, "waits for its first check"; or to be filed again once its ask point is
+ * answered or its fix is done, "waits for its check again"); 'answer', the person's answer to an ask point of its check;
+ * 'fix', its open fix `fix` ("waits for its fix B<n>"), also while that fix waits in review for one of its own; 'dropped',
+ * its check failed and no fix of it is open or done ("its fix B<n> was dropped"). `since`: when the wait began (ms).
+ * `items` is the store's items by id.
+ */
+export function reviewWaitOf(item, items) {
+  if (valueOf(item, 'State') !== 'review' || !gitCheckPassed(item) || !needsResultCheck(item)) return null
+  const id = valueOf(item, 'Id')
+  const result = resultCheckOf(item)
+  if (result === 'passed') return null
+  if (result === null) return { kind: 'check', fix: null, since: sinceMs(valueOf(item, 'Since')), text: 'waits for its first check' }
+  if (result === 'waits') {
+    const open = [...(items?.values() ?? [])].some(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id && valueOf(one, 'State') === 'open')
+    return open ? { kind: 'answer', fix: null, since: resultCheckAtMs(item), text: 'waits for your answer to its check' }
+      : { kind: 'check', fix: null, since: resultCheckAtMs(item), text: 'waits for its check again' }
+  }
+  const fixes = fixesOf(id, items).sort((a, b) => numberOf(a) - numberOf(b))
+  const open = fixes.filter(isOpenStep).at(-1)
+  if (open !== undefined) return { kind: 'fix', fix: valueOf(open, 'Id'), since: resultCheckAtMs(item), text: `waits for its fix ${valueOf(open, 'Id')}` }
+  const done = fixes.filter(one => valueOf(one, 'State') === 'done').at(-1)
+  if (done !== undefined) return { kind: 'check', fix: valueOf(done, 'Id'), since: sinceMs(valueOf(done, 'Since')), text: 'waits for its check again' }
+  const named = lastResult(item).match(/; fix (B\d+) for\b/)?.[1] ?? fixes.at(-1)?.head.get('Id') ?? null
+  const gone = named === null ? undefined : items?.get(named)
+  const since = gone === undefined ? resultCheckAtMs(item) : sinceMs(valueOf(gone, 'Since'))
+  return { kind: 'dropped', fix: named, since, text: named === null ? 'its check failed and made no fix' : `its fix ${named} was dropped` }
+}
+
 /**
  * The step's last result check as its "## Checked" section keeps it: `{ evidence, score, points: [{ verdict, text }],
  * passed, total }`, or null when it has none.

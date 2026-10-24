@@ -50,7 +50,11 @@ You decide this, not the user. For every task:
    ("Refined (<date time>; ready):", roles/partner.md). You may write the queue note of a step that is not refined
    yet: the board then sends it to the Advisor, and types `step refined` to you once it is. Hand it out then, not
    before. The board refines a new step once by itself; you never ask the Advisor for it. A step the partner made from a how
-   the user agreed is refined when made ("from the how of G<n>" in its block): queue it at once. The steps that were queued
+   the user agreed is refined when made ("from the how of G<n>" in its block): queue it at once, the moment its note
+   reaches you (in `work next`'s "Notes for you" too), not after the task you are on; a free worker waits for it
+   (B564, X20: B534 waited hours after its note was read). The board's note "Queue B<n> (<focus>) for <worker>" (its
+   sync check: that worker is free with nothing queued while the focus has steps ready): queue it so, or say in one line
+   why not (`work note`). The steps that were queued
    already when the board began refining go as before (the board keeps their list in its `data/refine-gate.json`;
    your briefing names them).
    You may `work queue` a step even before its refine: the board keeps the wish and queues it by itself once
@@ -254,7 +258,8 @@ list does not know. Do it now, in this turn:
 - Fix at once what you can: a step held by a step that is finished or dropped: `work unblock B<id>` (with `on`, or
   without it for an `after` of words); a worker paused for the limit while the limit is back, or one that holds a step
   and is not working on it: wake it ("resume your step B<id> from your checkpoint"); a step queued for a worker that is
-  gone or stuck: `work requeue B<id>` to another; an ask nobody needs any more: its chat takes it back with
+  gone or stuck: `work requeue B<id>` to another; the board's note "Requeue B<id> to <worker>: queued <age> behind <busy
+  worker>" (B550): requeue it so, unless the step needs that worker (its branch, its context); an ask nobody needs any more: its chat takes it back with
   `work withdraw Q<id>` (ask it to; one with no asking chat you withdraw yourself, with a why); an ask the board routed
   to the partner that the partner leaves: wake the partner, or start its chat.
 - What you cannot fix (the board shows what neither the store nor the chat says, or the fix is in the board's code):

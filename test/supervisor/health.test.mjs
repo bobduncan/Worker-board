@@ -89,6 +89,217 @@ test('B544 (X9): a chat\'s effort reads as its level, never "[object Object]"; a
   assert.match(line('Lead'), /runs sonnet · medium;/)
 })
 
+test('B560 (X17): a result check\'s fix queued behind its busy builder says it stays with that builder; a plain queued step keeps its line', () => {
+  const view = buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Digger', { state: 'working', task: { stepId: 'B12', text: 'x' } }), lane('Weeder')], chatPrefix: '' },
+    items: items(
+      step('B12', 'in progress', { Owner: 'Digger' }),
+      step('B8', 'review', { Owner: 'Digger' }),
+      step('B30', 'queued', { Owner: 'Digger', Priority: 'fix', 'Fix of': 'B8', Since: stamp(ago(25)) }),
+      step('B31', 'queued', { Owner: 'Digger', Since: stamp(ago(25)) }),
+      // A fix queued for another chat than the step's builder stays a plain queued step.
+      step('B32', 'queued', { Owner: 'Weeder', 'Fix of': 'B8', Since: stamp(ago(25)) }),
+    ),
+    now: NOW,
+  })
+  const text = healthSummary(view, NOW)
+  assert.match(text, /^- B30 queued for 25 min \(stays with Digger: fix of B8\), Digger, board fix: Step B30 of the garden$/m)
+  assert.match(text, /^- B31 queued for 25 min, Digger: Step B31 of the garden$/m)
+  assert.match(text, /^- B32 queued for 25 min, Weeder: Step B32 of the garden$/m)
+})
+
+/** X15's board: B531 queued for Worker 5, Blocked by B522 that Worker 5 holds; Workers 1, 2 and 4 free. */
+function waitingBoard(blocker, more = []) {
+  return buildView({
+    state: {
+      chats: [lane('Lead', { isMain: true }), lane('Worker 1'), lane('Worker 2'), lane('Worker 4'), lane('Worker 5', { state: 'working', task: { stepId: 'B522', text: 'x' } })],
+      chatPrefix: '',
+    },
+    items: items(blocker, step('B531', 'queued', { Owner: 'Worker 5', 'Blocked by': 'B522', Since: stamp(ago(275)) }), ...more),
+    now: NOW,
+  })
+}
+const lineOfStep = (text, id) => text.split('\n').find(one => one.startsWith(`- ${id} `) || one.startsWith(`- ! ${id} `)) ?? ''
+
+test('B561 (X15): a queued step that waits for an open step waits as planned: no "!" for its age, its blocker with state and age', () => {
+  const text = healthSummary(waitingBoard(step('B522', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(83)) })), NOW)
+  assert.equal(lineOfStep(text, 'B531'), '- B531 queued for 4 h 35 min, Worker 5 (waits as planned for B522 (in progress 1 h 23 min)): Step B531 of the garden')
+  // The same through `Waits for` words that name the step (the main chat's "after").
+  const words = buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5', { state: 'working', task: { stepId: 'B522', text: 'x' } })], chatPrefix: '' },
+    items: items(step('B522', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(83)) }), step('B531', 'queued', { Owner: 'Worker 5', 'Waits for': 'B522 merged', Since: stamp(ago(275)) })),
+    now: NOW,
+  })
+  assert.match(lineOfStep(healthSummary(words, NOW), 'B531'), /^- B531 queued for 4 h 35 min, Worker 5 \(waits as planned for B522 \(in progress 1 h 23 min\)\)/)
+})
+
+test('B561: a waiting step stays odd when its blocker stalls past its limit, or has ended while the step is still blocked', () => {
+  const stalled = healthSummary(waitingBoard(step('B522', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(190)) })), NOW)
+  assert.equal(lineOfStep(stalled, 'B531'), '- ! B531 queued for 4 h 35 min, Worker 5 (waits for B522 (in progress 3 h 10 min, stalled)): Step B531 of the garden')
+  const done = healthSummary(waitingBoard(step('B522', 'done', { Owner: 'Worker 5', Since: stamp(ago(83)) })), NOW)
+  assert.equal(lineOfStep(done, 'B531'), '- ! B531 queued for 4 h 35 min, Worker 5 (still blocked by B522, done): Step B531 of the garden')
+  const dropped = healthSummary(waitingBoard(step('B522', 'dropped', { Since: stamp(ago(83)) })), NOW)
+  assert.match(lineOfStep(dropped, 'B531'), /^- ! B531 .*\(still blocked by B522, dropped\)/)
+})
+
+test('B561: a chain of planned waits is quiet; a blocker that waits as planned itself is no stalled blocker; a loop is', () => {
+  // B522 is queued 3 h behind B520, which moves: B522 waits as planned, so B531 does too.
+  const chain = healthSummary(waitingBoard(step('B522', 'queued', { Owner: 'Worker 5', 'Blocked by': 'B520', Since: stamp(ago(180)) }), [step('B520', 'in progress', { Owner: 'Worker 5', Since: stamp(ago(60)) })]), NOW)
+  assert.match(lineOfStep(chain, 'B531'), /^- B531 queued for 4 h 35 min, Worker 5 \(waits as planned for B522 \(queued 3 h\)\)/)
+  assert.match(lineOfStep(chain, 'B522'), /^- B522 queued for 3 h, Worker 5 \(waits as planned for B520 \(in progress 1 h\)\)/)
+  // Two steps that wait for each other wait for nothing that moves.
+  const loop = healthSummary(waitingBoard(step('B522', 'queued', { Owner: 'Worker 5', 'Blocked by': 'B531', Since: stamp(ago(180)) })), NOW)
+  assert.match(lineOfStep(loop, 'B531'), /^- ! B531 .*\(waits for B522 \(queued 3 h, stalled\)\)/)
+})
+
+test('B561: a result check\'s fix that stays with its busy builder is quiet for its age; with its builder free it is odd', () => {
+  const board = builderState => buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Digger', builderState), lane('Weeder')], chatPrefix: '' },
+    items: items(
+      step('B8', 'review', { Owner: 'Digger' }),
+      step('B30', 'queued', { Owner: 'Digger', Priority: 'fix', 'Fix of': 'B8', Since: stamp(ago(180)) }),
+      ...(builderState.task ? [step('B12', 'in progress', { Owner: 'Digger', Since: stamp(ago(60)) })] : []),
+    ),
+    now: NOW,
+  })
+  const busy = healthSummary(board({ state: 'working', task: { stepId: 'B12', text: 'x' } }), NOW)
+  assert.equal(lineOfStep(busy, 'B30'), '- B30 queued for 3 h (stays with Digger: fix of B8), Digger, board fix: Step B30 of the garden')
+  const free = healthSummary(board({ state: 'free' }), NOW)
+  assert.equal(lineOfStep(free, 'B30'), '- ! B30 queued for 3 h (stays with Digger: fix of B8), Digger, board fix: Step B30 of the garden')
+})
+
+/** A step in review whose board check passed `minutes` ago, with agreed points (so it needs a result check). */
+const checkPassed = minutes => `- ${stamp(ago(minutes))} server: check passed: merged`
+const inReview = (id, minutes, history = [], more = {}) => step(id, 'review', { Since: stamp(ago(minutes)), ...more }, { 'What we build': ['- a lamp at every bench'], History: [checkPassed(minutes), ...history] })
+const askOf = (id, of, state = 'open') => item({ Id: id, Kind: 'ask', Title: `Ask ${id}`, State: state, Of: of, Since: stamp(ago(50)) })
+/** X19's board: B510 waits for the person's answer to Q339, B532 for its fix B548 queued for Worker 5. */
+function x19Board(more = [], settings = {}) {
+  return buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2'), lane('Worker 5')], chatPrefix: '' },
+    items: items(
+      inReview('B510', 65, [`- ${stamp(ago(60))} Checker: result check waits for you: 2 of 3 points pass`], { Owner: 'Worker 2' }),
+      askOf('Q339', 'B510'),
+      inReview('B532', 105, [`- ${stamp(ago(100))} Checker: result check failed: 1 of 2 points pass; fix B548 for Worker 5`], { Owner: 'Worker 5' }),
+      step('B548', 'queued', { Owner: 'Worker 5', Priority: 'fix', 'Fix of': 'B532', Since: stamp(ago(100)) }),
+      ...more,
+    ),
+    settings,
+    now: NOW,
+  })
+}
+
+test('B563 (X19): a step in review that waits for the person\'s answer or for its open fix says so, with no "!" for its age', () => {
+  const text = healthSummary(x19Board(), NOW)
+  assert.equal(lineOfStep(text, 'B510'), '- B510 review for 1 h 5 min, Worker 2 (waits for your answer to its check): Step B510 of the garden')
+  assert.equal(lineOfStep(text, 'B532'), '- B532 review for 1 h 45 min, Worker 5 (waits for its fix B548 (queued, Worker 5)): Step B532 of the garden')
+})
+
+test('B563: a step in review that waits for its check past reviewMinutes is odd; within it, quiet; it names the check it waits for', () => {
+  const first = healthSummary(x19Board([inReview('B540', 75, [], { Owner: 'Worker 2' })]), NOW)
+  assert.equal(lineOfStep(first, 'B540'), '- ! B540 review for 1 h 15 min, Worker 2 (waits for its first check): Step B540 of the garden')
+  // The same wait under a longer reviewMinutes is no "!".
+  assert.equal(lineOfStep(healthSummary(x19Board([inReview('B540', 75, [], { Owner: 'Worker 2' })], { reviewMinutes: 90 }), NOW), 'B540'), '- B540 review for 1 h 15 min, Worker 2 (waits for its first check): Step B540 of the garden')
+  // The ask answered: it waits for its check again, counted from that check, not from its review.
+  const again = healthSummary(buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2')], chatPrefix: '' },
+    items: items(inReview('B510', 200, [`- ${stamp(ago(30))} Checker: result check waits for you: 2 of 3 points pass`], { Owner: 'Worker 2' }), askOf('Q339', 'B510', 'answered')),
+    now: NOW,
+  }), NOW)
+  assert.equal(lineOfStep(again, 'B510'), '- B510 review for 3 h 20 min, Worker 2 (waits for its check again): Step B510 of the garden')
+})
+
+test('B563: a step in review whose fix was dropped is odd; so is one whose open fix is odd itself', () => {
+  const dropped = healthSummary(buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5')], chatPrefix: '' },
+    items: items(
+      inReview('B532', 20, [`- ${stamp(ago(15))} Checker: result check failed: 1 of 2 points pass; fix B548 for Worker 5`], { Owner: 'Worker 5' }),
+      step('B548', 'dropped', { Owner: 'Worker 5', 'Fix of': 'B532', Since: stamp(ago(10)) }),
+    ),
+    now: NOW,
+  }), NOW)
+  assert.equal(lineOfStep(dropped, 'B532'), '- ! B532 review for 20 min, Worker 5 (its fix B548 was dropped): Step B532 of the garden')
+  // Its fix stalled in progress for 4 h: the step it fixes is odd with it.
+  const stalled = healthSummary(buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5', { state: 'working', task: { stepId: 'B548', text: 'x' } })], chatPrefix: '' },
+    items: items(
+      inReview('B532', 300, [`- ${stamp(ago(290))} Checker: result check failed: 1 of 2 points pass; fix B548 for Worker 5`], { Owner: 'Worker 5' }),
+      step('B548', 'in progress', { Owner: 'Worker 5', 'Fix of': 'B532', Since: stamp(ago(240)) }),
+    ),
+    now: NOW,
+  }), NOW)
+  assert.equal(lineOfStep(stalled, 'B532'), '- ! B532 review for 5 h, Worker 5 (waits for its fix B548 (in progress, Worker 5)): Step B532 of the garden')
+  // Its fix queued for a chat that is gone: odd too.
+  const gone = healthSummary(buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 5')], chatPrefix: '' },
+    items: items(
+      inReview('B532', 100, [`- ${stamp(ago(90))} Checker: result check failed: 1 of 2 points pass; fix B548 for Somebody gone`], { Owner: 'Worker 5' }),
+      step('B548', 'queued', { Owner: 'Somebody gone', 'Fix of': 'B532', Since: stamp(ago(20)) }),
+    ),
+    now: NOW,
+  }), NOW)
+  assert.match(lineOfStep(gone, 'B532'), /^- ! B532 review for 1 h 40 min, Worker 5 \(waits for its fix B548 \(queued, Somebody gone\)\)/)
+})
+
+/** X18's board at 20:23: Lead's last report B301 at 22:29 the day before, and a time of another day in every section. */
+const X18_NOW = new Date(2026, 9, 24, 20, 23).getTime()
+const yesterday = (hours, minutes) => new Date(2026, 9, 23, hours, minutes).getTime()
+const today = (hours, minutes) => new Date(2026, 9, 24, hours, minutes).getTime()
+function x18Board({ reportAt = yesterday(22, 29) } = {}) {
+  return buildView({
+    state: {
+      chats: [
+        lane('Lead', { isMain: true, compaction: { kind: 'cleared', at: yesterday(22, 40), step: 'B301' } }),
+        lane('Digger', { state: 'suspended', suspended: { limit: '5-hour limit', until: new Date(2026, 9, 25, 1, 10).getTime() }, compaction: { kind: 'compacted', at: yesterday(21, 5), notCleared: { at: yesterday(21, 5), why: 'a subagent still runs' } } }),
+        lane('Weeder', { state: 'unknown', compaction: { kind: 'skipped', at: today(19, 50), why: 'small enough' } }),
+      ],
+      chatPrefix: '',
+      today: [{ chat: 'Digger', spans: [{ from: yesterday(23, 15), to: X18_NOW, state: 'suspended' }] }, { chat: 'Weeder', spans: [{ from: today(20, 3), to: X18_NOW, state: 'unknown' }] }],
+    },
+    items: items(
+      step('B301', 'done', { Owner: 'Lead', Since: stamp(reportAt) }, { History: [`- ${stamp(reportAt)} Lead: in progress → review`] }),
+      step('B302', 'review', { Owner: 'Weeder', Since: stamp(today(19, 40)) }, { History: [`- ${stamp(today(19, 40))} Weeder: in progress → review`] }),
+      item({ Id: 'X18', Kind: 'incident', Title: 'a time in the future', State: 'open', Source: 'sweep', Key: 'time Lead', Since: stamp(yesterday(23, 0)), 'First seen': stamp(yesterday(23, 0)), 'Last seen': stamp(today(20, 20)), Count: '2' }),
+    ),
+    limits: { fiveHour: { used: 97, level: 'full', at: today(20, 20), resetsAt: new Date(2026, 9, 25, 1, 10).getTime() }, week: { used: 41, level: 'ok', at: yesterday(23, 50), resetsAt: today(23, 0) } },
+    pause: { state: 'running', since: yesterday(8, 0) },
+    repairs: [{ at: yesterday(22, 30), rule: 'limit-back', subject: 'Digger', key: 'limit-back Digger' }],
+    now: X18_NOW,
+  })
+}
+
+test('B562 (X18): a last report of the day before shows its date, so 22:29 never reads as a time later than now (20:23)', () => {
+  const text = healthSummary(x18Board(), X18_NOW)
+  const lead = text.split('\n').find(one => one.includes('Lead (main)')) ?? ''
+  assert.match(lead, /; last report B301 at 2026-10-23 22:29;/)
+  assert.doesNotMatch(lead, /at 22:29;/)
+  // A report of today keeps its clock alone.
+  const todays = healthSummary(x18Board({ reportAt: today(18, 5) }), X18_NOW).split('\n').find(one => one.includes('Lead (main)')) ?? ''
+  assert.match(todays, /; last report B301 at 18:05;/)
+  assert.match(text.split('\n').find(one => one.includes('Weeder (worker)')) ?? '', /unknown since 20:03 \(20 min\);.*; last report B302 at 19:40; compaction skipped at 19:50: small enough$/)
+})
+
+test('B562: every time in the summary of another day, past or future, carries its date; the head keeps the clock of now', () => {
+  const text = healthSummary(x18Board(), X18_NOW)
+  const line = words => text.split('\n').find(one => one.includes(words)) ?? ''
+  assert.match(text, /^The board's health at 20:23,/)
+  assert.match(line('Lead (main)'), /cleared at 2026-10-23 22:40 after B301$/)
+  assert.match(line('Digger (worker)'), /suspended since 2026-10-23 23:15 \(21 h 8 min\) \(for 5-hour limit until 2026-10-25 01:10\);/)
+  assert.match(line('Digger (worker)'), /not cleared at 2026-10-23 21:05: a subagent still runs; compacted at 2026-10-23 21:05$/)
+  assert.match(line('X18 open'), /first 2026-10-23 23:00, last 20:20:/)
+  assert.match(line('repair limit-back'), /^- 2026-10-23 22:30 repair limit-back on Digger/)
+  // A reset tomorrow and a read of yesterday show their dates; a reset later today its clock.
+  assert.match(line('5-hour limit: '), /5-hour limit: 97% used \(full\), read at 20:20, resets at 2026-10-25 01:10; weekly limit: 41% used \(ok\), read at 2026-10-23 23:50, resets at 23:00/)
+  assert.match(line('- pause:'), /pause: running since 2026-10-23 08:00/)
+})
+
+test('B562: health.mjs prints no time through the bare clockOf outside dayClockOf and the head line, so a new time cannot skip its date', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../../src/supervisor/health.mjs', import.meta.url), 'utf8')
+  const rest = source.replace(/const dayClockOf = [\s\S]*?\n}\n/, '').split('\n').filter(one => !/^\s*const head = /.test(one))
+  assert.deepEqual(rest.filter(one => /\bclockOf\(/.test(one)).map(one => one.trim()), [])
+  assert.match(source, /const dayClockOf = /, 'dayClockOf is still there to be cut out')
+})
+
 test('the summary holds every section: the chats with state, since, model and effort beside the step\'s, last report and clear', () => {
   const text = healthSummary(fixture(), NOW)
   assert.ok(text.length <= HEALTH_CHARS)

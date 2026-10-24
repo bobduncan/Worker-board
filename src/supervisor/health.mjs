@@ -8,6 +8,7 @@
 import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { isHolding } from '../work/pause.mjs'
+import { reviewWaitOf } from '../work/resultCheck.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -27,6 +28,15 @@ const REPORTED = / → review\b|: reported again\b/
 
 const pad = n => String(n).padStart(2, '0')
 const clockOf = ms => (Number.isFinite(ms) ? `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}` : 'not known')
+/**
+ * B542 (X10: "18:13 round to Advisor: waiting for 9 d" read as an age that did not fit its time; the word was of 15
+ * October): a time of today as its clock, one of another day with its date before it.
+ */
+const dayClockOf = (ms, now) => {
+  if (!Number.isFinite(ms)) return 'not known'
+  const day = new Date(ms)
+  return day.toDateString() === new Date(now).toDateString() ? clockOf(ms) : `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())} ${clockOf(ms)}`
+}
 /** A span in words: "45 min", "2 h 10 min", "3 d". */
 function lasting(ms) {
   if (!Number.isFinite(ms) || ms < 0) return 'not known'
@@ -66,7 +76,7 @@ function chatLines(view, now) {
   return chats.map(({ lane, role }) => {
     const mine = steps.filter(item => plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
     const since = view.since.get(lane.name)
-    const state = `${lane.state ?? 'not known'}${Number.isFinite(since) ? ` since ${clockOf(since)} (${lasting(now - since)})` : ''}`
+    const state = `${lane.state ?? 'not known'}${Number.isFinite(since) ? ` since ${dayClockOf(since, now)} (${lasting(now - since)})` : ''}`
     const running = lane.isRunning === false ? ', its chat does not run' : ''
     // B544: the level, never the partner's mode object ("[object Object]", X9).
     const runs = `runs ${familyOf(lane.model) ?? 'a model not known'} · ${chatEffort(lane) ?? 'effort not known'}`
@@ -77,23 +87,116 @@ function chatLines(view, now) {
     const onWords = onId === null ? '; on no step' : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
     const reports = mine.flatMap(item => (item.sections?.get('History') ?? []).filter(line => REPORTED.test(line)).map(line => ({ id: valueOf(item, 'Id'), at: historyAt(line) })))
       .filter(one => Number.isFinite(one.at)).sort((a, b) => b.at - a.at)
-    const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${clockOf(reports[0].at)}`
+    const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${dayClockOf(reports[0].at, now)}`
     const suspended = lane.state === 'suspended' && lane.suspended !== null && typeof lane.suspended === 'object'
-      ? ` (for ${lane.suspended.limit ?? 'a limit'}${Number.isFinite(lane.suspended.until) ? ` until ${clockOf(lane.suspended.until)}` : ''}${lane.suspended.isBack === true ? ', the limit is back' : ''})` : ''
+      ? ` (for ${lane.suspended.limit ?? 'a limit'}${Number.isFinite(lane.suspended.until) ? ` until ${dayClockOf(lane.suspended.until, now)}` : ''}${lane.suspended.isBack === true ? ', the limit is back' : ''})` : ''
     const odd = ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null) || (lane.state === 'working' && onId === null && role === 'worker')
-    return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
+    return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
   })
 }
 
 /** The Workers mod's last word on a clear or a compaction of the chat, with why it did not clear. */
-function clearWords(compaction) {
+function clearWords(compaction, now) {
   if (compaction === null || compaction === undefined) return 'no clear known'
-  if (compaction.kind === 'cleared') return `cleared at ${clockOf(compaction.at)}${compaction.step ? ` after ${compaction.step}` : ''}`
+  if (compaction.kind === 'cleared') return `cleared at ${dayClockOf(compaction.at, now)}${compaction.step ? ` after ${compaction.step}` : ''}`
   // B547: the mod's newest word is why it did not clear; the clear before it, when there was one.
-  if (compaction.kind === 'not-cleared') return `not cleared at ${clockOf(compaction.at)}: ${compaction.why}${compaction.lastCleared ? `; last cleared at ${clockOf(compaction.lastCleared.at)}${compaction.lastCleared.step ? ` after ${compaction.lastCleared.step}` : ''}` : ''}`
-  const not = compaction.notCleared ? `not cleared at ${clockOf(compaction.notCleared.at)}: ${compaction.notCleared.why}; ` : ''
-  if (compaction.kind === 'compacted') return `${not}compacted at ${clockOf(compaction.at)}`
-  return `${not}compaction skipped at ${clockOf(compaction.at)}: ${compaction.why ?? 'no reason given'}`
+  if (compaction.kind === 'not-cleared') return `not cleared at ${dayClockOf(compaction.at, now)}: ${compaction.why}${compaction.lastCleared ? `; last cleared at ${dayClockOf(compaction.lastCleared.at, now)}${compaction.lastCleared.step ? ` after ${compaction.lastCleared.step}` : ''}` : ''}`
+  const not = compaction.notCleared ? `not cleared at ${dayClockOf(compaction.notCleared.at, now)}: ${compaction.notCleared.why}; ` : ''
+  if (compaction.kind === 'compacted') return `${not}compacted at ${dayClockOf(compaction.at, now)}`
+  return `${not}compaction skipped at ${dayClockOf(compaction.at, now)}: ${compaction.why ?? 'no reason given'}`
+}
+
+/**
+ * B542 (X10: "B506 in progress 20 min (waits for B503)", B503 long done): what still holds a step: the steps its
+ * `Blocked by` names that are not done or dropped (one in review as "the check of B<n>"), and its `Waits for` words
+ * while they name no step or one such step.
+ */
+function waitsOf(item, items) {
+  const stateOfId = id => valueOf(items.get(id) ?? { head: new Map() }, 'State')
+  const holds = id => !['done', 'dropped'].includes(stateOfId(id))
+  const named = id => (stateOfId(id) === 'review' ? `the check of ${id}` : id)
+  const blockers = (valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []
+  const words = valueOf(item, 'Waits for')
+  const ids = (words ?? '').match(/\bB\d+\b/g) ?? []
+  return [
+    blockers.filter(holds).map(named).join(' and '),
+    words !== null && words !== '-' && (ids.length === 0 || ids.some(holds)) ? words : '',
+  ].filter(one => one !== '')
+}
+
+const stateIn = (items, id) => valueOf(items.get(id) ?? { head: new Map() }, 'State')
+const ageOf = (item, now) => now - sinceMs(valueOf(item, 'Since'))
+const ENDED = ['done', 'dropped']
+
+/**
+ * B561 (X15: B531 queued 4 h 35 min, Blocked by B522 in progress 1 h 23 min on the same worker, read as stuck): what a
+ * queued step waits for as planned: the steps its `Blocked by` names and those its `Waits for` names that are in the
+ * store and not done or dropped (`open`), and which of them are stalled themselves (`stalled`: past their state's
+ * limit and not waiting as planned in turn; a loop of waits counts as stalled). Null when it waits for no open step.
+ */
+function plannedWait(item, view, now, seen = new Set()) {
+  if (valueOf(item, 'State') !== 'queued') return null
+  const named = field => (valueOf(item, field) ?? '').match(/\bB\d+\b/g) ?? []
+  const open = [...new Set([...named('Blocked by'), ...named('Waits for')])].filter(id => view.items.has(id) && !ENDED.includes(stateIn(view.items, id)))
+  if (open.length === 0) return null
+  const chain = new Set([...seen, valueOf(item, 'Id')])
+  return { open, stalled: open.filter(id => chain.has(id) || isLate(view.items.get(id), view, now, chain)) }
+}
+
+/**
+ * B563 (X19: B510 waiting for the person's answer and B532 for its queued fix B548 read as unchecked for their age):
+ * whether a step in review is odd by what it waits for (resultCheck.mjs `reviewWaitOf`, as the review-stuck rule reads
+ * it): the person's answer, never; its open fix, when that fix is odd itself (a loop of fixes counts as odd); its check,
+ * past `reviewMinutes`; its dropped fix, always. Null when it waits for none of these: its age decides.
+ */
+function reviewLate(item, view, now, seen) {
+  const wait = reviewWaitOf(item, view.items)
+  if (wait === null) return null
+  if (wait.kind === 'answer') return false
+  if (wait.kind === 'check') return !(now - wait.since <= view.settings.reviewMinutes * MIN)
+  if (wait.kind === 'fix') {
+    const chain = new Set([...seen, valueOf(item, 'Id')])
+    const fix = view.items.get(wait.fix)
+    return chain.has(wait.fix) || isLate(fix, view, now, chain) || ownerGone(fix, view)
+  }
+  return true
+}
+
+/** A step owned by a chat the board does not show. */
+const ownerGone = (item, view) => {
+  const owner = valueOf(item, 'Owner')
+  return owner !== null && !view.lanes.some(lane => !lane.isLeftover && plain(lane.name, view.prefix) === plain(owner, view.prefix))
+}
+
+/** A step past its state's limit (LONG_MS), unless it waits as planned (B561, B563) or stays with its busy builder. */
+function isLate(item, view, now, seen = new Set()) {
+  const review = reviewLate(item, view, now, seen)
+  if (review !== null) return review
+  const age = ageOf(item, now)
+  if (!(Number.isFinite(age) && age > (LONG_MS[valueOf(item, 'State')] ?? Infinity))) return false
+  if (staysWith(item, view) !== null && builderHolds(item, view)) return false
+  const wait = plannedWait(item, view, now, seen)
+  return wait === null || wait.stalled.length > 0
+}
+
+/**
+ * B560 (X17: B558 queued behind its busy builder read as a step that should move): a result check's fix waits for the
+ * worker that built the step it fixes, as the flow queues it and the queued-behind rule keeps it. The step it fixes, or
+ * null when it is no such fix.
+ */
+function staysWith(item, view) {
+  const owner = valueOf(item, 'Owner')
+  const fixOf = valueOf(item, 'Fix of') ?? ''
+  const builder = /^B\d+$/.test(fixOf) ? valueOf(view.items.get(fixOf) ?? { head: new Map() }, 'Owner') : null
+  return valueOf(item, 'State') === 'queued' && owner !== null && builder !== null && plain(builder, view.prefix) === plain(owner, view.prefix) ? fixOf : null
+}
+
+/** B561: the step's owner holds another step (taken, in progress or waiting on you), on its card or in the store. */
+function builderHolds(item, view) {
+  const owner = plain(valueOf(item, 'Owner'), view.prefix)
+  const id = valueOf(item, 'Id')
+  const card = view.lanes.find(lane => !lane.isLeftover && plain(lane.name, view.prefix) === owner)?.task?.stepId ?? null
+  return (card !== null && card !== id) || stepsOf(view).some(other => valueOf(other, 'Id') !== id && plain(valueOf(other, 'Owner'), view.prefix) === owner && HELD.slice(0, 3).includes(valueOf(other, 'State')))
 }
 
 /** Each step under way: its state, for how long, its owner; the backlog's new and refined steps counted in one line. */
@@ -112,13 +215,26 @@ function stepLines(view, now) {
     const owner = valueOf(item, 'Owner')
     const since = sinceMs(valueOf(item, 'Since'))
     const age = now - since
-    const blocked = [valueOf(item, 'Blocked by'), valueOf(item, 'Waits for')].filter(one => one !== null && one !== '-' && one !== '')
     const fix = valueOf(item, 'Priority') === 'fix' ? ', board fix' : ''
     const isChats = owner !== null && chats.has(plain(owner, view.prefix))
+    const fixOf = staysWith(item, view)
+    const stays = fixOf === null ? '' : ` (stays with ${owner}: fix of ${fixOf})`
+    // B561: a step that waits for open steps names each with its state and age; a stalled one says so.
+    const wait = plannedWait(item, view, now)
+    const blockerWords = blocker => `${stateIn(view.items, blocker) === 'review' ? `the check of ${blocker}` : blocker} (${stateIn(view.items, blocker)} ${lasting(ageOf(view.items.get(blocker), now))}${wait.stalled.includes(blocker) ? ', stalled' : ''})`
+    const blocked = waitsOf(item, view.items)
+    const ended = state === 'queued' ? ((valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []).filter(blocker => ENDED.includes(stateIn(view.items, blocker))) : []
+    // B563: a step in review names what it waits for, its open fix with that fix's state and owner.
+    const review = reviewWaitOf(item, view.items)
+    const fixWords = review?.kind === 'fix' ? ` (${stateIn(view.items, review.fix)}, ${valueOf(view.items.get(review.fix), 'Owner') ?? 'no owner'})` : ''
+    const waits = review !== null ? ` (${review.text}${fixWords})`
+      : wait !== null ? ` (waits${wait.stalled.length === 0 ? ' as planned' : ''} for ${wait.open.map(blockerWords).join(' and ')})`
+      : blocked.length > 0 ? ` (waits for ${blocked.join('; ')})`
+        : ended.length > 0 ? ` (still blocked by ${ended.map(blocker => `${blocker}, ${stateIn(view.items, blocker)}`).join(' and ')})` : ''
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
-    const odd = (Number.isFinite(age) && age > (LONG_MS[state] ?? Infinity)) || (owner !== null && !isChats)
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}, ${owner === null ? 'no owner' : owner}${fix}${blocked.length > 0 ? ` (waits for ${blocked.join('; ')})` : ''}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
+    const odd = isLate(item, view, now) || (owner !== null && !isChats)
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
   }
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined`, { tier: 1 }))
   return lines
@@ -136,14 +252,14 @@ const IDLE_STATES = ['free', 'unknown', 'off']
 
 /** The repairs the board made in the last day, and its incidents (not fixed, or fixed in the last day), with their keys. */
 function dayLines(view, now) {
-  const repairs = view.repairs.filter(one => now - one.at < DAY).map(one => lineOf(`${clockOf(one.at)} repair ${one.rule} on ${one.subject ?? 'the board'} (${one.key})`, { at: one.at }))
+  const repairs = view.repairs.filter(one => now - one.at < DAY).map(one => lineOf(`${dayClockOf(one.at, now)} repair ${one.rule} on ${one.subject ?? 'the board'} (${one.key})`, { at: one.at }))
   const incidents = [...view.items.values()].filter(item => kindOf(item) === 'incident').flatMap(item => {
     const state = valueOf(item, 'State')
     const last = sinceMs(valueOf(item, 'Last seen'))
     if (state === 'fixed' && !(now - last < DAY)) return []
     const fix = valueOf(item, 'Fix')
     const evidence = valueOf(item, 'Evidence')
-    return [lineOf(`${valueOf(item, 'Id')} ${state === 'fix' && fix ? `fix ${fix}` : state}, from ${valueOf(item, 'Source') ?? 'not known'}, seen ${valueOf(item, 'Count') ?? '1'} times, first ${clockOf(sinceMs(valueOf(item, 'First seen')))}, last ${clockOf(last)}: ${valueOf(item, 'Title') ?? ''} [key: ${valueOf(item, 'Key') ?? ''}]${evidence === null ? '' : ` (evidence: ${oneLine(evidence, 80)})`}`,
+    return [lineOf(`${valueOf(item, 'Id')} ${state === 'fix' && fix ? `fix ${fix}` : state}, from ${valueOf(item, 'Source') ?? 'not known'}, seen ${valueOf(item, 'Count') ?? '1'} times, first ${dayClockOf(sinceMs(valueOf(item, 'First seen')), now)}, last ${dayClockOf(last, now)}: ${valueOf(item, 'Title') ?? ''} [key: ${valueOf(item, 'Key') ?? ''}]${evidence === null ? '' : ` (evidence: ${oneLine(evidence, 80)})`}`,
       { tier: 1, odd: state === 'open' || state === 'came back', at: last })]
   })
   return [...incidents, ...repairs]
@@ -154,16 +270,16 @@ function wordLines(view, now) {
   // The review: not the supervisor's own sweep words (a sweep word that waits would make every summary look new).
   return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep')
     .filter(message => message.state === 'waiting' || message.state === 'held' || ((message.state === 'expired' || message.state === 'failed') && now - message.at < DAY))
-    .map(message => lineOf(`${clockOf(message.at)} ${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''} to ${message.to}: ${message.state} for ${lasting(now - message.at)}`,
+    .map(message => lineOf(`${dayClockOf(message.at, now)} ${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''} to ${message.to}: ${message.state} for ${lasting(now - message.at)}`,
       { tier: 1, odd: message.state !== 'held' && now - message.at > (view.settings.undeliveredMinutes ?? 10) * MIN, at: message.at }))
 }
 
 /** The limits of the plan and the person's pause. */
-function limitLines(view) {
+function limitLines(view, now) {
   const limit = (name, value) => (value === null || value === undefined ? `${name}: not known`
-    : `${name}: ${Math.round(value.used)}% used (${value.level}), read at ${clockOf(value.at)}${Number.isFinite(value.resetsAt) ? `, resets at ${clockOf(value.resetsAt)}` : ''}`)
+    : `${name}: ${Math.round(value.used)}% used (${value.level}), read at ${dayClockOf(value.at, now)}${Number.isFinite(value.resetsAt) ? `, resets at ${dayClockOf(value.resetsAt, now)}` : ''}`)
   const pause = view.pause === null || view.pause === undefined ? 'pause: none known'
-    : `pause: ${view.pause.state ?? 'not known'}${Number.isFinite(view.pause.since) ? ` since ${clockOf(view.pause.since)}` : ''}`
+    : `pause: ${view.pause.state ?? 'not known'}${Number.isFinite(view.pause.since) ? ` since ${dayClockOf(view.pause.since, now)}` : ''}`
   return [
     lineOf(`${limit('5-hour limit', view.limits?.fiveHour)}; ${limit('weekly limit', view.limits?.week)}`, { tier: 0, odd: ['fiveHour', 'week'].some(key => view.limits?.[key]?.level === 'full') }),
     lineOf(pause, { tier: 0, odd: isHolding(view.pause) }),
@@ -183,7 +299,7 @@ export function healthSummary(view, now = view.now) {
     { title: 'Queues', lines: queueLines(view) },
     { title: 'Incidents and repairs of the last day', lines: dayLines(view, now) },
     { title: 'Words not delivered', lines: wordLines(view, now) },
-    { title: 'Limits and pause', lines: limitLines(view) },
+    { title: 'Limits and pause', lines: limitLines(view, now) },
   ]
   const head = `The board's health at ${clockOf(now)}, for the supervisor's sweep. Odd lines are marked with "!".`
   const rank = (a, b) => a.tier - b.tier || Number(b.odd) - Number(a.odd) || b.at - a.at

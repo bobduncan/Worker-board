@@ -131,8 +131,10 @@ test('3: lines held while pausing are handed out at the resume, not late for the
   // While resuming the hold has ended: held from the pause to the resume, no longer.
   assert.equal(heldMs(line, RESUMED + 5 * MIN, resuming), RESUMED - PAUSED)
   assert.equal(heldMs(reply, RESUMED + 5 * MIN, resuming), RESUMED - PAUSED - 5 * MIN)
-  assert.equal(isLate(line, RESUMED + 5 * MIN, { ...KEEP, pause: resuming }), false)
-  assert.equal(isLate(line, RESUMED + 9 * MIN, { ...KEEP, pause: resuming }), true)
+  // A plain line is kept answerMs (B548): ten minutes here, so the hold shows in minutes.
+  const short = { ...KEEP, answerMs: 10 * MIN }
+  assert.equal(isLate(line, RESUMED + 5 * MIN, { ...short, pause: resuming }), false)
+  assert.equal(isLate(line, RESUMED + 9 * MIN, { ...short, pause: resuming }), true)
   // Running after the resume: the hold ended at the resume (`resumedSince`), not when running was set.
   const running = { state: 'running', since: RESUMED + 20 * MIN, pausedSince: PAUSED, resumedSince: RESUMED }
   assert.equal(heldMs(line, RESUMED + 25 * MIN, running), RESUMED - PAUSED)

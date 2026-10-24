@@ -37,7 +37,7 @@ import { effortPlan, runSettings } from './work/effort.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
-import { contextOfStep, flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
+import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
@@ -1329,7 +1329,9 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     if (step.after !== null) {
       const ids = [...new Set(step.after.match(/\bB\d+\b/g) ?? [])]
       const open = ids.filter(id => openIds.has(id))
-      if (open.length > 0) return { reason: 'after', steps: open }
+      // B542: the ones in review wait only for their check, and the line says so.
+      const checks = workOk ? open.filter(id => valueOf(raw.work.items.get(id) ?? { head: new Map() }, 'State') === 'review') : []
+      if (open.length > 0) return { reason: 'after', steps: open, ...(checks.length > 0 ? { checks } : {}) }
       if (ids.length === 0 || ids.some(id => !knownIds.has(id))) return { reason: 'after', words: step.after }
     }
     if (lane === null) return { reason: 'nobody' }
@@ -1676,6 +1678,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           doneAt: step.id === null ? null : doneAtOf.get(step.id)?.at ?? null,
           // B296: where it stands in the flow (flow.json), for the strip in its window.
           flow: flowOfStep(raw.work, step.key),
+          // B543: what it waits for while in review ("waits for its fix B<n>"), or null.
+          reviewWait: reviewWaitOfStep(raw.work, step.key),
           // B299: the step as the store holds it, for its window.
           item,
         }

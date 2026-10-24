@@ -16,9 +16,9 @@ import { sinceMs, valueOf } from '../../work/item.mjs'
 import { blockersOpen, waitWords } from '../../work/guards.mjs'
 import { heldMs, isHolding } from '../../work/pause.mjs'
 import { whyClosed } from '../../work/outboxSweep.mjs'
-import { isLate } from '../../store.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
+import { reviewWaitOf } from '../../work/resultCheck.mjs'
 import { CLEAR_MOD, takenSince } from '../../clearOwed.mjs'
 
 const MIN = 60_000
@@ -229,15 +229,44 @@ function skipRepeats(view, ctx) {
   return found
 }
 
+const DONE_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s+[^:]+: \S+ → done\b/
+const FIX_LINE = /^-\s+\S+ \S+ [^:]+: fix (B\d+)\s*$/
+
+/**
+ * B551 (X11): when the incident a finding's key files was last fixed: the latest time one of the steps named as its fix
+ * (its Fix, and every "fix B<n>" of its History) went done, at the end of that minute; -Infinity for none. A repair
+ * before it is one that fix was made for: it never counts again.
+ */
+function fixedAtOf(view, key) {
+  const incident = [...view.items.values()].find(item => valueOf(item, 'Kind') === 'incident' && valueOf(item, 'Key') === key)
+  if (incident === undefined) return -Infinity
+  const named = (incident.sections?.get('History') ?? []).map(line => FIX_LINE.exec(line)?.[1]).filter(Boolean)
+  let at = -Infinity
+  for (const id of new Set([valueOf(incident, 'Fix'), ...named].filter(Boolean))) {
+    const fix = view.items.get(id)
+    if (fix === undefined || stateOf(fix) !== 'done') continue
+    const done = (fix.sections?.get('History') ?? []).map(line => DONE_LINE.exec(line)?.[1]).filter(Boolean).at(-1) ?? valueOf(fix, 'Since')
+    const ms = sinceMs(done)
+    if (Number.isFinite(ms)) at = Math.max(at, ms + (/:\d\d:\d\d$/.test(done) ? 1000 : MIN) - 1)
+  }
+  return at
+}
+
 /**
  * 7. The same repair (a repair rule, on the same chat or step) `repairsPerDay` times or more in a day. B546: a repair
- * the app's restart caused (`cause: 'restart'`, a chat stopped because the app started anew) does not count.
+ * the app's restart caused (`cause: 'restart'`, a chat stopped because the app started anew) does not count. B551: nor
+ * does one from before its incident's fix was done (`fixedAtOf`): X11 came back on the very wakes B546 was made for,
+ * recorded before it and so without their cause.
  */
 function repairRepeats(view) {
   const counts = new Map()
   for (const one of view.repairs.filter(repair => view.now - repair.at < DAY && repair.cause !== 'restart')) {
     const id = `${one.rule} ${one.subject}`
     counts.set(id, [...(counts.get(id) ?? []), one])
+  }
+  for (const [id, all] of counts) {
+    const after = fixedAtOf(view, `repair-repeats ${id}`)
+    counts.set(id, all.filter(one => one.at > after))
   }
   const found = []
   for (const [id, all] of [...counts].sort(([a], [b]) => byId(a, b))) {
@@ -268,7 +297,9 @@ function undelivered(view) {
   const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map() }
   // A word that waited too long still counts (the sweep marks it expired, and so does this rule); one that no longer
   // matters (dropped: superseded, its step moved on) does not.
-  const stillWaits = message => whyClosed(message, ctx)?.state !== 'dropped' && !((message.ask ?? null) !== null && isLate(message, view.now, view.keep))
+  // B548: an answer waits for its chat however old (store.mjs isLate); past answerMs it is not named here.
+  const stillWaits = message => whyClosed(message, ctx)?.state !== 'dropped'
+    && !((message.ask ?? null) !== null && view.now - message.at - heldMs(message, view.now, view.pause) > view.keep.answerMs)
   const late = view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at)).filter(message => {
     // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
     // hold before its release (B285).
@@ -345,7 +376,46 @@ function oddEffort(view) {
 }
 
 /**
- * 12. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
+ * 12. B543 (the fix of X8: a step sat in review for 3 days behind a dropped fix, four more for hours behind a chain of
+ * fixes): a step in review says what it waits for (resultCheck.mjs `reviewWaitOf`). Waiting for an open fix, or for the
+ * person's answer, is no case. Stuck: no result check filed for longer than `reviewMinutes` (its first, or again after
+ * its fix was done or its ask point answered; the repair `unchecked` types the check word meanwhile), or its fix dropped
+ * with none open (the repair `fix-dropped` tells the main chat). Counted from the end of the person's last pause.
+ */
+function reviewStuck(view, ctx) {
+  const found = []
+  if (isPaused(view)) return found
+  const partner = view.partner?.name ?? 'the partner'
+  for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
+    const wait = reviewWaitOf(item, view.items)
+    if (wait === null || !['check', 'dropped'].includes(wait.kind)) continue
+    const id = idOf(item)
+    const key = wait.kind === 'check' ? `review-stuck ${id} check` : `review-stuck ${id} dropped ${wait.fix ?? 'none'}`
+    const ms = lasted(view, ctx, key, afterPause(view, wait.since))
+    if (ms <= view.settings.reviewMinutes * MIN) continue
+    if (wait.kind === 'dropped') {
+      found.push({
+        rule: 'review-stuck', key, subject: id,
+        text: `${id} in review, but ${wait.text}: nothing will close it`,
+        evidence: `${id} owned by ${valueOf(item, 'Owner') ?? 'nobody'}; ${wait.text} ${minutes(ms)} min ago; no other fix of it is open`,
+      })
+      continue
+    }
+    // The check words the partner was sent about it (the board's ask for its check, the repair's wakes).
+    const words = view.outbox.filter(message => message?.about === id && Number.isFinite(message.at) && message.at >= wait.since
+      && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked ')))
+    const last = words.reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+    found.push({
+      rule: 'review-stuck', key, subject: id,
+      text: `${id} in review ${minutes(ms)} min with no result check filed (${wait.text})`,
+      evidence: `since ${clockOf(view.now - ms)}; ${words.length === 0 ? `no check word to ${partner}` : `${words.length} check ${words.length === 1 ? 'word' : 'words'} to ${words[0].to ?? partner}, the last at ${clockOf(last.at)} (${last.state ?? 'not known'})`}`,
+    })
+  }
+  return found
+}
+
+/**
+ * 13. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
  * src/clearOwed.mjs) and that took a new step since, on the old conversation; or that stays so for longer than
  * `notClearedMinutes` (a log refused while its background work runs, a mod that left no word). One finding per worker
  * per report, with the Workers mod's why when it logged one, and the repair: the board holds its next step and names the
@@ -389,5 +459,6 @@ export const WATCH_RULES = [
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
   { id: 'old-mod', kind: 'watch', says: 'a chat on an older Workers mod than the one installed', check: oldMod },
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
+  { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewStuck },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
 ]

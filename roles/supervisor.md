@@ -37,10 +37,23 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - A step moves forward: queued, taken, in progress, review, done. One that goes back and forth (queued again, taken
   again, its check failing again) is odd.
 - Steps queued for free workers are taken within minutes; one worker with many queued steps while others are idle is
-  odd.
-- Steps in review are checked and done; steps piling up in review are odd.
+  odd. A result check's fix waits for the worker that built the step it fixes, also while that worker is busy and
+  others are free (the flow's rule; the summary says "stays with <worker>: fix of B<n>"): the queued-behind rule names
+  it to the main chat after 20 minutes. Such a wait is no incident, and the summary marks it odd only once that worker
+  holds no step.
+- A step that waits for another step (its Blocked by, or the steps its Waits for names) waits as planned while that
+  step moves: the summary says "waits as planned for B<n> (<state> <age>)" and marks no "!" for its age: no incident.
+  Only a stalled blocker (past its state's limit: "stalled") or a step still blocked after its blocker ended ("still
+  blocked by B<n>, done") is odd.
+- Steps in review are checked and done; steps piling up in review are odd. A step in review says what it waits for
+  ("waits for its fix B<n> (<state>, <owner>)", "waits for your answer to its check", "waits for its first check" or
+  "waits for its check again", "its fix B<n> was dropped"). One that waits for its fix or for the person's answer
+  waits as planned: no incident, and no "!" unless its fix is odd itself. The review-stuck rule watches the rest: a
+  check not filed within the review minutes, or a dropped fix.
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
-- Work follows the focus goal: work outside it while the focus has steps waiting is odd.
+- Work follows the focus goal: work outside it while the focus has steps waiting is odd. A worker free over 20 minutes
+  with nothing queued while the focus has steps refined ready: the focus-ready rule names a step for it to the main
+  chat ("Queue B<n> (<focus>) for <worker>"), once an hour per step. A wait shorter than that is no incident.
 - A word to a chat is taken within minutes; words that wait long for one chat are odd.
 - A chat runs the model and effort its step asks for (the summary shows both side by side).
 - A worker is cleared after its reported step (or compacted, as the list of chats says); the same reason for not

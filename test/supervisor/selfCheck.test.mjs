@@ -15,7 +15,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, NOT_TAKEN_MS, OWNER_GONE_MS, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
+import { AGAIN_MS, CHECKS, NOT_TAKEN_MS, OWNER_GONE_MS, QUEUED_BEHIND_MS, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
 import { LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopGate, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
 
 const MIN = 60_000
@@ -33,11 +33,11 @@ const of = (found, check) => found.filter(one => one.check === check)
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
-  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask', 'unchecked', 'worktrees'])
+  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'not-taken', 'queued-behind', 'focus-ready', 'review-wait', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'partner-ask', 'unchecked', 'fix-dropped', 'worktrees'])
   assert.ok(CHECKS.every(one => typeof one.words === 'string' && one.words.length > 0))
 })
 
-test('blocked: a step blocked by one in review is unblocked; one done holds nothing; one the store lacks, or a Waits for, is for Main', () => {
+test('blocked: a step blocked by one in review or done is unblocked; one the store lacks, or a Waits for, is for Main', () => {
   const found = findStuck(base({
     items: items(
       step('B1', 'review', {}, { History: [`- ${stamp(ago(30))} server: check passed: merged`] }), step('B9', 'done'),
@@ -50,11 +50,132 @@ test('blocked: a step blocked by one in review is unblocked; one done holds noth
     lanes: [LEAD, lane('Painter', { state: 'working' })],
   }))
   const blocked = of(found, 'blocked')
-  assert.deepEqual(blocked.map(one => [one.key, one.fix.do]), [['blocked B2 B1', 'unblock'], ['blocked B4 B77', 'main'], ['blocked B5 B1', 'main']])
+  assert.deepEqual(blocked.map(one => [one.key, one.fix.do]), [['blocked B2 B1', 'unblock'], ['blocked B3 B9', 'unblock'], ['blocked B4 B77', 'main'], ['blocked B5 B1', 'main']])
   assert.deepEqual([blocked[0].fix.id, blocked[0].fix.on], ['B2', 'B1'])
   assert.match(blocked[0].text, /^B2 waited on B1, which is in review$/)
-  assert.match(blocked[1].text, /B4 is blocked by B77, which the store does not hold/)
-  assert.match(blocked[2].text, /B5 waits for B1 \(in review\)/)
+  assert.match(blocked[1].text, /^B3 waited on B9, which is done$/)
+  assert.match(blocked[2].text, /B4 is blocked by B77, which the store does not hold/)
+  assert.match(blocked[3].text, /B5 waits for B1 \(in review\)/)
+})
+
+test('queued behind (B550, X15, X16): a step queued over 20 min behind a busy worker is named to Main for a free one, once an hour', () => {
+  // X15: B531 third in Worker 5's queue behind B543 and B548 while Worker 5 works on B522; Worker 3 free.
+  const world = (more = {}, extra = []) => base({
+    items: items(
+      step('B522', 'in progress', { Owner: 'Worker 5' }),
+      step('B543', 'queued', { Owner: 'Worker 5', Since: stamp(ago(30)) }),
+      step('B548', 'queued', { Owner: 'Worker 5', Since: stamp(ago(20)) }),
+      step('B531', 'queued', { Owner: 'Worker 5', Since: stamp(ago(233)) }),
+      ...extra,
+    ),
+    lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 3', { idle: { since: ago(40) } }), lane('Worker 4', { state: 'working' })],
+    ...more,
+  })
+  const named = of(findStuck(world()), 'queued-behind')
+  assert.equal(named.length, 1)
+  assert.equal(named[0].text, 'Requeue B531 to Worker 3: queued 3 h 53 min behind Worker 5')
+  assert.deepEqual(named[0].fix, { do: 'send', text: 'Requeue B531 to Worker 3: queued 3 h 53 min behind Worker 5' })
+  assert.equal(named[0].subject, 'B531')
+  // A blocked step, a step under an hour, no free worker, a pause or a full limit: nothing.
+  const blocked = items(step('B522', 'in progress', { Owner: 'Worker 5' }), step('B531', 'queued', { Owner: 'Worker 5', Since: stamp(ago(233)), 'Blocked by': 'B522' }))
+  assert.equal(of(findStuck(world({ items: blocked })), 'queued-behind').length, 0)
+  const waits = items(step('B522', 'in progress', { Owner: 'Worker 5' }), step('B531', 'queued', { Owner: 'Worker 5', Since: stamp(ago(233)), 'Waits for': 'a word from the person' }))
+  assert.equal(of(findStuck(world({ items: waits })), 'queued-behind').length, 0)
+  const young = items(step('B522', 'in progress', { Owner: 'Worker 5' }), step('B531', 'queued', { Owner: 'Worker 5', Since: stamp(ago(QUEUED_BEHIND_MS / MIN - 5)) }))
+  assert.equal(of(findStuck(world({ items: young })), 'queued-behind').length, 0)
+  assert.equal(of(findStuck(world({ lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 3', { state: 'working' })] })), 'queued-behind').length, 0)
+  assert.equal(of(findStuck(world({ lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 3', { state: 'suspended' })] })), 'queued-behind').length, 0)
+  assert.equal(of(findStuck(world({ pause: { state: 'pausing', since: stamp(ago(1)) } })), 'queued-behind').length, 0)
+  assert.equal(of(findStuck(world({ limits: { fiveHour: { level: 'full' } } })), 'queued-behind').length, 0)
+  // A free worker with an open step of its own takes that one: not named for the other.
+  assert.equal(of(findStuck(world({}, [step('B560', 'queued', { Owner: 'Worker 3', Since: stamp(ago(5)) })])), 'queued-behind').length, 0)
+  // A free worker with anything queued, also a blocked step, is not free for another's step.
+  assert.equal(of(findStuck(world({}, [step('B561', 'queued', { Owner: 'Worker 3', Since: stamp(ago(5)), 'Blocked by': 'B522' })])), 'queued-behind').length, 0)
+  // X16: B543 38 min and B548 24 min behind Worker 5, Workers 1 and 4 free: one each, the oldest to the first free.
+  const x16 = base({
+    items: items(step('B522', 'in progress', { Owner: 'Worker 5' }), step('B543', 'queued', { Owner: 'Worker 5', Since: stamp(ago(38)) }), step('B548', 'queued', { Owner: 'Worker 5', Since: stamp(ago(24)) })),
+    lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 1', { idle: { since: ago(13) } }), lane('Worker 4', { idle: { since: ago(10) } })],
+  })
+  assert.deepEqual(of(findStuck(x16), 'queued-behind').map(one => one.text), ['Requeue B543 to Worker 1: queued 38 min behind Worker 5', 'Requeue B548 to Worker 4: queued 24 min behind Worker 5'])
+  // A result check's fix stays with the worker that built the step: named with that reason, the free worker kept for the next.
+  const withFix = base({
+    items: items(step('B522', 'in progress', { Owner: 'Worker 5' }), step('B570', 'queued', { Owner: 'Worker 5', Since: stamp(ago(50)), 'Fix of': 'B520' }), step('B548', 'queued', { Owner: 'Worker 5', Since: stamp(ago(24)) })),
+    lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 1')],
+  })
+  assert.deepEqual(of(findStuck(withFix), 'queued-behind').map(one => one.text), ['B570 queued 50 min behind Worker 5 stays: it fixes B520, which Worker 5 built', 'Requeue B548 to Worker 1: queued 24 min behind Worker 5'])
+  // The oldest waiting step goes to the first free worker (running first, then free longest); one per free worker.
+  const two = world({ lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 1', { idle: { since: ago(10) } }), lane('Worker 3', { idle: { since: ago(40) } })] },
+    [step('B540', 'queued', { Owner: 'Worker 5', Since: stamp(ago(100)) }), step('B541', 'queued', { Owner: 'Worker 5', Since: stamp(ago(90)) })])
+  assert.deepEqual(of(findStuck(two), 'queued-behind').map(one => one.text), ['Requeue B531 to Worker 3: queued 3 h 53 min behind Worker 5', 'Requeue B540 to Worker 1: queued 1 h 40 min behind Worker 5'])
+  // Once an hour: the runner's watch keeps when it was first named; the key stays the same within the hour, through a
+  // run without a free worker, and changes after it.
+  const seen = new Map()
+  const run = (at, more = {}) => {
+    const observed = []
+    const found = of(findStuck({ ...world(more), now: at, seen, observed }), 'queued-behind')
+    for (const key of [...seen.keys()]) if (!observed.includes(key)) seen.delete(key)
+    for (const key of observed) if (!seen.has(key)) seen.set(key, at)
+    return found
+  }
+  const first = run(NOW)[0].key
+  assert.equal(run(NOW + 30 * MIN, { lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 3', { state: 'working' })] }).length, 0)
+  assert.equal(run(NOW + 50 * MIN)[0].key, first)
+  assert.notEqual(run(NOW + 61 * MIN)[0].key, first)
+})
+
+test('focus ready (B564, X20): a worker free over 20 min with nothing queued gets the focus goal\'s next ready step named to Main', () => {
+  // X20: Workers 2 and 4 free 38 min, nothing queued; B534, B549 and B552-B557 refined ready under G33, the focus; 42
+  // other refined steps under other goals.
+  const ready = (id, more = {}) => step(id, 'refined', { Goal: 'G33', Refined: 'ready', ...more })
+  const focusSteps = ['B534', 'B549', 'B552', 'B553', 'B554', 'B555', 'B556', 'B557'].map(id => ready(id))
+  const others = Array.from({ length: 42 }, (_, n) => ready(`B${400 + n}`, { Goal: `G${10 + (n % 5)}` }))
+  const world = (more = {}, extra = []) => base({
+    items: items(...others, ...focusSteps, ...extra),
+    lanes: [LEAD, lane('Worker 2', { idle: { since: ago(38) } }), lane('Worker 4', { idle: { since: ago(38) } })],
+    focus: 'G33',
+    ...more,
+  })
+  const named = of(findStuck(world()), 'focus-ready')
+  assert.deepEqual(named.map(one => one.text), ['Queue B534 (G33) for Worker 2: free 38 min with nothing queued', 'Queue B549 (G33) for Worker 4: free 38 min with nothing queued'])
+  assert.deepEqual(named[0].fix, { do: 'send', text: named[0].text })
+  assert.deepEqual(named.map(one => one.subject), ['B534', 'B549'])
+  // A board fix goes first, whatever its goal; then the focus in id order, skipping a step whose blocker is open.
+  const withFix = world({}, [ready('B564', { Goal: 'G15', Priority: 'fix' }), step('B530', 'in progress', { Owner: 'Worker 9' })])
+  assert.deepEqual(of(findStuck(withFix), 'focus-ready').map(one => one.subject), ['B564', 'B534'])
+  assert.match(of(findStuck(withFix), 'focus-ready')[0].text, /^Queue B564 \(board fix\) for Worker 2/)
+  const blocked = world({}, [step('B530', 'in progress', { Owner: 'Worker 9' })])
+  blocked.items.set('B534', ready('B534', { 'Blocked by': 'B530' }))
+  assert.deepEqual(of(findStuck(blocked), 'focus-ready').map(one => one.subject), ['B549', 'B552'])
+  // The free longest first.
+  const longest = world({ lanes: [LEAD, lane('Worker 2', { idle: { since: ago(25) } }), lane('Worker 4', { idle: { since: ago(38) } })] })
+  assert.deepEqual(of(findStuck(longest), 'focus-ready').map(one => one.text.replace(/:.*/, '')), ['Queue B534 (G33) for Worker 4', 'Queue B549 (G33) for Worker 2'])
+  // Quiet: paused, a limit full, free under 20 min, a worker with a step queued or held, no focus, or no ready focus step.
+  assert.equal(of(findStuck(world({ pause: { state: 'pausing', since: stamp(ago(1)) } })), 'focus-ready').length, 0)
+  assert.equal(of(findStuck(world({ limits: { week: { level: 'full' } } })), 'focus-ready').length, 0)
+  assert.equal(of(findStuck(world({ lanes: [LEAD, lane('Worker 2', { idle: { since: ago(19) } }), lane('Worker 4', { idle: { since: ago(5) } })] })), 'focus-ready').length, 0)
+  assert.deepEqual(of(findStuck(world({}, [step('B600', 'queued', { Owner: 'Worker 2' }), step('B601', 'in progress', { Owner: 'Worker 4' })])), 'focus-ready').length, 0)
+  assert.equal(of(findStuck(world({ focus: null })), 'focus-ready').length, 0)
+  assert.equal(of(findStuck(world({ focus: 'G99' })), 'focus-ready').length, 0)
+  // Not refined ready, or queued already: not named.
+  const notReady = world({ items: items(step('B534', 'refined', { Goal: 'G33', Refined: 'open' }), step('B549', 'queued', { Goal: 'G33', Refined: 'ready', Owner: 'Worker 7' })) })
+  assert.equal(of(findStuck(notReady), 'focus-ready').length, 0)
+  // A free worker queued-behind names a step for is left to it.
+  const behind = world({ lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 2', { idle: { since: ago(38) } }), lane('Worker 4', { idle: { since: ago(30) } })] },
+    [step('B522', 'in progress', { Owner: 'Worker 5' }), step('B531', 'queued', { Owner: 'Worker 5', Since: stamp(ago(233)) })])
+  assert.deepEqual(of(findStuck(behind), 'queued-behind').map(one => one.text), ['Requeue B531 to Worker 2: queued 3 h 53 min behind Worker 5'])
+  assert.deepEqual(of(findStuck(behind), 'focus-ready').map(one => one.text.replace(/:.*/, '')), ['Queue B534 (G33) for Worker 4'])
+  // Once an hour per step: the same key within the hour, a new one after it.
+  const seen = new Map()
+  const run = at => {
+    const observed = []
+    const found = of(findStuck({ ...world(), now: at, seen, observed }), 'focus-ready')
+    for (const key of [...seen.keys()]) if (!observed.includes(key)) seen.delete(key)
+    for (const key of observed) if (!seen.has(key)) seen.set(key, at)
+    return found
+  }
+  const first = run(NOW)[0].key
+  assert.equal(run(NOW + 50 * MIN)[0].key, first)
+  assert.notEqual(run(NOW + 61 * MIN)[0].key, first)
 })
 
 test('not taken: a queued step its free owner was told of and did not take is woken again; once more is for Main', () => {
