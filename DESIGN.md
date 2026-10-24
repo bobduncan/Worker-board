@@ -3284,7 +3284,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
 - **To the person**: each incident that opened or came back gives one note of the board's (`Via: supervisor`, About
   X<n>). B573: the unread ones are drawn as one quiet line under Needs your attention, "Supervisor: 3 new findings"
   with a wrench, never counted; a click opens the section (Details first, from Simple), and opening the section any
-  way reads them all. A count that grows gives nothing.
+  way reads them all. A count that grows gives nothing. B581 (the person, 2026-10-24): a small quiet x at the line's
+  right reads only its notes (the line leaves at once, also after a reload); the section stays folded with its New
+  tags, and the incidents stay open and keep counting. A new or returning incident is a new note: a line again.
 - **The section** (state `supervisor`, the view, in place of `syncList`), under the Workers panel's head where the
   "Out of sync?" list stood. B573 (the person, 2026-10-24: "the supervisor notes take up too much space. i want it
   collapisble and understand how many things it found and is working on"): it stands on every board with a supervisor,

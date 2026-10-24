@@ -191,12 +191,39 @@ test('B573: the supervisor\'s notes under Needs your attention are one line, "Su
   assert.equal(page.supervisorLine(information.slice(3)), null)
   assert.equal(page.supervisorLine([]), null)
   // Drawn under Needs your attention after the missed lines, never counted; a click opens the section, which reads them.
-  assert.match(script, /const supervised = supervisorLine\(state\.information\)/)
+  assert.match(script, /const supervised = supervisorLine\(state\.information, /)
   assert.match(script, /drawMissed\(missed\), drawSupervisorLine\(supervised\)/)
   assert.doesNotMatch(script.match(/const unanswered = [^\n]*/)[0], /supervised/)
   assert.match(script, /'supervisor-line': \(\) => openSupervisor\(\)/)
   assert.match(script, /function setSupervisorOpen\(isOpen\) \{\n\s+foldSupervisor\(supervisorUi, isOpen, supervisorStorage, Date\.now\(\)\)\n\s+if \(isOpen\) readSupervisorNotes\(\)/)
-  assert.match(script, /for \(const id of supervisorLine\(board\?\.information\)\?\.ids \?\? \[\]\) \{\n\s+if \(!sending\.has\(`read:\$\{id\}`\)\) sendWork\(\{ action: 'read', id \}, `read:\$\{id\}`\)/)
+  assert.match(script, /function readSupervisorNotes\(ids = supervisorLine\(board\?\.information\)\?\.ids \?\? \[\]\) \{\n\s+for \(const id of ids\) \{\n\s+if \(!sending\.has\(`read:\$\{id\}`\)\) sendWork\(\{ action: 'read', id \}, `read:\$\{id\}`\)/)
+})
+
+test('B581: a small x closes the supervisor\'s line: its notes are read, the section stays folded, a new finding brings a line back', () => {
+  const information = [
+    { id: 'N7', via: 'supervisor', isRead: false, about: 'X3', text: 'Supervisor: Worker 2 unknown for 15 min, B482 waits' },
+    { id: 'N8', via: 'supervisor', isRead: false, about: 'X4', text: 'Supervisor: a step waits' },
+  ]
+  // The x sends the reads; while they are on their way the line is gone at once.
+  const closing = new Set(['N7', 'N8'])
+  assert.equal(page.supervisorLine(information, id => closing.has(id)), null)
+  assert.deepEqual(plain(page.supervisorLine(information, id => id === 'N7')), { ids: ['N8'], text: 'Supervisor: one new finding' })
+  // Read (and so after a reload): closed; a new or returning incident is a new note, and a line again.
+  const read = information.map(one => ({ ...one, isRead: true }))
+  assert.equal(page.supervisorLine(read), null)
+  assert.deepEqual(plain(page.supervisorLine([{ id: 'N9', via: 'supervisor', isRead: false, about: 'X3', text: 'Supervisor: came back' }, ...read])), { ids: ['N9'], text: 'Supervisor: one new finding' })
+  assert.match(script, /const supervised = supervisorLine\(state\.information, id => sending\.has\(`read:\$\{id\}`\)\)/)
+  // The x: quiet, beside the line (not inside its button, which opens the section), with its tooltip.
+  const draw = script.slice(script.indexOf('function drawSupervisorLine('), script.indexOf('function setSupervisorOpen('))
+  assert.match(draw, /const close = el\('button', 'icon-button supervisor-line-close', '×'\)/)
+  assert.match(draw, /close\.dataset\.supervisorClose = line\.ids\.join\(' '\)/)
+  assert.match(draw, /close\.title = 'Close this line; the incidents stay open'/)
+  assert.match(draw, /row\.append\(button, close\)/)
+  // Its act reads exactly the line's notes, and neither opens the section nor marks its New tags seen.
+  const act = script.match(/'supervisor-close': [^\n]*/)[0]
+  assert.match(act, /readSupervisorNotes\(button\.dataset\.supervisorClose\.split\(' '\)\.filter\(Boolean\)\)/)
+  assert.doesNotMatch(act, /setSupervisorOpen|openSupervisor|foldSupervisor/)
+  assert.match(css, /\.supervisor-line-close \{/)
 })
 
 test('"Check now" carries the wrench, in the button\'s own colour, and sends the sync command; from a worker\'s menu it names the worker', () => {

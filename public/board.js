@@ -817,10 +817,11 @@ function isSupervisorShown(view) {
 /**
  * B573: the person's one line under Needs your attention for the supervisor's notes there (one per new or returning
  * incident, Via supervisor) not read yet: "Supervisor: 3 new findings", with the notes' ids, read once the section is
- * opened; null for none.
+ * opened; null for none. B581: its x reads them too, and `isClosing` (a note whose read is on its way) leaves the line at
+ * once; a new or returning incident is a new note, so it brings a line back.
  */
-function supervisorLine(information) {
-  const ids = (information ?? []).filter(one => one.via === 'supervisor' && one.isRead !== true).map(one => one.id)
+function supervisorLine(information, isClosing = () => false) {
+  const ids = (information ?? []).filter(one => one.via === 'supervisor' && one.isRead !== true && !isClosing(one.id)).map(one => one.id)
   if (ids.length === 0) return null
   return { ids, text: `Supervisor: ${ids.length === 1 ? 'one new finding' : `${ids.length} new findings`}` }
 }
@@ -994,7 +995,15 @@ function drawSupervisorLine(line) {
   const wrench = icon('wrench')
   wrench.setAttribute('aria-hidden', 'true')
   button.append(wrench, el('span', '', line.text))
-  part.append(button)
+  // B581: the x closes only this line (its notes read); the incidents stay open, counting, in the section.
+  const close = el('button', 'icon-button supervisor-line-close', '×')
+  close.type = 'button'
+  close.dataset.supervisorClose = line.ids.join(' ')
+  close.title = 'Close this line; the incidents stay open'
+  close.setAttribute('aria-label', 'Close this line; the incidents stay open')
+  const row = el('div', 'supervisor-line-row')
+  row.append(button, close)
+  part.append(row)
   return part
 }
 
@@ -1008,9 +1017,9 @@ function setSupervisorOpen(isOpen) {
   }
 }
 
-/** B573: the supervisor's notes under Needs your attention count as read once the section is opened. */
-function readSupervisorNotes() {
-  for (const id of supervisorLine(board?.information)?.ids ?? []) {
+/** B573: the supervisor's notes under Needs your attention count as read once the section is opened (B581: or `ids`, its x). */
+function readSupervisorNotes(ids = supervisorLine(board?.information)?.ids ?? []) {
+  for (const id of ids) {
     if (!sending.has(`read:${id}`)) sendWork({ action: 'read', id }, `read:${id}`)
   }
 }
@@ -4288,6 +4297,8 @@ const CLICK_ACTS = {
   },
   // The supervisor: its line under Needs your attention opens its section, and its notes are read.
   'supervisor-line': () => openSupervisor(),
+  // B581: its x closes only the line: its notes are read, the section stays folded and the incidents open.
+  'supervisor-close': button => readSupervisorNotes(button.dataset.supervisorClose.split(' ').filter(Boolean)),
   // B573: the section's head line opens or folds it; opening marks what is new seen. Its other rules show or fold.
   'supervisor-fold': () => setSupervisorOpen(!supervisorUi.isOpen),
   'supervisor-rules': () => {
@@ -4500,7 +4511,7 @@ function drawNeeds(state) {
   // Calm panel: an instruction a chat missed is the person's: one line here, while the log holds the rest.
   const missed = missedLines(state.instructions, clock)
   // The supervisor: one quiet line for its new or returning incidents (B573: "Supervisor: 3 new findings"), never counted.
-  const supervised = supervisorLine(state.information)
+  const supervised = supervisorLine(state.information, id => sending.has(`read:${id}`))
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.

@@ -1072,6 +1072,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .supervisor-line svg { flex: none; width: 14px; height: 14px; color: #93b4ff; }
 .supervisor-line:hover { background: #1a2c48; }
 .supervisor-line:focus-visible { outline: 2px solid var(--free); outline-offset: -2px; }
+.supervisor-line-row { display: flex; align-items: stretch; gap: 0; border-radius: 6px; background: #142238; }
+.supervisor-line-row .supervisor-line { flex: 1; min-width: 0; border-radius: 6px 0 0 6px; }
+.supervisor-line-close { flex: none; width: 30px; height: auto; padding: 0; font-size: 16px; line-height: 1; border-radius: 0 6px 6px 0; }
 @media (max-width: 600px) {
   .supervisor { margin: 0 10px 10px; padding: 12px; }
   .supervisor-head { flex-wrap: wrap; }
