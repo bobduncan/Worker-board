@@ -2751,7 +2751,9 @@ const incidentOfKey = (items, key) => [...items.values()]
  * the rule's id) or by the supervisor chat (its sweep: Source "sweep", `rule` the rule that could catch it). `title` one
  * line of what was found, `subject` the chat or step, `evidence` what was seen, `key` the finding's key (the sweep's
  * may leave it out: its subject and title make it). A new key opens `X<n>`; the same key again only counts (Count, Last
- * seen, the newest title and evidence; no History line: Review Focus 2); a fixed one's key again makes it "came back".
+ * seen, the newest title and evidence; no History line: Review Focus 2); a fixed one's key again makes it "came back",
+ * unless the finding's `since` (when its case began) is before its fix was done: that old case still standing only counts
+ * (B584), for up to two hours after the fix.
  */
 async function incident(body, w) {
   const isSweep = w.role === 'supervisor'
@@ -2782,12 +2784,48 @@ async function incident(body, w) {
   let next = put(put(put(copy(loaded.item), 'Title', title), 'Last seen', stamp(w.now)), 'Count', String(count))
   if (evidence !== '') put(next, 'Evidence', evidence)
   if (wanted !== '') put(next, 'Rule wanted', wanted)
-  const isBack = stateOf(loaded.item) === 'fixed'
-  if (isBack) next = said(put(put(next, 'State', 'came back'), 'Since', stamp(w.now)), w, `came back (seen ${count} times)`)
+  const old = stateOf(loaded.item) === 'fixed' ? oldCaseOf(loaded.item, sinceOf(body.since), w) : null
+  const isBack = stateOf(loaded.item) === 'fixed' && old?.standing !== true
+  if (old?.standing === true) {
+    const why = `old case still standing (began ${clock(old.since)}, before ${old.fix} was done at ${clock(old.doneAt)})`
+    if (!(loaded.item.sections.get('History') ?? []).some(entry => entry.endsWith(why))) next = said(next, w, why)
+  }
+  if (isBack) next = said(put(put(next, 'State', 'came back'), 'Since', stamp(w.now)), w, `came back (seen ${count} times${old === null ? '' : '; old case outlived its fix'})`)
   next = ordered(next)
   const done = await save(next, loaded.text, w)
   if (!done.ok) return done
-  return changed(next, `${id}: ${isBack ? 'came back' : `seen ${count} times`}: ${title}`, isBack ? { returned: true } : { counted: true })
+  return changed(next, `${id}: ${isBack ? 'came back' : `seen ${count} times`}: ${title}`, isBack ? { returned: true } : { counted: true, ...(old === null ? {} : { oldCase: true }) })
+}
+
+/** How long a fixed incident's old case may still stand after its fix was done before it counts as back (B584). */
+const OLD_CASE_MS = 2 * 60 * 60_000
+
+/** A finding's `since` (when its case began): ms, or a stamp; NaN for none. */
+const sinceOf = value => (typeof value === 'number' ? value : typeof value === 'string' ? sinceMs(value.trim()) : Number.NaN)
+
+/** "HH:MM" of a time on this PC's clock. */
+const clock = ms => stamp(ms).slice(11)
+
+/** When a step was done: its last History move to done, else its Since while it is done; NaN when it is not done. */
+function doneAtOf(step) {
+  if (step === undefined || stateOf(step) !== 'done') return Number.NaN
+  const moved = (step.sections?.get('History') ?? []).findLast(entry => /→ done\b/.test(entry))
+  const at = sinceMs(moved?.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s/)?.[1])
+  return Number.isFinite(at) ? at : sinceMs(valueOf(step, 'Since'))
+}
+
+/**
+ * B584 (X29): a fixed incident seen again for a case that began (`since`) before its fix step was done is the old case
+ * still standing, not a new one: `{ since, fix, doneAt, standing }`, `standing` false once it outlived the fix by
+ * OLD_CASE_MS. Null when the finding names no since, its case began after the fix, or the fix's done time is unknown:
+ * then it came back.
+ */
+function oldCaseOf(item, since, w) {
+  if (!Number.isFinite(since)) return null
+  const fix = valueOf(item, 'Fix')
+  const doneAt = fix === null ? Number.NaN : doneAtOf(w.store.items.get(fix))
+  if (!Number.isFinite(doneAt) || since >= doneAt) return null
+  return { since, fix, doneAt, standing: w.now - doneAt < OLD_CASE_MS }
 }
 
 /**

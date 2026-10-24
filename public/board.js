@@ -7035,7 +7035,7 @@ function goalZoomOut(goals, focusId) {
 function tabOfAddress(hash) {
   if (hash === '' || hash === '#') return 'overview'
   if (hash === '#advice' || /^#advice\/[a-z]+$/.test(hash) || goalFocusOf(hash) !== undefined) return 'advice'
-  if (hash === '#backlog' || hash === '#coordinate') return 'coordinate'
+  if (hash === '#backlog' || hash === '#coordinate' || hash === '#backlog/days') return 'coordinate'
   if (hash === '#design') return 'design'
   if (hash === '#vision') return 'vision'
   if (hash === '#spending') return 'spending'
@@ -13252,6 +13252,324 @@ $('finished').addEventListener('click', event => {
   if (row !== null) openDetails({ step: row.dataset.finished })
 })
 
+// B579: Completed by day. The Backlog tab shows the open items or, at the toggle, one day of finished steps with a short
+// recap on top (src/work/doneDays.mjs, src/dayRecap.mjs). The person, 2026-10-24: "i want to be able to see which
+// changes were done today ... including a generated recap text, highover ... the goal here is easy overview".
+// doneday:start
+const DAY_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const DAY_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+/** The local moment of a `YYYY-MM-DD` day's start. */
+const dayStart = day => {
+  const [year, month, date] = day.split('-').map(Number)
+  return new Date(year, month - 1, date)
+}
+/** A day's name beside today's: "Today", "Yesterday", else its weekday. */
+function dayName(day, today) {
+  if (day === today) return 'Today'
+  const before = dayStart(today)
+  before.setDate(before.getDate() - 1)
+  const then = dayStart(day)
+  return then.getTime() === before.getTime() ? 'Yesterday' : DAY_WEEKDAYS[then.getDay()]
+}
+/** "October 24, 2026", or short: "Oct 24, 2026". */
+function dayDate(day, isShort = false) {
+  const then = dayStart(day)
+  const month = DAY_MONTHS[then.getMonth()]
+  return `${isShort ? month.slice(0, 3) : month} ${then.getDate()}, ${then.getFullYear()}`
+}
+/** The day before (-1) or after (1) a day. */
+function dayStep(day, count) {
+  const then = dayStart(day)
+  then.setDate(then.getDate() + count)
+  return `${then.getFullYear()}-${String(then.getMonth() + 1).padStart(2, '0')}-${String(then.getDate()).padStart(2, '0')}`
+}
+/** The finished steps a find box keeps: by id ("B12", "12") or by words of the title. */
+function dayFinds(step, find) {
+  const wanted = find.trim().toLowerCase()
+  if (wanted === '') return true
+  const digits = /^b?0*(\d+)$/.exec(wanted)
+  if (digits !== null && String(step.id).toLowerCase().replace(/^b0*/, '').startsWith(digits[1])) return true
+  return step.title.toLowerCase().includes(wanted)
+}
+// doneday:end
+
+/** The quiet colours of the recap's points, in order: no amber, gold, orange or red (those ask for attention). */
+const POINT_TONES = ['#60a5fa', '#2dd4bf', '#a78bfa', '#38bdf8', '#818cf8', '#94a3b8', '#5eead4']
+/** How many rows the table shows before "Show all". */
+const DAY_ROWS = 12
+
+// The address #backlog/days opens it on Completed by day; else the tab opens as it was left in this browser.
+let backlogMode = location.hash === '#backlog/days' ? 'days' : 'open'
+try {
+  if (location.hash !== '#backlog' && localStorage.getItem('backlog-mode') === 'days') backlogMode = 'days'
+} catch {
+  // Without storage the tab opens on the open items.
+}
+const backlogAddress = () => (backlogMode === 'days' ? '#backlog/days' : '#backlog')
+let doneDay = null // the day shown; null: today
+let doneDayView = null // the server's answer for it
+let doneDayAt = 0
+let doneDayAll = false
+let doneDayFind = ''
+let doneDayLoading = null
+let doneDayProblem = null
+
+/** Fetches the day shown (at most every 9 s unless `isNow`) and draws it. */
+async function refreshDoneDay(isNow = false) {
+  if (backlogMode !== 'days' || $('view-coordinate').hidden) return
+  if (!isNow && Date.now() - doneDayAt < 9000) return
+  if (doneDayLoading !== null) return
+  const asked = doneDay ?? ''
+  doneDayAt = Date.now()
+  doneDayLoading = fetch(`/api/recap?day=${encodeURIComponent(asked)}`, { headers: { 'X-Board-Token': TOKEN } })
+    .then(async answer => {
+      if (!answer.ok) throw new Error((await answer.text()) || `The board answered ${answer.status}.`)
+      const view = await answer.json()
+      if ((doneDay ?? '') !== asked) return
+      doneDayView = view
+      doneDayProblem = null
+    })
+    .catch(error => { doneDayProblem = error.message })
+    .finally(() => {
+      doneDayLoading = null
+      drawDoneDay()
+      // A day asked while this one was read is read next.
+      if ((doneDay ?? '') !== asked) refreshDoneDay(true)
+    })
+}
+
+function showBacklogMode() {
+  const isDays = backlogMode === 'days'
+  for (const button of $('coordinate-mode').querySelectorAll('[data-mode]')) {
+    button.classList.toggle('is-chosen', button.dataset.mode === backlogMode)
+    button.setAttribute('aria-pressed', String(button.dataset.mode === backlogMode))
+  }
+  for (const id of ['coordinate-filters', 'coordinate-tools', 'finished', 'coordinate-list', 'coordinate-count']) $(id).classList.toggle('is-off-mode', isDays)
+  $('done-day').hidden = !isDays
+  $('coordinate-note').hidden = !isDays
+  if (isDays) {
+    drawDoneDay()
+    refreshDoneDay(true)
+  }
+}
+
+$('coordinate-mode').addEventListener('click', event => {
+  const button = event.target.closest('[data-mode]')
+  if (button === null || button.dataset.mode === backlogMode) return
+  backlogMode = button.dataset.mode
+  try {
+    localStorage.setItem('backlog-mode', backlogMode)
+  } catch {
+    // Kept for this page only.
+  }
+  if (location.hash === '#backlog' || location.hash === '#backlog/days') history.replaceState(null, '', backlogAddress())
+  showBacklogMode()
+})
+
+function chipOf(id) {
+  const chip = el('button', 'day-chip', id)
+  chip.type = 'button'
+  chip.dataset.dayStep = id
+  chip.title = 'Open the step'
+  return chip
+}
+
+/** One part of the right column: a head with its icon, and what it holds. */
+function daySide(icon, title, ...parts) {
+  const box = el('section', 'day-card day-side')
+  const head = el('h3', 'day-head')
+  head.append(el('span', 'day-icon', icon), title)
+  box.append(head, ...parts)
+  return box
+}
+
+function drawDoneDay() {
+  const box = $('done-day')
+  if (backlogMode !== 'days') return
+  const view = doneDayView
+  if (view === null) {
+    fill(box, [el('p', 'muted day-wait', doneDayProblem ?? 'Reading the finished steps…')])
+    return
+  }
+  const { day, today } = view
+  const steps = view.steps ?? []
+  const tones = new Map((view.recap?.points ?? []).map((point, index) => [point, POINT_TONES[index % POINT_TONES.length]]))
+
+  // The bar: the pager and the count.
+  const bar = el('div', 'day-bar')
+  const before = el('button', 'day-pager', '‹')
+  before.type = 'button'
+  before.dataset.dayGo = dayStep(day, -1)
+  before.title = 'The day before'
+  before.disabled = day <= view.first
+  const after = el('button', 'day-pager', '›')
+  after.type = 'button'
+  after.dataset.dayGo = dayStep(day, 1)
+  after.title = 'The day after'
+  after.disabled = day >= today
+  const label = el('span', 'day-label')
+  label.append(el('span', 'day-cal', '▦'), `${dayName(day, today)} · ${dayDate(day)}`)
+  const count = el('span', 'day-count')
+  count.append(el('span', 'day-dot'), `${steps.length} item${steps.length === 1 ? '' : 's'} completed`)
+  bar.append(before, label, after, count)
+  if (doneDayProblem !== null) bar.append(el('span', 'warn day-problem', doneDayProblem))
+
+  // The recap.
+  const recapBox = el('section', 'day-card day-recap')
+  const recapHead = el('h3', 'day-head')
+  recapHead.append(el('span', 'day-icon is-spark', '✦'), day === today ? 'Today’s recap' : `Recap of ${dayDate(day, true)}`)
+  const recap = view.recap
+  const how = recap === null ? '' : view.isWriting ? 'Writing the recap…'
+    : recap.isGenerated ? `Generated from ${steps.length} completed item${steps.length === 1 ? '' : 's'}.`
+      : `Not generated${recap.why ? `: ${recap.why.replace(/\.$/, '')}` : ''}. Grouped by goal for now.`
+  recapHead.append(el('small', '', how))
+  recapBox.append(recapHead)
+  if (recap === null) recapBox.append(el('p', 'muted day-none', 'Nothing was finished on this day.'))
+  else {
+    // Four points or fewer stand in one row, five or six in rows of three.
+    const points = el('div', `day-points${recap.points.length > 4 ? ' is-rows' : ''}`)
+    points.style.setProperty('--cols', String(recap.points.length > 4 ? 3 : Math.max(1, recap.points.length)))
+    recap.points.forEach((point, index) => {
+      const one = el('article', 'day-point')
+      one.style.setProperty('--tone', tones.get(point))
+      const top = el('div', 'day-point-top')
+      top.append(el('span', 'day-point-icon', String(index + 1)), el('b', '', point.title))
+      const chips = el('div', 'day-chips')
+      for (const id of point.ids.slice(0, 3)) chips.append(chipOf(id))
+      if (point.ids.length > 3) {
+        const more = el('span', 'day-chip is-more', `+${point.ids.length - 3}`)
+        more.title = point.ids.slice(3).join(', ')
+        chips.append(more)
+      }
+      one.append(top, el('p', '', point.text), chips)
+      points.append(one)
+    })
+    recapBox.append(points, el('p', 'muted day-note', 'ⓘ One recap point can include several backlog items.'))
+  }
+
+  // The table.
+  const shown = steps.filter(step => dayFinds(step, doneDayFind))
+  const tableBox = el('section', 'day-card day-items')
+  const tableHead = el('div', 'day-items-top')
+  const tableTitle = el('h3', 'day-head')
+  tableTitle.append(el('span', 'day-tick', '✓'), 'Completed items', el('small', '', `${steps.length} item${steps.length === 1 ? '' : 's'}`))
+  const find = el('input', 'day-find')
+  find.type = 'search'
+  find.id = 'done-day-find'
+  find.placeholder = 'Find a completed item…'
+  find.setAttribute('aria-label', 'Find a completed item')
+  find.maxLength = 60
+  find.value = doneDayFind
+  tableHead.append(tableTitle, find)
+  const table = el('div', 'day-table')
+  const head = el('div', 'day-row is-head')
+  head.append(el('span', '', ''), el('span', '', 'Item'), el('span', '', ''), el('span', '', 'Completed ▾'), el('span', '', 'Worker'))
+  table.append(head)
+  for (const step of doneDayAll ? shown : shown.slice(0, DAY_ROWS)) {
+    const row = el('button', 'day-row')
+    row.type = 'button'
+    row.dataset.dayStep = step.id
+    row.title = step.goalTitle === null ? 'Open the step' : `Open the step · ${step.goalTitle}`
+    row.append(el('span', 'day-tick', '✓'), el('span', 'day-chip', step.id), el('span', 'day-title', step.title), el('span', 'day-time', clock(step.at)), el('span', 'day-who', step.by ?? '—'))
+    table.append(row)
+  }
+  tableBox.append(tableHead, table)
+  if (shown.length === 0 && steps.length > 0) tableBox.append(el('p', 'muted day-none', 'No completed item has these words.'))
+  if (shown.length > DAY_ROWS) {
+    const all = el('button', 'day-all', doneDayAll ? 'Show fewer' : `Show all ${shown.length} completed items →`)
+    all.type = 'button'
+    all.dataset.dayAll = ''
+    tableBox.append(all)
+  }
+
+  // The right column.
+  const workers = new Set(steps.map(step => step.by).filter(by => by !== null)).size
+  const glance = el('div', 'day-glance')
+  for (const [figure, words] of [[steps.length, 'Completed items'], [workers, 'Workers contributed'], [recap?.points.length ?? 0, 'Recap points']]) {
+    const one = el('div', 'day-figure')
+    one.append(el('b', '', String(figure)), el('span', '', words))
+    glance.append(one)
+  }
+  const browse = el('ol', 'day-browse')
+  for (const one of view.days ?? []) {
+    const item = el('li')
+    const button = el('button', `day-browse-row${one.day === day ? ' is-chosen' : ''}`)
+    button.type = 'button'
+    button.dataset.dayGo = one.day
+    button.append(el('b', '', dayName(one.day, today)), el('span', 'muted', dayDate(one.day, true)), el('span', 'day-done', `${one.count} completed`), el('span', 'day-arrow', '›'))
+    item.append(button)
+    browse.append(item)
+  }
+  const coverage = el('ul', 'day-coverage')
+  const most = Math.max(1, ...(recap?.points ?? []).map(point => point.ids.length))
+  for (const point of recap?.points ?? []) {
+    const row = el('li')
+    row.style.setProperty('--tone', tones.get(point))
+    const barOf = el('span', 'day-cover-bar')
+    const filled = el('i')
+    filled.style.width = `${Math.round((point.ids.length / most) * 100)}%`
+    barOf.append(filled)
+    row.append(el('span', 'day-cover-dot'), el('span', 'day-cover-name', point.title), el('b', '', String(point.ids.length)), barOf)
+    coverage.append(row)
+  }
+  const copy = el('button', 'day-copy')
+  copy.type = 'button'
+  copy.dataset.dayCopy = ''
+  copy.disabled = recap === null
+  const copyWords = el('span', 'day-copy-words')
+  copyWords.append(el('b', '', 'Copy daily recap'), el('small', '', 'The recap as plain text, to share.'))
+  copy.append(el('span', 'day-copy-icon', '⧉'), copyWords)
+  const side = el('div', 'day-column is-side')
+  side.append(
+    daySide('▮', 'This day at a glance', glance),
+    daySide('▦', 'Browse days', browse),
+    daySide('◔', 'Recap coverage', el('p', 'muted day-sub', 'How this day’s completed items are grouped.'), recap === null ? el('p', 'muted day-none', 'No recap for this day.') : coverage),
+    copy,
+  )
+  const main = el('div', 'day-column')
+  main.append(recapBox, tableBox)
+  const grid = el('div', 'day-grid')
+  grid.append(main, side)
+  // A redraw keeps the typing in the find box.
+  const wasFinding = document.activeElement?.id === 'done-day-find'
+  const caret = wasFinding ? document.activeElement.selectionStart : null
+  fill(box, [bar, grid])
+  if (wasFinding) {
+    find.focus()
+    find.setSelectionRange(caret, caret)
+  }
+}
+
+$('done-day').addEventListener('click', event => {
+  const go = event.target.closest('[data-day-go]')
+  if (go !== null && !go.disabled) {
+    const today = doneDayView?.today ?? null
+    doneDay = go.dataset.dayGo === today ? null : go.dataset.dayGo
+    doneDayAll = false
+    if (doneDayView !== null) doneDayView = { ...doneDayView, day: go.dataset.dayGo, steps: [], recap: null }
+    drawDoneDay()
+    refreshDoneDay(true)
+    return
+  }
+  const step = event.target.closest('[data-day-step]')
+  if (step !== null) return openDetails({ step: step.dataset.dayStep })
+  if (event.target.closest('[data-day-all]') !== null) {
+    doneDayAll = !doneDayAll
+    return drawDoneDay()
+  }
+  const copy = event.target.closest('[data-day-copy]')
+  if (copy !== null && doneDayView?.copy) {
+    const words = copy.querySelector('b')
+    navigator.clipboard.writeText(doneDayView.copy).then(() => { words.textContent = 'Copied' }, () => { words.textContent = 'Not copied' })
+  }
+})
+$('done-day').addEventListener('input', event => {
+  if (event.target.id !== 'done-day-find') return
+  doneDayFind = event.target.value
+  drawDoneDay()
+})
+showBacklogMode()
+
 // The Coordinate tab: the whole backlog by activity. It only shows; a click on a step opens its window.
 
 // B84: what the tab lists, worked out without the page. Kept between these two marks so a test can run it.
@@ -14664,12 +14982,13 @@ function show(tab) {
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.
   if (!['#details=', '#task=', '#picture=', '#play='].some(start => location.hash.startsWith(start))) {
-    const address = tab === 'overview' ? location.pathname : tab === 'coordinate' ? '#backlog' : tab === 'advice' ? adviceAddress() : `#${tab}`
+    const address = tab === 'overview' ? location.pathname : tab === 'coordinate' ? backlogAddress() : tab === 'advice' ? adviceAddress() : `#${tab}`
     // B255: leaving the goal map for another tab keeps its place in the browser's history: Back returns to the goal.
     if (goalFocusOf(location.hash) !== undefined && tab !== 'advice') history.pushState(null, '', address)
     else history.replaceState(null, '', address)
   }
   if (tab === 'advice') $('messages').scrollTop = $('messages').scrollHeight
+  if (tab === 'coordinate') refreshDoneDay(true)
 }
 
 for (const button of document.querySelectorAll('.tab')) button.addEventListener('click', () => show(button.dataset.tab))
@@ -14709,6 +15028,8 @@ function draw(state) {
   once('coordinate', [state.backlog ?? null, queueing, state.goals ?? null], () => drawCoordinate(state))
   // B155: today's times name no day, so the list is drawn anew when the day changes too.
   once('finished', [state.finished ?? null, state.taskTimes?.byStep ?? null, new Date(state.readAt).toDateString()], () => drawFinished(state))
+  // B579: the day of Completed by day, read anew with the page's own refresh.
+  refreshDoneDay()
   drawDetails(state)
   openFromAddress(state)
   // B129: the project's own name from the settings, on the page and in the tab.

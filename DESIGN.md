@@ -249,6 +249,21 @@ Since B179 the tab opens as one list unless this browser turned the checkbox off
 away and back with a click on its head (a button that says whether the list is open), also kept in this browser.
 The person, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
 default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.jpg`.
+**Completed by day (B579).** A toggle at the Backlog tab's top, "Open items | Completed by day" (`#backlog/days`; the
+choice is kept in this browser), shows one day of finished steps: a pager (‹ day ›), "N items completed", a recap on
+top, the table of the day's steps (id, title, time, worker; a find box; a click opens the step's window) and on the right
+the day at a glance, the last 7 days with their counts, how the recap groups the steps, and Copy daily recap. The person,
+2026-10-24: "i want to be able to see which changes were done today ... including a generated recap text, highover ...
+the goal here is easy overview. so if 1 bullet in a recap might correlate to multiple backlog items". A step counts on
+the local day of its last move to done in the work store (`src/work/doneDays.mjs`); dropped steps and steps without such
+a line are not there. The recap is 3 to 6 points, each step in exactly one, written by one headless call of the Claude
+command line (`src/dayRecap.mjs`: Sonnet, no tools, no settings, plugins or MCP servers, in a temporary folder, told only
+the day's titles and summaries), kept per day in `data/recaps.json`. It is written when a day is opened and its recap is
+missing, not generated, or older than its newest step; today at most every 30 minutes. Only the board that runs the
+loops calls, never while all chats are paused or a usage limit is near; without a call (or while the command line is
+not signed in) the points are the day's goals, marked "Not generated" with the reason, and the next open tries again.
+Steps finished after a recap stand in one more point, "Finished since this recap". Colours stay quiet: the points and
+bars take cool tones, done ticks are green. The picture: `art-inbox/b579/completed-by-day-desktop.png`.
 Since B302 the tab without "One list" groups the steps by the goal map, no longer by activity (the person,
 2026-10-17: "that these categories are the same as the goals/milstones the advisors knows"; of two pictures they
 chose A, nested as on the goal map). Each goal is a header with its G id, its title and how many of the steps shown
@@ -3233,7 +3248,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (the board's reconcile: fixed once that step is done, open again when it was dropped). A chat of role supervisor
   only reads and files incidents. After each run the loop files its findings (`recordFindings`): a new key opens one,
   the same key only counts it (Count and Last seen, no History line: an hour of a lasting problem is one record with
-  count 20), a fixed one's key makes it "came back". Incidents are never on the backlog view.
+  count 20), a fixed one's key makes it "came back". B584: unless the finding names when its case began (`since`:
+  not-cleared its take or report, undelivered its oldest word, report-check-twice its second failure) before its fix
+  step was done: that old case still standing only counts and says so once in History, for up to 2 h after the fix
+  ("old case outlived its fix" then). Incidents are never on the backlog view.
 - **To the person**: each incident that opened or came back gives one note of the board's (`Via: supervisor`, About
   X<n>). B573: the unread ones are drawn as one quiet line under Needs your attention, "Supervisor: 3 new findings"
   with a wrench, never counted; a click opens the section (Details first, from Simple), and opening the section any

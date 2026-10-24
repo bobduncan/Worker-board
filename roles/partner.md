@@ -707,6 +707,10 @@ unless the fix changes what the user sees or decides.
      and the Workers mod, several rules, the flow, a chat's job): the fix step starts with a deeper look (what caused
      it, where else it shows, what was tried before) and only then changes the code.
    An incident that is no fault (the board behaves as it should, a rule is too eager) is a small tweak of that rule.
+   A "came back" whose evidence predates its fix (the take, report or word it names is older than the fix step's
+   done) is the old case still standing, not a new one: no new step. The board keeps such a sighting fixed itself
+   (B584) when the rule names when its case began; it comes back only for a case newer than the fix, or when the old
+   case outlives the fix by 2 h ("old case outlived its fix": then it is a structural fix).
 2. File the fix step refined, as for any step you refine ("Refine a step"): `work new` with `title` "Fix of X<n>:
    <what>", the `goal` it serves, `summary` and `what` (one part per line), `priority` fix (a fix for the worker board:
    first in its worker's queue), and its model and effort (a structural fix: opus · high; a small tweak: sonnet ·
