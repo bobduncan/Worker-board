@@ -7,6 +7,7 @@ import test from 'node:test'
 import { messageText } from '../src/bridge.mjs'
 import { parseThread } from '../src/brainstorm.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, focusAllDone } from '../src/focus.mjs'
+import { PLAN_MOVES, planMove } from '../src/planMoves.mjs'
 import { parseGoals } from '../src/goals.mjs'
 import { wakeFor } from '../src/say.mjs'
 import { workApi } from '../src/work/api.mjs'
@@ -66,9 +67,18 @@ async function inVibe() {
   return fs
 }
 
-test('the moves and the drafts it knows', () => {
-  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done', 'plan-confirm', 'plan-change', 'plan-ask', 'plan-deeper', 'plan-marks', 'plan-feature-add', 'plan-goals-confirm', 'plan-goals-change', 'plan-goals-agree', 'plan-settled', 'plan-standards', 'plan-standards-confirm', 'plan-standards-change', 'plan-standards-agree', 'plan-measure', 'plan-check', 'plan-focus', 'plan-tradeoffs', 'plan-tradeoff', 'plan-start'])
+test("the moves and the drafts it knows; the Vision tab's moves take a way of their own, with no focus on it", async () => {
+  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done'])
   assert.deepEqual(FOCUS_DRAFTS, ['vibe-draft', 'how-draft'])
+  assert.deepEqual(PLAN_MOVES, ['plan-confirm', 'plan-change', 'plan-ask', 'plan-deeper', 'plan-marks', 'plan-feature-add', 'plan-goals-confirm', 'plan-goals-change', 'plan-goals-agree', 'plan-settled', 'plan-standards', 'plan-standards-confirm', 'plan-standards-change', 'plan-standards-agree', 'plan-measure', 'plan-check', 'plan-focus', 'plan-tradeoffs', 'plan-tradeoff', 'plan-start'])
+  // 2026-10-24: the focus way takes no plan word, and the plan's way no focus move.
+  assert.equal((await focusMove({ command: 'plan-start', text: 'Game' }, { canWrite: true, partner: { name: 'Partner' } })).status, 400)
+  assert.equal(planMove({ command: 'focus', id: 'G1' }, { canWrite: true, partner: { name: 'Partner' }, job: 'x' }).status, 400)
+  // A plan word needs only the partner and the board that delivers: no goal map, no focus.
+  const started = planMove({ command: 'plan-start', text: 'Game: a tactics game' }, { canWrite: true, partner: { name: 'Partner' }, job: 'x' })
+  assert.deepEqual([started.ok, started.words.text.split(String.fromCharCode(10))[0]], [true, 'plan interview'])
+  assert.equal(planMove({ command: 'plan-start' }, { canWrite: true, partner: null, job: 'x' }).status, 409)
+  assert.equal(planMove({ command: 'plan-start' }, { canWrite: false, partner: { name: 'Partner' }, job: 'x' }).status, 403)
 })
 
 test('picking a focus writes Focus:, starts the goal\'s thread and links it, and types focus: to the partner once', async () => {

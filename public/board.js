@@ -10265,7 +10265,7 @@ function focusNoteCard(view) {
 }
 
 // Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page; the board
-// types your moves and answers to it (src/focus.mjs `planWord`, the store's `answer`). Your feature marks and goal
+// types your moves and answers to it (src/planMoves.mjs `planMove`, the store's `answer`). Your feature marks and goal
 // confirms wait on the page until you send them, in one word.
 const visionUi = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false }
 
@@ -11112,7 +11112,8 @@ async function visionSend(url, body, done) {
   return ok
 }
 
-const toPartner = (body, done) => visionSend('/api/goals', body, done)
+// 2026-10-24: the Vision tab's words go on the plan's own way (server.mjs /api/plan), with no focus on it.
+const toPartner = (body, done) => visionSend('/api/plan', body, done)
 
 async function visionAct(act, id) {
   // The empty tab's start (the trial's gap 1): its two moves come before there is a plan to view.

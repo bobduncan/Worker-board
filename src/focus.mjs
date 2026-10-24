@@ -9,7 +9,7 @@ import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { focusStage, hasDoneWhen, nextGoalId, parseGoals } from './goals.mjs'
 import { evaluateWords, evaluationsDue, goalAttempts, needsEvaluation } from './goalGuard.mjs'
 import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
-import { focusWords, planWords } from './say.mjs'
+import { focusWords } from './say.mjs'
 import { absentAs, again } from './write.mjs'
 
 const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
@@ -18,17 +18,7 @@ const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
  * The person's moves: pick a focus, agree the vibe or not yet, go with the how or not yet; Focus 4: the run's talk bar;
  * B354: ask the partner for a goal's Done when; B358: tick a goal on the Goals part (its re-check first).
  */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done',
-  // Vision (2026-10-19): the Vision tab's moves on the product plan (planWord, below).
-  'plan-confirm', 'plan-change', 'plan-ask', 'plan-deeper', 'plan-marks', 'plan-feature-add', 'plan-goals-confirm', 'plan-goals-change', 'plan-goals-agree',
-  // Standards (2026-10-20): a vision card settled by the person; the standards proposed, confirmed, changed, measured, their gaps into goals.
-  'plan-settled', 'plan-standards', 'plan-standards-confirm', 'plan-standards-change', 'plan-standards-agree', 'plan-measure',
-  // The new order (2026-10-21): the partner checks the whole plan for missing goals; it proposes the next focus.
-  'plan-check', 'plan-focus',
-  // Tradeoffs (2026-10-21): the partner weighs every complex feature later or not sure; the person chooses prepare or wait.
-  'plan-tradeoffs', 'plan-tradeoff',
-  // The trial's gap 1 (2026-10-24): the empty Vision tab's start, what the person builds, begins the interview.
-  'plan-start']
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-done']
 /** The partner's drafts beside the talk: the vibe's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -109,33 +99,6 @@ export function focusMove(body, ctx) {
   return run
 }
 
-/** Vision (2026-10-19): the Vision tab's moves, each a word to the partner. */
-const PLAN_MOVES = FOCUS_MOVES.filter(command => command.startsWith('plan-'))
-const PLAN_IDS = { 'plan-confirm': /^P\d+$/, 'plan-ask': /^P\d+$/, 'plan-deeper': /^P\d+$/, 'plan-settled': /^P\d+$/, 'plan-measure': /^K\d+$/, 'plan-change': /^[PFSK]\d+$/, 'plan-tradeoff': /^F\d+$/ }
-// The new order (2026-10-21): a feature is placed in a milestone of the road (M1, M2, M3+), or no, or not sure.
-const MARKS_LINE = /^F\d+ (must|later|no|unsure|M\d+\+?)(; F\d+ (must|later|no|unsure|M\d+\+?))*$/
-const GOALS_LINE = /^S\d+(, S\d+)*$/
-const STANDARDS_LINE = /^K\d+(, K\d+)*$/
-
-/**
- * Vision (2026-10-19): a move of the Vision tab on the product plan: Confirm an answer, Change an answer, feature or
- * goal (with the person's words), ask for options or deeper questions, send the feature marks or goal confirms in one
- * word, add a feature, change the whole goal preset, or put the goals in the goal map. The partner is the page's only
- * writer, so nothing is written here: the word goes to the partner (roles/partner.md, "The plan interview").
- */
-function planWord(command, body, ctx) {
-  const id = String(body.id ?? '').trim()
-  const pattern = PLAN_IDS[command]
-  if (pattern !== undefined && !pattern.test(id)) return refuse(400, command === 'plan-change' ? 'Name what to change by its id (P5, F3, S2 or K1).' : command === 'plan-measure' ? 'Name the standard by its id (K1).' : 'Name the answer by its id (P5).')
-  const words = oneLine(body.text, 1000)
-  if (['plan-change', 'plan-feature-add', 'plan-goals-change', 'plan-standards-change'].includes(command) && words === '') return refuse(400, 'Say it in your words first.')
-  if (command === 'plan-marks' && !MARKS_LINE.test(words)) return refuse(400, 'Give the marks as "F3 M1; F5 no".')
-  if (command === 'plan-goals-confirm' && !GOALS_LINE.test(words)) return refuse(400, 'Give the goals as "S1, S2".')
-  if (command === 'plan-standards-confirm' && !STANDARDS_LINE.test(words)) return refuse(400, 'Give the standards as "K1, K2".')
-  if (command === 'plan-tradeoff' && !['prepare', 'wait'].includes(words)) return refuse(400, 'Choose prepare or wait.')
-  return { ok: true, result: { id: id === '' ? null : id }, words: planWords(command, { to: ctx.partner.name, id, words, job: ctx.job }) }
-}
-
 async function move(body, ctx) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return failed('form')
   const command = body.command
@@ -143,7 +106,6 @@ async function move(body, ctx) {
   if (ctx.canWrite !== true) return refuse(403, 'This board only shows: work on the focus on the board that delivers.')
   const isMove = FOCUS_MOVES.includes(command)
   if (isMove && (ctx.partner ?? null) === null) return refuse(409, 'No partner chat is on the board: the setting advisor names none.')
-  if (PLAN_MOVES.includes(command)) return planWord(command, body, ctx)
   const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
   const text = await readMap(ctx.fs, ctx.goalsFile)
   if (text === null) return refuse(404, 'There is no goal map to write into.')

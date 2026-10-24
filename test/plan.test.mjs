@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { focusMove } from '../src/focus.mjs'
+import { planMove } from '../src/planMoves.mjs'
 import { PLAN_LATE_MS, optionCard, parsePlan, planState, withPlanWork } from '../src/plan.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { itemsOf, storeFromText } from '../src/work/read.mjs'
@@ -132,23 +132,23 @@ Options: Yes | No
 
 test('the Plan part\'s Confirm and Change: a word to the partner, nothing written; a bad id or empty words refused', async () => {
   const ctx = { canWrite: true, partner: { name: 'Game - Advisor' }, job: 'C:/board/roles/partner.md' }
-  const confirmed = await focusMove({ command: 'plan-confirm', id: 'P5' }, ctx)
+  const confirmed = await planMove({ command: 'plan-confirm', id: 'P5' }, ctx)
   assert.equal(confirmed.ok, true)
   assert.deepEqual([confirmed.words.to, confirmed.words.command, confirmed.words.about], ['Game - Advisor', 'plan-confirm', 'P5'])
   assert.equal(confirmed.words.text, 'plan: P5 confirmed\nYour job: C:/board/roles/partner.md, "The plan interview"')
-  const changed = await focusMove({ command: 'plan-change', id: 'P1', text: 'The player:\n  anyone who likes Into the Breach' }, ctx)
+  const changed = await planMove({ command: 'plan-change', id: 'P1', text: 'The player:\n  anyone who likes Into the Breach' }, ctx)
   assert.equal(changed.words.text, 'plan: P1 change\nWords: The player: anyone who likes Into the Breach\nYour job: C:/board/roles/partner.md, "The plan interview"')
-  const asked = await focusMove({ command: 'plan-ask', id: 'P6' }, ctx)
+  const asked = await planMove({ command: 'plan-ask', id: 'P6' }, ctx)
   assert.equal(asked.words.text, ['plan: P6 ask', 'Your job: C:/board/roles/partner.md, "The plan interview"'].join('\n'))
-  assert.equal((await focusMove({ command: 'plan-change', id: 'P1', text: '  ' }, ctx)).status, 400)
-  assert.equal((await focusMove({ command: 'plan-confirm', id: 'G5' }, ctx)).status, 400)
-  assert.equal((await focusMove({ command: 'plan-confirm', id: 'P5' }, { ...ctx, canWrite: false })).status, 403)
-  assert.equal((await focusMove({ command: 'plan-confirm', id: 'P5' }, { ...ctx, partner: null })).status, 409)
+  assert.equal((await planMove({ command: 'plan-change', id: 'P1', text: '  ' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-confirm', id: 'G5' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-confirm', id: 'P5' }, { ...ctx, canWrite: false })).status, 403)
+  assert.equal((await planMove({ command: 'plan-confirm', id: 'P5' }, { ...ctx, partner: null })).status, 409)
 })
 
 test('the Vision tab\'s other moves: deeper, marks, a feature added, goals confirmed, changed and agreed; a change of a feature or goal', async () => {
   const ctx = { canWrite: true, partner: { name: 'Game - Advisor' }, job: 'J' }
-  const words = async body => (await focusMove(body, ctx)).words.text.split('\n')
+  const words = async body => (await planMove(body, ctx)).words.text.split('\n')
   assert.deepEqual(await words({ command: 'plan-deeper', id: 'P1' }), ['plan: P1 deeper', 'Your job: J, "The plan interview"'])
   assert.deepEqual(await words({ command: 'plan-marks', text: 'F3 later; F5 must' }), ['plan: features marked', 'Marks: F3 later; F5 must', 'Your job: J, "The plan interview"'])
   assert.deepEqual(await words({ command: 'plan-feature-add', text: 'A pet that follows you' }), ['plan: feature add', 'Words: A pet that follows you', 'Your job: J, "The plan interview"'])
@@ -157,12 +157,12 @@ test('the Vision tab\'s other moves: deeper, marks, a feature added, goals confi
   assert.deepEqual(await words({ command: 'plan-goals-agree' }), ['plan: goals agreed', 'Your job: J, "The plan interview"'])
   assert.deepEqual(await words({ command: 'plan-change', id: 'F3', text: 'only at night' }), ['plan: F3 change', 'Words: only at night', 'Your job: J, "The plan interview"'])
   assert.deepEqual(await words({ command: 'plan-change', id: 'S2', text: 'later' }), ['plan: S2 change', 'Words: later', 'Your job: J, "The plan interview"'])
-  assert.equal((await focusMove({ command: 'plan-goals-agree' }, ctx)).words.about, 'plan')
+  assert.equal((await planMove({ command: 'plan-goals-agree' }, ctx)).words.about, 'plan')
   // Refused: a list not in its form, empty words, Go deeper on a feature.
-  assert.equal((await focusMove({ command: 'plan-marks', text: 'F3 maybe' }, ctx)).status, 400)
-  assert.equal((await focusMove({ command: 'plan-goals-confirm', text: 'S1 and S2' }, ctx)).status, 400)
-  assert.equal((await focusMove({ command: 'plan-feature-add', text: ' ' }, ctx)).status, 400)
-  assert.equal((await focusMove({ command: 'plan-deeper', id: 'F1' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-marks', text: 'F3 maybe' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-goals-confirm', text: 'S1 and S2' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-feature-add', text: ' ' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-deeper', id: 'F1' }, ctx)).status, 400)
 })
 
 test('parsePlan: the features with their marks, complex and built; the goal preset per milestone', () => {
@@ -379,7 +379,7 @@ test('planState: a question on a standard comes after the goals\', and the bars 
 
 test('the standards\' moves: settled, propose, confirm, change, measure, gaps into goals; a change of a standard', async () => {
   const ctx = { canWrite: true, partner: { name: 'Game - Advisor' }, job: 'J' }
-  const words = async body => (await focusMove(body, ctx)).words.text.split('\n')
+  const words = async body => (await planMove(body, ctx)).words.text.split('\n')
   assert.deepEqual(await words({ command: 'plan-settled', id: 'P3' }), ['plan: P3 settled', 'Your job: J, "The plan interview"'])
   assert.deepEqual(await words({ command: 'plan-standards' }), ['plan: standards', 'Your job: J, "The plan interview"'])
   assert.deepEqual(await words({ command: 'plan-standards-confirm', text: 'K1, K3' }), ['plan: standards confirmed', 'Standards: K1, K3', 'Your job: J, "The plan interview"'])
@@ -387,10 +387,10 @@ test('the standards\' moves: settled, propose, confirm, change, measure, gaps in
   assert.deepEqual(await words({ command: 'plan-standards-agree' }), ['plan: standards agreed', 'Your job: J, "The plan interview"'])
   assert.deepEqual(await words({ command: 'plan-measure', id: 'K1' }), ['plan: K1 measure', 'Your job: J, "The plan interview"'])
   assert.deepEqual(await words({ command: 'plan-change', id: 'K2', text: 'drop the camera rule' }), ['plan: K2 change', 'Words: drop the camera rule', 'Your job: J, "The plan interview"'])
-  assert.equal((await focusMove({ command: 'plan-standards-confirm', text: 'K1 and K2' }, ctx)).status, 400)
-  assert.equal((await focusMove({ command: 'plan-measure', id: 'P1' }, ctx)).status, 400)
-  assert.equal((await focusMove({ command: 'plan-settled', id: 'K1' }, ctx)).status, 400)
-  assert.equal((await focusMove({ command: 'plan-standards-change', text: '' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-standards-confirm', text: 'K1 and K2' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-measure', id: 'P1' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-settled', id: 'K1' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-standards-change', text: '' }, ctx)).status, 400)
 })
 
 test('a feature marked must or later, placed in a milestone by the plan check; the plan check and the next focus as words', async () => {
@@ -401,13 +401,13 @@ test('a feature marked must or later, placed in a milestone by the plan check; t
   assert.deepEqual([plan.marks.must, plan.marks.later, plan.architecture.open], [2, 1, ['F2']])
   const partner = { name: 'Advisor' }
   const ctx = { canWrite: true, partner, job: 'roles/partner.md' }
-  const check = await focusMove({ command: 'plan-check' }, ctx)
+  const check = await planMove({ command: 'plan-check' }, ctx)
   assert.deepEqual([check.ok, check.words.text.split('\n')[0]], [true, 'plan: check'])
-  const focus = await focusMove({ command: 'plan-focus', text: 'something for the feel' }, ctx)
+  const focus = await planMove({ command: 'plan-focus', text: 'something for the feel' }, ctx)
   assert.deepEqual(focus.words.text.split('\n').slice(0, 2), ['plan: focus', 'Words: something for the feel'])
-  assert.equal((await focusMove({ command: 'plan-focus' }, ctx)).words.text.split('\n')[0], 'plan: focus')
-  assert.equal((await focusMove({ command: 'plan-marks', text: 'F1 must; F2 no' }, ctx)).ok, true)
-  assert.equal((await focusMove({ command: 'plan-marks', text: 'F1 soon' }, ctx)).status, 400)
+  assert.equal((await planMove({ command: 'plan-focus' }, ctx)).words.text.split('\n')[0], 'plan: focus')
+  assert.equal((await planMove({ command: 'plan-marks', text: 'F1 must; F2 no' }, ctx)).ok, true)
+  assert.equal((await planMove({ command: 'plan-marks', text: 'F1 soon' }, ctx)).status, 400)
 })
 
 test('a goal or a standard "agreed" by the person reads as confirmed (the partner writes so once it is in the goal map)', () => {
