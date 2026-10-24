@@ -423,23 +423,33 @@ const REPORT_NEXT = /^\s*(?:work\s+)?report\b/i
  * report): whether a step in progress has a stale checkpoint, as the rule stale-checkpoint and the health summary read it.
  * 'report': its last checkpoint's next action is to report, written over `reportMinutes` ago; 'old': in progress over
  * `checkpointMinutes` with no checkpoint within them (`checkpoint` null: none at all). Times count from the end of the
- * person's last pause at the earliest. Null when it is not late, not in progress, the person pauses, or its worker is
- * paused for the limit (it stands still on purpose). `{ kind, step, checkpoint, quiet }`: `step` how long it has been
- * in progress, `quiet` how long since its last checkpoint (or since it began, without one).
+ * person's last pause at the earliest, less the time its worker stood suspended for the limit (the review: it cannot
+ * write a checkpoint meanwhile). A checkpoint from before the step's current stretch in progress (it waited on you
+ * since) counts as none: the stretch counts from its start. Null when it is not late, not in progress, the person
+ * pauses, a limit is full, or its worker is paused for the limit now (it stands still on purpose). `{ kind, step,
+ * checkpoint, quiet }`: `step` how long it has been in progress, `quiet` how long since its last checkpoint (or since
+ * the stretch began, without one).
  */
 export function checkpointLate(item, view) {
-  if (stateOf(item) !== 'in progress' || isPaused(view)) return null
+  if (stateOf(item) !== 'in progress' || isPaused(view) || isFull(view)) return null
   const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
   if (owner?.state === 'suspended') return null
   const began = sinceMs(valueOf(item, 'Since'))
   if (!Number.isFinite(began)) return null
   const checkpoint = checkpointOf(item)
-  const written = Number.isFinite(checkpoint?.at) ? checkpoint.at : null
-  const quiet = view.now - afterPause(view, written ?? began)
+  const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
+  const counted = from => view.now - afterPause(view, from) - (owner === undefined ? 0 : suspendedMs(view, owner.name, afterPause(view, from)))
+  const quiet = counted(written ?? began)
   const late = { step: view.now - began, checkpoint, quiet }
   if (written !== null && REPORT_NEXT.test(checkpoint.next) && quiet > view.settings.reportMinutes * MIN) return { kind: 'report', ...late }
-  const busy = view.now - afterPause(view, began)
-  return busy > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+  return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+}
+
+/** B572: how long the chat stood suspended for the limit between `from` and now, by its timeline's spans. */
+function suspendedMs(view, name, from) {
+  const spans = view.timeline.find(one => plain(one.chat, view.prefix) === plain(name, view.prefix))?.spans ?? []
+  return spans.filter(span => span.state === 'suspended')
+    .reduce((sum, span) => sum + Math.max(0, Math.min(span.to ?? view.now, view.now) - Math.max(span.from, from)), 0)
 }
 
 /**

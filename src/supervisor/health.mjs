@@ -7,8 +7,7 @@
 
 import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
-import { isHolding } from '../work/pause.mjs'
-import { checkpointOf } from '../work/pause.mjs'
+import { checkpointOf, isHolding } from '../work/pause.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { checkpointLate } from './rules/watch.mjs'
 
@@ -234,8 +233,8 @@ function stepLines(view, now) {
     // B572 (X24): a step in progress shows its last checkpoint, its age, commit and next action; a stale one is odd
     const checkpoint = state === 'in progress' ? checkpointOf(item) : null
     const checkpointWords = state !== 'in progress' ? ''
-      : checkpoint === null || !Number.isFinite(checkpoint.at) ? ' [no checkpoint]'
-        : ` [last checkpoint ${lasting(now - checkpoint.at)} ago (${checkpoint.commit ?? 'none'}): ${oneLine(checkpoint.next, 60)}]`
+      : checkpoint === null ? ' [no checkpoint]'
+        : ` [last checkpoint ${Number.isFinite(checkpoint.at) ? `${lasting(now - checkpoint.at)} ago` : 'at a time not known'} (${checkpoint.commit ?? 'none'}): ${oneLine(checkpoint.next, 60)}]`
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
     const odd = isLate(item, view, now) || (owner !== null && !isChats) || checkpointLate(item, { ...view, now }) !== null

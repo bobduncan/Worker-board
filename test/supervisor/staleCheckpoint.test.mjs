@@ -26,7 +26,7 @@ const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, sta
 const checkpoint = (commit, next, ms) => `${commit} · ${next} · ${stamp(ms)}:00`
 
 const view = (store, more = {}) => buildView({
-  state: { chats: [lane('Lead', { isMain: true }), lane('Picker', more.lane ?? {})], chatPrefix: '', pause: more.pause ?? null },
+  state: { chats: [lane('Lead', { isMain: true }), lane('Picker', more.lane ?? {})], chatPrefix: '', pause: more.pause ?? null, today: more.today ?? [], limits: more.limits ?? {} },
   items: store, settings: more.settings ?? {}, now: NOW,
 })
 const check = board => WATCH_RULES.find(one => one.id === 'stale-checkpoint').check(board, { seen: new Map(), observed: [] })
@@ -97,6 +97,26 @@ test('the person\'s pause stands the chats still: quiet meanwhile, and the time 
   assert.deepEqual(check(view(X24(), { pause: { state: 'running', since: ago(20) } })), [])
 })
 
-test('a worker paused for the limit stands still on purpose: quiet', () => {
+test('a worker paused for the limit stands still on purpose: quiet, and so while a limit is full', () => {
   assert.deepEqual(check(view(X24(), { lane: { state: 'suspended', suspended: { by: 'note', limit: 'fiveHour', since: ago(120) } } })), [])
+  assert.deepEqual(check(view(X24(), { limits: { fiveHour: { used: 100, level: 'full', at: ago(1) } } })), [])
+})
+
+test('the time its worker stood suspended for the limit does not count: back at work, it has time for its next checkpoint', () => {
+  // a checkpoint 180 min ago, then suspended from 170 to 10 min ago: 20 min of work since
+  const store = () => items(step('B6', 'in progress', { Since: stamp(ago(200)), Checkpoint: checkpoint('abc1234', 'Build the gate', ago(180)) }))
+  const today = [{ chat: 'Picker', spans: [{ from: ago(200), to: ago(170), state: 'working' }, { from: ago(170), to: ago(10), state: 'suspended' }, { from: ago(10), to: NOW, state: 'working' }] }]
+  assert.deepEqual(check(view(store(), { today })), [])
+  assert.equal(check(view(store())).length, 1)
+})
+
+test('a checkpoint from before the step\'s stretch in progress (it waited on you since) counts as none: the stretch counts', () => {
+  const back = since => check(view(items(step('B5', 'in progress', { Since: stamp(ago(since)), Checkpoint: checkpoint('abc1234', 'report B5', ago(200)) }))))
+  assert.deepEqual(back(10), [])
+  assert.equal(back(130)[0].text, 'B5 in progress for 2 h 10 min (Picker) with no checkpoint for 2 h 10 min')
+})
+
+test('a checkpoint of the old form, with no time, still shows in the summary', () => {
+  const line = lineOfStep(healthSummary(view(items(step('B4', 'in progress', { Since: stamp(ago(30)), Checkpoint: 'Sort the crates' }))), NOW), 'B4')
+  assert.match(line, /\[last checkpoint at a time not known \(none\): Sort the crates\]/)
 })
