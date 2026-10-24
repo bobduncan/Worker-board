@@ -3172,7 +3172,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `holder-not-running` (a step taken or in progress whose worker has not run for over 30 min), `opus-wait` (an opus
   step's line held for Opus over 15 min), `skip-repeats` (a clear, or a compaction not skipped by design as for a small
   chat, skipped for the same reason twice in a row), `repair-repeats` (the same repair rule on the same chat or
-  step 3 times in a day), `undelivered` (a word to a chat waiting over 10 min, or expired or failed in the last two
+  step 3 times in a day; B574: an unblock counts by its step and blocker, so a step freed once per finished blocker is
+  no repeat; and a step that goes done leaves its dependants' Blocked by in the same move, "no longer blocked by B<n>:
+  done", so the sync check's unblock is left for misses), `undelivered` (a word to a chat waiting over 10 min, or expired or failed in the last two
   hours), `report-check-twice` (a step's board check failed twice in a row since its last pass), `old-mod` (a chat on an
   older Workers mod than the one installed: dormant until the mod reports its version, Part 2's mod), `odd-effort`
   (B544, the fix of X9: a chat whose card says an effort that is not a level; the partner's card holds the app's level in
