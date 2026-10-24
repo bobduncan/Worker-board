@@ -260,8 +260,8 @@ test('B569: a result without its Context or Change, too long, or with files, cod
   assert.deepEqual(await faultsOf(`Context: ${'dark '.repeat(61)}Change: They glow.`), ['the Context is 304 characters: at most 300, the rest goes after "Details:"'])
   assert.deepEqual(await faultsOf(`Context: Dark. Change: ${'glow '.repeat(101)}`), ['the Change is 504 characters: at most 500, the rest goes after "Details:"'])
   assert.deepEqual(await faultsOf('Context: The lampPost rule in src/lamps.mjs was wrong. Change: Merged 3f9a1c2: lamps glow. Details: all in src/lamps.mjs'), [
-    'the Context holds file names (src/lamps.mjs), code words (lampPost): say it in plain words, and put those after "Details:"',
-    'the Change holds commit hashes (3f9a1c2): say it in plain words, and put those after "Details:"',
+    'the Context holds file names (src/lamps.mjs), code words (lampPost): say it in plain words, for someone who forgot, and put those after "Details:"',
+    'the Change holds commit hashes (3f9a1c2): say it in plain words, for someone who forgot, and put those after "Details:"',
   ])
   // What goes after "Details:" (or a Tests bite line) is the check's, whatever it holds.
   assert.equal((await check('Context: The lamps were dark. Change: They glow. Details: lamps.mjs, lightOn(), 3f9a1c2')).passed, true)

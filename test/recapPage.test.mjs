@@ -48,7 +48,7 @@ test('the state carries the recaps and where they show; a recap is no line of In
   try {
     const state = await build()
     assert.equal(state.recapsShow, 'now')
-    assert.deepEqual(state.recaps.map(recap => [recap.about, recap.state, recap.evidence, recap.isGoal]), [['G3', 'open', 'pictures/g3/evidence.png', true]])
+    assert.deepEqual(state.recaps.map(recap => [recap.about, recap.state, recap.evidence, recap.isGoal]), [['G3', 'open', 'none', true]])
     assert.deepEqual(state.information.filter(info => info.about === 'G3'), [])
     // "Bother me: once a day" (the settings of B361): the recaps gather in the daily note.
     assert.equal((await build('{"botherMe":"daily"}')).recapsShow, 'daily')
@@ -78,9 +78,9 @@ test('Needs your attention shows the open recaps, the closed ones with Show clos
 })
 
 test('a recap says when it approves itself, or what became of it', () => {
-  assert.equal(page.recapStatus(OPEN, NOW + HOUR), 'Approves itself in 23 h, unless you overturn it or mark it seen.')
-  assert.equal(page.recapStatus(OPEN, NOW + 24 * HOUR - 10 * MIN), 'Approves itself in 10 min, unless you overturn it or mark it seen.')
-  assert.equal(page.recapStatus(OPEN, NOW + 25 * HOUR), 'Approves itself now, unless you overturn it or mark it seen.')
+  assert.equal(page.recapStatus(OPEN, NOW + HOUR), 'Approves itself in 23 h.')
+  assert.equal(page.recapStatus(OPEN, NOW + 24 * HOUR - 10 * MIN), 'Approves itself in 10 min.')
+  assert.equal(page.recapStatus(OPEN, NOW + 25 * HOUR), 'Approves itself now.')
   assert.equal(page.recapStatus(CLOSED, NOW), 'Approved by itself: its 24 hours passed.')
   // B390: OK, seen.
   assert.equal(page.recapStatus({ ...CLOSED, state: 'seen' }, NOW), 'Seen by you: approved.')

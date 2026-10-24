@@ -4073,7 +4073,8 @@ function recapStatus(recap, now) {
   if (recap.state === 'overturned') return `Overturned: ${quoted(recap.words)}. ${recap.isGoal ? 'The goal is open again; your partner makes its next steps.' : 'Your partner makes the fix.'}`
   if (recap.state === 'feedback') return `Your feedback went to your partner: ${quoted(recap.words)}.`
   const left = recap.approvesAt === null ? 0 : recap.approvesAt - now
-  return `${left <= 0 ? 'Approves itself now' : `Approves itself in ${timeLeft(left)}`}, unless you overturn it or mark it seen.`
+  // B591: as the agreed card (Q352) says it; its two buttons say the rest.
+  return left <= 0 ? 'Approves itself now.' : `Approves itself in ${timeLeft(left)}.`
 }
 /** B360, B390: what the person's click on a recap's button sends: Overturn needs their words, OK, seen sends none. */
 function recapSend(recap, verdict, text) {
