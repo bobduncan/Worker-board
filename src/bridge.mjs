@@ -121,7 +121,8 @@ export function checkTyped(body, state) {
   if (!checked.ok) return checked
   const failed = ids(body.failed)
   const refused = ids(body.refused)
-  return { ...checked, typed: ids(body.typed), failed, refused, why: reasons(body.why, [...failed, ...refused]) }
+  // B577: with the session that took them, so a word failed for a chat that was replaced goes to its new session.
+  return { ...checked, typed: ids(body.typed), failed, refused, why: reasons(body.why, [...failed, ...refused]), session: body.session.trim() }
 }
 
 /** The file that tells the mod where the board is. It holds no words of a chat. */

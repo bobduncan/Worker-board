@@ -53,7 +53,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findPicture, pictureProblem, shownFolders, shownRoots } from './src/pictures.mjs'
-import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, withInstruction, workWords } from './src/say.mjs'
+import { answerWords, checkSay, checkStepWords, focusWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -81,7 +81,7 @@ import { standardHold } from './src/work/standardHold.mjs'
 import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
-import { takeFor } from './src/work/outboxSweep.mjs'
+import { stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
@@ -1958,6 +1958,11 @@ async function main(args) {
         const starts = wakesDue(state, sentNow(), now, config.maxMessageChars)
         for (const start of starts) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...start, state: 'waiting' })
         if (starts.length > 0) readState.reset()
+        // B577: a chat whose session was stopped takes nothing until it gets input: the main chat is asked once per stop
+        // to wake it by its session id.
+        const wakes = wakesStopped(state, stoppedChats(store.outbox(), state), store.outbox(), timeOf)
+        for (const one of wakes) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...one, state: 'waiting' })
+        if (wakes.length > 0) readState.reset()
       }
       // B491: the open brainstorm question whose title the board refuses (over 12 words, or none) goes back to the
       // Advisor at once, once for each wording. Only the board that delivers, and only while there is an Advisor.

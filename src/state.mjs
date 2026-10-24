@@ -42,6 +42,7 @@ import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
+import { stoppedOf } from './stopped.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -1552,6 +1553,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
     // B547: the clear it owes (its last report newer than its last clear), and whether its Workers mod (`mods`, the
     // version its last call said) can run the clear the board names; null when it owes none.
     clearOwed: lane.isLeftover || lane.isMain || !workOk ? null : withMod(clearOwed({ lane, items: raw.work.items, prefix, afterStep: list.afterStep ?? null }), mods?.[lane.name]),
+    // B577: its session was stopped and words wait for it (`{ since, words }`): the app drops them until it gets input.
+    stopped: stoppedOf(sent, lane),
   }))
   // Pause and resume (spec 2026-10-18): what the pause banner says, from pause.json and the lanes' facts alone; with the
   // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the
