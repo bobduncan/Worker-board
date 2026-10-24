@@ -47,7 +47,7 @@ const HELPER_LOOK_MS = 6 * 60 * MIN
 /** B546: a refine or check the running partner has said or done nothing about this long waits for the helper. */
 export const PARTNER_QUIET_MS = 10 * MIN
 /** B550: a step queued this long for a busy worker while another is free is named to the main chat, once an hour. */
-export const QUEUED_BEHIND_MS = 60 * MIN
+export const QUEUED_BEHIND_MS = 20 * MIN
 /** B542: a queued step its free owner waits on this long behind a step in review is named to the main chat. */
 export const REVIEW_WAIT_MS = 60 * MIN
 
@@ -185,13 +185,15 @@ function notTaken(view) {
 }
 
 /**
- * B550 (X15: B531 queued 3 h 53 min third behind a busy worker while two workers were free): a step queued over
- * QUEUED_BEHIND_MS for a worker that is busy, while another worker is free (holds nothing, has nothing of its own to
- * take, not paused for the limit), is named to the main chat: "Requeue B<n> to <free worker>: queued <age> behind
- * <busy worker>". The board does not requeue it itself: queueing is the main chat's (the flow file). The oldest waiting
- * step goes to the first free worker (running before not running, then free longest), one step per free worker; a
- * blocked step (Blocked by or Waits for open) is skipped. Once per step an hour: the watch counts from the first time
- * it was named, and lasts while the step stays queued for the same worker, also through a run without a free worker.
+ * B550 (X15: B531 queued 3 h 53 min third behind a busy worker while two workers were free; X16: B543 and B548 waited
+ * 24 and 38 min behind it while two others were free): a step queued over QUEUED_BEHIND_MS for a worker that is busy,
+ * while another worker is free (holds nothing, has nothing queued, not paused for the limit), is named to the main
+ * chat: "Requeue B<n> to <free worker>: queued <age> behind <busy worker>". The board does not requeue it itself:
+ * queueing is the main chat's (the flow file). The oldest waiting step goes to the first free worker (running before
+ * not running, then free longest), the next to the next; a blocked step (Blocked by or Waits for open) is skipped. A
+ * result check's fix (`Fix of`) stays with the worker that built the step: it is named with that reason, not moved.
+ * Once per step an hour: the watch counts from the first time it was named, and lasts while the step stays queued for
+ * the same worker, also through a run without a free worker.
  */
 function queuedBehind(view, { seen = new Map(), observed = [] } = {}) {
   const { items = new Map(), prefix = '', now } = view
@@ -209,19 +211,26 @@ function queuedBehind(view, { seen = new Map(), observed = [] } = {}) {
     const lane = laneOf(valueOf(item, 'Owner'))
     return lane !== undefined && lane.isMain !== true && isBusy(lane) && isOpen(item) && now - sinceMs(valueOf(item, 'Since')) > QUEUED_BEHIND_MS
   }).sort((a, b) => sinceMs(valueOf(a, 'Since')) - sinceMs(valueOf(b, 'Since')) || byId(a, b))
-  const ownsOpen = lane => queued.some(item => plain(valueOf(item, 'Owner'), prefix) === plain(lane.name, prefix) && isOpen(item))
+  const ownsQueued = lane => queued.some(item => plain(valueOf(item, 'Owner'), prefix) === plain(lane.name, prefix))
   const freeSince = lane => lane.idle?.since ?? now
-  const free = workers.filter(lane => lane.state === 'free' && !holds(lane.name) && !ownsOpen(lane))
+  const free = workers.filter(lane => lane.state === 'free' && !holds(lane.name) && !ownsQueued(lane))
     .sort((a, b) => Number(b.isRunning !== false) - Number(a.isRunning !== false) || freeSince(a) - freeSince(b))
-  waiting.slice(0, free.length).forEach((item, index) => {
+  if (free.length === 0) return found
+  const fixOf = item => (/^B\d+$/.test(valueOf(item, 'Fix of') ?? '') ? valueOf(item, 'Fix of') : null)
+  const name = (item, text) => {
     const id = idOf(item)
-    const to = free[index].name
     const watch = watchOf(item)
     if (!observed.includes(watch)) observed.push(watch)
-    const named = seen.get(watch) ?? now
-    const key = `queued-behind ${id} ${valueOf(item, 'Since') ?? ''} ${Math.floor((now - named) / HOUR)}`
-    const text = `Requeue ${id} to ${to}: queued ${hoursOf(now - sinceMs(valueOf(item, 'Since')))} behind ${laneOf(valueOf(item, 'Owner')).name}`
+    const key = `queued-behind ${id} ${valueOf(item, 'Since') ?? ''} ${Math.floor((now - (seen.get(watch) ?? now)) / HOUR)}`
     found.push(finding('queued-behind', key, id, text, { do: 'send', text }))
+  }
+  const ageOf = item => hoursOf(now - sinceMs(valueOf(item, 'Since')))
+  const ownerOf = item => laneOf(valueOf(item, 'Owner')).name
+  for (const item of waiting.filter(one => fixOf(one) !== null)) {
+    name(item, `${idOf(item)} queued ${ageOf(item)} behind ${ownerOf(item)} stays: it fixes ${fixOf(item)}, which ${ownerOf(item)} built`)
+  }
+  waiting.filter(one => fixOf(one) === null).slice(0, free.length).forEach((item, index) => {
+    name(item, `Requeue ${idOf(item)} to ${free[index].name}: queued ${ageOf(item)} behind ${ownerOf(item)}`)
   })
   return found
 }
@@ -510,7 +519,7 @@ function worktrees(view) {
 export const REPAIR_RULES = [
   { id: 'blocked', kind: 'repair', says: 'a step blocked by one done, dropped or in review, or by one the store does not hold', check: blocked },
   { id: 'not-taken', kind: 'repair', says: 'a queued step its free owner was told of and did not take', check: notTaken },
-  { id: 'queued-behind', kind: 'repair', says: 'a step queued over an hour behind a busy worker while another worker is free', check: queuedBehind },
+  { id: 'queued-behind', kind: 'repair', says: 'a step queued over 20 min behind a busy worker while another worker is free', check: queuedBehind },
   { id: 'review-wait', kind: 'repair', says: 'a queued step its free owner waits on for an hour behind a step in review', check: reviewWait },
   { id: 'owner-gone', kind: 'repair', says: 'a step owned by a chat no longer in the list', check: ownerGone },
   { id: 'refine-drop', kind: 'repair', says: 'a yes to dropping a step in its refine, which only the main chat carries out', check: refineDrop },
