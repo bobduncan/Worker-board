@@ -2745,6 +2745,13 @@ this" (Q352).
 5. A recap made before B569 (no `Points pass`) is read in the same form from its step's record at read time: the
    Context from the step's summary, the Change from its report, each in plain sentences (asides, files, code words,
    hashes and check words left out); its points picture dropped, a Before | After kept.
+6. B591 (the result check of B569): a card is read by someone who forgot, as the agreed one. The report check also
+   refuses item ids (B12, Q3, G15, ...) and placeholders (`<n>`) in the Context and Change (`plainFaults`); an old
+   record's sentence with one, a time or a measured wait, or half a quote is dropped. Every card shows only a
+   Before | After picture, also a recap made since B569 from a check with a points picture. Cards whose words were cut
+   from an old report get theirs written anew by `tools/recap-words.mjs <work folder> <words.json>` (the words from a
+   file outside the repository, checked as a report's are; `Points pass` kept or taken from the step; a History line).
+   An open card's status says only "Approves itself in 22 h.": its two buttons say the rest.
 
 ## A step waits for the partner, not for you (B392)
 
