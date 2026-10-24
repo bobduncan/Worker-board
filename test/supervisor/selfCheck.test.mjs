@@ -58,7 +58,7 @@ test('blocked: a step blocked by one in review or done is unblocked; one the sto
   assert.match(blocked[3].text, /B5 waits for B1 \(in review\)/)
 })
 
-test('queued behind (B550, X15): a step queued over an hour behind a busy worker is named to Main for a free one, once an hour', () => {
+test('queued behind (B550, X15, X16): a step queued over 20 min behind a busy worker is named to Main for a free one, once an hour', () => {
   // X15: B531 third in Worker 5's queue behind B543 and B548 while Worker 5 works on B522; Worker 3 free.
   const world = (more = {}, extra = []) => base({
     items: items(
@@ -89,6 +89,20 @@ test('queued behind (B550, X15): a step queued over an hour behind a busy worker
   assert.equal(of(findStuck(world({ limits: { fiveHour: { level: 'full' } } })), 'queued-behind').length, 0)
   // A free worker with an open step of its own takes that one: not named for the other.
   assert.equal(of(findStuck(world({}, [step('B560', 'queued', { Owner: 'Worker 3', Since: stamp(ago(5)) })])), 'queued-behind').length, 0)
+  // A free worker with anything queued, also a blocked step, is not free for another's step.
+  assert.equal(of(findStuck(world({}, [step('B561', 'queued', { Owner: 'Worker 3', Since: stamp(ago(5)), 'Blocked by': 'B522' })])), 'queued-behind').length, 0)
+  // X16: B543 38 min and B548 24 min behind Worker 5, Workers 1 and 4 free: one each, the oldest to the first free.
+  const x16 = base({
+    items: items(step('B522', 'in progress', { Owner: 'Worker 5' }), step('B543', 'queued', { Owner: 'Worker 5', Since: stamp(ago(38)) }), step('B548', 'queued', { Owner: 'Worker 5', Since: stamp(ago(24)) })),
+    lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 1', { idle: { since: ago(13) } }), lane('Worker 4', { idle: { since: ago(10) } })],
+  })
+  assert.deepEqual(of(findStuck(x16), 'queued-behind').map(one => one.text), ['Requeue B543 to Worker 1: queued 38 min behind Worker 5', 'Requeue B548 to Worker 4: queued 24 min behind Worker 5'])
+  // A result check's fix stays with the worker that built the step: named with that reason, the free worker kept for the next.
+  const withFix = base({
+    items: items(step('B522', 'in progress', { Owner: 'Worker 5' }), step('B570', 'queued', { Owner: 'Worker 5', Since: stamp(ago(50)), 'Fix of': 'B520' }), step('B548', 'queued', { Owner: 'Worker 5', Since: stamp(ago(24)) })),
+    lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 1')],
+  })
+  assert.deepEqual(of(findStuck(withFix), 'queued-behind').map(one => one.text), ['B570 queued 50 min behind Worker 5 stays: it fixes B520, which Worker 5 built', 'Requeue B548 to Worker 1: queued 24 min behind Worker 5'])
   // The oldest waiting step goes to the first free worker (running first, then free longest); one per free worker.
   const two = world({ lanes: [LEAD, lane('Worker 5', { state: 'working' }), lane('Worker 1', { idle: { since: ago(10) } }), lane('Worker 3', { idle: { since: ago(40) } })] },
     [step('B540', 'queued', { Owner: 'Worker 5', Since: stamp(ago(100)) }), step('B541', 'queued', { Owner: 'Worker 5', Since: stamp(ago(90)) })])
