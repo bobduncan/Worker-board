@@ -60,7 +60,7 @@ import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell } from './src/brainstorm.mjs'
 import { changeGoalsFile, editGoals } from './src/goalsWrite.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsAgain, evaluationsRunning, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, evaluationsAgain, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, undoLine } from './src/focus.mjs'
 import { effortBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { GUARD_ATTEMPTS, evaluationState } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
@@ -611,7 +611,7 @@ async function main(args) {
       partner: state.advisor ?? null,
       job: join(HERE, 'roles', 'partner.md'),
       // Focus 3: "Is the vibe there?" is answered only once every part of the how is done, as the store says.
-      allDone: state.focus?.id === body?.id && state.focus.progress.total > 0 && state.focus.progress.done === state.focus.progress.total,
+      allDone: focusAllDone(state.focus ?? null, body?.id),
     })
     readState.reset()
     // B382: a goal that is not the focus may be evaluated meanwhile: while an evaluation runs, the partner stays on high effort.
