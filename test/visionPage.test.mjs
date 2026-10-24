@@ -237,7 +237,7 @@ test('the interview: the questions in the page\'s order, deeper ones under their
   assert.equal(slide.picked.key, 'B')
   // Your own words picked: the last card, its letter next after the partner's.
   assert.deepEqual(visionView(plan, { ...UI, picked: { P5: made.OWN_WORDS } }).slides[2].picked, { label: made.OWN_WORDS, key: 'C', head: 'In your own words', points: [], isAdvised: false, picture: null, isOwn: true })
-  assert.deepEqual(view.slides[3], { kind: 'open', id: 'P6', title: 'Where', question: 'Where', text: '', isAsked: false })
+  assert.deepEqual(view.slides[3], { kind: 'open', id: 'P6', title: 'Where', question: 'Where', text: '', isFromAnswer: false, isAsked: false })
   assert.equal(visionView(plan, { ...UI, asked: ['P6'] }).slides[3].isAsked, true)
   // The slide at stays inside the slides.
   assert.equal(visionView(plan, { ...UI, at: 12 }).at, 8)
@@ -442,4 +442,13 @@ test("a fresh plan opens on the Interview, at its first question, until you pick
   // A plan with something decided opens on the vision, as before.
   assert.equal(visionView(plan, { ...UI, page: null }).page, 'vision')
   assert.match(script, /page: null, at: 0, picked/)
+})
+
+test("a card whose next question the partner prepares from your answer shows a loader, not Get options (2026-10-24)", () => {
+  const open = planState('# P\n\n## P1 · What it is\n- State: open\n', [], 'p.md')
+  const slideOf = working => visionView({ ...open, working }, { ...UI, page: 'interview' }).slides.find(slide => slide.id === 'P1')
+  assert.deepEqual([slideOf([]).isAsked, slideOf([]).isFromAnswer], [false, false])
+  const busy = slideOf([{ command: 'plan-answer', about: 'P1', at: 1, state: 'working', what: 'the next question from your answer' }])
+  assert.deepEqual([busy.isAsked, busy.isFromAnswer], [true, true])
+  assert.match(script, /Your partner is preparing the next question\./)
 })

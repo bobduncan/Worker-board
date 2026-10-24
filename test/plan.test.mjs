@@ -431,3 +431,18 @@ test("planStarting (2026-10-24, the user: \"i want a loader while im waiting for
   // A day later the start shows again.
   assert.equal(planStarting(start('delivered'), at + 25 * 60 * 60_000), null)
 })
+
+test("withPlanWork: your answer to a plan question is with the partner until its page or the card's next question is there (2026-10-24)", () => {
+  const page = '# P\n\n## P1 · What\n\n- State: open\n'
+  const at = 3_000_000
+  const answer = { ask: 'work:Q8', step: 'Q8', title: 'P1: What kind of game is it?', text: 'A Tactics', at, state: 'delivered' }
+  const work = (sent, asks, pageAt, now = at + 60_000) => withPlanWork(planState(page, asks, 'p.md'), sent, pageAt, now).working.map(one => [one.command, one.about, one.state, one.what])
+  assert.deepEqual(work([answer], [], null), [['plan-answer', 'P1', 'working', 'the next question from your answer']])
+  // A deeper question's answer is about its card; an answer to a step's ask is no plan work.
+  assert.deepEqual(work([{ ...answer, title: 'P1.2: How long is a fight?' }], [], null).map(([, about]) => about), ['P1'])
+  assert.deepEqual(work([{ ...answer, title: 'May I change a setting?' }], [], null), [])
+  // The next question on the card, filed after the answer, ends it; so does the page written after it.
+  const next = parseItem(`Id: Q9\nKind: ask\nTitle: P1: Who plays it?\nState: open\nOwner: P - Partner\nAsks: decide\nFiled: ${at + 1000}\n`)
+  assert.deepEqual(work([answer], [next], null), [])
+  assert.deepEqual(work([answer], [], at + 1), [])
+})
