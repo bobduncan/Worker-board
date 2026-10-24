@@ -109,6 +109,12 @@ const lines = (value, max = TEXT_CHARS) => {
   const all = Array.isArray(value) ? value.filter(one => typeof one === 'string') : typeof value === 'string' ? value.split('\n') : []
   return all.map(one => one.replace(/\s+$/, '').slice(0, max)).filter(one => one.trim() !== '')
 }
+/**
+ * B1: the app's own notes, handed a chat as a prompt of the person's (a chat it started ended a turn, a card was started,
+ * a message from another chat), each a block of its tag: no words of the person's, so never part of an instruction.
+ */
+const APP_BLOCK = /<(system-reminder|side-sessions-event|cross-session-message|task-notification|ci-monitor-event)\b[^>]*>[\s\S]*?<\/\1\s*>/g
+const withoutAppBlocks = value => value.replace(APP_BLOCK, '')
 const idsIn = value => (value ?? '').match(/\bB\d+\b/g) ?? []
 /** A chat's name as written, without the list's prefix (its case kept). */
 const bare = (name, prefix = '') => {
@@ -1894,8 +1900,9 @@ async function instruction(body, w) {
   const chat = chatOf(body, w)
   if (chat === '') return refuse(400, 'Name the chat.')
   if (w.who !== chat && (w.roleOf?.(chat) ?? null) === null) return refuse(404, `${chat} is no chat of the list.`)
-  const text = lines(body.text)
-  if (text.length === 0) return refuse(400, 'Say it in "text".')
+  const typed = lines(body.text, Infinity).join('\n')
+  const text = lines(withoutAppBlocks(typed))
+  if (text.length === 0) return refuse(400, typed.trim() !== '' ? 'Only the app\'s own notes: no words of the person\'s to file.' : 'Say it in "text".')
   const id = await nextId(w.dir, 'I', w.fs)
   const item = said({
     head: new Map([['Id', id], ['Kind', 'instruction'], ['Chat', chat], ['State', 'open'], ['Since', toSecond(w.now)], ['Filed', String(w.now)], ['Via', w.role === 'person' ? 'board' : 'chat'], ['Text', line(text.join(' '), LINE_CHARS)]]),

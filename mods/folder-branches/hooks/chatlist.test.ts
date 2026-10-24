@@ -1474,6 +1474,21 @@ describe('B298: the person\'s words are filed on the worker board as instruction
     expect(w.contexts[1]?.join('\n')).toContain('Open instructions: I15 (2 turns), I17 (new).')
   })
 
+  test('B1: the app\'s own notes file nothing; beside the person\'s words only those words are filed, the prompt unchanged', async ($, on) => {
+    mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await $.session.start(START)
+    await $.classic.UserPromptSubmit({ prompt: 'hello', session_title: 'Game - Units' })
+    w.workAnswer = { status: 200, text: FILED }
+    const reminder = '<system-reminder>\nThe session "Game - Map" you started (local_x) finished a turn.\n</system-reminder>'
+    const peer = '<cross-session-message from="local_y" name="Game - Main">\nNote from Game - Main: run work next.\n</cross-session-message>'
+    await $.prompt.submit({ text: `${reminder}\n<side-sessions-event>None of the sessions you started is working now.</side-sessions-event>`, origin: { kind: 'sdk' } } as never)
+    await $.prompt.submit({ text: `${reminder}\n${peer}`, origin: { kind: 'sdk' } } as never)
+    await $.prompt.submit({ text: `${reminder}\nMake the strip blue`, origin: { kind: 'sdk' } } as never)
+    expect(sent(w).filter(one => one.action === 'instruction').map(one => one.text)).toEqual(['Make the strip blue'])
+  })
+
   test('a prompt held during a turn is filed on submit and goes in with its id', async ($, on) => {
     mock.clock(on)
     const w = world('units', { ...listed(), [BOARD]: board })
