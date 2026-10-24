@@ -45,7 +45,11 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   step moves: the summary says "waits as planned for B<n> (<state> <age>)" and marks no "!" for its age: no incident.
   Only a stalled blocker (past its state's limit: "stalled") or a step still blocked after its blocker ended ("still
   blocked by B<n>, done") is odd.
-- Steps in review are checked and done; steps piling up in review are odd.
+- Steps in review are checked and done; steps piling up in review are odd. A step in review says what it waits for
+  ("waits for its fix B<n> (<state>, <owner>)", "waits for your answer to its check", "waits for its first check" or
+  "waits for its check again", "its fix B<n> was dropped"). One that waits for its fix or for the person's answer
+  waits as planned: no incident, and no "!" unless its fix is odd itself. The review-stuck rule watches the rest: a
+  check not filed within the review minutes, or a dropped fix.
 - A worker "suspended" for the limit goes on once its reset has passed or the limits show room again.
 - Work follows the focus goal: work outside it while the focus has steps waiting is odd.
 - A word to a chat is taken within minutes; words that wait long for one chat are odd.

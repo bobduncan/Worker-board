@@ -8,6 +8,7 @@
 import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { isHolding } from '../work/pause.mjs'
+import { reviewWaitOf } from '../work/resultCheck.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -140,8 +141,35 @@ function plannedWait(item, view, now, seen = new Set()) {
   return { open, stalled: open.filter(id => chain.has(id) || isLate(view.items.get(id), view, now, chain)) }
 }
 
-/** A step past its state's limit (LONG_MS), unless it waits as planned (B561) or stays with its busy builder. */
+/**
+ * B563 (X19: B510 waiting for the person's answer and B532 for its queued fix B548 read as unchecked for their age):
+ * whether a step in review is odd by what it waits for (resultCheck.mjs `reviewWaitOf`, as the review-stuck rule reads
+ * it): the person's answer, never; its open fix, when that fix is odd itself (a loop of fixes counts as odd); its check,
+ * past `reviewMinutes`; its dropped fix, always. Null when it waits for none of these: its age decides.
+ */
+function reviewLate(item, view, now, seen) {
+  const wait = reviewWaitOf(item, view.items)
+  if (wait === null) return null
+  if (wait.kind === 'answer') return false
+  if (wait.kind === 'check') return !(now - wait.since <= view.settings.reviewMinutes * MIN)
+  if (wait.kind === 'fix') {
+    const chain = new Set([...seen, valueOf(item, 'Id')])
+    const fix = view.items.get(wait.fix)
+    return chain.has(wait.fix) || isLate(fix, view, now, chain) || ownerGone(fix, view)
+  }
+  return true
+}
+
+/** A step owned by a chat the board does not show. */
+const ownerGone = (item, view) => {
+  const owner = valueOf(item, 'Owner')
+  return owner !== null && !view.lanes.some(lane => !lane.isLeftover && plain(lane.name, view.prefix) === plain(owner, view.prefix))
+}
+
+/** A step past its state's limit (LONG_MS), unless it waits as planned (B561, B563) or stays with its busy builder. */
 function isLate(item, view, now, seen = new Set()) {
+  const review = reviewLate(item, view, now, seen)
+  if (review !== null) return review
   const age = ageOf(item, now)
   if (!(Number.isFinite(age) && age > (LONG_MS[valueOf(item, 'State')] ?? Infinity))) return false
   if (staysWith(item, view) !== null && builderHolds(item, view)) return false
@@ -194,7 +222,11 @@ function stepLines(view, now) {
     const blockerWords = blocker => `${stateIn(view.items, blocker) === 'review' ? `the check of ${blocker}` : blocker} (${stateIn(view.items, blocker)} ${lasting(ageOf(view.items.get(blocker), now))}${wait.stalled.includes(blocker) ? ', stalled' : ''})`
     const blocked = waitsOf(item, view.items)
     const ended = state === 'queued' ? ((valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []).filter(blocker => ENDED.includes(stateIn(view.items, blocker))) : []
-    const waits = wait !== null ? ` (waits${wait.stalled.length === 0 ? ' as planned' : ''} for ${wait.open.map(blockerWords).join(' and ')})`
+    // B563: a step in review names what it waits for, its open fix with that fix's state and owner.
+    const review = reviewWaitOf(item, view.items)
+    const fixWords = review?.kind === 'fix' ? ` (${stateIn(view.items, review.fix)}, ${valueOf(view.items.get(review.fix), 'Owner') ?? 'no owner'})` : ''
+    const waits = review !== null ? ` (${review.text}${fixWords})`
+      : wait !== null ? ` (waits${wait.stalled.length === 0 ? ' as planned' : ''} for ${wait.open.map(blockerWords).join(' and ')})`
       : blocked.length > 0 ? ` (waits for ${blocked.join('; ')})`
         : ended.length > 0 ? ` (still blocked by ${ended.map(blocker => `${blocker}, ${stateIn(view.items, blocker)}`).join(' and ')})` : ''
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
