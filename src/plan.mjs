@@ -1,5 +1,6 @@
 // Plan (brainstorm of 2026-10-19): the product plan, the answers every goal and step falls back to (roles/partner.md,
-// "The plan interview"), read from the game's `docs/product-plan.md` (the setting `productPlan`) for the Vision tab.
+// "The plan interview"), read from the game's `docs/product-plan.md` (the setting `productPlan`; the project's own
+// folder while there is no game folder yet) for the Vision tab.
 // The partner writes the page; the board only reads it and types the person's moves and answers to the partner.
 // Under the page's title a line "Pitch: <one sentence>". One heading per answer, "## P<n> · <title>", and under it
 // lines "- State: decided (from ..., <date>)", "- Answer: <one line>", "- Point: **<lead>** <words>" (two to four),
