@@ -37,6 +37,8 @@ export const SUPERVISOR_DEFAULTS = Object.freeze({
   undeliveredMinutes: 10,
   /** The same repair this many times or more in a day. */
   repairsPerDay: 3,
+  /** B543: a step in review with no result check filed for longer than this. */
+  reviewMinutes: 60,
 })
 
 export const DEFAULTS = {

@@ -37,7 +37,7 @@ import { effortPlan, runSettings } from './work/effort.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
-import { contextOfStep, flowOfStep, itemOfStep, itemsOf, storeBacklog } from './work/read.mjs'
+import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { checkedOf, fixOutcomeOf } from './work/resultCheck.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -1669,6 +1669,8 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
           doneAt: step.id === null ? null : doneAtOf.get(step.id)?.at ?? null,
           // B296: where it stands in the flow (flow.json), for the strip in its window.
           flow: flowOfStep(raw.work, step.key),
+          // B543: what it waits for while in review ("waits for its fix B<n>"), or null.
+          reviewWait: reviewWaitOfStep(raw.work, step.key),
           // B299: the step as the store holds it, for its window.
           item,
         }

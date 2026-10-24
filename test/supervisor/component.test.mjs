@@ -156,7 +156,7 @@ test('the watch rules run after the repairs: what they find is the run\'s findin
   assert.deepEqual([rules.get('blocked').state, rules.get('blocked').trips], ['tripped', 1])
   assert.deepEqual([rules.get('unknown-lane').state, rules.get('unknown-lane').kind, rules.get('unknown-lane').trips], ['tripped', 'watch', 1])
   assert.deepEqual([rules.get('old-mod').state, rules.get('old-mod').trips], ['fine', 0])
-  assert.equal(rules.size, REPAIR_RULES.length + 11)
+  assert.equal(rules.size, REPAIR_RULES.length + WATCH_RULES.length)
 })
 
 test('the supervisor\'s memory: its repairs of the day, its own watch and the rules\' trips are kept over a restart, apart from sync.json', async () => {
