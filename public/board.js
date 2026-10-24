@@ -9963,7 +9963,11 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   const decide = slide => slides.push({ kind: 'decide', text: '', ...slide, isSent: sent.includes(slide.id) })
   for (const answer of plan.answers) {
     // An open answer the partner has not asked yet: get its options from the partner, or answer it in your words.
-    if (answer.state === 'open' && answer.ask === null) slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isAsked: isBusy(workOn('plan-ask', answer.id)) || (ui.asked ?? []).includes(answer.id) })
+    // 2026-10-24: right after your answer on this card, its next question is on its way (the user: "I would like this prepared in advance").
+    if (answer.state === 'open' && answer.ask === null) {
+      const isFromAnswer = isBusy(workOn('plan-answer', answer.id))
+      slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isFromAnswer, isAsked: isFromAnswer || isBusy(workOn('plan-ask', answer.id)) || (ui.asked ?? []).includes(answer.id) })
+    }
     for (const question of questions.filter(one => one.about === answer.id)) slides.push(questionSlide(question, ui, answer.title))
     // An answer your partner assumed: yours, or changed.
     if (answer.state === 'assumed') {
@@ -11273,7 +11277,7 @@ function visionSlide(view, can, off) {
   } else if (slide.kind === 'open') {
     // No options yet: the partner prepares them (with pictures where it is about looks), or you answer in your words.
     const ask = el('div', 'vision-open')
-    const head = el('b', '', slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.')
+    const head = el('b', '', slide.isFromAnswer ? 'Your partner is preparing the next question.' : slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.')
     if (slide.isAsked) head.prepend(visionSpinner())
     ask.append(head,
       el('p', 'muted', slide.isAsked ? 'They come here as cards, with pictures where it is about how it looks. You can answer in your own words meanwhile.' : 'Get two or three options to pick from, or answer it in your own words.'))
