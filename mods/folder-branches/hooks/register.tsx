@@ -545,13 +545,13 @@ async function workQuietly($: EngineInterface, fields: Record<string, unknown>):
  * longer than it may hold anything (`late`: the call itself, still running, which gives its fields once the board
  * answers). A call that was late is never filed a second time: the board may have recorded it.
  */
-async function workLate($: EngineInterface, fields: Record<string, unknown>): Promise<{ read: Record<string, unknown> | null; isRefused: boolean; late: Promise<Record<string, unknown> | null> | null; request: string | null }> {
+async function workLate($: EngineInterface, fields: Record<string, unknown>, waitMs = BOARD_WAIT_MS): Promise<{ read: Record<string, unknown> | null; isRefused: boolean; late: Promise<Record<string, unknown> | null> | null; request: string | null }> {
   try {
     if (myself === null) await withinTime($, changeMine($, () => null))
     // Review of B298: a board that hangs or starts anew holds the person's prompt a moment at most.
     const request = await newRequest($)
     const running = workOnBoard($, fields, request, null)
-    const answer = await withinTime($, running)
+    const answer = await withinTime($, running, waitMs)
     if (answer === null) return { read: null, isRefused: false, late: running.then(late => fieldsOf(late), () => null), request }
     return { read: fieldsOf(answer), isRefused: !answer.ok && answer.isCut !== true, late: null, request }
   } catch {
@@ -618,9 +618,34 @@ function fieldsOf(answer: WorkAnswer): Record<string, unknown> | null {
 /** Review of B298: how long the mod's own calls to the board may hold a prompt, a turn's end or a form. */
 const BOARD_WAIT_MS = 1500
 
+/** B484: how long a turn's end that hands the board a "For you" block may be held: the board files its asks then, and the chat learns which. */
+const ASKED_WAIT_MS = 6000
+
+/**
+ * B484: the board's answer to a turn's end that came after the turn was let go: what it filed and left out still reaches
+ * this chat, unless the chat was cleared (or is being decided on) meanwhile: then the answer is dropped, and said once.
+ */
+async function takeLateEnded($: EngineInterface, late: Promise<Record<string, unknown> | null>, session: string): Promise<void> {
+  try {
+    const read = await late
+    if (read === null) return
+    const files = Array.isArray(read.asked) && read.asked.length > 0 || Array.isArray(read.left) && read.left.length > 0
+    if (!files) return
+    // The decision on a clear takes the answer itself (clearWhenAnswered).
+    if (isDecidingClear) return
+    if (clearing !== null || (await $.session.id()) !== session) {
+      await tell($, 'The worker board answered after this chat was cleared: what it filed from the "For you" block is on the board, not in this chat.')
+      return
+    }
+    await tookEnded($, read)
+  } catch {
+    // the chat learns it from the board's page
+  }
+}
+
 /** Review of B298: the answer of `run`, or null when it takes longer than the board may hold anything. */
-async function withinTime<T>($: EngineInterface, run: Promise<T>): Promise<T | null> {
-  return Promise.race([run, $.clock.sleep(BOARD_WAIT_MS).then(() => null, () => null)])
+async function withinTime<T>($: EngineInterface, run: Promise<T>, waitMs = BOARD_WAIT_MS): Promise<T | null> {
+  return Promise.race([run, $.clock.sleep(waitMs).then(() => null, () => null)])
 }
 
 /** Pause 2: the pause state, read from the board unless the last reading is younger than `PAUSE_MS`. Never throws. */
@@ -1730,7 +1755,8 @@ export const register: Register = on => {
           // The review of Pause 2: while the person pauses (until running) a free worker takes nothing new.
           const pulls = !isPaused(pauseRead?.pause ?? null) && await withinTime($, holdsNothing($)) === true
           const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}) }
-          const call = await workLate($, fields)
+          const call = await workLate($, fields, forYou.length > 0 ? ASKED_WAIT_MS : BOARD_WAIT_MS)
+          if (call.read === null && call.late !== null && forYou.length > 0) void takeLateEnded($, call.late, await $.session.id())
           told.ended = call.read
           if (call.read !== null) told.pulled = await tookEnded($, call.read)
           // Clear after each step: a board slow to answer (it checks a report then) is asked again later, with the same

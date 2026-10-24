@@ -601,7 +601,8 @@ async function ask(body, w) {
     const same = openRepeat(text.join(' '), isAlone ? goal : valueOf(of.item, 'Id'), mine.map(repeatFactsOf))
     if (same !== undefined) {
       const found = w.store.items.get(same.id)
-      const answered = stateOf(found) === 'answered' ? ` and the person answered it: ${(found.sections.get('Answer') ?? []).join(' ').slice(0, 200)}` : ' and it stands open'
+      const who = valueOf(found, 'Answered by') === 'partner' ? 'the partner' : 'the person'
+      const answered = stateOf(found) === 'answered' ? ` and ${who} answered it: ${(found.sections.get('Answer') ?? []).join(' ').slice(0, 200)}` : ' and it stands open'
       return refuse(409, `${same.id} asks this already${answered}. Wait for its answer or use it; to ask it anew, withdraw ${same.id} first.`)
     }
   }
@@ -1907,7 +1908,7 @@ async function askForYou(value, since, w) {
     // B474: in other words, or pointing to it; the chat is told which and why (the review).
     const repeat = forYouRepeat({ text, kind }, repeats)
     if (repeat !== null) {
-      left.push(`"${line(text[0], 100)}" ${repeat}`)
+      left.push(`"${line(text[0], 100).trimEnd()}" ${repeat}`)
       continue
     }
     const fields = { kind, text, options: one.options, advice: one.advice, pictures: one.pictures, play: one.play, via: 'chat', blocking: false }
