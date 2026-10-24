@@ -40,7 +40,9 @@ import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designStat
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { START_ANEW, keep } from './src/keeper.mjs'
 import { GAME_SPAN, boardAddress, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
-import { marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
+import { findClaude, marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
+import { dayRecaps } from './src/dayRecap.mjs'
+import { dayOf, doneSteps, isDay, lastDays, recapText, stepsOfDay } from './src/work/doneDays.mjs'
 import { makeProject } from './src/newProject.mjs'
 import { readHead } from './src/files.mjs'
 import { chatsByRole, oldModNeed } from './src/oldMods.mjs'
@@ -213,6 +215,7 @@ export function createBoard({
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   project = '',
   mayWrite = async () => null,
 }) {
@@ -388,6 +391,12 @@ export function createBoard({
     if (pathname === '/api/state') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       return json(res, await getState())
+    }
+    // B579: a day of the Backlog tab's Completed by day, with its recap (src/dayRecap.mjs).
+    if (pathname === '/api/recap') {
+      if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      const done = await recap(searchParams.get('day') ?? '')
+      return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
     }
     // B319: whose board this is, for another board starting on this PC (src/ports.mjs, boardProject).
     if (pathname === '/api/board') return json(res, { board: 'worker-board', project })
@@ -1205,6 +1214,9 @@ async function main(args) {
     })
   }
 
+  // B579: the recaps of Completed by day, kept in the data folder.
+  const recaps = dayRecaps({ file: join(HERE, 'data', 'recaps.json'), findCommand: async () => { const found = await findClaude(); return found === null ? null : [found] }, clock })
+
   const readState = cached(async () => {
     const raw = await readRaw()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
@@ -1476,6 +1488,31 @@ async function main(args) {
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
         // job texts), the project's name and the Advisor's; only the board that delivers opens chats.
         openChats: isDemo || isShowOnly ? null : { board: HERE, name: config.name, advisor: typeof config.advisor === 'string' && config.advisor !== '' ? config.advisor : null } }
+    },
+    // B579: a day of Completed by day: its finished steps, the last days with their counts, and its recap. Only the board
+    // that runs the loops calls for a recap, never while the person paused all chats or a limit is near.
+    recap: async asked => {
+      const stored = await work()
+      if (stored?.ok !== true) return { ok: false, status: 409, why: 'The work store cannot be read.' }
+      const now = clock()
+      const today = dayOf(now)
+      const day = asked === '' ? today : asked
+      if (!isDay(day)) return { ok: false, status: 400, why: 'A day as YYYY-MM-DD.' }
+      const state = await readState()
+      const steps = doneSteps([...stored.items.values()], { prefix: state.chatPrefix ?? '' })
+      const ofDay = stepsOfDay(steps, day)
+      const goalTitles = new Map((state.goals?.nodes ?? []).map(node => [node.id, node.title]))
+      const isNear = ['fiveHour', 'week'].some(kind => ['warn', 'full'].includes(state.limits?.[kind]?.level))
+      const whyNot = isDemo ? 'This is the demo: it calls nobody.'
+        : isShowOnly || (LOOP_LOCK !== null && !await ownsLoops()) ? 'Only the board that runs the loops writes recaps.'
+          : isHolding(state.pause) ? 'All chats are paused.'
+            : isNear ? 'A usage limit is near.' : null
+      const { recap: shown, isWriting } = await recaps.view(day, ofDay, { today, goalTitles, whyNot })
+      return { ok: true, result: {
+        day, today, first: steps.at(-1)?.day ?? today,
+        steps: ofDay.map(({ id, title, at, by, goal }) => ({ id, title, at, by, goal, goalTitle: goalTitles.get(goal) ?? null })),
+        days: lastDays(steps, today), recap: shown, isWriting, copy: shown === null ? '' : recapText(day, shown.points),
+      } }
     },
     // B320: a new project, from the New project button (src/newProject.mjs); one at a time, and only on the board that
     // delivers, so it is made from the version of the board the person works with.

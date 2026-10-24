@@ -587,6 +587,8 @@ async function recheckDone(body, ctx) {
   if (!isId(body?.id)) return refuse(400, 'Name the goal by its id (G12).')
   const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
   let title = ''
+  // B569: the goal's why and Done when, for its recap's Context and Change.
+  let words = { why: null, doneWhen: null }
   let attempts = 0
   let withdraw = null
   const done = await changeGoalsFile(text => {
@@ -597,6 +599,7 @@ async function recheckDone(body, ctx) {
     // The review: only a re-check that is asked (the person may have taken it back) is filed.
     if (!isRecheckOpen(now)) return { ok: false, why: 'notAsked' }
     title = now.title
+    words = { why: now.why, doneWhen: now.doneWhen }
     attempts = now.rechecks.filter(one => one.verdict === 'failed').length + (body.verdict === 'failed' ? 1 : 0)
     const lined = addGoalLine(text, body.id, `Rechecked (${minuteOf(ctx.now)}, ${oneLine(body.by, 60).replace(/[(),]/g, ' ').trim()}): ${oneLine(body.line, 1100)}`)
     if (!lined.ok) return lined
@@ -613,7 +616,7 @@ async function recheckDone(body, ctx) {
   if (!done.ok && done.why === 'ticked') return refuse(409, `${body.id} is ticked already.`)
   if (!done.ok && done.why === 'notAsked') return refuse(409, `${body.id} has no re-check asked: the person took it back, or it was filed already.`)
   if (!done.ok) return failed(done.why)
-  return { ok: true, result: withdrawn(withdraw, { id: body.id, title, ticked: body.verdict === 'passed', attempts }) }
+  return { ok: true, result: withdrawn(withdraw, { id: body.id, title, ...words, ticked: body.verdict === 'passed', attempts }) }
 }
 
 /** "<title> · <size> · steps B1, B2", the size and the steps each left out at will. */

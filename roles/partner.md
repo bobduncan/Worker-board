@@ -643,14 +643,18 @@ board's word, never the user's.
 
 1. Read the step's record (`work list`, its file in the store): its agreed points, its `Standard:` line (the kind, its
    reference picture, the target; the kind's definition of done stands in your rounds under "Kinds of work") and its
-   report.
+   report. A step on the worker board itself is also checked against the board's design principles
+   (`PRINCIPLES.md` in the board's folder): one point per principle it touches, a break a fail unless the step says why.
 2. Hand the check to a fresh helper on Sonnet (`model: "sonnet"`), one that did not build it (never your own chat): it looks at the result as the
    user would (the game at that place, the page, the merged change), ticks every agreed point pass, fail or ask (ask:
    a look only the user can judge), and scores it against the kind's definition of done where that has a rubric (the
    judges' middle score).
-3. The helper makes the evidence picture with the board's tool: `node <board>/tools/evidence.mjs --step B<id> --title
-   "<title>" --reference <the reference picture> --result <the result's picture> --points '<the ticked points as
-   JSON>' --score <n> --target <n>`; for work with nothing to see, the ticked list alone (no reference, no result).
+3. The helper makes the evidence picture with the board's tool. A visible change (B569): it confirms the worker's
+   `<picture folder>/B<id>/after.png` matches the merged result (else shoots it anew) and sets it beside `before.png`:
+   `node <board>/tools/evidence.mjs --step B<id> --title "<title>" --before <before.png> --after <after.png>`
+   (`before-after.png`, no points on it). A kind with a reference picture and a target: `--reference <the reference
+   picture> --result <the result's picture> --points '<the ticked points as JSON>' --score <n> --target <n>`. Work
+   with nothing to see has no picture: its evidence is `none (nothing on screen)`.
 4. The helper removes the worktrees it made for the check (detached, named `check-b<id>`, and `check-b<id>-before`
    for the state before): a link in one (a junction such as `node_modules`) first, alone (`cmd /c rmdir
    "<folder>\node_modules"` on Windows: the link only), then `git worktree remove <folder>` (never `--force`: it
@@ -736,7 +740,8 @@ leave it and tell the user in one line. Say nothing else about it in your chat.
 ## Recaps
 
 Every step that passed its check (through its fix too) and every goal that passed its re-check gives the user a recap
-(B360): a card under Needs your attention with what they get and the evidence picture, made by the board in your name.
+(B360): a card under Needs your attention with what they get and the evidence picture, made by the board in your name;
+since B569 it reads the report's Context and Change, the Before | After picture and one line of how many points pass.
 It blocks nothing; left alone, it approves itself after 24 hours. The user has two buttons on it (B390): **OK, seen**
 approves the recap at once and types nothing into your chat; **Overturn** takes their words, and the board types them
 into your chat, marked as theirs: `(answered on the worker board, HH:MM) N<id> "B<id> <title> is done": ...`.
@@ -753,8 +758,9 @@ The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your 
 a step's window: it is their word. It also types it by itself, one step at a time (B285, the user: every step is
 refined before it goes into a queue): once for every new step, for a step about to be queued (the user asked to queue
 it, or the main chat queued it before it was refined), and once more when the user's answers wait to be folded in.
-Do the same for those. Read the step (`work list`, its record in the work store) and what it touches, then write its
-refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
+Do the same for those. Read the step (`work list`, its record in the work store) and what it touches; a step on the
+worker board itself is refined to the board's design principles (`PRINCIPLES.md` in the board's folder), and its
+"What we build" names the incidents that would show it failing. Then write its refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
 `size`, `model`, `effort` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
 writes the block in the form below; `refined` folds the questions away and moves a new step to refined, as the flow
 file says. What a refined step

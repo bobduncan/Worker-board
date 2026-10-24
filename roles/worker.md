@@ -100,6 +100,8 @@ step therefore says what it touches ("Touches: ...").
 
 ## A task on the worker board itself
 
+- Follow the board's design principles, `PRINCIPLES.md` in its folder (the person's, 2026-10-24); a change that breaks
+  one says which and why in its report, and the report names the incidents that would show it failing (principle 6).
 - The board the user looks at runs from its own folder and starts by itself: never stop or start it. Try your work
   on a copy started from your task folder, which takes a port of its own. The board loads a merged change by itself
   (B454: the page when it is idle, the server at a safe moment, 10 minutes at most before the yellow note asks for a
@@ -120,7 +122,12 @@ step therefore says what it touches ("Touches: ...").
   checkpoint with every commit: `work step B<id>` with `commit` (the hash, or none) and `next` (your next action, in
   one line); after a restart you go on from it (below, "A pause of all chats"). When the work is
   merged and its worktree removed: `work report B<id>` with what the user gets and the commit; the board checks the
-  merge itself, and that no worktree of the step is left. The flow
+  merge itself, and that no worktree of the step is left.
+- The report's result opens with the user's card (B569): `Context: <1-3 short lines: what was wrong or missing, for
+  someone who forgot> Change: <a few lines: what the user gets now> Details: <the rest, for the check>`, the first two
+  in plain words (no files, functions, commits or tests; at most 300 and 500 characters), or the board's check fails.
+  A visible change: shoot what the user sees before your change and after it, `<picture folder>/B<id>/before.png` and
+  `after.png`, at the same size and place; the check sets them side by side for the card. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
 - Tests bite (B527): when your change touches a test file, make the mutant before you report: in a scratch copy
   (never on your branch), undo the fix, run the new tests, see which assertion fails, then delete the copy. Your

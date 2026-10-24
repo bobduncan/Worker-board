@@ -24,6 +24,7 @@ import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undon
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { agreedPoints, answerReading, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, reviewWaitOf } from './resultCheck.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
+import { goalParts, recapParts } from './recapWords.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
@@ -1085,15 +1086,18 @@ async function makeNote(w, to, text, of, via = null) {
 }
 
 /**
- * B360: a recap for the person (recap.mjs): a note About `of` (a step or a goal), "<of> <title> is done" and one line of
- * what they get, with the evidence picture of its check. It waits out its window, open; it blocks nothing.
+ * B360: a recap for the person (recap.mjs): a note About `of` (a step or a goal), "<of> <title> is done", with the
+ * evidence picture of its check. It waits out its window, open; it blocks nothing. B569: its Context and Change in plain
+ * words (recapWords.mjs) and its `Points pass` section, how many of its points pass ("5 of 5", or none). Sections, not head
+ * keys: a board not yet updated still reads the note.
  */
-async function makeRecap(w, of, title, what, evidence) {
+async function makeRecap(w, of, title, { context, change, checked }, evidence) {
   const id = await nextId(w.dir, 'N', w.fs)
-  const text = [`${of} ${line(title, 200)} is done`, ...(line(what, 1000) === '' ? [] : [line(what, 1000)])]
+  const text = [`${of} ${line(title, 200)} is done`, ...(line(change, 1000) === '' ? [] : [line(change, 1000)])]
+  const part = (name, words) => (line(words, 1000) === '' ? [] : [[name, [line(words, 1000)]]])
   const item = said({
     head: new Map([['Id', id], ['Kind', 'note'], ['From', w.who], ['To', 'you'], ['State', 'unread'], ['Since', stamp(w.now)], ['Recap', 'open'], ['Evidence', line(evidence, 300) || 'none'], ['Text', line(text.join(': '), LINE_CHARS)]]),
-    sections: new Map([['Text', text], ['About', [of]]]),
+    sections: new Map([['Text', text], ...part('Context', context), ...part('Change', change), ['Points pass', [line(checked, 40) || 'none']], ['About', [of]]]),
     problem: null,
   }, w, 'recap made')
   const done = await save(item, null, w)
@@ -1111,7 +1115,7 @@ async function recapOnDone(step, w) {
   if (resultCheckOf(step) !== 'passed' && !fixesThrough(step, items)) return
   if (recapMadeSince(items, step)) return
   const id = valueOf(step, 'Id')
-  await makeRecap(w, id, valueOf(step, 'Title') ?? '', lastReport(step).result, fixEvidence(id, items) ?? checkedOf(step)?.evidence ?? 'none')
+  await makeRecap(w, id, valueOf(step, 'Title') ?? '', recapParts(step), fixEvidence(id, items) ?? checkedOf(step)?.evidence ?? 'none')
 }
 
 /**
@@ -1210,7 +1214,8 @@ async function report(body, w) {
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
   if (!isOwner(found.item, w.who, w.prefix)) return refuse(409, `${id} is ${valueOf(found.item, 'Owner') ?? 'nobody'}'s, not ${w.who}'s.`)
-  const result = line(body.result, 1000)
+  // B569: room for the Context and the Change before the rest.
+  const result = line(body.result, 2000)
   if (result === '') return refuse(400, 'Name the result in "result": what the person gets now.')
   const merged = line(body.merged, 60)
   if (stateOf(found.item) === 'waiting on you') {
@@ -1486,10 +1491,12 @@ async function goalCheck(body, w) {
   const tail = failed.length > 0 ? ` · gap: ${failed.join('; ').slice(0, 400)}` : judged.length > 0 ? ` · for you: ${judged.join('; ').slice(0, 400)}` : ''
   const done = await w.goalChecked({ id, verdict, line: `${verdict} · ${summary}${tail} · evidence ${evidence}`, by: w.who })
   if (!done.ok) return done
-  const { ticked, title, attempts } = done.result
+  const { ticked, title, attempts, why, doneWhen } = done.result
   // The recap: what is done, as the person reads it on the board (B360: with its picture, Overturn and OK, seen).
   // B406: one that could not be written is said, so the person hears of it in the chat instead.
-  const recap = ticked ? await makeRecap(w, id, title, `a helper re-checked it against its Done when and its vibe, ${summary}.`, evidence) : null
+  // B569: the goal's why as its Context, its Done when as its Change.
+  const parts = goalParts({ why, doneWhen, checked: `${points.filter(one => one.verdict === 'pass').length} of ${points.length}` })
+  const recap = ticked ? await makeRecap(w, id, title, parts, evidence) : null
   const words = ticked && recap?.ok === false ? `${id} passed its re-check and is ticked, but its recap could not be written (${recap.why}): tell the person in your answer.`
     : ticked ? `${id} passed its re-check and is ticked; the person gets the recap.`
     : verdict === 'failed' ? `${id} stays open (attempt ${attempts}): make its follow-up steps from the gap, into its how.`

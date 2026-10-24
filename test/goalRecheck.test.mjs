@@ -98,12 +98,13 @@ test('a passed re-check ticks the goal, clears the focus and takes the asked lin
   const fs = fakeFs({ [MAP]: latin(GOALS) })
   await focusMove({ command: 'goal-done', id: 'G2' }, ctx(fs))
   const failed = await goalChecked({ id: 'G2', verdict: 'failed', line: 'failed · 1 of 2 points pass · gap: nobody sat down unasked · evidence pictures/g2/evidence.png', by: 'Partner' }, ctx(fs))
-  assert.deepEqual(failed.result, { id: 'G2', title: 'Benches that feel like home', ticked: false, attempts: 1 })
+  // B569: with the goal's why and Done when, for its recap's Context and Change.
+  assert.deepEqual(failed.result, { id: 'G2', title: 'Benches that feel like home', why: null, doneWhen: 'five visitors sit on a bench for a minute unasked', ticked: false, attempts: 1 })
   let goal = mapOf(fs).byId.get('G2')
   assert.deepEqual([goal.state, goal.recheckAsked, goal.rechecks.at(-1).verdict, mapOf(fs).focus], ['now', null, 'failed', 'G2'])
   await focusMove({ command: 'goal-done', id: 'G2' }, ctx(fs))
   const passed = await goalChecked({ id: 'G2', verdict: 'passed', line: 'passed · 2 of 2 points pass · evidence pictures/g2/evidence.png', by: 'Partner' }, ctx(fs))
-  assert.deepEqual(passed.result, { id: 'G2', title: 'Benches that feel like home', ticked: true, attempts: 1 })
+  assert.deepEqual(passed.result, { id: 'G2', title: 'Benches that feel like home', why: null, doneWhen: 'five visitors sit on a bench for a minute unasked', ticked: true, attempts: 1 })
   goal = mapOf(fs).byId.get('G2')
   assert.deepEqual([goal.state, goal.recheckAsked, mapOf(fs).focus, goal.rechecks.length], ['done', null, null, 2])
   assert.match(utf8(fs.files[MAP]), /^ {4}Rechecked \(2026-10-19 09:00, Partner\): passed · 2 of 2 points pass · evidence pictures\/g2\/evidence\.png$/m)
@@ -157,7 +158,7 @@ test('the partner files the re-check with checked of a goal; a pass gives the pe
     const calls = []
     const goalChecked = async body => {
       calls.push(body)
-      return { ok: true, result: { id: body.id, title: 'Lanterns', ticked: body.verdict === 'passed', attempts: body.verdict === 'failed' ? 1 : 0 } }
+      return { ok: true, result: { id: body.id, title: 'Lanterns', why: 'The paths go dark at night (I3).', doneWhen: 'every path is lit after dark', ticked: body.verdict === 'passed', attempts: body.verdict === 'failed' ? 1 : 0 } }
     }
     const as = (chat, extra = {}) => body => workApi({ chat, ...body }, { dir, now: NOW, prefix: '', roleOf: name => ROLES[name] ?? null, goalChecked, ...extra })
     const partner = as('Partner')
@@ -170,8 +171,10 @@ test('the partner files the re-check with checked of a goal; a pass gives the pe
     const note = [...(await readStore(dir)).items.values()].find(one => valueOf(one, 'Kind') === 'note')
     assert.deepEqual([valueOf(note, 'To'), valueOf(note, 'From')], ['you', 'Partner'])
     // B360: the recap carries its evidence picture in its own field, for its card's picture.
-    assert.deepEqual(note.sections.get('Text'), ['G3 Lanterns is done', 'a helper re-checked it against its Done when and its vibe, 2 of 2 points pass, score 80 of 75.'])
-    assert.deepEqual([valueOf(note, 'Recap'), valueOf(note, 'Evidence')], ['open', 'pictures/g3/evidence.png'])
+    // B569: the goal's why as its Context, its Done when as its Change, and how many points pass.
+    assert.deepEqual(note.sections.get('Text'), ['G3 Lanterns is done', 'Every path is lit after dark'])
+    assert.deepEqual([note.sections.get('Context'), note.sections.get('Change')], [['The paths go dark at night.'], ['Every path is lit after dark']])
+    assert.deepEqual([valueOf(note, 'Recap'), valueOf(note, 'Evidence'), note.sections.get('Points pass')], ['open', 'pictures/g3/evidence.png', ['2 of 2']])
     // Only the partner files it, and only on a board that keeps a goal map.
     assert.equal((await as('Lamplighter')({ action: 'checked', id: 'G3', evidence: 'x.png', points: ['pass: lit'] })).status, 403)
     assert.equal((await as('Partner', { goalChecked: undefined })({ action: 'checked', id: 'G3', evidence: 'x.png', points: ['pass: lit'] })).status, 409)

@@ -1,5 +1,9 @@
 # Worker board: design
 
+> **Design principles (2026-10-24).** Every feature and fix follows `PRINCIPLES.md`: code before chat, assume every
+> chat can fail, know don't guess, one place per fact, same situation same outcome, done means it works live, cost by
+> design, when in doubt hold and say so once, simple over clever.
+
 ## Quality and Spending (2026-10-21)
 
 Spending adds local usage estimates, coverage and quality measurements without making model calls. Costs include
@@ -249,6 +253,21 @@ Since B179 the tab opens as one list unless this browser turned the checkbox off
 away and back with a click on its head (a button that says whether the list is open), also kept in this browser.
 The person, 2026-10-14: "Make the backlog 'recently finished' collapsible. Also one list checkbox turned on by
 default." The picture: `art-inbox/worker-board/b179/2026-10-14-b179-backlog-folded.jpg`.
+**Completed by day (B579).** A toggle at the Backlog tab's top, "Open items | Completed by day" (`#backlog/days`; the
+choice is kept in this browser), shows one day of finished steps: a pager (‹ day ›), "N items completed", a recap on
+top, the table of the day's steps (id, title, time, worker; a find box; a click opens the step's window) and on the right
+the day at a glance, the last 7 days with their counts, how the recap groups the steps, and Copy daily recap. The person,
+2026-10-24: "i want to be able to see which changes were done today ... including a generated recap text, highover ...
+the goal here is easy overview. so if 1 bullet in a recap might correlate to multiple backlog items". A step counts on
+the local day of its last move to done in the work store (`src/work/doneDays.mjs`); dropped steps and steps without such
+a line are not there. The recap is 3 to 6 points, each step in exactly one, written by one headless call of the Claude
+command line (`src/dayRecap.mjs`: Sonnet, no tools, no settings, plugins or MCP servers, in a temporary folder, told only
+the day's titles and summaries), kept per day in `data/recaps.json`. It is written when a day is opened and its recap is
+missing, not generated, or older than its newest step; today at most every 30 minutes. Only the board that runs the
+loops calls, never while all chats are paused or a usage limit is near; without a call (or while the command line is
+not signed in) the points are the day's goals, marked "Not generated" with the reason, and the next open tries again.
+Steps finished after a recap stand in one more point, "Finished since this recap". Colours stay quiet: the points and
+bars take cool tones, done ticks are green. The picture: `art-inbox/b579/completed-by-day-desktop.png`.
 Since B302 the tab without "One list" groups the steps by the goal map, no longer by activity (the person,
 2026-10-17: "that these categories are the same as the goals/milstones the advisors knows"; of two pictures they
 chose A, nested as on the goal map). Each goal is a header with its G id, its title and how many of the steps shown
@@ -2701,6 +2720,31 @@ button approve/mark as seen. so red is overturn with text feedback, blue is ok, 
 3. OK, seen sends the store's `seen` (the person only): the recap is approved at once, `Recap: seen`, read, its
    History "seen by you: approved at once"; no words, so no partner chat is needed and nobody is woken. The store's
    `feedback` action is gone; a recap answered with it before still says so.
+
+## Short recap cards: Context, Change, Before | After, one Checked line (B569)
+
+The person, 2026-10-24 (I92): the information cards are not readable: too much text, written as if they know what went
+on, and the picture always shows "3 points pass". Their example card (B568) was answered "Yes, build all cards like
+this" (Q352).
+
+1. A report's result opens with `Context: <what was wrong or missing> Change: <what the person gets now>`, then
+   `Details:` (or a `Tests bite:` line) and the rest for the check (src/work/recapWords.mjs `reportParts`). The
+   board's check of a report (check.mjs, in git and outside it) fails without both, with a Context over 300 or a
+   Change over 500 characters, or with file names (or paths), code words or commit hashes in them, and says which
+   (`partsFaults`). A report takes up to 2000 characters.
+2. The recap note keeps them as sections `Context` and `Change`, and `Points pass` ("5 of 5": the check that closed
+   the step; a step closed through its fix has every point pass); sections, not head keys, so a board not yet updated
+   still reads the note. A goal's recap: its why as the Context, its Done when as the Change.
+3. The card: the step's title (an incident fix's "Fix of X<n>:" left off), bold Context and Change, the picture,
+   then one quiet line "Checked: 5 of 5 points pass" that opens the step's points (`#details=B<n>`; a goal's on
+   Goals). Nothing on screen: no picture.
+4. The picture of a visible change is Before | After: the worker shoots `<picture folder>/B<n>/before.png` and
+   `after.png`, the check's helper sets them side by side with `tools/evidence.mjs --before --after`
+   (`before-after.png`, labelled, no points). The ticked list alone is no picture any more: such evidence is
+   `none (nothing on screen)`.
+5. A recap made before B569 (no `Points pass`) is read in the same form from its step's record at read time: the
+   Context from the step's summary, the Change from its report, each in plain sentences (asides, files, code words,
+   hashes and check words left out); its points picture dropped, a Before | After kept.
 
 ## A step waits for the partner, not for you (B392)
 
