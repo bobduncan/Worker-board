@@ -111,7 +111,7 @@ const cut = name => {
   return script.slice(from, to)
 }
 const page = {}
-vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('update')}\nObject.assign(this, { updateView, reloadsNow, updatedView })`, page)
+vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('update')}\nObject.assign(this, { updateView, reloadsNow, updatedView, reloadsOn403, draftsKept, draftsBack })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
 const version = more => ({ commit: '5fb7da8', since: NOW, head: '5fb7da8', page: 'a1b2c3d', isServerNewer: false, canRestart: true, ...more })
 
@@ -186,11 +186,23 @@ test('a step reported a moment ago whose chat log is not kept yet holds the rest
   assert.deepEqual(reportedNotLogged({ items: [], now: noon }), [])
 })
 
-test('the server counts the reported steps as a blocker and notes each chat log it is asked for; the page waits for idle also after a restart', async () => {
+test('the server counts the reported steps as a blocker and notes each chat log it is asked for', async () => {
   const server = await readFile(join(HERE, '..', 'server.mjs'), 'utf8')
   assert.match(server, /reported: reportedNotLogged\(\{ items: itemsOf\(await work\(\)\), now: clock\(\), loggedAt \}\)/)
   assert.match(server, /loggedAt\.set\(String\(checked\.chat\), lastLogAt\)/)
-  const read = script.slice(script.indexOf('async function read()'), script.indexOf('/** B221: asks the board to close or delete'))
-  assert.match(read, /answer\.status === 403[\s\S]*?isPageIdle\(\)[\s\S]*?location\.reload\(\)/)
-  assert.doesNotMatch(read.slice(0, read.indexOf('isPageIdle()')), /location\.reload\(\)/)
+})
+
+test('B519: after a restart the page loads itself at once, at most once a minute, and the typed answers come back', () => {
+  const now = NOW
+  assert.equal(page.reloadsOn403(403, { lastAt: 0, now }), true)
+  assert.equal(page.reloadsOn403(403, { lastAt: now - 30_000, now }), false)
+  assert.equal(page.reloadsOn403(403, { lastAt: now - 61_000, now }), true)
+  assert.equal(page.reloadsOn403(200, { lastAt: 0, now }), false)
+  assert.equal(page.reloadsOn403(500, { lastAt: 0, now }), false)
+  const typed = new Map([['Q12', 'yes, A'], ['refine:B7:feedback', 'shorter'], ['Q13', '']])
+  assert.deepEqual(plain(page.draftsBack(page.draftsKept(typed))), [['Q12', 'yes, A'], ['refine:B7:feedback', 'shorter']])
+  assert.deepEqual(plain(page.draftsBack(null)), [])
+  assert.deepEqual(plain(page.draftsBack('not json')), [])
+  assert.deepEqual(plain(page.draftsBack('{"a":1}')), [])
+  assert.deepEqual(plain(page.draftsBack('[["ok","x"],["bad",3],"junk"]')), [['ok', 'x']])
 })
