@@ -192,6 +192,21 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
 }
 
 /**
+ * B491: the board's word to the partner that its open brainstorm question has a title the board refuses (over 12 words,
+ * or none; B452 refuses the same of an ask): rewrite it in the thread at once, as the form says. Typed on the board's own
+ * clock, not as the person's word.
+ */
+export function brainstormFixWords({ to, path, n, title, problem }) {
+  const plain = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+  const shown = plain(title).slice(0, 200)
+  return {
+    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'brainstorm-fix', about: path,
+    text: [`brainstorm fix`, `Thread: ${path}`, `Q${n}'s title is refused: ${plain(problem)}`, `Now: ${shown === '' ? '(none)' : shown}`,
+      `Your job: rewrite Q${n} in the thread now: its first line the question itself in at most 12 words ending in "?", then a "Context:" line of two to four plain sentences (roles/partner.md, "A brainstorm").`].join('\n'),
+  }
+}
+
+/**
  * Plan (2026-10-19): the Plan part's word to the partner about an answer of the product plan: `plan: P5 confirmed`
  * (the answer is the person's decision now) or `plan: P5 change` with their words (the partner rewrites the answer).
  * The partner writes the page (roles/partner.md, "The plan interview"); the board writes nothing.
@@ -582,7 +597,7 @@ export function wakeFor(message, state, outbox, now, maxChars) {
   // Focus 2: and the words of the Focus page to the partner. B359: and the goal guard's evaluate.
   // 2026-10-24: and the Vision tab's words on the product plan (`plan-*`), which waited for a stopped partner unseen.
   const command = message.command ?? null
-  if (main === null || message.to === main || (command !== null && !command.startsWith('plan-') && !['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', ...FOCUS_COMMANDS].includes(command))) return null
+  if (main === null || message.to === main || (command !== null && !command.startsWith('plan-') && !['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-fix', ...FOCUS_COMMANDS].includes(command))) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning === false) return null
   // Not again within two minutes; and while an earlier word still waits for the main chat, not for ten.
   const isOnItsWay = sent => (sent.state === 'waiting' || sent.state === 'taken') && now - sent.at < WAKE_PENDING_MS

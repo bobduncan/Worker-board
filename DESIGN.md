@@ -3048,3 +3048,8 @@ to structure it, "instead of taking my feedback literally".
 2. "Game - Support" (was "Game - Cleanup") builds it, because it built the Workers list in the same mod.
 3. The folder `worker-board` becomes a small git repository of its own. It was kept on this PC only until 2026-10-12;
    since then it has a remote the person made, and everything is pushed to it (see "Git" in `README.md`).
+
+B491: a brainstorm question's title is refused as an ask's is (B452): the open question of a running talk whose title is over 12
+words or missing (also one from before the form, by the title its first question gives) is typed to the Advisor at once as
+`brainstorm fix` (src/brainstorm.mjs `titleFixes`, src/say.mjs `brainstormFixWords`, the look in server.mjs), once for each
+wording; the Advisor rewrites it in the thread. An earlier or answered question only shows under the card as a problem.

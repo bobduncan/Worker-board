@@ -7,7 +7,8 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { brainstormsState } from '../src/brainstorm.mjs'
+import { brainstormsState, titleFixes } from '../src/brainstorm.mjs'
+import { brainstormFixWords, wakeFor } from '../src/say.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
@@ -160,4 +161,40 @@ Context: Only context.
 - A: gate (advised)
 `)
   assert.match(thread.problems.join(' '), /Q1 has no title/)
+})
+
+const LONGQ = 'Where should all of the lanterns of the whole camp go first when we start?'
+
+test('B491: the open question with a title over twelve words, or none, goes back to the Advisor; the others ask for nothing', () => {
+  const fixes = text => titleFixes([one(text)])
+  assert.deepEqual(fixes(`${HEAD}## Q1 (21:01)\n${LONGQ}\nContext: Short.\n- A: gate (advised)\n`).map(f => [f.n, f.path]), [[1, 'b/2026-10-15-lanterns.md']])
+  assert.match(fixes(`${HEAD}## Q1 (21:01)\n${LONGQ}\nContext: Short.\n- A: gate (advised)\n`)[0].problem, /too long/)
+  assert.match(fixes(`${HEAD}## Q1 (21:01)\nContext: Only context.\n- A: gate (advised)\n`)[0].problem, /no title/)
+  // an answered question, a short title, a talk that is over: nothing to rewrite
+  assert.deepEqual(fixes(`${HEAD}## Q1 (21:01)\n${LONGQ}\nContext: Short.\n- A: gate (advised)\nAnswer (21:02): A\n`), [])
+  assert.deepEqual(fixes(`${HEAD}## Q1 (21:01)\nWhere do lanterns go?\nContext: Short.\n- A: gate (advised)\n`), [])
+  assert.deepEqual(fixes(`${HEAD.replace('State: running', 'State: done')}## Q1 (21:01)\n${LONGQ}\nContext: Short.\n- A: gate (advised)\n`), [])
+})
+
+test('B491: a question from before the form is checked too: its first sentence is the title', () => {
+  const old = `${HEAD}## Q1 (21:01)
+${LONGQ}
+- A: gate (advised)
+`
+  const thread = one(old)
+  assert.match(thread.latest.problem, /too long/)
+  assert.equal(titleFixes([thread]).length, 1)
+  // a long first line that holds a short question splits fine and asks for nothing
+  assert.deepEqual(titleFixes([one(`${HEAD}## Q1 (21:01)\nThe lanterns of the whole camp, the big ones and the small ones along every wall, could stand at the gate or by the well. Which first? Pick one.\n- A: gate (advised)\n`)]), [])
+})
+
+test('B491: the word to the Advisor names the thread, the question and the job, and wakes it like a brainstorm word', () => {
+  const [fix] = titleFixes([one(`${HEAD}## Q1 (21:01)\n${LONGQ}\nContext: Short.\n- A: gate (advised)\n`)])
+  const words = brainstormFixWords({ to: 'Advisor', ...fix })
+  assert.equal(words.command, 'brainstorm-fix')
+  assert.match(words.text, /^brainstorm fix\nThread: b\/2026-10-15-lanterns\.md\nQ1's title is refused: .*too long/)
+  assert.match(words.text, /Now: Where should all of the lanterns/)
+  assert.match(words.text, /at most 12 words/)
+  const asleep = { advisor: { name: 'Advisor', appSession: null }, restart: { main: 'Main' }, chats: [{ name: 'Main', running: true }] }
+  assert.notEqual(wakeFor({ to: 'Advisor', command: 'brainstorm-fix' }, asleep, [], 1_000_000, 2000), undefined)
 })

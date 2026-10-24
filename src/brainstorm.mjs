@@ -173,15 +173,17 @@ export function parseThread(text) {
   // B475: each question as its title and its context, as an ask shows them (B452).
   // A question from before it, with no "Context:" line, gives its first question (or sentence) as the title.
   thread.questions = thread.questions.map(({ line, ...question }) => {
+    // `line` is the question's heading (1-based): its title is the next line.
+    const named = problem => { thread.problems.push(`line ${line + 1}: Q${question.n}${problem}`); return problem }
     if (question.context === null) {
       const { title, context } = askTitleOf([question.text])
-      return { ...question, title, context: context.join(' ') }
+      // B491: a question from before it is checked too: the title its first question (or sentence) gives may be long
+      const why = question.text === '' ? null : titleProblem(title)
+      return { ...question, title, context: context.join(' '), problem: why === null ? null : named(`'s title is too long. ${why.replace('in "text"', 'in its "Context:" line')}`) }
     }
-    // `line` is the question's heading (1-based): its title is the next line.
     const why = titleProblem(question.text)
-    if (question.text === '') thread.problems.push(`line ${line + 1}: Q${question.n} has no title: its first line is the question itself, then "Context:".`)
-    else if (why !== null) thread.problems.push(`line ${line + 1}: Q${question.n}'s title is too long. ${why.replace('in "text"', 'in its "Context:" line')}`)
-    return { ...question, title: question.text }
+    if (question.text === '') return { ...question, title: question.text, problem: named(' has no title: its first line is the question itself, then "Context:".') }
+    return { ...question, title: question.text, problem: why === null ? null : named(`'s title is too long. ${why.replace('in "text"', 'in its "Context:" line')}`) }
   })
   return thread
 }
@@ -516,4 +518,17 @@ async function createFrom(body, { file, goalsAt, now, fs }) {
   if (!marked.ok) return failed(marked.why)
   const serves = made[0]?.id ?? home
   return { ok: true, result: { goals: made, steps: steps.map(one => ({ title: one.title, worker: one.worker, cost: one.cost, goal: serves })) } }
+}
+
+/**
+ * B491: the questions the Advisor must write again: the open question of a running talk whose title is too long or
+ * missing, as the work tool refuses such an ask's title (B452). `{ path, n, title, problem }`, each once per thread; an
+ * answered or earlier question, or a talk that is over, asks for nothing. The board types each to the Advisor at once.
+ */
+export function titleFixes(threads) {
+  return (threads ?? []).filter(thread => thread.state === 'running' || thread.state === 'wrapping up').flatMap(thread => {
+    const latest = thread.latest
+    if (latest === null || latest.answer !== null || (latest.problem ?? null) === null) return []
+    return [{ path: thread.path, n: latest.n, title: latest.title ?? latest.text, problem: latest.problem }]
+  })
 }
