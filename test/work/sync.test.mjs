@@ -457,3 +457,29 @@ test('B489: with a torn lock file two board processes run the list once between 
   assert.equal(applied.filter(one => one.action === 'requeue').length, 1, 'no repeat fix, no repeat note')
   assert.equal(applied.filter(one => one.action === 'note' || one.wake !== undefined).length, 0)
 })
+
+test('B492: a state that tells (a missing blocker, a queued step not taken) is told once: one note and one wake over two runs', async () => {
+  let clock = NOW
+  const applied = []
+  const sent = [{ id: 'm1', command: 'work', about: 'B5', to: 'Painter', at: NOW - 20 * MIN, state: 'delivered' }]
+  let stored = { noted: [], seen: {} }
+  const runner = syncRunner({
+    state: async () => ({ chats: [LEAD, lane('Painter')], chatPrefix: '', limits: {}, pause: null }),
+    items: async () => items(step('B4', 'queued', { Owner: 'Painter', 'Blocked by': 'B99' }), step('B5', 'queued', { Owner: 'Painter' })),
+    outbox: () => sent, refused: () => [],
+    apply: async body => (applied.push(body), { ok: true }),
+    wake: async one => {
+      applied.push({ wake: one.key })
+      sent.push({ id: `w${sent.length}`, command: 'work', about: one.id, to: one.chat, at: clock, state: 'waiting', kind: 'sync', syncKey: one.key })
+      return { id: 'w' }
+    },
+    noted: { load: async () => JSON.parse(JSON.stringify(stored)), save: async state => { stored = JSON.parse(JSON.stringify(state)) } },
+    now: () => clock,
+  })
+  const count = () => [applied.filter(one => one.action === 'note').length, applied.filter(one => one.wake !== undefined).length]
+  await runner.run()
+  assert.deepEqual(count(), [1, 1], 'tick 1: it tells')
+  clock += MIN
+  await runner.run()
+  assert.deepEqual(count(), [1, 1], 'tick 2: the same state is not told again')
+})
