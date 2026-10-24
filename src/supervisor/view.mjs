@@ -16,7 +16,7 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * now, by the timeline; a chat it does not know is not in it), `repairs` (the repairs of the last day, `[{ at, rule,
  * subject, key }]`), `mods` (`{ installed, chats }`: the Workers mod installed, and the version each chat runs where
  * known), `settings` (the thresholds, config.mjs SUPERVISOR_DEFAULTS), `keep` (how long the outbox keeps a word) and
- * `goals` (the goal map's nodes).
+ * `goals` (the goal map's nodes) and `focus` (the focus goal's id, or null).
  */
 export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, repairs = [], mods = null, settings = {}, now }) {
   const lanes = state.chats ?? []
@@ -37,6 +37,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // rule 8 judges a waiting word as the outbox sweep does.
     keep: keep ?? DEFAULT_KEEP,
     goals: state.goals?.nodes ?? [],
+    // B564: the focus goal's id (state.mjs focusState), or null: the rule focus-ready names only its steps.
+    focus: typeof state.focus?.id === 'string' ? state.focus.id : null,
     limits: limits ?? state.limits ?? {},
     pause: pause ?? state.pause ?? null,
     refused,

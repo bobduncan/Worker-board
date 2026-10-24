@@ -50,7 +50,11 @@ You decide this, not the user. For every task:
    ("Refined (<date time>; ready):", roles/partner.md). You may write the queue note of a step that is not refined
    yet: the board then sends it to the Advisor, and types `step refined` to you once it is. Hand it out then, not
    before. The board refines a new step once by itself; you never ask the Advisor for it. A step the partner made from a how
-   the user agreed is refined when made ("from the how of G<n>" in its block): queue it at once. The steps that were queued
+   the user agreed is refined when made ("from the how of G<n>" in its block): queue it at once, the moment its note
+   reaches you (in `work next`'s "Notes for you" too), not after the task you are on; a free worker waits for it
+   (B564, X20: B534 waited hours after its note was read). The board's note "Queue B<n> (<focus>) for <worker>" (its
+   sync check: that worker is free with nothing queued while the focus has steps ready): queue it so, or say in one line
+   why not (`work note`). The steps that were queued
    already when the board began refining go as before (the board keeps their list in its `data/refine-gate.json`;
    your briefing names them).
    You may `work queue` a step even before its refine: the board keeps the wish and queues it by itself once

@@ -87,6 +87,37 @@ test('the review\'s findings: unread notes to the main chat wake it with one lin
   }
 })
 
+test('B564 (X20): a notes line the mod took long ago and never said it typed no longer holds the next; notes unread 30 min after their line go once more', async () => {
+  const { dir, sage, build, deliver } = await garden()
+  try {
+    await sage({ action: 'note', to: 'main', text: 'Queue for G6 Benches: B1' })
+    const outbox = memoryStore()
+    // X20: a line taken days ago that the mod never settled (taken, not delivered).
+    await outbox.say({ id: 'old', at: NOW - 5 * 24 * 60 * MIN, to: 'Lead', command: 'work', about: 'N0', kind: 'note', notes: ['N0'], text: 'work: note N0 for you; run work next', state: 'taken', takenAt: NOW - 5 * 24 * 60 * MIN })
+    await deliver(await build(), outbox)
+    assert.deepEqual(outbox.outbox().filter(one => one.id !== 'old').map(one => [one.notes, messageText(one, () => '16:05')]), [[['N1'], 'work: note N1 for you; run work next']])
+    // Taken a moment ago: it holds, as before.
+    const line = outbox.outbox().at(-1)
+    await outbox.update(line.id, { state: 'taken', takenAt: NOW })
+    await deliver(await build(), outbox, NOW + 9 * MIN)
+    assert.equal(outbox.outbox().length, 2)
+    // Taken 10 min ago and still unread, under the 30 min: nothing (the same notes went).
+    await deliver(await build({ now: NOW + 20 * MIN }), outbox, NOW + 20 * MIN)
+    assert.equal(outbox.outbox().length, 2)
+    // Still unread 30 min after it arrived: once more, with how long they wait.
+    await deliver(await build({ now: NOW + 31 * MIN }), outbox, NOW + 31 * MIN)
+    assert.equal(outbox.outbox().length, 3)
+    assert.equal(messageText(outbox.outbox().at(-1), () => '16:36'), 'work: note N1 for you, unread 41 min; run work next')
+    assert.ok((await readDelivered(dir)).keys.includes('notes N1 Lead again'))
+    // Once: not a third time for the same notes.
+    await outbox.update(outbox.outbox().at(-1).id, { state: 'delivered', deliveredAt: NOW + 32 * MIN })
+    await deliver(await build({ now: NOW + 90 * MIN }), outbox, NOW + 90 * MIN)
+    assert.equal(outbox.outbox().length, 3)
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
 test('the review\'s findings: the notes filed before this version\'s first start count as woken already', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'note-wake-old-'))
   try {
