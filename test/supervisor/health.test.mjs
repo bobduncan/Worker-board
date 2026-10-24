@@ -168,6 +168,66 @@ test('B561: a result check\'s fix that stays with its busy builder is quiet for 
   assert.equal(lineOfStep(free, 'B30'), '- ! B30 queued for 3 h (stays with Digger: fix of B8), Digger, board fix: Step B30 of the garden')
 })
 
+/** X18's board at 20:23: Lead's last report B301 at 22:29 the day before, and a time of another day in every section. */
+const X18_NOW = new Date(2026, 9, 24, 20, 23).getTime()
+const yesterday = (hours, minutes) => new Date(2026, 9, 23, hours, minutes).getTime()
+const today = (hours, minutes) => new Date(2026, 9, 24, hours, minutes).getTime()
+function x18Board({ reportAt = yesterday(22, 29) } = {}) {
+  return buildView({
+    state: {
+      chats: [
+        lane('Lead', { isMain: true, compaction: { kind: 'cleared', at: yesterday(22, 40), step: 'B301' } }),
+        lane('Digger', { state: 'suspended', suspended: { limit: '5-hour limit', until: new Date(2026, 9, 25, 1, 10).getTime() }, compaction: { kind: 'compacted', at: yesterday(21, 5), notCleared: { at: yesterday(21, 5), why: 'a subagent still runs' } } }),
+        lane('Weeder', { state: 'unknown', compaction: { kind: 'skipped', at: today(19, 50), why: 'small enough' } }),
+      ],
+      chatPrefix: '',
+      today: [{ chat: 'Digger', spans: [{ from: yesterday(23, 15), to: X18_NOW, state: 'suspended' }] }, { chat: 'Weeder', spans: [{ from: today(20, 3), to: X18_NOW, state: 'unknown' }] }],
+    },
+    items: items(
+      step('B301', 'done', { Owner: 'Lead', Since: stamp(reportAt) }, { History: [`- ${stamp(reportAt)} Lead: in progress → review`] }),
+      step('B302', 'review', { Owner: 'Weeder', Since: stamp(today(19, 40)) }, { History: [`- ${stamp(today(19, 40))} Weeder: in progress → review`] }),
+      item({ Id: 'X18', Kind: 'incident', Title: 'a time in the future', State: 'open', Source: 'sweep', Key: 'time Lead', Since: stamp(yesterday(23, 0)), 'First seen': stamp(yesterday(23, 0)), 'Last seen': stamp(today(20, 20)), Count: '2' }),
+    ),
+    limits: { fiveHour: { used: 97, level: 'full', at: today(20, 20), resetsAt: new Date(2026, 9, 25, 1, 10).getTime() }, week: { used: 41, level: 'ok', at: yesterday(23, 50), resetsAt: today(23, 0) } },
+    pause: { state: 'running', since: yesterday(8, 0) },
+    repairs: [{ at: yesterday(22, 30), rule: 'limit-back', subject: 'Digger', key: 'limit-back Digger' }],
+    now: X18_NOW,
+  })
+}
+
+test('B562 (X18): a last report of the day before shows its date, so 22:29 never reads as a time later than now (20:23)', () => {
+  const text = healthSummary(x18Board(), X18_NOW)
+  const lead = text.split('\n').find(one => one.includes('Lead (main)')) ?? ''
+  assert.match(lead, /; last report B301 at 2026-10-23 22:29;/)
+  assert.doesNotMatch(lead, /at 22:29;/)
+  // A report of today keeps its clock alone.
+  const todays = healthSummary(x18Board({ reportAt: today(18, 5) }), X18_NOW).split('\n').find(one => one.includes('Lead (main)')) ?? ''
+  assert.match(todays, /; last report B301 at 18:05;/)
+  assert.match(text.split('\n').find(one => one.includes('Weeder (worker)')) ?? '', /unknown since 20:03 \(20 min\);.*; last report B302 at 19:40; compaction skipped at 19:50: small enough$/)
+})
+
+test('B562: every time in the summary of another day, past or future, carries its date; the head keeps the clock of now', () => {
+  const text = healthSummary(x18Board(), X18_NOW)
+  const line = words => text.split('\n').find(one => one.includes(words)) ?? ''
+  assert.match(text, /^The board's health at 20:23,/)
+  assert.match(line('Lead (main)'), /cleared at 2026-10-23 22:40 after B301$/)
+  assert.match(line('Digger (worker)'), /suspended since 2026-10-23 23:15 \(21 h 8 min\) \(for 5-hour limit until 2026-10-25 01:10\);/)
+  assert.match(line('Digger (worker)'), /not cleared at 2026-10-23 21:05: a subagent still runs; compacted at 2026-10-23 21:05$/)
+  assert.match(line('X18 open'), /first 2026-10-23 23:00, last 20:20:/)
+  assert.match(line('repair limit-back'), /^- 2026-10-23 22:30 repair limit-back on Digger/)
+  // A reset tomorrow and a read of yesterday show their dates; a reset later today its clock.
+  assert.match(line('5-hour limit: '), /5-hour limit: 97% used \(full\), read at 20:20, resets at 2026-10-25 01:10; weekly limit: 41% used \(ok\), read at 2026-10-23 23:50, resets at 23:00/)
+  assert.match(line('- pause:'), /pause: running since 2026-10-23 08:00/)
+})
+
+test('B562: health.mjs prints no time through the bare clockOf outside dayClockOf and the head line, so a new time cannot skip its date', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../../src/supervisor/health.mjs', import.meta.url), 'utf8')
+  const rest = source.replace(/const dayClockOf = [\s\S]*?\n}\n/, '').split('\n').filter(one => !/^\s*const head = /.test(one))
+  assert.deepEqual(rest.filter(one => /\bclockOf\(/.test(one)).map(one => one.trim()), [])
+  assert.match(source, /const dayClockOf = /, 'dayClockOf is still there to be cut out')
+})
+
 test('the summary holds every section: the chats with state, since, model and effort beside the step\'s, last report and clear', () => {
   const text = healthSummary(fixture(), NOW)
   assert.ok(text.length <= HEALTH_CHARS)

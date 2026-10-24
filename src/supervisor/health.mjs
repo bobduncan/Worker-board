@@ -75,7 +75,7 @@ function chatLines(view, now) {
   return chats.map(({ lane, role }) => {
     const mine = steps.filter(item => plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
     const since = view.since.get(lane.name)
-    const state = `${lane.state ?? 'not known'}${Number.isFinite(since) ? ` since ${clockOf(since)} (${lasting(now - since)})` : ''}`
+    const state = `${lane.state ?? 'not known'}${Number.isFinite(since) ? ` since ${dayClockOf(since, now)} (${lasting(now - since)})` : ''}`
     const running = lane.isRunning === false ? ', its chat does not run' : ''
     // B544: the level, never the partner's mode object ("[object Object]", X9).
     const runs = `runs ${familyOf(lane.model) ?? 'a model not known'} · ${chatEffort(lane) ?? 'effort not known'}`
@@ -86,21 +86,21 @@ function chatLines(view, now) {
     const onWords = onId === null ? '; on no step' : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
     const reports = mine.flatMap(item => (item.sections?.get('History') ?? []).filter(line => REPORTED.test(line)).map(line => ({ id: valueOf(item, 'Id'), at: historyAt(line) })))
       .filter(one => Number.isFinite(one.at)).sort((a, b) => b.at - a.at)
-    const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${clockOf(reports[0].at)}`
+    const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${dayClockOf(reports[0].at, now)}`
     const suspended = lane.state === 'suspended' && lane.suspended !== null && typeof lane.suspended === 'object'
-      ? ` (for ${lane.suspended.limit ?? 'a limit'}${Number.isFinite(lane.suspended.until) ? ` until ${clockOf(lane.suspended.until)}` : ''}${lane.suspended.isBack === true ? ', the limit is back' : ''})` : ''
+      ? ` (for ${lane.suspended.limit ?? 'a limit'}${Number.isFinite(lane.suspended.until) ? ` until ${dayClockOf(lane.suspended.until, now)}` : ''}${lane.suspended.isBack === true ? ', the limit is back' : ''})` : ''
     const odd = ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null) || (lane.state === 'working' && onId === null && role === 'worker')
-    return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
+    return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
   })
 }
 
 /** The Workers mod's last word on a clear or a compaction of the chat, with why it did not clear. */
-function clearWords(compaction) {
+function clearWords(compaction, now) {
   if (compaction === null || compaction === undefined) return 'no clear known'
-  if (compaction.kind === 'cleared') return `cleared at ${clockOf(compaction.at)}${compaction.step ? ` after ${compaction.step}` : ''}`
-  const not = compaction.notCleared ? `not cleared at ${clockOf(compaction.notCleared.at)}: ${compaction.notCleared.why}; ` : ''
-  if (compaction.kind === 'compacted') return `${not}compacted at ${clockOf(compaction.at)}`
-  return `${not}compaction skipped at ${clockOf(compaction.at)}: ${compaction.why ?? 'no reason given'}`
+  if (compaction.kind === 'cleared') return `cleared at ${dayClockOf(compaction.at, now)}${compaction.step ? ` after ${compaction.step}` : ''}`
+  const not = compaction.notCleared ? `not cleared at ${dayClockOf(compaction.notCleared.at, now)}: ${compaction.notCleared.why}; ` : ''
+  if (compaction.kind === 'compacted') return `${not}compacted at ${dayClockOf(compaction.at, now)}`
+  return `${not}compaction skipped at ${dayClockOf(compaction.at, now)}: ${compaction.why ?? 'no reason given'}`
 }
 
 /**
@@ -218,14 +218,14 @@ const IDLE_STATES = ['free', 'unknown', 'off']
 
 /** The repairs the board made in the last day, and its incidents (not fixed, or fixed in the last day), with their keys. */
 function dayLines(view, now) {
-  const repairs = view.repairs.filter(one => now - one.at < DAY).map(one => lineOf(`${clockOf(one.at)} repair ${one.rule} on ${one.subject ?? 'the board'} (${one.key})`, { at: one.at }))
+  const repairs = view.repairs.filter(one => now - one.at < DAY).map(one => lineOf(`${dayClockOf(one.at, now)} repair ${one.rule} on ${one.subject ?? 'the board'} (${one.key})`, { at: one.at }))
   const incidents = [...view.items.values()].filter(item => kindOf(item) === 'incident').flatMap(item => {
     const state = valueOf(item, 'State')
     const last = sinceMs(valueOf(item, 'Last seen'))
     if (state === 'fixed' && !(now - last < DAY)) return []
     const fix = valueOf(item, 'Fix')
     const evidence = valueOf(item, 'Evidence')
-    return [lineOf(`${valueOf(item, 'Id')} ${state === 'fix' && fix ? `fix ${fix}` : state}, from ${valueOf(item, 'Source') ?? 'not known'}, seen ${valueOf(item, 'Count') ?? '1'} times, first ${clockOf(sinceMs(valueOf(item, 'First seen')))}, last ${clockOf(last)}: ${valueOf(item, 'Title') ?? ''} [key: ${valueOf(item, 'Key') ?? ''}]${evidence === null ? '' : ` (evidence: ${oneLine(evidence, 80)})`}`,
+    return [lineOf(`${valueOf(item, 'Id')} ${state === 'fix' && fix ? `fix ${fix}` : state}, from ${valueOf(item, 'Source') ?? 'not known'}, seen ${valueOf(item, 'Count') ?? '1'} times, first ${dayClockOf(sinceMs(valueOf(item, 'First seen')), now)}, last ${dayClockOf(last, now)}: ${valueOf(item, 'Title') ?? ''} [key: ${valueOf(item, 'Key') ?? ''}]${evidence === null ? '' : ` (evidence: ${oneLine(evidence, 80)})`}`,
       { tier: 1, odd: state === 'open' || state === 'came back', at: last })]
   })
   return [...incidents, ...repairs]
@@ -241,11 +241,11 @@ function wordLines(view, now) {
 }
 
 /** The limits of the plan and the person's pause. */
-function limitLines(view) {
+function limitLines(view, now) {
   const limit = (name, value) => (value === null || value === undefined ? `${name}: not known`
-    : `${name}: ${Math.round(value.used)}% used (${value.level}), read at ${clockOf(value.at)}${Number.isFinite(value.resetsAt) ? `, resets at ${clockOf(value.resetsAt)}` : ''}`)
+    : `${name}: ${Math.round(value.used)}% used (${value.level}), read at ${dayClockOf(value.at, now)}${Number.isFinite(value.resetsAt) ? `, resets at ${dayClockOf(value.resetsAt, now)}` : ''}`)
   const pause = view.pause === null || view.pause === undefined ? 'pause: none known'
-    : `pause: ${view.pause.state ?? 'not known'}${Number.isFinite(view.pause.since) ? ` since ${clockOf(view.pause.since)}` : ''}`
+    : `pause: ${view.pause.state ?? 'not known'}${Number.isFinite(view.pause.since) ? ` since ${dayClockOf(view.pause.since, now)}` : ''}`
   return [
     lineOf(`${limit('5-hour limit', view.limits?.fiveHour)}; ${limit('weekly limit', view.limits?.week)}`, { tier: 0, odd: ['fiveHour', 'week'].some(key => view.limits?.[key]?.level === 'full') }),
     lineOf(pause, { tier: 0, odd: isHolding(view.pause) }),
@@ -265,7 +265,7 @@ export function healthSummary(view, now = view.now) {
     { title: 'Queues', lines: queueLines(view) },
     { title: 'Incidents and repairs of the last day', lines: dayLines(view, now) },
     { title: 'Words not delivered', lines: wordLines(view, now) },
-    { title: 'Limits and pause', lines: limitLines(view) },
+    { title: 'Limits and pause', lines: limitLines(view, now) },
   ]
   const head = `The board's health at ${clockOf(now)}, for the supervisor's sweep. Odd lines are marked with "!".`
   const rank = (a, b) => a.tier - b.tier || Number(b.odd) - Number(a.odd) || b.at - a.at
