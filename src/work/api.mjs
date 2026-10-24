@@ -600,6 +600,13 @@ async function ask(body, w) {
   const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
   // 2026-10-24: a picture the board cannot show is refused here, with where to put it, so the person never meets a
   // link that opens nothing (Worker 1 linked one in its worktree). The mod's own asks (`via`) keep theirs as they came.
+  // An ask filed from a chat's For you block (`via`) keeps its question: a picture outside is copied in instead (Q311).
+  if (via !== null && typeof w.pictureProblem === 'function' && typeof w.adoptPicture === 'function') {
+    const subject = String((isAlone ? goal : valueOf(of.item, 'Id')) ?? 'asks').toLowerCase()
+    for (const [n, path] of pictures.entries()) {
+      if ((await w.pictureProblem(path)) === 'outside') pictures[n] = (await w.adoptPicture(path, subject)) ?? path
+    }
+  }
   if (via === null && typeof w.pictureProblem === 'function') {
     for (const path of pictures) {
       const problem = await w.pictureProblem(path)

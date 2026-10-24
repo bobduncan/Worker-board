@@ -2,7 +2,7 @@
 // project's picture folder). A chat or the backlog only gives a path; whether it may be shown is decided here, on the
 // real file, so nothing outside those folders can be asked for through the board.
 
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 
 import { picturePath } from './asks.mjs'
@@ -66,6 +66,29 @@ export async function pictureProblem(project, roots, value) {
   if (path === null) return 'outside'
   if ((await findPicture(project, roots, path)) !== null) return null
   return roots.some(root => path === root || path.startsWith(`${root}/`)) ? 'missing' : 'outside'
+}
+
+/**
+ * A picture a chat named outside the shown folders, copied into the settings' picture folder under `<subject>/`, so the
+ * person can open it (2026-10-24: Q311, filed from a chat's For you block, named one in a worktree). Only a picture
+ * inside the project's folder is copied; the copy's path, or null.
+ */
+export async function adoptPicture(project, folder, subject, value) {
+  const path = picturePath(value)
+  if (path === null || typeof folder !== 'string' || !/^[\w.-]+$/.test(subject)) return null
+  try {
+    const top = await realpath(project)
+    const real = await realpath(join(project, path))
+    if (!real.toLowerCase().startsWith(`${top.toLowerCase()}${sep}`)) return null
+    const info = await stat(real)
+    if (!info.isFile() || info.size > PICTURE_BYTES) return null
+    const to = `${folder}/${subject}/${path.split('/').pop()}`
+    await mkdir(join(project, ...folder.split('/'), subject), { recursive: true })
+    await copyFile(real, join(project, ...to.split('/')))
+    return to
+  } catch {
+    return null
+  }
 }
 
 /** A folder's path as the backlog writes it ("pictures/red-mage"), cleaned, or null. */

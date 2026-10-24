@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { pictureProblem, shownFolders, shownRoots } from '../src/pictures.mjs'
+import { adoptPicture, pictureProblem, shownFolders, shownRoots } from '../src/pictures.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
@@ -53,6 +53,7 @@ async function board() {
   const ctx = {
     dir: store, now: NOW + 60_000, prefix: 'Game - ', roleOf: chat => ROLES[chat] ?? null, freeChats: new Set(),
     pictureProblem: path => pictureProblem(dir, roots, path), shownFolders: shownFolders(CONFIG),
+    adoptPicture: (path, subject) => adoptPicture(dir, shownFolders(CONFIG)[0], subject, path),
   }
   return { dir, store, ask: body => workApi({ chat: 'Features', action: 'ask', of: 'B7', kind: 'look', title: 'Does the shop look right?', ...body }, ctx) }
 }
@@ -79,6 +80,23 @@ test('an ask whose picture is outside the shown folders is refused, saying where
     assert.match(done.why, /only from art-inbox, game\/art\/source/)
     assert.match(done.why, /art-inbox\/b7\/shop\.png/)
     assert.equal((await asks(store)).length, before)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('an ask filed from a chat\'s For you block keeps its question: a picture outside is copied into the picture folder', async () => {
+  // Q311 (2026-10-24) came this way, with a picture in a worktree; refusing would lose the person's question.
+  const { dir, store, ask } = await board()
+  try {
+    const done = await ask({ via: 'chat', pictures: ['game-b7/tests/screens/shop.png'] })
+    assert.equal(done.ok, true, done.why)
+    const filed = [...(await readStore(store)).items.values()].find(one => (one.head?.get?.('Pictures') ?? '').includes('shop.png'))
+    assert.equal(filed?.head.get('Pictures'), 'art-inbox/b7/shop.png')
+    assert.equal(await pictureProblem(dir, shownRoots(CONFIG), 'art-inbox/b7/shop.png'), null)
+    // A picture that is not inside the project is not copied: it is kept as it came.
+    const outside = await ask({ via: 'chat', title: 'Does the other one look right?', pictures: ['../elsewhere/x.png'] })
+    assert.equal(outside.ok, true, outside.why)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
