@@ -3075,7 +3075,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   older Workers mod than the one installed: dormant until the mod reports its version, Part 2's mod), `odd-effort`
   (B544, the fix of X9: a chat whose card says an effort that is not a level; the partner's card holds the app's level in
   `appEffort` beside its high effort mode in `effort`, and `effort.mjs chatEffort` reads the level, so the health
-  summary never says "[object Object]"). How long a thing
+  summary never says "[object Object]"), `not-cleared` (B547, the fix of X13 and X14: a worker whose last report is
+  newer than its last clear and that took a new step since, at once, or that stays so for over 10 min,
+  `notClearedMinutes`; one finding per worker per report, with the mod's why and the repair). How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
 - **The supervisor's memory**, `<project>/.claude/supervisor.json`, beside `sync.json` and apart from it: its watch
   (`seen`), the repairs of the last day (`repairs`, for `repair-repeats`) and when each rule tripped (`trips`). Read at
@@ -3306,6 +3308,24 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   viewer, which shows a log larger than 1 MB by its last 2 MB under a line naming the whole file.
 - **Rollout** (the person's, once the mod is installed and the app started anew): `"afterStep": "clear"` and
   `"compactAbove": 150000` in the project's `list.json`.
+
+### The board keeps the account of clears (B547, 2026-10-24)
+
+On 2026-10-24 three reported steps ended in no clear: Workers 4 and 1 (an older mod, 18:22 and 18:23) left no
+turn-ended, no log and no reason on the board, and Worker 2 (19:10) was refused its log while its background work ran
+(HTTP 409); each took its next step on the old conversation. The mod decides the clear once, at the end of the
+reporting turn, and when that moment fails nothing tries again. So the board, which sees both ends, keeps the account
+(`src/clearOwed.mjs`): a worker whose last report (its own History line to review, or reported again) is newer than its
+last clear (its card's `cleared`, now kept as `lastCleared` whatever came after) owes a clear (`clearOwed` on its lane).
+While it does, for a Workers mod of 0.17.0 or newer (the version its last call said): the reconciler's and the pull's
+line of its next step waits (`reconciled.held`), its mod's take hands out no step line, its work tool's take is refused
+("Not yet: this chat is cleared after B12 first ..."), and once the chat is free, nothing it started runs in the
+background, the person does not pause and two minutes have passed since the report (the mod's own clear goes first),
+the take's answer names the clear (`clear: { step, reportedAt }`). The mod (0.17.0) runs it as the clear after a report,
+with all its guards, at most once a minute, and refused it only writes why on the card (no compaction). An older mod is
+held to nothing; the row says "not cleared after B12" with what happens next, and the watch rule `not-cleared` names it.
+The mod's newest word why it did not clear now shows as its own kind (`not-cleared`), no longer hidden behind an older
+clear.
 
 ## What it does not do
 

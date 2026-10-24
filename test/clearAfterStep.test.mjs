@@ -165,12 +165,20 @@ test('a clear is no turn: an open instruction is not missed for it; the next rea
 test('the lane says "cleared after B12 · log", the log opening in the file viewer; a compaction says why it was not cleared', async () => {
   const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
   const part = {}
-  vm.runInNewContext(`${script.slice(script.indexOf('// lanewindow:start'), script.indexOf('function laneWindowOf'))}\nObject.assign(this, { compactionLine })`, part)
+  vm.runInNewContext(`${script.slice(script.indexOf('// lanewindow:start'), script.indexOf('function laneWindowOf'))}\nObject.assign(this, { compactionLine, clearOwedLine })`, part)
   const line = part.compactionLine({ kind: 'cleared', at: 1, step: 'B12', log: LOG }, () => '14:05')
   assert.deepEqual({ ...line }, { text: 'cleared after B12', title: `Workers mod at 14:05: cleared after B12; the conversation before is kept in ${LOG}`, isWarning: false, log: LOG })
   assert.equal(part.compactionLine({ kind: 'cleared', at: 1, step: null, log: null }, () => '14:05').title, 'Workers mod at 14:05: cleared after its step; its log was not named')
   const compacted = part.compactionLine({ kind: 'compacted', at: 1, before: 400_000, after: 90_000, notCleared: { at: 1, why: 'the person pauses the chats' } }, () => '14:05')
   assert.equal(compacted.title, 'compacted at 14:05, from 400k to 90k tokens Not cleared at 14:05: the person pauses the chats.')
+  // B547: the mod's newest word is why it did not clear: a warning on the row, its words in the tooltip.
+  assert.deepEqual({ ...part.compactionLine({ kind: 'not-cleared', at: 1, why: 'a subagent it started still runs (1)' }, () => '14:05') },
+    { text: 'not cleared after its step', title: 'Workers mod at 14:05: not cleared: a subagent it started still runs (1)', isWarning: true })
+  // B547: a clear owed says so, with what happens next: the mod clears it, or an older one needs the restart.
+  const owed = { step: 'B12', reportedAt: 1, clearedAt: null, why: null, canClear: true }
+  assert.deepEqual({ ...part.clearOwedLine(owed, () => '14:05') }, { text: 'not cleared after B12', title: 'Reported B12 at 14:05, no clear known: its next step waits until its Workers mod clears it, as soon as the chat is idle.' })
+  assert.match(part.clearOwedLine({ ...owed, canClear: false, clearedAt: 0, why: 'no answer' }, () => '14:05').title, /its last clear at 14:05: its Workers mod is too old to clear it now: restart its chat \(Pause all, restart the app, Resume all\)\. Why not cleared: no answer\.$/)
+  assert.equal(part.clearOwedLine(null, () => '14:05'), null)
   // The row and the lane's window put the line with its "log" button where the compaction's line stands.
   assert.ok(script.includes("} else if (compacted !== null && compacted.log !== undefined) names.append(clearedNote(compacted))"))
   assert.ok(script.includes('open.dataset.gameFile = line.log'))

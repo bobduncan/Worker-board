@@ -2041,6 +2041,8 @@ function drawMore(lane, state) {
   if (lane.state === 'working' && (lane.between ?? null) !== null) list.append(el('li', 'muted', `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}`))
   const free = freeLine(lane, clock)
   if (free !== null) list.append(el('li', '', free))
+  const owedClear = clearOwedLine(lane.clearOwed ?? null, clock)
+  if (owedClear !== null) list.append(el('li', '', owedClear.title))
   const compacted = compactionLine(lane.compaction ?? null, clock)
   if (compacted !== null && compacted.log !== undefined) {
     const item = el('li', 'muted', `${compacted.title} `)
@@ -2145,8 +2147,16 @@ function drawLane(lane, state) {
   }
   // B235: whether the Workers mod compacted it after its last report, or why not. B307: on the row only when something
   // is wrong; else on hovering the name.
+  // B547: a worker that owes a clear says so on its row, before the mod's last word.
+  const owed = clearOwedLine(lane.clearOwed ?? null, clock)
+  if (owed !== null) {
+    const note = el('small', 'compaction is-warning', owed.text)
+    note.title = owed.title
+    names.append(note)
+  }
   const compacted = compactionLine(lane.compaction ?? null, clock)
-  if (compacted !== null && compacted.isWarning) {
+  if (owed !== null) names.title = compacted?.title ?? ''
+  else if (compacted !== null && compacted.isWarning) {
     const note = el('small', 'compaction is-warning', compacted.text)
     note.title = compacted.title
     names.append(note)
@@ -5257,6 +5267,8 @@ function compactionLine(compaction, clockOf) {
     const kept = (compaction.log ?? null) === null ? 'its log was not named' : `the conversation before is kept in ${compaction.log}`
     return { text, title: `Workers mod at ${clockOf(compaction.at)}: ${text}; ${kept}`, isWarning: false, log: compaction.log ?? null }
   }
+  // B547: the mod's newest word is why it did not clear the worker after its reported step.
+  if (compaction.kind === 'not-cleared') return { text: 'not cleared after its step', title: `Workers mod at ${clockOf(compaction.at)}: not cleared: ${compaction.why}`, isWarning: true }
   // Clear after each step: why the mod did not clear the worker, and compacted it instead.
   const notCleared = (compaction.notCleared ?? null) === null ? '' : ` Not cleared at ${clockOf(compaction.notCleared.at)}: ${compaction.notCleared.why}.`
   if (compaction.kind === 'skipped') {
@@ -5267,6 +5279,18 @@ function compactionLine(compaction, clockOf) {
   const [before, after] = [tokensOf(compaction.before), compaction.after > 0 ? tokensOf(compaction.after) : null]
   const text = `compacted at ${clockOf(compaction.at)}${before === null ? '' : `, from ${before}${after === null ? '' : ` to ${after}`} tokens`}`
   return { text, title: `${text}${notCleared}`, isWarning: false }
+}
+
+/**
+ * B547: the line of a worker that owes a clear (its last report newer than its last clear, state.mjs `clearOwed`): its
+ * next step waits for the clear its Workers mod runs once the chat is idle; an older mod cannot, and its chat needs the
+ * restart that brings the new one. Null when nothing is owed.
+ */
+function clearOwedLine(owed, clockOf) {
+  if (owed === null || owed === undefined) return null
+  const last = Number.isFinite(owed.clearedAt) ? `its last clear at ${clockOf(owed.clearedAt)}` : 'no clear known'
+  const then = owed.canClear === true ? 'its next step waits until its Workers mod clears it, as soon as the chat is idle' : 'its Workers mod is too old to clear it now: restart its chat (Pause all, restart the app, Resume all)'
+  return { text: `not cleared after ${owed.step}`, title: `Reported ${owed.step} at ${clockOf(owed.reportedAt)}, ${last}: ${then}.${owed.why === null || owed.why === undefined ? '' : ` Why not cleared: ${owed.why}.`}` }
 }
 
 /**

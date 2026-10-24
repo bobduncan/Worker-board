@@ -2312,6 +2312,59 @@ describe('clear after each step', () => {
     })
   }
 
+  test('B547: a clear the board names at a take runs once the chat is idle: the log refused at the report (409) is asked again, then /clear', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await worker($, on, null)
+    w.byAction['save-log'] = { status: 409, text: 'Background work it started is still running: its answer would come into a cleared conversation.' }
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect([w.commanded, w.compactions.length]).toEqual([[], 1])
+    expect(fileOf(w)?.clearNote?.why).toContain('Background work it started is still running')
+    // The board names the clear while the work still runs: refused again, the card says so, and nothing is compacted.
+    const named = (): void => { w.takeAnswers.push({ status: 200, text: JSON.stringify({ messages: [], clear: { step: 'B12', reportedAt: 1 } }) }) }
+    named()
+    await clock.advance(5000)
+    for (let i = 0; i < 50 && w.sequence.filter(one => one === 'save-log').length < 2; i++) await settle()
+    expect(w.sequence.filter(one => one === 'save-log').length).toBe(2)
+    expect([w.commanded, w.compactions.length]).toEqual([[], 1])
+    // Named again within the minute: not asked again.
+    named()
+    await clock.advance(5000)
+    await settle()
+    expect(w.sequence.filter(one => one === 'save-log').length).toBe(2)
+    // The work has ended: a minute on, the log is kept and the chat cleared, its card marked for the conversation after.
+    w.byAction['save-log'] = ok({ text: `Saving the conversation to ${FILE}.`, log: LOG, file: FILE })
+    await clock.advance(60_000)
+    named()
+    await clock.advance(5000)
+    for (let i = 0; i < 50 && w.commanded.length === 0; i++) await settle()
+    await wait(50)
+    expect(w.commanded).toEqual(['/clear by plugin folder-branches'])
+    expect(w.sequence.slice(-2)).toEqual(['save-log', '/clear'])
+    expect(sent(w).filter(one => one.action === 'save-log').at(-1)).toEqual({ action: 'save-log', stepId: 'B12', chat: 'Units', session: 'units' })
+    expect(fileOf(w)?.clearing?.step).toBe('B12')
+    expect(w.compactions.length).toBe(1)
+  })
+
+  test('B547: a clear the board names is not run while a turn runs, nor when the card was cleared since the report', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = await worker($, on, null)
+    // The turn of the report still runs: the board's word is not acted on.
+    w.takeAnswers.push({ status: 200, text: JSON.stringify({ messages: [], clear: { step: 'B12', reportedAt: 1 } }) })
+    await clock.advance(5000)
+    await settle()
+    expect(w.sequence).toEqual(['report'])
+    // A card cleared after the report (the board read it before): nothing is run twice.
+    w.files[`${CHATS}/units.json`] = chatText({ ...(fileOf(w) as ChatFile), cleared: { at: 10, step: 'B12', log: LOG } })
+    w.byAction['turn-ended'] = { status: 503, text: 'The board restarts: try again in a moment.' }
+    await $.turn.complete({ ...ENDED, answer: 'ok', turnId: 't1', reason: 'aborted' } as never)
+    w.takeAnswers.push({ status: 200, text: JSON.stringify({ messages: [], clear: { step: 'B12', reportedAt: 5 } }) })
+    await clock.advance(5000)
+    await settle()
+    expect(w.sequence.includes('save-log')).toBe(false)
+    expect(w.commanded).toEqual([])
+  })
+
   test('not cleared when more of the same work follows and it may not be cleared: then not compacted either, as before', async ($, on) => {
     mock.clock(on)
     const w = await worker($, on)

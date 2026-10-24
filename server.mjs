@@ -1308,7 +1308,7 @@ async function main(args) {
   }
   /** How many things a chat's session started in the background still run, by its transcript's tail; 0 when unread. */
   const backgroundOf = async session => {
-    const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)).catch(() => null) : null
+    const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
     return tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut))
   }
   /**
