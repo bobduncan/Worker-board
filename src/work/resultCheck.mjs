@@ -3,7 +3,7 @@
 // (the evidence picture, every agreed point pass, fail or ask, the score). It reads only the step's own points and its
 // standard; nothing of the project's work is named here.
 
-import { valueOf } from './item.mjs'
+import { sinceMs, valueOf } from './item.mjs'
 import { standardOf } from './standard.mjs'
 
 const VERDICTS = ['pass', 'fail', 'ask']
@@ -64,6 +64,24 @@ const lastResult = item => sinceReport(item).filter(one => RESULT.test(one)).at(
 export function resultCheckOf(item) {
   const last = lastResult(item)
   return last === undefined ? null : last.startsWith('result check passed') ? 'passed' : last.startsWith('result check failed') ? 'failed' : 'waits'
+}
+
+/** When the step's last result check line was written (ms), or NaN: the History line's own minute. */
+export function resultCheckAtMs(item) {
+  const line = historyOf(item).filter(one => RESULT.test(wordsOf(one))).at(-1)
+  return line === undefined ? Number.NaN : sinceMs(line.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/)?.[1])
+}
+
+/**
+ * B449: how the person's answer to a check's ask point reads: 'yes' (Approved, Done, yes, keep it ...), 'no' (Rejected,
+ * no, redo ...), or null when the board cannot tell: their own words, or a yes with a "but" in it. `text` is the
+ * answer's lines as the store keeps them ("Approved. words", or the words alone).
+ */
+export function answerReading(text) {
+  const words = String(Array.isArray(text) ? text.join(' ') : text ?? '').trim()
+  if (/^(?:rejected|reject|no|nope|redo|not good)\b/i.test(words)) return 'no'
+  if (/^(?:approved|done|yes|yep|ok|okay|keep(?: it)?|accepted|accept|agreed|good|fine)\b/i.test(words)) return /\b(?:but|however|except|although)\b/i.test(words) ? null : 'yes'
+  return null
 }
 
 /** Whether the board's own check (git) passed last: its History's last "check passed", "failed" or "pending". */

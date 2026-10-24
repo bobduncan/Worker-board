@@ -633,8 +633,12 @@ from design B and still passed, the same minute the user answered "they dont loo
 Every point passes: the board closes the step. A failed point: the board makes the fix step itself ("Fix: <the failed
 points>", refined from them, queued for the same worker, the step's `Attempts` counted up), and the step waits in
 review until its fix is done and checked; check a fix as any step. A point that is the user's to judge: ask them under
-the step (`work ask`, kind look, the evidence picture, your advice); once they answered, file `checked` again with that
-point pass, or fail (then the fix comes). Art below its target goes back to its worker for another try (the user,
+the step (`work ask`, kind look, the evidence picture, your advice); once they answered, the board files `checked`
+again by itself (B449): every answer a yes (Approved, Done, yes, keep it) makes the ask points pass and closes the step, a
+no (Rejected, no) fails them with their words and makes the fix. Words it cannot read as yes or no, or fewer answers than
+ask points, wake you with `check B<id>: Q<n> answered` and their words: file `checked` again yourself, that point pass, or
+fail (then the fix comes). A step left in review 30 minutes with no check filed wakes you with `check step B<id>`, again
+every 30 minutes: check it then. Art below its target goes back to its worker for another try (the user,
 Q128, 2026-10-18), until the attempts stall; only then is it the user's call, with the gap named. Say nothing in your
 chat about a check; your card's line while you work: "Check B<id>".
 

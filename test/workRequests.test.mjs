@@ -144,7 +144,7 @@ test('the store is read once per work call; the reads are not kept by request', 
   assert.ok(!ctx.includes('readStore('))
   assert.ok(isReadAction('next') && isReadAction('pause-state') && !isReadAction('report'))
   // The bridge keeps changes by their request id, and reads go straight through.
-  const bridge = server.slice(server.indexOf('    bridgeWork: async body => {'), server.indexOf('    take: async body => {'))
+  const bridge = server.slice(server.indexOf('    bridgeWork: counted(async body => {'), server.indexOf('    take: counted(async body => {'))
   assert.ok(bridge.includes('if (isReadAction(asked.action)) return bridgeWorkOnce(asked, checked)'))
   assert.ok(bridge.includes('requests.answer(session, request, () => bridgeWorkOnce(asked, checked))'))
   // A repeat finds its kept answer before the chat is looked up: right after a restart the board may not show it yet.
