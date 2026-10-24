@@ -19,7 +19,7 @@ const PICTURE_BYTES = 12 * 1024 * 1024
  */
 export const shownRoots = config => [...(config.pictureRoots ?? []), ...(config.kinds ?? []).map(one => one.reference)]
 
-/** The shown folders as a chat is told them: each once, and none that lies inside another (art-inbox holds art-inbox/vision). */
+/** The shown folders as a chat is told them: each once, and none that lies inside another (a picture folder holds its kinds' folders). */
 export function shownFolders(config) {
   const roots = [...new Set(shownRoots(config))]
   return roots.filter(root => !roots.some(other => other !== root && root.startsWith(`${other}/`)))

@@ -607,7 +607,10 @@ async function ask(body, w) {
       if (problem === 'outside') {
         const subject = String((isAlone ? goal : valueOf(of.item, 'Id')) ?? 'asks').toLowerCase()
         const name = path.replace(/\\/g, '/').split('/').pop()
-        return refuse(400, `The board cannot show ${path}: it shows pictures only from ${(w.shownFolders ?? ['art-inbox']).join(', ')} in the project's folder. Copy it there, for example to art-inbox/${subject}/${name}, and ask again with that path.`)
+        // The first shown folder is the settings' own picture folder (pictureRoots), the place for a step's pictures.
+        const folders = w.shownFolders ?? []
+        const example = folders.length === 0 ? '' : `, for example to ${folders[0]}/${subject}/${name}`
+        return refuse(400, `The board cannot show ${path}: it shows pictures only from ${folders.length === 0 ? 'the settings\' picture folders' : folders.join(', ')} in the project's folder. Copy it there${example}, and ask again with that path.`)
       }
     }
   }
