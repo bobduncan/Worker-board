@@ -48,6 +48,25 @@ export function technicalWords(text) {
   return { files: found(text, [FILE, PATH]), code: found(text, CODE), hashes: found(text, [HASH]) }
 }
 
+const ITEM_ID = /\b[BGINQX]\d+\b/g
+const PLACEHOLDER = /<[^<>\n]{1,40}>/g
+/**
+ * B591: the words of `text` only someone who followed the work knows: the board's item ids (B12, Q3, G15, X7, I92,
+ * N700) and placeholders ("<n>", "<free worker>"). The agreed card (Q352) has none: it is read by someone who forgot.
+ */
+export function insiderWords(text) {
+  return { ids: found(text, [ITEM_ID]), placeholders: found(text, [PLACEHOLDER]) }
+}
+
+/** Why the words of one part of a card are not plain (B569, B591), each fault one line; none when they read well. */
+export function plainFaults(name, words) {
+  const { files, code, hashes } = technicalWords(words)
+  const { ids, placeholders } = insiderWords(words)
+  const list = (what, all) => (all.length > 0 ? `${what} (${all.slice(0, 3).join(', ')})` : '')
+  const named = [list('file names', files), list('code words', code), list('commit hashes', hashes), list('ids', ids), list('placeholders', placeholders)].filter(Boolean)
+  return named.length === 0 ? [] : [`the ${name} holds ${named.join(', ')}: say it in plain words, for someone who forgot, and put those after "Details:"`]
+}
+
 /** Why a report's words are refused for the recap card (B569), each fault one line; none when they read well. */
 export function partsFaults(result) {
   const { context, change } = reportParts(result)
@@ -56,9 +75,7 @@ export function partsFaults(result) {
   if (change === '') faults.push(`the result names no Change: after the Context, "Change: <what the person gets now>", then "Details:" and the rest`)
   for (const [name, words, most] of [['Context', context, CONTEXT_CHARS], ['Change', change, CHANGE_CHARS]]) {
     if (words.length > most) faults.push(`the ${name} is ${words.length} characters: at most ${most}, the rest goes after "Details:"`)
-    const { files, code, hashes } = technicalWords(words)
-    const named = [files.length > 0 ? `file names (${files.slice(0, 3).join(', ')})` : '', code.length > 0 ? `code words (${code.slice(0, 3).join(', ')})` : '', hashes.length > 0 ? `commit hashes (${hashes.slice(0, 3).join(', ')})` : ''].filter(Boolean)
-    if (named.length > 0) faults.push(`the ${name} holds ${named.join(', ')}: say it in plain words, and put those after "Details:"`)
+    faults.push(...plainFaults(name, words))
   }
   return faults
 }
@@ -68,8 +85,12 @@ const REPORTED = /^Reported (?:again )?by .+? on \d{4}-\d\d-\d\d at \d\d:\d\d: (
 export const lastResultOf = step => (step?.sections?.get('Context') ?? []).map(one => one.trim().match(REPORTED)).filter(Boolean).at(-1)?.[1] ?? ''
 
 /** Words that belong to the check, not to the person: a sentence with one of these is left out of a card. */
-const FOR_THE_CHECK = /\b(?:tests?|gate|merged|typecheck|build|commit|worktree|branch|mutant|refactor|regex|function|endpoint)\b/i
-const isPlain = sentence => !FOR_THE_CHECK.test(sentence) && Object.values(technicalWords(sentence)).every(list => list.length === 0)
+const FOR_THE_CHECK = /\b(?:tests?|suite|gate|merged|typecheck|build|commit|worktree|branch|mutant|refactor|regex|function|endpoint)\b/i
+/** B591: a time of day or a measured wait ("23:24", "3 h 43 min", "24-38 min") tells of one case, not of the change. */
+const MEASURED = /\b\d{1,2}:\d\d\b|\b\d+(?:-\d+)?\s*(?:h|min)\b/
+/** B591: a sentence cut from an old report can keep half a quote ('... outside git" failed.'). */
+const halfQuoted = sentence => (sentence.match(/"/g) ?? []).length % 2 === 1
+const isPlain = sentence => !FOR_THE_CHECK.test(sentence) && !MEASURED.test(sentence) && !halfQuoted(sentence) && plainFaults('', sentence).length === 0
 
 /**
  * Plain sentences of `text`, at most `most` characters: asides in brackets and the "I92 (the person, ...):" lead left

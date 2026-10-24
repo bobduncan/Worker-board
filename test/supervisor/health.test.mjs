@@ -196,16 +196,32 @@ test('B563 (X19): a step in review that waits for the person\'s answer or for it
 
 test('B563: a step in review that waits for its check past reviewMinutes is odd; within it, quiet; it names the check it waits for', () => {
   const first = healthSummary(x19Board([inReview('B540', 75, [], { Owner: 'Worker 2' })]), NOW)
-  assert.equal(lineOfStep(first, 'B540'), '- ! B540 review for 1 h 15 min, Worker 2 (waits for its first check): Step B540 of the garden')
+  assert.equal(lineOfStep(first, 'B540'), '- ! B540 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 09:45, no check word yet): Step B540 of the garden')
   // The same wait under a longer reviewMinutes is no "!".
-  assert.equal(lineOfStep(healthSummary(x19Board([inReview('B540', 75, [], { Owner: 'Worker 2' })], { reviewMinutes: 90 }), NOW), 'B540'), '- B540 review for 1 h 15 min, Worker 2 (waits for its first check): Step B540 of the garden')
+  assert.equal(lineOfStep(healthSummary(x19Board([inReview('B540', 75, [], { Owner: 'Worker 2' })], { reviewMinutes: 90 }), NOW), 'B540'), '- B540 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 09:45, no check word yet): Step B540 of the garden')
   // The ask answered: it waits for its check again, counted from that check, not from its review.
   const again = healthSummary(buildView({
     state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2')], chatPrefix: '' },
     items: items(inReview('B510', 200, [`- ${stamp(ago(30))} Checker: result check waits for you: 2 of 3 points pass`], { Owner: 'Worker 2' }), askOf('Q339', 'B510', 'answered')),
     now: NOW,
   }), NOW)
-  assert.equal(lineOfStep(again, 'B510'), '- B510 review for 3 h 20 min, Worker 2 (waits for its check again): Step B510 of the garden')
+  assert.equal(lineOfStep(again, 'B510'), '- B510 review for 3 h 20 min, Worker 2 (waits for its check again, check asked 10:30, no check word yet): Step B510 of the garden')
+})
+
+test('B585 (X33): a first check counts from the board check that asked it, and the line names the check word and its state', () => {
+  // B522: in review since 21:41 (here 75 min ago), its board check passed at 22:04 (52 min ago), the word to the partner delivered.
+  const b522 = step('B522', 'review', { Owner: 'Worker 2', Since: stamp(ago(75)) }, {
+    'What we build': ['- a lamp at every bench'],
+    History: [`- ${stamp(ago(75))} Worker 2: in progress → review`, `- ${stamp(ago(74))} server: check failed: no tests bite`, `- ${stamp(ago(53))} Worker 2: reported again`, checkPassed(52)],
+  })
+  const board = outbox => buildView({
+    state: { chats: [lane('Lead', { isMain: true }), lane('Worker 2')], chatPrefix: '' },
+    items: items(b522), outbox, now: NOW,
+  })
+  const word = { id: 'w9', command: 'result-check', about: 'B522', to: 'Partner', at: ago(52), state: 'delivered' }
+  assert.equal(lineOfStep(healthSummary(board([word]), NOW), 'B522'), '- B522 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 10:08, word to Partner (delivered)): Step B522 of the garden')
+  // A word from before the check was asked is not its word.
+  assert.equal(lineOfStep(healthSummary(board([{ ...word, at: ago(70) }]), NOW), 'B522'), '- B522 review for 1 h 15 min, Worker 2 (waits for its first check, check asked 10:08, no check word yet): Step B522 of the garden')
 })
 
 test('B563: a step in review whose fix was dropped is odd; so is one whose open fix is odd itself', () => {

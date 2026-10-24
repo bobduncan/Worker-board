@@ -466,10 +466,8 @@ function reviewStuck(view, ctx) {
       })
       continue
     }
-    // The check words the partner was sent about it (the board's ask for its check, the repair's wakes).
-    const words = view.outbox.filter(message => message?.about === id && Number.isFinite(message.at) && message.at >= wait.since
-      && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked ')))
-    const last = words.reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+    const words = checkWordsOf(view, id, wait.since)
+    const last = words.at(-1) ?? null
     found.push({
       rule: 'review-stuck', key, subject: id,
       text: `${id} in review ${minutes(ms)} min with no result check filed (${wait.text})`,
@@ -477,6 +475,16 @@ function reviewStuck(view, ctx) {
     })
   }
   return found
+}
+
+/**
+ * The check words the partner was sent about the step `id` from `since` on (the board's ask for its check, the repair
+ * `unchecked`'s wakes), oldest first: for the rule review-stuck and the health summary's review line (B585).
+ */
+export function checkWordsOf(view, id, since) {
+  return (view.outbox ?? []).filter(message => message?.about === id && Number.isFinite(message.at) && message.at >= since
+    && (message.command === 'result-check' || String(message.syncKey ?? '').startsWith('unchecked ')))
+    .sort((a, b) => a.at - b.at)
 }
 
 /** A span in words: "45 min", "2 h 10 min". */
@@ -632,6 +640,41 @@ function notCleared(view, ctx) {
   return found
 }
 
+/**
+ * B587 (X36: Worker 2's chat restarted for a new mod at 22:45 did not run, and B584 waited for it 10 min until the
+ * board's start went): a free worker whose chat does not run while its next queued step waits, for longer than 15
+ * minutes with no `start` of it on its way to the main chat. One finding per step (its key), about the step.
+ */
+const QUEUED_NOT_RUNNING_MS = 15 * MIN
+function queuedNotRunning(view, ctx) {
+  const found = []
+  if (isPaused(view) || isFull(view)) return found
+  const ctxStore = { store: { items: view.items } }
+  for (const lane of workersOf(view).filter(one => one.state === 'free' && one.isRunning === false)) {
+    const mine = stepsOf(view).filter(item => stateOf(item) === 'queued' && plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix)
+      && blockersOpen(item, ctxStore).length === 0 && waitWords(item) === null)
+    if (mine.length === 0) continue
+    // Its next step: the first of its queue as the board shows it, else the store's oldest.
+    const order = (lane.queue ?? []).map(one => one?.id)
+    const next = [...mine].sort((a, b) => (order.indexOf(idOf(a)) + 1 || Infinity) - (order.indexOf(idOf(b)) + 1 || Infinity) || byId(idOf(a), idOf(b)))[0]
+    const isStarting = view.outbox.some(message => message?.command === 'start' && plain(message.about, view.prefix) === plain(lane.name, view.prefix) && ['waiting', 'taken'].includes(message.state))
+    if (isStarting) continue
+    const id = idOf(next)
+    const queuedAt = sinceMs(valueOf(next, 'Since'))
+    const freeSince = view.since.get(lane.name)
+    const since = Math.max(...[queuedAt, freeSince].filter(Number.isFinite))
+    const key = `queued-not-running ${id}`
+    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(since) ? since : null))
+    if (ms <= QUEUED_NOT_RUNNING_MS) continue
+    found.push({
+      rule: 'queued-not-running', key, subject: id,
+      text: `${id} queued for ${lane.name} for ${minutes(ms)} min, but its chat does not run and no start of it is on its way`,
+      evidence: `${lane.name}: free, running no, since ${clockOf(view.now - ms)}; queued for it: ${mine.map(idOf).sort(byId).join(', ')}; start words of it on their way: none`,
+    })
+  }
+  return found
+}
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
   { id: 'unknown-lane', kind: 'watch', says: 'a worker "unknown" for too long', check: unknownLane },
@@ -650,4 +693,5 @@ export const WATCH_RULES = [
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
+  { id: 'queued-not-running', kind: 'watch', says: 'a step queued for a free worker whose chat does not run, with no start on its way', check: queuedNotRunning },
 ]

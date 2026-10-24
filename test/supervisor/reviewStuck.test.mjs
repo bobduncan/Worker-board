@@ -109,6 +109,24 @@ test('review-stuck: a step with no result check for over an hour is stuck, one u
   assert.deepEqual(watch(view(items(reviewed('B7', 75)), { pause: { state: 'pausing', since: stamp(ago(10)) } })), [])
 })
 
+test('B585 (X33): a first check counts from the board check that asked it, not from the move to review', () => {
+  // B522: to review at 21:41 (75 min ago), its board check failed and passed at 22:04 (52 min ago), after its report again.
+  const b522 = (review, asked) => item(
+    { Id: 'B522', Kind: 'step', Title: 'Step B522', State: 'review', Owner: 'Painter', Since: stamp(ago(review)) },
+    { 'What we build': ['- a lamp at every bench'], History: [`- ${stamp(ago(review))} Painter: in progress → review`, `- ${stamp(ago(review - 1))} server: check failed: no tests bite`, `- ${stamp(ago(asked + 1))} Painter: reported again`, passed(asked)] },
+  )
+  assert.deepEqual(reviewWaitOf(b522(75, 52), items()), { kind: 'check', fix: null, since: ago(52), text: 'waits for its first check' })
+  // Under the review minutes from the check word: no finding, though over an hour in review.
+  assert.deepEqual(watch(view(items(b522(75, 52)), { outbox: [{ command: 'result-check', about: 'B522', to: 'Partner', at: ago(52), state: 'delivered' }] })), [])
+  // Past them from the check word: still one.
+  const late = watch(view(items(b522(100, 65))))
+  assert.deepEqual(late.map(one => [one.key, one.text]), [['review-stuck B522 check', 'B522 in review 65 min with no result check filed (waits for its first check)']])
+  // The repair's wake counts from it too: under 30 minutes from the check word, no wake.
+  const wakes = minutes => findStuck({ items: items(b522(75, minutes)), lanes: [LEAD], partner: PARTNER, now: NOW }).filter(one => one.check === 'unchecked')
+  assert.deepEqual(wakes(20), [])
+  assert.equal(wakes(35).length, 1)
+})
+
 test('review-stuck: a step whose fix was dropped is stuck; one waiting for an open fix or for the person\'s answer is not', () => {
   const dropped = items(reviewed('B472', 4000, [failed(1200, 'B485')]), fixStep('B485', 'B472', 'dropped', 450))
   const found = watch(view(dropped))

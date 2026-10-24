@@ -8,7 +8,7 @@
 
 import { sinceMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
-import { headingOf, isBeforeAfter, recapParts } from './recapWords.mjs'
+import { CHANGE_CHARS, CONTEXT_CHARS, checkedCount, headingOf, isBeforeAfter, plainFaults, recapParts } from './recapWords.mjs'
 
 export const RECAP_WINDOW_MS = 24 * 60 * 60 * 1000
 /**
@@ -33,7 +33,8 @@ const textOf = item => (item.sections.get('Text') ?? []).filter(one => one.trim(
  */
 function cardOf(item, title, about, items) {
   const heading = headingOf(title, about)
-  const evidence = valueOf(item, 'Evidence') ?? 'none'
+  // B591: only a Before | After picture shows, also on a recap made since B569 from a check with a points picture.
+  const evidence = isBeforeAfter(valueOf(item, 'Evidence')) ? valueOf(item, 'Evidence') : 'none'
   const said = name => (item.sections.get(name) ?? []).join(' ').trim()
   if (item.sections.has('Points pass')) {
     const checked = said('Points pass')
@@ -43,7 +44,7 @@ function cardOf(item, title, about, items) {
   const old = step === undefined || valueOf(step, 'Kind') !== 'step' ? { context: '', change: '', checked: null } : recapParts(step)
   // An old goal's recap: its count stands in its line ("..., 5 of 6 points pass").
   const counted = textOf(item).join(' ').match(/\b(\d+) of (\d+) points pass\b/)
-  return { heading, ...old, checked: old.checked ?? (counted === null ? null : `${counted[1]} of ${counted[2]}`), evidence: isBeforeAfter(evidence) ? evidence : 'none' }
+  return { heading, ...old, checked: old.checked ?? (counted === null ? null : `${counted[1]} of ${counted[2]}`), evidence }
 }
 
 /**
@@ -68,6 +69,36 @@ export function recapsOf(work, now) {
     }
   }).filter(one => !one.isClosed || (one.at !== null && now - one.at < CLOSED_SHOWN_MS))
     .sort((a, b) => Number(a.isClosed) - Number(b.isClosed) || (b.at ?? 0) - (a.at ?? 0) || b.workId.localeCompare(a.workId, 'en', { numeric: true }))
+}
+
+/**
+ * B591: a recap with its card words written anew (tools/recap-words.mjs), for a card whose words were cut from an old
+ * report: `context`, `change` and, when the step's title reads as jargon, a plain `title`. The words must read as a
+ * worker's report must (plain, no ids, within the limits); its `Points pass` stays, or comes from its step. Returns
+ * `{ ok, item }` or `{ ok: false, why }`.
+ */
+export function rewriteRecap(note, { title = null, context, change }, step) {
+  if (!isRecap(note)) return { ok: false, why: `${valueOf(note, 'Id')} is no recap` }
+  const faults = [
+    ...[['Context', context, CONTEXT_CHARS], ['Change', change, CHANGE_CHARS]].flatMap(([name, words, most]) => [
+      ...(typeof words !== 'string' || words.trim() === '' ? [`no ${name}`] : []),
+      ...(String(words ?? '').length > most ? [`the ${name} is over ${most} characters`] : []),
+      ...plainFaults(name, String(words ?? '')),
+    ]),
+    ...(title === null ? [] : plainFaults('title', String(title))),
+  ]
+  if (faults.length > 0) return { ok: false, why: `${valueOf(note, 'Id')}: ${faults.join('; ')}` }
+  const about = (note.sections.get('About') ?? [])[0] ?? ''
+  const [first = '', ...rest] = textOf(note)
+  const heading = title === null ? first : `${about} ${title.trim()} is done`
+  const counted = rest.join(' ').match(/\b(\d+) of (\d+) points pass\b/)
+  const checked = (note.sections.get('Points pass') ?? [])[0] ?? (step === undefined ? null : checkedCount(step)) ?? (counted === null ? null : `${counted[1]} of ${counted[2]}`) ?? 'none'
+  const text = [heading, change.trim()]
+  const sections = new Map([['Text', text], ['Context', [context.trim()]], ['Change', [change.trim()]], ['Points pass', [checked]]])
+  for (const [name, lines] of note.sections) if (!sections.has(name)) sections.set(name, lines)
+  const head = new Map(note.head)
+  head.set('Text', text.join(': ').slice(0, 300))
+  return { ok: true, item: { ...note, head, sections } }
 }
 
 const STAMP = /^- (\d{4}-\d\d-\d\d \d\d:\d\d)/
