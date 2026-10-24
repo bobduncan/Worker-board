@@ -33,7 +33,9 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - A worker with a step taken or in progress works on it, or waits for the person on an ask, or is suspended for the
   limit until its reset; it is not "unknown", "off" or idle for long while it holds the step.
 - A worker that works has a step (its card names one); one that works for long with none is odd.
-- A step in progress gets a checkpoint or a commit now and then; hours with neither is odd.
+- A step in progress gets a checkpoint or a commit now and then; hours with neither is odd. The health summary shows
+  each one's last checkpoint, and the rule stale-checkpoint names one quiet for 2 h, or one whose checkpoint said to
+  report over 30 min ago.
 - A step moves forward: queued, taken, in progress, review, done. One that goes back and forth (queued again, taken
   again, its check failing again) is odd.
 - Steps queued for free workers are taken within minutes; one worker with many queued steps while others are idle is

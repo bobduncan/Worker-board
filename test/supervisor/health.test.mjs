@@ -313,7 +313,7 @@ test('the summary holds every section: the chats with state, since, model and ef
   assert.match(line('Lead'), /Lead \(main\): working/)
   assert.match(line('Partner'), /Partner \(partner\): free/)
   // The steps under way with state, age and owner; an old one in progress is odd; new and refined only counted.
-  assert.match(text, /- ! B12 in progress for 3 h 20 min, Digger: Step B12 of the garden/)
+  assert.match(text, /- ! B12 in progress for 3 h 20 min, Digger \[no checkpoint\]: Step B12 of the garden/)
   assert.match(text, /- ! B13 taken for 40 min, Weeder/)
   assert.match(text, /- backlog, not queued: 1 new, 1 refined/)
   assert.ok(!text.includes('B9 '), 'a done step is no step under way')

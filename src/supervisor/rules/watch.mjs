@@ -14,7 +14,7 @@
 
 import { sinceMs, valueOf } from '../../work/item.mjs'
 import { blockersOpen, waitWords } from '../../work/guards.mjs'
-import { heldMs, isHolding } from '../../work/pause.mjs'
+import { checkpointOf, heldMs, isHolding } from '../../work/pause.mjs'
 import { stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
@@ -453,8 +453,70 @@ function reviewStuck(view, ctx) {
   return found
 }
 
+/** A span in words: "45 min", "2 h 10 min". */
+const lasting = ms => (ms < HOUR ? `${minutes(ms)} min` : `${Math.floor(ms / HOUR)} h${minutes(ms % HOUR) > 0 ? ` ${minutes(ms % HOUR)} min` : ''}`)
+/** A checkpoint's next action that is the report itself ("report B522", "work report B7 ..."). */
+const REPORT_NEXT = /^\s*(?:work\s+)?report\b/i
+
 /**
- * 13. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
+ * B572 (the fix of X24: B522 sat in progress 2 h 36 min, its last checkpoint "report B522" of 19:07 never followed by a
+ * report): whether a step in progress has a stale checkpoint, as the rule stale-checkpoint and the health summary read it.
+ * 'report': its last checkpoint's next action is to report, written over `reportMinutes` ago; 'old': in progress over
+ * `checkpointMinutes` with no checkpoint within them (`checkpoint` null: none at all). Times count from the end of the
+ * person's last pause at the earliest, less the time its worker stood suspended for the limit (the review: it cannot
+ * write a checkpoint meanwhile). A checkpoint from before the step's current stretch in progress (it waited on you
+ * since) counts as none: the stretch counts from its start. Null when it is not late, not in progress, the person
+ * pauses, a limit is full, or its worker is paused for the limit now (it stands still on purpose). `{ kind, step,
+ * checkpoint, quiet }`: `step` how long it has been in progress, `quiet` how long since its last checkpoint (or since
+ * the stretch began, without one).
+ */
+export function checkpointLate(item, view) {
+  if (stateOf(item) !== 'in progress' || isPaused(view) || isFull(view)) return null
+  const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
+  if (owner?.state === 'suspended') return null
+  const began = sinceMs(valueOf(item, 'Since'))
+  if (!Number.isFinite(began)) return null
+  const checkpoint = checkpointOf(item)
+  const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
+  const counted = from => view.now - afterPause(view, from) - (owner === undefined ? 0 : suspendedMs(view, owner.name, afterPause(view, from)))
+  const quiet = counted(written ?? began)
+  const late = { step: view.now - began, checkpoint, quiet }
+  if (written !== null && REPORT_NEXT.test(checkpoint.next) && quiet > view.settings.reportMinutes * MIN) return { kind: 'report', ...late }
+  return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+}
+
+/** B572: how long the chat stood suspended for the limit between `from` and now, by its timeline's spans. */
+function suspendedMs(view, name, from) {
+  const spans = view.timeline.find(one => plain(one.chat, view.prefix) === plain(name, view.prefix))?.spans ?? []
+  return spans.filter(span => span.state === 'suspended')
+    .reduce((sum, span) => sum + Math.max(0, Math.min(span.to ?? view.now, view.now) - Math.max(span.from, from)), 0)
+}
+
+/**
+ * 13. B572: a step in progress with a stale checkpoint (checkpointLate): one finding for the main chat per step and
+ * checkpoint, so a lasting one counts up as one incident and a newer stale checkpoint is a case of its own.
+ */
+function staleCheckpoint(view) {
+  const found = []
+  for (const item of stepsOf(view).sort((a, b) => byId(idOf(a), idOf(b)))) {
+    const late = checkpointLate(item, view)
+    if (late === null) continue
+    const id = idOf(item)
+    const { checkpoint } = late
+    const who = `${id} in progress for ${lasting(late.step)} (${valueOf(item, 'Owner') ?? 'nobody'})`
+    const text = late.kind === 'report' ? `${who}; its last checkpoint, "${checkpoint.next}" at ${clockOf(checkpoint.at)}, was never followed by a report`
+      : checkpoint === null ? `${who} with no checkpoint` : `${who} with no checkpoint for ${lasting(late.quiet)}`
+    found.push({
+      rule: 'stale-checkpoint', key: `stale-checkpoint ${id} ${checkpoint?.line ?? 'none'}`, subject: id, text,
+      evidence: `in progress since ${clockOf(sinceMs(valueOf(item, 'Since')))}; ${checkpoint === null ? 'no checkpoint in its record'
+        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}`,
+    })
+  }
+  return found
+}
+
+/**
+ * 14. B547 (the rules X13 and X14 wanted): a worker whose last report is newer than its last clear (state.mjs `clearOwed`,
  * src/clearOwed.mjs) and that took a new step since, on the old conversation; or that stays so for longer than
  * `notClearedMinutes` (a log refused while its background work runs, a mod that left no word). One finding per worker
  * per report, with the Workers mod's why when it logged one, and the repair: the board holds its next step and names the
@@ -500,5 +562,6 @@ export const WATCH_RULES = [
   { id: 'old-mod', kind: 'watch', says: 'a chat on an older Workers mod than the one installed', check: oldMod },
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long, or whose fix was dropped', check: reviewStuck },
+  { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress with no checkpoint for hours, or whose checkpoint said to report long ago', check: staleCheckpoint },
   { id: 'not-cleared', kind: 'watch', says: 'a worker not cleared after its reported step', check: notCleared },
 ]
