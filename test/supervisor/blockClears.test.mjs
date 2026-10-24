@@ -162,8 +162,9 @@ test('the health summary: a step shows only what still holds it, and a word of a
       step('B2', 'queued', { Owner: 'Painter', 'Blocked by': 'B9 and B6' }),
     ),
     outbox: [
-      { id: 'r1', at: new Date(2026, 9, 15, 18, 13).getTime(), to: 'Partner', command: 'round', state: 'waiting' },
-      { id: 'r2', at: ago(20), to: 'Partner', command: 'round', state: 'waiting' },
+      // B571: two rounds apart (a newer word of the same round would supersede the older, and the sweep drops it).
+      { id: 'r1', at: new Date(2026, 9, 15, 18, 13).getTime(), to: 'Partner', command: 'round', text: 'weekly', state: 'waiting' },
+      { id: 'r2', at: ago(20), to: 'Partner', command: 'round', text: 'daily', state: 'waiting' },
     ],
     now: NOW,
   })

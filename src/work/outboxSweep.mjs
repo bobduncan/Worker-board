@@ -3,6 +3,9 @@
 // matters, `expired` for one that waited longer than it is kept), so nothing waits for ever in silence and the page
 // says what became of it. A person's answer (an ask set) is never closed here: it waits for its chat however old (B548),
 // also one that is off on purpose. A word the chat took and could not type is retried (store.mjs retryFailed) before the judging.
+// B571: a word that failed and is not tried again (it failed before B532 kept its time, its tries ran out, the mod
+// refused it) is judged too: once its purpose is gone it is closed `dropped` with its why, so the health summary and
+// rule 8 stop naming it; one that still matters stays failed, for the person to see.
 
 import { shownChats } from '../bridge.mjs'
 import { waitsLong } from '../say.mjs'
@@ -37,6 +40,14 @@ export function whyClosed(message, ctx) {
   const { all, items, now, keep } = ctx
   // A word that is stale in minutes (a pause's resume, a line typed in a talk) is only closed once it is late.
   if (!waitsLong(message.command)) return isLate(message, now, keep) ? expired(message, keep) : null
+  // B571: the goal guard's word: not needed once the goal is done or was evaluated after the word was sent (B359),
+  // named by the first evaluation after it ("G15 was evaluated (2026-10-24 16:06)"), before any newer word of its kind.
+  if (message.command === 'evaluate') {
+    const goal = (ctx.goals ?? []).find(one => one.id === message.about)
+    const after = [...(goal?.evaluatedAt ?? [])].sort().find(at => at >= stamp(message.at)) ?? null
+    if (goal?.state === 'done') return { state: 'dropped', why: `${message.about} is done` }
+    if (after !== null) return { state: 'dropped', why: `${message.about} was evaluated (${after})` }
+  }
   const newer = all.find(one => one.id !== message.id && one.at > message.at && isStanding(one) && kindOf(one) === kindOf(message))
   if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word of the same kind (${stamp(newer.at)})` }
   const item = items?.get(message.about)
@@ -47,12 +58,6 @@ export function whyClosed(message, ctx) {
     if (!holds) return { state: 'dropped', why: item === undefined ? 'the step is gone' : `the step is ${state} now, not new` }
   } else if (items !== null && message.command === 'result-check') {
     if (state !== 'review') return { state: 'dropped', why: item === undefined ? 'the step is gone' : `the step is ${state} now, not in review` }
-  } else if (message.command === 'evaluate') {
-    // B359: the goal guard's word: not needed once the goal is done or its evaluation ended after the word was sent.
-    const goal = (ctx.goals ?? []).find(one => one.id === message.about)
-    const ended = [...(goal?.evaluatedAt ?? [])].sort().at(-1) ?? ''
-    if (goal?.state === 'done') return { state: 'dropped', why: `${message.about} is done` }
-    if (ended !== '' && ended >= stamp(message.at)) return { state: 'dropped', why: `${message.about} was evaluated (${ended})` }
   } else if (message.command === 'start') {
     // The main chat's word to open a closed chat: not needed once that chat runs, nor when nothing waits for it any more.
     if (ctx.runs.get(message.about) === true) return { state: 'dropped', why: `${message.about} runs now` }
@@ -65,6 +70,9 @@ export function whyClosed(message, ctx) {
   }
   return isLate(message, now, keep) ? expired(message, keep) : null
 }
+
+/** B571: a word that failed and is not tried again: no newer word stands for it. */
+export const isFailedForGood = message => message?.state === 'failed' && message.retriedAs === undefined
 
 const expired = (message, keep) => ({ state: 'expired', why: `waited longer than ${span(keepMs(message, keep))}` })
 
@@ -79,7 +87,9 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   if (!dry) await outbox.retryFailed(now, keep)
   // B577: at a refresh, the words that failed for a chat's old session go to the session the board shows under its name now.
   if (!dry && to === null && typeof outbox.revive === 'function') await outbox.revive(sessionsOf(state), now, keep)
-  const waiting = outbox.outbox().filter(message => message.state === 'waiting' && (to === null || message.to === to))
+  // B571: with the failed words that are not tried again, judged as the waiting ones; only a word whose purpose is gone
+  // is closed among those (an old failed word is not "expired": it never waited).
+  const waiting = outbox.outbox().filter(message => (message.state === 'waiting' || isFailedForGood(message)) && (to === null || message.to === to))
   if (waiting.length === 0) return []
   const items = (dir ?? null) === null ? null : (await readStore(dir, fs)).items
   const runs = new Map((state?.chats ?? []).filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
@@ -90,7 +100,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
     const closed = whyClosed(message, ctx)
-    if (closed !== null) closing.set(message.id, { id: message.id, ...closed })
+    if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
   if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now)
   return [...closing.values()]

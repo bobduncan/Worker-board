@@ -8,8 +8,9 @@
 import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { checkpointOf, isHolding } from '../work/pause.mjs'
+import { isFailedForGood } from '../work/outboxSweep.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
-import { checkpointLate } from './rules/watch.mjs'
+import { checkpointLate, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -273,11 +274,17 @@ function dayLines(view, now) {
 
 /** The words to a chat that wait, or expired or failed in the last day. */
 function wordLines(view, now) {
+  // B571: one judgement with rule 8 (watch.mjs undeliveredWords): a word the outbox sweep would drop is not listed, nor
+  // a failed one tried again (the word that stands for it is), and a line is marked "!" only when rule 8 names its word.
+  const at = { ...view, now }
+  const matters = wordMatters(at)
+  const named = new Set(undeliveredWords(at).map(message => message.id))
   // The review: not the supervisor's own sweep words (a sweep word that waits would make every summary look new).
   return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep')
-    .filter(message => message.state === 'waiting' || message.state === 'held' || ((message.state === 'expired' || message.state === 'failed') && now - message.at < DAY))
+    .filter(message => message.state === 'waiting' || message.state === 'held' || ((message.state === 'expired' || isFailedForGood(message)) && now - message.at < DAY))
+    .filter(message => message.state === 'held' || matters(message))
     .map(message => lineOf(`${dayClockOf(message.at, now)} ${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''} to ${message.to}: ${message.state} for ${lasting(now - message.at)}`,
-      { tier: 1, odd: message.state !== 'held' && now - message.at > (view.settings.undeliveredMinutes ?? 10) * MIN, at: message.at }))
+      { tier: 1, odd: named.has(message.id), at: message.at }))
 }
 
 /** The limits of the plan and the person's pause. */

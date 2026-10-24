@@ -23,6 +23,8 @@ sometimes with `(about <chat>)`: the person pressed Check now in that worker's m
    - `key`: `<what> <subject>`, short and the same each time for the same thing ("working-without-step Worker 2"). When
      the summary lists an incident for the same thing, file it with that incident's key: it is counted, not opened
      again.
+   - An incident the summary lists as fixed comes back only on a line marked `!` (B571): a line of the same thing
+     without it (a word failed hours ago, a step that waits as planned) is history, not the fault again; file nothing.
 4. End your turn with a short line: how many you filed, or "nothing looks wrong". Nothing else.
 
 Read only the health summary. Do not read files, logs or transcripts, do not run commands, and do not start agents: a
@@ -56,7 +58,9 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - Work follows the focus goal: work outside it while the focus has steps waiting is odd. A worker free over 20 minutes
   with nothing queued while the focus has steps refined ready: the focus-ready rule names a step for it to the main
   chat ("Queue B<n> (<focus>) for <worker>"), once an hour per step. A wait shorter than that is no incident.
-- A word to a chat is taken within minutes; words that wait long for one chat are odd.
+- A word to a chat is taken within minutes; words that wait long for one chat are odd. The summary lists the words of
+  the last day that still matter (a word whose purpose is gone is closed with its why and not listed); only those
+  marked `!` are odd: rule 8's words, waiting over 10 minutes or failed or expired in the last two hours.
 - A chat runs the model and effort its step asks for (the summary shows both side by side).
 - A worker is cleared after its reported step (or compacted, as the list of chats says); the same reason for not
   clearing it, again and again, is odd.

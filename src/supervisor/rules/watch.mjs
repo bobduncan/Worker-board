@@ -15,7 +15,7 @@
 import { sinceMs, valueOf } from '../../work/item.mjs'
 import { blockersOpen, waitWords } from '../../work/guards.mjs'
 import { checkpointOf, heldMs, isHolding } from '../../work/pause.mjs'
-import { stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
+import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortSaid } from '../../work/effort.mjs'
 import { reviewWaitOf } from '../../work/resultCheck.mjs'
@@ -319,25 +319,8 @@ function repairRepeats(view) {
  * wake it, not word by word.
  */
 function undelivered(view) {
-  // The person pauses: the bridge holds every word until Resume all.
-  if (isPaused(view)) return []
-  const limit = view.settings.undeliveredMinutes * MIN
-  const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
-  const stopped = stoppedChats(view.outbox, { chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor })
-  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped }
-  // A word that waited too long still counts (the sweep marks it expired, and so does this rule); one that no longer
-  // matters (dropped: superseded, its step moved on) does not.
-  // B548: an answer waits for its chat however old (store.mjs isLate); past answerMs it is not named here.
-  const stillWaits = message => whyClosed(message, ctx)?.state !== 'dropped'
-    && !((message.ask ?? null) !== null && view.now - message.at - heldMs(message, view.now, view.pause) > view.keep.answerMs)
-  const late = view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at)).filter(message => {
-    // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
-    // hold before its release (B285).
-    const held = message.at + heldMs(message, view.now, view.pause)
-    const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
-    if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
-    return (message.state === 'expired' || (message.state === 'failed' && message.retriedAs === undefined)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit
-  })
+  const late = undeliveredWords(view)
+  const stopped = stoppedOfView(view)
   const byChat = new Map()
   for (const message of late) byChat.set(message.to, [...(byChat.get(message.to) ?? []), message])
   return [...byChat].sort(([a], [b]) => byId(a, b)).map(([chat, words]) => {
@@ -356,6 +339,43 @@ function undelivered(view) {
       text: `${words.length} ${words.length === 1 ? 'word' : 'words'} to ${chat} not delivered, the oldest for ${minutes(view.now - oldest.at)} min`,
       evidence: words.map(one => `${clockOf(one.at)} ${one.command ?? 'answer'}${one.about ? ` ${one.about}` : ''} (${one.state})`).join('; '),
     }
+  })
+}
+
+const stoppedOfView = view => stoppedChats(view.outbox, { chats: view.lanes, advisor: view.partner, advisorHelper: view.helper, supervisorChat: view.supervisor })
+
+/**
+ * B571: whether a word still matters (the outbox sweep would not drop it), one judgement for rule 8 and the health
+ * summary's "Words not delivered" (health.mjs): a word the sweep drops is in neither.
+ */
+export function wordMatters(view) {
+  const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
+  const ctx = { all: view.outbox, items: view.items, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view) }
+  return message => whyClosed(message, ctx)?.state !== 'dropped'
+}
+
+/**
+ * B571: the words rule 8 names, which the health summary marks "!" (and only those): waiting longer than
+ * `undeliveredMinutes`, or expired or failed for good in the last two hours (UNDELIVERED_LOOK_MS), and still mattering.
+ * None while the person pauses.
+ */
+export function undeliveredWords(view) {
+  // The person pauses: the bridge holds every word until Resume all.
+  if (isPaused(view)) return []
+  const limit = view.settings.undeliveredMinutes * MIN
+  // A word that waited too long still counts (the sweep marks it expired, and so does this rule); one that no longer
+  // matters (dropped: superseded, its step moved on, its goal evaluated since) does not, waiting or failed (B571).
+  // B548: an answer waits for its chat however old (store.mjs isLate); past answerMs it is not named here.
+  const matters = wordMatters(view)
+  const stillWaits = message => matters(message)
+    && !((message.ask ?? null) !== null && view.now - message.at - heldMs(message, view.now, view.pause) > view.keep.answerMs)
+  return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at)).filter(message => {
+    // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
+    // hold before its release (B285).
+    const held = message.at + heldMs(message, view.now, view.pause)
+    const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
+    if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
+    return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
   })
 }
 
