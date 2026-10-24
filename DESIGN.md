@@ -1366,7 +1366,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   merged commit a repository holds) is checked by its files: those its result names (else its Touches), in the
   project's folder outside every repository: a word with a "/" and a file's ending or a "/" at its end must be there;
   another ("and/or", "B1/B2/B3", a date) counts only when it is; one inside a repository is work in git, to be reported
-  with its merged commit: "work outside git", "there: ...", "not there: ...", "in a repository: ..." (B353, B347). The
+  with its merged commit: "work outside git", "there: ...", "not there: ...", "in a repository: ..." (B353, B347).
+  B580: a branch named at the take that no repository has or ever had (every repository answered, none has a trace)
+  counts as no branch of its own, so such a step is checked by its files too; a git that does not answer never does. The
   review of B363: work merged on a repository's base branch itself passes without "branch gone" ("worked on main
   itself"). Worktree clean-up (2026-10-24): the check also confirms that no worktree of the step is left: none of
   that repository on the step's branch, none of a repository the board knows named for the step (its id as a whole in
@@ -3221,7 +3223,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (the board's reconcile: fixed once that step is done, open again when it was dropped). A chat of role supervisor
   only reads and files incidents. After each run the loop files its findings (`recordFindings`): a new key opens one,
   the same key only counts it (Count and Last seen, no History line: an hour of a lasting problem is one record with
-  count 20), a fixed one's key makes it "came back". Incidents are never on the backlog view.
+  count 20), a fixed one's key makes it "came back". B584: unless the finding names when its case began (`since`:
+  not-cleared its take or report, undelivered its oldest word, report-check-twice its second failure) before its fix
+  step was done: that old case still standing only counts and says so once in History, for up to 2 h after the fix
+  ("old case outlived its fix" then). Incidents are never on the backlog view.
 - **To the person**: each incident that opened or came back gives one note of the board's (`Via: supervisor`, About
   X<n>). B573: the unread ones are drawn as one quiet line under Needs your attention, "Supervisor: 3 new findings"
   with a wrench, never counted; a click opens the section (Details first, from Simple), and opening the section any
