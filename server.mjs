@@ -75,12 +75,12 @@ import { REFUSED_MS, SYNC_EVERY_MS, loopOwner, syncRunner } from './src/work/syn
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
-import { storeKeeper } from './src/work/read.mjs'
+import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
 import { readStore } from './src/work/store.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
-import { blockersOf, selfUpdater } from './src/selfUpdate.mjs'
+import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
 import { absentAs, readKept, writeAtomic } from './src/write.mjs'
 import { aboutError, afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
@@ -894,6 +894,7 @@ async function main(args) {
   let updateShown = null
   let callsNow = 0
   let lastLogAt = null
+  const loggedAt = new Map()
   const counted = answer => async body => {
     callsNow += 1
     try {
@@ -1162,6 +1163,7 @@ async function main(args) {
   const saveLog = async (body, checked, state) => {
     if (chatLogs === null) return { ok: false, status: 503, why: 'This board keeps no chat logs.' }
     lastLogAt = clock()
+    loggedAt.set(String(checked.chat), lastLogAt)
     const session = String(body.session ?? '').trim()
     const tail = /^[A-Za-z0-9_-]{1,120}$/.test(session) ? await readTail(join(config.transcripts, `${session}.jsonl`)) : null
     const refused = clearRefusal(state, checked.chat, tail === null ? 0 : backgroundRunning(parseTail(tail.text, tail.isCut)))
@@ -1633,6 +1635,7 @@ async function main(args) {
       const blockers = blockersOf({
         now: clock(), outbox: store.outbox(), checks: runningChecks.size, isReconciling: reconciling !== null,
         logs: chatLogs === null ? 0 : (await chatLogs.pending()).length, calls: callsNow, lastLogAt, isPaused: isHolding(state.pause),
+        reported: reportedNotLogged({ items: itemsOf(await work()), now: clock(), loggedAt }),
       })
       const seen = selfUpdate.look({ isNewer: version.isServerNewer === true, canRestart, blockers })
       updateShown = seen.shown

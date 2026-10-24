@@ -11,7 +11,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { AFTER_LOG_MS, SELF_UPDATE_WAIT_MS, TAKEN_BLOCKS_MS, blockersOf, selfUpdater } from '../src/selfUpdate.mjs'
+import { AFTER_LOG_MS, REPORTED_BLOCKS_MS, SELF_UPDATE_WAIT_MS, TAKEN_BLOCKS_MS, blockersOf, reportedNotLogged, selfUpdater } from '../src/selfUpdate.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const NOW = Date.UTC(2026, 9, 24, 14, 0, 0)
@@ -161,4 +161,36 @@ test('the server looks at its new version every few seconds and starts it throug
   assert.match(server, /selfUpdate: updateShown/)
   for (const call of ['bridgeWork: counted(', 'take: counted(', 'typed: counted(']) assert.ok(server.includes(call), call)
   assert.match(server, /lastLogAt = clock\(\)/)
+})
+
+// B512: the two holes the result check found in B454
+
+test('a step reported a moment ago whose chat log is not kept yet holds the restart, for 2 minutes at most', () => {
+  const step = (owner, at, state = 'review') => ({
+    head: new Map([['Kind', 'step'], ['State', state], ['Owner', owner]]),
+    sections: new Map([['History', ['- 2026-10-24 13:50 server: queued', `- ${at} ${owner}: in progress → review`]]]),
+  })
+  const noon = new Date(2026, 9, 24, 14, 0, 30).getTime()
+  const items = [step('Worker 1', '2026-10-24 14:00')]
+  assert.deepEqual(reportedNotLogged({ items, now: noon }), ['Worker 1'])
+  assert.deepEqual(blockersOf({ now: noon, reported: ['Worker 1'] }), ['Worker 1 just reported a step'])
+  assert.deepEqual(blockersOf({ now: noon, reported: ['Worker 1', 'Worker 2'] }), ['Worker 1 and Worker 2 just reported a step'])
+  // 2 minutes on, the chat is not cleared by the board any more (a chat the mod does not clear, or a log that never came).
+  assert.deepEqual(reportedNotLogged({ items, now: noon + REPORTED_BLOCKS_MS }), [])
+  // Its log was asked for after the report (the chat's title carries the project's prefix): the log's own wait takes over.
+  assert.deepEqual(reportedNotLogged({ items, now: noon, loggedAt: new Map([['Game - Worker 1', noon]]) }), [])
+  assert.deepEqual(reportedNotLogged({ items, now: noon, loggedAt: new Map([['Game - Worker 1', new Date(2026, 9, 24, 13, 59).getTime()]]) }), ['Worker 1'])
+  assert.deepEqual(reportedNotLogged({ items, now: noon, loggedAt: new Map([['Game - Worker 11', noon]]) }), ['Worker 1'])
+  // A step not in review, or one without an owner, holds nothing.
+  assert.deepEqual(reportedNotLogged({ items: [step('Worker 1', '2026-10-24 14:00', 'in progress')], now: noon }), [])
+  assert.deepEqual(reportedNotLogged({ items: [], now: noon }), [])
+})
+
+test('the server counts the reported steps as a blocker and notes each chat log it is asked for; the page waits for idle also after a restart', async () => {
+  const server = await readFile(join(HERE, '..', 'server.mjs'), 'utf8')
+  assert.match(server, /reported: reportedNotLogged\(\{ items: itemsOf\(await work\(\)\), now: clock\(\), loggedAt \}\)/)
+  assert.match(server, /loggedAt\.set\(String\(checked\.chat\), lastLogAt\)/)
+  const read = script.slice(script.indexOf('async function read()'), script.indexOf('/** B221: asks the board to close or delete'))
+  assert.match(read, /answer\.status === 403[\s\S]*?isPageIdle\(\)[\s\S]*?location\.reload\(\)/)
+  assert.doesNotMatch(read.slice(0, read.indexOf('isPageIdle()')), /location\.reload\(\)/)
 })
