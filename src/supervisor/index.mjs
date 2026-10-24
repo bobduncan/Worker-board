@@ -9,7 +9,7 @@
 import { SYNC_EVERY_MS, syncRunner } from './loop.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES } from './rules/watch.mjs'
-import { incidentsOf, recordFindings } from './incidents.mjs'
+import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
 export { REFUSED_MS }
@@ -50,26 +50,26 @@ export function createSupervisor(ports) {
   // Task 3: the incidents as the store holds them, read after each run (and once at the start).
   let incidents = []
   const readIncidents = async () => {
-    incidents = incidentsOf(await runnerPorts.items(), runnerPorts.now())
+    const items = await runnerPorts.items()
+    incidents = incidentsOf(items, runnerPorts.now())
+    return items
   }
   /**
    * Task 3: what a run found, filed as incidents (one per key: a lasting problem only counts), then the incidents read
    * anew. A finding that could not be filed is tried at the next run; the loop "incidents" says so on the page. Task 4:
    * each incident that opened or came back gives the person one line (a note of the board's, Via supervisor), never one
-   * that only counted (Review Focus 2).
+   * that only counted (Review Focus 2). Which is owed is read from the store (incidents.mjs `linesOwed`: open or came
+   * back, and no line about it since), so a line that could not be filed goes at the next run, also after a restart.
    */
   const afterRun = async answer => {
     if (answer === null || answer === undefined) return answer
     await loops.run('incidents', async () => {
       const done = await recordFindings(answer.findings ?? [], { work: runnerPorts.apply, now: answer.at })
-      await readIncidents()
+      const items = await readIncidents()
       const told = []
-      for (const [ids, isBack] of [[done.opened, false], [done.returned, true]]) {
-        for (const id of ids) {
-          const incident = incidents.find(one => one.id === id) ?? { id, title: null }
-          const sent = await runnerPorts.apply({ action: 'note', to: 'you', text: [personWords(incident, isBack)], of: id, via: 'supervisor' })
-          if (sent?.ok !== true) told.push(`${id}: ${sent?.why ?? 'no answer'}`)
-        }
+      for (const incident of linesOwed(items, incidents)) {
+        const sent = await runnerPorts.apply({ action: 'note', to: 'you', text: [personWords(incident, incident.state === 'came back')], of: incident.id, via: 'supervisor' })
+        if (sent?.ok !== true) told.push(`${incident.id}: ${sent?.why ?? 'no answer'}`)
       }
       const failed = [...done.failed.map(one => `${one.key}: ${one.why}`), ...told.map(one => `the line to you of ${one}`)]
       if (failed.length > 0) throw new Error(`${failed.length} not filed (${failed[0]})`)

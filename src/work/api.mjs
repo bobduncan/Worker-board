@@ -73,8 +73,12 @@ const ROLES = {
   incident: ['server', 'supervisor'],
   'incident-fix': ['advisor'],
 }
-/** The supervisor: what its chat may do. It reads, and files incidents; it never changes anything else (spec, section 5). */
-const SUPERVISOR_MAY = new Set(['incident', ...READS])
+/**
+ * The supervisor: what its chat may do. It reads, and files incidents; it never changes anything else (spec, section 5).
+ * Its Workers mod also tells the board when a turn of it ended (`turn-ended`) and asks for its next step (`pull`, which
+ * only reads), as for every chat: the clear after each sweep goes by them.
+ */
+const SUPERVISOR_MAY = new Set(['incident', 'turn-ended', 'pull', ...READS])
 /**
  * B424: what the partner's helper (the role 'helper' of the list) does as the partner's own: the refines and the result
  * checks of steps the partner hands it, and the asks under a step they lead to. Its History lines name the helper. A

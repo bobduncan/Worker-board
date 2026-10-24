@@ -76,7 +76,10 @@ test('the section shows when something is new: a check, or an incident that open
   const ui = (more = {}) => ({ isOpen: false, closedAt: null, showsRules: false, ...more })
   assert.equal(page.isSupervisorShown(VIEW, ui()), true)
   assert.equal(page.isSupervisorShown(VIEW, ui({ closedAt: at(10, 41) })), false, 'closed after the newest')
-  assert.equal(page.isSupervisorShown({ ...VIEW, run: { ...VIEW.run, at: at(10, 45) } }, ui({ closedAt: at(10, 41) })), true, 'a newer check')
+  // The review: a check that finds the same again every 3 minutes is nothing new; a new repair finding is.
+  assert.equal(page.isSupervisorShown({ ...VIEW, run: { ...VIEW.run, at: at(10, 45), newAt: at(10, 40) } }, ui({ closedAt: at(10, 41) })), false, 'the same finding, checked again')
+  assert.equal(page.isSupervisorShown({ ...VIEW, run: { ...VIEW.run, at: at(10, 45), newAt: at(10, 45) } }, ui({ closedAt: at(10, 41) })), true, 'a new repair finding')
+  assert.equal(page.isSupervisorShown({ ...VIEW, run: { ...VIEW.run, at: at(10, 45) } }, ui({ closedAt: at(10, 41) })), false, 'a check alone')
   // A count that grows is nothing new; a fixed incident is nothing new either.
   const quiet = { ...VIEW, run: null, incidents: [{ ...VIEW.incidents[0], count: 9, lastSeen: at(10, 50) }, VIEW.incidents[2]] }
   assert.equal(page.isSupervisorShown(quiet, ui({ closedAt: at(10, 41) })), false)

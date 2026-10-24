@@ -178,7 +178,8 @@ const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.se
  * line sent once per key (the message, or null), `noted` `{ load(), save(keys) }` the keys the main chat was told of,
  * `now()`; worktree clean-up: `leftovers({ items, now })` what worktrees.mjs `findLeftovers` finds, and `clean(one)`
  * its `cleanLeftover` (both left out: no such check). `run({ asked, subject })` answers `{ at, asked, subject, rows, fine,
- * findings }` (`subject` the chat "Check now" in its menu named, or null);
+ * newAt, findings }` (`subject` the chat "Check now" in its menu named, or null; `newAt` when a repair finding last came
+ * that the run before did not have, or null);
  * `shown(now)` is what the page shows: the newest run that was asked or found something (more than what it only lists,
  * Left), for an hour, else null. `rules` are the repair rules it runs over the view and carries out, in their order.
  *
@@ -197,6 +198,9 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
   // The review: since when each thing that counts only once it lasts has been seen (the rules' `ctx.seen`).
   let seen = new Map()
   let memory = memoryOf(null)
+  // The keys of the repair findings of the last run, and when one came that the run before did not have.
+  let repairKeys = new Set()
+  let newAt = null
   let status = { at: null, rules: [...rules, ...watch].map(rule => ({ id: rule.id, kind: rule.kind, says: rule.says, state: null, why: null, trips: 0 })) }
   async function once(asked, subject) {
     const now = ports.now()
@@ -228,19 +232,32 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       wake: ports.wake,
       clean: ports.clean,
     }, noted)
+    // The keys the main chat was told of in this run's note (for the repairs of the day, below).
+    const told = new Set()
     if (done.note.length > 0) {
       const sent = await ports.apply({ action: 'note', to: 'main', text: [`The board's sync check at ${clockOf(now)}: what it could not fix itself`, ...done.note.map(line => `- ${line}`)] })
       // Not filed: told at the next run. Filed: never again for these keys.
       if (sent?.ok === true) {
-        for (const key of done.keys) noted.add(key)
+        for (const key of done.keys) {
+          noted.add(key)
+          told.add(key)
+        }
         noted = new Set([...noted].slice(-NOTED_KEPT))
         changed = true
       }
     }
     if (changed) await ports.noted.save({ noted: [...noted], seen: Object.fromEntries(seen) })
-    // The supervisor: what the repairs did (one row per finding, in their order), for the watch rule repair-repeats.
-    const repaired = findings.flatMap((one, index) => (REPAIRED.includes(done.rows[index]?.status) && one.fix?.do !== 'woken'
+    // The supervisor: what the repairs did (one row per finding, in their order), for the watch rule repair-repeats. A
+    // note to the main chat ("Sent") counts only in the run it went: a finding that stands is told once (`noted`), and
+    // its row says Sent at every run all the same.
+    const didRepair = (one, row) => REPAIRED.includes(row?.status) && one.fix?.do !== 'woken' && (row.status !== 'Sent' || told.has(one.key))
+    const repaired = findings.flatMap((one, index) => (didRepair(one, done.rows[index])
       ? [{ at: now, rule: one.rule ?? one.check, subject: one.subject ?? null, key: one.key }] : []))
+    // When a repair finding came that the run before did not have: the page opens its section for that, not for every
+    // run in which the same finding stands (a row's words may change with the minutes, its key does not).
+    const keysNow = new Set(findings.filter(one => one.fix?.do !== 'list').map(one => one.key))
+    if ([...keysNow].some(key => !repairKeys.has(key))) newAt = now
+    repairKeys = keysNow
     memory.repairs = [...memory.repairs, ...repaired].filter(one => now - one.at < DAY)
     let watched = { findings: [], failed: [], states: [] }
     if (watch.length > 0) {
@@ -266,7 +283,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       })),
     }
     if (typeof ports.memory?.save === 'function' && memoryText(memory) !== memoryBefore) await ports.memory.save(JSON.parse(memoryText(memory)))
-    const answer = { at: now, asked, subject, rows: done.rows, fine: done.fine, findings: [...repairs.failed, ...watched.failed, ...watched.findings] }
+    const answer = { at: now, asked, subject, rows: done.rows, fine: done.fine, newAt, findings: [...repairs.failed, ...watched.failed, ...watched.findings] }
     // The review: a later run that finds nothing clears what the board found by itself; the button's answer stays.
     if (asked || answer.rows.some(row => row.status !== 'Left')) shownRun = answer
     else if (shownRun !== null && !shownRun.asked) shownRun = null

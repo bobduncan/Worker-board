@@ -14,7 +14,7 @@
 
 import { sinceMs, valueOf } from '../../work/item.mjs'
 import { blockersOpen, waitWords } from '../../work/guards.mjs'
-import { isHolding } from '../../work/pause.mjs'
+import { heldMs, isHolding } from '../../work/pause.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -24,8 +24,11 @@ const UNDELIVERED_LOOK_MS = 2 * HOUR
 /** The window of each limit: a pause older than its limit's window has outlived any stop of it. */
 const WINDOW_MS = { fiveHour: 5 * HOUR, week: 7 * DAY }
 const LIMIT_WORDS = { fiveHour: 'the 5-hour limit', week: 'the weekly limit' }
-/** Reasons a compaction is skipped by design, not by a fault: a small chat, or compaction switched off. */
-const BY_DESIGN = ['it is small enough', 'switched off in the list of chats']
+/**
+ * Reasons a compaction is skipped by design, not by a fault: a small chat, compaction switched off, or more of the same
+ * work following (the Workers mod keeps the history for it on purpose).
+ */
+const BY_DESIGN = ['it is small enough', 'switched off in the list of chats', 'more of the same work follows']
 /** The states in which a step is its Owner's work now, and those of a worker with nothing running. */
 const HOLDS = ['taken', 'in progress']
 const IDLE = ['free', 'unknown', 'off']
@@ -42,15 +45,26 @@ const plain = (name, prefix = '') => {
 }
 const workersOf = view => view.lanes.filter(lane => !lane.isLeftover && lane.isMain !== true)
 const stepsOf = view => [...view.items.values()].filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && typeof idOf(item) === 'string')
+const isFull = view => ['fiveHour', 'week'].some(limit => view.limits?.[limit]?.level === 'full')
+/**
+ * The person's Pause all, and the resume after it: the chats stop at the person's word and the board hands out nothing
+ * (the resume wakes them itself), so the rules about chats that do not run or words that wait say nothing meanwhile.
+ */
+const isPaused = view => isHolding(view.pause) || view.pause?.state === 'resuming'
+/** When the last pause ended (the store's pause record, running again since then); -Infinity for none. */
+const pauseEndOf = view => (view.pause?.state === 'running' && Number.isFinite(view.pause?.since) ? view.pause.since : -Infinity)
+/** A time something began, counted from the end of the last pause at the earliest: the pause's time does not count. */
+const afterPause = (view, since) => (Number.isFinite(since) ? Math.max(since, pauseEndOf(view)) : since)
 
 /**
  * How long a thing has lasted: since `since` (what the board's data says), or since the supervisor first saw it (`key`
- * in its watch), whichever is earlier. The key is watched from now on, so a lasting thing is timed across runs.
+ * in its watch), whichever is earlier. The key is watched from now on, so a lasting thing is timed across runs. The
+ * review: never from before the end of the person's last pause (the chats stood still at the person's word then).
  */
 function lasted(view, ctx, key, since = null) {
   if (!ctx.observed.includes(key)) ctx.observed.push(key)
   const first = Math.min(Number.isFinite(since) ? since : Infinity, ctx.seen.get(key) ?? view.now)
-  return view.now - first
+  return view.now - Math.max(first, pauseEndOf(view))
 }
 
 /** 1. A worker "unknown" for longer than `unknownMinutes`. */
@@ -79,6 +93,7 @@ function unknownLane(view, ctx) {
  */
 function staleSuspended(view, ctx) {
   const found = []
+  if (isPaused(view)) return found
   for (const lane of workersOf(view).filter(one => one.state === 'suspended' && one.suspended !== null && typeof one.suspended === 'object')) {
     const held = lane.suspended
     const limit = view.limits?.[held.limit] ?? null
@@ -97,7 +112,7 @@ function staleSuspended(view, ctx) {
     }
     if (why === null || isFull) continue
     const key = `stale-suspended ${lane.name}`
-    const ms = lasted(view, ctx, key, since)
+    const ms = lasted(view, ctx, key, afterPause(view, since))
     if (ms <= view.settings.suspendedMinutes * MIN) continue
     found.push({
       rule: 'stale-suspended', key, subject: lane.name,
@@ -111,10 +126,15 @@ function staleSuspended(view, ctx) {
 /** 3. All workers idle (free, unknown, off) while a step that may be taken waits, for longer than `idleMinutes`. */
 function idleWhileWaiting(view, ctx) {
   const workers = workersOf(view)
-  if (workers.length === 0 || isHolding(view.pause) || ['fiveHour', 'week'].some(limit => view.limits?.[limit]?.level === 'full')) return []
+  if (workers.length === 0 || isHolding(view.pause) || isFull(view)) return []
   if (!workers.every(lane => IDLE.includes(lane.state))) return []
   const ctxStore = { store: { items: view.items } }
-  const waiting = stepsOf(view).filter(item => stateOf(item) === 'queued' && blockersOpen(item, ctxStore).length === 0 && waitWords(item) === null)
+  // Only a step queued for a worker of the list (not the main chat's, the partner's or a gone chat's) whose line the
+  // board does not hold for its model or effort (opus-wait says that one).
+  const isWorkers = item => workers.some(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
+  const held = new Set(workers.filter(lane => typeof lane.effortRun?.step === 'string' && ((lane.effortRun.waitsFor ?? null) !== null || lane.effortRun.isSet === false))
+    .map(lane => lane.effortRun.step))
+  const waiting = stepsOf(view).filter(item => stateOf(item) === 'queued' && isWorkers(item) && !held.has(idOf(item)) && blockersOpen(item, ctxStore).length === 0 && waitWords(item) === null)
   if (waiting.length === 0) return []
   // Since the last worker went idle, and since the first of the steps that wait was queued.
   const idleSince = Math.max(...workers.map(lane => view.since.get(lane.name) ?? NaN))
@@ -134,13 +154,16 @@ function idleWhileWaiting(view, ctx) {
 /** 4. A step in progress whose worker has not run for longer than `notRunningMinutes`. */
 function holderNotRunning(view, ctx) {
   const found = []
+  // The person pauses, or a limit is full: the chats are meant to stand still.
+  if (isPaused(view) || isFull(view)) return found
   for (const item of stepsOf(view).filter(one => HOLDS.includes(stateOf(one)))) {
     const owner = valueOf(item, 'Owner')
     const lane = workersOf(view).find(one => plain(one.name, view.prefix) === plain(owner, view.prefix))
-    if (lane === undefined || !(lane.isRunning === false || lane.state === 'off')) continue
+    // A worker paused for the limit stands still on purpose (stale-suspended says when that is wrong).
+    if (lane === undefined || lane.state === 'suspended' || !(lane.isRunning === false || lane.state === 'off')) continue
     const id = idOf(item)
     const key = `holder-not-running ${id}`
-    const ms = lasted(view, ctx, key, Number.isFinite(lane.offSince) ? lane.offSince : lane.state === 'off' ? view.since.get(lane.name) : null)
+    const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : lane.state === 'off' ? view.since.get(lane.name) : null))
     if (ms <= view.settings.notRunningMinutes * MIN) continue
     found.push({
       rule: 'holder-not-running', key, subject: id,
@@ -154,12 +177,13 @@ function holderNotRunning(view, ctx) {
 /** 5. An opus step whose line waits for its worker to run on Opus, for longer than `opusWaitMinutes`. */
 function opusWait(view, ctx) {
   const found = []
+  if (isPaused(view) || isFull(view)) return found
   for (const lane of workersOf(view)) {
     const waits = lane.effortRun?.waitsFor
     if (waits?.model !== 'opus' || typeof lane.effortRun?.step !== 'string') continue
     const step = lane.effortRun.step
     const key = `opus-wait ${step}`
-    const ms = lasted(view, ctx, key, waits.since)
+    const ms = lasted(view, ctx, key, afterPause(view, waits.since))
     if (ms <= view.settings.opusWaitMinutes * MIN) continue
     found.push({ rule: 'opus-wait', key, subject: step, text: `${step} waits for Opus for ${minutes(ms)} min (${lane.name})`, evidence: String(waits.text ?? '') })
   }
@@ -225,9 +249,14 @@ function repairRepeats(view) {
  * last two hours. One finding per chat. A word the person's pause held counts from its release.
  */
 function undelivered(view) {
+  // The person pauses: the bridge holds every word until Resume all.
+  if (isPaused(view)) return []
   const limit = view.settings.undeliveredMinutes * MIN
   const late = view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at)).filter(message => {
-    const since = Number.isFinite(message.releasedAt) ? Math.max(message.at, message.releasedAt) : message.at
+    // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
+    // hold before its release (B285).
+    const held = message.at + heldMs(message, view.now, view.pause)
+    const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
     if (message.state === 'waiting') return view.now - since > limit
     return (message.state === 'expired' || message.state === 'failed') && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit
   })

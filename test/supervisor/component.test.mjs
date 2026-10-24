@@ -7,8 +7,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { REFUSED_MS, createSupervisor, loopGate, loopOwner } from '../../src/supervisor/index.mjs'
-import { SYNC_EVERY_MS } from '../../src/supervisor/loop.mjs'
+import { SYNC_EVERY_MS, syncRunner } from '../../src/supervisor/loop.mjs'
 import { CHECKS, REPAIR_RULES, findStuck } from '../../src/supervisor/rules/repair.mjs'
+import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 
 const MIN = 60_000
@@ -254,4 +255,101 @@ test('Task 4: "Check now" from a worker\'s menu runs the list about that worker;
   assert.equal((await supervisor.run({ asked: true, subject: 'Painter' })).subject, 'Painter')
   assert.equal(supervisor.view(NOW).run.subject, 'Painter')
   assert.equal((await supervisor.run({ asked: true })).subject, null)
+})
+
+// The review of Part 1 (2026-10-24).
+
+test('the review: the list runs where the board\'s loops run: the server gives its one gate (ownsLoops) as the port owns, and the supervisor builds no lock of its own', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../../server.mjs', import.meta.url), 'utf8')
+  const index = await readFile(new URL('../../src/supervisor/index.mjs', import.meta.url), 'utf8')
+  assert.match(server, /const ownsLoops = LOOP_LOCK === null \? async \(\) => true : loopGate\(\{\n\s+owner: loopOwner\(\{/)
+  assert.match(server, /\n\s+owns: ownsLoops,\n/)
+  assert.doesNotMatch(index, /loopOwner\(/, 'no loopOwner of the supervisor\'s own')
+  // A gate that says no: neither the loop nor "Check now" runs the list in this process.
+  const { ports, done } = board()
+  const timers = []
+  const supervisor = createSupervisor({ ...ports, owns: async () => false, timers: { setInterval: fn => timers.push(fn), clearInterval: () => {} } })
+  supervisor.start()
+  await timers[0]()
+  assert.equal(await supervisor.run({ asked: true }), null)
+  assert.equal(done.ran, 0)
+})
+
+test('the review: a note to the main chat that went once is one repair, not one per run while its finding stands', async () => {
+  let clock = NOW
+  let memory = null
+  let sync = { noted: [], seen: {} }
+  const notes = []
+  const world = items(
+    step('B5', 'refined'),
+    { head: new Map(Object.entries({ Id: 'Q9', Kind: 'ask', Of: 'B5', Title: 'Drop B5?', State: 'answered', Via: 'refine', Since: stamp(ago(30)) })), sections: new Map([['Answer', ['yes']]]) },
+  )
+  const runner = syncRunner({
+    state: async () => ({ chats: [LEAD, lane('Painter', { state: 'working' })], advisor: { name: 'Partner' }, advisorHelper: null, chatPrefix: '', limits: {}, pause: null, today: [] }),
+    items: async () => world, outbox: () => [], refused: () => [],
+    apply: async body => { if (body.action === 'note') notes.push(body.text); return { ok: true, result: {} } },
+    wake: async () => null, clean: async () => ({ ok: true }),
+    noted: { load: async () => sync, save: async value => { sync = value } },
+    memory: { load: async () => memory, save: async value => { memory = value } },
+    now: () => clock, settings: {},
+  }, REPAIR_RULES, WATCH_RULES)
+  const runs = []
+  for (let run = 0; run < 4; run += 1) {
+    runs.push(await runner.run())
+    clock += 3 * MIN
+  }
+  assert.deepEqual(runs.map(one => one.rows.map(row => row.status)), [['Sent'], ['Sent'], ['Sent'], ['Sent']], 'its row stands')
+  assert.equal(notes.length, 1, 'told once')
+  assert.deepEqual(memory.repairs.map(one => [one.rule, one.subject]), [['refine-drop', 'B5']], 'one repair of the day')
+  assert.deepEqual(runs.flatMap(one => one.findings).map(one => one.rule), [], 'no repair-repeats')
+})
+
+test('the review: a check says when a repair finding last came that the run before did not have (newAt), not each time it finds the same', async () => {
+  let clock = NOW
+  let world = items(step('B1', 'review', {}, checkedPass), step('B2', 'queued', { Owner: 'Painter', 'Blocked by': 'B1' }))
+  const runner = syncRunner({
+    state: async () => ({ chats: [LEAD, lane('Painter', { state: 'working' })], chatPrefix: '', limits: {}, pause: null }),
+    items: async () => world, outbox: () => [], refused: () => [],
+    apply: async () => ({ ok: true }), wake: async () => ({ id: 'w' }),
+    noted: { load: async () => ({ noted: [], seen: {} }), save: async () => {} }, now: () => clock,
+  })
+  assert.equal((await runner.run()).newAt, NOW)
+  clock += 3 * MIN
+  assert.equal((await runner.run()).newAt, NOW, 'the same finding again: nothing new')
+  world = items(step('B1', 'review', {}, checkedPass), step('B2', 'queued', { Owner: 'Painter', 'Blocked by': 'B1' }), step('B3', 'queued', { Owner: 'Painter', 'Blocked by': 'B1' }))
+  clock += 3 * MIN
+  assert.equal((await runner.run()).newAt, clock, 'a new one')
+})
+
+test('the review: a line to the person that could not be filed goes at the next run, once', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { workApi } = await import('../../src/work/api.mjs')
+  const { migrateBacklog } = await import('../../src/work/migrate.mjs')
+  const { readStore, writeStore } = await import('../../src/work/store.mjs')
+  const dir = await mkdtemp(join(tmpdir(), 'supervisor-lines-'))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B5 Paint the strip (for Mason; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
+  let clock = NOW
+  let refuseNotes = true
+  const { ports, done } = board()
+  const supervisor = createSupervisor({
+    ...ports,
+    now: () => clock,
+    items: async () => (await readStore(dir)).items,
+    apply: body => (body.action === 'note' && refuseNotes ? { ok: false, status: 409, why: 'N1.md changed in the meantime' } : workApi(body, { dir, now: clock, prefix: '', as: 'server' })),
+    state: async () => ({ chats: [LEAD, lane('Mason', { state: 'unknown' })], chatPrefix: '', limits: {}, pause: null, today: [{ chat: 'Mason', spans: [{ from: ago(30), to: NOW, state: 'unknown', task: null }] }] }),
+  })
+  const lines = async () => [...(await readStore(dir)).items.values()].filter(one => one.head.get('Kind') === 'note' && one.head.get('Via') === 'supervisor')
+  await supervisor.run()
+  assert.deepEqual(await lines(), [])
+  assert.match(done.failed.at(-1)[1], /the line to you of X1: N1\.md changed in the meantime/)
+  refuseNotes = false
+  clock += 3 * MIN
+  await supervisor.run()
+  clock += 3 * MIN
+  await supervisor.run()
+  assert.deepEqual((await lines()).map(one => one.sections.get('About')[0]), ['X1'], 'filed at the next run, and only once')
 })

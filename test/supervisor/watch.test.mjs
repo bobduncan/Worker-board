@@ -211,3 +211,61 @@ test('the view is read only: a rule cannot change it', () => {
   assert.ok(Object.isFrozen(board))
   assert.throws(() => { 'use strict'; board.lanes = [] })
 })
+
+// The review of Part 1 (2026-10-24).
+
+test('the review: during Pause all, and the resume after it, no rule speaks of chats that stand still or words held (rules 2, 4, 5, 8)', () => {
+  const board = pause => view({
+    chats: [
+      lane('Lead', { isMain: true, state: 'free', isRunning: false }),
+      lane('Painter', { state: 'off', isRunning: false, offSince: ago(70) }),
+      lane('Mason', { state: 'free', effortRun: { step: 'B8', waitsFor: { model: 'opus', since: ago(60), text: 'B8 waits for Opus' } } }),
+      lane('Sleeper', { state: 'suspended', suspended: { by: 'note', limit: 'fiveHour', since: ago(300), until: ago(40), isBack: true } }),
+    ],
+    items: items(step('B7', 'in progress', { Owner: 'Painter' })),
+    outbox: [{ id: 'm1', to: 'Lead', command: 'note', at: ago(50), state: 'waiting' }],
+    pause,
+  })
+  const seen = new Map([['holder-not-running B7', ago(60)], ['opus-wait B8', ago(60)], ['stale-suspended Sleeper', ago(60)]])
+  for (const pause of [{ state: 'pausing', since: ago(60) }, { state: 'resuming', since: ago(5) }]) {
+    for (const rule of WATCH_RULES) assert.deepEqual(rule.check(board(pause), { seen, observed: [] }), [], `${rule.id} while ${pause.state}`)
+  }
+  // Running again since 5 minutes: the pause's time does not count; the same board says nothing yet.
+  const after = board({ state: 'running', since: ago(5) })
+  for (const id of ['holder-not-running', 'opus-wait', 'stale-suspended', 'undelivered']) assert.deepEqual(check(id, after, seen), [], id)
+  // ... and once the thresholds have passed since the resume, it speaks again.
+  const later = board({ state: 'running', since: ago(45) })
+  assert.deepEqual(['holder-not-running', 'opus-wait', 'stale-suspended', 'undelivered'].map(id => check(id, later, seen).length), [1, 1, 1, 1])
+})
+
+test('the review: at a full limit, a step held by a worker that does not run, or an opus step waiting, is no case; nor a holder suspended for the limit', () => {
+  const board = (limits, holder = { state: 'off', isRunning: false, offSince: ago(70) }) => view({
+    chats: [LEAD, lane('Painter', holder), lane('Mason', { state: 'free', effortRun: { step: 'B8', waitsFor: { model: 'opus', since: ago(60), text: '' } } })],
+    items: items(step('B7', 'in progress', { Owner: 'Painter' })), limits,
+  })
+  const full = { fiveHour: { used: 100, level: 'full', at: ago(1) } }
+  assert.deepEqual([check('holder-not-running', board(full)), check('opus-wait', board(full))], [[], []])
+  assert.deepEqual([check('holder-not-running', board({})).length, check('opus-wait', board({})).length], [1, 1])
+  const suspended = board({}, { state: 'suspended', isRunning: false, offSince: ago(70), suspended: { by: 'app', limit: 'fiveHour', since: ago(70), until: null, isBack: false } })
+  assert.deepEqual(check('holder-not-running', suspended), [])
+})
+
+test('the review: idle-while-waiting counts only steps queued for a worker of the list, and not one whose line waits for its model or effort', () => {
+  const board = (queued, more = {}) => view({
+    chats: [LEAD, lane('Painter', { state: 'free', ...more })], today: [span('Painter', 'free', 40)],
+    partner: null, items: items(...queued),
+  })
+  const queuedFor = (id, owner) => step(id, 'queued', { Owner: owner, Since: stamp(ago(20)) })
+  // The main chat's, a gone chat's: no worker could take them.
+  assert.deepEqual(check('idle-while-waiting', board([queuedFor('B5', 'Lead'), queuedFor('B6', 'Ghost')])), [])
+  // Held for Opus (opus-wait says that one), or for its effort to be set.
+  assert.deepEqual(check('idle-while-waiting', board([queuedFor('B5', 'Painter')], { effortRun: { step: 'B5', waitsFor: { model: 'opus', since: ago(20), text: '' } } })), [])
+  assert.deepEqual(check('idle-while-waiting', board([queuedFor('B5', 'Painter')], { effortRun: { step: 'B5', waitsFor: null, isSet: false } })), [])
+  assert.equal(check('idle-while-waiting', board([queuedFor('B5', 'Painter')], { effortRun: { step: 'B5', waitsFor: null, isSet: true } })).length, 1)
+})
+
+test('the review: a compaction skipped because more of the same work follows is by design, as the Workers mod means it', () => {
+  const why = 'more of the same work follows'
+  const board = view({ chats: [LEAD, lane('Painter', { compaction: { kind: 'skipped', at: ago(2), why } })] })
+  assert.deepEqual(check('skip-repeats', board, new Map([[`skip|Painter|compact|${ago(40)}|${why}`, ago(40)]])), [])
+})

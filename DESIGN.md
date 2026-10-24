@@ -3062,6 +3062,17 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
 - **Check now** (was "Out of sync?"; a worker's menu, the panel's head while the section is closed, and the section) with
   a wrench in the button's own colour: the server runs the supervisor at once (`run({ asked: true, subject })`, the
   subject the worker of the menu) and, until Part 2's sweep replaces it, still types `check sync` into the main chat.
+- **The review of part 1** (2026-10-24): merged with main, B449's check `unchecked` is a repair rule, and B488's one
+  gate of the board's loops (`loopOwner`, `loopGate`, in `loop.mjs`, re-exported by `index.mjs`) is built by the server
+  and given to the supervisor as its port `owns`, so the list runs only in the process that runs every loop. The watch
+  rules say nothing of chats that stand still or words held while the person pauses all or resumes (rules 2, 4, 5, 8),
+  and never count the pause's time; rules 4 and 5 say nothing at a full limit, and rule 4 nothing of a worker suspended
+  for the limit. `idle-while-waiting` counts only steps queued for a worker of the list whose line is not held for its
+  model or effort. A compaction skipped because more of the same work follows is by design. A note to the main chat
+  counts as a repair of the day only in the run it went. The section opens for a new incident or a new repair finding
+  (the check's `newAt`), not for a check that finds the same again. A line to the person that could not be filed goes
+  at the next run (`linesOwed`: open or came back, and no line about it since). A chat of role supervisor may also end
+  its turns (`turn-ended`) and `pull`, as every chat's Workers mod does.
 - Tests: `test/supervisor/` (boundary, component, selfCheck, watch, incidents, page), `test/outOfSync.test.mjs`.
 
 ## Clear after each step (2026-10-23)

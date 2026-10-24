@@ -672,11 +672,12 @@ function supervisorOf(view) {
 }
 
 /**
- * When the section has something new: the newest of its last check (asked, or one that found something) and of the
- * state changes of its incidents not fixed; null for nothing. A count that grows is nothing new.
+ * When the section has something new: the newest of a repair finding the run before did not have (the check's `newAt`,
+ * not its time: a repair row that stands is checked again every 3 minutes) and of the state changes of its incidents
+ * not fixed; null for nothing. A count that grows is nothing new, and neither is a check that finds the same again.
  */
 function supervisorNews(view) {
-  const times = [view?.run?.at, ...(view?.incidents ?? []).filter(one => one.state !== 'fixed').map(one => one.since)].filter(Number.isFinite)
+  const times = [view?.run?.newAt, ...(view?.incidents ?? []).filter(one => one.state !== 'fixed').map(one => one.since)].filter(Number.isFinite)
   return times.length === 0 ? null : Math.max(...times)
 }
 

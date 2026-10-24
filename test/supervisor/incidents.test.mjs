@@ -174,3 +174,42 @@ test('the board\'s reconcile marks fixed incidents, only while the supervisor\'s
   const server = await readFile(new URL('../../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /if \(supervisor !== null && supervisor\.view\(clock\(\)\)\.incidents\.some\(one => one\.state === 'fix'\)\) \{\n\s+await loops\.run\('incidents-fixed', async \(\) => \{\n\s+const fixed = await workAction\(\{ action: 'incidents-fixed' \}, 'server'\)/)
 })
+
+// The review of Part 1 (2026-10-24).
+
+test('the review: the line owed to the person is read from the store: open or came back, and no line about it since', async t => {
+  const { incidentsOf, linesOwed } = await import('../../src/supervisor/incidents.mjs')
+  const s = await store(t)
+  let clock = NOW
+  const owed = async () => {
+    const read = (await readStore(s.dir)).items
+    return linesOwed(read, incidentsOf(read, clock)).map(one => [one.id, one.state])
+  }
+  await recordFindings([finding()], { work: s.board, now: NOW })
+  assert.deepEqual(await owed(), [['X1', 'open']])
+  // A note of the board's about another item, or of a chat, is no line about it.
+  await s.board({ action: 'note', to: 'you', text: ['Supervisor: something else'], of: 'B12', via: 'supervisor' })
+  await s.chat('Lead', { action: 'note', to: 'you', text: ['about X1'], of: 'X1' })
+  assert.deepEqual(await owed(), [['X1', 'open']])
+  await s.board({ action: 'note', to: 'you', text: ['Supervisor: Painter unknown for 11 min, B12 waits'], of: 'X1', via: 'supervisor' })
+  assert.deepEqual(await owed(), [])
+  // Being fixed, or fixed: nothing owed; seen again later, it came back and a line is owed again.
+  await s.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })
+  assert.deepEqual(await owed(), [])
+  await s.person({ action: 'tick', id: 'B12' })
+  await s.board({ action: 'incidents-fixed' })
+  s.tick(10)
+  clock += 10 * MIN
+  await recordFindings([finding()], { work: s.board, now: clock })
+  assert.deepEqual(await owed(), [['X1', 'came back']])
+})
+
+test('the review: a chat of role supervisor may end its turns (turn-ended), read its next and pull, and file incidents; nothing else', async t => {
+  const s = await store(t)
+  const ended = await s.chat('Watcher', { action: 'turn-ended', since: NOW - MIN })
+  assert.equal(ended.ok, true, ended.why)
+  for (const action of ['next', 'pull', 'list']) assert.equal((await s.chat('Watcher', { action })).ok, true, action)
+  for (const body of [{ action: 'note', to: 'main', text: ['x'] }, { action: 'new', title: 'x' }, { action: 'take', id: 'B12' }, { action: 'block', id: 'B12', on: 'B13' }, { action: 'incident-fix', id: 'X1', fix: 'B12' }]) {
+    assert.equal((await s.chat('Watcher', body)).status, 403, body.action)
+  }
+})

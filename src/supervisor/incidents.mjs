@@ -61,3 +61,22 @@ export function incidentsOf(items, now) {
     .filter(one => one.state !== 'fixed' || !(now - one.lastSeen >= DAY))
     .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || String(b.id).localeCompare(String(a.id), 'en', { numeric: true }))
 }
+
+/**
+ * Task 4: the incidents the person is owed a line about: open or came back, with no note of the board's about it (Via
+ * supervisor, About the incident) written since it got that state. `incidents` as `incidentsOf` gives them.
+ */
+export function linesOwed(items, incidents) {
+  const value = (item, key) => {
+    const one = item.head.get(key)
+    return one === undefined || one === '' || one === '-' ? null : one
+  }
+  const told = new Map()
+  for (const item of items?.values() ?? []) {
+    if (value(item, 'Kind') !== 'note' || value(item, 'Via') !== 'supervisor') continue
+    const about = (item.sections?.get('About') ?? [])[0]?.trim()
+    const at = sinceMs(value(item, 'Since'))
+    if (typeof about === 'string' && Number.isFinite(at)) told.set(about, Math.max(told.get(about) ?? -Infinity, at))
+  }
+  return incidents.filter(one => (one.state === 'open' || one.state === 'came back') && !((told.get(one.id) ?? -Infinity) >= (Number.isFinite(one.since) ? one.since : Infinity)))
+}

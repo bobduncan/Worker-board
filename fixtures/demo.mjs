@@ -681,7 +681,7 @@ export function demoSupervisor(now, rules = []) {
   const tripped = { blocked: 2, 'limit-back': 1, 'unknown-lane': 5 }
   return {
     run: {
-      at: now - 2 * MIN, asked: true, subject: null, fine: 7, findings: [],
+      at: now - 2 * MIN, asked: true, subject: null, fine: 7, newAt: now - 2 * MIN, findings: [],
       rows: [
         { check: 'blocked', status: 'Fixed', text: 'B21 waited on B20, which is in review: unblocked' },
         { check: 'limit-back', status: 'Woke', text: 'Audio: paused for the limit until 11:00, the limit is back' },
